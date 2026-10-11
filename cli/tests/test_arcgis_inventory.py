@@ -2259,6 +2259,7 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         ("https://s.example/q?authorization=abc123KEY", "abc123KEY"),
         ("https://s.example/q?x-amz-security-token=abc123KEY&f=1", "abc123KEY"),
         ("https://s.example/q?sasKey=abc123KEY", "abc123KEY"),
+        ("https://s.example/app#access_token=abc123KEY&x=1", "abc123KEY"),
         ("https://s.example/q?auth_code=abc123KEY", "abc123KEY"),
     ],
 )
@@ -2460,3 +2461,13 @@ def test_rate_limited_external_lookup_is_an_error_row_and_counts_as_failed(run):
         (stranger, "external")
     ]
     assert report["counts"]["failed"] == 1
+
+
+@pytest.mark.parametrize("entries", [["oops"], [{"title": "no id"}]])
+def test_malformed_related_entries_are_an_error_row(run, entries):
+    routes = portal_routes(
+        {f"content/items/{A2}/relatedItems": {"relatedItems": entries}}
+    )
+    report = _report(run(FakePortal(routes), "--scope", "org")[0])
+    assert _rows(report)[A2]["dependencies_status"] == "error"
+    assert [e["phase"] for e in _read_errors(report)] == ["related"]

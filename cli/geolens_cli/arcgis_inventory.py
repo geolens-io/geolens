@@ -204,7 +204,7 @@ _SECRET_KEY_PARTS = (
     "credential",
 )
 _URL_SECRET_PARAM = re.compile(
-    r"([?&;](?:[^=&\s\"'#]*(?:token|password|passwd|pwd|secret|key|auth|credential|bearer)"
+    r"([?&;#](?:[^=&\s\"'#]*(?:token|password|passwd|pwd|secret|key|auth|credential|bearer)"
     r"[^=&\s\"'#]*|sig|signature)=)[^&\s\"'#]+",
     re.IGNORECASE,
 )
@@ -1600,9 +1600,12 @@ def _collect_dependencies(
                 out.errors.append(_error_row(row["id"], "related", exc))
                 related_ok = False
                 continue
-            if not isinstance(response.get("relatedItems"), list):
+            listed = response.get("relatedItems")
+            if not isinstance(listed, list) or not all(
+                isinstance(i, dict) and i.get("id") for i in listed
+            ):
                 malformed = PortalError(
-                    f"{base} returned no relatedItems list", kind="invalid"
+                    f"{base} returned no usable relatedItems list", kind="invalid"
                 )
                 out.errors.append(_error_row(row["id"], "related", malformed))
                 related_ok = False
