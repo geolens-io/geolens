@@ -18,12 +18,10 @@ from app.modules.catalog.maps._router_helpers import (
 from app.modules.catalog.maps.schemas import MapResponse
 from app.modules.catalog.maps.service import (
     check_map_ownership,
-    filter_layer_rows_by_dataset_visibility,
     get_map,
     get_map_with_layers,
-    terrain_dataset_ids_visible_to,
 )
-from app.modules.catalog.ownership import resolve_new_owner, transfer_map_owner
+from app.modules.catalog.ownership import require_transfer_admin, transfer_map_owner
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
@@ -37,42 +35,6 @@ class MapPatch(BaseModel):
     owner_id: uuid.UUID = Field(
         description="Admin only: transfer the map to this active user."
     )
-
-
-async def _refuse_hidden_datasets(
-    db: AsyncSession, map_id: uuid.UUID, new_owner: Identity
-) -> None:
-    """Refuse an owner who cannot read every dataset the map draws on.
-
-    Owner-only map responses list layers unfiltered, so an owner who cannot
-    read a layer's dataset would see its names and columns there.
-    """
-    map_obj, layer_rows, _, _ = await get_map_with_layers(db, map_id)
-    visible = await filter_layer_rows_by_dataset_visibility(db, layer_rows, new_owner)
-    visible_ids = {row.layer.dataset_id for row in visible}
-    hidden = {
-        str(row.layer.dataset_id)
-        for row in layer_rows
-        if row.layer.dataset_id not in visible_ids
-    }
-    terrain_id = (map_obj.terrain_config or {}).get("source_dataset_id")
-    if terrain_id is not None and str(terrain_id) not in (
-        await terrain_dataset_ids_visible_to(
-            db, map_obj.terrain_config, visible_ids, new_owner
-        )
-    ):
-        hidden.add(str(terrain_id))
-    if hidden:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "message": (
-                    "The new owner cannot read every dataset this map uses. "
-                    "Transfer or share those datasets first."
-                ),
-                "datasets": sorted(hidden),
-            },
-        )
 
 
 @router.patch("/{map_id}", response_model=MapResponse)
@@ -91,18 +53,11 @@ async def patch_map_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
-    new_owner = await resolve_new_owner(
-        db,
-        body.owner_id,
-        actor_roles=await get_user_roles(db, user),
-        capability=EDIT_METADATA,
-    )
-    if new_owner.id != map_obj.created_by:
-        await _refuse_hidden_datasets(db, map_id, new_owner)
+    owner_id = require_transfer_admin(await get_user_roles(db, user), body.owner_id)
     await transfer_map_owner(
         db,
         map_obj,
-        new_owner,
+        owner_id,
         actor=user,
         ip_address=request.client.host if request.client else None,
     )

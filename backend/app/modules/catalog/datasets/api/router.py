@@ -20,7 +20,6 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import NoInspectionAvailable
 
 from app.core.identity import Identity
-from app.core.permissions import UPLOAD
 from app.core.db.sqlstate import is_lock_conflict
 from app.platform.binary_response import binary_response
 from app.platform.catalog_locks import (
@@ -69,7 +68,10 @@ from app.platform.cache.scope import is_publicly_cacheable, public_cache_control
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
-from app.modules.catalog.ownership import resolve_new_owner, transfer_dataset_owner
+from app.modules.catalog.ownership import (
+    require_transfer_admin,
+    transfer_dataset_owner,
+)
 from app.modules.catalog.datasets.domain.service import (
     DatasetTitleMismatchError,
     DependentVrtError,
@@ -353,10 +355,8 @@ async def update_dataset_metadata(
             detail="Dataset not found",
         )
     user_roles = await check_dataset_write_access(db, dataset, dataset_id, user)
-    new_owner = (
-        await resolve_new_owner(
-            db, meta.owner_id, actor_roles=user_roles, capability=UPLOAD
-        )
+    owner_id = (
+        require_transfer_admin(user_roles, meta.owner_id)
         if "owner_id" in meta.model_fields_set
         else None
     )
@@ -404,11 +404,11 @@ async def update_dataset_metadata(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=msg,
         )
-    if new_owner is not None:
+    if owner_id is not None:
         await transfer_dataset_owner(
             db,
             dataset,
-            new_owner,
+            owner_id,
             actor=user,
             ip_address=request.client.host if request.client else None,
         )

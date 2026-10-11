@@ -469,3 +469,21 @@ async def test_map_transfer_to_the_current_owner_skips_the_dataset_check(
     )
     assert resp.status_code == 200, resp.text
     assert await _transfer_rows(test_db_session, "map.transfer_owner", map_id) == []
+
+
+async def test_a_repeated_transfer_succeeds_after_the_owner_is_deactivated(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    admin_auth_header: dict,
+    people: dict,
+) -> None:
+    owner_headers, owner_id = people["owner"]
+    dataset_id = await _private_dataset(test_db_session, owner_id)
+    map_id = (await create_map_via_api(client, owner_headers))["id"]
+    await _deactivate(test_db_session, owner_id)
+
+    for path in (f"/datasets/{dataset_id}", f"/maps/{map_id}"):
+        resp = await client.patch(
+            path, json={"owner_id": owner_id}, headers=admin_auth_header
+        )
+        assert resp.status_code == 200, f"{path}: {resp.text}"

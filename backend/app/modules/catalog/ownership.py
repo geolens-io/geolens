@@ -15,34 +15,35 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.permissions import EDIT_METADATA, UPLOAD
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.service import get_user_identity
 from app.modules.catalog.authorization import get_user_roles
+from app.modules.catalog.maps.service import (
+    filter_layer_rows_by_dataset_visibility,
+    get_map_with_layers,
+    terrain_dataset_ids_visible_to,
+)
 from app.platform.catalog_locks import bump_publication_version_on
 from app.platform.extensions import get_permission_extension
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import ACTIVE_RUN_STATUSES
 
 
-def _refuse_target(detail: str) -> HTTPException:
+def _unprocessable(detail: Any) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail
     )
 
 
-async def resolve_new_owner(
-    db: AsyncSession,
-    owner_id: uuid.UUID | None,
-    *,
-    actor_roles: set[str],
-    capability: str,
-) -> Identity:
-    """Return the user an admin is handing an object to.
+def require_transfer_admin(
+    actor_roles: set[str], owner_id: uuid.UUID | None
+) -> uuid.UUID:
+    """Return ``owner_id`` when an admin may hand the object to it.
 
-    Raises 403 unless the actor is an admin, whoever owns the object now.
-    Raises 422 unless ``owner_id`` names an active user whose roles grant
-    ``capability``, the permission that creating the same kind of object
-    requires.
+    Raises 403 unless the actor is an admin, whoever owns the object now, and
+    422 for a null ``owner_id``. The target account is vetted by the
+    ``transfer_*_owner`` call, once the owner is known to change.
     """
     if "admin" not in actor_roles:
         raise HTTPException(
@@ -50,12 +51,19 @@ async def resolve_new_owner(
             detail="Only an admin may transfer ownership.",
         )
     if owner_id is None:
-        raise _refuse_target("owner_id cannot be null.")
+        raise _unprocessable("owner_id cannot be null.")
+    return owner_id
+
+
+async def _vet_new_owner(
+    db: AsyncSession, owner_id: uuid.UUID, capability: str
+) -> Identity:
+    # ``capability`` is the permission creating the same kind of object needs.
     new_owner = await get_user_identity(db, owner_id)
     if new_owner is None:
-        raise _refuse_target("owner_id does not name a user.")
+        raise _unprocessable("owner_id does not name a user.")
     if not new_owner.is_active:
-        raise _refuse_target("The new owner's account is not active.")
+        raise _unprocessable("The new owner's account is not active.")
     granted = await get_permission_extension().check_permission(
         db,
         new_owner,
@@ -63,7 +71,7 @@ async def resolve_new_owner(
         user_roles=await get_user_roles(db, new_owner),
     )
     if not granted:
-        raise _refuse_target(
+        raise _unprocessable(
             f"The new owner's role does not grant the {capability} permission."
         )
     return new_owner
@@ -89,20 +97,23 @@ def _transfer_details(
 async def transfer_dataset_owner(
     db: AsyncSession,
     dataset: Any,
-    new_owner: Identity,
+    owner_id: uuid.UUID,
     *,
     actor: Identity,
     ip_address: str | None,
 ) -> None:
-    """Make ``new_owner`` the owner of the dataset and write one audit row.
+    """Make ``owner_id`` the owner of the dataset and write one audit row.
 
     Call after the dataset's catalog rows are locked. A transfer to the
-    current owner changes nothing and writes no row. Does not commit.
+    current owner changes nothing, vets nothing and writes no row. Raises 422
+    for a target that is unknown, inactive or lacks ``upload``, and 409 while
+    a refresh or re-upload run is active. Does not commit.
     """
     record = dataset.record
     previous = await _locked_owner(db, record)
-    if previous == new_owner.id:
+    if previous == owner_id:
         return
+    new_owner = await _vet_new_owner(db, owner_id, UPLOAD)
     # A replacement or refresh admitted under the previous owner would
     # publish into the new owner's dataset after the transfer.
     if await db.scalar(
@@ -141,22 +152,61 @@ async def transfer_dataset_owner(
     )
 
 
+async def _refuse_hidden_datasets(
+    db: AsyncSession, map_id: uuid.UUID, new_owner: Identity
+) -> None:
+    """Refuse an owner who cannot read every dataset the map draws on.
+
+    Owner-only map responses list layers unfiltered, so an owner who cannot
+    read a layer's dataset would see its names and columns there.
+    """
+    map_obj, layer_rows, _, _ = await get_map_with_layers(db, map_id)
+    visible = await filter_layer_rows_by_dataset_visibility(db, layer_rows, new_owner)
+    visible_ids = {row.layer.dataset_id for row in visible}
+    hidden = {
+        str(row.layer.dataset_id)
+        for row in layer_rows
+        if row.layer.dataset_id not in visible_ids
+    }
+    terrain_id = (map_obj.terrain_config or {}).get("source_dataset_id")
+    if terrain_id is not None and str(terrain_id) not in (
+        await terrain_dataset_ids_visible_to(
+            db, map_obj.terrain_config, visible_ids, new_owner
+        )
+    ):
+        hidden.add(str(terrain_id))
+    if hidden:
+        raise _unprocessable(
+            {
+                "message": (
+                    "The new owner cannot read every dataset this map uses. "
+                    "Transfer or share those datasets first."
+                ),
+                "datasets": sorted(hidden),
+            }
+        )
+
+
 async def transfer_map_owner(
     db: AsyncSession,
     map_obj: Any,
-    new_owner: Identity,
+    owner_id: uuid.UUID,
     *,
     actor: Identity,
     ip_address: str | None,
 ) -> None:
-    """Make ``new_owner`` the owner of the map and write one audit row.
+    """Make ``owner_id`` the owner of the map and write one audit row.
 
-    A transfer to the current owner changes nothing and writes no row. Does
-    not commit.
+    A transfer to the current owner changes nothing, vets nothing and writes
+    no row. Raises 422 for a target that is unknown, inactive, lacks
+    ``edit_metadata`` or cannot read every dataset the map uses. Does not
+    commit.
     """
     previous = await _locked_owner(db, map_obj)
-    if previous == new_owner.id:
+    if previous == owner_id:
         return
+    new_owner = await _vet_new_owner(db, owner_id, EDIT_METADATA)
+    await _refuse_hidden_datasets(db, map_obj.id, new_owner)
     map_obj.created_by = new_owner.id
     await audit_emit(
         db,

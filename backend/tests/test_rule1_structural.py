@@ -1263,9 +1263,9 @@ def _owner_transfer_gates() -> tuple[tuple[Any, ...], tuple[Any, ...]]:
     """(write guards, admin gate) a route accepting ``owner_id`` must call."""
     from app.modules.catalog.authorization import check_dataset_write_access
     from app.modules.catalog.maps.service import check_map_ownership
-    from app.modules.catalog.ownership import resolve_new_owner
+    from app.modules.catalog.ownership import require_transfer_admin
 
-    return (check_dataset_write_access, check_map_ownership), (resolve_new_owner,)
+    return (check_dataset_write_access, check_map_ownership), (require_transfer_admin,)
 
 
 @pytest.mark.architecture
@@ -1274,9 +1274,9 @@ def test_every_owner_transfer_route_is_write_guarded_and_admin_gated() -> None:
 
     The owner-or-admin write guard alone would let the current owner give
     the object away, so any route whose request body declares ``owner_id``
-    must call the write guard for its object AND ``resolve_new_owner``, the
-    admin gate that also vets the target. Keyed on the request FIELD, so a
-    new body model that grows the field is in scope without being listed.
+    must call the write guard for its object AND ``require_transfer_admin``.
+    Keyed on the request FIELD, so a new body model that grows the field is
+    in scope without being listed.
     Credit resolves by object identity in the handler body, as above.
     """
     from fastapi.routing import APIRoute, iter_route_contexts
@@ -1331,7 +1331,7 @@ def test_every_owner_transfer_route_is_write_guarded_and_admin_gated() -> None:
     assert not failures, (
         "Route(s) accept owner_id without both the object's write guard "
         "(check_dataset_write_access / check_map_ownership) and "
-        "resolve_new_owner:\n" + "\n".join(failures)
+        "require_transfer_admin:\n" + "\n".join(failures)
     )
 
 
