@@ -698,6 +698,7 @@ export const ViewerMap = memo(function ViewerMap({
           properties: props,
           layerName: layer.display_name || layer.dataset_name || fallbackName,
           columnInfo: layer.column_info ?? null,
+          datasetId: layer.dataset_id,
           title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
           visibleFields: cfg?.visible_fields ?? null,
           zoomAtClick: map.getZoom(),
