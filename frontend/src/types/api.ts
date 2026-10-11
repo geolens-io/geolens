@@ -1379,10 +1379,7 @@ export interface StyleConfig {
   builder?: BuilderStyleConfig;
 }
 
-export interface ColumnValuesResponse {
-  values: Array<string | number | null>;
-  count: number;
-}
+export type ColumnValuesResponse = components['schemas']['ColumnValuesResponse'];
 
 export interface ColumnStatsResponse {
   min: number | null;

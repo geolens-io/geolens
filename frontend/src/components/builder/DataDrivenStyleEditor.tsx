@@ -462,7 +462,8 @@ export function DataDrivenStyleEditor({
   useEffect(() => {
     if (!column || mode !== 'categorical' || !valuesData) return;
 
-    const values = valuesData.values;
+    // Only text columns reach categorical mode, and a match label can't be a boolean.
+    const values = valuesData.values.filter((v) => typeof v !== 'boolean');
     const colorProp = getColorProperty(geomType);
 
     // Preserve existing per-category colors when column and ramp haven't changed.

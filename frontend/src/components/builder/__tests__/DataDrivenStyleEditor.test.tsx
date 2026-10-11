@@ -293,6 +293,25 @@ describe('DataDrivenStyleEditor', () => {
       expect((newConfig as StyleConfig).categories).toHaveLength(VALUES.length);
     });
 
+    it('leaves boolean values out of the categories and the match expression', async () => {
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: ['north', true, 'south'], count: 3 }),
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: { mode: 'categorical', column: 'typeA', ramp: RAMP } })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => expect(onStyleConfigChange).toHaveBeenCalledTimes(1));
+      const [, newConfig, paint] = onStyleConfigChange.mock.calls[0];
+      expect((newConfig as StyleConfig).categories!.map((c) => c.value)).toEqual(['north', 'south']);
+      expect(JSON.stringify(paint)).not.toContain('true');
+    });
+
     it('regenerates colors when ramp changes via ColorRampPicker', async () => {
       const config = matchingCategoricalConfig();
       mockUseColumnValues.mockReturnValue(
