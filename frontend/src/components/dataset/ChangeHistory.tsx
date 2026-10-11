@@ -14,6 +14,7 @@ const actionLabelKeys: Record<string, string> = {
   'metadata.edit': 'changeHistory.actions.metadataEdit',
   'dataset.delete': 'changeHistory.actions.datasetDelete',
   'dataset.create': 'changeHistory.actions.datasetCreate',
+  'dataset.transfer_owner': 'changeHistory.actions.datasetTransferOwner',
 };
 
 export function ChangeHistory({ datasetId }: ChangeHistoryProps) {

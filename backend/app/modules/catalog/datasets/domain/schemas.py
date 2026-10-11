@@ -776,6 +776,10 @@ class DatasetMeta(BaseModel):
             "[] emits geometry-only tiles, list emits those properties at any zoom."
         ),
     )
+    owner_id: uuid.UUID | None = Field(
+        default=None,
+        description="Admin only: transfer the dataset to this active user.",
+    )
 
     @field_validator("language")
     @classmethod

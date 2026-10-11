@@ -68,6 +68,11 @@ from app.platform.cache.scope import is_publicly_cacheable, public_cache_control
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
+from app.modules.catalog.features.service import lock_catalog_rows_for_write
+from app.modules.catalog.ownership import (
+    require_transfer_admin,
+    transfer_dataset_owner,
+)
 from app.modules.catalog.datasets.domain.service import (
     DatasetTitleMismatchError,
     DependentVrtError,
@@ -351,6 +356,11 @@ async def update_dataset_metadata(
             detail="Dataset not found",
         )
     user_roles = await check_dataset_write_access(db, dataset, dataset_id, user)
+    owner_id = (
+        require_transfer_admin(user_roles, meta.owner_id)
+        if "owner_id" in meta.model_fields_set
+        else None
+    )
     # feat(#1691): a non-admin may not move a dataset TO public when the
     # restrict_public_visibility instance setting is on.
     await check_public_visibility_allowed(
@@ -365,6 +375,21 @@ async def update_dataset_metadata(
     tile_columns_before = (
         list(dataset.tile_columns) if dataset.tile_columns is not None else None
     )
+
+    if owner_id is not None:
+        # Before the metadata update, so its visibility and audience checks
+        # see the new owner. Locked in house order, as update_user_metadata
+        # would lock them.
+        await lock_catalog_rows_for_write(
+            db, dataset, with_raster_asset="is_dem" in meta.model_fields_set
+        )
+        await transfer_dataset_owner(
+            db,
+            dataset,
+            owner_id,
+            actor=user,
+            ip_address=request.client.host if request.client else None,
+        )
 
     # feat(#1070): advisory warnings from the metadata chokepoint, e.g. a
     # visibility/status change exposing inherited keywords beyond the
@@ -395,23 +420,26 @@ async def update_dataset_metadata(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=msg,
         )
-
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="metadata.edit",
-            resource_type="dataset",
-            resource_id=dataset_id,
-            # exclude_unset, not exclude_none: an explicit null clear
-            # (#458) must appear in the audit/history details. fix(#1484):
-            # mode="json" -- details is JSONB serialized with stdlib
-            # json.dumps, and data_vintage_start/end are real date objects;
-            # python-mode raised at flush and rolled back the UPDATE above.
-            details=meta.model_dump(mode="json", exclude_unset=True),
-            ip_address=request.client.host if request.client else None,
-        ),
-    )
+    # A transfer has its own audit row, so a body naming only owner_id is
+    # not also a metadata edit.
+    if meta.model_fields_set != {"owner_id"}:
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="metadata.edit",
+                resource_type="dataset",
+                resource_id=dataset_id,
+                # exclude_unset, not exclude_none: an explicit null clear must
+                # appear in the history. mode="json" because details is JSONB
+                # serialized with stdlib json.dumps, which cannot take the
+                # vintage dates and would roll back the UPDATE at flush.
+                details=meta.model_dump(
+                    mode="json", exclude_unset=True, exclude={"owner_id"}
+                ),
+                ip_address=request.client.host if request.client else None,
+            ),
+        )
     # fix(#458): only when the value actually changed; a no-op echo must
     # not purge every cached tile for the table.
     tile_columns_changed = (

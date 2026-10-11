@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.identity import Identity
 from app.core.tenancy import is_multi_tenant
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.providers import AuthenticatedIdentity
@@ -625,6 +626,11 @@ class AuthService:
             .where(UserRole.user_id == user_id)
         )
         return {row[0] for row in result.all()}
+
+
+async def get_user_identity(db: AsyncSession, user_id: uuid.UUID) -> Identity | None:
+    """The account ``user_id`` names, or None when the caller's scope has none."""
+    return await db.get(User, user_id)
 
 
 # Shared API key helper (used by admin and self-service routers).

@@ -3258,6 +3258,12 @@ export type DatasetMeta = {
      * Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
      */
     tile_columns?: Array<string> | null;
+    /**
+     * Owner Id
+     *
+     * Admin only: transfer the dataset to this active user.
+     */
+    owner_id?: string | null;
 };
 
 /**
@@ -6327,6 +6333,20 @@ export type MapListResponse = {
      * Total
      */
     total: number;
+};
+
+/**
+ * MapPatch
+ *
+ * Partial map update. PUT /maps/{map_id} edits the map's content.
+ */
+export type MapPatch = {
+    /**
+     * Owner Id
+     *
+     * Admin only: transfer the map to this active user.
+     */
+    owner_id: string;
 };
 
 /**
@@ -24202,6 +24222,68 @@ export type GetMapEndpointMapsMapIdGetResponses = {
 };
 
 export type GetMapEndpointMapsMapIdGetResponse = GetMapEndpointMapsMapIdGetResponses[keyof GetMapEndpointMapsMapIdGetResponses];
+
+export type PatchMapEndpointMapsMapIdPatchData = {
+    body: MapPatch;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}';
+};
+
+export type PatchMapEndpointMapsMapIdPatchErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type PatchMapEndpointMapsMapIdPatchError = PatchMapEndpointMapsMapIdPatchErrors[keyof PatchMapEndpointMapsMapIdPatchErrors];
+
+export type PatchMapEndpointMapsMapIdPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapResponse;
+};
+
+export type PatchMapEndpointMapsMapIdPatchResponse = PatchMapEndpointMapsMapIdPatchResponses[keyof PatchMapEndpointMapsMapIdPatchResponses];
 
 export type UpdateMapEndpointMapsMapIdPutData = {
     body: MapUpdate;
