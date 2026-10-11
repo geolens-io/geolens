@@ -759,7 +759,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
               type="text"
               readOnly
               value={probeResult.url}
-              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none"
+              className="min-w-20 flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none"
             />
             <button
               onClick={reset}
@@ -776,8 +776,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
             <span className="rounded-md bg-type-vrt-bg px-2.5 py-0.5 font-mono text-mini font-semibold uppercase tracking-wider text-type-vrt">
               {probeResult.service_type}
             </span>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium tracking-tight">
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-sm font-medium tracking-tight" title={probeResult.url}>
                 {probeResult.url}
               </h3>
               <p className="font-mono text-mini text-muted-foreground tracking-wide">
