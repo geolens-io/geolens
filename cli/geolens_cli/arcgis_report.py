@@ -2,7 +2,7 @@
 """JSON and Markdown renderings of an ArcGIS inventory.
 
 Hand-maintained. The JSON shape is pinned by
-``manifest/schemas/arcgis-inventory-v1.schema.json``.
+``manifest/schemas/arcgis-inventory-v2.schema.json``.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ from urllib.parse import quote
 if TYPE_CHECKING:
     from .arcgis_inventory import Inventory
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 JSON_FILENAME = "arcgis-inventory.json"
 MARKDOWN_FILENAME = "arcgis-inventory.md"
-_SCHEMA_RESOURCE = "arcgis-inventory-v1.schema.json"
+_SCHEMA_RESOURCE = "arcgis-inventory-v2.schema.json"
 
 _CLASS_HEADINGS = {
     "supported": "Supported",
@@ -218,6 +218,44 @@ def render_markdown(report: Mapping[str, Any]) -> str:
                     md_escape(row["reason"]),
                 ]
                 for row in rows
+            ],
+        )
+        lines.append("")
+
+    folders = Counter(
+        (row["folder"]["id"], row["folder"]["title"])
+        for row in report["items"]
+        if row["folder"]
+    )
+    if folders:
+        lines += ["## Folders", ""]
+        lines += _table(
+            ["Folder", "Id", "Items"],
+            [
+                [md_escape(title or "(title unknown)"), md_escape(fid), str(count)]
+                for (fid, title), count in sorted(
+                    folders.items(), key=lambda kv: (kv[0][1] or "", kv[0][0])
+                )
+            ],
+        )
+        lines.append("")
+
+    owners: dict[str, list[Any]] = {}
+    for row in report["items"]:
+        entry = owners.setdefault(row["owner"], [row, 0])
+        entry[1] += 1
+    if owners:
+        lines += ["## Owners", ""]
+        lines += _table(
+            ["Owner", "Name", "Email", "Items"],
+            [
+                [
+                    md_escape(owner),
+                    md_escape(first["owner_full_name"] or ""),
+                    md_escape(first["owner_email"] or ""),
+                    str(count),
+                ]
+                for owner, (first, count) in sorted(owners.items())
             ],
         )
         lines.append("")

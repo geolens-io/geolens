@@ -21,6 +21,7 @@ B1, B2 = "b1" * 16, "b2" * 16
 C1, C2, C3 = "c1" * 16, "c2" * 16, "c3" * 16
 D1, D2, D3, D4, D5 = ("d1" * 16, "d2" * 16, "d3" * 16, "d4" * 16, "d5" * 16)
 HYDRANTS = "e9" * 16
+EMPTY_GROUPS = {"admin": [], "member": [], "other": []}
 
 
 def load(name: str) -> dict:
@@ -129,6 +130,15 @@ def portal_routes(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         f"content/items/{C2}/data": {"values": {"title": "Our county"}},
         f"content/items/{C3}/data": load("item_dashboard_data.json"),
         "generateToken": load("generate_token_ok.json"),
+    }
+    for name in ("search_page1.json", "search_page2.json"):
+        for listed in load(name)["results"]:
+            routes[f"content/items/{listed['id']}"] = listed
+            routes[f"content/items/{listed['id']}/groups"] = EMPTY_GROUPS
+    routes[f"community/users/{USER}"] = {
+        "username": USER,
+        "fullName": "Gina Admin",
+        "email": "gina.admin@example.org",
     }
     routes.update(overrides or {})
     return routes

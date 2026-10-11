@@ -2154,7 +2154,7 @@ def arcgis_inventory(
     concurrency: Annotated[
         int,
         typer.Option(
-            "--concurrency", help="Parallel item reads (1-4) for web maps and apps"
+            "--concurrency", help="Parallel item reads (1-4)"
         ),
     ] = 1,
     output_dir: Annotated[
@@ -2174,11 +2174,19 @@ def arcgis_inventory(
             "--allow-insecure-http", help="Allow an http:// portal URL (test portals)"
         ),
     ] = False,
+    groups: Annotated[
+        bool,
+        typer.Option(
+            "--groups/--no-groups",
+            help="Read each item's group sharing (one request per item)",
+        ),
+    ] = True,
 ) -> None:
     """Read-only inventory of an ArcGIS organization's content.
 
     Lists items, classifies what GeoLens can import, flags item types Esri is
-    retiring, and records web map and app dependencies. Prints Markdown, or
+    retiring, records item metadata, folders, owners and group sharing, and
+    records web map and app dependencies. Prints Markdown, or
     JSON with --json. Nothing on the portal or in GeoLens is changed, and no
     GeoLens sign-in is needed.
     """
@@ -2196,6 +2204,7 @@ def arcgis_inventory(
         strict=strict,
         allow_insecure_http=allow_insecure_http,
         json_mode=state.json_mode,
+        read_groups=groups,
     )
     code = _arcgis_inventory.run_cli(state.output, options)
     if code:
