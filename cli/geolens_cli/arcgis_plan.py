@@ -259,8 +259,16 @@ def run_cli(
         inventory = load_inventory(inventory_path)
         owners = load_owner_map(owner_map_path) if owner_map_path else None
         out_dir = output_dir or inventory_path.resolve().parent
-        relative = os.path.relpath(inventory_path.resolve(), out_dir.resolve())
-        plan = build_plan(inventory, inventory_path=relative, owner_map=owners)
+        try:
+            recorded = os.path.relpath(inventory_path.resolve(), out_dir.resolve())
+        except ValueError:  # a different drive has no relative path
+            recorded = str(inventory_path.resolve())
+        try:
+            plan = build_plan(inventory, inventory_path=recorded, owner_map=owners)
+        except (KeyError, TypeError, AttributeError):
+            raise PlanError(
+                f"{inventory_path} is malformed; rerun `geolens arcgis inventory`"
+            ) from None
     except PlanError as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
@@ -287,8 +295,8 @@ def run_cli(
             return EXIT_GENERIC
         out_dir.mkdir(parents=True, exist_ok=True)
         _report.write_private(path, text)
-    except OSError as exc:
-        fmt.error(f"can't write {path}: {exc.strerror}")
+    except (OSError, ValueError) as exc:
+        fmt.error(f"can't write {path}: {getattr(exc, 'strerror', None) or exc}")
         return EXIT_GENERIC
     stats = summary(plan, inventory)
     if fmt.json_mode:

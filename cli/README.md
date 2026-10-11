@@ -171,7 +171,7 @@ Before writing, the value under any key named like a credential (`token`,
 `customParameters`) becomes `[REDACTED]` at any depth. `--read-all-item-data`
 reads every other item's data too and records any item ids it names. Hosted
 views, hosted layers and Survey123 forms also record their source service,
-source file or results service. A dependency is marked `external` when it
+source file or results service, at one extra request each. A dependency is marked `external` when it
 belongs to another organization, such as Living Atlas content.
 
 - `--scope user` (the default) lists the signed-in user's folders;

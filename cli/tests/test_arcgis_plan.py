@@ -299,3 +299,23 @@ def test_a_partial_inventory_is_flagged_in_the_plan(runner, tmp_path):
     assert result.exit_code == 0
     plan = json.loads((tmp_path / "arcgis-migration-plan.json").read_text())
     assert plan["inventory"]["complete"] is False
+
+
+def test_a_malformed_inventory_is_a_usage_error(runner, tmp_path):
+    report = _inventory_report()
+    del report["items"][0]["folder"]
+    path = tmp_path / "arcgis-inventory.json"
+    path.write_text(json.dumps(report))
+    result = _plan_cli(runner, str(path))
+    assert result.exit_code == 2
+    assert "malformed" in result.output + result.stderr
+    assert not (tmp_path / "arcgis-migration-plan.json").exists()
+
+
+def test_an_unreadable_existing_plan_is_an_error_not_a_traceback(
+    runner, inventory_file
+):
+    (inventory_file.parent / "arcgis-migration-plan.json").write_bytes(b"\xff\xfe\x00")
+    result = _plan_cli(runner, str(inventory_file))
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
