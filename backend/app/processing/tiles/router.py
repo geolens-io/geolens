@@ -1279,6 +1279,10 @@ async def raster_tile_proxy(
         )
         if rescale_parts:
             render_params = _apply_stretch_rescale(render_params, rescale_parts)
+        else:
+            # The 0..1 fallback must not outlive the statistics outage in a
+            # shared cache.
+            cache_status = "private"
 
     titiler_url = build_titiler_cog_url(
         f"tiles/WebMercatorQuad/{z}/{x}/{y}.{fmt}",

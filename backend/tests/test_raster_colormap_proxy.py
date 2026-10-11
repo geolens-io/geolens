@@ -339,6 +339,7 @@ class TestRasterColormapProxy:
             tile_url = self._tile_titiler_calls[-1]
             assert "rescale=490.6,1625.6" in tile_url, tile_url
             assert "rescale=0,1.0" not in tile_url, tile_url
+            assert "no-store" not in resp.headers["cache-control"]
         assert len(self._stats_titiler_calls) == 1, "second tile reuses the cache"
 
     async def test_float_default_stretch_without_statistics_keeps_dtype_rescale(
@@ -350,6 +351,7 @@ class TestRasterColormapProxy:
         resp = await client.get(_TILE_PATH)
         assert resp.status_code in (200, 204)
         assert "rescale=0,1.0" in self._tile_titiler_calls[0]
+        assert "no-store" in resp.headers["cache-control"]
 
     async def test_unflagged_raster_default_stretch_makes_no_statistics_call(
         self, client
