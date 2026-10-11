@@ -438,6 +438,7 @@ def test_token_rejected_while_reading_an_item_stops_the_run(run):
 
 def test_secrets_in_item_text_are_redacted_and_the_description_is_capped(run):
     detail = load("item_detail_rich.json") | {
+        "spatialReference": {"wkt": "PROJCS[token=abc123SECRET]"},
         "description": "<a href='https://x/y?token=abc123SECRET'>link</a>"
         + "é" * inventory.MAX_DESCRIPTION_BYTES,
         "snippet": "password=hunter2 in the snippet",
@@ -448,6 +449,7 @@ def test_secrets_in_item_text_are_redacted_and_the_description_is_capped(run):
     row = _rows(_report(result))[A1]
     assert "abc123SECRET" not in row["description"]
     assert "token=[REDACTED]" in row["description"]
+    assert row["spatial_reference"] == "PROJCS[token=[REDACTED]"
     assert len(row["description"].encode()) <= inventory.MAX_DESCRIPTION_BYTES
     assert row["snippet"] == "password=[REDACTED] in the snippet"
 

@@ -731,12 +731,12 @@ def _extent(value: Any) -> list[list[float]] | None:
     return corners
 
 
-def _spatial_reference(value: Any) -> str | None:
+def _spatial_reference(value: Any, redact: Redactor) -> str | None:
     if isinstance(value, dict):
         value = value.get("latestWkid") or value.get("wkid") or value.get("wkt")
     if isinstance(value, bool) or not isinstance(value, str | int) or value == "":
         return None
-    return str(value)
+    return redact(str(value))
 
 
 def _metadata(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
@@ -755,7 +755,7 @@ def _metadata(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
         "license_info": _text(item.get("licenseInfo"), redact),
         "extent": _extent(item.get("extent")),
         "thumbnail": _text(thumbnail, redact),
-        "spatial_reference": _spatial_reference(item.get("spatialReference")),
+        "spatial_reference": _spatial_reference(item.get("spatialReference"), redact),
         "culture": _text(item.get("culture"), redact),
     }
 
@@ -905,7 +905,7 @@ def _list_items(
                     for f in folders:
                         if not isinstance(f, dict) or not f.get("id"):
                             continue
-                        fid = str(f["id"])
+                        fid = client._redact(str(f["id"]))
                         if isinstance(f.get("title"), str):
                             inv.folder_titles[fid] = client._redact(f["title"])
                         listings.append(
@@ -1291,10 +1291,11 @@ def _item_groups(data: Mapping[str, Any], redact: Redactor) -> list[dict[str, An
             if not isinstance(group, dict) or not group.get("id"):
                 continue
             access = group.get("access")
+            group_id = redact(str(group["id"]))
             groups.setdefault(
-                str(group["id"]),
+                group_id,
                 {
-                    "id": str(group["id"]),
+                    "id": group_id,
                     "title": redact(str(group.get("title") or "")),
                     "access": redact(access) if isinstance(access, str) else None,
                 },
@@ -1333,7 +1334,7 @@ def _collect_details(
             if phase == "item_details":
                 out.fields = _metadata(data, client._redact)
                 folder = data.get("ownerFolder")
-                out.folder_id = folder if isinstance(folder, str) and folder else None
+                out.folder_id = _text(folder, client._redact)
                 out.url = sanitize_url(data.get("url"))
             else:
                 out.groups = _item_groups(data, client._redact)
@@ -1413,7 +1414,9 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
                 folders = data.get("folders")
                 for f in folders if isinstance(folders, list) else []:
                     if isinstance(f, dict) and f.get("id") and f.get("title"):
-                        out.folders[str(f["id"])] = client._redact(str(f["title"]))
+                        out.folders[client._redact(str(f["id"]))] = client._redact(
+                            str(f["title"])
+                        )
         return out
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
