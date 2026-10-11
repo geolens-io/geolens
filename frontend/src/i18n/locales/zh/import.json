@@ -450,6 +450,7 @@
   },
   "preview": {
     "title": "文件预览",
+    "serviceTitle": "服务预览",
     "raster": "栅格",
     "crs": "CRS：",
     "bands": "波段：",

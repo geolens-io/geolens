@@ -381,6 +381,7 @@
   },
   "preview": {
     "title": "Vista previa del archivo",
+    "serviceTitle": "Vista previa del servicio",
     "raster": "Ráster",
     "crs": "CRS:",
     "bands": "Bandas:",

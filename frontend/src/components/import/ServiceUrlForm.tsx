@@ -792,7 +792,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   if ((step === 'review' || step === 'committing') && previewData) {
     return (
       <div className="space-y-4">
-        <ImportPreview preview={previewData} />
+        <ImportPreview preview={previewData} source="service" />
         {error && <p className="text-sm text-destructive">{error}</p>}
         <ImportMetadataForm
           defaultName={previewData.source_filename ?? previewData.layer_name}
