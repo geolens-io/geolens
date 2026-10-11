@@ -980,6 +980,7 @@ export const BuilderMap = memo(function BuilderMap({
           properties: props,
           layerName: layer.display_name || layer.dataset_name || fallbackName,
           columnInfo: layer.dataset_column_info ?? null,
+          datasetId: layer.dataset_id,
           title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
           visibleFields: cfg?.visible_fields ?? null,
           zoomAtClick: map.getZoom(),

@@ -8,11 +8,15 @@ import { Button } from '@/components/ui/button';
 import { truncateGraphemes } from '@/lib/text';
 import { splitTextWithUrls, classifyUrl } from '@/lib/popup-rich-text';
 import { formatFeaturePropertyValue } from '@/lib/feature-property-value';
+import { useAttributes } from '@/components/dataset/hooks/use-dataset';
 
 export interface FeatureInfo {
   properties: Record<string, unknown>;
   layerName: string;
   columnInfo?: { name: string; type: string }[] | null;
+  /** Dataset whose attribute metadata supplies the row labels; without it
+   *  every key is humanized. */
+  datasetId?: string;
   /** Already-substituted popup expression output. Rendered as a heading
    *  above the property table when present. */
   title?: string | null;
@@ -115,6 +119,17 @@ export function FeaturePopup({
       ) ?? '--',
     [t],
   );
+
+  const { data: attributeList } = useAttributes(feature?.datasetId);
+  const fieldTitles = useMemo(() => {
+    const titles = new Map<string, string>();
+    for (const attribute of attributeList?.attributes ?? []) {
+      if (attribute.is_current && attribute.title) {
+        titles.set(attribute.field_name, attribute.title);
+      }
+    }
+    return titles;
+  }, [attributeList]);
 
   const properties = feature?.properties;
   const columnInfo = feature?.columnInfo;
@@ -291,7 +306,7 @@ export function FeaturePopup({
                     title={t('featurePopup.clickToCopy')}
                   >
                     <td className="pe-3 py-1 font-medium font-mono text-xs text-muted-foreground whitespace-nowrap align-top">
-                      {humanizeKey(key)}
+                      {fieldTitles.get(key) ?? humanizeKey(key)}
                     </td>
                     <td className="py-1 text-xs text-foreground">
                       <span className="flex items-start gap-1">

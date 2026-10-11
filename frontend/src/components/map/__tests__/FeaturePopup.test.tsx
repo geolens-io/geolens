@@ -301,3 +301,72 @@ describe('FeaturePopup Escape', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Row labels from attribute metadata
+// ---------------------------------------------------------------------------
+
+const mockUseAttributes = vi.fn((_datasetId?: string): { data?: unknown } => ({
+  data: undefined,
+}));
+vi.mock('@/components/dataset/hooks/use-dataset', () => ({
+  useAttributes: (datasetId?: string) => mockUseAttributes(datasetId),
+}));
+
+function attribute(field_name: string, title: string | null, is_current = true) {
+  return { id: field_name, dataset_id: 'ds-1', field_name, title, is_current };
+}
+
+describe('FeaturePopup — attribute titles', () => {
+  it('labels a row with the attribute title and humanizes the rest', () => {
+    mockUseAttributes.mockReturnValue({
+      data: {
+        attributes: [
+          attribute('pop_2020', 'Population (2020 census)'),
+          attribute('state', null),
+        ],
+        total: 2,
+      },
+    });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            properties: { pop_2020: 5, state: 'NY' },
+            visibleFields: ['pop_2020', 'state'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Population (2020 census)')).toBeInTheDocument();
+    expect(screen.getByText('State')).toBeInTheDocument();
+    expect(mockUseAttributes).toHaveBeenCalledWith('ds-1');
+  });
+
+  it('ignores the title of a column that is no longer current', () => {
+    mockUseAttributes.mockReturnValue({
+      data: { attributes: [attribute('pop_2020', 'Old label', false)], total: 1 },
+    });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            properties: { pop_2020: 5 },
+            visibleFields: ['pop_2020'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Pop 2020')).toBeInTheDocument();
+  });
+});
