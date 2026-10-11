@@ -200,7 +200,7 @@ _CREDENTIAL_NAME_PARTS = (
     "customparameters",
 )
 _CREDENTIAL_NAME_EXACT = frozenset({"sig", "auth", "pwd"})
-_URL_PARAM = re.compile(r"([?&;#])([^=&\s\"'#]+)=([^&\s\"'#]+)")
+_URL_PARAM = re.compile(r"([?&;#])([^=&;\s\"'#]+)=([^&;\s\"'#]+)")
 _URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
 _ITEM_ID = re.compile(r"[0-9a-f]{32}")
 _SAFE_FILENAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
@@ -1611,7 +1611,8 @@ def _collect_dependencies(
                 continue
             listed = response.get("relatedItems")
             if not isinstance(listed, list) or not all(
-                isinstance(i, dict) and i.get("id") for i in listed
+                isinstance(i, dict) and isinstance(i.get("id"), str) and i["id"]
+                for i in listed
             ):
                 malformed = PortalError(
                     f"{base} returned no usable relatedItems list", kind="invalid"

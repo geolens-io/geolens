@@ -2264,6 +2264,7 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         ("https://s.example/q?api%2Dkey=abc123KEY", "abc123KEY"),
         ("https://s.example/q?auth_code=abc123KEY", "abc123KEY"),
         ("//user:abc123KEY@s.example/x", "abc123KEY"),
+        ("https://s.example/q?a=b;token=abc123KEY", "abc123KEY"),
     ],
 )
 def test_sidecar_strings_lose_url_embedded_credentials(raw, gone):
@@ -2466,7 +2467,7 @@ def test_rate_limited_external_lookup_is_an_error_row_and_counts_as_failed(run):
     assert report["counts"]["failed"] == 1
 
 
-@pytest.mark.parametrize("entries", [["oops"], [{"title": "no id"}]])
+@pytest.mark.parametrize("entries", [["oops"], [{"title": "no id"}], [{"id": 7}]])
 def test_malformed_related_entries_are_an_error_row(run, entries):
     routes = portal_routes(
         {f"content/items/{A2}/relatedItems": {"relatedItems": entries}}
