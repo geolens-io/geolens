@@ -2278,7 +2278,8 @@ def test_empty_web_scene_data_is_a_read_failure(run):
             "https://other.example.com/arcgis/rest/services/Hosted/Roads/FeatureServer/0",
             None,
         ),
-        ("https://other.example.com/arcgis/rest/services/Roads/MapServer", True),
+        ("https://other.example.com/arcgis/rest/services/Roads/MapServer", None),
+        ("https://gis.example.org/arcgis/rest/services/Roads/MapServer", False),
     ],
 )
 def test_enterprise_foreign_hosts_are_not_called_internal(url, expected):

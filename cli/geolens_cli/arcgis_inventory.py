@@ -1877,8 +1877,8 @@ def _external_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
     host = (parts.hostname or "").lower()
     if host == (urlsplit(portal["url"]).hostname or "").lower():
         return False
-    path = parts.path.lower()
     if portal["kind"] == "online":
+        path = parts.path.lower()
         org = (portal["org_id"] or "").lower()
         if not org or not _ARCGIS_ONLINE_HOSTED.fullmatch(host):
             return True if org else None
@@ -1886,9 +1886,10 @@ def _external_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
             path.startswith(f"/{org}/arcgis/rest/services/")
             or path.startswith(f"/tiles/{org}/arcgis/rest/services/")
         )
-    # Another deployment's hosting server also serves /Hosted/, so a foreign
-    # host can't be called this organization's.
-    return None if "/rest/services/hosted/" in path else True
+    # A federated server sits on any host and publishes in any folder, and the
+    # inventory doesn't know the federation, so a host other than the portal's
+    # can't be called foreign.
+    return None
 
 
 def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) -> None:
