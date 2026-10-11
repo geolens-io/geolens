@@ -26,6 +26,8 @@ export class ApiError extends Error {
   /** fix(#2038): a 401 the client could NOT confirm — the refresh behind it
    * failed transiently, so nothing here says the credential was rejected. */
   unconfirmed?: boolean;
+  /** How long the server asked the caller to wait, from a 429's Retry-After. */
+  retryAfterMs?: number;
 
   constructor(message: string, status: number, body?: unknown) {
     super(message);
@@ -48,6 +50,16 @@ let inflightRefreshAbort: AbortController | null = null;
 export const TRANSIENT_COOLDOWN_MS = 30_000;
 let transientUntil = 0;
 let transientToken: string | null = null;
+
+/** Milliseconds until a refresh may be sent again after a transient failure. */
+export function refreshBackoffRemainingMs(): number {
+  return Math.max(0, transientUntil - Date.now());
+}
+
+/** Let the next refresh go out now, for a retry the user asked for. */
+export function clearRefreshBackoff(): void {
+  transientUntil = 0;
+}
 
 /**
  * fix(#1446): abandon any refresh still in flight, so its response — and the
@@ -151,6 +163,7 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   // all, so the stale cookie never lands.
   const controller = new AbortController();
   inflightRefreshAbort = controller;
+  let retryAfterMs: number | undefined;
 
   // fix(#1849): report whether a NEW token actually got stored, not whether
   // some token — possibly the stale one this refresh was trying to replace —
@@ -182,6 +195,7 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
     } catch (err) {
       // If rate-limited, wait before giving up so the next attempt isn't also blocked
       if (err instanceof ApiError && err.status === 429) {
+        retryAfterMs = err.retryAfterMs;
         await new Promise((r) => setTimeout(r, 2000));
       }
       // Our own attempt failed, but a different token installed while we
@@ -208,7 +222,10 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   const outcome = await promise;
   // fix(#2038): one place to arm the back-off and record the token it applies
   // to; it clears as soon as the endpoint answers either way again.
-  transientUntil = outcome === 'transient' ? Date.now() + TRANSIENT_COOLDOWN_MS : 0;
+  // A shorter Retry-After brings the next attempt forward; a longer one is
+  // capped so a stalled page load is not held past the usual back-off.
+  const backoffMs = Math.min(retryAfterMs ?? TRANSIENT_COOLDOWN_MS, TRANSIENT_COOLDOWN_MS);
+  transientUntil = outcome === 'transient' ? Date.now() + backoffMs : 0;
   transientToken = useAuthStore.getState().token;
   return outcome;
 }

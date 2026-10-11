@@ -58,6 +58,16 @@ describe('browser refresh transport', () => {
     });
   });
 
+  it('reports how long a rate-limited refresh was asked to wait', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '60' }),
+    } as Response);
+
+    await expect(refreshAccessToken(null)).rejects.toMatchObject({ status: 429, retryAfterMs: 60_000 });
+  });
+
   it('sends a legacy body token once, under the cookie header, to migrate a session', async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
