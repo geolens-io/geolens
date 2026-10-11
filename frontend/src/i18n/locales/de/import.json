@@ -381,6 +381,7 @@
   },
   "preview": {
     "title": "Dateivorschau",
+    "serviceTitle": "Dienstvorschau",
     "raster": "Raster",
     "crs": "CRS:",
     "bands": "Bänder:",

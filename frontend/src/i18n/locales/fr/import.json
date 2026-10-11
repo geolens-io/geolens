@@ -381,6 +381,7 @@
   },
   "preview": {
     "title": "Aperçu du fichier",
+    "serviceTitle": "Aperçu du service",
     "raster": "Raster",
     "crs": "CRS :",
     "bands": "Bandes :",

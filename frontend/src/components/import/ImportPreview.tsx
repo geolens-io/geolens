@@ -29,11 +29,12 @@ interface ImportPreviewProps {
     | ServicePreviewResponse
     | TilesetPreviewResponse
     | PointCloudPreviewResponse;
+  source?: 'file' | 'service';
 }
 
 const MAX_VISIBLE_COLUMNS = 8;
 
-export function ImportPreview({ preview }: ImportPreviewProps) {
+export function ImportPreview({ preview, source = 'file' }: ImportPreviewProps) {
   const { t } = useTranslation('import');
 
   if (isTilesetPreview(preview)) {
@@ -124,7 +125,7 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle level={2}>{t('preview.title')}</CardTitle>
+        <CardTitle level={2}>{source === 'service' ? t('preview.serviceTitle') : t('preview.title')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Metadata grid */}

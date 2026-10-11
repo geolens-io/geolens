@@ -449,7 +449,8 @@
     "estimatedRows": "~{{count}} rows"
   },
   "preview": {
-    "title": "File Preview",
+    "title": "File preview",
+    "serviceTitle": "Service preview",
     "raster": "Raster",
     "crs": "CRS:",
     "bands": "Bands:",

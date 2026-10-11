@@ -40,3 +40,15 @@ describe('ImportPreview layer name', () => {
     expect(screen.queryByText(new RegExp(JOB))).not.toBeInTheDocument();
   });
 });
+
+describe('ImportPreview heading', () => {
+  it('names a file preview by default', () => {
+    render(<ImportPreview preview={preview('roads')} />);
+    expect(screen.getByRole('heading', { name: 'File preview' })).toBeInTheDocument();
+  });
+
+  it('names a service preview for service imports', () => {
+    render(<ImportPreview preview={preview('roads')} source="service" />);
+    expect(screen.getByRole('heading', { name: 'Service preview' })).toBeInTheDocument();
+  });
+});
