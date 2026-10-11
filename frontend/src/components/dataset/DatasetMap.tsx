@@ -298,6 +298,7 @@ export const DatasetMap = memo(function DatasetMap({
     geometryType: drawGeometryType,
     rasterTileUrl,
     isDem,
+    bounds: bbox,
     tileVersion,
     tileToken,
     tileConfigCdnBaseUrl: tileConfig?.cdn_base_url ?? undefined,

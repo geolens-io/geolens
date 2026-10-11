@@ -151,7 +151,7 @@ export interface RasterMetadata {
   res_x: number | null;
   res_y: number | null;
   band_count: number | null;
-  /** One band of floating-point values: its tiles are terrain-RGB. */
+  /** Whether the raster is stored as elevation, so its tiles are terrain-RGB. */
   is_dem?: boolean | null;
   nodata: string | null;
   compression: string | null;

@@ -154,7 +154,7 @@ describe('useMapLayers vector source', () => {
 // pre-replace bytes for an identical URL. tileVersion busts that the same
 // way the vector source already does via buildSignedTileUrl.
 describe('useMapLayers raster tile source cache-busting', () => {
-  function runRasterHook(rasterTileUrl: string | null, tileVersion?: string | null, isDem = false) {
+  function runRasterHook(rasterTileUrl: string | null, tileVersion?: string | null, isDem = false, bounds?: number[]) {
     const mapRef = { current: null };
     const { result } = renderHook(() =>
       useMapLayers({
@@ -162,6 +162,7 @@ describe('useMapLayers raster tile source cache-busting', () => {
         geometryType: null,
         rasterTileUrl,
         isDem,
+        bounds,
         tileVersion,
         tileToken: null,
         mapRef,
@@ -194,10 +195,15 @@ describe('useMapLayers raster tile source cache-busting', () => {
   });
 
   it('decodes a DEM as raster-dem and draws it as hillshade', () => {
-    const map = runRasterHook('/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png', null, true);
+    const map = runRasterHook('/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png', null, true, [7.6, 45.9, 7.7, 46.0]);
     const [id, source] = (map.addSource as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(id).toBe('raster-tile-source');
-    expect(source).toMatchObject({ type: 'raster-dem', encoding: 'mapbox', tileSize: 256, maxzoom: 22 });
+    expect(source).toMatchObject({
+      type: 'raster-dem', encoding: 'mapbox',
+      tileSize: 256,
+      maxzoom: 22,
+      bounds: [7.6, 45.9, 7.7, 46.0],
+    });
     expect((map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({
       type: 'hillshade',
       source: 'raster-tile-source',

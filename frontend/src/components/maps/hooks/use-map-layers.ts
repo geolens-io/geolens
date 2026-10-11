@@ -9,6 +9,7 @@ import { getCompanionLayerIds } from '@/components/builder/companion-ids';
 import { mixedLinesLayerId, mixedPointsLayerId } from '@/components/builder/layer-adapters/mixed-adapter';
 import { describeLayers, getSourceIdForLayer } from '@/components/builder/layer-description';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
+import { normalizeRasterBounds } from '@/components/builder/layer-adapters/shared';
 import { DEFAULT_HILLSHADE_PAINT } from '@/components/builder/layer-adapters/builder-defaults';
 
 /** Empty GeoJSON FeatureCollection */
@@ -99,6 +100,8 @@ interface UseMapLayersOptions {
   rasterTileUrl?: string | null;
   /** A DEM's tiles are terrain-RGB, which has to be decoded and drawn as relief. */
   isDem?: boolean;
+  /** Dataset extent; a DEM source without it requests empty neighbour tiles that break border backfill. */
+  bounds?: number[] | null;
   tileVersion?: string | null;
   /** Signs the vector tile URLs; without one they go unsigned. */
   tileToken: VectorTileToken | null;
@@ -122,6 +125,7 @@ export function useMapLayers({
   geometryType,
   rasterTileUrl,
   isDem,
+  bounds,
   tileVersion,
   tileToken,
   tileConfigCdnBaseUrl,
@@ -331,7 +335,13 @@ export function useMapLayers({
           ...(safeAttribution ? { attribution: safeAttribution } : {}),
         };
         if (isDem) {
-          map.addSource('raster-tile-source', { type: 'raster-dem', encoding: 'mapbox', ...tileSource });
+          const demBounds = normalizeRasterBounds(bounds);
+          map.addSource('raster-tile-source', {
+            type: 'raster-dem',
+            encoding: 'mapbox',
+            ...tileSource,
+            ...(demBounds ? { bounds: demBounds } : {}),
+          });
           map.addLayer({
             id: 'raster-layer',
             type: 'hillshade',
@@ -352,7 +362,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addRasterLayers: failed', e);
       }
     },
-    [rasterTileUrl, isDem, tileVersion, safeAttribution],
+    [rasterTileUrl, isDem, bounds, tileVersion, safeAttribution],
   );
 
   const addOverlaySource = useCallback((map: MaplibreMap) => {
