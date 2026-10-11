@@ -10,7 +10,8 @@ _MAX_DESCRIPTION = 2000
 def _clean(value: object, limit: int) -> str | None:
     if not isinstance(value, str):
         return None
-    text = value.strip()
+    # JSONB and Text reject NUL and unpaired surrogates, both legal in JSON.
+    text = value.replace("\x00", "").encode("utf-8", "ignore").decode().strip()
     return text[:limit] if text else None
 
 

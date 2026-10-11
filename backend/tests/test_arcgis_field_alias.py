@@ -69,6 +69,15 @@ def test_a_name_longer_than_postgres_allows_is_keyed_by_its_truncation() -> None
     assert arcgis_field_labels(meta) == {long_name[:63]: {"alias": "Long"}}
 
 
+def test_characters_postgres_cannot_store_are_dropped() -> None:
+    meta = {
+        "fields": [
+            {"name": "a", "alias": "Al\x00ias\ud800", "description": "\x00"},
+        ]
+    }
+    assert arcgis_field_labels(meta) == {"a": {"alias": "Alias"}}
+
+
 def test_odd_field_entries_are_ignored() -> None:
     meta = {
         "fields": [
