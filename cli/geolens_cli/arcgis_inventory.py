@@ -1272,6 +1272,7 @@ def _collect_dependencies(
 class _Details:
     """What one item's metadata reads produced, reduced to small values."""
 
+    read: bool = False
     fields: dict[str, Any] = field(default_factory=dict)
     folder_id: str | None = None
     url: str | None = None
@@ -1339,6 +1340,7 @@ def _collect_details(
                 out.errors.append(_error_row(row["id"], phase, exc))
                 continue
             if phase == "item_details":
+                out.read = True
                 out.fields = _metadata(data, client._redact)
                 folder = data.get("ownerFolder")
                 out.folder_id = _text(folder, client._redact)
@@ -1347,22 +1349,22 @@ def _collect_details(
                 out.groups = _item_groups(data, client._redact)
         return out
 
+    # Each result is merged as it arrives, so finished descriptions are not
+    # held beside the rows they replace.
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        results = list(pool.map(fetch, inv.items))
-
-    for row, out in zip(inv.items, results, strict=True):
-        row.update(out.fields)
-        if out.url:
-            row["url"] = out.url
-            row["layers"] = _service_layers(row["type"], out.url)
-        if out.folder_id and not row["folder"]:
-            row["folder"] = {"id": out.folder_id, "title": None}
-        if out.groups is not None:
-            row["groups"] = out.groups
-            row["sharing"]["groups"] = [g["id"] for g in out.groups]
-        inv.errors.extend(out.errors)
-        if out.auth is not None:
-            inv.abort = inv.abort or out.auth
+        for row, out in zip(inv.items, pool.map(fetch, inv.items), strict=False):
+            if out.read:
+                row.update(out.fields)
+                row["url"] = out.url
+                row["layers"] = _service_layers(row["type"], out.url)
+            if out.folder_id and not row["folder"]:
+                row["folder"] = {"id": out.folder_id, "title": None}
+            if out.groups is not None:
+                row["groups"] = out.groups
+                row["sharing"]["groups"] = [g["id"] for g in out.groups]
+            inv.errors.extend(out.errors)
+            if out.auth is not None:
+                inv.abort = inv.abort or out.auth
     for row in inv.items:
         folder = row["folder"]
         if folder and folder["title"] is None:

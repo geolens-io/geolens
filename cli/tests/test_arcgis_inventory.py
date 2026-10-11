@@ -476,6 +476,26 @@ def test_detail_url_replaces_a_thin_search_url_and_tolerates_a_trailing_slash(ru
     assert [layer["id"] for layer in row["layers"]] == [0]
 
 
+def test_detail_without_a_url_clears_the_search_url(run):
+    listing = load("search_page1.json")["results"][0]
+    detail = {k: v for k, v in load("item_detail_rich.json").items() if k != "url"}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert (row["url"], row["layers"]) == (None, [])
+
+
 def test_counts_failed_items_not_failed_reads(run):
     portal = FakePortal(
         portal_routes(
