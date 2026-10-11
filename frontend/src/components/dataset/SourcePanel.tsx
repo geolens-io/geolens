@@ -11,6 +11,7 @@ import {
   useDatasetVersions,
 } from '@/components/dataset/hooks/use-dataset';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
+import { REFRESHABLE_ORIGINS } from '@/components/dataset/SourceRefreshAction';
 import { SourceSyncPanel } from '@/components/dataset/SourceSyncPanel';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { Badge } from '@/components/ui/badge';
@@ -775,7 +776,10 @@ export function SourcePanel({
     ? t(`sourcePanel.healthDetail.${healthDetail}`)
     : null;
   const healthNote =
-    translatedHealthDetail ?? (health === 'unknown' ? t('sourcePanel.healthUnknownHint') : null);
+    translatedHealthDetail ??
+    (health === 'unknown' && origin != null && REFRESHABLE_ORIGINS.has(origin)
+      ? t('sourcePanel.healthUnknownHint')
+      : null);
   const originKey = isVrt ? 'vrt' : origin ?? 'unknown';
   const storageKey = isVrt ? 'vrt' : origin ?? 'unknown';
 
