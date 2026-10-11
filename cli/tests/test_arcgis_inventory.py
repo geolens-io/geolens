@@ -2473,3 +2473,16 @@ def test_malformed_related_entries_are_an_error_row(run, entries):
     report = _report(run(FakePortal(routes), "--scope", "org")[0])
     assert _rows(report)[A2]["dependencies_status"] == "error"
     assert [e["phase"] for e in _read_errors(report)] == ["related"]
+
+
+def test_storymap_map_node_without_its_resource_is_an_error(run):
+    item_id = "7f" * 16
+    data = {
+        "root": "n1",
+        "nodes": {"n1": {"type": "webmap", "data": {"map": "r-missing"}}},
+        "resources": {},
+    }
+    routes = _one_item(item_id, "StoryMap", data=data)
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    assert _rows(_report(result))[item_id]["dependencies_status"] == "error"

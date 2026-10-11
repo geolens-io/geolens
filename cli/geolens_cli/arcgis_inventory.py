@@ -1216,7 +1216,10 @@ def _story_references(data: Mapping[str, Any], add: Callable[..., None]) -> bool
         resource = (
             resources.get(node_data.get("map")) if isinstance(node_data, dict) else None
         )
-        if isinstance(resource, dict) and resource.get("type") == "webmap":
+        if not isinstance(resource, dict):
+            # Raised so the item becomes an error row, not a quietly short list.
+            raise ValueError("a map node points at a resource the story lacks")
+        if resource.get("type") == "webmap":
             map_data = resource.get("data")
             if isinstance(map_data, dict):
                 add(
