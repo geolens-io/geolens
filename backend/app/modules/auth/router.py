@@ -274,16 +274,29 @@ async def login(
     )
 
 
+# Every page load in the SPA spends one refresh, so many users behind one
+# address need far more than one session's budget. This bounds that total, and
+# runs before the session lookup so a flood of made-up tokens can't turn into
+# unbounded database reads.
+@limiter.limit("300/minute")
+async def _limit_refresh_address(request: Request) -> None:
+    # slowapi skips later checks once a request is marked; the route's
+    # per-session limit still has to run.
+    request.state._rate_limiting_complete = False
+
+
 async def _resolve_refresh_session(
     request: Request,
     body: RefreshRequest | None = None,
+    _address_limit: None = Depends(_limit_refresh_address),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Stash the presented token's session id for ``_refresh_session_key``.
 
-    Dependencies resolve before the slowapi wrapper checks limits. Only a
-    token the database accepts yields an id, so a forged or stale credential
-    stays on the caller's address bucket instead of opening a new one.
+    Dependencies resolve before the route's slowapi wrapper checks its limit.
+    Only a token the database accepts yields an id, so a forged or stale
+    credential stays on the caller's address bucket instead of opening a new
+    one.
     """
     token = read_refresh_cookie(request) if wants_cookie_auth(request) else None
     token = token or (body.refresh_token if body is not None else None)
@@ -304,10 +317,6 @@ def _refresh_session_key(request: Request) -> str:
 # a hidden alias closing the 404 regression from redirect_slashes=False.
 @router.post("/refresh", response_model=TokenResponse, include_in_schema=False)
 @router.post("/refresh/", response_model=TokenResponse)
-# Every page load in the SPA spends one refresh, so many users behind one
-# address need far more than one session's budget. The address limit only
-# bounds that total.
-@limiter.limit("300/minute")
 @limiter.limit("30/minute", key_func=_refresh_session_key)
 async def refresh(
     request: Request,

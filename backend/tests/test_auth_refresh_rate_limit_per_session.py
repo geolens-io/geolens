@@ -18,6 +18,7 @@ from httpx import AsyncClient
 
 from app.core.config import settings
 from app.modules.auth.cookies import CSRF_COOKIE_NAME, REFRESH_COOKIE_NAME
+from app.modules.auth.service import AuthService
 from app.platform.ratelimit import limiter
 
 pytestmark = pytest.mark.anyio
@@ -25,6 +26,7 @@ pytestmark = pytest.mark.anyio
 ADMIN_USER = settings.geolens_admin_username
 ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
 SESSION_LIMIT = 30
+ADDRESS_LIMIT = 300
 
 
 @pytest.fixture
@@ -140,3 +142,27 @@ async def test_forged_tokens_share_the_address_bucket(
 
     valid = await _refresh(client, await _session(client))
     assert valid.status_code == 200, valid.text
+
+
+async def test_address_limit_stops_lookups_before_the_database(
+    client: AsyncClient, refresh_limits: None, monkeypatch: pytest.MonkeyPatch
+):
+    lookups = 0
+    lookup = AuthService.get_refresh_session_id
+
+    async def counted(self: AuthService, raw_token: str):
+        nonlocal lookups
+        lookups += 1
+        return await lookup(self, raw_token)
+
+    monkeypatch.setattr(AuthService, "get_refresh_session_id", counted)
+
+    for _ in range(ADDRESS_LIMIT):
+        resp = await _refresh(client, secrets.token_urlsafe(32))
+        assert resp.status_code in (401, 429), resp.text
+    assert lookups == ADDRESS_LIMIT
+
+    for _ in range(5):
+        resp = await _refresh(client, secrets.token_urlsafe(32))
+        assert resp.status_code == 429
+    assert lookups == ADDRESS_LIMIT
