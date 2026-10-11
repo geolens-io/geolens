@@ -260,7 +260,7 @@
           ]
         },
         "groups": {
-          "description": "Groups the item is shared with; null when not read.",
+          "description": "Groups the item is shared with that the signing-in account can see: the portal hides private groups the account does not belong to, so the list can be a subset. Null when not read (--no-groups, an anonymous run, or a failed read).",
           "oneOf": [
             {"type": "null"},
             {"type": "array", "items": {"$ref": "#/$defs/group"}}

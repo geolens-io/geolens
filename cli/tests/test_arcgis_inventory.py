@@ -564,6 +564,13 @@ def test_secret_in_a_detail_url_is_redacted(run):
     assert "[REDACTED]" in row["url"]
 
 
+def test_anonymous_run_does_not_read_groups(run):
+    portal = FakePortal(portal_routes())
+    result, _ = run(portal, "--scope", "org", token=None)
+    assert [s for s in portal.seen if s.path.endswith("/groups")] == []
+    assert {r["groups"] for r in _report(result)["items"]} == {None}
+
+
 def test_markdown_lists_folders_and_owners(run):
     result, _ = run(FakePortal(_rich_routes()), "--scope", "org", json_mode=False)
     assert "## Folders" in result.stdout

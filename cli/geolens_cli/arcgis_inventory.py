@@ -1521,7 +1521,9 @@ def run_inventory(
         inv.abort = exc
         _mark_not_fetched(inv)
         return inv
-    _collect_details(client, inv, concurrency, read_groups)
+    # An anonymous caller sees no private groups, so its list would read as
+    # "shared with nothing" rather than "unknown".
+    _collect_details(client, inv, concurrency, read_groups and auth_mode != "anonymous")
     if inv.abort is None:
         _collect_owners(client, inv, concurrency)
     if inv.abort is not None:

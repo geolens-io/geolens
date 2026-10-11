@@ -159,7 +159,8 @@ they depend on. Every item also records its snippet, description, tags,
 credits, license, extent, thumbnail name, spatial reference, folder, the
 groups it is shared with and its owner's name and email. Folder titles,
 owner names and group lists come back null where the portal doesn't let the
-signed-in account read them. `--no-groups` skips the one-request-per-item
+signed-in account read them, and the group list holds only the groups that
+account can see. An anonymous run skips group reads. `--no-groups` skips the one-request-per-item
 group read.
 
 - `--scope user` (the default) lists the signed-in user's folders;
