@@ -16,6 +16,9 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import best_match
+
 from . import arcgis_report as _report
 from . import output as _output
 from ._sdk_helpers import EXIT_GENERIC, EXIT_OK, EXIT_USAGE
@@ -78,15 +81,13 @@ def _group_defaults(
     return dict(sorted(groups.items()))
 
 
-def _collections(
-    row: Mapping[str, Any], group_map: Mapping[str, Mapping[str, str]]
-) -> list[str]:
-    names: list[str] = []
+def _collections(row: Mapping[str, Any]) -> list[str]:
     folder = row["folder"]
-    if folder:
-        names.append(folder["title"] or folder["id"])
-    names.extend(group_map[g["id"]]["collection"] for g in row["groups"] or [])
-    return list(dict.fromkeys(names))
+    return [folder["title"] or folder["id"]] if folder else []
+
+
+def _group_ids(row: Mapping[str, Any]) -> list[str]:
+    return sorted({g["id"] for g in row["groups"] or []})
 
 
 def build_plan(
@@ -151,7 +152,8 @@ def build_plan(
             "target": {
                 "owner": None,
                 "visibility": _visibility(row["sharing"]["access"]),
-                "collections": _collections(row, group_map),
+                "collections": _collections(row),
+                "groups": _group_ids(row),
                 "title": row["title"],
                 "tags": list(row["tags"]),
             },
@@ -198,11 +200,17 @@ def load_inventory(path: Path) -> dict[str, Any]:
             f"(schema_version {version!r}). Rerun `geolens arcgis inventory -o <dir>` "
             "with this version of the CLI and pass the new arcgis-inventory.json."
         )
-    for key in ("items", "dependencies", "portal", "generated_at"):
-        if key not in data:
-            raise PlanError(
-                f"{path} is missing '{key}'; rerun `geolens arcgis inventory`"
-            )
+    error = best_match(
+        Draft202012Validator(
+            _report.inventory_schema(), format_checker=FormatChecker()
+        ).iter_errors(data)
+    )
+    if error is not None:
+        where = "/".join(str(p) for p in error.absolute_path) or "(root)"
+        raise PlanError(
+            f"{path} is malformed at {where}: {error.message}; "
+            "rerun `geolens arcgis inventory`"
+        )
     return data
 
 
@@ -263,12 +271,7 @@ def run_cli(
             recorded = os.path.relpath(inventory_path.resolve(), out_dir.resolve())
         except ValueError:  # a different drive has no relative path
             recorded = str(inventory_path.resolve())
-        try:
-            plan = build_plan(inventory, inventory_path=recorded, owner_map=owners)
-        except (KeyError, TypeError, AttributeError):
-            raise PlanError(
-                f"{inventory_path} is malformed; rerun `geolens arcgis inventory`"
-            ) from None
+        plan = build_plan(inventory, inventory_path=recorded, owner_map=owners)
     except PlanError as exc:
         fmt.error(str(exc))
         return EXIT_USAGE

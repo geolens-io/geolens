@@ -146,7 +146,8 @@ def test_groups_and_folders_become_collections():
         "g2": {"collection": "Public maps", "visibility": "public"},
     }
     target = _items(plan)[A1]["target"]
-    assert target["collections"] == ["Apps", "GIS team", "Public maps"]
+    assert target["collections"] == ["Apps"]
+    assert target["groups"] == ["g1", "g2"]
     assert target["visibility"] == "internal"
     assert _items(plan)[A2]["target"]["visibility"] == "public"
     assert _items(plan)[A1]["target"]["tags"] == ["parcels", "cadastre"]
@@ -319,3 +320,22 @@ def test_an_unreadable_existing_plan_is_an_error_not_a_traceback(
     result = _plan_cli(runner, str(inventory_file))
     assert result.exit_code == 1
     assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda r: r.update(generated_at=12345),
+        lambda r: r["items"][0].update(tags="parcels"),
+    ],
+    ids=["generated_at", "tags"],
+)
+def test_an_inventory_off_its_schema_is_a_usage_error(runner, tmp_path, mutate):
+    report = _inventory_report()
+    mutate(report)
+    path = tmp_path / "arcgis-inventory.json"
+    path.write_text(json.dumps(report))
+    result = _plan_cli(runner, str(path))
+    assert result.exit_code == 2
+    assert "geolens arcgis inventory" in result.output + result.stderr
+    assert not (tmp_path / "arcgis-migration-plan.json").exists()

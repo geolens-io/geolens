@@ -227,14 +227,17 @@ The fields you are expected to edit:
   import as maps, and apps, scenes and unsupported types are `export_only`.
   Set `skip` for anything you don't want.
 - `items[].target`: the `visibility` (ArcGIS private, org and public become
-  private, internal and public), the `collections` (the item's folder and its
-  groups), the `title` and the `tags`. `target.owner` is `null` to use
-  `owner_map`, or a GeoLens username or email to override it for one item.
+  private, internal and public), the `collections` (the item's folder), the
+  `groups` (the ArcGIS group ids it is shared with), the `title` and the
+  `tags`. `target.owner` is `null` to use `owner_map`, or a GeoLens username
+  or email to override it for one item.
 - `owner_map`: every ArcGIS owner, with an empty value to fill in with the
   GeoLens user who should end up owning the item. `--owner-map file.json`
   fills it from a prepared `{"arcgis_user": "geolens_user"}` object.
 - `group_map`: every group seen, with the collection its items join and that
-  collection's visibility.
+  collection's visibility. Items join these collections through
+  `target.groups`, so renaming a group's collection here renames it for every
+  item.
 - `basemap_map`: every basemap URL used by a web map, to fill in with the
   GeoLens basemap that replaces it.
 - `items[].alias_of`: set by hand, with action `skip`, on a hosted view that

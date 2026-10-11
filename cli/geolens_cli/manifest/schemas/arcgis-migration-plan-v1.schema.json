@@ -102,14 +102,23 @@
         "target": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["owner", "visibility", "collections", "title", "tags"],
+          "required": ["owner", "visibility", "collections", "groups", "title", "tags"],
           "properties": {
             "owner": {
               "description": "GeoLens username or email that overrides owner_map for this item; null uses owner_map.",
               "type": ["string", "null"]
             },
             "visibility": {"enum": ["private", "internal", "public"]},
-            "collections": {"type": "array", "items": {"type": "string"}},
+            "collections": {
+              "description": "Collections the item joins: its folder, plus any added by hand. Group collections come from groups and group_map.",
+              "type": "array",
+              "items": {"type": "string"}
+            },
+            "groups": {
+              "description": "ArcGIS group ids the item is shared with; the executor adds each group's group_map collection.",
+              "type": "array",
+              "items": {"type": "string"}
+            },
             "title": {"type": "string"},
             "tags": {"type": "array", "items": {"type": "string"}}
           }
