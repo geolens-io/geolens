@@ -119,8 +119,10 @@ LABEL_CONFIG_DESCRIPTION = (
 )
 
 STYLE_CONFIG_DESCRIPTION = (
-    "Data-driven and builder UI style configuration. Accepted keys: "
-    f"{_listed(STYLE_METADATA_KEYS)}. Builder-only state lives under builder, "
-    f"with keys {_listed(BUILDER_STYLE_KEYS)}. Unknown keys are dropped when "
-    f"the map is exported as a MapLibre style. See {PUBLISHING_GUIDE_URL}"
+    "Data-driven and builder UI style configuration. Accepted top-level keys: "
+    f"{_listed(STYLE_METADATA_KEYS)}; other top-level keys are dropped when the "
+    "map is exported as a MapLibre style. Builder-only state lives under "
+    f"builder, whose interpreted keys are {_listed(BUILDER_STYLE_KEYS)}. "
+    "Other builder keys are stored and exported unchanged but have no effect. "
+    f"See {PUBLISHING_GUIDE_URL}"
 )
