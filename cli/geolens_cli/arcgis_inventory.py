@@ -775,7 +775,8 @@ def _item_url(item: Mapping[str, Any], redact: Redactor) -> str | None:
     return redact(url) if url else None
 
 
-def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
+def _classification(item: Mapping[str, Any]) -> dict[str, Any]:
+    """The row fields that follow from an item's type and type keywords."""
     verdict = classify(item)
     retirement_id = verdict["retirement"]
     retirement = None
@@ -786,6 +787,16 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
             "status": known["status"],
             "date": known["date"],
         }
+    return {
+        "type_keywords": [str(k) for k in item.get("typeKeywords") or []],
+        "class": verdict["class"],
+        "reason": verdict["reason"],
+        "retirement": retirement,
+        "hosted": verdict["hosted"],
+    }
+
+
+def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
     size = item.get("size")
     item_type = str(item.get("type") or "")
     if item_type == _WEB_MAP_TYPE or item_type in _APP_DATA_TYPES:
@@ -796,7 +807,6 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
     return {
         "id": str(item.get("id") or ""),
         "type": item_type,
-        "type_keywords": [str(k) for k in item.get("typeKeywords") or []],
         "title": str(item.get("title") or ""),
         "owner": str(item.get("owner") or ""),
         "sharing": {"access": str(item.get("access") or "private"), "groups": None},
@@ -806,10 +816,7 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
         "created": _iso_from_ms(item.get("created")),
         "modified": _iso_from_ms(item.get("modified")),
         "url": url,
-        "class": verdict["class"],
-        "reason": verdict["reason"],
-        "retirement": retirement,
-        "hosted": verdict["hosted"],
+        **_classification(item),
         "dependencies_status": dependencies_status,
         **_metadata(item, redact),
         "folder": None,
@@ -1274,6 +1281,7 @@ class _Details:
 
     read: bool = False
     fields: dict[str, Any] = field(default_factory=dict)
+    type_keywords: list[Any] | None = None
     folder_id: str | None = None
     url: str | None = None
     groups: list[dict[str, Any]] | None = None
@@ -1342,6 +1350,8 @@ def _collect_details(
             if phase == "item_details":
                 out.read = True
                 out.fields = _metadata(data, client._redact)
+                keywords = data.get("typeKeywords")
+                out.type_keywords = keywords if isinstance(keywords, list) else None
                 folder = data.get("ownerFolder")
                 out.folder_id = _text(folder, client._redact)
                 out.url = _item_url(data, client._redact)
@@ -1355,6 +1365,12 @@ def _collect_details(
         for row, out in zip(inv.items, pool.map(fetch, inv.items), strict=False):
             if out.read:
                 row.update(out.fields)
+                if out.type_keywords is not None:
+                    row.update(
+                        _classification(
+                            {"type": row["type"], "typeKeywords": out.type_keywords}
+                        )
+                    )
                 row["url"] = out.url
                 row["layers"] = _service_layers(row["type"], out.url)
             if out.folder_id and not row["folder"]:

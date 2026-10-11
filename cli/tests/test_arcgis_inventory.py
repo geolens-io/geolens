@@ -496,6 +496,26 @@ def test_detail_without_a_url_clears_the_search_url(run):
     assert (row["url"], row["layers"]) == (None, [])
 
 
+def test_detail_type_keywords_reclassify_a_thin_search_row(run):
+    listing = load("search_page1.json")["results"][0] | {"typeKeywords": []}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": load("item_detail_rich.json"),
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert (row["reason"], row["hosted"]) == ("hosted_feature_layer", True)
+    assert "Hosted Service" in row["type_keywords"]
+
+
 def test_counts_failed_items_not_failed_reads(run):
     portal = FakePortal(
         portal_routes(
