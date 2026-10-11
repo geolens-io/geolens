@@ -2636,3 +2636,29 @@ def test_scan_returns_ids_in_document_order_and_accepts_mixed_case():
         "short": {"itemId": "abc"},
     }
     assert inventory._scan_item_ids(data) == [first, second, third]
+
+
+def _stranger_map(**routes):
+    stranger = "9c" * 16
+    layers = [{"id": "x", "layerType": "ArcGISFeatureLayer", "itemId": stranger}]
+    data = {"operationalLayers": layers, "baseMap": {"baseMapLayers": []}}
+    return stranger, _one_item(
+        B1, "Web Map", data=data, **{f"content/items/{stranger}": routes["reply"]}
+    )
+
+
+@pytest.mark.parametrize("token", [None, TOKEN])
+def test_a_401_on_an_external_item_lookup_is_unreadable_not_fatal(run, token):
+    stranger, routes = _stranger_map(reply=(401, {"error": {"code": 401}}))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict", token=token)
+    report = _report(result)
+    assert result.exit_code == 0
+    assert report["complete"] is True
+    assert report["errors"] == []
+
+
+def test_a_rejected_token_on_an_external_item_lookup_stays_fatal(run):
+    stranger, routes = _stranger_map(reply=load("error_498.json"))
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert result.exit_code == 3
+    assert _report(result)["complete"] is False

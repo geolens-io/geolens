@@ -1929,6 +1929,12 @@ def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) ->
         {d["to_id"] for d in inv.dependencies if d["to_id"] and not d["resolved"]}
     )
     stop = threading.Event()
+    anonymous = inv.auth["mode"] == "anonymous"
+
+    def fatal(exc: PortalError) -> bool:
+        # A 401 on a lookup of someone else's item means "not visible to
+        # you"; a rejected token is the run's own failure.
+        return exc.kind == "auth" and exc.http_status != 401 and not anonymous
 
     def fetch(item_id: str) -> tuple[str | None, PortalError | None]:
         if stop.is_set():
@@ -1937,7 +1943,7 @@ def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) ->
             data = client.get_json(f"content/items/{quote(item_id, safe='')}")
         except PortalError as exc:
             _detach(exc)
-            if exc.kind == "auth":
+            if fatal(exc):
                 stop.set()
             return None, exc
         org = data.get("orgId")
@@ -1949,7 +1955,7 @@ def _resolve_external(client: PortalClient, inv: Inventory, concurrency: int) ->
     for item_id, (_, failure) in results.items():
         if failure is None:
             continue
-        if failure.kind == "auth":
+        if fatal(failure):
             inv.abort = inv.abort or failure
         elif failure.http_status not in _HIDDEN_ITEM_STATUSES:
             inv.errors.append(_error_row(client._redact(item_id), "external", failure))
