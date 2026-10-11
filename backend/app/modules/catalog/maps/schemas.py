@@ -19,6 +19,10 @@ from pydantic import (
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.catalog.maps.filter_grammar import validate_filter
+from app.modules.catalog.maps.publish_vocabulary import (
+    LABEL_CONFIG_DESCRIPTION,
+    STYLE_CONFIG_DESCRIPTION,
+)
 from app.modules.catalog.maps.sharing_policy import (
     SHARE_EXPIRATION_SELECTION_ERROR,
     ShareExpirationPresetDays,
@@ -659,19 +663,14 @@ class MapLayerInput(BaseModel):
     )
     filter: list | None = Field(default=None, description="MapLibre filter expression")
     label_config: dict | None = Field(
-        default=None, description="Text label configuration"
+        default=None, description=LABEL_CONFIG_DESCRIPTION
     )
     popup_config: PopupConfig | None = Field(
         default=None,
         description="Popup configuration: {enabled, expression, visible_fields}",
     )
     style_config: dict | None = Field(
-        default=None,
-        description=(
-            "Data-driven and builder UI style configuration. Builder-only state "
-            "lives under builder, e.g. fill_disabled, stroke_disabled, outline "
-            "settings, heatmap metadata, and height_column."
-        ),
+        default=None, description=STYLE_CONFIG_DESCRIPTION
     )
 
     _validate_paint = field_validator("paint")(_validate_maplibre_style_dict)

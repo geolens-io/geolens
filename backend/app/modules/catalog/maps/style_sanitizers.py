@@ -7,6 +7,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.modules.catalog.maps.publish_vocabulary import (
+    LABEL_METADATA_KEYS,
+    STYLE_METADATA_KEYS,
+    SYMBOL_METADATA_KEYS,
+)
 from app.modules.catalog.maps.schemas import (
     BUILDER_SNAKE_TO_CAMEL_KEYS,
     LEGACY_BUILDER_PAINT_KEYS,
@@ -14,52 +19,6 @@ from app.modules.catalog.maps.schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-_LABEL_METADATA_KEYS = {
-    "column",
-    "fontSize",
-    "textColor",
-    "haloColor",
-    "haloWidth",
-    "minZoom",
-    "maxZoom",
-    "placement",
-    "textAnchor",
-    "textOpacity",
-    "textOffset",
-    "allowOverlap",
-}
-_STYLE_METADATA_KEYS = {
-    "mode",
-    "column",
-    "ramp",
-    "classCount",
-    "method",
-    "categories",
-    "breaks",
-    "colors",
-    "target",
-    "sizes",
-    "render_mode",
-    "symbol",
-    "builder",
-    "legendLabel",
-    "reversed",
-    "sizeRange",
-    "sizeLabel",
-    "colorLabel",
-    "heatmapPaint",
-    "savedCirclePaint",
-}
-_SYMBOL_METADATA_KEYS = {
-    "iconImage",
-    "iconSize",
-    "iconRotation",
-    "iconAnchor",
-    "iconOffset",
-    "categoryColumn",
-    "categories",
-}
 
 
 def clean_paint(paint: dict[str, Any] | None) -> dict[str, Any]:
@@ -87,7 +46,7 @@ def clean_label_metadata(
     clean = {
         key: value
         for key, value in label_config.items()
-        if key in _LABEL_METADATA_KEYS and not str(key).startswith("_")
+        if key in LABEL_METADATA_KEYS and not str(key).startswith("_")
     }
     return clean or None
 
@@ -97,7 +56,7 @@ def clean_symbol_metadata(symbol: Any) -> dict[str, Any] | None:
         return None
     clean: dict[str, Any] = {}
     for key, value in symbol.items():
-        if key not in _SYMBOL_METADATA_KEYS or str(key).startswith("_"):
+        if key not in SYMBOL_METADATA_KEYS or str(key).startswith("_"):
             continue
         if key == "categories" and isinstance(value, list):
             clean[key] = [
@@ -134,7 +93,7 @@ def clean_style_metadata(
         return None
     clean: dict[str, Any] = {}
     for key, value in style_config.items():
-        if key not in _STYLE_METADATA_KEYS or str(key).startswith("_"):
+        if key not in STYLE_METADATA_KEYS or str(key).startswith("_"):
             continue
         if key == "symbol":
             symbol = clean_symbol_metadata(value)
