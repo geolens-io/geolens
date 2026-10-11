@@ -61,6 +61,14 @@ def test_labels_are_keyed_by_the_name_each_field_is_stored_under() -> None:
     assert arcgis_field_labels(meta) == {"src_geom_2": {"alias": "Outline"}}
 
 
+def test_a_name_longer_than_postgres_allows_is_keyed_by_its_truncation() -> None:
+    long_name = "a_very_long_field_name_" * 4
+    meta = {
+        "fields": [{"name": long_name, "type": "esriFieldTypeString", "alias": "Long"}]
+    }
+    assert arcgis_field_labels(meta) == {long_name[:63]: {"alias": "Long"}}
+
+
 def test_odd_field_entries_are_ignored() -> None:
     meta = {
         "fields": [

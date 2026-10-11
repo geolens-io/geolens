@@ -2,6 +2,7 @@
 
 from app.platform.column_names import stored_column_names
 
+_PG_IDENTIFIER_BYTES = 63
 _MAX_ALIAS = 500
 _MAX_DESCRIPTION = 2000
 
@@ -11,6 +12,11 @@ def _clean(value: object, limit: int) -> str | None:
         return None
     text = value.strip()
     return text[:limit] if text else None
+
+
+def _pg_truncated(column: str) -> str:
+    """The identifier PostgreSQL keeps when a stored name exceeds its byte limit."""
+    return column.encode()[:_PG_IDENTIFIER_BYTES].decode(errors="ignore")
 
 
 def arcgis_field_labels(meta: dict) -> dict[str, dict[str, str]]:
@@ -40,5 +46,5 @@ def arcgis_field_labels(meta: dict) -> dict[str, dict[str, str]]:
         if description is not None:
             label["description"] = description
         if label:
-            labels[column] = label
+            labels[_pg_truncated(column)] = label
     return labels
