@@ -81,3 +81,25 @@ describe('ServiceUrlForm layer count summary', () => {
     expect(screen.queryByText('2 layer available')).not.toBeInTheDocument();
   });
 });
+
+describe('ServiceUrlForm layers that hold no features', () => {
+  it('disables a group layer with its reason and keeps feature layers selectable', async () => {
+    mockProbeService.mockResolvedValue(
+      probeWith([
+        {
+          ...makeLayer('Detailed', 0),
+          geometry_type: null,
+          source_layer_type: 'Group Layer',
+          importable: false,
+        },
+        { ...makeLayer('Hydrants', 1), source_layer_type: 'Feature Layer', parent_layer_id: 0 },
+      ]),
+    );
+    await submitProbe();
+
+    const group = await screen.findByRole('button', { name: /Detailed/ });
+    expect(group).toBeDisabled();
+    expect(group).toHaveTextContent('Group Layer holds no features');
+    expect(screen.getByRole('button', { name: /Hydrants/ })).toBeEnabled();
+  });
+});

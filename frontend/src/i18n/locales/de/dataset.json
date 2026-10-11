@@ -360,6 +360,7 @@
       "connecting": "Verbindung zum Dienst wird hergestellt...",
       "layerStep": "Layer auswählen",
       "emptyState": "Für diesen Dienst wurden keine Layer gefunden.",
+      "unsupportedLayerType": "{{type}} enthält keine Features und kann nicht für ein erneutes Hochladen verwendet werden.",
       "previewLayer": "Layer prüfen",
       "previewing": "Vorschau für erneutes Hochladen wird vorbereitet...",
       "layerLabel": "Layer:",

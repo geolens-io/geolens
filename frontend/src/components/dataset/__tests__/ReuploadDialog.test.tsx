@@ -317,6 +317,40 @@ describe('ReuploadDialog', () => {
     expect(screen.getByTestId('reupload-file-dropzone')).toBeInTheDocument();
   });
 
+  it('skips a layer without features when preselecting and refuses to select it', async () => {
+    const user = userEvent.setup();
+    const probe = makeProbeResponse();
+    probe.layers = [
+      {
+        ...probe.layers[0],
+        name: 'detailed',
+        title: 'Detailed',
+        source_layer_type: 'Group Layer',
+        importable: false,
+      },
+      probe.layers[1],
+    ];
+    mockProbeService.mockResolvedValue(probe);
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'Service URL' }));
+    await user.type(screen.getByLabelText('Service URL'), 'https://example.com/wfs');
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+    await screen.findByText('Select a layer');
+
+    expect(screen.getByText('Group Layer holds no features and cannot be re-uploaded from.')).toBeInTheDocument();
+    await user.click(screen.getByText('Detailed'));
+    expect(screen.getByRole('button', { name: 'Preview Layer' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Preview Layer' }));
+    await waitFor(() =>
+      expect(servicePreviewMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          request: expect.objectContaining({ layer_name: 'roads' }),
+        }),
+      ),
+    );
+  });
+
   it('renders nothing for an unknown record type', () => {
     render(
       <ReuploadDialog

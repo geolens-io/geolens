@@ -360,6 +360,7 @@
       "connecting": "Connexion au service...",
       "layerStep": "Sélectionnez une couche",
       "emptyState": "Aucune couche trouvée pour ce service.",
+      "unsupportedLayerType": "{{type}} ne contient aucune entité et ne peut pas servir à un nouvel envoi.",
       "previewLayer": "Prévisualiser la couche",
       "previewing": "Préparation de la prévisualisation du rechargement...",
       "layerLabel": "Couche :",

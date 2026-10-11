@@ -266,6 +266,7 @@
     "layersAvailable_one": "{{count}} calque disponible",
     "layersAvailable_other": "{{count}} calques disponibles",
     "noLayers": "Aucun calque trouvé dans ce service.",
+    "unsupportedLayerType": "{{type}} ne contient aucune entité. Importez plutôt l'une de ses couches d'entités.",
     "probe": "Vérifier →",
     "supported": "Supporté :",
     "unknownDataset": "Jeu de données inconnu",

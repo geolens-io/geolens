@@ -26,6 +26,11 @@ class LayerInfo:
         feature_count (int | None | Unset): Total feature count if reported by the service.
         layer_type (str | Unset): Layer kind: 'layer' (spatial) or 'table' (non-spatial attribute table). Default:
             'layer'.
+        source_layer_type (None | str | Unset): ArcGIS sub-layer type as the service reports it, for example 'Feature
+            Layer', 'Table', 'Group Layer', 'Raster Layer' or 'Annotation Layer'. Null for other service types.
+        parent_layer_id (int | None | Unset): ArcGIS ID of the group layer that contains this layer, if any.
+        importable (bool | Unset): False when the layer holds no features (ArcGIS composite, raster and annotation
+            layers) and a preview of it is refused with 'unsupported_layer_type'. Default: True.
         layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
         object_id_field (None | str | Unset): ArcGIS object ID field name, used for stable pagination.
         kind (LayerInfoKind | Unset): Backend-classified layer kind. 'vector' = point/line/polygon feature data.
@@ -39,6 +44,9 @@ class LayerInfo:
     geometry_type: None | str | Unset = UNSET
     feature_count: int | None | Unset = UNSET
     layer_type: str | Unset = "layer"
+    source_layer_type: None | str | Unset = UNSET
+    parent_layer_id: int | None | Unset = UNSET
+    importable: bool | Unset = True
     layer_id: int | None | str | Unset = UNSET
     object_id_field: None | str | Unset = UNSET
     kind: LayerInfoKind | Unset = "vector"
@@ -66,6 +74,20 @@ class LayerInfo:
             feature_count = self.feature_count
 
         layer_type = self.layer_type
+
+        source_layer_type: None | str | Unset
+        if isinstance(self.source_layer_type, Unset):
+            source_layer_type = UNSET
+        else:
+            source_layer_type = self.source_layer_type
+
+        parent_layer_id: int | None | Unset
+        if isinstance(self.parent_layer_id, Unset):
+            parent_layer_id = UNSET
+        else:
+            parent_layer_id = self.parent_layer_id
+
+        importable = self.importable
 
         layer_id: int | None | str | Unset
         if isinstance(self.layer_id, Unset):
@@ -98,6 +120,12 @@ class LayerInfo:
             field_dict["feature_count"] = feature_count
         if layer_type is not UNSET:
             field_dict["layer_type"] = layer_type
+        if source_layer_type is not UNSET:
+            field_dict["source_layer_type"] = source_layer_type
+        if parent_layer_id is not UNSET:
+            field_dict["parent_layer_id"] = parent_layer_id
+        if importable is not UNSET:
+            field_dict["importable"] = importable
         if layer_id is not UNSET:
             field_dict["layer_id"] = layer_id
         if object_id_field is not UNSET:
@@ -141,6 +169,26 @@ class LayerInfo:
 
         layer_type = d.pop("layer_type", UNSET)
 
+        def _parse_source_layer_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_layer_type = _parse_source_layer_type(d.pop("source_layer_type", UNSET))
+
+        def _parse_parent_layer_id(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        parent_layer_id = _parse_parent_layer_id(d.pop("parent_layer_id", UNSET))
+
+        importable = d.pop("importable", UNSET)
+
         def _parse_layer_id(data: object) -> int | None | str | Unset:
             if data is None:
                 return data
@@ -172,6 +220,9 @@ class LayerInfo:
             geometry_type=geometry_type,
             feature_count=feature_count,
             layer_type=layer_type,
+            source_layer_type=source_layer_type,
+            parent_layer_id=parent_layer_id,
+            importable=importable,
             layer_id=layer_id,
             object_id_field=object_id_field,
             kind=kind,

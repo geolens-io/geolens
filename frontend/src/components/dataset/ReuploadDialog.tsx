@@ -108,18 +108,19 @@ function humanizeLayerName(layer: LayerInfo): string {
 }
 
 function findPreferredLayer(probeResult: ProbeResponse): LayerInfo | null {
-  if (probeResult.layers.length === 0) {
+  const layers = probeResult.layers.filter((layer) => layer.importable !== false);
+  if (layers.length === 0) {
     return null;
   }
   if (probeResult.selected_layer_id == null) {
-    return probeResult.layers[0];
+    return layers[0];
   }
   return (
-    probeResult.layers.find(
+    layers.find(
       (layer) =>
         layer.layer_id === probeResult.selected_layer_id ||
         layer.name === String(probeResult.selected_layer_id),
-    ) ?? probeResult.layers[0]
+    ) ?? layers[0]
   );
 }
 
@@ -898,16 +899,28 @@ export function ReuploadDialog({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {probeResult.layers.map((layer) => (
+                    {probeResult.layers.map((layer) => {
+                      const unsupported = layer.importable === false;
+                      return (
                       <TableRow
                         key={`${layer.name}-${String(layer.layer_id)}`}
+                        aria-disabled={unsupported || undefined}
                         className={cn(
-                          'cursor-pointer',
+                          unsupported ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
                           selectedLayer?.name === layer.name && 'bg-accent',
                         )}
-                        onClick={() => setSelectedLayer(layer)}
+                        onClick={unsupported ? undefined : () => setSelectedLayer(layer)}
                       >
-                        <TableCell className="max-w-[300px] truncate">{humanizeLayerName(layer)}</TableCell>
+                        <TableCell className="max-w-[300px] truncate">
+                          {humanizeLayerName(layer)}
+                          {unsupported && (
+                            <span className="block truncate text-2xs text-muted-foreground">
+                              {t('reupload.service.unsupportedLayerType', {
+                                type: layer.source_layer_type ?? layer.layer_type,
+                              })}
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {layer.geometry_type ? getGeometryTypeLabel(t, layer.geometry_type) : '-'}
                         </TableCell>
@@ -917,7 +930,8 @@ export function ReuploadDialog({
                             : '-'}
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

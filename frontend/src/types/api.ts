@@ -1904,6 +1904,10 @@ export interface LayerInfo {
   layer_type: string;
   layer_id: number | string | null;
   object_id_field: string | null;
+  source_layer_type?: string | null;
+  parent_layer_id?: number | null;
+  /** False for ArcGIS group, raster and annotation layers, which hold no features. */
+  importable?: boolean;
   /**
    * Backend-classified layer kind. Phase 1057 CLASS-07 D-09 / D-10.
    * Backend (schemas.py LayerInfo) always emits this field with default 'vector'.

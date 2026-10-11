@@ -118,6 +118,9 @@ def _build_arcgis_response(
             layer_type=layer.get("type", "layer"),
             layer_id=layer.get("id"),
             object_id_field=layer.get("object_id_field"),
+            source_layer_type=layer.get("arcgis_type"),
+            parent_layer_id=layer.get("parent_layer_id"),
+            importable=layer.get("importable", True),
             kind=classify_layer_kind(layer, adapter_type="arcgis"),
         )
         for layer in enriched_layers
