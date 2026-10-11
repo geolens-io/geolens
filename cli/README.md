@@ -230,9 +230,10 @@ The fields you are expected to edit:
   plan warns, because its layer dependencies are unknown.
 - `items[].target`: the `visibility` (ArcGIS private, org and public become
   private, internal and public), the `collections` (the item's folder), the
-  `groups` (the ArcGIS group ids it is shared with), the `title` and the
-  `tags`. `target.owner` is `null` to use `owner_map`, or a GeoLens username
-  or email to override it for one item.
+  `groups` (the ArcGIS group ids it is shared with, `null` when the inventory
+  did not read group sharing), the `title` and the `tags`. `target.owner` is
+  `null` to use `owner_map`, or a GeoLens username or email to override it for
+  one item.
 - `owner_map`: every ArcGIS owner, with an empty value to fill in with the
   GeoLens user who should end up owning the item. `--owner-map file.json`
   fills it from a prepared `{"arcgis_user": "geolens_user"}` object.

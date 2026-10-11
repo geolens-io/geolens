@@ -39,7 +39,9 @@ from .arcgis_fake import (
 STRANGER = "9c" * 16
 
 
-def _inventory_report(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+def _inventory_report(
+    overrides: dict[str, Any] | None = None, **run_kwargs: Any
+) -> dict[str, Any]:
     portal = FakePortal(portal_routes(overrides))
     client = inventory.PortalClient(
         PORTAL,
@@ -49,7 +51,12 @@ def _inventory_report(overrides: dict[str, Any] | None = None) -> dict[str, Any]
         sleep=lambda seconds: None,
     )
     inv = inventory.run_inventory(
-        client, auth_mode="token", scope="org", max_items=100, concurrency=1
+        client,
+        auth_mode="token",
+        scope="org",
+        max_items=100,
+        concurrency=1,
+        **run_kwargs,
     )
     return arcgis_report.build_report(
         inv,
@@ -365,3 +372,27 @@ def test_cli_warns_about_unread_dependencies(runner, tmp_path):
     assert result.exit_code == 0, result.output
     assert "could not read" in result.output + result.stderr
     assert B1 in result.output + result.stderr
+
+
+def test_a_web_map_whose_dependencies_were_not_fetched_is_export_only():
+    report = _inventory_report()
+    row = next(r for r in report["items"] if r["id"] == B1)
+    row["dependencies_status"] = "not_fetched"
+    plan = plan_mod.build_plan(report, inventory_path="inv.json")
+    assert _items(plan)[B1]["action"] == "export_only"
+    assert B1 in plan_mod.summary(plan, report)["dependency_read_errors"]
+
+
+def test_unread_group_sharing_is_null_in_the_plan_and_warned_about(runner, tmp_path):
+    report = _inventory_report(read_groups=False)
+    plan = plan_mod.build_plan(report, inventory_path="inv.json")
+    _validator().validate(plan)
+    assert all(i["target"]["groups"] is None for i in plan["items"])
+    assert plan_mod.summary(plan, report)["group_sharing_unknown"] == sorted(
+        i["id"] for i in plan["items"]
+    )
+    path = tmp_path / "arcgis-inventory.json"
+    path.write_text(json.dumps(report))
+    result = _plan_cli(runner, str(path))
+    assert result.exit_code == 0, result.output
+    assert "--no-groups" in result.output + result.stderr

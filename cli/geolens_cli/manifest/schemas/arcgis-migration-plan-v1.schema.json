@@ -115,8 +115,8 @@
               "items": {"type": "string"}
             },
             "groups": {
-              "description": "ArcGIS group ids the item is shared with; the executor adds each group's group_map collection.",
-              "type": "array",
+              "description": "ArcGIS group ids the item is shared with; the executor adds each group's group_map collection. null means group sharing was not read, so the item's group collections are unknown.",
+              "type": ["array", "null"],
               "items": {"type": "string"}
             },
             "title": {"type": "string"},

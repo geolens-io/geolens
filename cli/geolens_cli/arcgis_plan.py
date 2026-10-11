@@ -52,7 +52,7 @@ def plan_schema() -> dict[str, Any]:
 
 
 def _unread_dependencies(row: Mapping[str, Any]) -> bool:
-    return row["dependencies_status"] in ("error", "unparsed")
+    return row["dependencies_status"] in ("error", "unparsed", "not_fetched")
 
 
 def _default_action(row: Mapping[str, Any]) -> str:
@@ -92,7 +92,9 @@ def _collections(row: Mapping[str, Any]) -> list[str]:
     return [folder["title"] or folder["id"]] if folder else []
 
 
-def _group_ids(row: Mapping[str, Any]) -> list[str]:
+def _group_ids(row: Mapping[str, Any]) -> list[str] | None:
+    if row["groups"] is None:
+        return None
     return sorted({g["id"] for g in row["groups"] or []})
 
 
@@ -261,6 +263,9 @@ def summary(plan: Mapping[str, Any], inventory: Mapping[str, Any]) -> dict[str, 
             {"item": item, "missing": target} for item, target in unresolved
         ],
         "external_dependencies": external,
+        "group_sharing_unknown": sorted(
+            row["id"] for row in inventory["items"] if row["groups"] is None
+        ),
         "dependency_read_errors": sorted(
             row["id"] for row in inventory["items"] if _unread_dependencies(row)
         ),
@@ -305,6 +310,13 @@ def run_cli(
         fmt.warn(
             f"{len(unread)} item(s) have dependencies the inventory could not read, "
             f"so depends_on may be incomplete: {', '.join(unread[:5])}"
+        )
+    unknown_groups = stats["group_sharing_unknown"]
+    if unknown_groups:
+        fmt.warn(
+            f"{len(unknown_groups)} item(s) have no group sharing in the inventory, "
+            "so their group collections are missing; rerun the inventory signed in "
+            f"and without --no-groups: {', '.join(unknown_groups[:5])}"
         )
     if not plan["inventory"]["complete"]:
         fmt.warn(
