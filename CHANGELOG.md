@@ -107,6 +107,20 @@ and releases use semantic versioning.
 - The maintenance commands in `RUNBOOK.md` and the scripts' usage text call
   `/app/.venv/bin/python` instead of `uv run`, which fails in the read-only
   production api container. (#2889)
+- A float32 or float64 raster left on the default stretch now stretches over
+  its data range, read from band statistics. It used to be rescaled from 0 to
+  1, so an elevation raster such as ETOPO drew in black and white. Integer
+  rasters keep their data-type range. A failed statistics lookup is retried
+  after a minute instead of being kept, and a tile drawn without statistics,
+  including a percentile or stddev stretch that fell back, is no longer stored
+  by shared caches. Tiles cached before the upgrade keep their old look until
+  they expire. (#2916)
+- A DEM's preview on its dataset page draws as hillshade, as it does in the
+  map builder, instead of showing its terrain-RGB tiles as a coloured image.
+  (#2917)
+- `/search?q=` links keep their query when they redirect to the home page.
+  On a phone, the service import form keeps the service URL and its Clear
+  button inside their cards. (#2918)
 
 ## [1.23.1] - 2026-10-10
 
