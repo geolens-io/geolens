@@ -68,6 +68,7 @@ from app.platform.cache.scope import is_publicly_cacheable, public_cache_control
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
+from app.modules.catalog.features.service import lock_catalog_rows_for_write
 from app.modules.catalog.ownership import (
     require_transfer_admin,
     transfer_dataset_owner,
@@ -375,6 +376,21 @@ async def update_dataset_metadata(
         list(dataset.tile_columns) if dataset.tile_columns is not None else None
     )
 
+    if owner_id is not None:
+        # Before the metadata update, so its visibility and audience checks
+        # see the new owner. Locked in house order, as update_user_metadata
+        # would lock them.
+        await lock_catalog_rows_for_write(
+            db, dataset, with_raster_asset="is_dem" in meta.model_fields_set
+        )
+        await transfer_dataset_owner(
+            db,
+            dataset,
+            owner_id,
+            actor=user,
+            ip_address=request.client.host if request.client else None,
+        )
+
     # feat(#1070): advisory warnings from the metadata chokepoint, e.g. a
     # visibility/status change exposing inherited keywords beyond the
     # analysis source's audience. Attached to the response below.
@@ -404,15 +420,6 @@ async def update_dataset_metadata(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=msg,
         )
-    if owner_id is not None:
-        await transfer_dataset_owner(
-            db,
-            dataset,
-            owner_id,
-            actor=user,
-            ip_address=request.client.host if request.client else None,
-        )
-
     # A transfer has its own audit row, so a body naming only owner_id is
     # not also a metadata edit.
     if meta.model_fields_set != {"owner_id"}:

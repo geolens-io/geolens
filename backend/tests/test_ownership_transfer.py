@@ -510,3 +510,35 @@ async def test_dataset_transfer_waits_for_a_vrt_regeneration(
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "dataset_busy"
     assert await _dataset_owner(test_db_session, dataset_id) == uuid.UUID(owner_id)
+
+
+async def test_a_combined_visibility_change_is_judged_with_the_new_owner(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    admin_auth_header: dict,
+    people: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.modules.catalog.maps.service as maps_service
+
+    _, owner_id = people["owner"]
+    _, target_id = people["target"]
+    dataset_id = await _private_dataset(test_db_session, owner_id)
+    judged_owners: list[uuid.UUID | None] = []
+    original = maps_service.find_maps_broken_by_dataset_visibility
+
+    async def recording(*args, **kwargs):
+        judged_owners.append(kwargs["owner_id"])
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        maps_service, "find_maps_broken_by_dataset_visibility", recording
+    )
+
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"owner_id": target_id, "visibility": "internal"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert judged_owners == [uuid.UUID(target_id)]
