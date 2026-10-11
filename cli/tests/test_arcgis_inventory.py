@@ -534,6 +534,27 @@ def test_search_folder_survives_a_failed_detail_read(run):
     assert _rows(_report(result))[A1]["folder"] == {"id": FOLDER, "title": "Apps"}
 
 
+def test_detail_folder_replaces_a_stale_search_folder(run):
+    listing = load("search_page1.json")["results"][0] | {"ownerFolder": "stale"}
+    detail = {
+        k: v for k, v in load("item_detail_rich.json").items() if k != "ownerFolder"
+    }
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert _rows(_report(result))[A1]["folder"] is None
+
+
 def test_detail_type_keywords_are_redacted(run):
     detail = load("item_detail_rich.json") | {
         "typeKeywords": ["Data", "token=abc123SECRET"]

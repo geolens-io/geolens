@@ -1379,7 +1379,13 @@ def _collect_details(
                     )
                 row["url"] = out.url
                 row["layers"] = _service_layers(row["type"], out.url)
-            if out.folder_id and not row["folder"]:
+            # The user-scope listing names the folder it read; an organization
+            # search can be stale, so the item's own record wins there.
+            if out.read and inv.scope["mode"] == "org":
+                row["folder"] = (
+                    {"id": out.folder_id, "title": None} if out.folder_id else None
+                )
+            elif out.folder_id and not row["folder"]:
                 row["folder"] = {"id": out.folder_id, "title": None}
             if out.groups is not None:
                 row["groups"] = out.groups
