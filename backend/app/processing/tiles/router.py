@@ -318,6 +318,8 @@ _DTYPE_MAX = {
     "float64": 1.0,
 }
 
+_FLOAT_DTYPES = frozenset({"float32", "float64"})
+
 _WEB_MERCATOR_EQUATOR_RESOLUTION_M = 156543.03392804097
 _DEFAULT_RASTER_MAXZOOM = 18
 _MAX_RASTER_MAXZOOM = 22
@@ -481,7 +483,7 @@ _ALLOWED_COLORMAPS: frozenset[str] = frozenset(
     {"gray", "viridis", "inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"}
 )
 
-# Accepted stretch strategies. minmax (default) keeps the dtype-based rescale;
+# Accepted stretch strategies. minmax (default) keeps the default rescale;
 # percentile/stddev compute a stats-based rescale from Titiler band statistics
 # (RASTER-STRETCH-01/02). Single-band scope; multi-band is Future RASTER-STRETCH-03.
 _ALLOWED_STRETCH: frozenset[str] = frozenset({"minmax", "percentile", "stddev"})
@@ -597,6 +599,21 @@ def _apply_stretch_rescale(render_params: str, rescale_parts: list[str]) -> str:
     """Replace any existing ``rescale=`` fragments in render_params with rescale_parts."""
     kept = [p for p in render_params.split("&") if p and not p.startswith("rescale=")]
     return "&".join(kept + rescale_parts)
+
+
+def _data_range_rescale(bands: list[dict], n_bands: int) -> list[str]:
+    """Return ``rescale=min,max`` fragments over each band's data range.
+
+    Empty when any of the first ``n_bands`` has no usable range, so the caller
+    keeps the dtype rescale for every band rather than mixing the two.
+    """
+    parts: list[str] = []
+    for b in bands[:n_bands]:
+        lo, hi = b.get("min"), b.get("max")
+        if lo is None or hi is None or not (lo < hi):
+            return []
+        parts.append(f"rescale={round(lo, 4)},{round(hi, 4)}")
+    return parts if len(parts) == n_bands else []
 
 
 def _require_tile_tenant_context() -> str | None:
@@ -969,6 +986,17 @@ async def raster_auth_check(
         render_params = "&".join(parts)
     else:
         render_params = _titiler_render_params(meta.band_count, meta.dtype)
+        if (meta.dtype or "").lower() in _FLOAT_DTYPES:
+            # The dtype rescale of 0..1 collapses elevation-like floats to
+            # black and white; stretch over the data range instead. The default
+            # percentiles share the cache entry a later percentile request reads.
+            bands = await _fetch_band_statistics(open_path, 2.0, 98.0)
+            bc = meta.band_count or 1
+            rescale_parts = _data_range_rescale(
+                bands or [], min(bc, 3) if bc >= 3 else 1
+            )
+            if rescale_parts:
+                render_params = _apply_stretch_rescale(render_params, rescale_parts)
 
     return Response(
         status_code=status.HTTP_200_OK,
@@ -1049,7 +1077,8 @@ async def raster_tile_proxy(
     ``stretch`` chooses how pixel values map to the output range. ``minmax``
     keeps the range the dataset already implies: the recorded per-band minimum
     and maximum for a raster imported from a remote source that published
-    statistics, a range derived from the data type for most others, and no
+    statistics, the data range read from band statistics for floating-point
+    data, a range derived from the data type for other integer data, and no
     rescale parameter for 8-bit data, which needs none. ``percentile`` and
     ``stddev`` instead derive a range from band statistics read at request
     time, for up to three bands. A digital elevation model ignores the
@@ -1194,7 +1223,7 @@ async def raster_tile_proxy(
             else f"colormap_name={colormap_name}"
         )
 
-    # minmax keeps the dtype-based rescale already in render_params;
+    # minmax keeps the default rescale already in render_params;
     # percentile/stddev override it from Titiler band statistics, one fragment
     # per band up to three. Falls back to minmax when stats are missing.
     if stretch and stretch != "minmax" and not render_params.startswith("algorithm="):

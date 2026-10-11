@@ -5963,7 +5963,8 @@ export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError 
  * ``stretch`` chooses how pixel values map to the output range. ``minmax``
  * keeps the range the dataset already implies: the recorded per-band minimum
  * and maximum for a raster imported from a remote source that published
- * statistics, a range derived from the data type for most others, and no
+ * statistics, the data range read from band statistics for floating-point
+ * data, a range derived from the data type for other integer data, and no
  * rescale parameter for 8-bit data, which needs none. ``percentile`` and
  * ``stddev`` instead derive a range from band statistics read at request
  * time, for up to three bands. A digital elevation model ignores the
