@@ -200,8 +200,9 @@ _CREDENTIAL_NAME_PARTS = (
     "customparameters",
 )
 _CREDENTIAL_NAME_EXACT = frozenset({"sig", "auth", "pwd"})
-_URL_PARAM = re.compile(r"([?&;#])([^=&;\s\"'#]+)=([^&;#\s]+)")
-_URL_SHAPED = re.compile(r"(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE)
+_URL_PARAM = re.compile(r"(^|[?&;#])([^=&;?/\s\"'#]+)=([^&;#\s]+)")
+# A key that is a URL or an assignment holds text to scrub, not a bare name.
+_COMPOUND_KEY = re.compile(r"(?:[a-z][a-z0-9+.-]*:)?//|[=&?]", re.IGNORECASE)
 _URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
 _ITEM_ID = re.compile(r"[0-9a-f]{32}")
 _SAFE_FILENAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
@@ -274,7 +275,7 @@ def redact_json(value: Any, redact: Redactor) -> Any:
             if (
                 isinstance(source, dict)
                 and isinstance(key, str)
-                and not _URL_SHAPED.match(key)
+                and not _COMPOUND_KEY.search(key)
                 and _is_credential_name(key)
             ):
                 out: Any = "[REDACTED]"

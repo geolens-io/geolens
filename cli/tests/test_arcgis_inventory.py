@@ -2606,3 +2606,22 @@ def test_storymap_web_map_resource_with_a_non_string_item_is_an_error(run):
     result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
     assert result.exit_code == 1
     assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
+
+
+def test_assignment_shaped_keys_are_scrubbed_and_their_subtrees_kept():
+    data = {
+        "token=abc123KEY": {"n": 1},
+        "a=1&secret=abc123KEY": {"n": 2},
+        "https://x.example/?token=abc123KEY": {"n": 3},
+        "plain": {"n": 4},
+        "token": {"n": 5},
+    }
+    cleaned = inventory.redact_json(data, inventory.Redactor())
+    assert "abc123KEY" not in json.dumps(cleaned)
+    assert cleaned == {
+        "token=[REDACTED]": {"n": 1},
+        "a=1&secret=[REDACTED]": {"n": 2},
+        "https://x.example/?token=[REDACTED]": {"n": 3},
+        "plain": {"n": 4},
+        "token": "[REDACTED]",
+    }
