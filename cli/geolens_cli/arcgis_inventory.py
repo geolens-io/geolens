@@ -64,7 +64,7 @@ _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 _TOKEN_REQUIRED = 499
 _TOKEN_INVALID = 498
 _TOKEN_CHARS = re.compile(r"[\x21-\x7e]+")
-_CREDENTIAL_PARAM = re.compile(r"((?:token|password)=)[^&\s\"']+", re.IGNORECASE)
+_CREDENTIAL_PARAM = re.compile(r"((?:token|password)=)[^&;#\s\"']+", re.IGNORECASE)
 # ArcGIS Online hosted services: services.arcgis.com, services1.arcgis.com,
 # services-eu1.arcgis.com, and the same forms for tiles.
 _ARCGIS_ONLINE_HOSTED = re.compile(r"(services|tiles)(-[a-z]+)?\d*\.arcgis\.com")

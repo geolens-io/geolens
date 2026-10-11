@@ -2569,3 +2569,10 @@ def test_ordinary_names_survive(name):
     }
     cleaned = inventory.redact_json(data, inventory.Redactor())
     assert cleaned == data
+
+
+def test_redactor_keeps_what_follows_a_credential_value():
+    redact = inventory.Redactor()
+    assert redact("https://s.example/q?token=abc;f=json#top") == (
+        "https://s.example/q?token=[REDACTED];f=json#top"
+    )
