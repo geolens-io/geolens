@@ -260,7 +260,7 @@ def redact_json(value: Any, redact: Redactor) -> Any:
             else:
                 out = _scrub_text(item, redact) if isinstance(item, str) else item
             if isinstance(source, dict):
-                target[redact(key) if isinstance(key, str) else key] = out
+                target[_scrub_text(key, redact) if isinstance(key, str) else key] = out
             else:
                 target.append(out)
     return root
@@ -1498,7 +1498,7 @@ def _collect_dependencies(
             return "error"
         if sidecar_dir is not None and not lenient:
             out.saved = _write_sidecar(sidecar_dir, row, data, client._redact, out)
-        if row["type"] == _WEB_MAP_TYPE and not _is_web_map(data):
+        if is_map and not _is_web_map(data):
             message = f"{path} is not a web map configuration"
             out.errors.append(
                 _error_row(row["id"], "item_data", PortalError(message, kind="invalid"))

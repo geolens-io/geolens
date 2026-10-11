@@ -2288,3 +2288,20 @@ def test_enterprise_foreign_hosts_are_not_called_internal(url, expected):
         "org_id": None,
     }
     assert inventory._external_by_url(url, portal) is expected
+
+
+def test_credentials_in_object_keys_are_scrubbed():
+    cleaned = inventory.redact_json(
+        {"https://s.example/q?apiKey=abc123KEY": 1}, inventory.Redactor()
+    )
+    assert "abc123KEY" not in json.dumps(cleaned)
+
+
+def test_web_scene_without_a_base_map_is_a_read_failure(run):
+    item_id = "7f" * 16
+    routes = _one_item(
+        item_id, "Web Scene", data={"operationalLayers": [{"itemId": A1}]}
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
