@@ -796,12 +796,11 @@ def _classification(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]
     }
 
 
-def _listed_folder(item: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Ids stay raw: they are request path segments, never free text."""
+def _listed_folder(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any] | None:
     folder_id = item.get("ownerFolder")
     if not isinstance(folder_id, str) or not folder_id:
         return None
-    return {"id": folder_id, "title": None}
+    return {"id": redact(folder_id), "title": None}
 
 
 def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
@@ -827,7 +826,7 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
         **_classification(item, redact),
         "dependencies_status": dependencies_status,
         **_metadata(item, redact),
-        "folder": _listed_folder(item),
+        "folder": _listed_folder(item, redact),
         "groups": None,
         "owner_full_name": None,
         "owner_email": None,
@@ -929,7 +928,9 @@ def _list_items(
                             continue
                         fid = str(f["id"])
                         if isinstance(f.get("title"), str):
-                            inv.folder_titles[fid] = client._redact(f["title"])
+                            inv.folder_titles[client._redact(fid)] = client._redact(
+                                f["title"]
+                            )
                         listings.append(
                             (f"{path}/{quote(fid, safe='')}", {}, "items", fid)
                         )
@@ -1339,7 +1340,7 @@ def _item_groups(data: Mapping[str, Any], redact: Redactor) -> list[dict[str, An
             if not isinstance(group, dict) or not group.get("id"):
                 continue
             access = group.get("access")
-            group_id = str(group["id"])
+            group_id = redact(str(group["id"]))
             groups.setdefault(
                 group_id,
                 {
@@ -1474,7 +1475,9 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
                 folders = data.get("folders")
                 for f in folders if isinstance(folders, list) else []:
                     if isinstance(f, dict) and f.get("id") and f.get("title"):
-                        out.folders[str(f["id"])] = client._redact(str(f["title"]))
+                        out.folders[client._redact(str(f["id"]))] = client._redact(
+                            str(f["title"])
+                        )
         return out
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -1566,7 +1569,7 @@ def run_inventory(
         for raw, folder_id in _list_items(client, inv, max_items):
             row = _item_row(raw, client._redact)
             if folder_id:
-                row["folder"] = {"id": folder_id, "title": None}
+                row["folder"] = {"id": client._redact(folder_id), "title": None}
             inv.items.append(row)
     except PortalError as exc:
         inv.abort = exc

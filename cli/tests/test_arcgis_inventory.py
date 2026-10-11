@@ -613,11 +613,11 @@ def test_owner_lookups_use_the_raw_username_even_when_it_contains_a_secret(run):
     assert portal.requests_to(f"community/users/{USER}")
 
 
-def test_folder_listing_uses_the_raw_folder_id_even_when_it_contains_a_secret(run):
+def test_folder_listing_requests_the_raw_id_but_the_report_redacts_it(run):
     portal = FakePortal(portal_routes())
     result, _ = run(portal, "--scope", "user", token="f0f0")
-    assert _rows(_report(result))[C1]["folder"]["id"] == FOLDER
     assert portal.requests_to(f"content/users/{USER}/{FOLDER}")
+    assert "f0f0" not in result.stdout
 
 
 def test_detail_type_keywords_are_redacted(run):
