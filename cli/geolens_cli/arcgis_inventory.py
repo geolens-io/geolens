@@ -1287,6 +1287,8 @@ class _Details:
     read: bool = False
     fields: dict[str, Any] = field(default_factory=dict)
     type_keywords: list[Any] | None = None
+    owner: str | None = None
+    access: str | None = None
     folder_id: str | None = None
     url: str | None = None
     groups: list[dict[str, Any]] | None = None
@@ -1360,6 +1362,8 @@ def _collect_details(
                 folder = data.get("ownerFolder")
                 out.folder_id = _text(folder, client._redact)
                 out.url = _item_url(data, client._redact)
+                out.owner = _text(data.get("owner"), client._redact)
+                out.access = _text(data.get("access"), client._redact)
             else:
                 out.groups = _item_groups(data, client._redact)
         return out
@@ -1370,6 +1374,8 @@ def _collect_details(
         for row, out in zip(inv.items, pool.map(fetch, inv.items), strict=False):
             if out.read:
                 row.update(out.fields)
+                row["owner"] = out.owner or row["owner"]
+                row["sharing"]["access"] = out.access or row["sharing"]["access"]
                 if out.type_keywords is not None:
                     row.update(
                         _classification(

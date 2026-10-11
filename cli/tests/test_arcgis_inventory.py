@@ -555,6 +555,28 @@ def test_detail_folder_replaces_a_stale_search_folder(run):
     assert _rows(_report(result))[A1]["folder"] is None
 
 
+def test_detail_owner_and_access_replace_stale_search_values(run):
+    listing = load("search_page1.json")["results"][0] | {"owner": "old_owner"}
+    detail = load("item_detail_rich.json") | {"access": "public"}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    portal = FakePortal(routes)
+    result, _ = run(portal, "--scope", "org")
+    row = _rows(_report(result))[A1]
+    assert (row["owner"], row["sharing"]["access"]) == (USER, "public")
+    assert portal.requests_to("community/users/old_owner") == []
+
+
 def test_detail_type_keywords_are_redacted(run):
     detail = load("item_detail_rich.json") | {
         "typeKeywords": ["Data", "token=abc123SECRET"]
