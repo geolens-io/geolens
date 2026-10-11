@@ -25,7 +25,7 @@ from app.modules.catalog.maps.service import (
     terrain_dataset_ids_visible_to,
 )
 from app.platform.catalog_locks import bump_publication_version_on
-from app.platform.extensions import get_permission_extension
+from app.platform.extensions import get_catalog_port, get_permission_extension
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import ACTIVE_RUN_STATUSES
 
@@ -85,6 +85,24 @@ async def _locked_owner(db: AsyncSession, owned: Any) -> uuid.UUID | None:
     return owned.created_by
 
 
+async def _dataset_busy(db: AsyncSession, dataset_id: uuid.UUID) -> bool:
+    vrt_generation = get_catalog_port().vrt_generation_orm_class()
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(
+                    DatasetRefreshRun.dataset_id == dataset_id,
+                    DatasetRefreshRun.status.in_(ACTIVE_RUN_STATUSES),
+                )
+                | exists().where(
+                    vrt_generation.vrt_dataset_id == dataset_id,
+                    vrt_generation.status.in_(("pending", "running")),
+                )
+            )
+        )
+    )
+
+
 def _transfer_details(
     previous: uuid.UUID | None, new_owner: Identity
 ) -> dict[str, str | None]:
@@ -107,30 +125,24 @@ async def transfer_dataset_owner(
     Call after the dataset's catalog rows are locked. A transfer to the
     current owner changes nothing, vets nothing and writes no row. Raises 422
     for a target that is unknown, inactive or lacks ``upload``, and 409 while
-    a refresh or re-upload run is active. Does not commit.
+    a refresh, re-upload or VRT regeneration is pending or running. Does not
+    commit.
     """
     record = dataset.record
     previous = await _locked_owner(db, record)
     if previous == owner_id:
         return
     new_owner = await _vet_new_owner(db, owner_id, UPLOAD)
-    # A replacement or refresh admitted under the previous owner would
-    # publish into the new owner's dataset after the transfer.
-    if await db.scalar(
-        select(
-            exists().where(
-                DatasetRefreshRun.dataset_id == dataset.id,
-                DatasetRefreshRun.status.in_(ACTIVE_RUN_STATUSES),
-            )
-        )
-    ):
+    # A refresh, re-upload or VRT regeneration admitted under the previous
+    # owner would publish into the new owner's dataset after the transfer.
+    if await _dataset_busy(db, dataset.id):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "dataset_busy",
                 "message": (
-                    "A refresh or re-upload is running for this dataset. "
-                    "Wait for it to finish or cancel it, then transfer."
+                    "A refresh, re-upload or VRT regeneration is running for "
+                    "this dataset. Wait for it to finish, then transfer."
                 ),
             },
         )

@@ -21,6 +21,7 @@ from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map
 from app.platform.refresh.models import DatasetRefreshRun
+from app.processing.raster.models import VrtGeneration
 from tests.factories import create_dataset, create_map_via_api, create_user
 
 pytestmark = pytest.mark.anyio
@@ -487,3 +488,25 @@ async def test_a_repeated_transfer_succeeds_after_the_owner_is_deactivated(
             path, json={"owner_id": owner_id}, headers=admin_auth_header
         )
         assert resp.status_code == 200, f"{path}: {resp.text}"
+
+
+async def test_dataset_transfer_waits_for_a_vrt_regeneration(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    admin_auth_header: dict,
+    people: dict,
+) -> None:
+    _, owner_id = people["owner"]
+    _, target_id = people["target"]
+    dataset_id = await _private_dataset(test_db_session, owner_id)
+    test_db_session.add(VrtGeneration(vrt_dataset_id=dataset_id, status="pending"))
+    await test_db_session.commit()
+
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"owner_id": target_id},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "dataset_busy"
+    assert await _dataset_owner(test_db_session, dataset_id) == uuid.UUID(owner_id)
