@@ -329,6 +329,7 @@ class TestRasterColormapProxy:
         assert len(self._stats_titiler_calls) == 1  # attempted once
         tile_url = self._tile_titiler_calls[0]
         assert "rescale=0,65535" in tile_url, tile_url  # original rescale preserved
+        assert "no-store" in resp.headers["cache-control"]
 
     async def test_float_default_stretch_uses_the_data_range(self, client):
         self._auth_render_params = "rescale=0,1.0"

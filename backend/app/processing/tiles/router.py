@@ -1271,6 +1271,7 @@ async def raster_tile_proxy(
                 stretch=stretch,
                 dataset_id=str(dataset_id),
             )
+            cache_status = "private"
     elif auth_resp.headers.get(_DATA_RANGE_HEADER):
         # Default bounds share the cache entry a percentile request reads.
         bands = await _fetch_band_statistics(open_path, 2.0, 98.0)
