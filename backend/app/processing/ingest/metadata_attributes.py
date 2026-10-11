@@ -258,8 +258,11 @@ async def apply_source_field_labels(
     )
     for am in result.scalars().all():
         label = labels[am.field_name]
-        if label.get("alias"):
-            am.title = label["alias"]
+        # An alias that only restates the automatic title stays automatic, so a
+        # later column rename still moves it.
+        alias = label.get("alias")
+        if alias and alias != _humanize_column_name(am.field_name):
+            am.title = alias
         if label.get("description"):
             am.description = label["description"]
     await session.flush()

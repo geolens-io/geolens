@@ -324,3 +324,23 @@ class TestRenamingAColumn:
         attrs = await _attrs(test_db_session, dataset_id)
         assert attrs["residents"].title == "Residents"
         assert attrs["nickname"].title == "Label"
+
+    async def test_an_alias_that_restates_the_automatic_title_still_follows(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        from app.modules.catalog.layers.service import rename_column
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset_with_attributes(test_db_session, created_by=admin_id)
+        dataset_id = ds.id
+        await apply_source_field_labels(
+            test_db_session,
+            dataset_id,
+            {"field_labels": {"pop_2020": {"alias": "Pop 2020"}}},
+        )
+
+        await rename_column(test_db_session, ds, "pop_2020", "residents")
+        await test_db_session.commit()
+
+        attrs = await _attrs(test_db_session, dataset_id)
+        assert attrs["residents"].title == "Residents"
