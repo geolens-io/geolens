@@ -1587,6 +1587,16 @@ def _collect_dependencies(
                 stop.set()
                 out.auth = exc
                 return None
+            if exc.kind == "redirect":
+                # A file item's data is a download, which is never followed.
+                if lenient:
+                    return "not_applicable"
+                exc = client._error(
+                    f"{path} answered with a redirect (HTTP {exc.http_status}); "
+                    "redirects are refused, so this item's data was not read.",
+                    kind="redirect",
+                    http_status=exc.http_status,
+                )
             # An app registered only by URL has no data; a web map always has
             # a configuration, so an empty one is a failed read.
             not_json_ok = lenient or row["type"] in _NON_JSON_TYPES
