@@ -97,7 +97,8 @@ async def patch_map_endpoint(
         actor_roles=await get_user_roles(db, user),
         capability=EDIT_METADATA,
     )
-    await _refuse_hidden_datasets(db, map_id, new_owner)
+    if new_owner.id != map_obj.created_by:
+        await _refuse_hidden_datasets(db, map_id, new_owner)
     await transfer_map_owner(
         db,
         map_obj,

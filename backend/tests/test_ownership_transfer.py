@@ -440,3 +440,32 @@ async def test_map_transfer_needs_the_new_owner_to_read_its_datasets(
     )
     assert resp.status_code == 200, resp.text
     assert [layer["dataset_id"] for layer in resp.json()["layers"]] == [str(dataset_id)]
+
+
+async def test_map_transfer_to_the_current_owner_skips_the_dataset_check(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    admin_auth_header: dict,
+    people: dict,
+) -> None:
+    owner_headers, owner_id = people["owner"]
+    _, peer_id = people["peer"]
+    dataset_id = await _private_dataset(test_db_session, owner_id)
+    map_id = uuid.UUID((await create_map_via_api(client, owner_headers))["id"])
+    added = await client.post(
+        f"/maps/{map_id}/layers",
+        json={"dataset_id": str(dataset_id)},
+        headers=owner_headers,
+    )
+    assert added.status_code == 201, added.text
+    # The map's owner can no longer read the layer's dataset.
+    moved = await client.patch(
+        f"/datasets/{dataset_id}", json={"owner_id": peer_id}, headers=admin_auth_header
+    )
+    assert moved.status_code == 200, moved.text
+
+    resp = await client.patch(
+        f"/maps/{map_id}", json={"owner_id": owner_id}, headers=admin_auth_header
+    )
+    assert resp.status_code == 200, resp.text
+    assert await _transfer_rows(test_db_session, "map.transfer_owner", map_id) == []
