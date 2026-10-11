@@ -54,11 +54,14 @@ and releases use semantic versioning.
   email, and the groups it is shared with; `--no-groups` skips the group
   reads. With `-o`, each web map's and app's configuration is saved under
   `webmaps/` and `apps/` with mode 0600, after every credential-like key and
-  string is masked. StoryMap, Hub, Notebook and Web Scene items are now read,
-  hosted views, file-backed layers and survey forms record the item they come
-  from, and every dependency says whether it is `external` to the
-  organization. `--read-all-item-data` scans the remaining items for item
-  references. v2 only adds fields, so v1 readers keep working. (#2888, #2904)
+  string is masked. StoryMap, Hub, Notebook and Web Scene items are now read.
+  A hosted view records its source service, a hosted layer the file it was
+  published from and a survey form its results service, and every dependency
+  says whether it is `external` to the organization. `--read-all-item-data`
+  scans the remaining items for item references. A script that reads only an
+  item's `id`, `type`, `title` and `class` keeps working, but a reader that
+  validates against the v1 schema rejects a v2 report and needs updating.
+  (#2888, #2904)
 - `geolens arcgis plan <arcgis-inventory.json>` turns an inventory into an
   editable migration plan, `arcgis-migration-plan.json`. It reads only the
   inventory and contacts nothing. Each item gets a default action
@@ -95,9 +98,10 @@ and releases use semantic versioning.
   restore the session for a transient reason, a toast says so and offers
   "Try again". (#2891)
 - With `ENV_ONLY_CONFIG=true` the Auth tab lets admins add, edit and delete
-  SSO providers, which the API already allowed. The login rate limit no longer
-  falls back to 5 a minute in env-only mode, where nothing warmed its cache.
-  (#2892)
+  SSO providers, which the API already allowed. While its settings cache is
+  cold, the login rate limit uses `LOGIN_RATE_LIMIT` instead of a fixed 5 a
+  minute. Nothing warms that cache in env-only mode, so an environment value
+  was never enforced there. (#2892)
 - The sign-in page shows "Need access? Contact a GeoLens administrator." only
   while sign-up is closed. (#2869)
 - The maintenance commands in `RUNBOOK.md` and the scripts' usage text call
