@@ -577,6 +577,34 @@ def test_detail_owner_and_access_replace_stale_search_values(run):
     assert portal.requests_to("community/users/old_owner") == []
 
 
+def test_detail_title_replaces_a_stale_search_title(run):
+    listing = load("search_page1.json")["results"][0] | {"title": "Old name"}
+    detail = load("item_detail_rich.json") | {"title": "New name"}
+    routes = portal_routes(
+        {
+            "search": {
+                "total": 1,
+                "start": 1,
+                "num": 100,
+                "nextStart": -1,
+                "results": [listing],
+            },
+            f"content/items/{A1}": detail,
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert _rows(_report(result))[A1]["title"] == "New name"
+
+
+def test_detail_reads_in_small_windows_give_the_same_report(run, monkeypatch):
+    baseline, _ = run(FakePortal(_rich_routes()), "--scope", "org")
+    monkeypatch.setattr(inventory, "_DETAIL_WINDOW", 2)
+    windowed, _ = run(
+        FakePortal(_rich_routes()), "--scope", "org", "--concurrency", "4"
+    )
+    assert _report(windowed)["items"] == _report(baseline)["items"]
+
+
 def test_detail_type_keywords_are_redacted(run):
     detail = load("item_detail_rich.json") | {
         "typeKeywords": ["Data", "token=abc123SECRET"]

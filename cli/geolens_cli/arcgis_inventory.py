@@ -812,8 +812,8 @@ def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
     return {
         "id": str(item.get("id") or ""),
         "type": item_type,
-        "title": str(item.get("title") or ""),
-        "owner": str(item.get("owner") or ""),
+        "title": redact(str(item.get("title") or "")),
+        "owner": redact(str(item.get("owner") or "")),
         "sharing": {"access": str(item.get("access") or "private"), "groups": None},
         "size_bytes": size
         if isinstance(size, int) and not isinstance(size, bool) and size >= 0
@@ -1280,17 +1280,39 @@ def _collect_dependencies(
             )
 
 
+# Row fields the item's own record decides, over a possibly stale search result.
+_DETAIL_KEYS = (
+    "size_bytes",
+    "created",
+    "modified",
+    "url",
+    "type_keywords",
+    "class",
+    "reason",
+    "retirement",
+    "hosted",
+    "snippet",
+    "description",
+    "tags",
+    "access_information",
+    "license_info",
+    "extent",
+    "thumbnail",
+    "spatial_reference",
+    "culture",
+    "layers",
+)
+# Kept from the search result when the item's record leaves them blank.
+_DETAIL_REQUIRED_KEYS = ("title", "owner")
+# Size of the window of item reads in flight and awaiting their merge.
+_DETAIL_WINDOW = 64
+
+
 @dataclass
 class _Details:
     """What one item's metadata reads produced, reduced to small values."""
 
-    read: bool = False
-    fields: dict[str, Any] = field(default_factory=dict)
-    type_keywords: list[Any] | None = None
-    owner: str | None = None
-    access: str | None = None
-    folder_id: str | None = None
-    url: str | None = None
+    fresh: dict[str, Any] | None = None
     groups: list[dict[str, Any]] | None = None
     errors: list[dict[str, Any]] = field(default_factory=list)
     auth: PortalError | None = None
@@ -1355,54 +1377,46 @@ def _collect_details(
                 out.errors.append(_error_row(row["id"], phase, exc))
                 continue
             if phase == "item_details":
-                out.read = True
-                out.fields = _metadata(data, client._redact)
-                keywords = data.get("typeKeywords")
-                out.type_keywords = keywords if isinstance(keywords, list) else None
-                folder = data.get("ownerFolder")
-                out.folder_id = _text(folder, client._redact)
-                out.url = _item_url(data, client._redact)
-                out.owner = _text(data.get("owner"), client._redact)
-                out.access = _text(data.get("access"), client._redact)
+                out.fresh = _item_row(
+                    {**data, "id": row["id"], "type": row["type"]}, client._redact
+                )
             else:
                 out.groups = _item_groups(data, client._redact)
         return out
 
-    # Each result is merged as it arrives, so finished descriptions are not
-    # held beside the rows they replace.
+    # Reads run a window at a time and each result is merged as it arrives,
+    # so finished descriptions are not held beside the rows they replace.
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        for row, out in zip(inv.items, pool.map(fetch, inv.items), strict=False):
-            if out.read:
-                row.update(out.fields)
-                row["owner"] = out.owner or row["owner"]
-                row["sharing"]["access"] = out.access or row["sharing"]["access"]
-                if out.type_keywords is not None:
-                    row.update(
-                        _classification(
-                            {"type": row["type"], "typeKeywords": out.type_keywords},
-                            client._redact,
-                        )
-                    )
-                row["url"] = out.url
-                row["layers"] = _service_layers(row["type"], out.url)
-            # The user-scope listing names the folder it read; an organization
-            # search can be stale, so the item's own record wins there.
-            if out.read and inv.scope["mode"] == "org":
-                row["folder"] = (
-                    {"id": out.folder_id, "title": None} if out.folder_id else None
-                )
-            elif out.folder_id and not row["folder"]:
-                row["folder"] = {"id": out.folder_id, "title": None}
-            if out.groups is not None:
-                row["groups"] = out.groups
-                row["sharing"]["groups"] = [g["id"] for g in out.groups]
-            inv.errors.extend(out.errors)
-            if out.auth is not None:
-                inv.abort = inv.abort or out.auth
+        for start in range(0, len(inv.items), _DETAIL_WINDOW):
+            rows = inv.items[start : start + _DETAIL_WINDOW]
+            for row, out in zip(rows, pool.map(fetch, rows), strict=True):
+                _merge_details(inv, row, out)
     for row in inv.items:
         folder = row["folder"]
         if folder and folder["title"] is None:
             folder["title"] = inv.folder_titles.get(folder["id"])
+
+
+def _merge_details(inv: Inventory, row: dict[str, Any], out: _Details) -> None:
+    fresh = out.fresh
+    if fresh is not None:
+        for key in _DETAIL_KEYS:
+            row[key] = fresh[key]
+        for key in _DETAIL_REQUIRED_KEYS:
+            row[key] = fresh[key] or row[key]
+        row["sharing"]["access"] = fresh["sharing"]["access"]
+        # The user-scope listing names the folder it read; an organization
+        # search can be stale, so the item's own record wins there.
+        if inv.scope["mode"] == "org":
+            row["folder"] = fresh["folder"]
+        elif fresh["folder"] and not row["folder"]:
+            row["folder"] = fresh["folder"]
+    if out.groups is not None:
+        row["groups"] = out.groups
+        row["sharing"]["groups"] = [g["id"] for g in out.groups]
+    inv.errors.extend(out.errors)
+    if out.auth is not None:
+        inv.abort = inv.abort or out.auth
 
 
 @dataclass
