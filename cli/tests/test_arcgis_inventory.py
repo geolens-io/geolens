@@ -2593,3 +2593,16 @@ def test_url_shaped_keys_are_scrubbed_but_keep_their_subtree():
         "https://x.example/plain": {"layers": [3]},
         "token": "[REDACTED]",
     }
+
+
+def test_storymap_web_map_resource_with_a_non_string_item_is_an_error(run):
+    item_id = "7f" * 16
+    data = {
+        "root": "n1",
+        "nodes": {"n1": {"type": "webmap", "data": {"map": "r1"}}},
+        "resources": {"r1": {"type": "webmap", "data": {"itemId": 7}}},
+    }
+    routes = _one_item(item_id, "StoryMap", data=data)
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
