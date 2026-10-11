@@ -14,6 +14,7 @@ import threading
 import time
 import tracemalloc
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -42,6 +43,8 @@ from .arcgis_fake import (
     EMPTY_GROUPS,
     FOLDER,
     HYDRANTS,
+    NO_RELATED,
+    ORG_ID,
     PORTAL,
     USER,
     FakePortal,
@@ -691,6 +694,7 @@ def test_token_rejected_while_reading_an_owner_stops_the_remaining_owner_reads(r
     for row in listed:
         routes[f"content/items/{row['id']}"] = row
         routes[f"content/items/{row['id']}/groups"] = EMPTY_GROUPS
+        routes[f"content/items/{row['id']}/relatedItems"] = NO_RELATED
     portal = FakePortal(routes)
     result, _ = run(portal, "--scope", "org")
     assert result.exit_code == 3
@@ -749,6 +753,406 @@ def test_anonymous_run_does_not_read_groups(run):
     assert {r["groups"] for r in _report(result)["items"]} == {None}
 
 
+APPS = Path(__file__).parent / "fixtures" / "arcgis_inventory" / "apps"
+WEB_MAP_ID = "5ab764f0576f4da99c912a51be4d1f2f"
+LAYER_ITEM_ID = "1d7a9d7d0b9a456abf99237bc7713ec2"
+OTHER_ORG = "OtherOrg0000000"
+
+
+def _app_data(name: str) -> dict:
+    return json.loads((APPS / name).read_text(encoding="utf-8"))
+
+
+def _one_item(item_id, item_type, keywords=(), *, data=None, **routes):
+    """Routes for an organization holding the one item *item_id*."""
+    listing = {
+        "id": item_id,
+        "owner": USER,
+        "created": 1767225600000,
+        "modified": 1767312000000,
+        "title": f"A {item_type}",
+        "type": item_type,
+        "typeKeywords": list(keywords),
+        "url": None,
+        "access": "org",
+        "size": 1,
+    }
+    extra = {
+        "search": {
+            "total": 1,
+            "start": 1,
+            "num": 100,
+            "nextStart": -1,
+            "results": [listing],
+        },
+        f"content/items/{item_id}": listing,
+        f"content/items/{item_id}/groups": EMPTY_GROUPS,
+        f"content/items/{item_id}/relatedItems": NO_RELATED,
+    }
+    if data is not None:
+        extra[f"content/items/{item_id}/data"] = data
+    return portal_routes({**extra, **routes})
+
+
+def _links(report: dict, from_id: str) -> set[tuple]:
+    return {
+        (d["to_id"], d["role"], d["layer_id"])
+        for d in report["dependencies"]
+        if d["from_id"] == from_id
+    }
+
+
+@pytest.mark.parametrize(
+    ("item_type", "fixture", "expected"),
+    [
+        (
+            "StoryMap",
+            "storymap.json",
+            {(WEB_MAP_ID, "app_web_map", None)},
+        ),
+        (
+            "Hub Page",
+            "hub_page.json",
+            {("9a84de21f4f3498aa3b6ee244c53c46e", "app_embedded_item", None)},
+        ),
+        ("Hub Site Application", "hub_site.json", set()),
+        (
+            "Dashboard",
+            "dashboard.json",
+            {
+                ("7bb5aa91db874da2a93b7fe62ce5f6d1", "app_web_map", None),
+                ("4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f", "app_web_map", None),
+            },
+        ),
+    ],
+)
+def test_app_formats_yield_their_embedded_items(run, item_type, fixture, expected):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, item_type, data=_app_data(fixture))
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+    assert _rows(report)[item_id]["dependencies_status"] == "parsed"
+    assert _links(report, item_id) == expected
+
+
+def test_experience_child_layers_are_data_sources_of_other_items(run):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, "Web Experience", data=_app_data("experience.json"))
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    links = _links(_report(result), item_id)
+    assert (WEB_MAP_ID, "app_web_map", None) in links
+    assert {(i, r) for i, r, _ in links if r == "app_data_source"} == {
+        (LAYER_ITEM_ID, "app_data_source")
+    }
+    assert len([1 for _, r, _ in links if r == "app_data_source"]) == 2
+
+
+def test_web_scene_layers_are_dependencies(run):
+    result, _ = run(FakePortal(portal_routes()), "--scope", "org")
+    assert (A1, "operational_layer", "scene-layer-0") in _links(_report(result), D5)
+
+
+def test_non_json_app_data_is_unparsed_not_an_error(run):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, "Notebook", data=(200, b"PK\x03\x04 not json"))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    report = _report(result)
+    assert result.exit_code == 0
+    assert _rows(report)[item_id]["dependencies_status"] == "unparsed"
+    assert _read_errors(report) == [] and report["errors"] == []
+
+
+def test_malformed_app_data_is_a_read_failure(run):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, "Dashboard", data=(200, b"{truncated"))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
+
+
+def test_failed_related_read_counts_the_item_as_failed(run):
+    routes = portal_routes(
+        {f"content/items/{A2}/relatedItems": (403, {"error": {"code": 403}})}
+    )
+    report = _report(run(FakePortal(routes), "--scope", "org")[0])
+    ids = {e["item_id"] for e in report["errors"]}
+    assert A2 in ids
+    assert report["counts"]["failed"] == len(ids)
+
+
+def test_sidecar_is_saved_even_when_the_configuration_is_rejected(run, tmp_path):
+    item_id = "7f" * 16
+    routes = _one_item(
+        item_id, "Web Experience", data={"dataSources": {"k": {"type": 5}}}
+    )
+    out = tmp_path / "out"
+    result, _ = run(FakePortal(routes), "--scope", "org", "-o", str(out))
+    rows = {
+        r["id"]: r
+        for r in json.loads((out / "arcgis-inventory.json").read_text())["items"]
+    }
+    assert rows[item_id]["dependencies_status"] == "error"
+    assert rows[item_id]["data_saved"] is True
+    assert (out / "apps" / f"{item_id}.json").exists()
+
+
+def test_view_parent_and_published_from_come_from_related_items(run):
+    source_file = "8a" * 16
+
+    def related(seen):
+        wanted = (seen.params["relationshipType"], seen.params["direction"])
+        if wanted == ("Service2Service", "reverse"):
+            return {
+                "relatedItems": [
+                    {"id": A1, "type": "Feature Service", "title": "Parcels"}
+                ]
+            }
+        if wanted == ("Service2Data", "forward"):
+            return {
+                "relatedItems": [
+                    {"id": source_file, "type": "CSV", "title": "parcels.csv"}
+                ]
+            }
+        return NO_RELATED
+
+    routes = portal_routes(
+        {
+            f"content/items/{A2}/relatedItems": related,
+            f"content/items/{A1}/relatedItems": related,
+            f"content/items/{source_file}": {"id": source_file, "orgId": ORG_ID},
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+    parent = [d for d in report["dependencies"] if d["role"] == "view_parent"]
+    assert [
+        (d["from_id"], d["to_id"], d["resolved"], d["external"]) for d in parent
+    ] == [(A2, A1, True, False)]
+    published = [d for d in report["dependencies"] if d["role"] == "published_from"]
+    assert [
+        (d["from_id"], d["to_id"], d["resolved"], d["external"]) for d in published
+    ] == [(A1, source_file, False, False)]
+
+
+def test_survey_results_service_is_a_dependency_of_a_form(run):
+    form = "7f" * 16
+    routes = _one_item(
+        form,
+        "Form",
+        **{
+            f"content/items/{form}/relatedItems": {
+                "relatedItems": [
+                    {"id": A1, "type": "Feature Service", "title": "Results"}
+                ]
+            }
+        },
+    )
+    portal = FakePortal(routes)
+    result, _ = run(portal, "--scope", "org")
+    assert _links(_report(result), form) == {(A1, "survey_results", None)}
+    assert portal.requests_to(item_data_path(form)) == []
+
+
+def test_failed_related_read_is_an_error_row_and_the_run_continues(run):
+    routes = portal_routes(
+        {f"content/items/{A2}/relatedItems": (403, {"error": {"code": 403}})}
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+    assert _rows(report)[A2]["dependencies_status"] == "error"
+    assert [(e["item_id"], e["phase"]) for e in _read_errors(report)] == [
+        (A2, "related")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("org", "url", "expected"),
+    [
+        (OTHER_ORG, None, True),
+        (ORG_ID, None, False),
+        (
+            None,
+            "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/Roads/FeatureServer/0",
+            True,
+        ),
+        (
+            None,
+            f"https://services1.arcgis.com/{ORG_ID}/arcgis/rest/services/Roads/FeatureServer/0",
+            False,
+        ),
+        (
+            None,
+            f"https://tiles1.arcgis.com/tiles/{ORG_ID}/arcgis/rest/services/Aerial/MapServer",
+            False,
+        ),
+        (None, "https://gis.example.gov/arcgis/rest/services/Roads/MapServer/2", True),
+        (None, None, None),
+    ],
+)
+def test_external_dependencies_follow_org_id_then_url(run, org, url, expected):
+    stranger = "9c" * 16
+    web_map = load("item_web_map_data.json")
+    layer = {"id": "x", "layerType": "ArcGISFeatureLayer", "itemId": stranger}
+    if url:
+        layer["url"] = url
+    web_map = {"operationalLayers": [layer], "baseMap": {"baseMapLayers": []}}
+    detail = {"id": stranger, "orgId": org} if org else (404, {"error": {"code": 404}})
+    routes = _one_item(
+        B1, "Web Map", data=web_map, **{f"content/items/{stranger}": detail}
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    deps = _report(result)["dependencies"]
+    assert [d["external"] for d in deps] == [expected]
+
+
+def test_each_unresolved_item_is_read_once(run):
+    stranger = "9c" * 16
+    layers = [
+        {"id": str(n), "layerType": "ArcGISFeatureLayer", "itemId": stranger}
+        for n in range(3)
+    ]
+    data = {"operationalLayers": layers, "baseMap": {"baseMapLayers": []}}
+    portal = FakePortal(
+        _one_item(
+            B1, "Web Map", data=data, **{f"content/items/{stranger}": {"orgId": ORG_ID}}
+        )
+    )
+    run(portal, "--scope", "org")
+    assert len(portal.requests_to(f"content/items/{stranger}")) == 1
+
+
+def test_secret_named_keys_are_replaced_at_any_depth():
+    redact = inventory.Redactor()
+    redact.add("hunter22")
+    data = {
+        "a": {
+            "b": {"c": {"apiKey": "k1", "Client_Secret": "k2", "keep": "x hunter22 y"}}
+        },
+        "list": [{"credentials": {"user": "u"}}, {"token": None}],
+        "token": "t",
+    }
+    cleaned = inventory.redact_json(data, redact)
+    assert cleaned["a"]["b"]["c"] == {
+        "apiKey": "[REDACTED]",
+        "Client_Secret": "[REDACTED]",
+        "keep": "x [REDACTED] y",
+    }
+    assert cleaned["list"] == [{"credentials": "[REDACTED]"}, {"token": "[REDACTED]"}]
+    assert cleaned["token"] == "[REDACTED]"
+    assert data["token"] == "t"
+
+
+def test_redact_json_survives_nesting_deeper_than_the_recursion_limit():
+    data: dict = {}
+    node = data
+    for _ in range(5000):
+        node["n"] = {}
+        node = node["n"]
+    node["password"] = "p"
+    cleaned = inventory.redact_json(data, inventory.Redactor())
+    for _ in range(5000):
+        cleaned = cleaned["n"]
+    assert cleaned == {"password": "[REDACTED]"}
+
+
+def test_sidecars_hold_redacted_data_at_mode_0600(run, tmp_path):
+    web_map = {
+        "operationalLayers": [
+            {
+                "id": "l",
+                "layerType": "ArcGISFeatureLayer",
+                "itemId": A1,
+                "url": "https://x/FeatureServer/0",
+                "credentials": {"deep": {"token": "sidecar-secret-1"}},
+            }
+        ],
+        "baseMap": {"baseMapLayers": []},
+        "note": "see https://x/y?token=sidecar-secret-2",
+    }
+    app = {"values": {"webmap": B1}, "apiKey": "sidecar-secret-3"}
+    routes = portal_routes({item_data_path(B1): web_map, item_data_path(C1): app})
+    out = tmp_path / "out"
+    result, _ = run(
+        FakePortal(routes), "--scope", "org", "-o", str(out), json_mode=False
+    )
+    assert result.exit_code == 0, result.output
+    saved = out / "webmaps" / f"{B1}.json"
+    sidecar_app = out / "apps" / f"{C1}.json"
+    for path in (saved, sidecar_app):
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert "sidecar-secret" not in path.read_text()
+    assert "[REDACTED]" in saved.read_text()
+    assert json.loads(sidecar_app.read_text())["apiKey"] == "[REDACTED]"
+    report = json.loads((out / "arcgis-inventory.json").read_text())
+    rows = _rows(report)
+    assert (rows[B1]["data_saved"], rows[C1]["data_saved"], rows[A1]["data_saved"]) == (
+        True,
+        True,
+        False,
+    )
+    assert not (out / "webmaps" / f"{B2}.json").exists()
+
+
+def test_no_sidecars_without_an_output_directory(run, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result, _ = run(FakePortal(portal_routes()), "--scope", "org")
+    assert {r["data_saved"] for r in _report(result)["items"]} == {False}
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_read_all_item_data_scans_other_items_for_item_ids(run):
+    item = "7f" * 16
+    data = {
+        "layout": {"webmap": B1, "children": [{"type": "WebMap", "id": A1}]},
+        "id": "5" * 32,
+    }
+    routes = _one_item(item, "Solution", data=data)
+    portal = FakePortal(routes)
+    plain, _ = run(portal, "--scope", "org")
+    assert portal.requests_to(item_data_path(item)) == []
+    portal = FakePortal(routes)
+    result, _ = run(portal, "--scope", "org", "--read-all-item-data")
+    report = _report(result)
+    assert _links(report, item) == {
+        (B1, "referenced_item", None),
+        (A1, "referenced_item", None),
+    }
+    assert _rows(report)[item]["dependencies_status"] == "parsed"
+
+
+def test_read_all_item_data_tolerates_files_and_missing_data(run):
+    item = "7f" * 16
+    routes = _one_item(item, "CSV", data=(200, b"a,b\n1,2\n"))
+    result, _ = run(
+        FakePortal(routes), "--scope", "org", "--read-all-item-data", "--strict"
+    )
+    assert result.exit_code == 0
+    assert _rows(_report(result))[item]["dependencies_status"] == "unparsed"
+
+
+def test_dependency_text_from_the_portal_is_redacted(run):
+    secret = "dep-secret-9"
+    data = {
+        "operationalLayers": [
+            {
+                "id": f"layer-{secret}",
+                "layerType": "ArcGISFeatureLayer",
+                "title": f"Roads password={secret}",
+                "url": f"https://gis.example.gov/{secret}/MapServer/0",
+            }
+        ],
+        "baseMap": {"baseMapLayers": []},
+    }
+    routes = _one_item(B1, "Web Map", data=data)
+    result, _ = run(FakePortal(routes), "--scope", "org", token=secret)
+    assert secret not in result.stdout
+
+
+def test_markdown_dependencies_show_the_external_column(run):
+    result, _ = run(FakePortal(portal_routes()), "--scope", "org", json_mode=False)
+    assert "| External |" in result.stdout
+
+
 def test_markdown_lists_folders_and_owners(run):
     result, _ = run(FakePortal(_rich_routes()), "--scope", "org", json_mode=False)
     assert "## Folders" in result.stdout
@@ -788,7 +1192,8 @@ def test_web_map_and_app_dependencies(run):
     assert rows[B1]["dependencies_status"] == "parsed"
     assert rows[C1]["dependencies_status"] == "parsed"
     assert rows[C2]["dependencies_status"] == "unparsed"
-    assert rows[A1]["dependencies_status"] == "not_applicable"
+    assert rows[A1]["dependencies_status"] == "parsed"
+    assert rows[D3]["dependencies_status"] == "not_applicable"
 
 
 def test_item_data_is_read_only_for_maps_and_apps(run):
@@ -796,7 +1201,7 @@ def test_item_data_is_read_only_for_maps_and_apps(run):
     portal = FakePortal(portal_routes())
     run(portal, "--scope", "org")
     fetched = {s.path for s in portal.seen if s.path.endswith("/data")}
-    assert fetched == {item_data_path(i) for i in (B1, B2, C1, C2, C3)}
+    assert fetched == {item_data_path(i) for i in (B1, B2, C1, C2, C3, D5)}
     assert all(s.method == "GET" for s in portal.seen)
 
 
@@ -1792,6 +2197,7 @@ def test_failed_item_reads_do_not_retain_their_responses(monkeypatch):
     for row in rows:
         routes[f"content/items/{row['id']}"] = row
         routes[f"content/items/{row['id']}/groups"] = EMPTY_GROUPS
+        routes[f"content/items/{row['id']}/relatedItems"] = NO_RELATED
     client = inventory.PortalClient(
         PORTAL,
         opener=FakePortal(routes),
@@ -1842,3 +2248,193 @@ def test_registered_group_layer_keeps_its_own_reference(run):
         (A1, "ArcGISFeatureLayer", "parcels_0", 1),
         (A2, None, "view_0", 2),
     ]
+
+
+@pytest.mark.parametrize(
+    ("raw", "gone"),
+    [
+        ("https://s.example/q?apiKey=abc123KEY&f=json", "abc123KEY"),
+        ("https://s.example/q?f=json&client_secret=abc123KEY", "abc123KEY"),
+        ("https://user:abc123KEY@s.example/x", "abc123KEY"),
+    ],
+)
+def test_sidecar_strings_lose_url_embedded_credentials(raw, gone):
+    cleaned = inventory.redact_json({"layers": [{"url": raw}]}, inventory.Redactor())
+    assert gone not in json.dumps(cleaned)
+    assert "s.example" in json.dumps(cleaned)
+
+
+def test_empty_web_scene_data_is_a_read_failure(run):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, "Web Scene", data=(200, b""))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://other.example.com/arcgis/rest/services/Hosted/Roads/FeatureServer/0",
+            None,
+        ),
+        ("https://other.example.com/arcgis/rest/services/Roads/MapServer", None),
+        ("https://gis.example.org/arcgis/rest/services/Roads/MapServer", False),
+    ],
+)
+def test_enterprise_foreign_hosts_are_not_called_internal(url, expected):
+    portal = {
+        "url": "https://gis.example.org/portal",
+        "kind": "enterprise",
+        "org_id": None,
+    }
+    assert inventory._external_by_url(url, portal) is expected
+
+
+def test_credentials_in_object_keys_are_scrubbed():
+    cleaned = inventory.redact_json(
+        {"https://s.example/q?apiKey=abc123KEY": 1}, inventory.Redactor()
+    )
+    assert "abc123KEY" not in json.dumps(cleaned)
+
+
+def test_web_scene_without_a_base_map_is_a_read_failure(run):
+    item_id = "7f" * 16
+    routes = _one_item(
+        item_id, "Web Scene", data={"operationalLayers": [{"itemId": A1}]}
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
+
+
+def test_compound_credential_keys_are_replaced():
+    cleaned = inventory.redact_json(
+        {
+            "a": {
+                "accessToken": "t1",
+                "bearer_token": "t2",
+                "refreshToken": "t3",
+                "title": "ok",
+            }
+        },
+        inventory.Redactor(),
+    )
+    assert cleaned == {
+        "a": {
+            "accessToken": "[REDACTED]",
+            "bearer_token": "[REDACTED]",
+            "refreshToken": "[REDACTED]",
+            "title": "ok",
+        }
+    }
+
+
+def test_empty_storymap_data_is_a_read_failure(run):
+    item_id = "7f" * 16
+    routes = _one_item(item_id, "StoryMap", data=(200, b""))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    assert result.exit_code == 1
+    assert _rows(_report(result))[item_id]["dependencies_status"] == "error"
+
+
+def test_read_all_does_not_hide_a_failed_related_read(run):
+    routes = portal_routes(
+        {
+            f"content/items/{A2}/relatedItems": (403, {"error": {"code": 403}}),
+            item_data_path(A2): {"layers": []},
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--read-all-item-data")
+    assert _rows(_report(result))[A2]["dependencies_status"] == "error"
+
+
+def test_private_key_fields_are_replaced():
+    cleaned = inventory.redact_json(
+        {"privateKey": "k", "passphrase": "p"}, inventory.Redactor()
+    )
+    assert cleaned == {"privateKey": "[REDACTED]", "passphrase": "[REDACTED]"}
+
+
+def test_server_failure_while_resolving_an_external_item_is_an_error_row(run):
+    stranger = "9c" * 16
+    layers = [{"id": "x", "layerType": "ArcGISFeatureLayer", "itemId": stranger}]
+    data = {"operationalLayers": layers, "baseMap": {"baseMapLayers": []}}
+    routes = _one_item(
+        B1,
+        "Web Map",
+        data=data,
+        **{f"content/items/{stranger}": (500, {"error": {"code": 500}})},
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+    errors = _report(result)["errors"]
+    assert result.exit_code == 1
+    assert [(e["item_id"], e["phase"]) for e in errors] == [(stranger, "external")]
+
+
+def test_read_all_keeps_a_view_with_a_good_parent_parsed(run):
+    related = {"relatedItems": [{"id": A1, "type": "Feature Service", "title": "P"}]}
+    routes = portal_routes(
+        {
+            f"content/items/{A2}/relatedItems": related,
+            item_data_path(A2): {"layers": []},
+        }
+    )
+    result, _ = run(FakePortal(routes), "--scope", "org", "--read-all-item-data")
+    assert _rows(_report(result))[A2]["dependencies_status"] == "parsed"
+
+
+def test_authorization_fields_are_replaced():
+    cleaned = inventory.redact_json(
+        {"headers": {"Authorization": "Bearer x", "X-Bearer": "y"}},
+        inventory.Redactor(),
+    )
+    assert cleaned == {
+        "headers": {"Authorization": "[REDACTED]", "X-Bearer": "[REDACTED]"}
+    }
+
+
+def test_web_scene_ground_layers_are_dependencies(run):
+    item_id = "7f" * 16
+    scene = {
+        "operationalLayers": [],
+        "baseMap": {"baseMapLayers": []},
+        "ground": {
+            "layers": [
+                {
+                    "id": "elev",
+                    "layerType": "ArcGISTiledElevationServiceLayer",
+                    "itemId": A1,
+                }
+            ]
+        },
+    }
+    routes = _one_item(item_id, "Web Scene", data=scene)
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    assert (A1, "basemap", "elev") in _links(_report(result), item_id)
+
+
+def test_related_response_without_a_list_is_an_error_row(run):
+    routes = portal_routes({f"content/items/{A2}/relatedItems": {"total": 0}})
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+    assert _rows(report)[A2]["dependencies_status"] == "error"
+    assert [(e["item_id"], e["phase"]) for e in _read_errors(report)] == [
+        (A2, "related")
+    ]
+
+
+def test_web_scene_base_map_elevation_layers_are_dependencies(run):
+    item_id = "7f" * 16
+    scene = {
+        "operationalLayers": [],
+        "baseMap": {
+            "baseMapLayers": [],
+            "groundLayers": [{"id": "g", "itemId": A1}],
+            "elevationLayers": [{"id": "e", "itemId": A2}],
+        },
+    }
+    routes = _one_item(item_id, "Web Scene", data=scene)
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    links = _links(_report(result), item_id)
+    assert {(A1, "basemap", "g"), (A2, "basemap", "e")} <= links

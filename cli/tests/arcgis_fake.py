@@ -22,6 +22,7 @@ C1, C2, C3 = "c1" * 16, "c2" * 16, "c3" * 16
 D1, D2, D3, D4, D5 = ("d1" * 16, "d2" * 16, "d3" * 16, "d4" * 16, "d5" * 16)
 HYDRANTS = "e9" * 16
 EMPTY_GROUPS = {"admin": [], "member": [], "other": []}
+NO_RELATED = {"total": 0, "relatedItems": []}
 
 
 def load(name: str) -> dict:
@@ -129,12 +130,14 @@ def portal_routes(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         f"content/items/{C1}/data": load("item_wab_app_data.json"),
         f"content/items/{C2}/data": {"values": {"title": "Our county"}},
         f"content/items/{C3}/data": load("item_dashboard_data.json"),
+        f"content/items/{D5}/data": load("item_web_scene_data.json"),
         "generateToken": load("generate_token_ok.json"),
     }
     for name in ("search_page1.json", "search_page2.json"):
         for listed in load(name)["results"]:
             routes[f"content/items/{listed['id']}"] = listed
             routes[f"content/items/{listed['id']}/groups"] = EMPTY_GROUPS
+            routes[f"content/items/{listed['id']}/relatedItems"] = NO_RELATED
     routes[f"community/users/{USER}"] = {
         "username": USER,
         "fullName": "Gina Admin",

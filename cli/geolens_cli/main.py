@@ -2174,6 +2174,14 @@ def arcgis_inventory(
             "--allow-insecure-http", help="Allow an http:// portal URL (test portals)"
         ),
     ] = False,
+    read_all_item_data: Annotated[
+        bool,
+        typer.Option(
+            "--read-all-item-data",
+            help="Read the data of every other item too, and record the item ids "
+            "a JSON document names (one request per item)",
+        ),
+    ] = False,
     groups: Annotated[
         bool,
         typer.Option(
@@ -2205,6 +2213,7 @@ def arcgis_inventory(
         allow_insecure_http=allow_insecure_http,
         json_mode=state.json_mode,
         read_groups=groups,
+        read_all_item_data=read_all_item_data,
     )
     code = _arcgis_inventory.run_cli(state.output, options)
     if code:

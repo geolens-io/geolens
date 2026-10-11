@@ -163,6 +163,17 @@ signed-in account read them, and the group list holds only the groups that
 account can see. An anonymous run skips group reads. `--no-groups` skips the one-request-per-item
 group read.
 
+With `-o`, each Web Map's configuration is also saved as `webmaps/<item id>.json`
+and each app's as `apps/<item id>.json` (StoryMaps, Experiences, Dashboards,
+Hub sites and pages, Web Scenes, Notebooks and the other app types), mode 0600.
+Before writing, the value under any key named like a credential (`token`,
+`password`, `apiKey`, `secret`, `clientSecret`, `credentials`,
+`customParameters`) becomes `[REDACTED]` at any depth. `--read-all-item-data`
+reads every other item's data too and records any item ids it names. Hosted
+views, hosted layers and Survey123 forms also record their source service,
+source file or results service. A dependency is marked `external` when it
+belongs to another organization, such as Living Atlas content.
+
 - `--scope user` (the default) lists the signed-in user's folders;
   `--scope org` lists every organization item the account can see. Without
   credentials only `--scope org` works, and it lists public items.

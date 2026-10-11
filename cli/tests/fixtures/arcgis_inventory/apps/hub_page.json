@@ -1,0 +1,118 @@
+{
+  "folderId": null,
+  "source": "PAGEEDITOR",
+  "values": {
+    "layout": {
+      "sections": [
+        {
+          "containment": "fluid",
+          "isFooter": false,
+          "rows": [
+            {
+              "cards": [
+                {
+                  "component": {
+                    "name": "app-card",
+                    "settings": {
+                      "cardId": "cyt2vl5w3",
+                      "height": "800",
+                      "hideOnMobile": true,
+                      "itemId": "9a84de21f4f3498aa3b6ee244c53c46e",
+                      "itemTitle": "",
+                      "itemUrl": "",
+                      "mobileHeight": 500,
+                      "mobileItem": "",
+                      "mobileItemId": "",
+                      "mobileItemTitle": "",
+                      "mobileScrollable": true,
+                      "mobileShareable": true,
+                      "mobileShareableOnHover": true,
+                      "mobileTitle": "",
+                      "page": "",
+                      "scrollable": false,
+                      "shareable": false,
+                      "shareableOnHover": true,
+                      "title": ""
+                    }
+                  },
+                  "width": 12
+                }
+              ]
+            }
+          ],
+          "style": {
+            "background": {
+              "color": "transparent",
+              "display": {},
+              "isFile": false,
+              "isUrl": true,
+              "position": {
+                "x": "center",
+                "y": "center"
+              },
+              "state": "",
+              "transparency": 0
+            },
+            "color": "#4c4c4c",
+            "rowLayout": "wide"
+          },
+          "visibility": {
+            "access": "default",
+            "groups": []
+          }
+        },
+        {
+          "containment": "fixed",
+          "isFooter": false,
+          "rows": [
+            {
+              "cards": [
+                {
+                  "component": {
+                    "name": "spacer-card",
+                    "settings": {
+                      "cardId": "coa0eyov7",
+                      "height": 100
+                    }
+                  },
+                  "settings": {
+                    "height": 100
+                  },
+                  "width": 12
+                }
+              ]
+            }
+          ],
+          "style": {
+            "background": {
+              "color": "#0079c1",
+              "display": {},
+              "isFile": false,
+              "isUrl": true,
+              "position": {
+                "x": "center",
+                "y": "center"
+              },
+              "state": "",
+              "transparency": 0
+            },
+            "color": "#fafafa",
+            "rowLayout": "box"
+          },
+          "visibility": {
+            "access": "default",
+            "groups": []
+          }
+        }
+      ]
+    },
+    "sites": [
+      {
+        "id": "0bc9f1e7b1f847568ccdaacc478c7a6c",
+        "title": "Highlands Buildout-Out Update Portal"
+      }
+    ],
+    "updatedAt": "2024-10-29T16:46:57.337Z",
+    "updatedBy": "NJHWPPC"
+  }
+}

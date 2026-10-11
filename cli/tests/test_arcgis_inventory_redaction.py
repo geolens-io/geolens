@@ -58,7 +58,11 @@ def invoke(runner, monkeypatch, tmp_path, caplog):
             env=env,
         )
         texts = [result.stdout, result.stderr, caplog.text]
-        texts += [p.read_text() for p in sorted(out.glob("*"))] if out.exists() else []
+        texts += (
+            [p.read_text() for p in sorted(out.rglob("*")) if p.is_file()]
+            if out.exists()
+            else []
+        )
         if result.exception is not None and not isinstance(
             result.exception, SystemExit
         ):
