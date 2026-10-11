@@ -1,5 +1,7 @@
 """Field aliases and descriptions a remote service publishes for its attributes."""
 
+from app.platform.column_names import stored_column_names
+
 _MAX_ALIAS = 500
 _MAX_DESCRIPTION = 2000
 
@@ -12,18 +14,24 @@ def _clean(value: object, limit: int) -> str | None:
 
 
 def arcgis_field_labels(meta: dict) -> dict[str, dict[str, str]]:
-    """Per source field name, the alias and description that add information.
+    """Per stored column name, the alias and description that add information.
 
-    An alias equal to the field name says nothing, so it is left out and the
-    humanized title stays.
+    Names are resolved over the whole field list, because a rename that
+    collides with another column depends on the columns around it. An alias
+    equal to the field name says nothing, so it is left out and the humanized
+    title stays.
     """
+    fields = [
+        field
+        for field in meta.get("fields") or []
+        if isinstance(field, dict)
+        and isinstance(field.get("name"), str)
+        and field.get("type") != "esriFieldTypeGeometry"
+    ]
+    stored = stored_column_names([field["name"] for field in fields])
     labels: dict[str, dict[str, str]] = {}
-    for field in meta.get("fields") or []:
-        if not isinstance(field, dict):
-            continue
-        name = field.get("name")
-        if not isinstance(name, str) or field.get("type") == "esriFieldTypeGeometry":
-            continue
+    for field, column in zip(fields, stored, strict=True):
+        name = field["name"]
         label: dict[str, str] = {}
         alias = _clean(field.get("alias"), _MAX_ALIAS)
         if alias is not None and alias != name:
@@ -32,5 +40,5 @@ def arcgis_field_labels(meta: dict) -> dict[str, dict[str, str]]:
         if description is not None:
             label["description"] = description
         if label:
-            labels[name] = label
+            labels[column] = label
     return labels

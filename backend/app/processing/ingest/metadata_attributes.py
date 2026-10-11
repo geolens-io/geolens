@@ -240,28 +240,24 @@ async def apply_source_field_labels(
 ) -> None:
     """Give a new dataset's attributes the alias and description its source published.
 
-    ``user_metadata["field_labels"]`` is keyed by the source field name. The alias replaces the
-    humanized title, and a description fills the empty one. Only called on a
-    first import, before any user edit exists.
+    ``user_metadata["field_labels"]`` is keyed by stored column name. The alias
+    replaces the humanized title and a description fills the empty one. Only
+    called on a first import, before any user edit exists.
     """
     labels = user_metadata.get("field_labels")
     if not labels:
         return
-    from app.platform.column_names import stored_column_names
     from app.platform.extensions import get_processing_port
 
     AttributeMetadata = get_processing_port().get_attribute_metadata_orm_class()
-    source_names = list(labels)
-    by_stored = dict(zip(stored_column_names(source_names), source_names, strict=True))
-
     result = await session.execute(
         select(AttributeMetadata).where(
             AttributeMetadata.dataset_id == dataset_id,
-            AttributeMetadata.field_name.in_(by_stored),
+            AttributeMetadata.field_name.in_(list(labels)),
         )
     )
     for am in result.scalars().all():
-        label = labels[by_stored[am.field_name]]
+        label = labels[am.field_name]
         if label.get("alias"):
             am.title = label["alias"]
         if label.get("description"):

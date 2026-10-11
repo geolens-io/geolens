@@ -43,11 +43,22 @@ _LAYER = {
 
 def test_only_an_informative_alias_or_description_is_kept() -> None:
     assert arcgis_field_labels(_LAYER) == {
-        "POP_2020": {
+        "pop_2020": {
             "alias": "Population (2020 census)",
             "description": "People counted on census day.",
         }
     }
+
+
+def test_labels_are_keyed_by_the_name_each_field_is_stored_under() -> None:
+    meta = {
+        "fields": [
+            {"name": "geom", "type": "esriFieldTypeString", "alias": "Outline"},
+            {"name": "src_geom", "type": "esriFieldTypeString"},
+        ]
+    }
+    # `geom` is reserved, so it is stored as `src_geom_2` beside the real `src_geom`.
+    assert arcgis_field_labels(meta) == {"src_geom_2": {"alias": "Outline"}}
 
 
 def test_odd_field_entries_are_ignored() -> None:
