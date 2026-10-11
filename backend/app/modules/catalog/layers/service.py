@@ -346,6 +346,9 @@ async def rename_column(
     )
     am = result.scalar_one_or_none()
     if am:
+        port = get_catalog_port()
+        if am.title == port.humanize_column_name(column_name):
+            am.title = port.humanize_column_name(new_name)
         am.field_name = new_name
 
     await session.flush()
