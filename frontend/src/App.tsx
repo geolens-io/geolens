@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Route, Navigate, Outlet } from 'react-router';
+import { Route, Navigate, Outlet, useLocation } from 'react-router';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute, AdminSettingsRoute } from '@/components/auth/AdminRoute';
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
@@ -92,6 +92,12 @@ function BannerShell() {
   );
 }
 
+// Search lives on the home page; keep the query so old /search?q= links still work.
+function SearchRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname: '/', search, hash }} replace />;
+}
+
 export const appRoutes = (
   <Route element={<RootLayout />}>
     <Route element={<BannerShell />}>
@@ -106,7 +112,7 @@ export const appRoutes = (
       {/* FRONT-01: LandingFirstGuard redirects anonymous visitors to /login
           when the landing_first flag is ON; otherwise renders SearchPage. */}
       <Route index element={<LandingFirstGuard />} errorElement={<RouteErrorBoundary />} />
-      <Route path="search" element={<Navigate to="/" replace />} />
+      <Route path="search" element={<SearchRedirect />} />
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections" element={<CollectionsPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections/:id" element={<CollectionDetailPage />} errorElement={<RouteErrorBoundary />} />
