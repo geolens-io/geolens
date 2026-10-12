@@ -1369,3 +1369,20 @@ async def test_feed_render_holds_no_pooled_connection(
 
     assert resp.status_code == 200
     assert seen["during"] == baseline
+
+
+@pytest.mark.anyio
+async def test_feed_cache_keeps_only_the_most_recent_keys(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    from app.modules.catalog.datasets.api import feed_response
+    from app.platform.cache import get_cache
+
+    monkeypatch.setattr(feed_response, "_FEED_CACHE_MAX_KEYS", 2)
+    monkeypatch.setattr(feed_response, "_stored_keys", feed_response.OrderedDict())
+    for offset in range(3):
+        await client.get("/datasets/dcat/", params={"limit": 1, "offset": offset})
+
+    keys = list(feed_response._stored_keys)
+    assert len(keys) == 2
+    assert await get_cache().get(keys[0]) is not None

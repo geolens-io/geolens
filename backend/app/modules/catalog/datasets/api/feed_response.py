@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -18,8 +19,11 @@ from app.platform.cache import (
 FEED_CACHE_TTL = 30  # seconds, matches the search cache
 
 # Distinct limit/offset values mint distinct keys, so oversized bodies skip the
-# cache rather than letting a crawler fill an in-process store with them.
+# cache and only the most recent keys stay stored: at most
+# _FEED_CACHE_MAX_KEYS * _FEED_CACHE_MAX_BYTES (128 MiB) per process.
 _FEED_CACHE_MAX_BYTES = 4 * 1024 * 1024
+_FEED_CACHE_MAX_KEYS = 32
+_stored_keys: OrderedDict[str, None] = OrderedDict()
 
 T = TypeVar("T")
 
@@ -67,7 +71,13 @@ async def serve_feed(
 
     body, size, headers = await run_in_threadpool(render)
     if cache_key is not None and size <= _FEED_CACHE_MAX_BYTES:
-        await get_cache().set(
+        cache = get_cache()
+        await cache.set(
             cache_key, {"body": body, "headers": headers}, ttl=FEED_CACHE_TTL
         )
+        _stored_keys[cache_key] = None
+        _stored_keys.move_to_end(cache_key)
+        while len(_stored_keys) > _FEED_CACHE_MAX_KEYS:
+            evicted, _ = _stored_keys.popitem(last=False)
+            await cache.delete(evicted)
     return Response(body, media_type=media_type, headers=headers)
