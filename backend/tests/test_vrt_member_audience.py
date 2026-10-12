@@ -56,7 +56,7 @@ async def _raster_auth_check(client, dataset_id):
     )
 
 
-async def test_create_refuses_a_vrt_wider_than_a_source(
+async def test_create_refuses_a_vrt_wider_than_another_users_source(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     admin_id = await _get_admin_id(test_db_session)
@@ -66,7 +66,7 @@ async def test_create_refuses_a_vrt_wider_than_a_source(
             test_db_session, created_by=admin_id, visibility="internal"
         ),
         await _create_raster_dataset(
-            test_db_session, created_by=editor_id, visibility="public"
+            test_db_session, created_by=editor_id, visibility="private"
         ),
     ]
 
@@ -250,14 +250,35 @@ async def test_regenerate_task_lets_a_removal_through(
         await _run_regeneration(monkeypatch, kwargs)
 
 
-async def test_owner_cannot_narrow_a_source_of_their_own_wider_vrt(
+async def test_an_owner_may_publish_a_mosaic_of_their_own_private_sources(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    editor_headers, editor_id = await _make_editor(client, admin_auth_header)
+    sources = [
+        await _create_raster_dataset(test_db_session, created_by=editor_id),
+        await _create_raster_dataset(test_db_session, created_by=editor_id),
+    ]
+    vrt_id = await _servable_vrt(
+        test_db_session, created_by=editor_id, visibility="public"
+    )
+    for position, src in enumerate(sources):
+        await _link_source(test_db_session, vrt_id, src, position)
+
+    create = await _create_vrt_request(client, editor_headers, sources, "public")
+    tiles = await _raster_auth_check(client, vrt_id)
+
+    assert create.status_code == 202, create.text
+    assert tiles.status_code == 200, tiles.text
+
+
+async def test_an_owner_may_narrow_a_source_of_their_own_vrt(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     editor_headers, editor_id = await _make_editor(client, admin_auth_header)
     src = await _create_raster_dataset(
         test_db_session, created_by=editor_id, visibility="public"
     )
-    vrt_id = await _create_vrt_dataset(
+    vrt_id = await _servable_vrt(
         test_db_session, created_by=editor_id, visibility="public"
     )
     await _link_source(test_db_session, vrt_id, src, 0)
@@ -265,9 +286,10 @@ async def test_owner_cannot_narrow_a_source_of_their_own_wider_vrt(
     resp = await client.patch(
         f"/datasets/{src}", json={"visibility": "private"}, headers=editor_headers
     )
+    tiles = await _raster_auth_check(client, vrt_id)
 
-    assert resp.status_code == 422, resp.text
-    assert "VRT" in resp.json()["detail"]
+    assert resp.status_code == 200, resp.text
+    assert tiles.status_code == 200, tiles.text
 
 
 async def test_another_users_vrt_stops_serving_instead_of_blocking_the_owner(
@@ -340,26 +362,43 @@ async def test_narrowing_a_member_rolls_the_vrt_publication_version(
     assert await _version() > before
 
 
-async def test_transfer_may_not_leave_a_vrt_past_its_members(
-    client: AsyncClient, admin_auth_header: dict, test_db_session
-):
+async def _owned_vrt_over_private_member(client, admin_auth_header, session):
     _, editor_id = await _make_editor(client, admin_auth_header)
     _, other_id = await _make_editor(client, admin_auth_header)
-    src = await _create_raster_dataset(test_db_session, created_by=editor_id)
-    vrt_id = await _create_vrt_dataset(test_db_session, created_by=editor_id)
-    await _link_source(test_db_session, vrt_id, src, 0)
+    src = await _create_raster_dataset(session, created_by=editor_id)
+    vrt_id = await _create_vrt_dataset(session, created_by=editor_id)
+    await _link_source(session, vrt_id, src, 0)
+    return src, vrt_id, other_id
 
-    vrt_away = await client.patch(
+
+async def test_a_vrt_transfer_checks_members_the_new_owner_does_not_own(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    _, vrt_id, other_id = await _owned_vrt_over_private_member(
+        client, admin_auth_header, test_db_session
+    )
+
+    resp = await client.patch(
         f"/datasets/{vrt_id}",
         json={"owner_id": str(other_id)},
         headers=admin_auth_header,
     )
-    member_away = await client.patch(
+
+    assert resp.status_code == 422, resp.text
+
+
+async def test_a_member_transfer_checks_the_previous_owners_vrts(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    src, _, other_id = await _owned_vrt_over_private_member(
+        client, admin_auth_header, test_db_session
+    )
+
+    resp = await client.patch(
         f"/datasets/{src}", json={"owner_id": str(other_id)}, headers=admin_auth_header
     )
 
-    assert vrt_away.status_code == 422, vrt_away.text
-    assert member_away.status_code == 422, member_away.text
+    assert resp.status_code == 422, resp.text
 
 
 async def test_transfer_with_a_widening_is_checked_as_one_change(
@@ -397,7 +436,7 @@ async def test_an_authority_whose_audience_is_stale_counts_every_member(
     vrt = RecordAudienceQuery(
         dataset_id=None,
         record_id=None,
-        owner_id=admin_id,
+        owner_id=None,
         visibility="private",
         record_status="published",
     )
@@ -442,7 +481,7 @@ async def test_an_account_the_authority_cannot_classify_counts_as_outside(
     vrt = RecordAudienceQuery(
         dataset_id=None,
         record_id=None,
-        owner_id=admin_id,
+        owner_id=None,
         visibility="private",
         record_status="published",
     )
@@ -453,7 +492,7 @@ async def test_an_account_the_authority_cannot_classify_counts_as_outside(
     ) == [src]
 
 
-async def test_transfer_checks_the_incoming_owners_vrts(
+async def test_transfer_to_the_vrt_owner_makes_the_member_their_own(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     _, editor_id = await _make_editor(client, admin_auth_header)
@@ -472,4 +511,4 @@ async def test_transfer_checks_the_incoming_owners_vrts(
         headers=admin_auth_header,
     )
 
-    assert resp.status_code == 422, resp.text
+    assert resp.status_code == 200, resp.text

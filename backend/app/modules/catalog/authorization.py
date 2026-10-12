@@ -744,17 +744,39 @@ def dataset_audience_query(dataset: Any) -> RecordAudienceQuery:
     )
 
 
+def _shares_owner(vrt: RecordAudienceQuery, member: RecordAudienceQuery) -> bool:
+    return vrt.owner_id is not None and vrt.owner_id == member.owner_id
+
+
+async def _exceeded_across_owners(
+    db: AsyncSession, pairs: Sequence[tuple[Any, Any]]
+) -> list[bool]:
+    """:func:`_audiences_exceeded` for ``(vrt, member)`` pairs, never counting a
+    member the VRT's owner also owns: publishing a mosaic of one's own data is
+    the owner's choice, as exporting it would be."""
+    checked = [
+        i for i, (vrt, member) in enumerate(pairs) if not _shares_owner(vrt, member)
+    ]
+    flags = [False] * len(pairs)
+    exceeded = await _audiences_exceeded(db, [pairs[i] for i in checked])
+    for index, flag in zip(checked, exceeded, strict=True):
+        flags[index] = flag
+    return flags
+
+
 async def vrt_members_beyond_audience(
     db: AsyncSession, member_ids: Iterable[uuid.UUID], vrt: RecordAudienceQuery
 ) -> list[uuid.UUID]:
-    """Members that somebody in ``vrt``'s audience cannot read.
+    """Members owned by someone else that somebody in ``vrt``'s audience cannot
+    read.
 
     A mosaic serves its members' pixels to everyone who can read the mosaic,
-    so each member's audience has to contain the mosaic's.
+    so each member another user owns has to have an audience containing the
+    mosaic's. ``vrt.owner_id`` is the mosaic's owner.
     """
     members = await _record_audience_queries(db, member_ids)
     ids = list(members)
-    flags = await _audiences_exceeded(db, [(vrt, members[i][0]) for i in ids])
+    flags = await _exceeded_across_owners(db, [(vrt, members[i][0]) for i in ids])
     return [dataset_id for dataset_id, flag in zip(ids, flags, strict=True) if flag]
 
 
@@ -792,10 +814,10 @@ async def check_vrt_audiences_after_change(
     """Raise 422 when a new visibility, status or owner (None keeps the current
     one) would make a VRT reach past a member it doesn't reach past now.
 
-    A VRT is compared with its members; a source with its owners' VRTs, since
-    another user's VRT may not hold the owner's dataset open (it stops serving
-    tiles instead). Only a newly exceeded member is refused, so a VRT can
-    always narrow and a source can always widen.
+    A VRT is compared with its members. A source is compared only on a
+    transfer, with the VRTs its previous owner owns, which stop sharing its
+    owner; other users' VRTs stop serving tiles instead of refusing a change.
+    Only a newly exceeded member is refused, so a VRT can always narrow.
     """
     record = dataset.record
     before = dataset_audience_query(dataset)
@@ -814,12 +836,15 @@ async def check_vrt_audiences_after_change(
         )
         pairs = [((before, q), (after, q), t) for q, t in linked.values()]
     else:
-        linked = await _record_audience_queries(
-            db, await _owner_vrt_ids(db, dataset, {before.owner_id, after.owner_id})
+        vrt_ids = (
+            []
+            if after.owner_id == before.owner_id
+            else await _owner_vrt_ids(db, dataset, before.owner_id)
         )
+        linked = await _record_audience_queries(db, vrt_ids)
         pairs = [((q, before), (q, after), t) for q, t in linked.values()]
-    then = await _audiences_exceeded(db, [pair[0] for pair in pairs])
-    now = await _audiences_exceeded(db, [pair[1] for pair in pairs])
+    then = await _exceeded_across_owners(db, [pair[0] for pair in pairs])
+    now = await _exceeded_across_owners(db, [pair[1] for pair in pairs])
     newly = sorted(
         pair[2]
         for pair, was, is_ in zip(pairs, then, now, strict=True)
@@ -836,12 +861,10 @@ async def check_vrt_audiences_after_change(
 
 
 async def _owner_vrt_ids(
-    db: AsyncSession, dataset: Any, owner_ids: set[uuid.UUID | None]
+    db: AsyncSession, dataset: Any, owner_id: uuid.UUID | None
 ) -> list[uuid.UUID]:
-    """VRTs linking ``dataset`` that belong to one of ``owner_ids``: the
-    dataset's owner, and on a transfer its incoming owner too."""
-    owners = owner_ids - {None}
-    if not owners:
+    """VRTs linking ``dataset`` that ``owner_id`` owns."""
+    if owner_id is None:
         return []
 
     from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -852,6 +875,6 @@ async def _owner_vrt_ids(
         .join(Dataset, Dataset.id == links.c.vrt_dataset_id)
         .join(Record, Record.id == Dataset.record_id)
         .where(links.c.source_dataset_id == dataset.id)
-        .where(Record.created_by.in_(owners))
+        .where(Record.created_by == owner_id)
     )
     return list(rows.scalars())
