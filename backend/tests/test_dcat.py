@@ -1386,3 +1386,49 @@ async def test_feed_cache_keeps_only_the_most_recent_keys(
     keys = list(feed_response._stored_keys)
     assert len(keys) == 2
     assert await get_cache().get(keys[0]) is not None
+
+
+@pytest.mark.anyio
+async def test_cold_feed_renders_are_capped_and_identical_ones_coalesce(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    import asyncio
+    import threading
+    import time
+
+    from app.modules.catalog.datasets.api import feed_response, router_export
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    await _create_dcat_dataset(test_db_session, created_by=admin_id, name="Render Cap")
+    monkeypatch.setattr(feed_response, "_render_slots", asyncio.Semaphore(2))
+
+    lock = threading.Lock()
+    state = {"live": 0, "peak": 0, "calls": 0}
+    real = router_export.catalog_to_dcat
+
+    def _slow(*args, **kwargs):
+        with lock:
+            state["live"] += 1
+            state["calls"] += 1
+            state["peak"] = max(state["peak"], state["live"])
+        time.sleep(0.2)
+        try:
+            return real(*args, **kwargs)
+        finally:
+            with lock:
+                state["live"] -= 1
+
+    monkeypatch.setattr(router_export, "catalog_to_dcat", _slow)
+
+    distinct = await asyncio.gather(
+        *(client.get("/datasets/dcat/", params={"offset": n}) for n in range(6))
+    )
+    assert all(r.status_code == 200 for r in distinct)
+    assert state["peak"] <= 2
+
+    state["calls"] = 0
+    same = await asyncio.gather(
+        *(client.get("/datasets/dcat/", params={"offset": 50}) for _ in range(4))
+    )
+    assert all(r.status_code == 200 for r in same)
+    assert state["calls"] == 1

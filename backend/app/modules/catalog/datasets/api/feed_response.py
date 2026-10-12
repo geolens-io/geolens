@@ -1,5 +1,6 @@
 """Catalog feed rendering off the event loop, with a short anonymous cache."""
 
+import asyncio
 import hashlib
 import json
 from collections import OrderedDict
@@ -24,6 +25,12 @@ FEED_CACHE_TTL = 30  # seconds, matches the search cache
 _FEED_CACHE_MAX_BYTES = 4 * 1024 * 1024
 _FEED_CACHE_MAX_KEYS = 32
 _stored_keys: OrderedDict[str, None] = OrderedDict()
+_in_flight: dict[str, list] = {}  # key -> [lock, waiters]
+
+# Cold renders are CPU-bound; without a cap they would all run at once in the
+# shared thread pool and starve everything else that uses it.
+_MAX_CONCURRENT_RENDERS = 2
+_render_slots = asyncio.Semaphore(_MAX_CONCURRENT_RENDERS)
 
 T = TypeVar("T")
 
@@ -57,12 +64,42 @@ async def serve_feed(
             usedforsecurity=False,
         ).hexdigest()
         cache_key = tenant_cache_key(f"catalog:feed:{name}:{digest}")
-        cached = await get_cache().get(cache_key)
-        if cached is not None:
-            return Response(
-                cached["body"], media_type=media_type, headers=cached["headers"]
-            )
+        if (hit := await _cached_response(cache_key, media_type)) is not None:
+            return hit
 
+    if cache_key is None:
+        async with _render_slots:
+            return await _render(None, load, build, media_type)
+
+    # One render per key: identical requests queue on the key's lock and find
+    # the first one's stored body.
+    entry = _in_flight.setdefault(cache_key, [asyncio.Lock(), 0])
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            if (hit := await _cached_response(cache_key, media_type)) is not None:
+                return hit
+            async with _render_slots:
+                return await _render(cache_key, load, build, media_type)
+    finally:
+        entry[1] -= 1
+        if entry[1] == 0:
+            _in_flight.pop(cache_key, None)
+
+
+async def _cached_response(cache_key: str, media_type: str) -> Response | None:
+    cached = await get_cache().get(cache_key)
+    if cached is None:
+        return None
+    return Response(cached["body"], media_type=media_type, headers=cached["headers"])
+
+
+async def _render(
+    cache_key: str | None,
+    load: Callable[[], Awaitable[T]],
+    build: Callable[[T], tuple[dict, dict[str, str]]],
+    media_type: str,
+) -> Response:
     inputs = await load()
 
     def render() -> tuple[str, int, dict[str, str]]:
