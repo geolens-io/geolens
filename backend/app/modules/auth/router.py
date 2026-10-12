@@ -89,9 +89,10 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
-# Failed sign-ins per username from every address combined. Anyone can spend
-# an account's budget, so the window is short: a lockout ends 15 minutes after
-# the failures stop, and a successful sign-in never counts.
+# Failed sign-ins per username from every address combined. Anyone can spend an
+# account's budget, so the window is short and fixed: a lockout lasts at most 15
+# minutes. A fixed window, unlike a moving one, lets a success refund its
+# reservation; the cost is up to twice the budget across one window boundary.
 _LOGIN_FAILURES = FailureThrottle("login-failures", RateLimitItemPerMinute(10, 15))
 
 
