@@ -134,13 +134,21 @@ export function useBuilderLayers(
   const layersMapIdRef = useRef<string | null>(null);
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const hasUnsavedChangesRef = useRef(false);
+  hasUnsavedChangesRef.current = hasUnsavedChanges;
   // Live camera sampled on moveend, tagged with the map it was
   // taken on. Null until the map has settled once, because a map that never
   // moved cannot have changed the view a save would store. The tag matters
   // because a direct /maps/:id navigation keeps this hook AND the MapGL
   // instance mounted: a sample from the previous map must never be judged
   // against the next map's saved view.
-  const [liveCamera, setLiveCamera] = useState<CameraSample | null>(null);
+  // The sample lives in a ref; state holds only whether it differs from the
+  // saved view (null until the first sample) so a pan or zoom that does not
+  // flip that answer does not re-render the page.
+  const liveCameraRef = useRef<CameraSample | null>(null);
+  const mapDataRef = useRef(mapData);
+  mapDataRef.current = mapData;
+  const [cameraUnsaved, setCameraUnsaved] = useState<boolean | null>(null);
   // The camera the current map was entered on, until the camera leaves it. On a
   // fresh load that is the saved view MapGL was constructed with; after in-page
   // navigation it is still the PREVIOUS map's position, because nothing
@@ -987,12 +995,13 @@ export function useBuilderLayers(
   // so this applies to a map with no stored view too: handleSave persists the
   // camera either way, so movement after entry is unsaved work on every map.
   const unsavedCamera = useCallback((): BuilderCamera | null => {
+    const liveCamera = liveCameraRef.current;
     if (!mapData || !liveCamera || liveCamera.mapId !== mapData.id) return null;
     const entry = cameraEntryRef.current;
     if (entry?.mapId === mapData.id && sameMapCamera(liveCamera.camera, entry.camera)) return null;
     if (sameMapCamera(liveCamera.camera, savedMapCamera(mapData))) return null;
     return liveCamera.camera;
-  }, [liveCamera, mapData]);
+  }, [mapData]);
 
   // Revert clears dirty state only after full layer objects and map-level state
   // match the saved baseline.
@@ -1096,7 +1105,17 @@ export function useBuilderLayers(
       if (entry?.mapId === currentMapId && !sameMapCamera(sample.camera, entry.camera)) {
         cameraEntryRef.current = null;
       }
-      setLiveCamera(sample);
+      liveCameraRef.current = sample;
+      const data = mapDataRef.current;
+      const unsaved =
+        !!data &&
+        sample.mapId === data.id &&
+        !(cameraEntryRef.current?.mapId === data.id && sameMapCamera(sample.camera, cameraEntryRef.current.camera)) &&
+        !sameMapCamera(sample.camera, savedMapCamera(data));
+      setCameraUnsaved(unsaved);
+      // A save clears the flag while the camera stays unsaved-looking, so the
+      // next pan has no flip to re-dirty it through.
+      if (unsaved && !hasUnsavedChangesRef.current) setHasUnsavedChanges(true);
     };
     map.on('moveend', handleMoveEnd);
     return () => { map.off?.('moveend', handleMoveEnd); };
@@ -1106,13 +1125,13 @@ export function useBuilderLayers(
   // and beforeunload both read hasUnsavedChanges); anything else asks for the
   // ordinary recheck, which clears the flag only if nothing else is outstanding.
   useEffect(() => {
-    if (!liveCamera) return;
+    if (cameraUnsaved === null) return;
     if (unsavedCamera()) {
       setHasUnsavedChanges(true);
       return;
     }
     requestCleanRecheck();
-  }, [liveCamera, unsavedCamera, requestCleanRecheck]);
+  }, [cameraUnsaved, unsavedCamera, requestCleanRecheck]);
 
   // Identity-stable "is this row a folder group?" lookup.
   // Reads through layersRef so callers (MapBuilderPage's memoized

@@ -14,6 +14,7 @@ vi.mock('@/api/tiles', () => ({
     scope: 'ds_abc',
     expires_in: 300,
   }),
+  getTileTokensBatch: vi.fn(),
 }));
 
 function createWrapper() {
@@ -64,5 +65,35 @@ describe('useTileToken', () => {
     if (tok?.kind === 'vector') {
       expect(tok.expires_in).toBe(300);
     }
+  });
+});
+
+describe('useTileTokens', () => {
+  const vec = (sig: string) => ({ kind: 'vector', sig, exp: 1, scope: 's', expires_in: 300 }) as const;
+
+  it('keeps existing tokens usable while a changed id set loads', async () => {
+    const { getTileTokensBatch } = await import('@/api/tiles');
+    const { useTileTokens } = await import('@/hooks/use-tile-token');
+    let release!: () => void;
+    vi.mocked(getTileTokensBatch)
+      .mockResolvedValueOnce({ tokens: { a: vec('a1'), b: vec('b1') } })
+      .mockImplementationOnce(
+        () => new Promise((resolve) => { release = () => resolve({ tokens: { a: vec('a2') } }); }),
+      );
+
+    const { result, rerender } = renderHook(({ ids }) => useTileTokens(ids), {
+      wrapper: createWrapper(),
+      initialProps: { ids: ['a', 'b'] },
+    });
+    await waitFor(() => expect(result.current[0].data?.sig).toBe('a1'));
+
+    rerender({ ids: ['a'] });
+    expect(result.current[0].data?.sig).toBe('a1');
+    expect(result.current[0].isError).toBe(false);
+
+    rerender({ ids: ['a', 'c'] });
+    expect(result.current[1].data).toBeUndefined();
+    expect(result.current[1].isError).toBe(false);
+    release();
   });
 });

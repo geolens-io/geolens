@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { getTileToken, getTileTokensBatch } from '@/api/tiles';
 import type { TileToken, TileTokenError } from '@/api/tiles';
@@ -79,6 +79,10 @@ export function useTileTokens(datasetIds: string[]) {
     queryFn: () => getTileTokensBatch(uniqueIds),
     enabled: uniqueIds.length > 0,
     staleTime: 60_000,
+    // Tokens from the previous id set stay usable while the new set loads, so
+    // removing a layer does not blank the map. They are replaced within one
+    // round trip, well inside their refresh window.
+    placeholderData: keepPreviousData,
     // GAP-004: bounded backoff retry — 3 attempts with exponential delay so a
     // transient network hiccup recovers without spamming the server.
     retry: 3,
@@ -109,10 +113,11 @@ export function useTileTokens(datasetIds: string[]) {
       // to yield {data: undefined, isError: false}, i.e. a silently blank layer.
       // Treat a missing entry after a successful load as an error so callers can
       // surface it rather than render nothing.
-      const missingAfterLoad = batchQuery.isSuccess && entry === undefined;
+      const missingAfterLoad =
+        batchQuery.isSuccess && !batchQuery.isPlaceholderData && entry === undefined;
       return {
         data: isTokenEntry ? (entry as TileToken) : undefined,
-        isLoading: batchQuery.isLoading,
+        isLoading: batchQuery.isLoading || (batchQuery.isPlaceholderData && entry === undefined),
         isError: batchQuery.isError || (!isTokenEntry && !!entry) || missingAfterLoad,
         error:
           batchQuery.error ??
@@ -123,5 +128,5 @@ export function useTileTokens(datasetIds: string[]) {
               : null),
       };
     });
-  }, [uniqueIds, batchQuery.data, batchQuery.isLoading, batchQuery.isError, batchQuery.isSuccess, batchQuery.error]);
+  }, [uniqueIds, batchQuery.data, batchQuery.isLoading, batchQuery.isError, batchQuery.isSuccess, batchQuery.isPlaceholderData, batchQuery.error]);
 }

@@ -41,7 +41,12 @@ export function useDatasetSync(datasetId: string, enabled: boolean) {
     enabled: enabled && !!datasetId,
     staleTime: 5_000,
     refetchOnWindowFocus: 'always',
-    refetchInterval: (queryState) => queryState.state.data ? 10_000 : false,
+    refetchInterval: (queryState) => {
+      const data = queryState.state.data;
+      if (!data) return false;
+      const state = data.last_occurrence?.state;
+      return state && !terminalOccurrenceStates.has(state) ? 10_000 : 60_000;
+    },
   });
 
   useEffect(() => {

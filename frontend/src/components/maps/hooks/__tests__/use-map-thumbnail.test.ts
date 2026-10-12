@@ -43,9 +43,7 @@ describe('useMapThumbnail', () => {
     expect(result.current).toBeNull();
 
     await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
-    expect(mockApiFetchBlob).toHaveBeenCalledWith('/api/maps/1/thumbnail/', {
-      cache: 'reload',
-    });
+    expect(mockApiFetchBlob).toHaveBeenCalledWith('/api/maps/1/thumbnail/');
     expect(URL.createObjectURL).toHaveBeenCalledWith(fakeBlob);
   });
 
@@ -59,8 +57,7 @@ describe('useMapThumbnail', () => {
 
     await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalled());
     expect(mockApiFetchBlob).toHaveBeenCalledWith(
-      '/api/maps/1/thumbnail/?v=2026-01-02T00%3A00%3A00Z',
-      { cache: 'reload' },
+      '/api/maps/1/thumbnail/?v=2026-01-02T00%3A00%3A00Z'
     );
   });
 
@@ -117,8 +114,7 @@ describe('useMapThumbnail', () => {
 
     await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(2));
     expect(mockApiFetchBlob).toHaveBeenLastCalledWith(
-      '/api/maps/1/thumbnail/?v=2026-01-03T00%3A00%3A00Z',
-      { cache: 'reload' },
+      '/api/maps/1/thumbnail/?v=2026-01-03T00%3A00%3A00Z'
     );
   });
 

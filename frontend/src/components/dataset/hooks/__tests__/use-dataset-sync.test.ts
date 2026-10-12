@@ -87,3 +87,24 @@ describe('useDatasetSync occurrence polling', () => {
     }
   });
 });
+
+describe('useDatasetSync poll cadence', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  async function intervalFor(state: Parameters<typeof automationWithOccurrence>[0]) {
+    mockGetDatasetSync.mockResolvedValue(automationWithOccurrence(state));
+    const { result, queryClient } = renderSyncWithClient();
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const query = (queryClient as QueryClient).getQueryCache().find({ queryKey: queryKeys.datasets.sync(datasetId) })!;
+    const refetchInterval = query.observers[0].options.refetchInterval as (q: typeof query) => number | false;
+    return refetchInterval(query);
+  }
+
+  it('polls fast while the latest occurrence is running', async () => {
+    expect(await intervalFor('admitted')).toBe(10_000);
+  });
+
+  it('polls slowly once the latest occurrence is terminal', async () => {
+    expect(await intervalFor('completed')).toBe(60_000);
+  });
+});
