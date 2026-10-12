@@ -105,7 +105,8 @@ async def _cached_response(cache_key: str, media_type: str) -> Response | None:
     cached = await get_cache().get(cache_key)
     if cached is None:
         return None
-    return Response(cached["body"], media_type=media_type, headers=cached["headers"])
+    payload = await run_in_threadpool(cached["body"].encode)
+    return Response(payload, media_type=media_type, headers=cached["headers"])
 
 
 async def _render(
