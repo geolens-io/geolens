@@ -1285,8 +1285,13 @@ async def test_anonymous_feed_is_cached_then_reflects_new_dataset_after_ttl(
     test_db_session,
     monkeypatch,
 ):
+    from app.modules.catalog.datasets.api import router_export
     from app.modules.catalog.datasets.api.feed_response import FEED_CACHE_TTL
     from app.platform.cache import memory
+
+    # Content-Language is omitted when the catalog mixes languages, and the
+    # worker's shared database may hold such rows from other tests.
+    monkeypatch.setattr(router_export, "_dcat_content_language", lambda _doc: "en")
 
     admin_id = await get_user_id(test_db_session, "admin")
     one = await _create_dcat_dataset(
