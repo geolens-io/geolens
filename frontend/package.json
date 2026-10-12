@@ -50,7 +50,7 @@
     "lucide-react": "^1.49.0",
     "maplibre-gl": "^6.5.0",
     "pmtiles": "^4.5.0",
-    "radix-ui": "^1.6.7",
+    "radix-ui": "^1.7.0",
     "react": "^19.3.0",
     "react-colorful": "^5.8.1",
     "react-dom": "^19.3.0",
