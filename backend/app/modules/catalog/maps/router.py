@@ -103,6 +103,7 @@ from app.modules.catalog.maps._router_helpers import (
     _build_layer_response,
     _build_map_response,
     _can_edit_map,
+    _is_map_owner_or_admin,
     _check_map_read_access,
     _layer_history_name,
     _layer_patch_history_actions,
@@ -401,7 +402,7 @@ async def get_map_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
-        include_notes=await _can_edit_map(map_obj, user, db),
+        include_notes=await _is_map_owner_or_admin(map_obj, user, db),
         terrain_dataset_ids=await terrain_dataset_ids_visible_to(
             db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
         ),

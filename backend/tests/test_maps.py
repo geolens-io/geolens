@@ -833,6 +833,26 @@ class TestUpdateMap:
             assert fetched.status_code == 200, fetched.text
             assert fetched.json()["notes"] == expected
 
+    async def test_owner_without_edit_permission_still_reads_notes(
+        self,
+        client: AsyncClient,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """An owner whose role can't edit maps still gets their map's notes."""
+        me = await client.get("/auth/me/", headers=viewer_auth_header)
+        map_obj = Map(
+            name=f"Owned by viewer {uuid.uuid4().hex[:6]}",
+            notes="Still mine",
+            created_by=uuid.UUID(me.json()["id"]),
+        )
+        test_db_session.add(map_obj)
+        await test_db_session.commit()
+
+        fetched = await client.get(f"/maps/{map_obj.id}", headers=viewer_auth_header)
+        assert fetched.status_code == 200, fetched.text
+        assert fetched.json()["notes"] == "Still mine"
+
     async def test_fork_keeps_notes_only_for_the_source_owner(
         self,
         client: AsyncClient,
