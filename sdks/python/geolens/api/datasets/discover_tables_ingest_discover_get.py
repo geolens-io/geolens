@@ -115,6 +115,7 @@ def sync_detailed(
     system tables. Includes geometry type, SRID, and estimated row count.
     Bounded by ``limit`` (default 1000, max 5000) so instances with
     thousands of orphan tables don't blow up the response payload.
+    Administrators only.
 
     Args:
         limit (int | Unset): Maximum number of tables to return. Capped at 5000. Default: 1000.
@@ -151,6 +152,7 @@ def sync(
     system tables. Includes geometry type, SRID, and estimated row count.
     Bounded by ``limit`` (default 1000, max 5000) so instances with
     thousands of orphan tables don't blow up the response payload.
+    Administrators only.
 
     Args:
         limit (int | Unset): Maximum number of tables to return. Capped at 5000. Default: 1000.
@@ -182,6 +184,7 @@ async def asyncio_detailed(
     system tables. Includes geometry type, SRID, and estimated row count.
     Bounded by ``limit`` (default 1000, max 5000) so instances with
     thousands of orphan tables don't blow up the response payload.
+    Administrators only.
 
     Args:
         limit (int | Unset): Maximum number of tables to return. Capped at 5000. Default: 1000.
@@ -216,6 +219,7 @@ async def asyncio(
     system tables. Includes geometry type, SRID, and estimated row count.
     Bounded by ``limit`` (default 1000, max 5000) so instances with
     thousands of orphan tables don't blow up the response payload.
+    Administrators only.
 
     Args:
         limit (int | Unset): Maximum number of tables to return. Capped at 5000. Default: 1000.

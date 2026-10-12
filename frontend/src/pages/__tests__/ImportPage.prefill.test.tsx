@@ -5,6 +5,7 @@ import { ImportPage } from '../ImportPage';
 const mockGetJobStatus = vi.hoisted(() => vi.fn());
 vi.mock('@/api/ingest', () => ({ getJobStatus: mockGetJobStatus }));
 vi.mock('@/hooks/use-document-title', () => ({ useDocumentTitle: vi.fn() }));
+vi.mock('@/hooks/use-settings-admin', () => ({ useSettingsAdmin: () => false }));
 vi.mock('@/components/import/UploadForm', () => ({ UploadForm: () => <div>Upload workflow</div> }));
 vi.mock('@/components/import/RegisterForm', () => ({ RegisterForm: () => <div /> }));
 vi.mock('@/components/import/StacImportForm', () => ({ StacImportForm: () => <div /> }));

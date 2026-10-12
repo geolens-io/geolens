@@ -3344,6 +3344,7 @@ export const commitImportIngestCommitJobIdPost = <ThrowOnError extends boolean =
  * system tables. Includes geometry type, SRID, and estimated row count.
  * Bounded by ``limit`` (default 1000, max 5000) so instances with
  * thousands of orphan tables don't blow up the response payload.
+ * Administrators only.
  */
 export const discoverTablesIngestDiscoverGet = <ThrowOnError extends boolean = false>(options?: Options<DiscoverTablesIngestDiscoverGetData, ThrowOnError>): RequestResult<DiscoverTablesIngestDiscoverGetResponses, DiscoverTablesIngestDiscoverGetErrors, ThrowOnError> => (options?.client ?? client).get<DiscoverTablesIngestDiscoverGetResponses, DiscoverTablesIngestDiscoverGetErrors, ThrowOnError>({
     security: [
@@ -3416,7 +3417,7 @@ export const previewFileIngestPreviewJobIdPost = <ThrowOnError extends boolean =
  * Register an existing PostGIS table as a dataset.
  *
  * Verifies the table exists, extracts metadata, and creates a
- * catalog entry.
+ * catalog entry. Administrators only.
  */
 export const registerTableIngestRegisterPost = <ThrowOnError extends boolean = false>(options: Options<RegisterTableIngestRegisterPostData, ThrowOnError>): RequestResult<RegisterTableIngestRegisterPostResponses, RegisterTableIngestRegisterPostErrors, ThrowOnError> => (options.client ?? client).post<RegisterTableIngestRegisterPostResponses, RegisterTableIngestRegisterPostErrors, ThrowOnError>({
     security: [
@@ -3441,8 +3442,8 @@ export const registerTableIngestRegisterPost = <ThrowOnError extends boolean = f
  *
  * Bulk-register multiple existing PostGIS tables as datasets.
  *
- * Each table is registered independently -- one failure does not block
- * others. Each table gets its own session, and at most
+ * Administrators only. Each table is registered independently -- one
+ * failure does not block others. Each table gets its own session, and at most
  * ``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the
  * shared connection pool.
  */

@@ -9,7 +9,7 @@ gate fires only on a mutation that REQUESTS public.
 Structural coverage (every visibility-writing route calls the gate) lives in
 test_visibility_gate_structural.py; this file proves the gate's runtime
 behavior on representative surfaces: dataset metadata PATCH, map update, and
-the ingest register/bulk-register/VRT-create + STAC-import request-time
+the ingest register/VRT-create + STAC-import request-time
 checks (which fire before any work happens).
 """
 
@@ -215,53 +215,6 @@ async def test_restricted_admin_map_public_ok(
 # ---------------------------------------------------------------------------
 # Ingest surfaces — the gate fires at request time, before any work
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_restricted_editor_register_public_403(
-    client: AsyncClient, admin_auth_header: dict, _restrict_public_visibility
-):
-    """The register gate runs before the table is even looked up, so the
-    table does not need to exist for the 403 to prove the surface."""
-    editor_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
-    resp = await client.post(
-        "/ingest/register/",
-        json={
-            "table_name": "no_such_table_1691",
-            "title": "Blocked register",
-            "visibility": "public",
-        },
-        headers=editor_headers,
-    )
-    assert resp.status_code == 403
-    assert "restricted to administrators" in resp.json()["detail"]
-
-
-@pytest.mark.anyio
-async def test_restricted_editor_bulk_register_public_403(
-    client: AsyncClient, admin_auth_header: dict, _restrict_public_visibility
-):
-    """One public item rejects the whole batch up front (403, nothing partial)."""
-    editor_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
-    resp = await client.post(
-        "/ingest/register/bulk/",
-        json={
-            "tables": [
-                {
-                    "table_name": "t_private_1691",
-                    "title": "Private item",
-                    "visibility": "private",
-                },
-                {
-                    "table_name": "t_public_1691",
-                    "title": "Public item",
-                    "visibility": "public",
-                },
-            ]
-        },
-        headers=editor_headers,
-    )
-    assert resp.status_code == 403
 
 
 @pytest.mark.anyio

@@ -111,7 +111,7 @@ def sync_detailed(
      Register an existing PostGIS table as a dataset.
 
     Verifies the table exists, extracts metadata, and creates a
-    catalog entry.
+    catalog entry. Administrators only.
 
     Args:
         body (RegisterRequest):
@@ -145,7 +145,7 @@ def sync(
      Register an existing PostGIS table as a dataset.
 
     Verifies the table exists, extracts metadata, and creates a
-    catalog entry.
+    catalog entry. Administrators only.
 
     Args:
         body (RegisterRequest):
@@ -174,7 +174,7 @@ async def asyncio_detailed(
      Register an existing PostGIS table as a dataset.
 
     Verifies the table exists, extracts metadata, and creates a
-    catalog entry.
+    catalog entry. Administrators only.
 
     Args:
         body (RegisterRequest):
@@ -206,7 +206,7 @@ async def asyncio(
      Register an existing PostGIS table as a dataset.
 
     Verifies the table exists, extracts metadata, and creates a
-    catalog entry.
+    catalog entry. Administrators only.
 
     Args:
         body (RegisterRequest):

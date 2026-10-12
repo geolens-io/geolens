@@ -44451,7 +44451,7 @@
     },
     "/ingest/discover/": {
       "get": {
-        "description": "Discover unregistered tables in the data schema.\n\nReturns tables not yet in the catalog, excluding staging, old, and\nsystem tables. Includes geometry type, SRID, and estimated row count.\nBounded by ``limit`` (default 1000, max 5000) so instances with\nthousands of orphan tables don't blow up the response payload.",
+        "description": "Discover unregistered tables in the data schema.\n\nReturns tables not yet in the catalog, excluding staging, old, and\nsystem tables. Includes geometry type, SRID, and estimated row count.\nBounded by ``limit`` (default 1000, max 5000) so instances with\nthousands of orphan tables don't blow up the response payload.\nAdministrators only.",
         "operationId": "discover_tables_ingest_discover__get",
         "parameters": [
           {
@@ -44917,7 +44917,7 @@
     },
     "/ingest/register/": {
       "post": {
-        "description": "Register an existing PostGIS table as a dataset.\n\nVerifies the table exists, extracts metadata, and creates a\ncatalog entry.",
+        "description": "Register an existing PostGIS table as a dataset.\n\nVerifies the table exists, extracts metadata, and creates a\ncatalog entry. Administrators only.",
         "operationId": "register_table_ingest_register__post",
         "requestBody": {
           "content": {
@@ -45059,7 +45059,7 @@
     },
     "/ingest/register/bulk/": {
       "post": {
-        "description": "Bulk-register multiple existing PostGIS tables as datasets.\n\nEach table is registered independently -- one failure does not block\nothers. Each table gets its own session, and at most\n``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the\nshared connection pool.",
+        "description": "Bulk-register multiple existing PostGIS tables as datasets.\n\nAdministrators only. Each table is registered independently -- one\nfailure does not block others. Each table gets its own session, and at most\n``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the\nshared connection pool.",
         "operationId": "bulk_register_tables_ingest_register_bulk__post",
         "requestBody": {
           "content": {

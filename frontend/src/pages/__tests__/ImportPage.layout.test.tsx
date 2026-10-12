@@ -21,6 +21,11 @@ vi.mock('@/hooks/use-document-title', () => ({
   useDocumentTitle: vi.fn(),
 }));
 
+const mockUseSettingsAdmin = vi.fn(() => true);
+vi.mock('@/hooks/use-settings-admin', () => ({
+  useSettingsAdmin: () => mockUseSettingsAdmin(),
+}));
+
 vi.mock('@/components/import/UploadForm', () => ({
   UploadForm: () => <div>Upload workflow</div>,
 }));
@@ -63,5 +68,17 @@ describe('ImportPage layout', () => {
 
     expect(screen.getByText('Service workflow')).toBeInTheDocument();
     expect(screen.getByRole('complementary')).toHaveAttribute('data-mode', 'service');
+  });
+
+  it('offers table registration only to administrators', () => {
+    mockUseSettingsAdmin.mockReturnValue(false);
+    const { unmount } = render(<ImportPage />);
+    expect(screen.queryByRole('button', { name: 'Register table' })).not.toBeInTheDocument();
+    unmount();
+
+    mockUseSettingsAdmin.mockReturnValue(true);
+    render(<ImportPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Register table' }));
+    expect(screen.getByText('Register workflow')).toBeInTheDocument();
   });
 });

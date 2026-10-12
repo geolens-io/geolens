@@ -110,8 +110,8 @@ def sync_detailed(
 
      Bulk-register multiple existing PostGIS tables as datasets.
 
-    Each table is registered independently -- one failure does not block
-    others. Each table gets its own session, and at most
+    Administrators only. Each table is registered independently -- one
+    failure does not block others. Each table gets its own session, and at most
     ``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the
     shared connection pool.
 
@@ -146,8 +146,8 @@ def sync(
 
      Bulk-register multiple existing PostGIS tables as datasets.
 
-    Each table is registered independently -- one failure does not block
-    others. Each table gets its own session, and at most
+    Administrators only. Each table is registered independently -- one
+    failure does not block others. Each table gets its own session, and at most
     ``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the
     shared connection pool.
 
@@ -177,8 +177,8 @@ async def asyncio_detailed(
 
      Bulk-register multiple existing PostGIS tables as datasets.
 
-    Each table is registered independently -- one failure does not block
-    others. Each table gets its own session, and at most
+    Administrators only. Each table is registered independently -- one
+    failure does not block others. Each table gets its own session, and at most
     ``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the
     shared connection pool.
 
@@ -211,8 +211,8 @@ async def asyncio(
 
      Bulk-register multiple existing PostGIS tables as datasets.
 
-    Each table is registered independently -- one failure does not block
-    others. Each table gets its own session, and at most
+    Administrators only. Each table is registered independently -- one
+    failure does not block others. Each table gets its own session, and at most
     ``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the
     shared connection pool.
 
