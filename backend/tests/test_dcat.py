@@ -1432,3 +1432,45 @@ async def test_cold_feed_renders_are_capped_and_identical_ones_coalesce(
     )
     assert all(r.status_code == 200 for r in same)
     assert state["calls"] == 1
+
+
+@pytest.mark.anyio
+async def test_feed_waiting_for_a_render_slot_holds_no_pooled_connection(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    import asyncio
+
+    import app.core.db as db_module
+    from app.modules.catalog.datasets.api import feed_response
+    from sqlalchemy import event
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    await _create_dcat_dataset(test_db_session, created_by=admin_id, name="Slot Wait")
+    slots = asyncio.Semaphore(1)
+    monkeypatch.setattr(feed_response, "_render_slots", slots)
+
+    live = {"n": 0}
+
+    def _out(*_):
+        live["n"] += 1
+
+    def _in(*_):
+        live["n"] -= 1
+
+    engine = db_module.engine.sync_engine
+    event.listen(engine, "checkout", _out)
+    event.listen(engine, "checkin", _in)
+    try:
+        baseline = live["n"]
+        await slots.acquire()
+        waiting = asyncio.create_task(client.get("/datasets/dcat/"))
+        await asyncio.sleep(0.5)
+        assert not waiting.done()
+        held_while_waiting = live["n"]
+        slots.release()
+        assert (await waiting).status_code == 200
+    finally:
+        event.remove(engine, "checkout", _out)
+        event.remove(engine, "checkin", _in)
+
+    assert held_while_waiting == baseline

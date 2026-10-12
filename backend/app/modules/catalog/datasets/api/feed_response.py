@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 from fastapi import Response
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.core.identity import Identity
@@ -51,6 +52,7 @@ def _encode(content: dict) -> str:
 async def serve_feed(
     name: str,
     user: Identity | None,
+    db: AsyncSession,
     key: dict,
     load: Callable[[], Awaitable[T]],
     build: Callable[[T], tuple[dict, dict[str, str]]],
@@ -74,6 +76,11 @@ async def serve_feed(
         if (hit := await _cached_response(cache_key, media_type)) is not None:
             return hit
 
+    # Only the cache miss waits below; the read transaction opened for the
+    # public URLs must not pin a pooled connection meanwhile. Detached first,
+    # since a rollback expires the caller's already-loaded user.
+    db.expunge_all()
+    await db.rollback()
     if cache_key is None:
         async with _render_slots:
             return await _render(None, load, build, media_type)

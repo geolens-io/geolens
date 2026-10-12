@@ -409,6 +409,7 @@ async def get_dcat_catalog(
     return await serve_feed(
         "dcat",
         user,
+        db,
         {
             "limit": limit,
             "offset": offset,
@@ -457,6 +458,7 @@ async def validate_dcat3_catalog(
     return await serve_feed(
         "dcat-validation",
         user,
+        db,
         {"urls": [app_base_url, base_url]},
         lambda: _load_feed_inputs(db, user),
         build,
@@ -505,6 +507,7 @@ async def get_dcat_us3_catalog(
     return await serve_feed(
         "dcat-us",
         user,
+        db,
         {
             "limit": limit,
             "offset": offset,
@@ -552,6 +555,7 @@ async def validate_dcat_us3_catalog(
     return await serve_feed(
         "dcat-us-validation",
         user,
+        db,
         {"urls": [app_base_url, base_url], "contact": settings.dcat_contact_email},
         lambda: _load_feed_inputs(db, user),
         build,
@@ -591,6 +595,7 @@ async def get_geodcat_ap_catalog(
     return await serve_feed(
         "geodcat-ap",
         user,
+        db,
         {"limit": limit, "offset": offset, "urls": [app_base_url, base_url]},
         lambda: _load_feed_inputs(db, user, limit, offset),
         build,
@@ -634,6 +639,7 @@ async def validate_geodcat_ap_catalog(
     return await serve_feed(
         "geodcat-ap-validation",
         user,
+        db,
         {"urls": [app_base_url, base_url]},
         lambda: _load_feed_inputs(db, user),
         build,
