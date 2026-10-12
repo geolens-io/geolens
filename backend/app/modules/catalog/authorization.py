@@ -764,9 +764,10 @@ async def check_vrt_audiences_after_change(
     *,
     visibility: str | None = None,
     record_status: str | None = None,
+    owner_id: uuid.UUID | None = None,
 ) -> None:
-    """Raise 422 when a new visibility or status (None keeps the current one)
-    would make a VRT reach past a member it doesn't reach past now.
+    """Raise 422 when a new visibility, status or owner (None keeps the current
+    one) would make a VRT reach past a member it doesn't reach past now.
 
     A VRT is compared with its members; a source with its owner's VRTs, since
     another user's VRT may not hold the owner's dataset open (it stops serving
@@ -779,6 +780,7 @@ async def check_vrt_audiences_after_change(
         before,
         visibility=visibility or before.visibility,
         record_status=record_status or before.record_status,
+        owner_id=owner_id or before.owner_id,
     )
     if after == before:
         return

@@ -307,3 +307,56 @@ async def test_a_vrt_within_its_members_audience_still_serves(
     tiles = await _raster_auth_check(client, vrt_id)
 
     assert tiles.status_code == 200, tiles.text
+
+
+async def test_narrowing_a_member_rolls_the_vrt_publication_version(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    admin_id = await _get_admin_id(test_db_session)
+    editor_headers, editor_id = await _make_editor(client, admin_auth_header)
+    src = await _create_raster_dataset(
+        test_db_session, created_by=editor_id, visibility="public"
+    )
+    vrt_id = await _create_vrt_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    await _link_source(test_db_session, vrt_id, src, 0)
+
+    async def _version() -> int:
+        return (
+            await test_db_session.execute(
+                text("SELECT publication_version FROM catalog.datasets WHERE id = :id"),
+                {"id": vrt_id},
+            )
+        ).scalar_one() or 0
+
+    before = await _version()
+    narrow = await client.patch(
+        f"/datasets/{src}", json={"visibility": "private"}, headers=editor_headers
+    )
+    test_db_session.expire_all()
+
+    assert narrow.status_code == 200, narrow.text
+    assert await _version() > before
+
+
+async def test_transfer_may_not_leave_a_vrt_past_its_members(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    _, editor_id = await _make_editor(client, admin_auth_header)
+    _, other_id = await _make_editor(client, admin_auth_header)
+    src = await _create_raster_dataset(test_db_session, created_by=editor_id)
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=editor_id)
+    await _link_source(test_db_session, vrt_id, src, 0)
+
+    vrt_away = await client.patch(
+        f"/datasets/{vrt_id}",
+        json={"owner_id": str(other_id)},
+        headers=admin_auth_header,
+    )
+    member_away = await client.patch(
+        f"/datasets/{src}", json={"owner_id": str(other_id)}, headers=admin_auth_header
+    )
+
+    assert vrt_away.status_code == 422, vrt_away.text
+    assert member_away.status_code == 422, member_away.text

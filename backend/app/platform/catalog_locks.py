@@ -320,9 +320,22 @@ async def bump_publication_version_on(
     Sets the instance attribute to the returned value without marking it
     dirty, mirroring :func:`bump_tile_cache_version_on`. The one spelling for
     a request handler, whose instance was loaded before it waited for the row.
+
+    Also rolls every VRT that links the dataset: a VRT serves its members'
+    pixels, so its signed templates and shared-cache keys must not outlive a
+    change to who may read one of them.
     """
     version = await bump_publication_version_atomic(
         session, dataset_cls=type(dataset), dataset_id=dataset.id
+    )
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets "
+            "SET publication_version = coalesce(publication_version, 0) + 1 "
+            "WHERE id IN (SELECT vrt_dataset_id FROM catalog.vrt_source_links "
+            "WHERE source_dataset_id = :dataset_id)"
+        ),
+        {"dataset_id": dataset.id},
     )
     if version is not None:
         set_committed_value(dataset, "publication_version", version)
