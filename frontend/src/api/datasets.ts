@@ -496,22 +496,6 @@ export async function listRelationships(datasetId: string): Promise<import('@/ty
   return res.relationships;
 }
 
-export async function createRelationship(
-  datasetId: string,
-  body: { target_dataset_id: string; source_column: string; target_column?: string; label?: string },
-): Promise<import('@/types/api').DatasetRelationship> {
-  return apiFetch<import('@/types/api').DatasetRelationship>(`/datasets/${datasetId}/relationships/`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
-
-export async function deleteRelationship(relationshipId: string): Promise<void> {
-  await apiFetch(`/datasets/relationships/${relationshipId}/`, {
-    method: 'DELETE',
-  });
-}
-
 export async function getRelatedRecords(
   datasetId: string,
   featureGid: number,

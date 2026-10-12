@@ -21,7 +21,7 @@ import {
   PREVIEW_LAYER_IDS,
   previewSourceId,
 } from '@/components/maps/hooks/use-map-layers';
-import type { Map as MaplibreMap, GeoJSONSource, MapGeoJSONFeature, Point, VectorTileSource } from 'maplibre-gl';
+import type { Map as MaplibreMap, FilterSpecification, GeoJSONSource, MapGeoJSONFeature, Point, VectorTileSource } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
 
 /**
@@ -90,9 +90,9 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 // into the line renderer after any select/deselect on a generic dataset.
 // Base filters are captured per map on first touch (they are static after
 // layer creation).
-const _baseFilters = new WeakMap<MaplibreMap, Map<string, unknown>>();
+const _baseFilters = new WeakMap<MaplibreMap, Map<string, FilterSpecification | null>>();
 
-function _baseFilter(map: MaplibreMap, layerId: string): unknown {
+function _baseFilter(map: MaplibreMap, layerId: string): FilterSpecification | null {
   let perMap = _baseFilters.get(map);
   if (!perMap) {
     perMap = new Map();
@@ -108,12 +108,8 @@ function hideFeatureFromTiles(map: MaplibreMap, gid: number) {
   for (const layerId of PREVIEW_LAYER_IDS) {
     if (map.getLayer(layerId)) {
       const base = _baseFilter(map, layerId);
-      const gidFilter = ['all', ['has', 'id'], ['!=', ['id'], gid]];
-      map.setFilter(
-        layerId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (base ? ['all', base, gidFilter] : gidFilter) as any,
-      );
+      const gidFilter: FilterSpecification = ['all', ['has', 'id'], ['!=', ['id'], gid]];
+      map.setFilter(layerId, (base ? ['all', base, gidFilter] : gidFilter) as FilterSpecification);
     }
   }
 }
@@ -123,8 +119,7 @@ export function showAllFeaturesInTiles(map: MaplibreMap) {
   for (const layerId of PREVIEW_LAYER_IDS) {
     if (map.getLayer(layerId)) {
       // Capture-on-first-touch also covers the cancel-before-any-hide path.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      map.setFilter(layerId, _baseFilter(map, layerId) as any);
+      map.setFilter(layerId, _baseFilter(map, layerId));
     }
   }
 }

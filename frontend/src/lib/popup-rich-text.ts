@@ -49,22 +49,6 @@ const YT_HOSTS = /^https?:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com|youtu\
 const YT_ID_RE = /(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})(?:[&?#]|$)/;
 
 /**
- * Return the regex matches for http/https URLs found in `text`, or null if
- * none are found. XSS gate: javascript:/data:/vbscript: schemes are excluded
- * because the regex only matches `https?://`.
- *
- * Trailing sentence-ending punctuation (., ; : ! ?) is stripped from each
- * match via `trimTrailingPunctuation`.
- */
-export function detectUrls(text: string): RegExpMatchArray | null {
-  const raw = text.match(URL_RE);
-  if (!raw) return null;
-  // Return a mutable array with punctuation trimmed, preserving the array
-  // interface callers expect (length, indexed access).
-  return raw.map(trimTrailingPunctuation) as RegExpMatchArray;
-}
-
-/**
  * Split `text` into an ordered array of text and URL segments. URLs are
  * identified by the XSS-gated `URL_RE` regex (http/https only). Segments
  * whose `kind` is `'url'` are safe to render as `<a href>` anchors; segments

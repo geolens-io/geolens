@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  detectUrls,
   splitTextWithUrls,
   classifyUrl,
   normalizeYouTubeEmbed,
@@ -8,7 +7,7 @@ import {
 } from '../popup-rich-text';
 
 // ---------------------------------------------------------------------------
-// detectUrls / splitTextWithUrls
+// splitTextWithUrls
 // ---------------------------------------------------------------------------
 
 describe('splitTextWithUrls', () => {
@@ -82,30 +81,6 @@ describe('splitTextWithUrls', () => {
     expect(result).toHaveLength(1);
     expect(result[0].kind).toBe('text');
     expect(result.every((s) => s.kind !== 'url')).toBe(true);
-  });
-});
-
-describe('detectUrls', () => {
-  it('EASY-11 — returns match array for text containing http:// URL', () => {
-    const matches = detectUrls('See https://example.com here');
-    expect(matches).not.toBeNull();
-    expect(matches![0]).toBe('https://example.com');
-  });
-
-  it('EASY-11 — returns null for text without URLs', () => {
-    expect(detectUrls('no url here')).toBeNull();
-  });
-
-  it('EASY-11 — never matches javascript: scheme (XSS gate)', () => {
-    expect(detectUrls('javascript:alert(1)')).toBeNull();
-  });
-
-  it('EASY-11 — never matches data: scheme (XSS gate)', () => {
-    expect(detectUrls('data:image/png;base64,abc')).toBeNull();
-  });
-
-  it('EASY-11 — never matches vbscript: scheme (XSS gate)', () => {
-    expect(detectUrls('vbscript:MsgBox("hi")')).toBeNull();
   });
 });
 

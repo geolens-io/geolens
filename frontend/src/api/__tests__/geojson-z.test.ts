@@ -1,4 +1,4 @@
-import { fetchBoundedGeoJson, fetchGeoJsonZ, asFeatureCollection } from '@/api/geojson-z';
+import { fetchBoundedGeoJson, asFeatureCollection } from '@/api/geojson-z';
 import { useAuthStore } from '@/stores/auth-store';
 
 vi.mock('@/api/auth', () => ({
@@ -58,18 +58,6 @@ describe('fetchBoundedGeoJson', () => {
 
     await fetchBoundedGeoJson('dataset-1', { embedToken: 'embed-token' });
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      '/api/datasets/dataset-1/features.geojson',
-      { headers: { 'X-Embed-Token': 'embed-token' }, signal: expect.any(AbortSignal) },
-    );
-  });
-
-  it('keeps fetchGeoJsonZ as a compatibility alias', async () => {
-    mockFetch.mockResolvedValueOnce(jsonResponse(boundedGeoJson));
-
-    const response = await fetchGeoJsonZ('dataset-1', { embedToken: 'embed-token' });
-
-    expect(response).toEqual(boundedGeoJson);
     expect(mockFetch).toHaveBeenCalledWith(
       '/api/datasets/dataset-1/features.geojson',
       { headers: { 'X-Embed-Token': 'embed-token' }, signal: expect.any(AbortSignal) },

@@ -4,7 +4,6 @@ import { useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 vi.mock('@/api/ingest', () => ({
-  uploadFile: vi.fn(),
   getJobStatus: vi.fn(),
   getJobStatusByDataset: vi.fn(),
   previewFile: vi.fn(),
@@ -18,9 +17,8 @@ vi.mock('@/api/ingest', () => ({
   createVrt: vi.fn(),
 }));
 
-import { uploadFile, getJobStatus, getJobStatusByDataset, discoverTables, getUploadConfig, createVrt } from '@/api/ingest';
+import { getJobStatus, getJobStatusByDataset, discoverTables, getUploadConfig, createVrt } from '@/api/ingest';
 import {
-  useUploadFile,
   useJobStatus,
   useDatasetJobStatus,
   useDiscoverTables,
@@ -32,7 +30,6 @@ import { queryKeys } from '@/lib/query-keys';
 import { useAuthStore } from '@/stores/auth-store';
 import { ApiError } from '@/api/client';
 
-const mockUploadFile = vi.mocked(uploadFile);
 const mockGetJobStatus = vi.mocked(getJobStatus);
 const mockGetJobStatusByDataset = vi.mocked(getJobStatusByDataset);
 const mockDiscoverTables = vi.mocked(discoverTables);
@@ -52,33 +49,6 @@ function renderWithClient<T>(factory: () => T): { result: { current: T }; qc: Qu
   if (!captured) throw new Error('QueryClient capture failed');
   return { result, qc: captured as QueryClient };
 }
-
-describe('useUploadFile', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('calls uploadFile on mutate', async () => {
-    const response = { job_id: 'j-1', filename: 'test.geojson' };
-    mockUploadFile.mockResolvedValueOnce(response as never);
-
-    const { result } = renderHook(() => useUploadFile());
-
-    const file = new File(['{}'], 'test.geojson', { type: 'application/json' });
-    await result.current.mutateAsync(file);
-
-    // Hook wraps uploadFile so TanStack's injected context isn't passed as
-    // the (onProgress) 2nd arg — uploadFile receives the file only.
-    expect(mockUploadFile).toHaveBeenCalledWith(file);
-  });
-
-  it('returns error state on upload failure', async () => {
-    mockUploadFile.mockRejectedValueOnce(new Error('Too large'));
-
-    const { result } = renderHook(() => useUploadFile());
-
-    const file = new File(['{}'], 'test.geojson');
-    await expect(result.current.mutateAsync(file)).rejects.toThrow('Too large');
-  });
-});
 
 describe('useJobStatus', () => {
   beforeEach(() => {

@@ -239,16 +239,6 @@ export function toggleBasemapSublayerVisibility(
   return {};
 }
 
-export function setBasemapLabelsVisible(
-  state: BuilderBasemapState,
-  visible: boolean,
-): BuilderBasemapPatch {
-  return {
-    showBasemapLabels: visible,
-    basemapConfig: { ...state.config, label_mode: modeFromVisible(visible) },
-  };
-}
-
 function pruneOverride(override: MapSublayerOverride): MapSublayerOverride | null {
   return Object.values(override).every((value) => value == null) ? null : override;
 }
@@ -363,16 +353,4 @@ export function hasCustomBasemapAppearance(
   // exactly the state it exists to undo.
   return canonical(normalizedConfig(basemapConfig, labels))
     !== canonical(normalizedConfig(null, true));
-}
-
-export function setTerrainExaggeration(
-  terrainConfig: MapTerrainConfig | null | undefined,
-  value: number,
-): BuilderBasemapPatch {
-  const exaggeration = normalizeTerrainExaggeration(value);
-  return {
-    terrainConfig: terrainConfig
-      ? { ...terrainConfig, exaggeration }
-      : { enabled: false, source_dataset_id: null, exaggeration },
-  };
 }

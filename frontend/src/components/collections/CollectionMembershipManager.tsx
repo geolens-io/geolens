@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Search, Plus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -6,9 +7,7 @@ import { FieldLabel } from '@/components/ui/field-label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { searchDatasets } from '@/api/search';
-import { useAbortSignal } from '@/hooks/use-abort-signal';
 import { useAddDatasetsToCollection, useCollectionDatasets } from '@/components/collections/hooks/use-collections';
-import type { OGCRecordResponse } from '@/types/api';
 
 interface CollectionMembershipManagerProps {
   collectionId: string;
@@ -19,46 +18,28 @@ export function CollectionMembershipManager({
 }: CollectionMembershipManagerProps) {
   const { t } = useTranslation('collections');
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<OGCRecordResponse[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [submittedQuery, setSubmittedQuery] = useState('');
   const [addingId, setAddingId] = useState<string | null>(null);
   const addDatasets = useAddDatasetsToCollection();
   const { data: datasetsData } = useCollectionDatasets(collectionId, 0, 200);
   const currentDatasetIds = datasetsData?.datasets.map((d) => d.id) ?? [];
-  const abortRef = useRef<AbortController | null>(null);
-  const unmountSignal = useAbortSignal();
+  const {
+    data: searchData,
+    isFetching: searching,
+    refetch,
+  } = useQuery({
+    queryKey: ['collection-membership-search', submittedQuery],
+    queryFn: ({ signal }) => searchDatasets({ q: submittedQuery, limit: '10' }, { signal }),
+    enabled: submittedQuery !== '',
+    retry: false,
+  });
+  const results = searchData?.features ?? [];
 
-  async function handleSearch() {
+  function handleSearch() {
     const q = query.trim();
     if (!q) return;
-
-    // Abort any in-flight search (superseding)
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    // Abort on unmount: listen for unmount signal and forward to per-request controller
-    const onUnmount = () => controller.abort();
-    unmountSignal.addEventListener('abort', onUnmount);
-
-    setSearching(true);
-    try {
-      const data = await searchDatasets({ q, limit: '10' }, { signal: controller.signal });
-      if (!controller.signal.aborted) {
-        setResults(data.features);
-      }
-    } catch (err) {
-      if (!controller.signal.aborted) {
-        setResults([]);
-      }
-      // Suppress abort errors
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-    } finally {
-      unmountSignal.removeEventListener('abort', onUnmount);
-      if (!controller.signal.aborted) {
-        setSearching(false);
-      }
-    }
+    if (q === submittedQuery) void refetch();
+    else setSubmittedQuery(q);
   }
 
   async function handleAdd(datasetId: string) {
@@ -66,8 +47,6 @@ export function CollectionMembershipManager({
     try {
       await addDatasets.mutateAsync({ collectionId, datasetIds: [datasetId] });
       toast.success(t('toasts.datasetAdded'));
-      // Remove from results since it's now in the collection
-      setResults((prev) => prev.filter((r) => r.id !== datasetId));
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t('toasts.addError'),

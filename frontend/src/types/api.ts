@@ -796,13 +796,6 @@ export interface UploadResponse {
   message: string;
 }
 
-export interface RegisterRequest {
-  table_name: string;
-  title: string;
-  summary?: string | null;
-  visibility?: string;
-}
-
 export interface RegisterResponse {
   dataset_id: string;
   title: string;
@@ -1024,10 +1017,6 @@ export interface CollectionCreateRequest {
 export interface CollectionUpdateRequest {
   name?: string | null;
   description?: string | null;
-}
-
-export interface CollectionAddDatasetsRequest {
-  dataset_ids: string[];
 }
 
 export interface SchemaDiff {
@@ -1804,13 +1793,6 @@ export interface MapGenerateRequest {
   language?: string;
 }
 
-export interface MapGenerateResponse {
-  map_id: string;
-  map_name: string;
-  explanation: string;
-  datasets_used: string[];
-}
-
 // AI Chat (natural language map editing)
 export interface ChatMapLayer {
   id: string;
@@ -2134,15 +2116,6 @@ export interface PresignedUploadResponse {
   part_size?: number | null;
 }
 
-export interface PresignedPartInfo {
-  etag: string;
-  part_number: number;
-}
-
-export interface PresignedCompleteRequest {
-  parts?: PresignedPartInfo[];
-}
-
 export interface VrtCreateRequest {
   source_dataset_ids: string[];
   vrt_type: 'mosaic' | 'band_stack';
@@ -2171,12 +2144,6 @@ export interface VrtSourceItem {
 
 export interface VrtSourceListResponse {
   sources: VrtSourceItem[];
-}
-
-export interface VrtMutationResponse {
-  job_id: string;
-  status: string;
-  message: string;
 }
 
 export interface VrtSourceHealth {
@@ -2304,12 +2271,6 @@ export interface StacSearchResponse {
   matched: number | null;
   returned: number;
   next_page?: StacNextPage | null;
-}
-
-export interface StacAssetSizesRequest {
-  url: string;
-  assets: { id: string; href: string }[];
-  auth?: ServiceAuthRequest | null;
 }
 
 export interface StacAssetSizesResponse {

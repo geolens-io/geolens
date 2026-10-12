@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { apiFetch } from '@/api/client';
 import { searchDatasets } from '@/api/search';
 import { queryKeys } from '@/lib/query-keys';
+import { useDebouncedValue } from '@/hooks/use-debounce';
 import { useCreateVrt } from '@/components/import/hooks/use-ingest';
 import { JobProgress } from '@/components/import/JobProgress';
 import { Button } from '@/components/ui/button';
@@ -243,7 +244,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
   const [summary, setSummary] = useState('');
   const [selectedSources, setSelectedSources] = useState<OGCRecordResponse[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(searchQuery, 300);
   const [jobId, setJobId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -303,14 +304,6 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
       toast.error(t('vrt.loadSourcesFailed', { count: multiSourceErrorCount }));
     }
   }, [multiSourceErrorCount, t]);
-
-  // Debounce search query
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
 
   // fix(#1758): the search input's blur delay below used to outlive the
   // component. Unmounting inside its 150 ms window left the timer queued, and
@@ -380,7 +373,6 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     setSummary('');
     setSelectedSources([]);
     setSearchQuery('');
-    setDebouncedQuery('');
     setIsDropdownOpen(false);
   }
 

@@ -264,7 +264,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
       setPendingFiles(queued);
       setChosenKind(peekPendingUploadKind());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only rehydration of queued files
   }, []);
 
   // The session owns progress and settlement; the form mirrors it for its

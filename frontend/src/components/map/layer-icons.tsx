@@ -319,7 +319,7 @@ export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; ic
   // above are fresh fallback objects on every render.
   const styleHints = useMemo(
     () => extractStyleHints(paint, layout, layer.dataset_geometry_type, layer.opacity, layer.style_config),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are the exact fields read, not the fallback objects
     [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
   );
   const facts = useMemo(

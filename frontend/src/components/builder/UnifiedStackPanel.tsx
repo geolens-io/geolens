@@ -182,14 +182,10 @@ interface SublayerRowProps {
   onToggleSublayerVisibility: (sublayerId: string) => void;
 }
 
-// Phase 1051 UX-02: per-row opacity slider removed in favour of
-// SublayerConfigIndicators. Opacity editing now lives exclusively in the
-// LayerEditorPanel flyout (BasemapSublayerEditorScene opacity slider).
-// Cell 6 grid column kept at 76px (was 60px) to fit up to 4 × 16px badges
-// + 3 × 4px gaps without truncation. SublayerRow no longer consumes
-// onSublayerOpacityChange — the prop survives on UnifiedStackPanelProps for
-// the LayerEditorPanel flyout consumer (BasemapGroupEditorScene + MapBuilderPage).
-/* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: basemap sublayer rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
+// SublayerRow doesn't consume onSublayerOpacityChange; the prop stays on
+// UnifiedStackPanelProps for the LayerEditorPanel flyout consumers
+// (BasemapGroupEditorScene, MapBuilderPage).
+/* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- basemap sublayer rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
 const SublayerRow = memo(function SublayerRow({
   sublayer,
   selected,
@@ -283,14 +279,7 @@ const SublayerRow = memo(function SublayerRow({
         <span className="truncate text-sm block">{sublayer.name}</span>
       </div>
 
-      {/* Cell 6: Config-state indicators slot (Phase 1051 UX-02 — replaces opacity slider).
-          builder-audit #338 DEAD-02: SublayerConfigIndicators was always rendered with
-          layer={null} here (BasemapSublayerInfo only carries id/name/visible/opacity/kind,
-          not the full MapLayerResponse the indicators derive from), so its entire logic was
-          unreachable in production. The always-null render is removed; this slot stays empty.
-          Deferred enhancement: plumb the full layer through and re-add the indicator strip
-          once basemap sublayers gain user-editable filter/label config — see
-          SublayerConfigIndicators.tsx. */}
+      {/* Cell 6: intentionally empty; keeps the grid column. */}
       <div className="flex items-center" aria-hidden="true" />
 
       {/* Cell 7: Kebab — hidden for basemap sublayers (per UI-SPEC) */}

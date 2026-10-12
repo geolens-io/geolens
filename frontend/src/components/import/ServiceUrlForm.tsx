@@ -668,7 +668,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
       setHeaderName(auth.header_name ?? '');
       setHeaderValue(auth.header_value ?? '');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only restore of the in-flight session's credentials
   }, []);
 
   // fix(#1712): re-attach to a preview or commit that was running (or
@@ -709,7 +709,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
       return;
     }
     void runPreviewSession(session);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only; later sessions start from user actions
   }, [restoreSessionCredential]);
 
   // ── Loading states ──

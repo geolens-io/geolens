@@ -29,7 +29,7 @@ import {
   FALLBACK_BASEMAP_STYLE_URL_DARK,
 } from '@/lib/basemap-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { normalizeBboxLongitudes } from '@/lib/bbox';
+import { normalizeBboxLongitudes, toFitBounds, type Bbox } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
@@ -94,8 +94,9 @@ function ringFeature(ring: number[][], id: string): GeoJSONStoreFeatures {
  * rejects it, which needs a registered mode and an id).
  */
 function addRectangle(td: TerraDraw, bbox: string): Array<string | number> {
-  const ids = bboxToRings(bbox).map(() => randomId());
-  const results = td.addFeatures(bboxToRings(bbox).map((ring, i) => ringFeature(ring, ids[i])));
+  const rings = bboxToRings(bbox);
+  const ids = rings.map(() => randomId());
+  const results = td.addFeatures(rings.map((ring, i) => ringFeature(ring, ids[i])));
   return results.every((r) => r.valid) ? ids : [];
 }
 
@@ -117,8 +118,7 @@ function addPolygon(td: TerraDraw, polygon: GeoJSON.Polygon): Array<string | num
 }
 
 function fitToBbox(map: MaplibreMap | null, bbox: string) {
-  const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
-  map?.fitBounds([[minX, minY], [maxX < minX ? maxX + 360 : maxX, maxY]], { padding: 40, duration: 0 });
+  map?.fitBounds(toFitBounds(bbox.split(',').map(Number) as Bbox), { padding: 40, duration: 0 });
 }
 
 function hasArea(coords: number[][]): boolean {

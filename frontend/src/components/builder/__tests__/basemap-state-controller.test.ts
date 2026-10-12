@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { MapBasemapConfig, MapTerrainConfig } from '@/types/api';
+import type { MapBasemapConfig } from '@/types/api';
 import {
   createBuilderBasemapState,
   hasCustomBasemapAppearance,
   removeBasemap,
   resetBasemapAppearance,
   resetBasemapSublayer,
-  setBasemapLabelsVisible,
   setBasemapBackgroundColor,
   setBasemapMasterOpacity,
   setBasemapPosition,
   setBasemapSublayerOpacity,
-  setTerrainExaggeration,
   swapBasemapPreset,
   toggleBasemapSublayerVisibility,
   updateBasemapSublayerOverride,
@@ -119,10 +117,6 @@ describe('basemap-state-controller', () => {
       showBasemapLabels: false,
       basemapConfig: expect.objectContaining({ label_mode: 'hidden' }),
     });
-    expect(setBasemapLabelsVisible(state, false)).toMatchObject({
-      showBasemapLabels: false,
-      basemapConfig: expect.objectContaining({ label_mode: 'hidden' }),
-    });
   });
 
   it('writes sublayer opacity and style overrides into sublayer_overrides', () => {
@@ -169,25 +163,6 @@ describe('basemap-state-controller', () => {
     // fix(#654, codex round 2): labels persist outside basemap_config, so the
     // reset patch must set showBasemapLabels too or hidden labels survive it.
     expect(resetBasemapAppearance()).toEqual({ basemapConfig: null, showBasemapLabels: true });
-  });
-
-  it('clamps terrain exaggeration for existing and new terrain configs', () => {
-    const terrain: MapTerrainConfig = {
-      enabled: true,
-      source_dataset_id: 'dem-1',
-      exaggeration: 1,
-    };
-
-    expect(setTerrainExaggeration(terrain, 5).terrainConfig).toEqual({
-      enabled: true,
-      source_dataset_id: 'dem-1',
-      exaggeration: 3,
-    });
-    expect(setTerrainExaggeration(null, -2).terrainConfig).toEqual({
-      enabled: false,
-      source_dataset_id: null,
-      exaggeration: 0,
-    });
   });
 });
 

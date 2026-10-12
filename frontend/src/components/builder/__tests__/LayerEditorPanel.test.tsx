@@ -60,9 +60,6 @@ vi.mock('../LabelEditor', () => ({
 vi.mock('../PopupConfigEditor', () => ({
   PopupConfigEditor: () => <div data-testid="popup-config-editor" />,
 }));
-vi.mock('../ColumnsReference', () => ({
-  ColumnsReference: () => <div data-testid="columns-reference" />,
-}));
 
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class ResizeObserver {

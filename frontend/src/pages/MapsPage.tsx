@@ -28,6 +28,7 @@ import { MapDeleteDialog } from '@/components/maps/MapDeleteDialog';
 import { Pagination } from '@/components/layout/Pagination';
 import { useMaps, useDeleteMap } from '@/hooks/use-maps';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useDebouncedValue } from '@/hooks/use-debounce';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useAuthStore } from '@/stores/auth-store';
 import { readStorage, writeStorage, storageKeys } from '@/lib/storage';
@@ -48,7 +49,7 @@ export function MapsPage() {
   const token = useAuthStore((s) => s.token);
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [sortBy, setSortBy] = useState('updated_at');
   const [sortDir, setSortDir] = useState('desc');
   const [visibility, setVisibility] = useState('all');
@@ -57,12 +58,6 @@ export function MapsPage() {
   const [deletingMap, setDeletingMap] = useState<{ id: string; name: string } | null>(null);
   const handlePageChange = useCallback((newOffset: number) => setSkip(newOffset), []);
   useDocumentTitle(t('common:pageTitle.maps'));
-
-  // Debounce search input
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(timer);
-  }, [search]);
 
   // Reset pagination when filters change
   useEffect(() => {

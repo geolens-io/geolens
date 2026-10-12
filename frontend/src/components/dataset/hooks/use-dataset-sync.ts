@@ -4,7 +4,6 @@ import {
   createDatasetSync,
   createSyncCredential,
   deleteDatasetSync,
-  deleteSyncCredential,
   getDatasetSync,
   listSyncCredentials,
   pauseDatasetSync,
@@ -140,14 +139,6 @@ export function useReplaceSyncCredential() {
   return useMutation({
     mutationFn: ({ credentialId, request }: { credentialId: string; request: ReplaceSyncCredentialRequest }) =>
       replaceSyncCredential(credentialId, request),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.datasets.syncCredentialsPrefix }),
-  });
-}
-
-export function useDeleteSyncCredential() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (credentialId: string) => deleteSyncCredential(credentialId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.datasets.syncCredentialsPrefix }),
   });
 }

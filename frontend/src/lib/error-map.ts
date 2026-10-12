@@ -703,11 +703,6 @@ export function describeUploadRefusal(detail: unknown, status: number): string {
   }) as string;
 }
 
-/** Compatibility helper for call sites that already reduced detail to text. */
-export function translateError(backendMessage: string, status = 0): string {
-  return translateApiErrorDetail(backendMessage, status);
-}
-
 /**
  * Compose a mutation's error toast: a translated fallback, plus the already
  * localized message carried by ApiError/Error when one exists.

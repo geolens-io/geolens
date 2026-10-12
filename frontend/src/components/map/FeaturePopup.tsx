@@ -376,7 +376,7 @@ function ValueDisplay({
     if (kind === 'video') {
       return (
         <span className="block">
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption -- user-supplied popup media has no caption track */}
           <video
             src={srcUrl}
             controls

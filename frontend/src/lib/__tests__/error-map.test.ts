@@ -2,7 +2,6 @@ import {
   classifyApiError,
   describeUploadRefusal,
   translateApiErrorDetail,
-  translateError,
 } from '@/lib/error-map';
 
 describe('API error localization boundary', () => {
@@ -10,7 +9,6 @@ describe('API error localization boundary', () => {
     expect(classifyApiError('Dataset not found', 404)).toEqual({
       key: 'errors.datasetNotFound',
     });
-    expect(translateError('Dataset not found', 404)).toBe('Dataset not found');
   });
 
   // fix(#1746): the ArcGIS-worded auth-required refusal (ArcGISTokenError

@@ -1,16 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import { uploadFile, getJobStatus, getJobStatusByDataset, retryJob, cancelJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
+import { getJobStatus, getJobStatusByDataset, retryJob, cancelJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
 import { ApiError, apiFetch } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/types/api';
-
-export function useUploadFile() {
-  return useMutation({
-    // Wrap so TanStack's injected 2nd arg (context) isn't passed as onProgress.
-    mutationFn: (file: File) => uploadFile(file),
-  });
-}
 
 /**
  * Job statuses a job never transitions out of, so polling must stop.

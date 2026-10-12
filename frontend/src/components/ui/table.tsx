@@ -17,7 +17,7 @@ function Table({
     <div
       data-slot="table-container"
       className="relative w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      tabIndex={containerFocusable ? 0 : undefined} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex
+      tabIndex={containerFocusable ? 0 : undefined} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable when it overflows
       role="region"
       aria-label={ariaLabel}
     >
