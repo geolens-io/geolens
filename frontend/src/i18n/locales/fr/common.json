@@ -97,7 +97,6 @@
     "darkMode": "Mode sombre"
   },
   "theme": {
-    "toggle": "Changer le thème",
     "light": "Clair",
     "dark": "Sombre",
     "system": "Système"
@@ -126,9 +125,6 @@
     "infrastructure": "Infrastructure",
     "general": "Général",
     "basemaps": "Fonds de carte",
-    "mapDefaults": "Carte par défaut",
-    "security": "Sécurité",
-    "uploads": "Téléchargements",
     "settings": "Paramètres",
     "operations": "Opérations",
     "settingsGeneral": "Général",
@@ -359,7 +355,9 @@
     "unauthorized": "Votre session a expiré. Reconnectez-vous."
   },
   "settings": {
-    "apiKeys": { "manageTitle": "Gérer les clés API" },
+    "apiKeys": {
+      "manageTitle": "Gérer les clés API"
+    },
     "tabs": {
       "preferences": "Préférences",
       "apiKeys": "Clés API"
@@ -400,7 +398,6 @@
     "linkExpiredDescription": "Ce lien de carte partagée n'est plus disponible. Il a peut-être expiré ou été révoqué par le propriétaire.",
     "mapNotFound": "Carte introuvable",
     "mapNotFoundDescription": "Cette carte a peut-être été supprimée ou le lien est invalide.",
-    "poweredBy": "Propulsé par GeoLens",
     "featureFallback": "Entité",
     "legend": {
       "title": "Couches",
@@ -719,9 +716,6 @@
   },
   "inlineEdit": {
     "hint": "Ctrl+Entrée pour enregistrer, Échap pour annuler"
-  },
-  "mapCoordReadout": {
-    "scale": "1:{{value}}"
   },
   "errorBoundary": {
     "appTitle": "Une erreur est survenue",

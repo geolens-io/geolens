@@ -3,9 +3,7 @@
   "mapBuilder": "Map Builder",
   "indicators": {
     "labels": "Labels enabled",
-    "filter": "Filter applied",
-    "dataDriven": "Data-driven style",
-    "opacityModified": "Opacity adjusted"
+    "filter": "Filter applied"
   },
   "map": {
     "ariaLabel": "Map builder",
@@ -16,11 +14,8 @@
   "descriptionLabel": "Map description",
   "loadingMap": "Loading map...",
   "backToMaps": "Back to Maps",
-  "aiChat": "AI Chat",
   "layers": {
     "title": "Layers",
-    "emptyState": "Add datasets from the catalog to get started",
-    "addData": "Add Data",
     "unnamed": "Unnamed layer"
   },
   "mapStack": {
@@ -103,10 +98,8 @@
       "raster": "Raster",
       "layer": "Layer",
       "selected": "Selected",
-      "locked": "Locked",
       "disabled": "Disabled",
       "unsupported": "Unsupported",
-      "needsAttention": "Needs attention",
       "copy": "Copy {{index}} of {{count}}",
       "plugins_one": "{{count}} plugin",
       "plugins_other": "{{count}} plugins",
@@ -131,10 +124,6 @@
       "dataLabelsTop": "Data labels {{position}} of {{total}} (top)",
       "popup": "Popup {{position}} of {{total}}",
       "plugins": "Plugins"
-    },
-    "actions": {
-      "openInspector": "Open inspector",
-      "toggleBasemapLabels": "Toggle basemap labels"
     }
   },
   "renderAs": {
@@ -153,10 +142,7 @@
   },
   "inspector": {
     "title": "Layer Inspector",
-    "close": "Close inspector",
-    "toggleAdvanced": "Toggle advanced mode",
-    "basicMode": "Switch to basic mode",
-    "advancedMode": "Switch to advanced mode"
+    "close": "Close inspector"
   },
   "layerItem": {
     "hideLayer": "Hide layer",
@@ -362,8 +348,6 @@
       "resampling": "Resampling",
       "resamplingLinear": "Linear",
       "resamplingNearest": "Nearest",
-      "renderRaster": "Raster",
-      "renderHillshade": "Hillshade",
       "reset": "Reset",
       "resetTitle": "Reset raster style",
       "sectionColormap": "COLORMAP",
@@ -388,12 +372,7 @@
       "bandCount_other": "{{count}} bands"
     },
     "hillshade": {
-      "help": "Tune the relief overlay generated from this DEM layer.",
-      "direction": "Direction",
       "anchor": "Anchor",
-      "anchorViewport": "Viewport",
-      "anchorMap": "Map",
-      "exaggeration": "Relief",
       "shadow": "Shadow",
       "highlight": "Highlight",
       "accent": "Accent"
@@ -505,7 +484,6 @@
   },
   "dataDriven": {
     "title": "Data-Driven Style",
-    "scopeHelp": "Creates MapLibre paint expressions while keeping the builder style config aligned.",
     "clearTitle": "Clear data-driven style",
     "mode": "Mode",
     "categorical": "Categorical",
@@ -583,7 +561,6 @@
     "title": "Add Dataset",
     "dialogDescription": "Search and add datasets as layers to your map.",
     "placeholder": "Search datasets...",
-    "noResults": "No datasets found",
     "added": "Added",
     "addToMap": "Add to map",
     "addToMapDetails": "Add to map (details panel)",
@@ -599,7 +576,6 @@
     "retry": "Try again",
     "browseCatalogCta": "Browse public catalog →",
     "basemap": "Basemap",
-    "inUse": "in use",
     "anotherRendering": "another rendering",
     "swap": "swap",
     "importData": "Import data...",
@@ -667,7 +643,6 @@
     "customizeLegend": "-- show/hide legend",
     "revokeShareLink": "Revoke Share Link",
     "restrictToDomains": "Restrict to domains",
-    "domainHint": "Comma-separated origins. Leave empty for unrestricted access.",
     "visibilityLabel": "Map visibility: {{status}}",
     "embedTokenFailed": "Failed to create embed token.",
     "openShareLink": "Open in new tab",
@@ -676,7 +651,6 @@
     "summaryDomains": "Domains",
     "summaryUnrestricted": "Unrestricted",
     "expirationUpdated": "Expiration updated",
-    "domainsUpdated": "Domain restrictions updated",
     "updateFailed": "Failed to save changes",
     "originsEmptyHint": "No origins yet — paste a URL like https://example.com to allow embedding.",
     "originsNormHint": "Each origin is normalized to scheme + host + port before saving.",
@@ -737,7 +711,6 @@
     "cancelTitle": "Cancel",
     "cancelled": "Cancelled.",
     "streamInterrupted": "Response interrupted — some changes were applied.",
-    "failedToProcess": "Failed to process request",
     "errorFriendly": "Something went wrong. Please try again.",
     "errorSessionExpired": "Session expired. Please log in again.",
     "errorForbidden": "You don't have permission to use AI chat.",
@@ -761,9 +734,6 @@
     "suggestions": {
       "searchDatasets": "Find datasets to add to this map",
       "colorByAttribute": "Color \"{{name}}\" using a field",
-      "addLabels": "Add labels for \"{{name}}\"",
-      "filterByAttribute": "Filter \"{{name}}\" using a field",
-      "styleAllLayers": "Apply a color theme across all layers",
       "addDataset": "Add another dataset to this map",
       "heatmap": "Show {{name}} as a heatmap",
       "areaLabels": "Add area labels for {{name}}",
@@ -805,13 +775,11 @@
   },
   "basemap": {
     "title": "Basemap",
-    "showLabels": "Show place labels",
     "blank": "None",
     "appearance": "Appearance",
     "labels": "Labels",
     "roads": "Roads",
     "boundaries": "Boundaries",
-    "landWater": "Land / water",
     "relief": "Relief",
     "buildings": "Buildings"
   },
@@ -819,19 +787,6 @@
     "title": "Terrain",
     "enabled": "Enable terrain",
     "source": "DEM source",
-    "sourcePlaceholder": "Select DEM",
-    "exaggeration": "Exaggeration",
-    "noDem": "Add a DEM raster layer to enable terrain.",
-    "unitsUnknown": "Vertical units are unavailable; terrain scale is approximate.",
-    "unitsNonMeter": "Vertical units are {{unit}}, not meters; terrain scale is approximate.",
-    "surfaceTitle": "Elevation surface",
-    "surfaceDescription": "Terrain drapes the map surface; Relief layers provide visible shading.",
-    "selectedDem": "Selected DEM",
-    "noSource": "None",
-    "visualRelief": "Visual relief",
-    "reliefLayerCount_one": "{{count}} visible DEM layer",
-    "reliefLayerCount_other": "{{count}} visible DEM layers",
-    "noReliefLayer": "No visible relief layer",
     "smallDemWarning": "This DEM only covers a small part of the current view. Zoom in to the DEM extent, or drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth across the whole map."
   },
   "featurePopup": {
@@ -882,7 +837,6 @@
     "unknown": "Unknown"
   },
   "tooltips": {
-    "aiChat": "AI Chat",
     "share": "Share or embed this map",
     "mapInfo": "Map info",
     "downloadPng": "Download PNG",
@@ -890,14 +844,10 @@
     "duplicatingMap": "Duplicating…",
     "viewAsViewer": "View as viewer",
     "save": "Save ({{shortcut}})",
-    "collapseSidebar": "Collapse sidebar",
-    "expandSidebar": "Expand sidebar",
     "plugins": "Plugins",
     "moreActions": "More actions",
     "allSaved": "All changes saved",
-    "retrySave": "Save failed. Retry saving changes.",
-    "toggleDock": "Toggle dock (D)",
-    "closeChat": "Close chat"
+    "retrySave": "Save failed. Retry saving changes."
   },
   "toasts": {
     "mapSaved": "Map saved",
@@ -911,7 +861,6 @@
     "layerAdded": "Layer added",
     "layerDuplicated": "Layer duplicated",
     "datasetAdded": "{{name}} added to map",
-    "basemapChanged": "Basemap changed to {{name}}",
     "layerAddFailed": "Failed to add layer",
     "layerSyncFailed": "Layer sync failed for \"{{name}}\"",
     "renderModeSwitchFailed": "Failed to switch render mode",
@@ -1144,8 +1093,7 @@
       "terrain3d": "3D terrain",
       "titlePlaceholder": "Legend title",
       "editLegend": "Edit legend",
-      "entryLabelPlaceholder": "Label for {{name}}",
-      "resetLabel": "Reset to default"
+      "entryLabelPlaceholder": "Label for {{name}}"
     },
     "closePlugin": "Close plugin",
     "pluginError": "This plugin encountered an error"
@@ -1292,8 +1240,6 @@
     "deleteConfirmLabel": "Delete {{count}} layers? This cannot be undone.",
     "deleteConfirmAction": "Delete {{count}} layers",
     "deleteConfirmCancel": "Cancel",
-    "errorUpdateRolledBack": "Failed to update layers — changes rolled back.",
-    "errorDeleteRolledBack": "Failed to delete {{count}} layers — no changes made.",
     "deletingLayers": "Deleting {{count}} layers…",
     "deleteSuccess": "{{count}} layers deleted",
     "deletePartialFailure": "{{deleted}} of {{count}} layers deleted. {{failed}} failed. — Tap to retry.",
@@ -1312,7 +1258,6 @@
     "addData": "Add data",
     "settings": "Settings",
     "emptyState": "No layers yet",
-    "countBadge": "{{count}}",
     "basemapEyebrow": "BASEMAP",
     "emptyHeading": "Add your first layer",
     "emptyBody": "Search the catalog to find datasets for your map.",
@@ -1398,8 +1343,6 @@
     "sublayersSectionLabel": "SUBLAYERS",
     "swapBasemap": "Swap basemap",
     "toggleExpand": "Toggle basemap group",
-    "typeIconLabel": "Basemap group",
-    "visibilityLocked": "Basemap is always visible — use Remove basemap to hide.",
     "presetSectionAria": "Basemap preset"
   },
   "basemapSublayer": {
@@ -1471,14 +1414,10 @@
       "source": "Source"
     },
     "filter": {
-      "noFilter": "No filter",
       "active": "Active"
     },
     "labels": {
       "off": "Off"
-    },
-    "footer": {
-      "deleteLayer": "Delete layer"
     },
     "confirmDelete": {
       "message": "Are you sure? This cannot be undone.",
@@ -1497,7 +1436,6 @@
       "maxZoom": "Maximum zoom"
     },
     "source": {
-      "noColumns": "No queryable columns indexed for this layer.",
       "menuLabel": "Source",
       "dataset": "Dataset",
       "features": "Features",

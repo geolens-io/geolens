@@ -237,7 +237,6 @@
   "serviceUrl": {
     "label": "URL de service",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, ou endpoint OGC API",
-    "helpText": "Collez une URL de service WFS, ArcGIS Feature Service ou OGC API Features",
     "arcgisPortalUrlHint": "Il semble s’agir d’une page d’organisation ou de portail ArcGIS, pas d’une couche. Ouvrez la page de l’élément de la couche, copiez son URL REST (elle se termine par /FeatureServer/0 ou /MapServer/0) et collez-la ici. Les couches protégées demandent une connexion une fois l’URL de la couche collée.",
     "tokenPlaceholder": "Jeton ArcGIS, clé API ou jeton d'accès WFS",
     "credentialMethodLabel": "Authentification",
@@ -319,7 +318,6 @@
     "downloadFailed": "Le serveur n'a pas pu télécharger le fichier depuis cette URL"
   },
   "register": {
-    "helpText": "Cataloguez des tables PostGIS existantes de votre base de données en tant que jeux de données dans GeoLens. Utilisez cette option lorsque vous avez des données géographiques déjà dans la base de données qui n'ont pas été importées via GeoLens. Les tables sélectionnées seront ajoutées au catalogue avec détection automatique des métadonnées.",
     "discovering": "Recherche des tables...",
     "discoverFailed": "Échec de la découverte des tables :",
     "emptyState": "Aucune table non enregistrée trouvée dans la base de données.",
@@ -350,7 +348,6 @@
       "source_srid_undeclared": "Sa colonne geom ne déclare aucun SRID, donc GeoLens ne peut pas savoir où se trouvent ses coordonnées. Définissez le SRID, par exemple avec UpdateGeometrySRID, puis enregistrez la table.",
       "source_gid_unusable": "GeoLens identifie les entités par une colonne nommée gid : un entier NOT NULL et unique, comme une clé primaire, dans une table dont aucune autre table n'hérite. Cette table ne remplit pas cette condition. Ajoutez ou corrigez la colonne gid, ou renommez celle que GeoLens ne peut pas utiliser pour qu'il ajoute la sienne, puis enregistrez la table."
     },
-    "unknownError": "Erreur inconnue",
     "searchPlaceholder": "Rechercher des tables…",
     "selectHint": "Sélectionnez une table dans la liste pour voir son schéma et l'enregistrer.",
     "detailDesc": "Enregistrer comme jeu de données GeoLens; tuilé à la volée, aucune copie.",
@@ -367,19 +364,7 @@
     "tablesSidebarLabel": "Tables découvertes"
   },
   "layerPicker": {
-    "title": "Sélectionner une couche",
-    "emptyState": "Aucune couche trouvée dans ce service",
-    "columnName": "Nom",
-    "columnGeometry": "Type de géométrie",
-    "columnFeatureCount": "Nombre d'entités",
-    "previewLayer": "Aperçu de la couche"
-  },
-  "tablePicker": {
-    "selectAll": "Tout sélectionner ({{count}} table)",
-    "selectAll_one": "Tout sélectionner ({{count}} table)",
-    "selectAll_other": "Tout sélectionner ({{count}} tables)",
-    "nonSpatial": "non spatiale",
-    "estimatedRows": "~{{count}} lignes"
+    "title": "Sélectionner une couche"
   },
   "preview": {
     "title": "Aperçu du fichier",
@@ -411,9 +396,6 @@
     "nameLabel": "Nom *",
     "descriptionLabel": "Description",
     "descriptionPlaceholder": "Description facultative",
-    "tagsLabel": "Étiquettes",
-    "tagsPlaceholder": "étiquette1, étiquette2, étiquette3",
-    "tagsHelpText": "Séparés par des virgules",
     "visibilityLabel": "Visibilité",
     "visibilityPrivate": "Privé",
     "visibilityPublic": "Publique",
@@ -561,9 +543,6 @@
   "bulk": {
     "uploading_one": "Téléchargement de {{count}} fichier...",
     "uploading_other": "Téléchargement de {{count}} fichiers...",
-    "statusUploading": "Téléchargement...",
-    "statusPreviewing": "Génération de l'aperçu...",
-    "statusReady": "Prêt",
     "fileCount_one": "{{count}} fichier prêt pour l'importation",
     "fileCount_other": "{{count}} fichiers prêts pour l'importation",
     "importAllDefaults": "Tout importer avec les paramètres par défaut",

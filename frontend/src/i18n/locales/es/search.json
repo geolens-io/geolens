@@ -15,9 +15,6 @@
   "placeholder": "Buscar en el catálogo...",
   "updating": "Actualizando resultados...",
   "loadingDatasets": "Cargando conjuntos de datos...",
-  "resultCount_one": "{{count}} resultado",
-  "resultCount_other": "{{count}} resultados",
-  "mapsSectionTitle": "Mapas",
   "empty": {
     "catalogResultsTitle": "No se encontraron resultados en el catálogo",
     "catalogResultsDescription": "Prueba a cambiar la búsqueda o los filtros.",
@@ -43,11 +40,7 @@
     "geometry": "Geometría",
     "anyGeometry": "Cualquier geometría",
     "point": "Punto",
-    "lineString": "LineString",
     "polygon": "Polígono",
-    "multiPoint": "MultiPoint",
-    "multiLineString": "MultiLineString",
-    "multiPolygon": "MultiPolygon",
     "sort": "Ordenar",
     "relevance": "Relevancia",
     "dateAdded": "Fecha de adición",
@@ -77,8 +70,6 @@
     "anyCrs": "Cualquier CRS",
     "collection": "Colección",
     "collections": "Colecciones",
-    "temporalExtent": "Extensión temporal",
-    "temporalExtentRange": "Extensión temporal: {{start}} - {{end}}",
     "keywords": "Palabras clave",
     "keywordSearch": "Buscar palabras clave...",
     "noKeywords": "No hay palabras clave disponibles",
@@ -99,8 +90,7 @@
     "datasetCount_other": "{{count}} conjuntos de datos"
   },
   "datasetCard": {
-    "quicklookAlt": "Vista previa de {{name}}",
-    "previewUnavailable": "Vista previa no disponible"
+    "quicklookAlt": "Vista previa de {{name}}"
   },
   "card": {
     "featureCount_one": "{{count}} entidad",
@@ -173,7 +163,6 @@
   },
   "typeahead": {
     "searching": "Buscando...",
-    "noResults": "No se encontraron resultados",
     "error": "No se pudieron cargar los resultados"
   },
   "quality": {

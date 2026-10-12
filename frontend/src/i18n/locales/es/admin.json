@@ -30,9 +30,7 @@
     "byVisibility": "Conjuntos de datos por visibilidad",
     "noDatasets": "Aún no hay conjuntos de datos",
     "errorLoading": "Error al cargar estadísticas: {{message}}",
-    "totalUsers": "Usuarios totales",
-    "usersByStatus": "Usuarios por estado",
-    "noUsers": "Sin usuarios aún"
+    "totalUsers": "Usuarios totales"
   },
   "users": {
     "title": "Usuarios",
@@ -236,11 +234,6 @@
       "user": "Usuario",
       "allUsers": "Todos los usuarios",
       "allActions": "Todas las acciones",
-      "datasetView": "Vista de conjunto de datos",
-      "datasetExport": "Exportación de conjunto de datos",
-      "metadataEdit": "Edición de metadatos",
-      "datasetCreate": "Creación de conjunto de datos",
-      "datasetDelete": "Eliminación de conjunto de datos",
       "action": "Acción",
       "userId": "ID de usuario",
       "resourceType": "Tipo de recurso",
@@ -485,8 +478,6 @@
     "tableLabel": "Tokens de inserción"
   },
   "settings": {
-    "copySPEntityId": "Copiar ID de entidad SP",
-    "copyAcsUrl": "Copiar URL ACS",
     "actions": {
       "discard": "Descartar cambios",
       "resetDefaults": "Restablecer valores predeterminados",
@@ -522,8 +513,6 @@
     },
     "general": {
       "title": "General",
-      "cardTitle": "Funcionalidades",
-      "cardDescription": "Habilitar o deshabilitar funcionalidades de la plataforma.",
       "registration": "Autoregistro",
       "registrationDescription": "Permite que las personas creen su propia cuenta, registrándose con contraseña o iniciando sesión con un proveedor SSO habilitado. Las cuentas SSO se activan al instante con el rol predeterminado del proveedor. Los registros con contraseña se activan tras verificar el correo (requiere SMTP) o, si no, tras la aprobación de un administrador.",
       "landingFirst": "Inicio de sesión como página de inicio",
@@ -531,7 +520,6 @@
       "aiFeatures": "Funciones de IA",
       "aiFeaturesDescription": "Habilitar funciones impulsadas por IA, incluyendo redacción de metadatos de conjuntos de datos (resúmenes, palabras clave, linaje, declaraciones de calidad), chat del constructor de mapas y generación de mapas con IA.",
       "saved": "Configuración guardada",
-      "saveFailed": "Error al guardar la configuración",
       "requireMetadata": "Requerir metadatos para publicar",
       "requireMetadataDescription": "Cuando está habilitado, los conjuntos de datos deben tener metadatos completos antes de poder publicarse.",
       "enableDatasetEditing": "Habilitar edición de conjuntos de datos",
@@ -580,8 +568,7 @@
       "apiKeyLabel": "Clave API",
       "apiKeyPlaceholder": "Opcional — requerida si la URL contiene {api_key}",
       "apiKeyHelp": "Use {api_key} en la URL del mosaico como marcador de posición. La clave se interpola en el servidor.",
-      "saved": "Mapas base guardados",
-      "saveFailed": "Error al guardar los mapas base"
+      "saved": "Mapas base guardados"
     },
     "mapDefaults": {
       "title": "Valores predeterminados del mapa",
@@ -591,9 +578,7 @@
       "longitude": "Longitud",
       "zoomLevel": "Nivel de zoom",
       "preview": "Vista previa",
-      "useCurrentView": "Usar vista actual",
-      "saved": "Valores predeterminados del mapa guardados",
-      "saveFailed": "Error al guardar los valores predeterminados del mapa"
+      "saved": "Valores predeterminados del mapa guardados"
     },
     "plugins": {
       "title": "Plugins de mapa",
@@ -621,8 +606,6 @@
     },
     "security": {
       "title": "Seguridad",
-      "cardTitle": "Límite de tasa de inicio de sesión",
-      "cardDescription": "Controla el número máximo de intentos de inicio de sesión por minuto por dirección IP.",
       "accessTokenExpire": "Duración del token de acceso (minutos)",
       "refreshTokenExpire": "Tiempo de inactividad de la sesión (días)",
       "loginRateLimitLabel": "Límite de tasa de inicio de sesión (por minuto)",
@@ -630,7 +613,6 @@
       "loginRateLimit": "Intentos de inicio de sesión por minuto",
       "loginRateLimitDescription": "Número máximo de solicitudes de inicio de sesión permitidas por minuto desde una única dirección IP (1–1000).",
       "saved": "Configuración de seguridad guardada",
-      "saveFailed": "Error al guardar la configuración de seguridad",
       "passwordLogin": "Permitir inicio de sesión con contraseña",
       "passwordLoginDescription": "Permite que los usuarios inicien sesión con usuario y contraseña. Desactivarlo obliga a usar un proveedor SSO, así que habilita uno antes. Los administradores aún pueden entrar con contraseña como acceso de emergencia.",
       "emailVerificationRequired": "Requerir verificación de correo",
@@ -656,7 +638,6 @@
       "unknownError": "Error desconocido"
     },
     "saved": "Configuración guardada",
-    "saveFailed": "Error al guardar la configuración",
     "resetDefaults": "Restablecer valores predeterminados",
     "tabs": {
       "general": "General",
@@ -671,8 +652,6 @@
     },
     "uploads": {
       "title": "Configuración de subida",
-      "cardTitle": "Límites de subida",
-      "cardDescription": "Configure el tamaño máximo de archivo y las extensiones permitidas.",
       "maxSizeMb": "Tamaño máximo de archivo (MB)",
       "maxSizeMbDescription": "Tamaño máximo en megabytes (1-10,000). Los cambios surten efecto en la siguiente subida.",
       "allowedExtensions": "Extensiones permitidas",
@@ -689,8 +668,7 @@
       "invalidStorageQuantity": "Introduzca una cantidad equivalente a un número entero de bytes.",
       "maxDatasetsPerUser": "Conjuntos de datos máx. por usuario",
       "maxDatasetsPerUserDescription": "Número máximo de conjuntos de datos que cada usuario puede crear (0 = ilimitado).",
-      "saved": "Configuración de subida guardada",
-      "saveFailed": "Error al guardar la configuración de subida"
+      "saved": "Configuración de subida guardada"
     },
     "oauth": {
       "title": "Proveedores OAuth",
@@ -809,14 +787,8 @@
     "tileCache": "Caché de teselas",
     "type": "Tipo",
     "status": "Estado",
-    "latency": "Latencia",
-    "ttl": "TTL",
     "cdn": "CDN",
-    "pooler": "Pooler",
-    "connected": "Conectado",
-    "disconnected": "Desconectado",
     "configured": "Configurado",
-    "notConfigured": "No configurado",
     "loading": "Cargando estado de infraestructura...",
     "errorLoading": "Error al cargar el estado de infraestructura",
     "allOperational": "Todos los sistemas operativos",
@@ -833,8 +805,7 @@
       "title": "SSO SAML",
       "description": "No disponible en esta compilación.",
       "heading": "SAML no está disponible",
-      "body": "Esta compilación de GeoLens admite cuentas locales y proveedores OAuth como Google, GitHub y OIDC genérico.",
-      "docsLink": "SAML no está disponible en esta compilación"
+      "body": "Esta compilación de GeoLens admite cuentas locales y proveedores OAuth como Google, GitHub y OIDC genérico."
     },
     "addProvider": "Añadir proveedor SAML",
     "loading": "Cargando proveedores SAML...",

@@ -3,9 +3,7 @@
   "mapBuilder": "Constructor de mapas",
   "indicators": {
     "labels": "Etiquetas activadas",
-    "filter": "Filtro aplicado",
-    "dataDriven": "Estilo basado en datos",
-    "opacityModified": "Opacidad ajustada"
+    "filter": "Filtro aplicado"
   },
   "map": {
     "ariaLabel": "Constructor de mapas",
@@ -16,11 +14,8 @@
   "descriptionLabel": "Descripción del mapa",
   "loadingMap": "Cargando mapa...",
   "backToMaps": "Volver a mapas",
-  "aiChat": "Chat de IA",
   "layers": {
     "title": "Capas",
-    "emptyState": "Agregue conjuntos de datos del catálogo para comenzar",
-    "addData": "Agregar datos",
     "unnamed": "Capa sin nombre"
   },
   "mapStack": {
@@ -103,10 +98,8 @@
       "raster": "Ráster",
       "layer": "Capa",
       "selected": "Seleccionada",
-      "locked": "Bloqueada",
       "disabled": "Desactivada",
       "unsupported": "No compatible",
-      "needsAttention": "Requiere atención",
       "copy": "Copia {{index}} de {{count}}",
       "plugins_one": "{{count}} plugin",
       "plugins_other": "{{count}} plugins",
@@ -131,10 +124,6 @@
       "dataLabelsTop": "Etiquetas de datos {{position}} de {{total}} (arriba)",
       "popup": "Ventana emergente {{position}} de {{total}}",
       "plugins": "Plugins"
-    },
-    "actions": {
-      "openInspector": "Abrir inspector",
-      "toggleBasemapLabels": "Alternar etiquetas del mapa base"
     }
   },
   "renderAs": {
@@ -153,10 +142,7 @@
   },
   "inspector": {
     "title": "Inspector de capa",
-    "close": "Cerrar inspector",
-    "toggleAdvanced": "Alternar modo avanzado",
-    "basicMode": "Cambiar a modo básico",
-    "advancedMode": "Cambiar a modo avanzado"
+    "close": "Cerrar inspector"
   },
   "layerItem": {
     "hideLayer": "Ocultar capa",
@@ -362,8 +348,6 @@
       "resampling": "Remuestreo",
       "resamplingLinear": "Lineal",
       "resamplingNearest": "Vecino más cercano",
-      "renderRaster": "Ráster",
-      "renderHillshade": "Sombreado",
       "reset": "Restablecer",
       "resetTitle": "Restablecer estilo ráster",
       "sectionColormap": "MAPA DE COLOR",
@@ -388,12 +372,7 @@
       "bandCount_other": "{{count}} bandas"
     },
     "hillshade": {
-      "help": "Ajuste la capa de relieve generada desde esta capa DEM.",
-      "direction": "Dirección",
       "anchor": "Ancla",
-      "anchorViewport": "Vista",
-      "anchorMap": "Mapa",
-      "exaggeration": "Exageración del relieve",
       "shadow": "Sombra",
       "highlight": "Luz",
       "accent": "Acento"
@@ -505,7 +484,6 @@
   },
   "dataDriven": {
     "title": "Estilo basado en datos",
-    "scopeHelp": "Crea expresiones paint de MapLibre manteniendo alineada la configuración de estilo del builder.",
     "clearTitle": "Limpiar estilo basado en datos",
     "mode": "Modo",
     "categorical": "Categórico",
@@ -583,7 +561,6 @@
     "title": "Agregar conjunto de datos",
     "dialogDescription": "Busca y agrega conjuntos de datos como capas a tu mapa.",
     "placeholder": "Buscar conjuntos de datos...",
-    "noResults": "No se encontraron conjuntos de datos",
     "added": "Agregado",
     "addToMap": "Agregar al mapa",
     "addToMapDetails": "Agregar al mapa (panel de detalles)",
@@ -599,7 +576,6 @@
     "retry": "Volver a intentarlo",
     "browseCatalogCta": "Explorar catálogo público →",
     "basemap": "Mapa base",
-    "inUse": "en uso",
     "anotherRendering": "otra representación",
     "swap": "cambiar",
     "importData": "Importar datos...",
@@ -667,7 +643,6 @@
     "customizeLegend": "-- mostrar/ocultar leyenda",
     "revokeShareLink": "Revocar enlace compartido",
     "restrictToDomains": "Restringir a dominios",
-    "domainHint": "Orígenes separados por comas. Dejar vacío para acceso sin restricciones.",
     "visibilityLabel": "Visibilidad del mapa: {{status}}",
     "embedTokenFailed": "Error al crear el token de inserción. Es posible que la restricción de dominio no se aplique.",
     "openShareLink": "Abrir en nueva pestaña",
@@ -676,7 +651,6 @@
     "summaryDomains": "Dominios",
     "summaryUnrestricted": "Sin restricciones",
     "expirationUpdated": "Caducidad actualizada",
-    "domainsUpdated": "Restricciones de dominio actualizadas",
     "updateFailed": "No se pudieron guardar los cambios",
     "originsEmptyHint": "Aún no hay orígenes — pegue una URL como https://example.com para permitir la incrustación.",
     "originsNormHint": "Cada origen se normaliza a esquema + host + puerto antes de guardar.",
@@ -737,7 +711,6 @@
     "cancelTitle": "Cancelar",
     "cancelled": "Cancelado.",
     "streamInterrupted": "Respuesta interrumpida — se aplicaron algunos cambios.",
-    "failedToProcess": "Error al procesar la solicitud",
     "errorFriendly": "Algo salió mal. Intente de nuevo.",
     "errorSessionExpired": "Sesión expirada. Inicie sesión de nuevo.",
     "errorForbidden": "No tiene permiso para usar el chat de IA.",
@@ -761,9 +734,6 @@
     "suggestions": {
       "searchDatasets": "Buscar conjuntos de datos para agregar a este mapa",
       "colorByAttribute": "Colorear \"{{name}}\" usando un campo",
-      "addLabels": "Agregar etiquetas para \"{{name}}\"",
-      "filterByAttribute": "Filtrar \"{{name}}\" usando un campo",
-      "styleAllLayers": "Aplicar un tema de color a todas las capas",
       "addDataset": "Agregar otro conjunto de datos a este mapa",
       "heatmap": "Mostrar {{name}} como mapa de calor",
       "areaLabels": "Agregar etiquetas de área para {{name}}",
@@ -805,13 +775,11 @@
   },
   "basemap": {
     "title": "Mapa base",
-    "showLabels": "Mostrar etiquetas de lugares",
     "blank": "Ninguno",
     "appearance": "Apariencia",
     "labels": "Etiquetas",
     "roads": "Carreteras",
     "boundaries": "Límites",
-    "landWater": "Tierra / agua",
     "relief": "Relieve",
     "buildings": "Edificios"
   },
@@ -819,19 +787,6 @@
     "title": "Terreno",
     "enabled": "Activar terreno",
     "source": "Fuente DEM",
-    "sourcePlaceholder": "Seleccionar DEM",
-    "exaggeration": "Exageración",
-    "noDem": "Agregue una capa ráster DEM para activar el terreno.",
-    "unitsUnknown": "Las unidades verticales no están disponibles; la escala del terreno es aproximada.",
-    "unitsNonMeter": "Las unidades verticales son {{unit}}, no metros; la escala del terreno es aproximada.",
-    "surfaceTitle": "Superficie de elevación",
-    "surfaceDescription": "El terreno cubre la superficie del mapa; las capas de relieve proporcionan sombreado visible.",
-    "selectedDem": "DEM seleccionado",
-    "noSource": "Ninguno",
-    "visualRelief": "Relieve visual",
-    "reliefLayerCount_one": "{{count}} capa DEM visible",
-    "reliefLayerCount_other": "{{count}} capas DEM visibles",
-    "noReliefLayer": "Sin capa de relieve visible",
     "smallDemWarning": "Este DEM solo cubre una pequeña parte de la vista actual. Acérquese a la extensión del DEM o superpóngalo sobre un DEM global de baja resolución (p. ej. Copernicus GLO-30) para que el terreno se mantenga uniforme en todo el mapa."
   },
   "featurePopup": {
@@ -882,7 +837,6 @@
     "unknown": "Desconocido"
   },
   "tooltips": {
-    "aiChat": "Chat de IA",
     "share": "Compartir o insertar este mapa",
     "mapInfo": "Info del mapa",
     "downloadPng": "Descargar PNG",
@@ -890,14 +844,10 @@
     "duplicatingMap": "Duplicando…",
     "viewAsViewer": "Ver como visitante",
     "save": "Guardar ({{shortcut}})",
-    "collapseSidebar": "Contraer barra lateral",
-    "expandSidebar": "Expandir barra lateral",
     "plugins": "Plugins",
     "moreActions": "Más acciones",
     "allSaved": "Todos los cambios guardados",
-    "retrySave": "Error al guardar. Reintenta guardar los cambios.",
-    "toggleDock": "Alternar panel (D)",
-    "closeChat": "Cerrar chat"
+    "retrySave": "Error al guardar. Reintenta guardar los cambios."
   },
   "toasts": {
     "mapSaved": "Mapa guardado",
@@ -911,7 +861,6 @@
     "layerAdded": "Capa agregada",
     "layerDuplicated": "Capa duplicada",
     "datasetAdded": "{{name}} agregado al mapa",
-    "basemapChanged": "Mapa base cambiado a {{name}}",
     "layerAddFailed": "Error al agregar la capa",
     "layerSyncFailed": "Error de sincronización de capa para \"{{name}}\"",
     "renderModeSwitchFailed": "Error al cambiar el modo de renderizado",
@@ -1144,8 +1093,7 @@
       "terrain3d": "Terreno 3D",
       "titlePlaceholder": "Título de la leyenda",
       "editLegend": "Editar leyenda",
-      "entryLabelPlaceholder": "Etiqueta para {{name}}",
-      "resetLabel": "Restablecer al valor predeterminado"
+      "entryLabelPlaceholder": "Etiqueta para {{name}}"
     },
     "closePlugin": "Cerrar plugin",
     "pluginError": "Este plugin encontró un error"
@@ -1288,8 +1236,6 @@
     "deleteConfirmLabel": "¿Eliminar {{count}} capas? Esta acción no se puede deshacer.",
     "deleteConfirmAction": "Eliminar {{count}} capas",
     "deleteConfirmCancel": "Cancelar",
-    "errorUpdateRolledBack": "No se pudieron actualizar las capas — cambios revertidos.",
-    "errorDeleteRolledBack": "No se pudieron eliminar {{count}} capas — no se realizaron cambios.",
     "deletingLayers": "Eliminando {{count}} capas…",
     "deleteSuccess": "{{count}} capas eliminadas",
     "deletePartialFailure": "{{deleted}} de {{count}} capas eliminadas. {{failed}} fallaron. — Toca para reintentar.",
@@ -1308,7 +1254,6 @@
     "addData": "Agregar datos",
     "settings": "Configuración",
     "emptyState": "Aún no hay capas",
-    "countBadge": "{{count}}",
     "basemapEyebrow": "MAPA BASE",
     "emptyHeading": "Agrega tu primera capa",
     "emptyBody": "Busca en el catálogo para encontrar conjuntos de datos para tu mapa.",
@@ -1394,8 +1339,6 @@
     "sublayersSectionLabel": "SUBCAPAS",
     "swapBasemap": "Cambiar mapa base",
     "toggleExpand": "Contraer/expandir grupo de mapa base",
-    "typeIconLabel": "Grupo de mapa base",
-    "visibilityLocked": "El mapa base siempre está visible — use Eliminar mapa base para ocultarlo.",
     "presetSectionAria": "Mapa base predefinido"
   },
   "basemapSublayer": {
@@ -1463,14 +1406,10 @@
       "source": "Fuente"
     },
     "filter": {
-      "noFilter": "Sin filtro",
       "active": "Activo"
     },
     "labels": {
       "off": "Desactivado"
-    },
-    "footer": {
-      "deleteLayer": "Eliminar capa"
     },
     "confirmDelete": {
       "message": "¿Está seguro? Esta acción no se puede deshacer.",
@@ -1489,7 +1428,6 @@
       "maxZoom": "Zoom máximo"
     },
     "source": {
-      "noColumns": "No hay columnas consultables indexadas para esta capa.",
       "menuLabel": "Fuente",
       "dataset": "Conjunto de datos",
       "features": "Entidades",

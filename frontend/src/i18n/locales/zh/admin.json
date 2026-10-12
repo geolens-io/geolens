@@ -30,8 +30,6 @@
     "byVisibility": "按可见性统计的数据集",
     "noDatasets": "暂无数据集",
     "totalUsers": "用户总数",
-    "usersByStatus": "按状态统计的用户",
-    "noUsers": "暂无用户",
     "errorLoading": "加载统计信息失败：{{message}}"
   },
   "users": {
@@ -236,11 +234,6 @@
       "user": "用户",
       "allUsers": "所有用户",
       "allActions": "全部操作",
-      "datasetView": "数据集查看",
-      "datasetExport": "数据集导出",
-      "metadataEdit": "元数据编辑",
-      "datasetCreate": "数据集创建",
-      "datasetDelete": "数据集删除",
       "action": "操作",
       "userId": "用户 ID",
       "resourceType": "资源类型",
@@ -285,14 +278,8 @@
     "tileCache": "瓦片缓存",
     "type": "类型",
     "status": "状态",
-    "latency": "延迟",
-    "ttl": "TTL",
     "cdn": "CDN",
-    "pooler": "连接池",
-    "connected": "已连接",
-    "disconnected": "已断开",
     "configured": "已配置",
-    "notConfigured": "未配置",
     "loading": "正在加载基础设施状态...",
     "errorLoading": "加载基础设施状态失败",
     "allOperational": "所有系统运行正常",
@@ -510,8 +497,6 @@
     "tableLabel": "嵌入地图访问令牌"
   },
   "settings": {
-    "copySPEntityId": "复制 SP 实体 ID",
-    "copyAcsUrl": "复制 ACS URL",
     "page": {
       "title": "设置",
       "loadFailed": "加载设置失败：{{message}}",
@@ -568,12 +553,9 @@
       "descriptionSuffix": "以启用管理员覆盖。"
     },
     "saved": "设置已保存",
-    "saveFailed": "保存设置失败",
     "resetDefaults": "恢复默认值",
     "general": {
       "title": "常规",
-      "cardTitle": "功能开关",
-      "cardDescription": "启用或禁用平台功能。",
       "registration": "自助注册",
       "registrationDescription": "允许用户自行创建账户：使用密码注册，或通过已启用的 SSO 提供商登录。SSO 账户会立即以该提供商的默认角色激活。密码注册在邮箱验证后激活（需要 SMTP），否则需管理员批准后激活。",
       "landingFirst": "以登录页作为落地页",
@@ -606,8 +588,7 @@
       "logLevel": "日志级别",
       "logJsonLabel": "日志格式（JSON）",
       "logJsonDescription": "以结构化 JSON 格式输出日志。",
-      "saved": "设置已保存",
-      "saveFailed": "保存设置失败"
+      "saved": "设置已保存"
     },
     "basemaps": {
       "title": "底图",
@@ -630,8 +611,7 @@
       "checkingUrl": "检查中…",
       "removeBasemap": "移除底图",
       "add": "添加",
-      "saved": "底图已保存",
-      "saveFailed": "保存底图失败"
+      "saved": "底图已保存"
     },
     "mapDefaults": {
       "title": "地图默认设置",
@@ -641,9 +621,7 @@
       "longitude": "经度",
       "zoomLevel": "缩放级别",
       "preview": "预览",
-      "useCurrentView": "使用当前视图",
-      "saved": "地图默认设置已保存",
-      "saveFailed": "保存地图默认设置失败"
+      "saved": "地图默认设置已保存"
     },
     "plugins": {
       "title": "地图插件",
@@ -686,8 +664,6 @@
     },
     "security": {
       "title": "安全",
-      "cardTitle": "登录速率限制",
-      "cardDescription": "控制每个 IP 地址每分钟的最大登录尝试次数。",
       "loginRateLimit": "每分钟登录尝试次数",
       "accessTokenExpire": "访问令牌有效期（分钟）",
       "refreshTokenExpire": "会话空闲超时（天）",
@@ -695,7 +671,6 @@
       "tokenLifetimeNote": "令牌有效期的更改仅对新签发的令牌生效。",
       "loginRateLimitDescription": "单个 IP 地址每分钟允许的最大登录请求数（1–1000）。",
       "saved": "安全设置已保存",
-      "saveFailed": "保存安全设置失败",
       "passwordLogin": "允许密码登录",
       "passwordLoginDescription": "允许用户使用用户名和密码登录。禁用后用户必须通过 SSO 提供商登录，请先启用一个提供商。管理员仍可使用密码登录作为应急方式。",
       "emailVerificationRequired": "要求电子邮箱验证",
@@ -711,8 +686,6 @@
     },
     "uploads": {
       "title": "上传设置",
-      "cardTitle": "上传限制",
-      "cardDescription": "配置数据集上传的最大文件大小和允许的文件扩展名。",
       "maxSizeMb": "最大文件大小（MB）",
       "maxSizeMbDescription": "最大上传文件大小，单位为兆字节（1-10,000）。更改在下次上传时生效，无需重启。",
       "allowedExtensions": "允许的扩展名",
@@ -729,8 +702,7 @@
       "invalidStorageQuantity": "请输入可换算为整数个字节的数量。",
       "maxDatasetsPerUser": "每用户最大数据集数",
       "maxDatasetsPerUserDescription": "每个用户可创建的最大数据集数（0 = 不限）。",
-      "saved": "上传设置已保存",
-      "saveFailed": "保存上传设置失败"
+      "saved": "上传设置已保存"
     },
     "oauth": {
       "title": "OAuth 提供商",
@@ -833,8 +805,7 @@
       "title": "SAML 单点登录",
       "description": "此构建版本中不可用。",
       "heading": "SAML 不可用",
-      "body": "此 GeoLens 构建版本支持本地账户以及 Google、GitHub 和通用 OIDC 等 OAuth 提供商。",
-      "docsLink": "SAML 在此构建版本中不可用"
+      "body": "此 GeoLens 构建版本支持本地账户以及 Google、GitHub 和通用 OIDC 等 OAuth 提供商。"
     },
     "addProvider": "添加 SAML 提供商",
     "loading": "正在加载 SAML 提供商...",

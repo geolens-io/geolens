@@ -97,7 +97,6 @@
     "darkMode": "Dark mode"
   },
   "theme": {
-    "toggle": "Toggle theme",
     "light": "Light",
     "dark": "Dark",
     "system": "System"
@@ -127,9 +126,6 @@
     "infrastructure": "Infrastructure",
     "general": "General",
     "basemaps": "Basemaps",
-    "mapDefaults": "Map Defaults",
-    "security": "Security",
-    "uploads": "Uploads",
     "settings": "Settings",
     "settingsGeneral": "General",
     "settingsAuth": "Auth & Security",
@@ -147,7 +143,6 @@
     "linkExpiredDescription": "This shared map link is no longer available. It may have expired or been revoked by the owner.",
     "mapNotFound": "Map not found",
     "mapNotFoundDescription": "This map may have been removed or the link may be invalid.",
-    "poweredBy": "Powered by GeoLens",
     "featureFallback": "Feature",
     "legend": {
       "title": "Layers",
@@ -487,7 +482,9 @@
     "unauthorized": "Your session has expired. Sign in again."
   },
   "settings": {
-    "apiKeys": { "manageTitle": "Manage API keys" },
+    "apiKeys": {
+      "manageTitle": "Manage API keys"
+    },
     "tabs": {
       "preferences": "Preferences",
       "apiKeys": "API Keys"
@@ -744,9 +741,6 @@
   },
   "inlineEdit": {
     "hint": "Ctrl+Enter to save, Escape to cancel"
-  },
-  "mapCoordReadout": {
-    "scale": "1:{{value}}"
   },
   "errorBoundary": {
     "appTitle": "Something went wrong",

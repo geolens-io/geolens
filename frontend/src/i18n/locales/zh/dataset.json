@@ -29,9 +29,6 @@
     "access": "访问",
     "members": "成员"
   },
-  "collection": {
-    "membersPlaceholder": "集合成员列表即将推出。"
-  },
   "inline": {
     "noDescription": "添加描述...",
     "saveFailed": "保存失败——请重试。",
@@ -95,7 +92,6 @@
     "editDetails": "编辑详情",
     "editGeometry": "编辑要素",
     "draw": "绘制",
-    "stopDrawing": "停止绘制",
     "reupload": "重新上传",
     "reuploadTooltip": "替换此数据集的源文件",
     "createVrt": "创建 VRT",
@@ -110,12 +106,10 @@
     "more": "更多",
     "moreActions": "更多操作",
     "subtitle": {
-      "owner": "所有者：{{owner}}",
       "updated": "更新时间：{{date}}",
       "type": "类型：{{type}}"
     },
     "fallback": {
-      "owner": "所有者不可用",
       "updated": "更新时间未知",
       "type": "类型未知"
     },
@@ -139,16 +133,13 @@
     "manageColumns": "管理列",
     "columnName": "名称",
     "columnType": "类型",
-    "tags": "标签",
     "sourceOrganization": "来源组织",
     "license": "许可协议",
     "attribution": "署名",
     "attributionPlaceholder": "例如 © swisstopo — swissALTI3D",
     "attributionHelp": "在地图查看器中显示此数据集时展示的署名信息。某些数据源的条款要求提供。",
     "sourceFormat": "源格式",
-    "dataVintage": "数据年份",
     "created": "创建时间",
-    "lastUpdated": "最后更新",
     "contact": "联系人",
     "visibility": "可见性",
     "copyToClipboard": "复制到剪贴板",
@@ -158,9 +149,6 @@
     "present": "至今",
     "temporalExtent": "时间范围",
     "noTemporalExtent": "未设置",
-    "recordStatus": "记录状态",
-    "createdBy": "创建者",
-    "lastEditedBy": "最后编辑者",
     "never": "从未",
     "provenanceUnknown": "未知",
     "provenanceRestricted": "受限用户",
@@ -177,8 +165,6 @@
     "title": "编辑元数据",
     "name": "名称",
     "description": "描述",
-    "tags": "标签（逗号分隔）",
-    "tagsPlaceholder": "例如 parcels, zoning, boundaries",
     "visibility": "可见性",
     "visibilityPublic": "公开",
     "visibilityPrivate": "私有",
@@ -186,14 +172,10 @@
     "visibilityHelp": "私有 = 仅所有者和管理员。内部 = 任何登录 GeoLens 的用户。公开 = 对所有人可见，包括未登录的访客。",
     "visibilityUpdated": "可见性已更新",
     "visibilityFailed": "无法更改可见性",
-    "sourceOrganization": "来源组织",
     "license": "许可协议",
     "vintageStart": "数据年份开始",
     "vintageEnd": "数据年份结束",
-    "contactName": "联系人姓名",
-    "contactEmail": "联系人电子邮箱",
-    "saving": "正在保存...",
-    "updateFailed": "更新数据集失败"
+    "saving": "正在保存..."
   },
   "export": {
     "gpkg": "GeoPackage",
@@ -372,7 +354,6 @@
     "geometryValidity": "几何有效性",
     "attributeCompleteness": "属性完整性",
     "crsDefined": "已定义 CRS",
-    "lastChecked": "上次检查：{{date}}",
     "freshness": {
       "absolute": "上次检查：{{date}}",
       "relative": "上次检查：{{relative}}",
@@ -528,11 +509,8 @@
     "readOnlyGuidance": "请联系数据集所有者或上方列出的联系人，处理这些验证问题。",
     "health": {
       "title": "数据集健康度",
-      "required": "必填项 {{count}}",
-      "recommended": "建议项 {{count}}",
       "ready": "状态良好",
-      "description": "{{requiredCount}} 个必填项和 {{recommendedCount}} 个建议项仍需审查。",
-      "descriptionReady": "未检测到待处理的校验问题。"
+      "description": "{{requiredCount}} 个必填项和 {{recommendedCount}} 个建议项仍需审查。"
     },
     "actions": {
       "summary": "审查摘要",
@@ -669,8 +647,6 @@
     "themeCategory": "主题类别",
     "sourceUrl": "源 URL",
     "sourceUrlPlaceholder": "https://...",
-    "recordStatus": "记录状态",
-    "ownerOrg": "所属组织",
     "themeCategoryUpdated": "主题类别已更新",
     "themeCategoryUpdateFailed": "更新主题类别失败",
     "updateFrequencyOptions": {
@@ -723,7 +699,6 @@
     "provenanceUpload": "数据上传",
     "provenanceFeatures": "要素",
     "aboutTitle": "关于此数据集",
-    "apiTitle": "通过 API 访问",
     "appearsIn": "出现于",
     "bandColor": "颜色",
     "bandDetails": "波段详情",
@@ -740,11 +715,9 @@
     "generationStatus": "状态",
     "lastRegenerated": "上次重新生成",
     "maintainer": "维护者",
-    "metadataTitle": "元数据",
     "nextFillIn": "下一步：填写{{field}}",
     "nodata": "无数据值",
     "ogcApiFeatures": "OGC API Features",
-    "percentComplete": "已完成 {{percent}}%",
     "validationProgress": "通过的验证检查：{{percent}}%",
     "validationProgressHelp": "估算方式：以 12 项基础检查减去报告的错误和警告。质量元数据分数另行统计可选字段。",
     "askMaintainer": "请联系数据集所有者或下方列出的联系人，填写{{field}}",
@@ -765,8 +738,7 @@
   },
   "sources": {
     "system": "系统",
-    "user": "用户",
-    "elapsed": "耗时：{{seconds}} 秒"
+    "user": "用户"
   },
   "sourcePanel": {
     "title": "数据源",
@@ -1138,7 +1110,6 @@
     "tilesProcessing": "瓦片可能仍在处理中",
     "bands": "波段",
     "resolution": "分辨率",
-    "dimensions": "尺寸",
     "format": "格式",
     "bandStack": "波段堆叠",
     "mosaic": "镶嵌"
@@ -1162,16 +1133,11 @@
     "mosaic": "VRT 镶嵌",
     "bandStack": "VRT 波段堆叠",
     "addSource": "添加数据源",
-    "disabledRegenerating": "VRT 重新生成期间已禁用",
-    "disabledMinSources": "VRT 必须至少包含 2 个数据源",
     "sourceTablePos": "#",
     "sourceTableTitle": "数据集",
     "sourceTableCrs": "CRS",
     "sourceTableBands": "波段",
     "sourceTableResolution": "分辨率",
-    "addSourcePlaceholder": "搜索 COG 数据集...",
-    "addSourceSuccess": "数据源已添加。VRT 正在重新生成。",
-    "addSourceRegenerating": "VRT 目前正在重新生成。请稍后重试。",
     "removeSource": "移除数据源",
     "removeConfirmTitle": "移除数据源",
     "removeConfirmBody": "确定从此 VRT 中移除“{{title}}”吗？VRT 将重新生成。",
@@ -1183,11 +1149,6 @@
     "regenerateStarted": "VRT 重新生成已开始。",
     "regenerateConflict": "VRT 已在重新生成中。",
     "generationHistory": "生成历史",
-    "genStatus": "状态",
-    "genTimestamp": "时间戳",
-    "genDuration": "耗时",
-    "genSources": "数据源",
-    "genTriggeredBy": "触发者",
     "healthHealthy": "健康",
     "healthMissing": "源数据集已删除",
     "healthInaccessible": "源文件无法访问",
@@ -1195,7 +1156,6 @@
     "healthMissingShort": "缺失",
     "healthInaccessibleShort": "无法访问",
     "healthUnknownShort": "未知",
-    "noSources": "无数据源",
     "searchError": "搜索数据集失败。",
     "sourcesLoadError": "加载 VRT 数据源失败。",
     "sourceTableHealth": "健康状态",

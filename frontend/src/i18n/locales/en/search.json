@@ -15,9 +15,6 @@
   "placeholder": "Search the catalog...",
   "updating": "Updating results...",
   "loadingDatasets": "Loading datasets...",
-  "resultCount_one": "{{count}} result",
-  "resultCount_other": "{{count}} results",
-  "mapsSectionTitle": "Maps",
   "empty": {
     "catalogResultsTitle": "No catalog results found",
     "catalogResultsDescription": "Try changing the search or filters.",
@@ -51,11 +48,7 @@
     "updateLocation": "Update location area",
     "anyGeometry": "Any geometry",
     "point": "Point",
-    "lineString": "LineString",
     "polygon": "Polygon",
-    "multiPoint": "MultiPoint",
-    "multiLineString": "MultiLineString",
-    "multiPolygon": "MultiPolygon",
     "sort": "Sort",
     "relevance": "Relevance",
     "dateAdded": "Date Added",
@@ -85,8 +78,6 @@
     "anyCrs": "Any CRS",
     "collection": "Collection",
     "collections": "Collections",
-    "temporalExtent": "Temporal Extent",
-    "temporalExtentRange": "Temporal Extent: {{start}} - {{end}}",
     "keywords": "Keywords",
     "keywordSearch": "Search keywords...",
     "noKeywords": "No keywords available",
@@ -99,8 +90,7 @@
     "datasetCount_other": "{{count}} datasets"
   },
   "datasetCard": {
-    "quicklookAlt": "Preview of {{name}}",
-    "previewUnavailable": "Preview unavailable"
+    "quicklookAlt": "Preview of {{name}}"
   },
   "card": {
     "featureCount_one": "{{count}} feature",
@@ -193,7 +183,6 @@
   "workspaceTitle": "Search the GeoLens catalog",
   "typeahead": {
     "searching": "Searching...",
-    "noResults": "No results found",
     "error": "Failed to load results"
   },
   "quality": {

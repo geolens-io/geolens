@@ -237,7 +237,6 @@
   "serviceUrl": {
     "label": "Service-URL",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer oder OGC-API-Endpunkt",
-    "helpText": "WFS-, ArcGIS-Feature-Service- oder OGC-API-Features-URL einfügen",
     "arcgisPortalUrlHint": "Das sieht nach einer ArcGIS-Organisations- oder Portalseite aus, nicht nach einem Layer. Öffnen Sie die Elementseite des Layers, kopieren Sie dessen REST-URL (sie endet auf /FeatureServer/0 oder /MapServer/0) und fügen Sie sie hier ein. Geschützte Layer verlangen die Anmeldung, nachdem Sie die Layer-URL eingefügt haben.",
     "tokenPlaceholder": "ArcGIS-Token, API-Schlüssel oder WFS-Zugriffstoken",
     "credentialMethodLabel": "Authentifizierung",
@@ -319,7 +318,6 @@
     "downloadFailed": "Der Server konnte die Datei von dieser URL nicht herunterladen"
   },
   "register": {
-    "helpText": "Katalogisieren Sie vorhandene PostGIS-Tabellen aus Ihrer Datenbank als Datensätze in GeoLens. Verwenden Sie diese Option, wenn Sie bereits geografische Daten in der Datenbank haben, die nicht über GeoLens importiert wurden. Ausgewählte Tabellen werden mit automatischer Metadatenerkennung zum Katalog hinzugefügt.",
     "discovering": "Tabellen werden ermittelt...",
     "discoverFailed": "Tabellenerkennung fehlgeschlagen:",
     "emptyState": "Keine nicht registrierten Tabellen in der Datenbank gefunden.",
@@ -350,7 +348,6 @@
       "source_srid_undeclared": "Die geom-Spalte deklariert keine SRID, daher kann GeoLens nicht erkennen, wo ihre Koordinaten liegen. Legen Sie die SRID fest, zum Beispiel mit UpdateGeometrySRID, und registrieren Sie die Tabelle dann.",
       "source_gid_unusable": "GeoLens identifiziert Features über eine Spalte namens gid: eine eindeutige Ganzzahl mit NOT NULL, etwa ein Primärschlüssel, in einer Tabelle, von der keine andere Tabelle erbt. Diese Tabelle erfüllt das nicht. Fügen Sie die Spalte gid hinzu oder korrigieren Sie sie, oder benennen Sie eine unbrauchbare um, damit GeoLens eine eigene hinzufügen kann, und registrieren Sie die Tabelle dann."
     },
-    "unknownError": "Unbekannter Fehler",
     "searchPlaceholder": "Tabellen suchen…",
     "selectHint": "Eine Tabelle aus der Liste auswählen, um ihr Schema zu sehen und sie zu registrieren.",
     "detailDesc": "Als GeoLens-Datensatz registrieren; direkt aus Tabellen gekachelt, keine Kopie.",
@@ -367,19 +364,7 @@
     "tablesSidebarLabel": "Erkannte Tabellen"
   },
   "layerPicker": {
-    "title": "Layer auswählen",
-    "emptyState": "Keine Layer in diesem Dienst gefunden",
-    "columnName": "Name",
-    "columnGeometry": "Geometrietyp",
-    "columnFeatureCount": "Feature-Anzahl",
-    "previewLayer": "Layer-Vorschau"
-  },
-  "tablePicker": {
-    "selectAll": "Alle auswählen ({{count}} Tabelle)",
-    "selectAll_one": "Alle auswählen ({{count}} Tabelle)",
-    "selectAll_other": "Alle auswählen ({{count}} Tabellen)",
-    "nonSpatial": "nicht-räumlich",
-    "estimatedRows": "~{{count}} Zeilen"
+    "title": "Layer auswählen"
   },
   "preview": {
     "title": "Dateivorschau",
@@ -411,9 +396,6 @@
     "nameLabel": "Name *",
     "descriptionLabel": "Beschreibung",
     "descriptionPlaceholder": "Optionale Beschreibung",
-    "tagsLabel": "Schlagwörter",
-    "tagsPlaceholder": "Schlagwort1, Schlagwort2, Schlagwort3",
-    "tagsHelpText": "Kommagetrennt",
     "visibilityLabel": "Sichtbarkeit",
     "visibilityPrivate": "Privat",
     "visibilityPublic": "Öffentlich",
@@ -561,9 +543,6 @@
   "bulk": {
     "uploading_one": "{{count}} Datei wird hochgeladen...",
     "uploading_other": "{{count}} Dateien werden hochgeladen...",
-    "statusUploading": "Wird hochgeladen...",
-    "statusPreviewing": "Vorschau wird erstellt...",
-    "statusReady": "Bereit",
     "fileCount_one": "{{count}} Datei bereit zum Import",
     "fileCount_other": "{{count}} Dateien bereit zum Import",
     "importAllDefaults": "Alle mit Standardwerten importieren",

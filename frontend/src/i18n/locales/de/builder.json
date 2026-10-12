@@ -3,9 +3,7 @@
   "mapBuilder": "Karten-Editor",
   "indicators": {
     "labels": "Beschriftungen aktiv",
-    "filter": "Filter angewendet",
-    "dataDriven": "Datenbasierter Stil",
-    "opacityModified": "Deckkraft angepasst"
+    "filter": "Filter angewendet"
   },
   "map": {
     "ariaLabel": "Kartenerstellung",
@@ -16,11 +14,8 @@
   "descriptionLabel": "Kartenbeschreibung",
   "loadingMap": "Karte wird geladen...",
   "backToMaps": "Zurück zu Karten",
-  "aiChat": "KI-Chat",
   "layers": {
     "title": "Layer",
-    "emptyState": "Datensätze aus dem Katalog hinzufügen, um zu beginnen",
-    "addData": "Daten hinzufügen",
     "unnamed": "Unbenannte Ebene"
   },
   "mapStack": {
@@ -103,10 +98,8 @@
       "raster": "Raster",
       "layer": "Layer",
       "selected": "Ausgewählt",
-      "locked": "Gesperrt",
       "disabled": "Deaktiviert",
       "unsupported": "Nicht unterstützt",
-      "needsAttention": "Benötigt Aufmerksamkeit",
       "copy": "Kopie {{index}} von {{count}}",
       "plugins_one": "{{count}} Plugin",
       "plugins_other": "{{count}} Plugins",
@@ -131,10 +124,6 @@
       "dataLabelsTop": "Datenbeschriftungen {{position}} von {{total}} (oben)",
       "popup": "Popup {{position}} von {{total}}",
       "plugins": "Plugins"
-    },
-    "actions": {
-      "openInspector": "Inspektor öffnen",
-      "toggleBasemapLabels": "Basiskarten-Beschriftungen umschalten"
     }
   },
   "renderAs": {
@@ -153,10 +142,7 @@
   },
   "inspector": {
     "title": "Layer-Inspektor",
-    "close": "Inspektor schließen",
-    "toggleAdvanced": "Erweiterten Modus umschalten",
-    "basicMode": "Zum einfachen Modus wechseln",
-    "advancedMode": "Zum erweiterten Modus wechseln"
+    "close": "Inspektor schließen"
   },
   "layerItem": {
     "hideLayer": "Layer ausblenden",
@@ -362,8 +348,6 @@
       "resampling": "Resampling",
       "resamplingLinear": "Linear",
       "resamplingNearest": "Nächster Nachbar",
-      "renderRaster": "Raster",
-      "renderHillshade": "Schummerung",
       "reset": "Zurücksetzen",
       "resetTitle": "Rasterstil zurücksetzen",
       "sectionColormap": "FARBSKALA",
@@ -388,12 +372,7 @@
       "bandCount_other": "{{count}} Bänder"
     },
     "hillshade": {
-      "help": "Passen Sie die aus diesem DEM-Layer erzeugte Relief-Überlagerung an.",
-      "direction": "Richtung",
       "anchor": "Anker",
-      "anchorViewport": "Ansicht",
-      "anchorMap": "Karte",
-      "exaggeration": "Reliefüberhöhung",
       "shadow": "Schatten",
       "highlight": "Glanzlicht",
       "accent": "Akzent"
@@ -505,7 +484,6 @@
   },
   "dataDriven": {
     "title": "Datengesteuerter Stil",
-    "scopeHelp": "Erstellt MapLibre-paint-Ausdrücke und hält die Builder-Stilkonfiguration synchron.",
     "clearTitle": "Datengesteuerten Stil entfernen",
     "mode": "Modus",
     "categorical": "Kategorisch",
@@ -583,7 +561,6 @@
     "title": "Datensatz hinzufügen",
     "dialogDescription": "Datensätze suchen und als Layer zur Karte hinzufügen.",
     "placeholder": "Datensätze suchen...",
-    "noResults": "Keine Datensätze gefunden",
     "added": "Hinzugefügt",
     "addToMap": "Zur Karte hinzufügen",
     "addToMapDetails": "Zur Karte hinzufügen (Detailbereich)",
@@ -599,7 +576,6 @@
     "retry": "Erneut versuchen",
     "browseCatalogCta": "Öffentlichen Katalog durchsuchen →",
     "basemap": "Basiskarte",
-    "inUse": "in Verwendung",
     "anotherRendering": "eine weitere Darstellung",
     "swap": "tauschen",
     "importData": "Daten importieren...",
@@ -667,7 +643,6 @@
     "customizeLegend": "-- Legende ein-/ausblenden",
     "revokeShareLink": "Freigabelink widerrufen",
     "restrictToDomains": "Auf Domains beschränken",
-    "domainHint": "Kommagetrennte Ursprünge. Leer lassen für uneingeschränkten Zugriff.",
     "visibilityLabel": "Kartensichtbarkeit: {{status}}",
     "embedTokenFailed": "Fehler beim Erstellen des Embed-Tokens. Domainbeschränkung wird möglicherweise nicht angewendet.",
     "openShareLink": "In neuem Tab öffnen",
@@ -676,7 +651,6 @@
     "summaryDomains": "Domains",
     "summaryUnrestricted": "Uneingeschränkt",
     "expirationUpdated": "Ablaufdatum aktualisiert",
-    "domainsUpdated": "Domain-Einschränkungen aktualisiert",
     "updateFailed": "Änderungen konnten nicht gespeichert werden",
     "originsEmptyHint": "Noch keine Origins — geben Sie eine URL wie https://example.com ein, um das Einbetten zu erlauben.",
     "originsNormHint": "Jede Origin wird vor dem Speichern auf Schema + Host + Port normalisiert.",
@@ -737,7 +711,6 @@
     "cancelTitle": "Abbrechen",
     "cancelled": "Abgebrochen.",
     "streamInterrupted": "Antwort unterbrochen — einige Änderungen wurden angewendet.",
-    "failedToProcess": "Anfrage konnte nicht verarbeitet werden",
     "errorFriendly": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
     "errorSessionExpired": "Sitzung abgelaufen. Bitte erneut anmelden.",
     "errorForbidden": "Sie haben keine Berechtigung, den KI-Chat zu verwenden.",
@@ -761,9 +734,6 @@
     "suggestions": {
       "searchDatasets": "Datasätze finden, die zu dieser Karte hinzugefügt werden können",
       "colorByAttribute": "„{{name}}“ mithilfe eines Feldes einfärben",
-      "addLabels": "Beschriftungen für „{{name}}“ hinzufügen",
-      "filterByAttribute": "„{{name}}“ mithilfe eines Feldes filtern",
-      "styleAllLayers": "Ein Farbschema auf alle Ebenen anwenden",
       "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
       "heatmap": "{{name}} als Heatmap anzeigen",
       "areaLabels": "Flächenbeschriftungen für {{name}} hinzufügen",
@@ -805,13 +775,11 @@
   },
   "basemap": {
     "title": "Basiskarte",
-    "showLabels": "Ortsbeschriftungen anzeigen",
     "blank": "Keine",
     "appearance": "Erscheinungsbild",
     "labels": "Beschriftungen",
     "roads": "Straßen",
     "boundaries": "Grenzen",
-    "landWater": "Land / Wasser",
     "relief": "Relief",
     "buildings": "Gebäude"
   },
@@ -819,19 +787,6 @@
     "title": "Terrain",
     "enabled": "Terrain aktivieren",
     "source": "DEM-Quelle",
-    "sourcePlaceholder": "DEM auswählen",
-    "exaggeration": "Überhöhung",
-    "noDem": "Einen DEM-Raster-Layer hinzufügen, um Terrain zu aktivieren.",
-    "unitsUnknown": "Vertikale Einheiten nicht verfügbar; die Terrainskalierung ist näherungsweise.",
-    "unitsNonMeter": "Vertikale Einheiten sind {{unit}}, nicht Meter; die Terrainskalierung ist näherungsweise.",
-    "surfaceTitle": "Geländeoberfläche",
-    "surfaceDescription": "Terrain legt sich über die Kartenoberfläche; Relief-Ebenen bieten sichtbare Schattierung.",
-    "selectedDem": "Ausgewähltes DEM",
-    "noSource": "Keine",
-    "visualRelief": "Visuelles Relief",
-    "reliefLayerCount_one": "{{count}} sichtbare DEM-Ebene",
-    "reliefLayerCount_other": "{{count}} sichtbare DEM-Ebenen",
-    "noReliefLayer": "Keine sichtbare Relief-Ebene",
     "smallDemWarning": "Dieses DEM deckt nur einen kleinen Teil der aktuellen Ansicht ab. Zoomen Sie in die DEM-Ausdehnung hinein oder legen Sie es über ein grobes globales DEM (z. B. Copernicus GLO-30), damit das Terrain auf der gesamten Karte gleichmäßig bleibt."
   },
   "featurePopup": {
@@ -882,7 +837,6 @@
     "unknown": "Unbekannt"
   },
   "tooltips": {
-    "aiChat": "KI-Chat",
     "share": "Karte teilen oder einbetten",
     "mapInfo": "Karteninfo",
     "downloadPng": "PNG herunterladen",
@@ -890,14 +844,10 @@
     "duplicatingMap": "Wird dupliziert…",
     "viewAsViewer": "Als Betrachter anzeigen",
     "save": "Speichern ({{shortcut}})",
-    "collapseSidebar": "Seitenleiste einklappen",
-    "expandSidebar": "Seitenleiste ausklappen",
     "plugins": "Plugins",
     "moreActions": "Weitere Aktionen",
     "allSaved": "Alle Änderungen gespeichert",
-    "retrySave": "Speichern fehlgeschlagen. Änderungen erneut speichern.",
-    "toggleDock": "Dock umschalten (D)",
-    "closeChat": "Chat schließen"
+    "retrySave": "Speichern fehlgeschlagen. Änderungen erneut speichern."
   },
   "toasts": {
     "mapSaved": "Karte gespeichert",
@@ -911,7 +861,6 @@
     "layerAdded": "Layer hinzugefügt",
     "layerDuplicated": "Layer dupliziert",
     "datasetAdded": "{{name}} zur Karte hinzugefügt",
-    "basemapChanged": "Basiskarte zu {{name}} gewechselt",
     "layerAddFailed": "Layer konnte nicht hinzugefügt werden",
     "layerSyncFailed": "Layer-Synchronisation für \"{{name}}\" fehlgeschlagen",
     "renderModeSwitchFailed": "Darstellungsmodus konnte nicht gewechselt werden",
@@ -1144,8 +1093,7 @@
       "terrain3d": "3D-Gelände",
       "titlePlaceholder": "Legendentitel",
       "editLegend": "Legende bearbeiten",
-      "entryLabelPlaceholder": "Beschriftung für {{name}}",
-      "resetLabel": "Auf Standard zurücksetzen"
+      "entryLabelPlaceholder": "Beschriftung für {{name}}"
     },
     "closePlugin": "Plugin schließen",
     "pluginError": "Dieses Plugin ist auf einen Fehler gestoßen"
@@ -1288,8 +1236,6 @@
     "deleteConfirmLabel": "{{count}} Layer löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
     "deleteConfirmAction": "{{count}} Layer löschen",
     "deleteConfirmCancel": "Abbrechen",
-    "errorUpdateRolledBack": "Aktualisierung der Layer fehlgeschlagen — Änderungen rückgängig gemacht.",
-    "errorDeleteRolledBack": "{{count}} Layer konnten nicht gelöscht werden — keine Änderungen vorgenommen.",
     "deletingLayers": "{{count}} Layer werden gelöscht…",
     "deleteSuccess": "{{count}} Layer gelöscht",
     "deletePartialFailure": "{{deleted}} von {{count}} Layern gelöscht. {{failed}} fehlgeschlagen. — Zum Wiederholen tippen.",
@@ -1308,7 +1254,6 @@
     "addData": "Daten hinzufügen",
     "settings": "Einstellungen",
     "emptyState": "Noch keine Layer",
-    "countBadge": "{{count}}",
     "basemapEyebrow": "BASISKARTE",
     "emptyHeading": "Ersten Layer hinzufügen",
     "emptyBody": "Katalog durchsuchen, um Datensätze für die Karte zu finden.",
@@ -1394,8 +1339,6 @@
     "sublayersSectionLabel": "SUBLAYER",
     "swapBasemap": "Basiskarte tauschen",
     "toggleExpand": "Basiskarten-Gruppe ein-/ausklappen",
-    "typeIconLabel": "Basiskarten-Gruppe",
-    "visibilityLocked": "Basiskarte ist immer sichtbar — verwenden Sie „Basiskarte entfernen“, um sie auszublenden.",
     "presetSectionAria": "Basemap-Vorlage"
   },
   "basemapSublayer": {
@@ -1463,14 +1406,10 @@
       "source": "Quelle"
     },
     "filter": {
-      "noFilter": "Kein Filter",
       "active": "Aktiv"
     },
     "labels": {
       "off": "Aus"
-    },
-    "footer": {
-      "deleteLayer": "Layer löschen"
     },
     "confirmDelete": {
       "message": "Sind Sie sicher? Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -1489,7 +1428,6 @@
       "maxZoom": "Maximaler Zoom"
     },
     "source": {
-      "noColumns": "Keine abfragbaren Spalten für diesen Layer indiziert.",
       "menuLabel": "Quelle",
       "dataset": "Datensatz",
       "features": "Features",

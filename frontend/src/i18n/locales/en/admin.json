@@ -30,8 +30,6 @@
     "byVisibility": "Datasets by Visibility",
     "noDatasets": "No datasets yet",
     "totalUsers": "Total Users",
-    "usersByStatus": "Users by Status",
-    "noUsers": "No users yet",
     "errorLoading": "Failed to load statistics: {{message}}"
   },
   "users": {
@@ -236,11 +234,6 @@
       "user": "User",
       "allUsers": "All users",
       "allActions": "All Actions",
-      "datasetView": "Dataset View",
-      "datasetExport": "Dataset Export",
-      "metadataEdit": "Metadata Edit",
-      "datasetCreate": "Dataset Create",
-      "datasetDelete": "Dataset Delete",
       "action": "Action",
       "userId": "User ID",
       "resourceType": "Resource type",
@@ -285,14 +278,8 @@
     "tileCache": "Tile Cache",
     "type": "Type",
     "status": "Status",
-    "latency": "Latency",
-    "ttl": "TTL",
     "cdn": "CDN",
-    "pooler": "Pooler",
-    "connected": "Connected",
-    "disconnected": "Disconnected",
     "configured": "Configured",
-    "notConfigured": "Not Configured",
     "loading": "Loading infrastructure status...",
     "errorLoading": "Failed to load infrastructure status",
     "allOperational": "All Systems Operational",
@@ -510,8 +497,6 @@
     "tableLabel": "Embed tokens"
   },
   "settings": {
-    "copySPEntityId": "Copy SP Entity ID",
-    "copyAcsUrl": "Copy ACS URL",
     "page": {
       "title": "Settings",
       "loadFailed": "Failed to load settings: {{message}}",
@@ -568,12 +553,9 @@
       "descriptionSuffix": "to enable admin overrides."
     },
     "saved": "Settings saved",
-    "saveFailed": "Failed to save settings",
     "resetDefaults": "Reset to Defaults",
     "general": {
       "title": "General",
-      "cardTitle": "Feature Toggles",
-      "cardDescription": "Enable or disable platform features.",
       "registration": "Self-Registration",
       "registrationDescription": "Lets people create their own accounts, by signing up with a password or by signing in through an enabled SSO provider. SSO accounts are active at once with the provider's default role. Password sign-ups activate after email verification (needs SMTP), otherwise after admin approval.",
       "landingFirst": "Login as Landing Page",
@@ -606,8 +588,7 @@
       "logLevel": "Log Level",
       "logJsonLabel": "Log Format (JSON)",
       "logJsonDescription": "Output logs in structured JSON format.",
-      "saved": "Settings saved",
-      "saveFailed": "Failed to save settings"
+      "saved": "Settings saved"
     },
     "basemaps": {
       "title": "Basemaps",
@@ -630,8 +611,7 @@
       "checkingUrl": "Checking…",
       "removeBasemap": "Remove basemap",
       "add": "Add",
-      "saved": "Basemaps saved",
-      "saveFailed": "Failed to save basemaps"
+      "saved": "Basemaps saved"
     },
     "mapDefaults": {
       "title": "Map Defaults",
@@ -641,9 +621,7 @@
       "longitude": "Longitude",
       "zoomLevel": "Zoom Level",
       "preview": "Preview",
-      "useCurrentView": "Use current view",
-      "saved": "Map defaults saved",
-      "saveFailed": "Failed to save map defaults"
+      "saved": "Map defaults saved"
     },
     "plugins": {
       "title": "Map Plugins",
@@ -686,8 +664,6 @@
     },
     "security": {
       "title": "Security",
-      "cardTitle": "Login Rate Limiting",
-      "cardDescription": "Control the maximum number of login attempts per minute per IP address.",
       "loginRateLimit": "Login attempts per minute",
       "accessTokenExpire": "Access Token Lifetime (minutes)",
       "refreshTokenExpire": "Session idle timeout (days)",
@@ -695,7 +671,6 @@
       "tokenLifetimeNote": "Token lifetime changes apply to newly issued tokens only.",
       "loginRateLimitDescription": "Maximum number of login requests allowed per minute from a single IP address (1–1000).",
       "saved": "Security settings saved",
-      "saveFailed": "Failed to save security settings",
       "passwordLogin": "Allow Password Login",
       "passwordLoginDescription": "Allow users to sign in with a username and password. Disabling this requires users to sign in via an SSO provider, so enable one first. Administrators can still sign in with a password as a break-glass.",
       "emailVerificationRequired": "Require Email Verification",
@@ -711,8 +686,6 @@
     },
     "uploads": {
       "title": "Upload Settings",
-      "cardTitle": "Upload Limits",
-      "cardDescription": "Configure maximum file size and allowed file extensions for dataset uploads.",
       "maxSizeMb": "Maximum file size (MB)",
       "maxSizeMbDescription": "Maximum upload file size in megabytes (1-10,000). Changes take effect on the next upload without restart.",
       "allowedExtensions": "Allowed extensions",
@@ -729,8 +702,7 @@
       "invalidStorageQuantity": "Enter a quantity that equals a whole number of bytes.",
       "maxDatasetsPerUser": "Max Datasets per User",
       "maxDatasetsPerUserDescription": "Maximum number of datasets each user can create (0 = unlimited).",
-      "saved": "Upload settings saved",
-      "saveFailed": "Failed to save upload settings"
+      "saved": "Upload settings saved"
     },
     "oauth": {
       "title": "OAuth Providers",
@@ -833,8 +805,7 @@
       "title": "SAML SSO",
       "description": "Not available in this build.",
       "heading": "SAML is not available",
-      "body": "This GeoLens build supports local accounts and OAuth providers such as Google, GitHub, and generic OIDC.",
-      "docsLink": "SAML is not available in this build"
+      "body": "This GeoLens build supports local accounts and OAuth providers such as Google, GitHub, and generic OIDC."
     },
     "addProvider": "Add SAML Provider",
     "loading": "Loading SAML providers...",

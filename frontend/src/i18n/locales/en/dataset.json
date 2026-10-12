@@ -29,9 +29,6 @@
     "access": "Access",
     "members": "Members"
   },
-  "collection": {
-    "membersPlaceholder": "Collection member listing coming soon."
-  },
   "inline": {
     "noDescription": "Add a description...",
     "saveFailed": "Failed to save — please try again.",
@@ -95,7 +92,6 @@
     "editDetails": "Edit Details",
     "editGeometry": "Edit Features",
     "draw": "Draw",
-    "stopDrawing": "Stop Drawing",
     "reupload": "Re-Upload",
     "reuploadTooltip": "Replace this dataset's source file",
     "createVrt": "Create VRT",
@@ -110,12 +106,10 @@
     "more": "More",
     "moreActions": "More actions",
     "subtitle": {
-      "owner": "Owner: {{owner}}",
       "updated": "Updated: {{date}}",
       "type": "Type: {{type}}"
     },
     "fallback": {
-      "owner": "Owner unavailable",
       "updated": "Unknown update time",
       "type": "Unknown type"
     },
@@ -139,16 +133,13 @@
     "manageColumns": "Manage Columns",
     "columnName": "Name",
     "columnType": "Type",
-    "tags": "Tags",
     "sourceOrganization": "Source Organization",
     "license": "License",
     "attribution": "Attribution",
     "attributionPlaceholder": "e.g. © swisstopo — swissALTI3D",
     "attributionHelp": "Credit line shown in the map viewer wherever this dataset is displayed. Required by some sources' terms.",
     "sourceFormat": "Source Format",
-    "dataVintage": "Data Vintage",
     "created": "Created",
-    "lastUpdated": "Last Updated",
     "contact": "Contact",
     "visibility": "Visibility",
     "copyToClipboard": "Copy to clipboard",
@@ -158,9 +149,6 @@
     "present": "present",
     "temporalExtent": "Temporal Extent",
     "noTemporalExtent": "Not set",
-    "recordStatus": "Record Status",
-    "createdBy": "Created by",
-    "lastEditedBy": "Last edited by",
     "never": "Never",
     "provenanceUnknown": "Unknown",
     "provenanceRestricted": "Restricted user",
@@ -177,8 +165,6 @@
     "title": "Edit Metadata",
     "name": "Name",
     "description": "Description",
-    "tags": "Tags (comma-separated)",
-    "tagsPlaceholder": "e.g. parcels, zoning, boundaries",
     "visibility": "Visibility",
     "visibilityPublic": "Public",
     "visibilityPrivate": "Private",
@@ -186,14 +172,10 @@
     "visibilityHelp": "Private = only the owner and admins. Internal = anyone signed in to GeoLens. Public = visible to everyone, including signed-out visitors.",
     "visibilityUpdated": "Visibility updated",
     "visibilityFailed": "Could not change visibility",
-    "sourceOrganization": "Source Organization",
     "license": "License",
     "vintageStart": "Data Vintage Start",
     "vintageEnd": "Data Vintage End",
-    "contactName": "Contact Name",
-    "contactEmail": "Contact Email",
-    "saving": "Saving...",
-    "updateFailed": "Failed to update dataset"
+    "saving": "Saving..."
   },
   "export": {
     "gpkg": "GeoPackage",
@@ -372,7 +354,6 @@
     "geometryValidity": "Geometry Validity",
     "attributeCompleteness": "Attribute Completeness",
     "crsDefined": "CRS Defined",
-    "lastChecked": "Last checked {{date}}",
     "freshness": {
       "absolute": "Last checked {{date}}",
       "relative": "Checked {{relative}}",
@@ -528,11 +509,8 @@
     "readOnlyGuidance": "Ask the dataset owner or a contact listed above to address these validation issues.",
     "health": {
       "title": "Dataset Health",
-      "required": "Required {{count}}",
-      "recommended": "Recommended {{count}}",
       "ready": "On track",
-      "description": "{{requiredCount}} required item(s) and {{recommendedCount}} recommended item(s) still need review.",
-      "descriptionReady": "No active validation issues detected."
+      "description": "{{requiredCount}} required item(s) and {{recommendedCount}} recommended item(s) still need review."
     },
     "actions": {
       "summary": "Review summary",
@@ -669,8 +647,6 @@
     "themeCategory": "Theme Category",
     "sourceUrl": "Source URL",
     "sourceUrlPlaceholder": "https://...",
-    "recordStatus": "Record Status",
-    "ownerOrg": "Owner Organization",
     "themeCategoryUpdated": "Theme category updated",
     "themeCategoryUpdateFailed": "Failed to update theme category",
     "updateFrequencyOptions": {
@@ -723,7 +699,6 @@
     "provenanceUpload": "Data upload",
     "provenanceFeatures": "features",
     "aboutTitle": "About this dataset",
-    "apiTitle": "Access via API",
     "appearsIn": "Appears in",
     "bandColor": "Color",
     "bandDetails": "Band Details",
@@ -740,11 +715,9 @@
     "generationStatus": "Status",
     "lastRegenerated": "Last Regenerated",
     "maintainer": "Maintainer",
-    "metadataTitle": "Metadata",
     "nextFillIn": "Next: fill in {{field}}",
     "nodata": "Nodata",
     "ogcApiFeatures": "OGC API Features",
-    "percentComplete": "{{percent}}% complete",
     "validationProgress": "Validation checks clear: {{percent}}%",
     "validationProgressHelp": "Estimate based on 12 baseline checks minus reported errors and warnings. The quality metadata score counts optional fields separately.",
     "askMaintainer": "Ask the dataset owner or a contact listed below to fill in {{field}}",
@@ -765,8 +738,7 @@
   },
   "sources": {
     "system": "System",
-    "user": "User",
-    "elapsed": "Elapsed: {{seconds}}s"
+    "user": "User"
   },
   "sourcePanel": {
     "title": "Source",
@@ -1138,7 +1110,6 @@
     "tilesProcessing": "Tiles may still be processing",
     "bands": "Bands",
     "resolution": "Resolution",
-    "dimensions": "Dimensions",
     "format": "Format",
     "bandStack": "Band Stack",
     "mosaic": "Mosaic"
@@ -1162,16 +1133,11 @@
     "mosaic": "VRT Mosaic",
     "bandStack": "VRT Band Stack",
     "addSource": "Add Source",
-    "disabledRegenerating": "Disabled while VRT is regenerating",
-    "disabledMinSources": "VRT must have at least 2 sources",
     "sourceTablePos": "#",
     "sourceTableTitle": "Dataset",
     "sourceTableCrs": "CRS",
     "sourceTableBands": "Bands",
     "sourceTableResolution": "Resolution",
-    "addSourcePlaceholder": "Search for a COG dataset...",
-    "addSourceSuccess": "Source added. VRT is regenerating.",
-    "addSourceRegenerating": "VRT is currently regenerating. Try again shortly.",
     "removeSource": "Remove source",
     "removeConfirmTitle": "Remove Source",
     "removeConfirmBody": "Remove \"{{title}}\" from this VRT? The VRT will regenerate.",
@@ -1183,11 +1149,6 @@
     "regenerateStarted": "VRT regeneration started.",
     "regenerateConflict": "VRT is already regenerating.",
     "generationHistory": "Generation History",
-    "genStatus": "Status",
-    "genTimestamp": "Timestamp",
-    "genDuration": "Duration",
-    "genSources": "Sources",
-    "genTriggeredBy": "Triggered By",
     "healthHealthy": "Healthy",
     "healthMissing": "Source dataset deleted",
     "healthInaccessible": "Source file inaccessible",
@@ -1195,7 +1156,6 @@
     "healthMissingShort": "Missing",
     "healthInaccessibleShort": "Inaccessible",
     "healthUnknownShort": "Unknown",
-    "noSources": "No sources",
     "searchError": "Failed to search datasets.",
     "sourcesLoadError": "Failed to load VRT sources.",
     "sourceTableHealth": "Health",

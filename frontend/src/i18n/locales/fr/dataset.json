@@ -29,9 +29,6 @@
     "access": "Accès",
     "members": "Membres"
   },
-  "collection": {
-    "membersPlaceholder": "Liste des membres de la collection bientôt disponible."
-  },
   "inline": {
     "noDescription": "Ajouter une description...",
     "saveFailed": "Échec de la sauvegarde — veuillez réessayer.",
@@ -95,7 +92,6 @@
     "editDetails": "Modifier les détails",
     "editGeometry": "Modifier les entités",
     "draw": "Dessiner",
-    "stopDrawing": "Arrêter le dessin",
     "reupload": "Recharger",
     "reuploadTooltip": "Remplacer le fichier source de ce jeu de données",
     "createVrtTooltip": "Créer une mosaïque VRT à partir de ce raster",
@@ -110,12 +106,10 @@
     "more": "Plus",
     "moreActions": "Plus d'actions",
     "subtitle": {
-      "owner": "Propriétaire : {{owner}}",
       "updated": "Mis à jour : {{date}}",
       "type": "Type : {{type}}"
     },
     "fallback": {
-      "owner": "Propriétaire indisponible",
       "updated": "Date de mise à jour inconnue",
       "type": "Type inconnu"
     },
@@ -139,16 +133,13 @@
     "manageColumns": "Gérer les colonnes",
     "columnName": "Nom",
     "columnType": "Type",
-    "tags": "Étiquettes",
     "sourceOrganization": "Organisation source",
     "license": "Licence",
     "attribution": "Attribution",
     "attributionPlaceholder": "p. ex. © swisstopo — swissALTI3D",
     "attributionHelp": "Mention de crédit affichée dans la visionneuse de cartes partout où ce jeu de données apparaît. Exigée par les conditions de certaines sources.",
     "sourceFormat": "Format source",
-    "dataVintage": "Millésime des données",
     "created": "Création",
-    "lastUpdated": "Dernière mise à jour",
     "contact": "Contact",
     "visibility": "Visibilité",
     "copyToClipboard": "Copier dans le presse-papiers",
@@ -156,9 +147,6 @@
     "original": "original : EPSG:{{srid}}",
     "sridWithOriginal": "{{current}} ({{original}})",
     "present": "présent",
-    "recordStatus": "Statut de l'enregistrement",
-    "createdBy": "Créé par",
-    "lastEditedBy": "Dernière modification par",
     "never": "Jamais",
     "provenanceUnknown": "Inconnu",
     "provenanceRestricted": "Utilisateur restreint",
@@ -177,8 +165,6 @@
     "title": "Modifier les métadonnées",
     "name": "Nom",
     "description": "Description",
-    "tags": "Tags (séparés par des virgules)",
-    "tagsPlaceholder": "ex. parcelles, zonage, limites",
     "visibility": "Visibilité",
     "visibilityPublic": "Publique",
     "visibilityPrivate": "Privé",
@@ -186,14 +172,10 @@
     "visibilityHelp": "Privé = uniquement le propriétaire et les administrateurs. Interne = toute personne connectée à GeoLens. Public = visible par tous, y compris les visiteurs non connectés.",
     "visibilityUpdated": "Visibilité mise à jour",
     "visibilityFailed": "Impossible de modifier la visibilité",
-    "sourceOrganization": "Organisation source",
     "license": "Licence",
     "vintageStart": "Début du millésime",
     "vintageEnd": "Fin du millésime",
-    "contactName": "Nom du contact",
-    "contactEmail": "E-mail du contact",
-    "saving": "Enregistrement...",
-    "updateFailed": "Échec de la mise à jour du jeu de données"
+    "saving": "Enregistrement..."
   },
   "export": {
     "gpkg": "GeoPackage",
@@ -283,9 +265,6 @@
     "sourceTableBands": "Bandes",
     "sourceTableResolution": "Résolution",
     "addSource": "Ajouter une source",
-    "addSourcePlaceholder": "Rechercher des jeux de données COG...",
-    "addSourceSuccess": "Source ajoutée. Régénération du VRT en cours...",
-    "addSourceRegenerating": "Le VRT est en cours de régénération. Réessayez une fois terminé.",
     "removeSource": "Supprimer la source",
     "removeConfirmTitle": "Supprimer la source",
     "removeConfirmBody": "Supprimer {{title}} de ce VRT ? Le VRT sera régénéré sans cette source.",
@@ -293,19 +272,12 @@
     "removeSuccess": "Source supprimée. Régénération du VRT en cours...",
     "regeneratingBanner": "Ce VRT est en cours de régénération. Les modifications de sources sont désactivées jusqu'à la fin.",
     "failedBanner": "La régénération du VRT a échoué.",
-    "disabledRegenerating": "Le VRT est en cours de régénération",
-    "disabledMinSources": "Le VRT nécessite au moins 2 sources",
     "noResults": "Aucun jeu de données COG correspondant trouvé.",
     "sources": "Sources",
     "regenerate": "Régénérer",
     "regenerateStarted": "Régénération du VRT lancée.",
     "regenerateConflict": "Le VRT est déjà en cours de régénération.",
     "generationHistory": "Historique de génération",
-    "genStatus": "Statut",
-    "genTimestamp": "Horodatage",
-    "genDuration": "Durée",
-    "genSources": "Sources",
-    "genTriggeredBy": "Déclenché par",
     "healthHealthy": "Sain",
     "healthMissing": "Jeu de données source supprimé",
     "healthInaccessible": "Fichier source inaccessible",
@@ -313,7 +285,6 @@
     "healthMissingShort": "Manquant",
     "healthInaccessibleShort": "Inaccessible",
     "healthUnknownShort": "Inconnu",
-    "noSources": "Aucune source",
     "searchError": "Impossible de rechercher des jeux de données.",
     "sourcesLoadError": "Impossible de charger les sources VRT.",
     "sourceTableHealth": "Santé",
@@ -421,7 +392,6 @@
     "geometryValidity": "Validité de la géométrie",
     "attributeCompleteness": "Complétude des attributs",
     "crsDefined": "SCR défini",
-    "lastChecked": "Dernière vérification {{date}}",
     "freshness": {
       "absolute": "Dernière vérification {{date}}",
       "relative": "Vérifié {{relative}}",
@@ -534,11 +504,8 @@
     "readOnlyGuidance": "Demandez au propriétaire du jeu de données ou à un contact indiqué ci-dessus de corriger ces problèmes de validation.",
     "health": {
       "title": "Santé du jeu de données",
-      "required": "Requis {{count}}",
-      "recommended": "Recommandé {{count}}",
       "ready": "En bonne voie",
-      "description": "{{requiredCount}} élément(s) requis et {{recommendedCount}} élément(s) recommandé(s) nécessitent encore une vérification.",
-      "descriptionReady": "Aucun problème de validation actif détecté."
+      "description": "{{requiredCount}} élément(s) requis et {{recommendedCount}} élément(s) recommandé(s) nécessitent encore une vérification."
     },
     "actions": {
       "summary": "Vérifier le résumé",
@@ -699,8 +666,6 @@
     "themeCategory": "Catégorie thématique",
     "sourceUrl": "URL source",
     "sourceUrlPlaceholder": "https://...",
-    "recordStatus": "Statut de l'enregistrement",
-    "ownerOrg": "Organisation propriétaire",
     "themeCategoryUpdated": "Catégorie thématique mise à jour",
     "themeCategoryUpdateFailed": "Impossible de mettre à jour la catégorie thématique",
     "updateFrequencyOptions": {
@@ -772,7 +737,6 @@
     "provenanceUpload": "Téléversement de données",
     "provenanceFeatures": "entités",
     "aboutTitle": "À propos de ce jeu de données",
-    "apiTitle": "Accès via API",
     "appearsIn": "Apparaît dans",
     "bandColor": "Couleur",
     "bandDetails": "Détails des bandes",
@@ -789,11 +753,9 @@
     "generationStatus": "Statut",
     "lastRegenerated": "Dernière régénération",
     "maintainer": "Responsable",
-    "metadataTitle": "Métadonnées",
     "nextFillIn": "Suivant : remplir {{field}}",
     "nodata": "Nodata",
     "ogcApiFeatures": "OGC API Features",
-    "percentComplete": "{{percent}}% complet",
     "validationProgress": "Contrôles de validation réussis : {{percent}} %",
     "validationProgressHelp": "Estimation fondée sur 12 contrôles de base, moins les erreurs et avertissements signalés. Le score des métadonnées de qualité compte séparément les champs facultatifs.",
     "askMaintainer": "Demandez au propriétaire du jeu de données ou à un contact indiqué ci-dessous de renseigner {{field}}",
@@ -814,8 +776,7 @@
   },
   "sources": {
     "system": "Système",
-    "user": "Utilisateur",
-    "elapsed": "Écoulé : {{seconds}}s"
+    "user": "Utilisateur"
   },
   "sourcePanel": {
     "title": "Source",
@@ -1187,7 +1148,6 @@
     "tilesProcessing": "Les tuiles sont peut-être encore en cours de traitement",
     "bands": "Bandes",
     "resolution": "Résolution",
-    "dimensions": "Dimensions",
     "format": "Format",
     "bandStack": "Empilement de bandes",
     "mosaic": "Mosaïque"

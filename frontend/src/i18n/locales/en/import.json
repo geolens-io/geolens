@@ -260,7 +260,6 @@
   "serviceUrl": {
     "label": "Service URL",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, or OGC API endpoint",
-    "helpText": "Paste a WFS, ArcGIS Feature Service, or OGC API Features URL",
     "arcgisPortalUrlHint": "This looks like an ArcGIS organization or portal page, not a layer. Open the layer's item page, copy its REST URL (it ends in /FeatureServer/0 or /MapServer/0) and paste that here. Protected layers ask for sign-in after you paste the layer URL.",
     "detectedLabel": "Service URL; detected",
     "clear": "Clear",
@@ -388,7 +387,6 @@
     "pointcloudDesc": "served to external COPC clients; no built-in map preview."
   },
   "register": {
-    "helpText": "Catalog existing PostGIS tables from your database as datasets in GeoLens. Use this when you have geographic data already in the database that wasn't imported through GeoLens. Selected tables will be added to the dataset catalog with automatic metadata detection.",
     "discovering": "Discovering tables...",
     "discoverFailed": "Failed to discover tables:",
     "emptyState": "No unregistered tables found in the database.",
@@ -419,7 +417,6 @@
       "source_srid_undeclared": "Its geom column declares no SRID, so GeoLens cannot tell where its coordinates are. Set the SRID, for example with UpdateGeometrySRID, then register the table.",
       "source_gid_unusable": "GeoLens identifies features by a column named gid: an integer that is NOT NULL and unique, such as a primary key, in a table no other table inherits from. This table does not meet that. Add or fix the gid column, or rename one GeoLens can't use so it can add its own, then register the table."
     },
-    "unknownError": "Unknown error",
     "searchPlaceholder": "Search tables…",
     "selectHint": "Select a table from the list to see its schema and register it.",
     "detailDesc": "Register to expose as a GeoLens dataset; tiled on the fly, no copy.",
@@ -436,19 +433,7 @@
     "tablesSidebarLabel": "Discovered tables"
   },
   "layerPicker": {
-    "title": "Select Layer",
-    "emptyState": "No layers found in this service",
-    "columnName": "Name",
-    "columnGeometry": "Geometry Type",
-    "columnFeatureCount": "Feature Count",
-    "previewLayer": "Preview Layer"
-  },
-  "tablePicker": {
-    "selectAll": "Select all ({{count}} table)",
-    "selectAll_one": "Select all ({{count}} table)",
-    "selectAll_other": "Select all ({{count}} tables)",
-    "nonSpatial": "non-spatial",
-    "estimatedRows": "~{{count}} rows"
+    "title": "Select Layer"
   },
   "preview": {
     "title": "File preview",
@@ -481,9 +466,6 @@
     "nameLabel": "Name *",
     "descriptionLabel": "Description",
     "descriptionPlaceholder": "Optional description",
-    "tagsLabel": "Tags",
-    "tagsPlaceholder": "tag1, tag2, tag3",
-    "tagsHelpText": "Comma-separated",
     "visibilityLabel": "Visibility",
     "visibilityPrivate": "Private",
     "visibilityPublic": "Public",
@@ -636,9 +618,6 @@
     "detectingHint": "Uploading & detecting…",
     "importingFiles": "Importing {{count}} files",
     "progressDetail": "{{done}} complete · {{active}} in progress · {{queued}} queued",
-    "statusUploading": "Uploading...",
-    "statusPreviewing": "Generating preview...",
-    "statusReady": "Ready",
     "fileCount_one": "{{count}} file ready for import",
     "fileCount_other": "{{count}} files ready for import",
     "importAllDefaults": "Import All with Defaults",

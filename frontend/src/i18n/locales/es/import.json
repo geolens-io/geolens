@@ -237,7 +237,6 @@
   "serviceUrl": {
     "label": "URL de servicio",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer o endpoint OGC API",
-    "helpText": "Pegue una URL de servicio WFS, ArcGIS Feature Service u OGC API Features",
     "arcgisPortalUrlHint": "Esto parece una página de organización o portal de ArcGIS, no una capa. Abre la página del elemento de la capa, copia su URL REST (termina en /FeatureServer/0 o /MapServer/0) y pégala aquí. Las capas protegidas piden iniciar sesión después de pegar la URL de la capa.",
     "tokenPlaceholder": "Token de ArcGIS, clave API o token de acceso WFS",
     "credentialMethodLabel": "Autenticación",
@@ -319,7 +318,6 @@
     "downloadFailed": "El servidor no pudo descargar el archivo desde esa URL"
   },
   "register": {
-    "helpText": "Catalogue tablas PostGIS existentes de su base de datos como conjuntos de datos en GeoLens. Use esta opción cuando tenga datos geográficos ya en la base de datos que no fueron importados a través de GeoLens. Las tablas seleccionadas se añadirán al catálogo con detección automática de metadatos.",
     "discovering": "Descubriendo tablas...",
     "discoverFailed": "Error al descubrir tablas:",
     "emptyState": "No se encontraron tablas sin registrar en la base de datos.",
@@ -350,7 +348,6 @@
       "source_srid_undeclared": "Su columna geom no declara ningún SRID, así que GeoLens no puede saber dónde están sus coordenadas. Define el SRID, por ejemplo con UpdateGeometrySRID, y luego registra la tabla.",
       "source_gid_unusable": "GeoLens identifica las entidades por una columna llamada gid: un entero NOT NULL y único, como una clave primaria, en una tabla de la que no hereda ninguna otra. Esta tabla no lo cumple. Añade o corrige la columna gid, o cambia el nombre de una que GeoLens no pueda usar para que añada la suya, y luego registra la tabla."
     },
-    "unknownError": "Error desconocido",
     "searchPlaceholder": "Buscar tablas…",
     "selectHint": "Selecciona una tabla de la lista para ver su esquema y registrarla.",
     "detailDesc": "Registrar como conjunto de datos de GeoLens; teselado al vuelo, sin copia.",
@@ -367,19 +364,7 @@
     "tablesSidebarLabel": "Tablas descubiertas"
   },
   "layerPicker": {
-    "title": "Seleccionar capa",
-    "emptyState": "No se encontraron capas en este servicio",
-    "columnName": "Nombre",
-    "columnGeometry": "Tipo de geometría",
-    "columnFeatureCount": "Número de entidades",
-    "previewLayer": "Previsualizar capa"
-  },
-  "tablePicker": {
-    "selectAll": "Seleccionar todas ({{count}} tabla)",
-    "selectAll_one": "Seleccionar todas ({{count}} tabla)",
-    "selectAll_other": "Seleccionar todas ({{count}} tablas)",
-    "nonSpatial": "no espacial",
-    "estimatedRows": "~{{count}} filas"
+    "title": "Seleccionar capa"
   },
   "preview": {
     "title": "Vista previa del archivo",
@@ -411,9 +396,6 @@
     "nameLabel": "Nombre *",
     "descriptionLabel": "Descripción",
     "descriptionPlaceholder": "Descripción opcional",
-    "tagsLabel": "Etiquetas",
-    "tagsPlaceholder": "etiqueta1, etiqueta2, etiqueta3",
-    "tagsHelpText": "Separadas por comas",
     "visibilityLabel": "Visibilidad",
     "visibilityPrivate": "Privado",
     "visibilityPublic": "Público",
@@ -561,9 +543,6 @@
   "bulk": {
     "uploading_one": "Subiendo {{count}} archivo...",
     "uploading_other": "Subiendo {{count}} archivos...",
-    "statusUploading": "Subiendo...",
-    "statusPreviewing": "Generando vista previa...",
-    "statusReady": "Listo",
     "fileCount_one": "{{count}} archivo listo para importar",
     "fileCount_other": "{{count}} archivos listos para importar",
     "importAllDefaults": "Importar todo con valores predeterminados",

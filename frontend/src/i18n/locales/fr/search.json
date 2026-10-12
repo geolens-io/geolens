@@ -15,9 +15,6 @@
   "placeholder": "Rechercher dans le catalogue...",
   "updating": "Mise à jour des résultats...",
   "loadingDatasets": "Chargement des jeux de données...",
-  "resultCount_one": "{{count}} résultat",
-  "resultCount_other": "{{count}} résultats",
-  "mapsSectionTitle": "Cartes",
   "empty": {
     "catalogResultsTitle": "Aucun résultat dans le catalogue",
     "catalogResultsDescription": "Essayez de modifier la recherche ou les filtres.",
@@ -43,11 +40,7 @@
     "geometry": "Géométrie",
     "anyGeometry": "Toute géométrie",
     "point": "Point",
-    "lineString": "LineString",
     "polygon": "Polygone",
-    "multiPoint": "MultiPoint",
-    "multiLineString": "MultiLineString",
-    "multiPolygon": "MultiPolygon",
     "sort": "Trier",
     "relevance": "Pertinence",
     "dateAdded": "Date d'ajout",
@@ -77,8 +70,6 @@
     "anyCrs": "Tout CRS",
     "collection": "Collection",
     "collections": "Collections",
-    "temporalExtent": "Etendue temporelle",
-    "temporalExtentRange": "Étendue temporelle : {{start}} - {{end}}",
     "keywords": "Mots-clés",
     "keywordSearch": "Rechercher des mots-clés...",
     "noKeywords": "Aucun mot-clé disponible",
@@ -99,8 +90,7 @@
     "datasetCount_other": "{{count}} jeux de données"
   },
   "datasetCard": {
-    "quicklookAlt": "Aperçu de {{name}}",
-    "previewUnavailable": "Apercu non disponible"
+    "quicklookAlt": "Aperçu de {{name}}"
   },
   "card": {
     "featureCount_one": "{{count}} entité",
@@ -173,7 +163,6 @@
   },
   "typeahead": {
     "searching": "Recherche en cours...",
-    "noResults": "Aucun resultat",
     "error": "Impossible de charger les résultats"
   },
   "quality": {

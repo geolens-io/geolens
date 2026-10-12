@@ -97,7 +97,6 @@
     "darkMode": "Dunkler Modus"
   },
   "theme": {
-    "toggle": "Design umschalten",
     "light": "Hell",
     "dark": "Dunkel",
     "system": "System"
@@ -126,9 +125,6 @@
     "infrastructure": "Infrastruktur",
     "general": "Allgemein",
     "basemaps": "Basiskarten",
-    "mapDefaults": "Kartenvorgaben",
-    "security": "Sicherheit",
-    "uploads": "Hochladen",
     "settings": "Einstellungen",
     "operations": "Betrieb",
     "settingsGeneral": "Allgemein",
@@ -359,7 +355,9 @@
     "unauthorized": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an."
   },
   "settings": {
-    "apiKeys": { "manageTitle": "API-Schlüssel verwalten" },
+    "apiKeys": {
+      "manageTitle": "API-Schlüssel verwalten"
+    },
     "tabs": {
       "preferences": "Einstellungen",
       "apiKeys": "API-Schlüssel"
@@ -400,7 +398,6 @@
     "linkExpiredDescription": "Dieser geteilte Kartenlink ist nicht mehr verfügbar. Er ist möglicherweise abgelaufen oder wurde vom Eigentümer widerrufen.",
     "mapNotFound": "Karte nicht gefunden",
     "mapNotFoundDescription": "Diese Karte wurde möglicherweise entfernt oder der Link ist ungültig.",
-    "poweredBy": "Betrieben mit GeoLens",
     "featureFallback": "Objekt",
     "legend": {
       "title": "Ebenen",
@@ -719,9 +716,6 @@
   },
   "inlineEdit": {
     "hint": "Strg+Eingabe zum Speichern, Escape zum Abbrechen"
-  },
-  "mapCoordReadout": {
-    "scale": "1:{{value}}"
   },
   "errorBoundary": {
     "appTitle": "Etwas ist schiefgelaufen",

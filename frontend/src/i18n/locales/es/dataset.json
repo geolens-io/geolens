@@ -29,9 +29,6 @@
     "access": "Acceso",
     "members": "Miembros"
   },
-  "collection": {
-    "membersPlaceholder": "Listado de miembros de la colección próximamente."
-  },
   "inline": {
     "noDescription": "Agregar una descripción...",
     "saveFailed": "Error al guardar — inténtelo de nuevo.",
@@ -95,7 +92,6 @@
     "editDetails": "Editar detalles",
     "editGeometry": "Editar entidades",
     "draw": "Dibujar",
-    "stopDrawing": "Dejar de dibujar",
     "reupload": "Volver a subir",
     "reuploadTooltip": "Reemplazar el archivo fuente de este conjunto de datos",
     "createVrtTooltip": "Crear un mosaico VRT a partir de este ráster",
@@ -110,12 +106,10 @@
     "more": "Más",
     "moreActions": "Más acciones",
     "subtitle": {
-      "owner": "Propietario: {{owner}}",
       "updated": "Actualizado: {{date}}",
       "type": "Tipo: {{type}}"
     },
     "fallback": {
-      "owner": "Propietario no disponible",
       "updated": "Fecha de actualización desconocida",
       "type": "Tipo desconocido"
     },
@@ -139,16 +133,13 @@
     "manageColumns": "Gestionar columnas",
     "columnName": "Nombre",
     "columnType": "Tipo",
-    "tags": "Etiquetas",
     "sourceOrganization": "Organización de origen",
     "license": "Licencia",
     "attribution": "Atribución",
     "attributionPlaceholder": "p. ej. © swisstopo — swissALTI3D",
     "attributionHelp": "Línea de crédito que se muestra en el visor de mapas dondequiera que aparezca este conjunto de datos. Las condiciones de algunas fuentes la exigen.",
     "sourceFormat": "Formato de origen",
-    "dataVintage": "Fecha de los datos",
     "created": "Creado",
-    "lastUpdated": "Última actualización",
     "contact": "Contacto",
     "visibility": "Visibilidad",
     "copyToClipboard": "Copiar al portapapeles",
@@ -156,9 +147,6 @@
     "original": "original: EPSG:{{srid}}",
     "sridWithOriginal": "{{current}} ({{original}})",
     "present": "presente",
-    "recordStatus": "Estado del registro",
-    "createdBy": "Creado por",
-    "lastEditedBy": "Editado por",
     "never": "Nunca",
     "provenanceUnknown": "Desconocido",
     "provenanceRestricted": "Usuario restringido",
@@ -177,8 +165,6 @@
     "title": "Editar metadatos",
     "name": "Nombre",
     "description": "Descripción",
-    "tags": "Etiquetas (separadas por comas)",
-    "tagsPlaceholder": "Ej. parcelas, zonificación, límites",
     "visibility": "Visibilidad",
     "visibilityPublic": "Público",
     "visibilityPrivate": "Privado",
@@ -186,14 +172,10 @@
     "visibilityHelp": "Privado = solo el propietario y los administradores. Interno = cualquier usuario con sesión en GeoLens. Público = visible para todos, incluidos los visitantes sin sesión iniciada.",
     "visibilityUpdated": "Visibilidad actualizada",
     "visibilityFailed": "No se pudo cambiar la visibilidad",
-    "sourceOrganization": "Organización de origen",
     "license": "Licencia",
     "vintageStart": "Inicio de fecha de datos",
     "vintageEnd": "Fin de fecha de datos",
-    "contactName": "Nombre de contacto",
-    "contactEmail": "Correo de contacto",
-    "saving": "Guardando...",
-    "updateFailed": "Error al actualizar el conjunto de datos"
+    "saving": "Guardando..."
   },
   "export": {
     "gpkg": "GeoPackage",
@@ -283,9 +265,6 @@
     "sourceTableBands": "Bandas",
     "sourceTableResolution": "Resolución",
     "addSource": "Agregar fuente",
-    "addSourcePlaceholder": "Buscar conjuntos de datos COG...",
-    "addSourceSuccess": "Fuente agregada. Regenerando VRT...",
-    "addSourceRegenerating": "El VRT se está regenerando. Inténtelo de nuevo cuando termine.",
     "removeSource": "Eliminar fuente",
     "removeConfirmTitle": "Eliminar fuente",
     "removeConfirmBody": "¿Eliminar {{title}} de este VRT? El VRT se regenerará sin esta fuente.",
@@ -293,19 +272,12 @@
     "removeSuccess": "Fuente eliminada. Regenerando VRT...",
     "regeneratingBanner": "Este VRT se está regenerando. Los cambios en las fuentes están deshabilitados hasta que se complete.",
     "failedBanner": "La regeneración del VRT ha fallado.",
-    "disabledRegenerating": "El VRT se está regenerando",
-    "disabledMinSources": "El VRT requiere al menos 2 fuentes",
     "noResults": "No se encontraron conjuntos de datos COG coincidentes.",
     "sources": "Fuentes",
     "regenerate": "Regenerar",
     "regenerateStarted": "Regeneración de VRT iniciada.",
     "regenerateConflict": "El VRT ya se está regenerando.",
     "generationHistory": "Historial de generación",
-    "genStatus": "Estado",
-    "genTimestamp": "Fecha y hora",
-    "genDuration": "Duración",
-    "genSources": "Fuentes",
-    "genTriggeredBy": "Iniciado por",
     "healthHealthy": "Saludable",
     "healthMissing": "Conjunto de datos fuente eliminado",
     "healthInaccessible": "Archivo fuente inaccesible",
@@ -313,7 +285,6 @@
     "healthMissingShort": "Faltante",
     "healthInaccessibleShort": "Inaccesible",
     "healthUnknownShort": "Desconocido",
-    "noSources": "Sin fuentes",
     "searchError": "No se pudieron buscar conjuntos de datos.",
     "sourcesLoadError": "No se pudieron cargar las fuentes VRT.",
     "sourceTableHealth": "Salud",
@@ -421,7 +392,6 @@
     "geometryValidity": "Validez de geometría",
     "attributeCompleteness": "Completitud de atributos",
     "crsDefined": "CRS definido",
-    "lastChecked": "Última verificación {{date}}",
     "freshness": {
       "absolute": "Última verificación {{date}}",
       "relative": "Verificado {{relative}}",
@@ -534,11 +504,8 @@
     "readOnlyGuidance": "Pida al propietario del conjunto de datos o a un contacto indicado arriba que resuelva estos problemas de validación.",
     "health": {
       "title": "Estado del conjunto de datos",
-      "required": "Obligatorio {{count}}",
-      "recommended": "Recomendado {{count}}",
       "ready": "En buen camino",
-      "description": "{{requiredCount}} elemento(s) obligatorio(s) y {{recommendedCount}} elemento(s) recomendado(s) aún necesitan revisión.",
-      "descriptionReady": "No se detectaron problemas de validación activos."
+      "description": "{{requiredCount}} elemento(s) obligatorio(s) y {{recommendedCount}} elemento(s) recomendado(s) aún necesitan revisión."
     },
     "actions": {
       "summary": "Revisar resumen",
@@ -699,8 +666,6 @@
     "themeCategory": "Categoría temática",
     "sourceUrl": "URL de origen",
     "sourceUrlPlaceholder": "https://...",
-    "recordStatus": "Estado del registro",
-    "ownerOrg": "Organización propietaria",
     "themeCategoryUpdated": "Categoría temática actualizada",
     "themeCategoryUpdateFailed": "No se pudo actualizar la categoría temática",
     "updateFrequencyOptions": {
@@ -772,7 +737,6 @@
     "provenanceUpload": "Carga de datos",
     "provenanceFeatures": "entidades",
     "aboutTitle": "Acerca de este conjunto de datos",
-    "apiTitle": "Acceso vía API",
     "appearsIn": "Aparece en",
     "bandColor": "Color",
     "bandDetails": "Detalles de banda",
@@ -789,11 +753,9 @@
     "generationStatus": "Estado",
     "lastRegenerated": "Última regeneración",
     "maintainer": "Responsable",
-    "metadataTitle": "Metadatos",
     "nextFillIn": "Siguiente: completar {{field}}",
     "nodata": "Nodata",
     "ogcApiFeatures": "OGC API Features",
-    "percentComplete": "{{percent}}% completo",
     "validationProgress": "Comprobaciones de validación superadas: {{percent}}%",
     "validationProgressHelp": "Estimación basada en 12 comprobaciones iniciales menos los errores y avisos registrados. La puntuación de metadatos de calidad cuenta otros campos opcionales.",
     "askMaintainer": "Pida al propietario del conjunto de datos o a un contacto indicado abajo que complete {{field}}",
@@ -814,8 +776,7 @@
   },
   "sources": {
     "system": "Sistema",
-    "user": "Usuario",
-    "elapsed": "Transcurrido: {{seconds}}s"
+    "user": "Usuario"
   },
   "sourcePanel": {
     "title": "Fuente",
@@ -1187,7 +1148,6 @@
     "tilesProcessing": "Las teselas pueden estar aún en proceso",
     "bands": "Bandas",
     "resolution": "Resolución",
-    "dimensions": "Dimensiones",
     "format": "Formato",
     "bandStack": "Pila de bandas",
     "mosaic": "Mosaico"

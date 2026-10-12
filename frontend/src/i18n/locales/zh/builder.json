@@ -3,9 +3,7 @@
   "mapBuilder": "地图构建器",
   "indicators": {
     "labels": "已启用标注",
-    "filter": "已应用筛选器",
-    "dataDriven": "数据驱动样式",
-    "opacityModified": "已调整不透明度"
+    "filter": "已应用筛选器"
   },
   "map": {
     "ariaLabel": "地图构建器",
@@ -16,11 +14,8 @@
   "descriptionLabel": "地图描述",
   "loadingMap": "正在加载地图...",
   "backToMaps": "返回地图列表",
-  "aiChat": "AI 聊天",
   "layers": {
     "title": "图层",
-    "emptyState": "从目录中添加数据集以开始",
-    "addData": "添加数据",
     "unnamed": "未命名图层"
   },
   "mapStack": {
@@ -103,10 +98,8 @@
       "raster": "栅格",
       "layer": "图层",
       "selected": "已选中",
-      "locked": "已锁定",
       "disabled": "已禁用",
       "unsupported": "不支持",
-      "needsAttention": "需要关注",
       "copy": "副本 {{index}}/{{count}}",
       "plugins_one": "{{count}} 个插件",
       "plugins_other": "{{count}} 个插件",
@@ -131,10 +124,6 @@
       "dataLabelsTop": "数据标注 {{position}}/{{total}}（顶部）",
       "popup": "弹窗 {{position}}/{{total}}",
       "plugins": "插件"
-    },
-    "actions": {
-      "openInspector": "打开检查器",
-      "toggleBasemapLabels": "切换底图标注"
     }
   },
   "renderAs": {
@@ -153,10 +142,7 @@
   },
   "inspector": {
     "title": "图层检查器",
-    "close": "关闭检查器",
-    "toggleAdvanced": "切换高级模式",
-    "basicMode": "切换到基础模式",
-    "advancedMode": "切换到高级模式"
+    "close": "关闭检查器"
   },
   "layerItem": {
     "hideLayer": "隐藏图层",
@@ -362,8 +348,6 @@
       "resampling": "重采样",
       "resamplingLinear": "线性",
       "resamplingNearest": "最近邻",
-      "renderRaster": "栅格",
-      "renderHillshade": "山体阴影",
       "reset": "重置",
       "resetTitle": "重置栅格样式",
       "sectionColormap": "色彩映射",
@@ -388,12 +372,7 @@
       "bandCount_other": "{{count}} 个波段"
     },
     "hillshade": {
-      "help": "调整由此 DEM 图层生成的晕渲叠加层。",
-      "direction": "方向",
       "anchor": "锚点",
-      "anchorViewport": "视口",
-      "anchorMap": "地图",
-      "exaggeration": "起伏度",
       "shadow": "阴影",
       "highlight": "高光",
       "accent": "强调色"
@@ -505,7 +484,6 @@
   },
   "dataDriven": {
     "title": "数据驱动样式",
-    "scopeHelp": "创建 MapLibre 绘制表达式，同时保持构建器样式配置同步。",
     "clearTitle": "清除数据驱动样式",
     "mode": "模式",
     "categorical": "分类",
@@ -583,7 +561,6 @@
     "title": "添加数据集",
     "dialogDescription": "搜索数据集并将其作为图层添加到您的地图。",
     "placeholder": "搜索数据集...",
-    "noResults": "未找到数据集",
     "added": "已添加",
     "addToMap": "添加到地图",
     "addToMapDetails": "添加到地图（详情面板）",
@@ -599,7 +576,6 @@
     "retry": "重试",
     "browseCatalogCta": "浏览公开目录 →",
     "basemap": "底图",
-    "inUse": "使用中",
     "anotherRendering": "其他渲染方式",
     "swap": "交换",
     "importData": "导入数据...",
@@ -667,7 +643,6 @@
     "customizeLegend": "显示或隐藏图例",
     "revokeShareLink": "撤销共享链接",
     "restrictToDomains": "限制域名",
-    "domainHint": "以逗号分隔的源。留空表示不限制访问。",
     "visibilityLabel": "地图可见性：{{status}}",
     "embedTokenFailed": "创建嵌入地图访问令牌失败。",
     "openShareLink": "在新标签页中打开",
@@ -676,7 +651,6 @@
     "summaryDomains": "域名",
     "summaryUnrestricted": "无限制",
     "expirationUpdated": "过期时间已更新",
-    "domainsUpdated": "域名限制已更新",
     "updateFailed": "保存更改失败",
     "originsEmptyHint": "还没有源——粘贴类似 https://example.com 的 URL 以允许嵌入。",
     "originsNormHint": "每个源在保存前都会规范化为协议 + 主机 + 端口。",
@@ -737,7 +711,6 @@
     "cancelTitle": "取消",
     "cancelled": "已取消。",
     "streamInterrupted": "响应已中断——部分更改已应用。",
-    "failedToProcess": "处理请求失败",
     "errorFriendly": "出现问题。请重试。",
     "errorSessionExpired": "会话已过期。请重新登录。",
     "errorForbidden": "您没有使用 AI 聊天的权限。",
@@ -761,9 +734,6 @@
     "suggestions": {
       "searchDatasets": "查找可添加到此地图的数据集",
       "colorByAttribute": "使用某个字段为“{{name}}”着色",
-      "addLabels": "为“{{name}}”添加标注",
-      "filterByAttribute": "使用某个字段筛选“{{name}}”",
-      "styleAllLayers": "为所有图层应用统一的配色主题",
       "addDataset": "向此地图添加另一个数据集",
       "heatmap": "将 {{name}} 显示为热力图",
       "areaLabels": "为 {{name}} 添加区域标注",
@@ -805,13 +775,11 @@
   },
   "basemap": {
     "title": "底图",
-    "showLabels": "显示地点标注",
     "blank": "无",
     "appearance": "外观",
     "labels": "标注",
     "roads": "道路",
     "boundaries": "边界",
-    "landWater": "陆地/水域",
     "relief": "晕渲",
     "buildings": "建筑"
   },
@@ -819,19 +787,6 @@
     "title": "地形",
     "enabled": "启用地形",
     "source": "DEM 数据源",
-    "sourcePlaceholder": "选择 DEM",
-    "exaggeration": "垂直夸张倍数",
-    "noDem": "添加 DEM 栅格图层以启用地形。",
-    "unitsUnknown": "垂直单位不可用；地形比例仅供参考。",
-    "unitsNonMeter": "垂直单位为 {{unit}}（非米）；地形比例仅供参考。",
-    "surfaceTitle": "高程表面",
-    "surfaceDescription": "地图表面会贴合地形起伏；可见阴影由地形晕渲图层提供。",
-    "selectedDem": "已选择的 DEM",
-    "noSource": "无",
-    "visualRelief": "视觉晕渲",
-    "reliefLayerCount_one": "{{count}} 个可见 DEM 图层",
-    "reliefLayerCount_other": "{{count}} 个可见 DEM 图层",
-    "noReliefLayer": "无可见晕渲图层",
     "smallDemWarning": "此 DEM 仅覆盖当前视图的一小部分。请放大到该 DEM 的范围，或将其叠加到较粗的全局 DEM 上（例如 Copernicus GLO-30），使整个地图上的地形保持平滑。"
   },
   "featurePopup": {
@@ -882,7 +837,6 @@
     "unknown": "未知"
   },
   "tooltips": {
-    "aiChat": "AI 聊天",
     "share": "共享或嵌入此地图",
     "mapInfo": "地图信息",
     "downloadPng": "下载 PNG",
@@ -890,14 +844,10 @@
     "duplicatingMap": "复制中…",
     "viewAsViewer": "以查看者身份查看",
     "save": "保存（{{shortcut}}）",
-    "collapseSidebar": "收起侧边栏",
-    "expandSidebar": "展开侧边栏",
     "plugins": "插件",
     "moreActions": "更多操作",
     "allSaved": "所有更改已保存",
-    "retrySave": "保存失败。请重试保存更改。",
-    "toggleDock": "切换停靠面板（D）",
-    "closeChat": "关闭聊天"
+    "retrySave": "保存失败。请重试保存更改。"
   },
   "toasts": {
     "mapSaved": "地图已保存",
@@ -911,7 +861,6 @@
     "layerAdded": "图层已添加",
     "layerDuplicated": "图层已复制",
     "datasetAdded": "{{name}} 已添加到地图",
-    "basemapChanged": "底图已更改为 {{name}}",
     "layerAddFailed": "添加图层失败",
     "layerSyncFailed": "图层同步失败：“{{name}}”",
     "renderModeSwitchFailed": "切换渲染模式失败",
@@ -1144,8 +1093,7 @@
       "terrain3d": "3D 地形",
       "titlePlaceholder": "图例标题",
       "editLegend": "编辑图例",
-      "entryLabelPlaceholder": "{{name}} 的标签",
-      "resetLabel": "恢复默认"
+      "entryLabelPlaceholder": "{{name}} 的标签"
     },
     "closePlugin": "关闭插件",
     "pluginError": "此插件遇到了错误"
@@ -1292,8 +1240,6 @@
     "deleteConfirmLabel": "删除 {{count}} 个图层？此操作无法撤销。",
     "deleteConfirmAction": "删除 {{count}} 个图层",
     "deleteConfirmCancel": "取消",
-    "errorUpdateRolledBack": "更新图层失败——更改已回滚。",
-    "errorDeleteRolledBack": "删除 {{count}} 个图层失败——未做任何更改。",
     "deletingLayers": "正在删除 {{count}} 个图层…",
     "deleteSuccess": "已删除 {{count}} 个图层",
     "deletePartialFailure": "已删除 {{count}} 个图层中的 {{deleted}} 个。{{failed}} 个失败。——点击重试。",
@@ -1312,7 +1258,6 @@
     "addData": "添加数据",
     "settings": "设置",
     "emptyState": "尚无图层",
-    "countBadge": "{{count}}",
     "basemapEyebrow": "底图",
     "emptyHeading": "添加您的第一个图层",
     "emptyBody": "搜索目录，为您的地图查找数据集。",
@@ -1398,8 +1343,6 @@
     "sublayersSectionLabel": "子图层",
     "swapBasemap": "更换底图",
     "toggleExpand": "展开或收起底图分组",
-    "typeIconLabel": "底图分组",
-    "visibilityLocked": "底图始终可见——请使用“移除底图”来隐藏。",
     "presetSectionAria": "底图预设"
   },
   "basemapSublayer": {
@@ -1471,14 +1414,10 @@
       "source": "数据源"
     },
     "filter": {
-      "noFilter": "无筛选器",
       "active": "生效中"
     },
     "labels": {
       "off": "关闭"
-    },
-    "footer": {
-      "deleteLayer": "删除图层"
     },
     "confirmDelete": {
       "message": "确定吗？此操作无法撤销。",
@@ -1497,7 +1436,6 @@
       "maxZoom": "最大缩放"
     },
     "source": {
-      "noColumns": "此图层没有已索引的可查询列。",
       "menuLabel": "数据源",
       "dataset": "数据集",
       "features": "要素",

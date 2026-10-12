@@ -29,9 +29,6 @@
     "access": "Zugriff",
     "members": "Mitglieder"
   },
-  "collection": {
-    "membersPlaceholder": "Auflistung der Sammlungsmitglieder kommt bald."
-  },
   "inline": {
     "noDescription": "Beschreibung hinzufügen...",
     "saveFailed": "Speichern fehlgeschlagen — bitte erneut versuchen.",
@@ -95,7 +92,6 @@
     "editDetails": "Details bearbeiten",
     "editGeometry": "Features bearbeiten",
     "draw": "Zeichnen",
-    "stopDrawing": "Zeichnen beenden",
     "reupload": "Erneut hochladen",
     "reuploadTooltip": "Quelldatei dieses Datensatzes ersetzen",
     "createVrtTooltip": "VRT-Mosaik aus diesem Raster erstellen",
@@ -110,12 +106,10 @@
     "more": "Mehr",
     "moreActions": "Weitere Aktionen",
     "subtitle": {
-      "owner": "Eigentümer: {{owner}}",
       "updated": "Aktualisiert: {{date}}",
       "type": "Typ: {{type}}"
     },
     "fallback": {
-      "owner": "Eigentümer nicht verfügbar",
       "updated": "Unbekannter Aktualisierungszeitpunkt",
       "type": "Unbekannter Typ"
     },
@@ -139,16 +133,13 @@
     "manageColumns": "Spalten verwalten",
     "columnName": "Name",
     "columnType": "Typ",
-    "tags": "Schlagwörter",
     "sourceOrganization": "Quellorganisation",
     "license": "Lizenz",
     "attribution": "Namensnennung",
     "attributionPlaceholder": "z. B. © swisstopo — swissALTI3D",
     "attributionHelp": "Quellenangabe, die im Kartenbetrachter überall dort erscheint, wo dieser Datensatz dargestellt wird. Von den Bedingungen mancher Quellen verlangt.",
     "sourceFormat": "Quellformat",
-    "dataVintage": "Datenstand",
     "created": "Erstellt",
-    "lastUpdated": "Zuletzt aktualisiert",
     "contact": "Kontakt",
     "visibility": "Sichtbarkeit",
     "copyToClipboard": "In Zwischenablage kopieren",
@@ -156,9 +147,6 @@
     "original": "Original: EPSG:{{srid}}",
     "sridWithOriginal": "{{current}} ({{original}})",
     "present": "heute",
-    "recordStatus": "Datensatzstatus",
-    "createdBy": "Erstellt von",
-    "lastEditedBy": "Zuletzt bearbeitet von",
     "never": "Nie",
     "provenanceUnknown": "Unbekannt",
     "provenanceRestricted": "Eingeschränkter Benutzer",
@@ -177,8 +165,6 @@
     "title": "Metadaten bearbeiten",
     "name": "Name",
     "description": "Beschreibung",
-    "tags": "Tags (kommagetrennt)",
-    "tagsPlaceholder": "z. B. Flurstücke, Zonierung, Grenzen",
     "visibility": "Sichtbarkeit",
     "visibilityPublic": "Öffentlich",
     "visibilityPrivate": "Privat",
@@ -186,14 +172,10 @@
     "visibilityHelp": "Privat = nur der Eigentümer und Administratoren. Intern = alle bei GeoLens angemeldeten Benutzer. Öffentlich = für alle sichtbar, auch für nicht angemeldete Besucher.",
     "visibilityUpdated": "Sichtbarkeit aktualisiert",
     "visibilityFailed": "Sichtbarkeit konnte nicht geändert werden",
-    "sourceOrganization": "Quellorganisation",
     "license": "Lizenz",
     "vintageStart": "Datenstand Beginn",
     "vintageEnd": "Datenstand Ende",
-    "contactName": "Kontaktname",
-    "contactEmail": "Kontakt-E-Mail",
-    "saving": "Wird gespeichert...",
-    "updateFailed": "Datensatz konnte nicht aktualisiert werden"
+    "saving": "Wird gespeichert..."
   },
   "export": {
     "gpkg": "GeoPackage",
@@ -283,9 +265,6 @@
     "sourceTableBands": "Bänder",
     "sourceTableResolution": "Auflösung",
     "addSource": "Quelle hinzufügen",
-    "addSourcePlaceholder": "COG-Datensätze suchen...",
-    "addSourceSuccess": "Quelle hinzugefügt. VRT wird regeneriert...",
-    "addSourceRegenerating": "VRT wird gerade regeneriert. Versuchen Sie es erneut, wenn abgeschlossen.",
     "removeSource": "Quelle entfernen",
     "removeConfirmTitle": "Quelle entfernen",
     "removeConfirmBody": "{{title}} aus diesem VRT entfernen? Der VRT wird ohne diese Quelle regeneriert.",
@@ -293,19 +272,12 @@
     "removeSuccess": "Quelle entfernt. VRT wird regeneriert...",
     "regeneratingBanner": "Dieser VRT wird regeneriert. Quelländerungen sind bis zum Abschluss deaktiviert.",
     "failedBanner": "VRT-Regenerierung fehlgeschlagen.",
-    "disabledRegenerating": "VRT wird regeneriert",
-    "disabledMinSources": "VRT benötigt mindestens 2 Quellen",
     "noResults": "Keine passenden COG-Datensätze gefunden.",
     "sources": "Quellen",
     "regenerate": "Regenerieren",
     "regenerateStarted": "VRT-Regenerierung gestartet.",
     "regenerateConflict": "VRT wird bereits regeneriert.",
     "generationHistory": "Generierungsverlauf",
-    "genStatus": "Status",
-    "genTimestamp": "Zeitstempel",
-    "genDuration": "Dauer",
-    "genSources": "Quellen",
-    "genTriggeredBy": "Ausgelöst von",
     "healthHealthy": "Gesund",
     "healthMissing": "Quelldatensatz gelöscht",
     "healthInaccessible": "Quelldatei nicht zugänglich",
@@ -313,7 +285,6 @@
     "healthMissingShort": "Fehlend",
     "healthInaccessibleShort": "Nicht erreichbar",
     "healthUnknownShort": "Unbekannt",
-    "noSources": "Keine Quellen",
     "searchError": "Datensätze konnten nicht durchsucht werden.",
     "sourcesLoadError": "VRT-Quellen konnten nicht geladen werden.",
     "sourceTableHealth": "Gesundheit",
@@ -421,7 +392,6 @@
     "geometryValidity": "Geometrie-Gültigkeit",
     "attributeCompleteness": "Attribut-Vollständigkeit",
     "crsDefined": "CRS definiert",
-    "lastChecked": "Zuletzt geprüft {{date}}",
     "freshness": {
       "absolute": "Zuletzt geprüft {{date}}",
       "relative": "Geprüft {{relative}}",
@@ -534,11 +504,8 @@
     "readOnlyGuidance": "Bitten Sie den Eigentümer des Datensatzes oder einen oben genannten Kontakt, diese Validierungsprobleme zu beheben.",
     "health": {
       "title": "Datensatz-Zustand",
-      "required": "Erforderlich {{count}}",
-      "recommended": "Empfohlen {{count}}",
       "ready": "Auf Kurs",
-      "description": "{{requiredCount}} erforderliche(s) und {{recommendedCount}} empfohlene(s) Element(e) müssen noch überprüft werden.",
-      "descriptionReady": "Keine aktiven Validierungsprobleme erkannt."
+      "description": "{{requiredCount}} erforderliche(s) und {{recommendedCount}} empfohlene(s) Element(e) müssen noch überprüft werden."
     },
     "actions": {
       "summary": "Zusammenfassung überprüfen",
@@ -699,8 +666,6 @@
     "themeCategory": "Themenkategorie",
     "sourceUrl": "Quell-URL",
     "sourceUrlPlaceholder": "https://...",
-    "recordStatus": "Datensatzstatus",
-    "ownerOrg": "Eigentümerorganisation",
     "themeCategoryUpdated": "Themenkategorie aktualisiert",
     "themeCategoryUpdateFailed": "Themenkategorie konnte nicht aktualisiert werden",
     "updateFrequencyOptions": {
@@ -772,7 +737,6 @@
     "provenanceUpload": "Datei-Upload",
     "provenanceFeatures": "Features",
     "aboutTitle": "Über diesen Datensatz",
-    "apiTitle": "Zugang über API",
     "appearsIn": "Erscheint in",
     "bandColor": "Farbe",
     "bandDetails": "Banddetails",
@@ -789,11 +753,9 @@
     "generationStatus": "Status",
     "lastRegenerated": "Zuletzt neu generiert",
     "maintainer": "Betreuer",
-    "metadataTitle": "Metadaten",
     "nextFillIn": "Nächstes: {{field}} ausfüllen",
     "nodata": "Nodata",
     "ogcApiFeatures": "OGC API Features",
-    "percentComplete": "{{percent}}% vollständig",
     "validationProgress": "Bestandene Validierungsprüfungen: {{percent}} %",
     "validationProgressHelp": "Schätzung aus 12 grundlegenden Prüfungen abzüglich gemeldeter Fehler und Warnungen. Die Qualitätsbewertung zählt optionale Metadatenfelder separat.",
     "askMaintainer": "Bitten Sie den Eigentümer des Datensatzes oder einen unten genannten Kontakt, {{field}} zu ergänzen",
@@ -814,8 +776,7 @@
   },
   "sources": {
     "system": "System",
-    "user": "Benutzer",
-    "elapsed": "Vergangen: {{seconds}}s"
+    "user": "Benutzer"
   },
   "sourcePanel": {
     "title": "Quelle",
@@ -1187,7 +1148,6 @@
     "tilesProcessing": "Kacheln werden möglicherweise noch verarbeitet",
     "bands": "Bänder",
     "resolution": "Auflösung",
-    "dimensions": "Abmessungen",
     "format": "Format",
     "bandStack": "Bandstapel",
     "mosaic": "Mosaik"

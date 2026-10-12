@@ -30,9 +30,7 @@
     "byVisibility": "Jeux de données par visibilité",
     "noDatasets": "Aucun jeu de données pour l'instant",
     "errorLoading": "Échec du chargement des statistiques : {{message}}",
-    "totalUsers": "Utilisateurs totaux",
-    "usersByStatus": "Utilisateurs par statut",
-    "noUsers": "Aucun utilisateur"
+    "totalUsers": "Utilisateurs totaux"
   },
   "users": {
     "title": "Utilisateurs",
@@ -236,11 +234,6 @@
       "user": "Utilisateur",
       "allUsers": "Tous les utilisateurs",
       "allActions": "Toutes les actions",
-      "datasetView": "Consultation de jeu de données",
-      "datasetExport": "Exportation de jeu de données",
-      "metadataEdit": "Modification de métadonnées",
-      "datasetCreate": "Création de jeu de données",
-      "datasetDelete": "Suppression de jeu de données",
       "action": "Action",
       "userId": "ID utilisateur",
       "resourceType": "Type de ressource",
@@ -485,8 +478,6 @@
     "tableLabel": "Jetons d'intégration"
   },
   "settings": {
-    "copySPEntityId": "Copier l'ID d'entité SP",
-    "copyAcsUrl": "Copier l'URL ACS",
     "actions": {
       "discard": "Annuler les modifications",
       "resetDefaults": "Rétablir les valeurs par défaut",
@@ -522,8 +513,6 @@
     },
     "general": {
       "title": "Général",
-      "cardTitle": "Fonctionnalités",
-      "cardDescription": "Activez ou désactivez les fonctionnalités de la plateforme.",
       "registration": "Auto-inscription",
       "registrationDescription": "Permet aux personnes de créer leur propre compte, en s'inscrivant avec un mot de passe ou en se connectant via un fournisseur SSO activé. Les comptes SSO sont actifs immédiatement avec le rôle par défaut du fournisseur. Les inscriptions par mot de passe s'activent après vérification de l'e-mail (SMTP requis), sinon après approbation par un administrateur.",
       "landingFirst": "Connexion comme page d'accueil",
@@ -531,7 +520,6 @@
       "aiFeatures": "Fonctionnalités IA",
       "aiFeaturesDescription": "Activer les fonctionnalités alimentées par l'IA, notamment la rédaction de métadonnées de jeux de données (résumés, mots-clés, lignage, déclarations de qualité), le chat du constructeur de cartes et la génération de cartes par IA.",
       "saved": "Paramètres enregistrés",
-      "saveFailed": "Échec de l'enregistrement des paramètres",
       "requireMetadata": "Exiger les métadonnées pour la publication",
       "requireMetadataDescription": "Lorsque activé, les jeux de données doivent avoir des métadonnées complètes avant de pouvoir être publiés.",
       "enableDatasetEditing": "Activer l'édition des jeux de données",
@@ -580,8 +568,7 @@
       "apiKeyLabel": "Clé API",
       "apiKeyPlaceholder": "Facultatif — requis si l'URL contient {api_key}",
       "apiKeyHelp": "Utilisez {api_key} dans l'URL des tuiles comme espace réservé. La clé est interpolée côté serveur.",
-      "saved": "Fonds de carte enregistrés",
-      "saveFailed": "Échec de l'enregistrement des fonds de carte"
+      "saved": "Fonds de carte enregistrés"
     },
     "mapDefaults": {
       "title": "Carte par défaut",
@@ -591,9 +578,7 @@
       "longitude": "Longitude",
       "zoomLevel": "Niveau de zoom",
       "preview": "Aperçu",
-      "useCurrentView": "Utiliser la vue actuelle",
-      "saved": "Paramètres de carte enregistrés",
-      "saveFailed": "Échec de l'enregistrement des paramètres de carte"
+      "saved": "Paramètres de carte enregistrés"
     },
     "plugins": {
       "title": "Plugins de carte",
@@ -621,8 +606,6 @@
     },
     "security": {
       "title": "Sécurité",
-      "cardTitle": "Limitation du taux de connexion",
-      "cardDescription": "Contrôlez le nombre maximum de tentatives de connexion par minute par adresse IP.",
       "loginRateLimit": "Tentatives de connexion par minute",
       "accessTokenExpire": "Durée de vie du jeton d'accès (minutes)",
       "refreshTokenExpire": "Délai d'inactivité de la session (jours)",
@@ -630,7 +613,6 @@
       "tokenLifetimeNote": "Les modifications de durée de vie des jetons s'appliquent uniquement aux jetons nouvellement émis.",
       "loginRateLimitDescription": "Nombre maximum de requêtes de connexion autorisées par minute depuis une seule adresse IP (1–1000).",
       "saved": "Paramètres de sécurité enregistrés",
-      "saveFailed": "Échec de l'enregistrement des paramètres de sécurité",
       "passwordLogin": "Autoriser la connexion par mot de passe",
       "passwordLoginDescription": "Permet aux utilisateurs de se connecter avec un identifiant et un mot de passe. Le désactiver impose un fournisseur SSO : activez-en un d'abord. Les administrateurs peuvent toujours se connecter par mot de passe en dernier recours.",
       "emailVerificationRequired": "Exiger la vérification de l'e-mail",
@@ -656,7 +638,6 @@
       "unknownError": "Erreur inconnue"
     },
     "saved": "Paramètres enregistrés",
-    "saveFailed": "Échec de l'enregistrement des paramètres",
     "resetDefaults": "Rétablir les valeurs par défaut",
     "tabs": {
       "general": "Général",
@@ -671,8 +652,6 @@
     },
     "uploads": {
       "title": "Paramètres de téléchargement",
-      "cardTitle": "Limites de téléchargement",
-      "cardDescription": "Configurez la taille maximale des fichiers et les extensions autorisées.",
       "maxSizeMb": "Taille maximale du fichier (Mo)",
       "maxSizeMbDescription": "Taille maximale en mégaoctets (1-10 000).",
       "allowedExtensions": "Extensions autorisées",
@@ -689,8 +668,7 @@
       "invalidStorageQuantity": "Saisissez une quantité correspondant à un nombre entier d’octets.",
       "maxDatasetsPerUser": "Jeux de données max. par utilisateur",
       "maxDatasetsPerUserDescription": "Nombre maximal de jeux de données que chaque utilisateur peut créer (0 = illimité).",
-      "saved": "Paramètres de téléchargement enregistrés",
-      "saveFailed": "Échec de l'enregistrement"
+      "saved": "Paramètres de téléchargement enregistrés"
     },
     "oauth": {
       "title": "Fournisseurs OAuth",
@@ -809,14 +787,8 @@
     "tileCache": "Cache de tuiles",
     "type": "Type",
     "status": "Statut",
-    "latency": "Latence",
-    "ttl": "TTL",
     "cdn": "CDN",
-    "pooler": "Pooler",
-    "connected": "Connecté",
-    "disconnected": "Déconnecté",
     "configured": "Configuré",
-    "notConfigured": "Non configuré",
     "loading": "Chargement du statut de l'infrastructure...",
     "errorLoading": "Échec du chargement du statut de l'infrastructure",
     "allOperational": "Tous les systèmes opérationnels",
@@ -833,8 +805,7 @@
       "title": "SSO SAML",
       "description": "Non disponible dans cette version.",
       "heading": "SAML n'est pas disponible",
-      "body": "Cette version de GeoLens prend en charge les comptes locaux et les fournisseurs OAuth comme Google, GitHub et OIDC générique.",
-      "docsLink": "SAML n'est pas disponible dans cette version"
+      "body": "Cette version de GeoLens prend en charge les comptes locaux et les fournisseurs OAuth comme Google, GitHub et OIDC générique."
     },
     "addProvider": "Ajouter un fournisseur SAML",
     "loading": "Chargement des fournisseurs SAML...",

@@ -97,7 +97,6 @@
     "darkMode": "Modo oscuro"
   },
   "theme": {
-    "toggle": "Cambiar tema",
     "light": "Claro",
     "dark": "Oscuro",
     "system": "Sistema"
@@ -126,9 +125,6 @@
     "infrastructure": "Infraestructura",
     "general": "General",
     "basemaps": "Mapas base",
-    "mapDefaults": "Valores predeterminados del mapa",
-    "security": "Seguridad",
-    "uploads": "Subidas",
     "settings": "Configuración",
     "operations": "Operaciones",
     "settingsGeneral": "General",
@@ -359,7 +355,9 @@
     "unauthorized": "Tu sesión ha expirado. Inicia sesión de nuevo."
   },
   "settings": {
-    "apiKeys": { "manageTitle": "Administrar claves API" },
+    "apiKeys": {
+      "manageTitle": "Administrar claves API"
+    },
     "tabs": {
       "preferences": "Preferencias",
       "apiKeys": "Claves API"
@@ -400,7 +398,6 @@
     "linkExpiredDescription": "Este enlace de mapa compartido ya no está disponible. Puede haber caducado o sido revocado por el propietario.",
     "mapNotFound": "Mapa no encontrado",
     "mapNotFoundDescription": "Este mapa puede haber sido eliminado o el enlace puede ser inválido.",
-    "poweredBy": "Desarrollado con GeoLens",
     "featureFallback": "Elemento",
     "legend": {
       "title": "Capas",
@@ -719,9 +716,6 @@
   },
   "inlineEdit": {
     "hint": "Ctrl+Enter para guardar, Escape para cancelar"
-  },
-  "mapCoordReadout": {
-    "scale": "1:{{value}}"
   },
   "errorBoundary": {
     "appTitle": "Algo salió mal",

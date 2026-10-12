@@ -15,9 +15,6 @@
   "placeholder": "搜索目录...",
   "updating": "正在更新结果...",
   "loadingDatasets": "正在加载数据集...",
-  "resultCount_one": "{{count}} 个结果",
-  "resultCount_other": "{{count}} 个结果",
-  "mapsSectionTitle": "地图",
   "empty": {
     "catalogResultsTitle": "未找到目录结果",
     "catalogResultsDescription": "请尝试更改搜索内容或筛选条件。",
@@ -51,11 +48,7 @@
     "updateLocation": "更新位置区域",
     "anyGeometry": "任意几何类型",
     "point": "点",
-    "lineString": "折线",
     "polygon": "多边形",
-    "multiPoint": "多点",
-    "multiLineString": "多折线",
-    "multiPolygon": "多重多边形",
     "sort": "排序",
     "relevance": "相关度",
     "dateAdded": "添加日期",
@@ -85,8 +78,6 @@
     "anyCrs": "任意 CRS",
     "collection": "集合",
     "collections": "集合",
-    "temporalExtent": "时间范围",
-    "temporalExtentRange": "时间范围：{{start}} - {{end}}",
     "keywords": "关键词",
     "keywordSearch": "搜索关键词...",
     "noKeywords": "暂无关键词",
@@ -99,8 +90,7 @@
     "datasetCount_other": "{{count}} 个数据集"
   },
   "datasetCard": {
-    "quicklookAlt": "{{name}} 的预览",
-    "previewUnavailable": "预览不可用"
+    "quicklookAlt": "{{name}} 的预览"
   },
   "card": {
     "featureCount_one": "{{count}} 个要素",
@@ -193,7 +183,6 @@
   "workspaceTitle": "搜索 GeoLens 目录",
   "typeahead": {
     "searching": "正在搜索...",
-    "noResults": "未找到结果",
     "error": "加载结果失败"
   },
   "quality": {

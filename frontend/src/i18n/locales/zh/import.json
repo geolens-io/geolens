@@ -260,7 +260,6 @@
   "serviceUrl": {
     "label": "服务 URL",
     "placeholder": "https://example.com/wfs、ArcGIS 要素服务或 OGC API 端点",
-    "helpText": "粘贴 WFS、ArcGIS 要素服务或 OGC API Features URL",
     "arcgisPortalUrlHint": "这看起来是 ArcGIS 组织或门户页面，而不是图层。请打开图层的项目页面，复制其 REST URL（以 /FeatureServer/0 或 /MapServer/0 结尾）并粘贴到此处。受保护的图层会在粘贴图层 URL 后要求登录。",
     "detectedLabel": "服务 URL；已检测到",
     "clear": "清空",
@@ -388,7 +387,6 @@
     "pointcloudDesc": "供外部 COPC 客户端使用；没有内置地图预览。"
   },
   "register": {
-    "helpText": "将数据库中现有的 PostGIS 表收录为 GeoLens 数据集。当数据库中已有未通过 GeoLens 导入的地理数据时，可使用此方式。选定的表将添加到数据集目录，并自动检测元数据。",
     "discovering": "正在发现表...",
     "discoverFailed": "发现表失败：",
     "emptyState": "数据库中未发现未注册的表。",
@@ -419,7 +417,6 @@
       "source_srid_undeclared": "其 geom 列未声明 SRID，GeoLens 无法确定其坐标所在的位置。请先设置 SRID（例如使用 UpdateGeometrySRID），然后再注册该表。",
       "source_gid_unusable": "GeoLens 通过名为 gid 的列来识别要素：该列必须是 NOT NULL 且唯一的整数（例如主键），并且所在的表没有被其他表继承。此表不满足该条件。请添加或修正 gid 列，或将无法使用的 gid 列重命名以便 GeoLens 添加自己的 gid 列，然后再注册该表。"
     },
-    "unknownError": "未知错误",
     "searchPlaceholder": "搜索表…",
     "selectHint": "从列表中选择一个表以查看其字段结构并进行注册。",
     "detailDesc": "注册后即作为 GeoLens 数据集提供；实时切片，无副本。",
@@ -436,19 +433,7 @@
     "tablesSidebarLabel": "已发现的表"
   },
   "layerPicker": {
-    "title": "选择图层",
-    "emptyState": "此服务中未找到图层",
-    "columnName": "名称",
-    "columnGeometry": "几何类型",
-    "columnFeatureCount": "要素数量",
-    "previewLayer": "预览图层"
-  },
-  "tablePicker": {
-    "selectAll": "全选（{{count}} 张表）",
-    "selectAll_one": "全选（{{count}} 张表）",
-    "selectAll_other": "全选（{{count}} 张表）",
-    "nonSpatial": "非空间",
-    "estimatedRows": "约 {{count}} 行"
+    "title": "选择图层"
   },
   "preview": {
     "title": "文件预览",
@@ -481,9 +466,6 @@
     "nameLabel": "名称 *",
     "descriptionLabel": "描述",
     "descriptionPlaceholder": "可选描述",
-    "tagsLabel": "标签",
-    "tagsPlaceholder": "标签1, 标签2, 标签3",
-    "tagsHelpText": "以逗号分隔",
     "visibilityLabel": "可见性",
     "visibilityPrivate": "私有",
     "visibilityPublic": "公开",
@@ -636,9 +618,6 @@
     "detectingHint": "正在上传并检测…",
     "importingFiles": "正在导入 {{count}} 个文件",
     "progressDetail": "{{done}} 个已完成 · {{active}} 个进行中 · {{queued}} 个排队中",
-    "statusUploading": "正在上传...",
-    "statusPreviewing": "正在生成预览...",
-    "statusReady": "已就绪",
     "fileCount_one": "{{count}} 个文件已准备好导入",
     "fileCount_other": "{{count}} 个文件已准备好导入",
     "importAllDefaults": "全部按默认设置导入",

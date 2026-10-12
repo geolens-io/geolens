@@ -3,9 +3,7 @@
   "mapBuilder": "Constructeur de cartes",
   "indicators": {
     "labels": "Étiquettes activées",
-    "filter": "Filtre appliqué",
-    "dataDriven": "Style basé sur les données",
-    "opacityModified": "Opacité ajustée"
+    "filter": "Filtre appliqué"
   },
   "map": {
     "ariaLabel": "Constructeur de carte",
@@ -16,11 +14,8 @@
   "descriptionLabel": "Description de la carte",
   "loadingMap": "Chargement de la carte...",
   "backToMaps": "Retour aux cartes",
-  "aiChat": "Chat IA",
   "layers": {
     "title": "Couches",
-    "emptyState": "Ajoutez des jeux de données du catalogue pour commencer",
-    "addData": "Ajouter des données",
     "unnamed": "Calque sans nom"
   },
   "mapStack": {
@@ -103,10 +98,8 @@
       "raster": "Raster",
       "layer": "Couche",
       "selected": "Sélectionnée",
-      "locked": "Verrouillée",
       "disabled": "Désactivée",
       "unsupported": "Non compatible",
-      "needsAttention": "Demande attention",
       "copy": "Copie {{index}} sur {{count}}",
       "plugins_one": "{{count}} plugin",
       "plugins_other": "{{count}} plugins",
@@ -131,10 +124,6 @@
       "dataLabelsTop": "Étiquettes de données {{position}} sur {{total}} (en haut)",
       "popup": "Fenêtre contextuelle {{position}} sur {{total}}",
       "plugins": "Plugins"
-    },
-    "actions": {
-      "openInspector": "Ouvrir l'inspecteur",
-      "toggleBasemapLabels": "Basculer les étiquettes du fond"
     }
   },
   "renderAs": {
@@ -153,10 +142,7 @@
   },
   "inspector": {
     "title": "Inspecteur de couche",
-    "close": "Fermer l'inspecteur",
-    "toggleAdvanced": "Basculer le mode avancé",
-    "basicMode": "Passer en mode simple",
-    "advancedMode": "Passer en mode avancé"
+    "close": "Fermer l'inspecteur"
   },
   "layerItem": {
     "hideLayer": "Masquer la couche",
@@ -362,8 +348,6 @@
       "resampling": "Rééchantillonnage",
       "resamplingLinear": "Linéaire",
       "resamplingNearest": "Plus proche voisin",
-      "renderRaster": "Raster",
-      "renderHillshade": "Ombrage",
       "reset": "Réinitialiser",
       "resetTitle": "Réinitialiser le style raster",
       "sectionColormap": "PALETTE DE COULEURS",
@@ -388,12 +372,7 @@
       "bandCount_other": "{{count}} bandes"
     },
     "hillshade": {
-      "help": "Ajustez la couche de relief générée depuis cette couche MNE.",
-      "direction": "Direction",
       "anchor": "Ancrage",
-      "anchorViewport": "Vue",
-      "anchorMap": "Carte",
-      "exaggeration": "Exagération du relief",
       "shadow": "Ombre",
       "highlight": "Lumière",
       "accent": "Accentuation"
@@ -505,7 +484,6 @@
   },
   "dataDriven": {
     "title": "Style piloté par les données",
-    "scopeHelp": "Crée des expressions paint MapLibre tout en gardant la configuration de style du builder alignée.",
     "clearTitle": "Effacer le style piloté par les données",
     "mode": "Mode",
     "categorical": "Catégoriel",
@@ -583,7 +561,6 @@
     "title": "Ajouter un jeu de données",
     "dialogDescription": "Recherchez et ajoutez des jeux de données comme couches à votre carte.",
     "placeholder": "Rechercher des jeux de données...",
-    "noResults": "Aucun jeu de données trouvé",
     "added": "Ajouté",
     "addToMap": "Ajouter à la carte",
     "addToMapDetails": "Ajouter à la carte (panneau de détails)",
@@ -599,7 +576,6 @@
     "retry": "Réessayer",
     "browseCatalogCta": "Parcourir le catalogue public →",
     "basemap": "Fond de carte",
-    "inUse": "en cours d'utilisation",
     "anotherRendering": "autre rendu",
     "swap": "remplacer",
     "importData": "Importer des données...",
@@ -667,7 +643,6 @@
     "customizeLegend": "-- afficher/masquer la légende",
     "revokeShareLink": "Révoquer le lien de partage",
     "restrictToDomains": "Restreindre aux domaines",
-    "domainHint": "Origines séparées par des virgules. Laisser vide pour un accès illimité.",
     "visibilityLabel": "Visibilité de la carte: {{status}}",
     "embedTokenFailed": "Échec de la création du jeton d'intégration. La restriction de domaine peut ne pas être appliquée.",
     "openShareLink": "Ouvrir dans un nouvel onglet",
@@ -676,7 +651,6 @@
     "summaryDomains": "Domaines",
     "summaryUnrestricted": "Sans restriction",
     "expirationUpdated": "Expiration mise à jour",
-    "domainsUpdated": "Restrictions de domaine mises à jour",
     "updateFailed": "Échec de la sauvegarde",
     "originsEmptyHint": "Aucune origine pour l'instant — collez une URL comme https://example.com pour autoriser l'intégration.",
     "originsNormHint": "Chaque origine est normalisée sous la forme schéma + hôte + port avant la sauvegarde.",
@@ -737,7 +711,6 @@
     "cancelTitle": "Annuler",
     "cancelled": "Annulé.",
     "streamInterrupted": "Réponse interrompue — certaines modifications ont été appliquées.",
-    "failedToProcess": "Échec du traitement de la demande",
     "errorFriendly": "Quelque chose s'est mal passé. Veuillez réessayer.",
     "errorSessionExpired": "Session expirée. Veuillez vous reconnecter.",
     "errorForbidden": "Vous n'avez pas la permission d'utiliser le chat IA.",
@@ -761,9 +734,6 @@
     "suggestions": {
       "searchDatasets": "Rechercher des jeux de données à ajouter à cette carte",
       "colorByAttribute": "Colorer « {{name}} » à l'aide d'un champ",
-      "addLabels": "Ajouter des libellés pour « {{name}} »",
-      "filterByAttribute": "Filtrer « {{name}} » à l'aide d'un champ",
-      "styleAllLayers": "Appliquer un thème de couleurs à toutes les couches",
       "addDataset": "Ajouter un autre jeu de données à cette carte",
       "heatmap": "Afficher {{name}} comme carte de chaleur",
       "areaLabels": "Ajouter des libellés de zone pour {{name}}",
@@ -805,13 +775,11 @@
   },
   "basemap": {
     "title": "Fond de carte",
-    "showLabels": "Afficher les libellés des lieux",
     "blank": "Aucun",
     "appearance": "Apparence",
     "labels": "Étiquettes",
     "roads": "Routes",
     "boundaries": "Frontières",
-    "landWater": "Terre / eau",
     "relief": "Relief",
     "buildings": "Bâtiments"
   },
@@ -819,19 +787,6 @@
     "title": "Terrain",
     "enabled": "Activer le terrain",
     "source": "Source DEM",
-    "sourcePlaceholder": "Sélectionner DEM",
-    "exaggeration": "Exagération",
-    "noDem": "Ajoutez une couche raster DEM pour activer le terrain.",
-    "unitsUnknown": "Les unités verticales sont indisponibles ; l'échelle du terrain est approximative.",
-    "unitsNonMeter": "Les unités verticales sont {{unit}}, pas des mètres ; l'échelle du terrain est approximative.",
-    "surfaceTitle": "Surface d'élévation",
-    "surfaceDescription": "Le terrain drape la surface de la carte ; les calques de relief fournissent un ombrage visible.",
-    "selectedDem": "MNT sélectionné",
-    "noSource": "Aucun",
-    "visualRelief": "Relief visuel",
-    "reliefLayerCount_one": "{{count}} calque MNT visible",
-    "reliefLayerCount_other": "{{count}} calques MNT visibles",
-    "noReliefLayer": "Aucun calque de relief visible",
     "smallDemWarning": "Ce MNT ne couvre qu'une petite partie de la vue actuelle. Zoomez sur l'emprise du MNT, ou drapez-le sur un MNT global grossier (p. ex. Copernicus GLO-30) afin que le terrain reste régulier sur toute la carte."
   },
   "featurePopup": {
@@ -882,7 +837,6 @@
     "unknown": "Inconnu"
   },
   "tooltips": {
-    "aiChat": "Chat IA",
     "share": "Partager ou intégrer cette carte",
     "mapInfo": "Info carte",
     "downloadPng": "Télécharger PNG",
@@ -890,14 +844,10 @@
     "duplicatingMap": "Duplication…",
     "viewAsViewer": "Afficher en tant que visiteur",
     "save": "Enregistrer ({{shortcut}})",
-    "collapseSidebar": "Réduire le panneau latéral",
-    "expandSidebar": "Développer le panneau latéral",
     "plugins": "Plugins",
     "moreActions": "Plus d'actions",
     "allSaved": "Toutes les modifications enregistrées",
-    "retrySave": "Échec de l'enregistrement. Réessayez d'enregistrer les modifications.",
-    "toggleDock": "Basculer le panneau (D)",
-    "closeChat": "Fermer le chat"
+    "retrySave": "Échec de l'enregistrement. Réessayez d'enregistrer les modifications."
   },
   "toasts": {
     "mapSaved": "Carte enregistrée",
@@ -911,7 +861,6 @@
     "layerAdded": "Couche ajoutée",
     "layerDuplicated": "Couche dupliquée",
     "datasetAdded": "{{name}} ajouté à la carte",
-    "basemapChanged": "Fond de carte changé en {{name}}",
     "layerAddFailed": "Échec de l'ajout de la couche",
     "layerSyncFailed": "Échec de la synchronisation de la couche « {{name}} »",
     "renderModeSwitchFailed": "Échec du changement de mode de rendu",
@@ -1144,8 +1093,7 @@
       "terrain3d": "Terrain 3D",
       "titlePlaceholder": "Titre de la légende",
       "editLegend": "Modifier la légende",
-      "entryLabelPlaceholder": "Libellé pour {{name}}",
-      "resetLabel": "Réinitialiser par défaut"
+      "entryLabelPlaceholder": "Libellé pour {{name}}"
     },
     "closePlugin": "Fermer le plugin",
     "pluginError": "Ce plugin a rencontré une erreur"
@@ -1288,8 +1236,6 @@
     "deleteConfirmLabel": "Supprimer {{count}} couches ? Cette action est irréversible.",
     "deleteConfirmAction": "Supprimer {{count}} couches",
     "deleteConfirmCancel": "Annuler",
-    "errorUpdateRolledBack": "Échec de la mise à jour des couches — modifications annulées.",
-    "errorDeleteRolledBack": "Impossible de supprimer {{count}} couches — aucune modification effectuée.",
     "deletingLayers": "Suppression de {{count}} couches…",
     "deleteSuccess": "{{count}} couches supprimées",
     "deletePartialFailure": "{{deleted}} sur {{count}} couches supprimées. {{failed}} ont échoué. — Appuyer pour réessayer.",
@@ -1308,7 +1254,6 @@
     "addData": "Ajouter des données",
     "settings": "Paramètres",
     "emptyState": "Aucune couche pour l'instant",
-    "countBadge": "{{count}}",
     "basemapEyebrow": "FOND DE CARTE",
     "emptyHeading": "Ajoutez votre première couche",
     "emptyBody": "Parcourez le catalogue pour trouver des jeux de données pour votre carte.",
@@ -1394,8 +1339,6 @@
     "sublayersSectionLabel": "SOUS-COUCHES",
     "swapBasemap": "Remplacer le fond de carte",
     "toggleExpand": "Réduire/développer le groupe de fond de carte",
-    "typeIconLabel": "Groupe de fond de carte",
-    "visibilityLocked": "Le fond de carte est toujours visible — utilisez « Supprimer le fond de carte » pour le masquer.",
     "presetSectionAria": "Fond de carte prédéfini"
   },
   "basemapSublayer": {
@@ -1463,14 +1406,10 @@
       "source": "Source"
     },
     "filter": {
-      "noFilter": "Aucun filtre",
       "active": "Actif"
     },
     "labels": {
       "off": "Désactivé"
-    },
-    "footer": {
-      "deleteLayer": "Supprimer la couche"
     },
     "confirmDelete": {
       "message": "Êtes-vous sûr ? Cette action est irréversible.",
@@ -1489,7 +1428,6 @@
       "maxZoom": "Zoom maximum"
     },
     "source": {
-      "noColumns": "Aucune colonne interrogeable indexée pour cette couche.",
       "menuLabel": "Source",
       "dataset": "Jeu de données",
       "features": "Entités",
