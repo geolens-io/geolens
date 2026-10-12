@@ -792,7 +792,7 @@ async def check_vrt_audiences_after_change(
     """Raise 422 when a new visibility, status or owner (None keeps the current
     one) would make a VRT reach past a member it doesn't reach past now.
 
-    A VRT is compared with its members; a source with its owner's VRTs, since
+    A VRT is compared with its members; a source with its owners' VRTs, since
     another user's VRT may not hold the owner's dataset open (it stops serving
     tiles instead). Only a newly exceeded member is refused, so a VRT can
     always narrow and a source can always widen.
@@ -814,7 +814,9 @@ async def check_vrt_audiences_after_change(
         )
         pairs = [((before, q), (after, q), t) for q, t in linked.values()]
     else:
-        linked = await _record_audience_queries(db, await _owner_vrt_ids(db, dataset))
+        linked = await _record_audience_queries(
+            db, await _owner_vrt_ids(db, dataset, {before.owner_id, after.owner_id})
+        )
         pairs = [((q, before), (q, after), t) for q, t in linked.values()]
     then = await _audiences_exceeded(db, [pair[0] for pair in pairs])
     now = await _audiences_exceeded(db, [pair[1] for pair in pairs])
@@ -833,10 +835,13 @@ async def check_vrt_audiences_after_change(
         )
 
 
-async def _owner_vrt_ids(db: AsyncSession, dataset: Any) -> list[uuid.UUID]:
-    """VRTs linking ``dataset`` that share its owner."""
-    owner_id = dataset.record.created_by
-    if owner_id is None:
+async def _owner_vrt_ids(
+    db: AsyncSession, dataset: Any, owner_ids: set[uuid.UUID | None]
+) -> list[uuid.UUID]:
+    """VRTs linking ``dataset`` that belong to one of ``owner_ids``: the
+    dataset's owner, and on a transfer its incoming owner too."""
+    owners = owner_ids - {None}
+    if not owners:
         return []
 
     from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -847,6 +852,6 @@ async def _owner_vrt_ids(db: AsyncSession, dataset: Any) -> list[uuid.UUID]:
         .join(Dataset, Dataset.id == links.c.vrt_dataset_id)
         .join(Record, Record.id == Dataset.record_id)
         .where(links.c.source_dataset_id == dataset.id)
-        .where(Record.created_by == owner_id)
+        .where(Record.created_by.in_(owners))
     )
     return list(rows.scalars())

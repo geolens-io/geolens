@@ -451,3 +451,25 @@ async def test_an_account_the_authority_cannot_classify_counts_as_outside(
     assert await authorization.vrt_members_beyond_audience(
         test_db_session, [src], vrt
     ) == [src]
+
+
+async def test_transfer_checks_the_incoming_owners_vrts(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    _, editor_id = await _make_editor(client, admin_auth_header)
+    _, other_id = await _make_editor(client, admin_auth_header)
+    src = await _create_raster_dataset(
+        test_db_session, created_by=editor_id, visibility="public"
+    )
+    vrt_id = await _create_vrt_dataset(
+        test_db_session, created_by=other_id, visibility="public"
+    )
+    await _link_source(test_db_session, vrt_id, src, 0)
+
+    resp = await client.patch(
+        f"/datasets/{src}",
+        json={"owner_id": str(other_id), "visibility": "private"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 422, resp.text
