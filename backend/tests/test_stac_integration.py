@@ -399,3 +399,21 @@ class TestSTACAnonymousCache:
         )
         for path in ("/stac/", "/stac/collections"):
             assert str(coll.id) in (await client.get(path)).text
+
+    async def test_cache_keeps_only_the_most_recent_keys(
+        self, client: AsyncClient, monkeypatch
+    ):
+        from app.platform.cache import get_cache
+        from app.standards.stac import router as stac_router
+        from app.standards.stac.schemas import StacCatalog
+
+        monkeypatch.setattr(stac_router, "_STAC_ANON_CACHE_MAX_KEYS", 2)
+        monkeypatch.setattr(stac_router, "_stac_stored_keys", stac_router.OrderedDict())
+        catalog = StacCatalog(
+            id="c", title="c", description="c", conformsTo=[], links=[]
+        )
+        for name in ("k1", "k2", "k3"):
+            await stac_router._anon_cache_put(f"stac:{name}", catalog)
+
+        assert list(stac_router._stac_stored_keys) == ["stac:k2", "stac:k3"]
+        assert await get_cache().get("stac:k1") is None
