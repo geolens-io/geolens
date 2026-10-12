@@ -1,9 +1,7 @@
 """PERF-02 and PERF-03 regression tests (Phase 274).
 
-PERF-02 — _bulk_fetch_dataset_metadata runs the two independent blocks
-          (STAC asset list + ST_AsGeoJSON extents) concurrently via
-          asyncio.gather, while the dependent raster-meta + VRT-source-count
-          path stays serialized.
+PERF-02 — _bulk_fetch_dataset_metadata runs every lookup on the caller's
+          session, and the raster-meta + VRT-source-count path stays ordered.
 PERF-03 — extract_metadata for spatial tables consolidates four data-table
           SELECTs (feature_count, srid, geometry_type, extent_wkt) into a
           single CTE-driven query so PostgreSQL does one shared scan and
@@ -58,19 +56,60 @@ def test_extract_metadata_non_spatial_skips_spatial_helpers():
 # --- PERF-02: _bulk_fetch_dataset_metadata parallelization ---------------
 
 
-def test_bulk_fetch_uses_asyncio_gather_or_documented_deferral():
-    """PERF-02: independent blocks run concurrently OR a documented
-    deferral comment explains why.
-    """
-    from app.modules.catalog.search.router import _bulk_fetch_dataset_metadata
+@pytest.mark.anyio
+async def test_bulk_fetch_uses_only_the_callers_session(monkeypatch):
+    """Search enrichment opens no session of its own beside the request's."""
+    import uuid
+    from types import SimpleNamespace
 
-    src = inspect.getsource(_bulk_fetch_dataset_metadata)
-    gather_used = "asyncio.gather" in src
-    marker = "PERF-02" in src
-    assert gather_used or marker, (
-        "PERF-02: _bulk_fetch_dataset_metadata must either use asyncio.gather "
-        "OR include a 'PERF-02' marker comment documenting the deferral."
+    import app.core.db as core_db
+    import app.modules.catalog.search.router as search_module
+
+    opened: list[object] = []
+    monkeypatch.setattr(
+        core_db, "async_session", lambda *a, **k: opened.append(1) or None
     )
+
+    class _Result:
+        def all(self):
+            return []
+
+    class _Session:
+        def __init__(self) -> None:
+            self.executed = 0
+
+        async def execute(self, _stmt):
+            self.executed += 1
+            return _Result()
+
+    asset_sessions: list[object] = []
+    raster_sessions: list[object] = []
+
+    async def _list_dataset_assets(session, _ids):
+        asset_sessions.append(session)
+        return []
+
+    async def _fetch_raster_meta_bulk(session, _ids):
+        raster_sessions.append(session)
+        return {}
+
+    port = SimpleNamespace(
+        list_dataset_assets=_list_dataset_assets,
+        fetch_raster_meta_bulk=_fetch_raster_meta_bulk,
+    )
+    monkeypatch.setattr(search_module, "get_catalog_port", lambda: port)
+
+    db = _Session()
+    datasets = [
+        SimpleNamespace(id=uuid.uuid4(), record=SimpleNamespace(record_type=kind))
+        for kind in ("vector_dataset", "raster_dataset")
+    ]
+    await search_module._bulk_fetch_dataset_metadata(db, datasets, None, set())
+
+    assert opened == []
+    assert asset_sessions == [db]
+    assert raster_sessions == [db]
+    assert db.executed == 1
 
 
 def test_bulk_fetch_dependent_path_stays_sequential():

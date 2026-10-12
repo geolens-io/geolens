@@ -1383,7 +1383,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Map endpoints share response assembly, visibility and ownership checks.
     "backend/app/modules/catalog/maps/router.py": 1537,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1452,
+    "backend/app/modules/catalog/search/router.py": 1404,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1826,
     # Authorization, acquisition order and cache rehydration share this route boundary;

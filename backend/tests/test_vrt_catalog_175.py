@@ -765,21 +765,7 @@ class TestSearchEnrichmentVrt:
     async def test_bulk_fetch_dataset_metadata_includes_raster_and_vrt_records(
         self, monkeypatch
     ):
-        """The search metadata helper requests raster metadata for raster and VRT rows.
-
-        After PERF-02 (Phase 274), blocks 1 (STAC assets) and 4 (extents) run
-        concurrently inside ``asyncio.gather`` against fresh short-lived
-        sessions opened from ``app.core.db.async_session``. Blocks 2 + 3
-        (raster_meta + VRT source_count) stay sequential against the
-        caller's ``db`` because block 3 mutates block 2's output in place.
-
-        This test only cares about the raster/VRT enrichment contract:
-        - ``seen_ids`` must include raster + VRT (not vector)
-        - ``raster_meta[vrt.id]['source_count']`` must be merged in
-
-        The inner sessions used by blocks 1 and 4 are mocked to be no-ops
-        so the test stays unit-level — no real DB.
-        """
+        """The search metadata helper requests raster metadata for raster and VRT rows."""
         import app.modules.catalog.search.router as search_module
 
         vector = _make_mock_dataset("vector_dataset", "Vector")
@@ -827,28 +813,6 @@ class TestSearchEnrichmentVrt:
         monkeypatch.setattr(
             search_module, "visible_vrt_source_counts", fake_visible_vrt_source_counts
         )
-
-        # PERF-02: stub out the inner-session factory used by blocks 1 + 4.
-        # Each inner block opens `async with async_session() as inner_db:`,
-        # so we need a lightweight async context manager that yields a
-        # session whose `execute(...)` returns empty results.
-        class _InnerSession:
-            async def execute(self, _stmt):
-                return FakeExecuteResult()
-
-        class _InnerSessionCtx:
-            async def __aenter__(self):
-                return _InnerSession()
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return False
-
-        def _fake_async_session(*args, **kwargs):
-            return _InnerSessionCtx()
-
-        import app.core.db as _db_module
-
-        monkeypatch.setattr(_db_module, "async_session", _fake_async_session)
 
         _, raster_meta, _ = await search_module._bulk_fetch_dataset_metadata(
             FakeSession(), [vector, raster, vrt], None, set()

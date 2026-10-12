@@ -1,6 +1,5 @@
 """Search and OGC API Records endpoints."""
 
-import asyncio
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -1328,88 +1327,41 @@ async def _bulk_fetch_dataset_metadata(
     """Bulk-fetch the three pre-render maps used by dataset_to_ogc_record.
 
     Needs materialized ``datasets`` (not just IDs) for
-    ``d.record.record_type``. PERF-02: STAC assets and GeoJSON extents run
-    concurrently on fresh sessions (AsyncSession isn't concurrency-safe);
-    raster meta + VRT source_count stay sequential, since the VRT step
-    mutates raster_meta in place. Per-block exceptions degrade to empty.
+    ``d.record.record_type``. Every lookup runs sequentially on ``db``: a
+    nested ``async_session()`` per lookup would take extra pool connections
+    while this request already holds one, and concurrent searches then wait
+    on each other until the pool timeout.
     """
     all_dataset_ids = [d.id for d in datasets]
 
-    async def _block_stac() -> dict[str, list[dict]]:
-        stac_assets: dict[str, list[dict]] = {}
-        if not all_dataset_ids:
-            return stac_assets
-        try:
-            from app.core.db import async_session
-
-            async with async_session() as inner_db:
-                for da in await get_catalog_port().list_dataset_assets(
-                    inner_db, all_dataset_ids
-                ):
-                    # fix(#1290): same boundary as the item endpoint above.
-                    if not is_public_asset_key(da.key):
-                        continue
-                    ds_key = str(da.dataset_id)
-                    stac_assets.setdefault(ds_key, []).append(
-                        {
-                            "key": da.key,
-                            "href": da.href,
-                            "media_type": da.media_type,
-                            "roles": da.roles,
-                            "title": da.title,
-                            "description": da.description,
-                        }
-                    )
-        except Exception:  # broad: bulk STAC asset fetch — degrade to empty so other enrichment can still run
-            logger.warning(
-                "search_bulk_fetch_stac_assets_failed",
-                dataset_count=len(all_dataset_ids),
-                exc_info=True,
+    stac_assets_by_dataset: dict[str, list[dict]] = {}
+    extent_geojson_map: dict[str, str | None] = {}
+    if all_dataset_ids:
+        for da in await get_catalog_port().list_dataset_assets(db, all_dataset_ids):
+            # fix(#1290): same boundary as the item endpoint above.
+            if not is_public_asset_key(da.key):
+                continue
+            stac_assets_by_dataset.setdefault(str(da.dataset_id), []).append(
+                {
+                    "key": da.key,
+                    "href": da.href,
+                    "media_type": da.media_type,
+                    "roles": da.roles,
+                    "title": da.title,
+                    "description": da.description,
+                }
             )
-            return {}
-        return stac_assets
-
-    async def _block_extents() -> dict[str, str | None]:
-        extents: dict[str, str | None] = {}
-        if not all_dataset_ids:
-            return extents
-        try:
-            from app.core.db import async_session
-
-            async with async_session() as inner_db:
-                geojson_stmt = (
-                    select(
-                        Dataset.id,
-                        func.ST_AsGeoJSON(Record.spatial_extent, 6).label("geojson"),
-                    )
-                    .join(Record, Dataset.record_id == Record.id)
-                    .where(Dataset.id.in_(all_dataset_ids))
-                )
-                for _row in (await inner_db.execute(geojson_stmt)).all():
-                    extents[str(_row.id)] = _row.geojson
-        except Exception:  # broad: bulk GeoJSON extent fetch — degrade to empty so search response still ships
-            logger.warning(
-                "search_bulk_fetch_geojson_extents_failed",
-                dataset_count=len(all_dataset_ids),
-                exc_info=True,
+        geojson_stmt = (
+            select(
+                Dataset.id,
+                func.ST_AsGeoJSON(Record.spatial_extent, 6).label("geojson"),
             )
-            return {}
-        return extents
+            .join(Record, Dataset.record_id == Record.id)
+            .where(Dataset.id.in_(all_dataset_ids))
+        )
+        for row in (await db.execute(geojson_stmt)).all():
+            extent_geojson_map[str(row.id)] = row.geojson
 
-    # return_exceptions=True keeps one block's failure from cancelling the
-    # other; non-dict results coerce back to empty dicts as the fallback.
-    stac_result, extent_result = await asyncio.gather(
-        _block_stac(), _block_extents(), return_exceptions=True
-    )
-    stac_assets_by_dataset: dict[str, list[dict]] = (
-        stac_result if isinstance(stac_result, dict) else {}
-    )
-    extent_geojson_map: dict[str, str | None] = (
-        extent_result if isinstance(extent_result, dict) else {}
-    )
-
-    # Order is load-bearing: VRT source_count mutates raster_meta in place,
-    # so they MUST stay serialized (reusing `db` now the gather is done).
     raster_meta: dict[str, dict] = {}
     raster_ids = [
         d.id
