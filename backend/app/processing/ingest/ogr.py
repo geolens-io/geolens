@@ -47,6 +47,7 @@ from app.core.service_tokens import (
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.egress_proxy import service_egress_proxy
+from app.platform.gdal_argv import is_option_like_layer_name
 from app.processing.ingest.arcgis_errors import (
     ARCGIS_ERROR_RESPONSE_RE,
     fetch_arcgis_error_detail,
@@ -488,7 +489,7 @@ def validate_layer_name_argv(layer_name: str) -> None:
     exec'd directly, never a shell). Called by every spawner in this module
     that forwards a layer name.
     """
-    if layer_name.startswith("-"):
+    if is_option_like_layer_name(layer_name):
         raise IngestionError(
             f"Invalid layer name {layer_name!r}: must not start with '-'"
         )

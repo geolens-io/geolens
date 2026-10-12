@@ -10,17 +10,16 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 
+from app.platform.gdal_argv import reject_option_like_layer_name
+
 if TYPE_CHECKING:
     from app.platform.jobs.models import IngestJob
 
-
-def reject_option_like_layer_name(layer_name: str | None) -> None:
-    """422 for layer names starting with '-' (argument-injection hygiene)."""
-    if isinstance(layer_name, str) and layer_name.startswith("-"):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Invalid layer_name: must not start with '-'",
-        )
+__all__ = [
+    "known_layer_names",
+    "reject_option_like_layer_name",
+    "validate_commit_layer_name",
+]
 
 
 def known_layer_names(job: "IngestJob") -> set[str]:

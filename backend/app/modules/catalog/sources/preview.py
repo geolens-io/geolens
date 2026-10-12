@@ -21,6 +21,7 @@ from app.core.service_tokens import (
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
 from app.platform.egress_proxy import service_egress_proxy
+from app.platform.gdal_argv import reject_option_like_layer_name
 from app.platform.gdal_env import gdal_service_safe_env
 from app.platform.service_auth import credential_input_rejection
 from app.core.config import settings
@@ -271,6 +272,7 @@ async def run_service_preview(
     Returns a dict with srid, geometry_type, layer_name, feature_count,
     columns, sample_rows.
     """
+    reject_option_like_layer_name(layer_name)
     empty_fallback: dict = {
         "srid": None,
         "geometry_type": None,
