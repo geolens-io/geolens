@@ -6,6 +6,7 @@ import uuid
 import pytest
 from httpx import AsyncClient, Response
 from limits import RateLimitItemPerMinute
+from sqlalchemy import func, select
 
 from app.modules.auth import router as auth_router
 from app.platform.ratelimit import FailureThrottle, limiter
@@ -31,7 +32,7 @@ def throttle(monkeypatch: pytest.MonkeyPatch):
 
 
 async def _username(client: AsyncClient, admin_auth_header: dict) -> str:
-    username = f"throttled_{uuid.uuid4().hex[:8]}"
+    username = f"limited_{uuid.uuid4().hex[:8]}"
     resp = await client.post(
         "/admin/users/",
         json={"username": username, "password": PASSWORD, "role": "viewer"},
@@ -67,6 +68,23 @@ async def test_failures_lock_the_username_and_successes_do_not(
     assert (await _login(client, username.upper(), PASSWORD)).status_code == 429
 
     assert (await _login(client, bystander, PASSWORD)).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_spellings_the_database_folds_together_share_a_budget(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, throttle
+):
+    """Two spellings of one account that only the database lower-cases alike spend one budget."""
+    folded = await test_db_session.scalar(select(func.lower("\u0130")))
+    if folded != "i" or "\u0130".lower() == "i":
+        pytest.skip("the test database does not fold dotted capital I to i")
+    username = await _username(client, admin_auth_header)
+    variant = username.replace("i", "\u0130", 1)
+    assert variant != username
+
+    assert (await _login(client, username, "wrong-password")).status_code == 401
+    assert (await _login(client, variant, "wrong-password")).status_code == 401
+    assert (await _login(client, username, PASSWORD)).status_code == 429
 
 
 @pytest.mark.anyio

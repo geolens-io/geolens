@@ -180,7 +180,9 @@ async def login(
         )
         await db.commit()
 
-    throttle_key = attempted_username.lower()
+    # Folded by the database, as the account lookup is, so every spelling that
+    # finds one account spends one budget.
+    throttle_key = await db.scalar(select(func.lower(attempted_username)))
     retry_after = _LOGIN_FAILURES.acquire(throttle_key)
     if retry_after is not None:
         await _audit_login_failure("too_many_failures", user_id=None)
