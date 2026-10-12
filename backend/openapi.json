@@ -21408,12 +21408,6 @@
         "security": [
           {
             "OAuth2PasswordBearer": []
-          },
-          {
-            "ApiKeyHeader": []
-          },
-          {
-            "ApiKeyQuery": []
           }
         ],
         "summary": "Create Api Key",
@@ -27038,12 +27032,6 @@
         "security": [
           {
             "OAuth2PasswordBearer": []
-          },
-          {
-            "ApiKeyHeader": []
-          },
-          {
-            "ApiKeyQuery": []
           }
         ],
         "summary": "Create My Api Key",

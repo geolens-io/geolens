@@ -95,15 +95,7 @@ export const listApiKeysAdminApiKeysGet = <ThrowOnError extends boolean = false>
  * Requires a signed-in session: a request that presents an API key gets 403.
  */
 export const createApiKeyAdminApiKeysPost = <ThrowOnError extends boolean = false>(options: Options<CreateApiKeyAdminApiKeysPostData, ThrowOnError>): RequestResult<CreateApiKeyAdminApiKeysPostResponses, CreateApiKeyAdminApiKeysPostErrors, ThrowOnError> => (options.client ?? client).post<CreateApiKeyAdminApiKeysPostResponses, CreateApiKeyAdminApiKeysPostErrors, ThrowOnError>({
-    security: [
-        { scheme: 'bearer', type: 'http' },
-        { name: 'X-Api-Key', type: 'apiKey' },
-        {
-            in: 'query',
-            name: 'api_key',
-            type: 'apiKey'
-        }
-    ],
+    security: [{ scheme: 'bearer', type: 'http' }],
     url: '/admin/api-keys/',
     ...options,
     headers: {
@@ -912,15 +904,7 @@ export const listMyApiKeysAuthApiKeysGet = <ThrowOnError extends boolean = false
  * Requires a signed-in session: a request that presents an API key gets 403.
  */
 export const createMyApiKeyAuthApiKeysPost = <ThrowOnError extends boolean = false>(options: Options<CreateMyApiKeyAuthApiKeysPostData, ThrowOnError>): RequestResult<CreateMyApiKeyAuthApiKeysPostResponses, CreateMyApiKeyAuthApiKeysPostErrors, ThrowOnError> => (options.client ?? client).post<CreateMyApiKeyAuthApiKeysPostResponses, CreateMyApiKeyAuthApiKeysPostErrors, ThrowOnError>({
-    security: [
-        { scheme: 'bearer', type: 'http' },
-        { name: 'X-Api-Key', type: 'apiKey' },
-        {
-            in: 'query',
-            name: 'api_key',
-            type: 'apiKey'
-        }
-    ],
+    security: [{ scheme: 'bearer', type: 'http' }],
     url: '/auth/api-keys/',
     ...options,
     headers: {

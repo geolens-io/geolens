@@ -315,6 +315,15 @@ async def test_no_api_key_can_create_an_api_key(client: AsyncClient):
     assert after == before
 
 
+def test_key_creation_publishes_bearer_auth_only():
+    """The contract for both key-creation routes offers no API-key scheme."""
+    from app.api.main import app
+
+    paths = app.openapi()["paths"]
+    for path in ("/auth/api-keys/", "/admin/api-keys/"):
+        assert paths[path]["post"]["security"] == [{"OAuth2PasswordBearer": []}]
+
+
 @pytest.mark.anyio
 async def test_key_predating_the_migration_resolves_as_full(
     client: AsyncClient, test_db_session

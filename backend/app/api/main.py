@@ -1234,6 +1234,7 @@ def _normalize_security_contract(schema: dict) -> None:
     from app.modules.auth.dependencies import (
         get_optional_user,
         get_optional_user_fail_open,
+        require_session_credential,
     )
 
     security_schemes = schema.setdefault("components", {}).setdefault(
@@ -1275,6 +1276,9 @@ def _normalize_security_contract(schema: dict) -> None:
         if not route.include_in_schema:
             continue
         optional_auth = _dependency_uses(route.dependant, optional_targets)
+        # These routes refuse an API key at runtime, so they publish bearer only.
+        bearer_only = _dependency_uses(route.dependant, {require_session_credential})
+        alternatives = credential_alternatives[: 1 if bearer_only else None]
         for method in route.methods or ():
             operation = _route_operation(schema, ctx, method)
             if operation is None:
@@ -1293,7 +1297,7 @@ def _normalize_security_contract(schema: dict) -> None:
                 )
             ]
             operation["security"] = (
-                ([{}] if optional_auth else []) + credential_alternatives + preserved
+                ([{}] if optional_auth else []) + alternatives + preserved
             )
 
 
