@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import release_connection
 from app.core.identity import Identity
 from app.platform.extensions import get_ai_provider
 from app.platform.sandbox import validate_and_execute  # re-exported (test patch target)
@@ -423,7 +424,7 @@ async def chat_edit_map(
                 tool=tool_name,
             )
             return {"error": "Tool not permitted for this map."}
-        return await _execute_chat_tool(
+        result = await _execute_chat_tool(
             tool_name,
             tool_input,
             session,
@@ -433,6 +434,8 @@ async def chat_edit_map(
             port=port,
             map_id=map_id,
         )
+        await release_connection(session)
+        return result
 
     def collect_allowed_action(
         tool_name: str, tool_input: dict, tool_result: dict
@@ -441,6 +444,7 @@ async def chat_edit_map(
             return None
         return _collect_chat_action(tool_name, tool_input, tool_result)
 
+    await release_connection(session)
     # fix(#1778): one accounting shape at every provider call site.
     # The tokens are spent the moment the provider answers, so any way out of
     # the loop must still bill the daily cap: an exhaustion, a later request

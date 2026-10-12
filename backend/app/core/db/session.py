@@ -1,4 +1,4 @@
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
@@ -41,6 +41,22 @@ async_session = async_sessionmaker(engine, expire_on_commit=False)
 from app.core.db.tenant_session import install_tenant_session_hook  # noqa: E402
 
 install_tenant_session_hook(engine)
+
+
+async def release_connection(session: AsyncSession) -> None:
+    """Return ``session``'s pooled connection before a long wait on something else.
+
+    Commits rather than rolls back so loaded ORM instances stay readable
+    (the factory does not expire on commit); the next statement checks a
+    connection out again. Holds on when the session has unflushed changes or
+    an open savepoint, since ending the transaction there would persist or
+    break work the caller has not finished.
+    """
+    if session.new or session.dirty or session.deleted:
+        return
+    if session.in_nested_transaction():
+        return
+    await session.commit()
 
 
 class Base(DeclarativeBase):

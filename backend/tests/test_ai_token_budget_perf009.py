@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import uuid as _uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -118,7 +119,7 @@ async def test_anthropic_loop_stops_when_token_budget_exceeded(monkeypatch):
     gen = streaming._stream_anthropic_chat(
         message="hello",
         system_prompt="sys",
-        session=SimpleNamespace(),  # only forwarded to patched-out callees
+        session=AsyncMock(),
         user=SimpleNamespace(id=_uuid.uuid4()),
         user_roles=set(),
         layers=[],
@@ -176,7 +177,7 @@ async def test_anthropic_loop_does_not_stop_below_budget(monkeypatch):
     gen = streaming._stream_anthropic_chat(
         message="hello",
         system_prompt="sys",
-        session=SimpleNamespace(),
+        session=AsyncMock(),
         user=SimpleNamespace(id=_uuid.uuid4()),
         user_roles=set(),
         layers=[],
@@ -220,7 +221,7 @@ async def test_chat_stream_records_usage_per_round(monkeypatch):
     gen = streaming._stream_anthropic_chat(
         message="hello",
         system_prompt="sys",
-        session=SimpleNamespace(),
+        session=AsyncMock(),
         user=SimpleNamespace(id=_uuid.uuid4()),
         user_roles=set(),
         layers=[],

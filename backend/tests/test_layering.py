@@ -1190,7 +1190,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 624,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
-        "backend/app/modules/catalog/search/service_semantic.py": 514,
+        "backend/app/modules/catalog/search/service_semantic.py": 516,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 665,
@@ -1391,8 +1391,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/tiles/router.py": 2724,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
-    # AI orchestration coordinates tool execution, usage accounting and SSE failures.
-    "backend/app/processing/ai/service.py": 992,
+    # AI orchestration coordinates tool execution, usage accounting, pool-connection
+    # release around provider calls and SSE failures.
+    "backend/app/processing/ai/service.py": 1000,
     # Record children share ownership, ordering and publication-version invariants.
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats share visibility, lineage, raster-asset presence and

@@ -37,6 +37,7 @@ from app.processing.ai.tools import (
 )
 from typing import TYPE_CHECKING
 
+from app.core.db import release_connection
 from app.core.geo import extent_to_bbox, merge_bboxes, wrap_longitude
 from app.core.identity import Identity
 from app.processing.ai.token_usage import (
@@ -403,6 +404,7 @@ async def _retry_parse_map_spec(
     # no-tools single-round retry case naturally.
     provider_ext = get_ai_provider(provider)
 
+    await release_connection(session)
     # Single-round calls count toward the round budget.
     async with usage_accounting(
         session, user_id=user_id, subsystem="map_generation", model=model
@@ -465,6 +467,7 @@ async def _repair_map_spec(
     )
     provider_ext = get_ai_provider(provider)
 
+    await release_connection(session)
     # Single-round calls count toward the round budget.
     async with usage_accounting(
         session, user_id=user_id, subsystem="map_generation", model=model
@@ -710,7 +713,7 @@ def _build_tool_executor(
 ) -> "Callable[[str, dict], Awaitable[dict]]":
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
         if tool_name == "search_datasets":
-            return {
+            result: dict = {
                 "results": await _execute_search_tool(
                     session,
                     user,
@@ -720,8 +723,8 @@ def _build_tool_executor(
                     port=port,
                 )
             }
-        if tool_name == "get_dataset_details":
-            return await _execute_get_dataset_details(
+        elif tool_name == "get_dataset_details":
+            result = await _execute_get_dataset_details(
                 session,
                 user,
                 user_roles,
@@ -729,7 +732,10 @@ def _build_tool_executor(
                 send_sample_values=send_sample_values,
                 port=port,
             )
-        return {"error": f"Unknown tool: {tool_name}"}
+        else:
+            result = {"error": f"Unknown tool: {tool_name}"}
+        await release_connection(session)
+        return result
 
     return tool_executor
 
@@ -756,6 +762,7 @@ async def generate_map_from_prompt(
     system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
     tool_executor = _build_tool_executor(session, user, user_roles, send_samples, port)
 
+    await release_connection(session)
     try:
         async with usage_accounting(
             session, user_id=user.id, subsystem="map_generation", model=model
@@ -881,6 +888,7 @@ async def stream_generate_map(
             )
             return result
 
+        await release_connection(session)
         # Without this, an exhaustion, a timeout or a client
         # disconnect (which cancels the task) bills the provider round but
         # never reaches catalog.ai_token_usage. Covers all three: timeout

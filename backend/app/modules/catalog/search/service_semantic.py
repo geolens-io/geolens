@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement, Label
 from sqlalchemy.sql.selectable import Select
 
+from app.core.db import release_connection
 from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -232,6 +233,7 @@ async def generate_embedding(
     if cached is not None:
         return cached
 
+    await release_connection(session)
     if not model_name or not dimensions:
         # fix(#1903): mirrors generate_embeddings_batch's own session-read
         # gate (processing/embeddings/service.py) exactly, since a shared

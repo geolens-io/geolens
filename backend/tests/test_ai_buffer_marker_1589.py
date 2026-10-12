@@ -29,6 +29,8 @@ What these tests hold down:
   safe.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 import sqlglot
 
@@ -647,7 +649,7 @@ async def test_generate_sql_expands_before_it_returns(monkeypatch):
     monkeypatch.setattr(sg, "LLM_MODEL_LIGHT", _Setting("test-model"))
     monkeypatch.setattr(sg, "get_ai_provider", lambda _name: _FakeProvider())
 
-    sql = await sg.generate_sql(None, "buffer the stations by 500 m", "-- ddl")
+    sql = await sg.generate_sql(AsyncMock(), "buffer the stations by 500 m", "-- ddl")
 
     assert "geolens_buffer" not in sql
     assert sql == (

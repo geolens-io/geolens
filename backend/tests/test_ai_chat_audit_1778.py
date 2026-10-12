@@ -20,6 +20,7 @@ import json
 import pathlib
 import uuid as _uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -285,7 +286,7 @@ class TestTokenUsageOnFailureExits:
         user = SimpleNamespace(id=_uuid.uuid4())
         with pytest.raises(ValueError):
             await ai_service.generate_map_from_prompt(
-                SimpleNamespace(), user, set(), "make a map", port=SimpleNamespace()
+                AsyncMock(), user, set(), "make a map", port=SimpleNamespace()
             )
         assert len(recorded.calls) == 1
         assert recorded.calls[0]["subsystem"] == "map_generation"
@@ -313,7 +314,7 @@ class TestTokenUsageOnFailureExits:
         user = SimpleNamespace(id=_uuid.uuid4())
         with pytest.raises(ToolLoopExhaustedError):
             await chat_service.chat_edit_map(
-                SimpleNamespace(),
+                AsyncMock(),
                 user,
                 set(),
                 "recolour the parks",
@@ -354,7 +355,7 @@ class TestTokenUsageOnFailureExits:
         events = [
             evt
             async for evt in ai_service.stream_generate_map(
-                SimpleNamespace(), user, set(), "make a map", port=SimpleNamespace()
+                AsyncMock(), user, set(), "make a map", port=SimpleNamespace()
             )
         ]
         assert [e["type"] for e in events] == ["error"]
@@ -640,7 +641,7 @@ class TestStreamGenerateMapErrorText:
         return [
             evt
             async for evt in ai_service.stream_generate_map(
-                SimpleNamespace(), user, set(), "prompt", port=SimpleNamespace()
+                AsyncMock(), user, set(), "prompt", port=SimpleNamespace()
             )
         ]
 

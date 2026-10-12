@@ -20,6 +20,7 @@ from app.processing.ai.metadata_schemas import (
     SummaryDraftResponse,
 )
 from app.core.config import settings
+from app.core.db import release_connection
 from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
 from app.platform.cache import tenant_cache_key
@@ -299,6 +300,8 @@ async def _generate_structured(
         if db is not None
         else llm_model_default(provider, light=True)
     )
+    if db is not None:
+        await release_connection(db)
     result, input_tokens, output_tokens = await provider_ext.structured_complete(
         model=model,
         system_prompt=system,

@@ -37,6 +37,7 @@ from app.processing.ai.token_usage import AITokenUsage, record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, select_chat_tools
 from typing import TYPE_CHECKING
 
+from app.core.db import release_connection
 from app.core.identity import Identity
 from app.platform.extensions import get_ai_provider
 
@@ -246,6 +247,7 @@ async def _stream_anthropic_chat(
         # itself is inherently unaccountable.)
         pending_tool_starts: list[dict] = []
 
+        await release_connection(session)
         # Claude 4.6+ models reject a non-default `temperature` with a 400;
         # omit it on the Anthropic path (steering is prompt-based there).
         async with client.messages.stream(
@@ -480,6 +482,7 @@ async def _stream_openai_chat(
             }
             for t in (CHAT_TOOLS_ANTHROPIC if tools is None else tools)
         ]
+        await release_connection(session)
         response_stream = await client.chat.completions.create(
             model=model,
             max_tokens=4096,

@@ -60,6 +60,7 @@ from app.platform.service_endpoints import MAX_QUERY_FIELDS
 from app.platform.storage.titiler_url import build_titiler_cog_url
 from app.processing.tiles import remote_sources
 from app.processing.raster.models import RasterAsset
+from app.core.db import release_connection
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
@@ -1896,8 +1897,7 @@ async def _cached_snapshot(
                     cooldown = claimed_at + _FORCED_REREAD_INTERVAL - now
         if claimed is not None:
             return await _lead_reread(snapshots, key, claimed, read, now)
-        if not (db.new or db.dirty or db.deleted):
-            await db.commit()
+        await release_connection(db)
         if reread is None:
             await asyncio.sleep(cooldown)
         else:

@@ -7,6 +7,7 @@ live on the demo: 'Field required' for name/layers).
 
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -59,7 +60,7 @@ async def _run_repair(fake, monkeypatch):
         "anthropic",
         "m",
         {},
-        session=None,
+        session=AsyncMock(),
         user_id=USER_ID,
     )
 
@@ -113,7 +114,7 @@ async def test_parse_retry_records_token_usage(monkeypatch, usage_records):
     monkeypatch.setattr(ai_service, "get_ai_provider", lambda name: fake)
 
     spec_dict = await ai_service._retry_parse_map_spec(
-        "garbled", "anthropic", "m", {}, session=None, user_id=USER_ID
+        "garbled", "anthropic", "m", {}, session=AsyncMock(), user_id=USER_ID
     )
 
     assert spec_dict["name"] == "Fixed"

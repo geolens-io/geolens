@@ -24,6 +24,7 @@ from app.processing.ai.token_usage import usage_accounting
 from app.processing.ai.llm_loop import noop_tool_executor
 from app.processing.ai.schemas import ChatMapLayer
 from app.processing.ai.token_usage import record_token_usage
+from app.core.db import release_connection
 from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -455,6 +456,7 @@ async def generate_sql(
     # OpenAI-shaped URL leaking into Anthropic-keyed providers.
     base_url = runtime_config.get("base_url")
 
+    await release_connection(db)
     # Single-round calls count toward the round budget.
     async with usage_accounting(db, user_id=user_id, subsystem="sql_gen", model=model):
         result = await provider_ext.complete(
