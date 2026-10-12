@@ -277,3 +277,32 @@ async def test_saved_searches_are_capped_per_user(
 
     listed = await client.get("/search/saved/", headers=headers)
     assert listed.json()["total"] == 2
+
+
+@pytest.mark.anyio
+async def test_concurrent_creates_respect_the_cap(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """New names saved at the same time still stop at the per-user cap."""
+    import asyncio
+
+    from app.modules.catalog.search import saved
+
+    monkeypatch.setattr(saved, "MAX_SAVED_SEARCHES_PER_USER", 2)
+    headers, _ = await _create_test_user(client, admin_auth_header, "viewer")
+    responses = await asyncio.gather(
+        *(
+            client.post(
+                "/search/saved/",
+                json={"name": f"Race {i}", "params": {}},
+                headers=headers,
+            )
+            for i in range(6)
+        )
+    )
+
+    assert sorted(r.status_code for r in responses) == [201, 201, 409, 409, 409, 409]
+    listed = await client.get("/search/saved/", headers=headers)
+    assert listed.json()["total"] == 2

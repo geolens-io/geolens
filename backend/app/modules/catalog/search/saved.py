@@ -3,7 +3,15 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, select, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Mapped, mapped_column
@@ -52,6 +60,12 @@ async def create_saved_search(
 
     Raises SavedSearchLimitError when a new name would exceed the per-user cap.
     """
+    # Serializes one user's creates so concurrent new names can't each pass
+    # the count below; held until the caller's transaction ends.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+        {"lock_key": f"saved_searches:{user_id}"},
+    )
     existing = await session.scalar(
         select(SavedSearch.id).where(
             SavedSearch.user_id == user_id, SavedSearch.name == name
