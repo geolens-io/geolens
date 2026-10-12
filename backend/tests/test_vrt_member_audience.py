@@ -568,3 +568,39 @@ async def test_a_vrt_quicklook_follows_the_tile_rule(
     resp = await client.get(f"/datasets/{vrt_id}/quicklook")
 
     assert resp.status_code == 409, resp.text
+
+
+async def test_a_transfer_checks_the_incoming_owners_vrts(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    import sqlalchemy as sa
+    from fastapi import HTTPException
+
+    from app.modules.catalog import authorization
+    from app.modules.catalog.datasets.domain.service import get_dataset
+    from app.platform.extensions import DefaultPermissionExtension, RecordAudience
+
+    _, editor_id = await _make_editor(client, admin_auth_header)
+    _, other_id = await _make_editor(client, admin_auth_header)
+    src = await _create_raster_dataset(
+        test_db_session, created_by=editor_id, visibility="internal"
+    )
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=other_id)
+    await _link_source(test_db_session, vrt_id, src, 0)
+
+    class _DeniesTheIncomingOwner(DefaultPermissionExtension):
+        async def record_audience(self, query, user_cls, *, grant_cls=None):
+            if query.dataset_id == src and query.owner_id == other_id:
+                return RecordAudience(users=sa.false(), includes_anonymous=False)
+            return await super().record_audience(query, user_cls, grant_cls=grant_cls)
+
+    monkeypatch.setattr(
+        authorization, "get_permission_extension", _DeniesTheIncomingOwner
+    )
+    dataset = await get_dataset(test_db_session, src)
+
+    with pytest.raises(HTTPException) as refused:
+        await authorization.check_vrt_audiences_after_change(
+            test_db_session, dataset, owner_id=other_id
+        )
+    assert refused.value.status_code == 422

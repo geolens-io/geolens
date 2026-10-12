@@ -832,8 +832,9 @@ async def check_vrt_audiences_after_change(
     one) would make a VRT reach past a member it doesn't reach past now.
 
     A VRT is compared with its members. A source is compared only on a
-    transfer, with the VRTs its previous owner owns, which stop sharing its
-    owner; other users' VRTs stop serving tiles instead of refusing a change.
+    transfer, with the VRTs its previous and incoming owners own, whose
+    shared-owner exemption the transfer moves; other users' VRTs stop serving
+    tiles instead of refusing a change.
     Only a newly exceeded member is refused, so a VRT can always narrow.
     """
     record = dataset.record
@@ -856,7 +857,7 @@ async def check_vrt_audiences_after_change(
         vrt_ids = (
             []
             if after.owner_id == before.owner_id
-            else await _owner_vrt_ids(db, dataset, before.owner_id)
+            else await _owner_vrt_ids(db, dataset, {before.owner_id, after.owner_id})
         )
         linked = await _record_audience_queries(db, vrt_ids)
         pairs = [((q, before), (q, after), t) for q, t in linked.values()]
@@ -878,10 +879,11 @@ async def check_vrt_audiences_after_change(
 
 
 async def _owner_vrt_ids(
-    db: AsyncSession, dataset: Any, owner_id: uuid.UUID | None
+    db: AsyncSession, dataset: Any, owner_ids: set[uuid.UUID | None]
 ) -> list[uuid.UUID]:
-    """VRTs linking ``dataset`` that ``owner_id`` owns."""
-    if owner_id is None:
+    """VRTs linking ``dataset`` that one of ``owner_ids`` owns."""
+    owners = owner_ids - {None}
+    if not owners:
         return []
 
     from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -892,6 +894,6 @@ async def _owner_vrt_ids(
         .join(Dataset, Dataset.id == links.c.vrt_dataset_id)
         .join(Record, Record.id == Dataset.record_id)
         .where(links.c.source_dataset_id == dataset.id)
-        .where(Record.created_by == owner_id)
+        .where(Record.created_by.in_(owners))
     )
     return list(rows.scalars())
