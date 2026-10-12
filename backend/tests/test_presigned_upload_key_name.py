@@ -69,6 +69,7 @@ async def test_a_filename_with_directories_is_keyed_on_its_basename(
     assert storage.signed[0].endswith(f"staging/{body['job_id']}/roads.geojson")
 
 
+@pytest.mark.parametrize("filename", ["roads\x00.geojson", "bad\n/roads.geojson"])
 @pytest.mark.parametrize("door", ["upload", "reupload"])
 async def test_a_filename_with_a_control_character_is_refused_before_any_job(
     client: AsyncClient,
@@ -76,6 +77,7 @@ async def test_a_filename_with_a_control_character_is_refused_before_any_job(
     test_db_session,
     storage: _SigningStorage,
     door: str,
+    filename: str,
 ) -> None:
     url = (
         "/ingest/upload/presigned"
@@ -86,7 +88,7 @@ async def test_a_filename_with_a_control_character_is_refused_before_any_job(
 
     resp = await client.post(
         url,
-        json={"filename": "roads\x00.geojson", "file_size": 10},
+        json={"filename": filename, "file_size": 10},
         headers=admin_auth_header,
     )
 

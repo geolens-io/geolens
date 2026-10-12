@@ -308,8 +308,8 @@ async def request_presigned_upload(
             detail="Presigned uploads only available in S3 mode",
         )
 
+    refuse_control_characters(request.filename)
     staged_name = safe_upload_basename(request.filename)
-    refuse_control_characters(staged_name)
     await _refuse_upload(db, request.filename, request.kind)
 
     # Reject files exceeding configured size limit at request time

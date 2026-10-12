@@ -1289,8 +1289,8 @@ async def request_presigned_reupload(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
+    refuse_control_characters(request.filename)
     staged_name = safe_upload_basename(request.filename)
-    refuse_control_characters(staged_name)
     _assert_compatible_record_type(dataset, request.filename)
 
     try:

@@ -199,13 +199,16 @@ def test_validate_icon_upload_drops_markup_outside_the_svg_namespaces():
     assert b'xlink:title="t"' in sanitized
 
 
-def test_validate_icon_upload_refuses_a_root_outside_svg():
+@pytest.mark.parametrize(
+    "content",
+    [
+        b'<h:html xmlns:h="http://www.w3.org/1999/xhtml"><svg/></h:html>',
+        b'<g xmlns="http://www.w3.org/2000/svg"><svg/></g>',
+    ],
+)
+def test_validate_icon_upload_refuses_a_root_that_is_not_svg(content: bytes):
     with pytest.raises(ValueError, match="invalid"):
-        validate_icon_upload(
-            "x.svg",
-            "image/svg+xml",
-            b'<h:html xmlns:h="http://www.w3.org/1999/xhtml"><svg/></h:html>',
-        )
+        validate_icon_upload("x.svg", "image/svg+xml", content)
 
 
 def test_validate_icon_upload_accepts_real_png_content():

@@ -208,7 +208,7 @@ def validate_icon_upload(
             root = fromstring(content)
         except Exception as exc:  # broad: lxml fromstring can throw varied parser errors on malformed SVG; map to ValueError
             raise ValueError("SVG icon content is invalid") from exc
-        if _namespace(root.tag) != _SVG_NAMESPACE and root.tag != "svg":
+        if root.tag not in (f"{{{_SVG_NAMESPACE}}}svg", "svg"):
             raise ValueError("SVG icon content is invalid")
         _drop_foreign_markup(root)
         sanitized = tostring(root, encoding="utf-8")
