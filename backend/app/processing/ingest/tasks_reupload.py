@@ -695,7 +695,7 @@ class _FileReupload:
     def _archive_name(self) -> str:
         # The job id makes the key this upload's alone, so an object already
         # there is its archive and never another version's.
-        from app.processing.ingest.service import safe_upload_basename
+        from app.platform.upload_filenames import safe_upload_basename
 
         return f"{self.job_id}_{safe_upload_basename(self.source_filename)}"
 

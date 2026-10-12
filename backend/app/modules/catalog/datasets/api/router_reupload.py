@@ -84,6 +84,10 @@ from app.platform.service_auth import (
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
+from app.platform.upload_filenames import (
+    refuse_control_characters,
+    safe_upload_basename,
+)
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
@@ -1285,6 +1289,8 @@ async def request_presigned_reupload(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
+    staged_name = safe_upload_basename(request.filename)
+    refuse_control_characters(staged_name)
     _assert_compatible_record_type(dataset, request.filename)
 
     try:
@@ -1341,7 +1347,7 @@ async def request_presigned_reupload(
     job_created_at = job.created_at
     job_metadata = job.user_metadata
     storage = get_storage()
-    s3_key = f"staging/{job_id}/{request.filename}"
+    s3_key = f"staging/{job_id}/{staged_name}"
     physical_s3_key = resolve_current_storage_key(s3_key)
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 

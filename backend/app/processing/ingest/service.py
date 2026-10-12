@@ -70,6 +70,7 @@ from app.platform.jobs.models import (
     commit_attempted_marker,
 )
 from app.platform.storage.titiler_url import resolve_current_storage_key
+from app.platform.upload_filenames import safe_upload_basename
 
 logger = structlog.get_logger(__name__)
 
@@ -295,17 +296,6 @@ async def record_preview_layers(
         .execution_options(synchronize_session=False)
     )
     await db.commit()
-
-
-def safe_upload_basename(filename: str | None) -> str:
-    """The filename stripped to a basename, which is the only form safe to key on.
-
-    fix(#1290): one consumer used to derive its key from the raw
-    filename. A name carrying path separators then split the derivation —
-    the logical URI kept the directory while the write basenamed it — so
-    cleanup tracked a key nobody had written. One policy, one function.
-    """
-    return Path(filename or "").name or "upload"
 
 
 async def save_upload_file(

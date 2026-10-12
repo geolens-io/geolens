@@ -15,16 +15,17 @@ from app.core.url_redaction import redact_url_credentials
 from app.modules.auth.dependencies import require_permission
 from app.modules.quota.service import check_upload_quota
 from app.platform.jobs import ledger
+from app.platform.upload_filenames import (
+    refuse_control_characters,
+    safe_upload_basename,
+)
 from app.processing.ingest.ogr import IngestionError
 from app.processing.ingest.router import (
     _get_allowed_extensions_safely,
     _reject_standalone_vrt,
 )
 from app.processing.ingest.schemas import UploadResponse, UrlUploadRequest
-from app.processing.ingest.service import (
-    safe_upload_basename,
-    validate_file_extension,
-)
+from app.processing.ingest.service import validate_file_extension
 from app.processing.ingest.pointcloud import require_pointcloud_file
 from app.processing.ingest.tileset import require_tileset_archive, tileset_job_metadata
 from app.processing.ingest.url_fetch import (
@@ -78,20 +79,9 @@ def _url_import_filename(body: UrlUploadRequest) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "invalid_import_url", "message": f"Invalid URL: {exc}"},
         ) from exc
-    # fix(#1708): NUL and other control characters survive percent-
-    # decoding ('/roads%00.geojson') or arrive verbatim in the override, and
-    # pass every suffix/allowlist check — the filesystem refuses them only at
-    # open(), which sits AFTER the running-commit, and the failed open's
-    # cleanup unlink then raised on the same invalid path. Refuse them here,
-    # before any job row exists.
-    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in filename):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "code": "filename_control_characters",
-                "message": "Filename contains control characters that are not allowed.",
-            },
-        )
+    # Control characters survive percent-decoding ('/roads%00.geojson'), so
+    # the decoded name is checked here, before any job row exists.
+    refuse_control_characters(filename)
     if not filename or not Path(filename).suffix:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

@@ -154,6 +154,10 @@ from app.platform.service_auth import (
     service_credential_from_request,
 )
 from app.platform.storage import get_storage
+from app.platform.upload_filenames import (
+    refuse_control_characters,
+    safe_upload_basename,
+)
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
@@ -304,6 +308,8 @@ async def request_presigned_upload(
             detail="Presigned uploads only available in S3 mode",
         )
 
+    staged_name = safe_upload_basename(request.filename)
+    refuse_control_characters(staged_name)
     await _refuse_upload(db, request.filename, request.kind)
 
     # Reject files exceeding configured size limit at request time
@@ -328,7 +334,7 @@ async def request_presigned_upload(
 
     job = await create_ingest_job(db, request.filename, "", user.id)
     storage = get_storage()
-    s3_key = f"staging/{job.id}/{request.filename}"
+    s3_key = f"staging/{job.id}/{staged_name}"
     physical_s3_key = resolve_current_storage_key(s3_key)
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
     # fix(#1235): gate only, return discarded — refuses a dead-lifetime job
