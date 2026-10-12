@@ -9346,7 +9346,7 @@ export type SavedSearchCreate = {
     /**
      * Params
      *
-     * Serialized SearchParams filters to replay
+     * Serialized SearchParams filters to replay, at most 64 KiB as JSON
      */
     params: {
         [key: string]: unknown;
@@ -27017,6 +27017,10 @@ export type CreateSavedSearchEndpointSearchSavedPostData = {
 };
 
 export type CreateSavedSearchEndpointSearchSavedPostErrors = {
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
     /**
      * Validation error
      */

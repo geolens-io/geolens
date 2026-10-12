@@ -12,7 +12,7 @@ T = TypeVar("T", bound="SavedSearchCreateParams")
 
 @_attrs_define
 class SavedSearchCreateParams:
-    """Serialized SearchParams filters to replay"""
+    """Serialized SearchParams filters to replay, at most 64 KiB as JSON"""
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 

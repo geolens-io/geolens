@@ -20,7 +20,7 @@ class SavedSearchCreate:
 
     Attributes:
         name (str):
-        params (SavedSearchCreateParams): Serialized SearchParams filters to replay
+        params (SavedSearchCreateParams): Serialized SearchParams filters to replay, at most 64 KiB as JSON
     """
 
     name: str

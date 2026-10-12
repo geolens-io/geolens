@@ -106,6 +106,7 @@ def sync_detailed(
      Create an API key for the current user.
 
     The raw key is returned only in this response and cannot be retrieved again.
+    Requires a signed-in session: a request that presents an API key gets 403.
 
     Args:
         body (ApiKeyCreateRequest):
@@ -139,6 +140,7 @@ def sync(
      Create an API key for the current user.
 
     The raw key is returned only in this response and cannot be retrieved again.
+    Requires a signed-in session: a request that presents an API key gets 403.
 
     Args:
         body (ApiKeyCreateRequest):
@@ -167,6 +169,7 @@ async def asyncio_detailed(
      Create an API key for the current user.
 
     The raw key is returned only in this response and cannot be retrieved again.
+    Requires a signed-in session: a request that presents an API key gets 403.
 
     Args:
         body (ApiKeyCreateRequest):
@@ -198,6 +201,7 @@ async def asyncio(
      Create an API key for the current user.
 
     The raw key is returned only in this response and cannot be retrieved again.
+    Requires a signed-in session: a request that presents an API key gets 403.
 
     Args:
         body (ApiKeyCreateRequest):

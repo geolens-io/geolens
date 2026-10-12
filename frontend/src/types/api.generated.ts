@@ -66,6 +66,7 @@ export interface paths {
          * @description Create an API key for a user (admin only).
          *
          *     The raw key is returned only in this response and cannot be retrieved again.
+         *     Requires a signed-in session: a request that presents an API key gets 403.
          */
         post: operations["create_api_key_admin_api_keys__post"];
         delete?: never;
@@ -759,9 +760,10 @@ export interface paths {
          *     Surfaces the column-DDL events to dataset owners so they can detect
          *     editor-initiated schema changes.
          *
-         *     Owners and administrators can read the feed. Other authenticated users
-         *     receive 404, including readers of a public dataset, because the entries
-         *     identify editors. Anonymous callers receive 401.
+         *     Owners and administrators can read the feed, because the entries identify
+         *     editors. Other authenticated users receive 403 for a dataset they can see,
+         *     such as a public one, and 404 for one they can't. Anonymous callers
+         *     receive 401.
          *
          *     The dataset 404-before-auth-query ordering ensures non-existent datasets
          *     return 404 without leaking audit log details.
@@ -793,6 +795,7 @@ export interface paths {
          * @description Create an API key for the current user.
          *
          *     The raw key is returned only in this response and cannot be retrieved again.
+         *     Requires a signed-in session: a request that presents an API key gets 403.
          */
         post: operations["create_my_api_key_auth_api_keys__post"];
         delete?: never;
@@ -12616,7 +12619,7 @@ export interface components {
             name: string;
             /**
              * Params
-             * @description Serialized SearchParams filters to replay
+             * @description Serialized SearchParams filters to replay, at most 64 KiB as JSON
              */
             params: {
                 [key: string]: unknown;
@@ -38444,6 +38447,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedSearchResponse"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Validation error */

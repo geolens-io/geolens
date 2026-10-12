@@ -16096,7 +16096,7 @@
           },
           "params": {
             "additionalProperties": true,
-            "description": "Serialized SearchParams filters to replay",
+            "description": "Serialized SearchParams filters to replay, at most 64 KiB as JSON",
             "title": "Params",
             "type": "object"
           }
@@ -21282,7 +21282,7 @@
         ]
       },
       "post": {
-        "description": "Create an API key for a user (admin only).\n\nThe raw key is returned only in this response and cannot be retrieved again.",
+        "description": "Create an API key for a user (admin only).\n\nThe raw key is returned only in this response and cannot be retrieved again.\nRequires a signed-in session: a request that presents an API key gets 403.",
         "operationId": "create_api_key_admin_api_keys__post",
         "requestBody": {
           "content": {
@@ -26597,7 +26597,7 @@
     },
     "/audit/datasets/{dataset_id}/column-ddl": {
       "get": {
-        "description": "Return the column-DDL audit history for a dataset.\n\nSurfaces the column-DDL events to dataset owners so they can detect\neditor-initiated schema changes.\n\nOwners and administrators can read the feed. Other authenticated users\nreceive 404, including readers of a public dataset, because the entries\nidentify editors. Anonymous callers receive 401.\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
+        "description": "Return the column-DDL audit history for a dataset.\n\nSurfaces the column-DDL events to dataset owners so they can detect\neditor-initiated schema changes.\n\nOwners and administrators can read the feed, because the entries identify\neditors. Other authenticated users receive 403 for a dataset they can see,\nsuch as a public one, and 404 for one they can't. Anonymous callers\nreceive 401.\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
         "operationId": "get_column_ddl_feed_audit_datasets__dataset_id__column_ddl_get",
         "parameters": [
           {
@@ -26922,7 +26922,7 @@
         ]
       },
       "post": {
-        "description": "Create an API key for the current user.\n\nThe raw key is returned only in this response and cannot be retrieved again.",
+        "description": "Create an API key for the current user.\n\nThe raw key is returned only in this response and cannot be retrieved again.\nRequires a signed-in session: a request that presents an API key gets 403.",
         "operationId": "create_my_api_key_auth_api_keys__post",
         "requestBody": {
           "content": {
@@ -56360,6 +56360,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
           },
           "422": {
             "content": {

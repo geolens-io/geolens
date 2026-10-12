@@ -128,9 +128,10 @@ def sync_detailed(
     Surfaces the column-DDL events to dataset owners so they can detect
     editor-initiated schema changes.
 
-    Owners and administrators can read the feed. Other authenticated users
-    receive 404, including readers of a public dataset, because the entries
-    identify editors. Anonymous callers receive 401.
+    Owners and administrators can read the feed, because the entries identify
+    editors. Other authenticated users receive 403 for a dataset they can see,
+    such as a public one, and 404 for one they can't. Anonymous callers
+    receive 401.
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
     return 404 without leaking audit log details.
@@ -178,9 +179,10 @@ def sync(
     Surfaces the column-DDL events to dataset owners so they can detect
     editor-initiated schema changes.
 
-    Owners and administrators can read the feed. Other authenticated users
-    receive 404, including readers of a public dataset, because the entries
-    identify editors. Anonymous callers receive 401.
+    Owners and administrators can read the feed, because the entries identify
+    editors. Other authenticated users receive 403 for a dataset they can see,
+    such as a public one, and 404 for one they can't. Anonymous callers
+    receive 401.
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
     return 404 without leaking audit log details.
@@ -223,9 +225,10 @@ async def asyncio_detailed(
     Surfaces the column-DDL events to dataset owners so they can detect
     editor-initiated schema changes.
 
-    Owners and administrators can read the feed. Other authenticated users
-    receive 404, including readers of a public dataset, because the entries
-    identify editors. Anonymous callers receive 401.
+    Owners and administrators can read the feed, because the entries identify
+    editors. Other authenticated users receive 403 for a dataset they can see,
+    such as a public one, and 404 for one they can't. Anonymous callers
+    receive 401.
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
     return 404 without leaking audit log details.
@@ -271,9 +274,10 @@ async def asyncio(
     Surfaces the column-DDL events to dataset owners so they can detect
     editor-initiated schema changes.
 
-    Owners and administrators can read the feed. Other authenticated users
-    receive 404, including readers of a public dataset, because the entries
-    identify editors. Anonymous callers receive 401.
+    Owners and administrators can read the feed, because the entries identify
+    editors. Other authenticated users receive 403 for a dataset they can see,
+    such as a public one, and 404 for one they can't. Anonymous callers
+    receive 401.
 
     The dataset 404-before-auth-query ordering ensures non-existent datasets
     return 404 without leaking audit log details.
