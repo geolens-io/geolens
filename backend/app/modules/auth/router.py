@@ -999,7 +999,7 @@ async def create_download_token_endpoint(
             username=user.username,  # type: ignore[attr-defined]
         )
         service = AuthService(db)
-        token = service.create_download_token(
+        token = await service.create_download_token(
             identity,
             dataset_id,
             tenant_id=download_tenant_id,

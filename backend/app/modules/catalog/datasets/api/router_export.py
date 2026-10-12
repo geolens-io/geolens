@@ -21,6 +21,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
+    download_token_is_current,
     get_optional_user,
 )
 from app.modules.auth.models import User
@@ -927,7 +928,9 @@ async def _resolve_download_user(
         # silently skipped and tokens with any or no audience are accepted.
         try:
             payload = jwt.decode(
-                qt, settings.jwt_secret_key.get_secret_value(), algorithms=["HS256"]
+                qt,
+                settings.jwt_secret_key.get_secret_value(),
+                algorithms=[settings.jwt_algorithm],
             )
         except jwt.PyJWTError:
             raise HTTPException(
@@ -990,9 +993,15 @@ async def _resolve_download_user(
             else:
                 result = await db.execute(select(User).where(User.id == user_uuid))
                 found = result.scalar_one_or_none()
-                if found and found.is_active and found.status == "active":
+                if (
+                    found
+                    and found.is_active
+                    and found.status == "active"
+                    and download_token_is_current(payload, found)
+                ):
                     return found
-            # Sub-bearing token whose user disappeared or is inactive — 401.
+            # Sub-bearing token whose user disappeared, is inactive, or has
+            # revoked their sessions since it was minted — 401.
             # This IS an invalid auth signal (a token was presented and its
             # sub claim does not resolve to a usable user), unlike the
             # no-token case below, so it stays a hard 401 rather than falling

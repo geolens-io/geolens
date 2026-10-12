@@ -38,7 +38,7 @@ async def test_create_download_token_has_typ_and_scope(test_db_session):
     dataset_id = uuid.uuid4()
     identity = AuthenticatedIdentity(user_id=user_id, username="alice")
     svc = AuthService(test_db_session)
-    token = svc.create_download_token(identity, dataset_id)
+    token = await svc.create_download_token(identity, dataset_id)
     payload = _decode(token)
     assert payload["typ"] == "download"
     assert payload["scope"] == f"dataset:{dataset_id}"
@@ -52,7 +52,9 @@ async def test_create_download_token_caps_ttl_at_120s(test_db_session):
     """expire_seconds > 120 is silently capped to 120."""
     identity = AuthenticatedIdentity(user_id=uuid.uuid4(), username="alice")
     svc = AuthService(test_db_session)
-    token = svc.create_download_token(identity, uuid.uuid4(), expire_seconds=99999)
+    token = await svc.create_download_token(
+        identity, uuid.uuid4(), expire_seconds=99999
+    )
     payload = _decode(token)
     assert payload["exp"] - payload["iat"] <= 120
 
@@ -83,7 +85,7 @@ async def test_download_token_for_wrong_dataset_rejected(
     svc = AuthService(test_db_session)
     dataset_a = uuid.uuid4()
     dataset_b = uuid.uuid4()
-    token = svc.create_download_token(identity, dataset_a)
+    token = await svc.create_download_token(identity, dataset_a)
     resp = await client.get(f"/datasets/{dataset_b}/download/cog?token={token}")
     assert resp.status_code == 401
     assert "scope" in resp.json()["detail"].lower()
@@ -138,10 +140,10 @@ async def test_multi_tenant_download_token_requires_and_emits_tenant(
     service = AuthService(test_db_session)
 
     with pytest.raises(ValueError, match="without a tenant id"):
-        service.create_download_token(identity, dataset_id)
+        await service.create_download_token(identity, dataset_id)
 
     payload = _decode(
-        service.create_download_token(identity, dataset_id, tenant_id=tenant_id)
+        await service.create_download_token(identity, dataset_id, tenant_id=tenant_id)
     )
     assert payload["tid"] == str(tenant_id)
 
@@ -154,7 +156,7 @@ async def test_multi_tenant_download_token_rejects_wrong_host(
     dataset_id = uuid.uuid4()
     tenant_a = uuid.uuid4()
     tenant_b = uuid.uuid4()
-    token = AuthService(test_db_session).create_download_token(
+    token = await AuthService(test_db_session).create_download_token(
         AuthenticatedIdentity(user_id=uuid.uuid4(), username="alice"),
         dataset_id,
         tenant_id=tenant_a,

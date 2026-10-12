@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.identity import Identity
 from app.core.tenancy import is_multi_tenant
+from app.modules.auth.dependencies import DOWNLOAD_TOKEN_VERSION_CLAIM
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.providers.local import hash_password_async
@@ -105,7 +106,7 @@ class AuthService:
             algorithm=settings.jwt_algorithm,
         )
 
-    def create_download_token(
+    async def create_download_token(
         self,
         identity: AuthenticatedIdentity,
         dataset_id: uuid.UUID,
@@ -120,13 +121,20 @@ class AuthService:
         ``typ='download'``, a dataset-scoped ``scope``, and a <=2-minute TTL
         bound the damage if the URL is exposed; the session JWT keeps working
         via the Authorization header. ``expire_seconds`` is silently capped
-        at 120, never raised.
+        at 120, never raised. The user's current ``token_version`` is stamped
+        so a sign-out or password change revokes the token too.
         """
         ttl = min(expire_seconds, 120)
         now = datetime.now(UTC)
+        token_version = (
+            await self.db.execute(
+                select(User.token_version).where(User.id == identity.user_id)
+            )
+        ).scalar_one_or_none()
         payload = {
             "sub": str(identity.user_id),
             "username": identity.username,
+            DOWNLOAD_TOKEN_VERSION_CLAIM: token_version,
             "typ": "download",
             "scope": f"dataset:{dataset_id}",
             "exp": now + timedelta(seconds=ttl),

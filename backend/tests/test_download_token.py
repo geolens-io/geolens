@@ -486,3 +486,73 @@ class TestDownloadTokenConsumption:
             f"Wrong-scope anonymous token must 401 — got {resp.status_code}: {resp.text}"
         )
         assert "scope" in resp.json()["detail"].lower()
+
+
+class TestDownloadTokenRevocation:
+    """A user-bound download token follows its user's session revocations."""
+
+    async def _mint(self, client, admin_auth_header, test_db_session):
+        result = await test_db_session.execute(
+            select(User).where(User.username == settings.geolens_admin_username)
+        )
+        admin = result.scalar_one()
+        _, dataset, _ = await _create_local_raster_dataset(
+            test_db_session, created_by=admin.id, visibility="public"
+        )
+        headers, user_id = await _create_test_user(client, admin_auth_header, "editor")
+        mint = await client.post(f"/auth/download-token/{dataset.id}", headers=headers)
+        assert mint.status_code == 200, mint.text
+        return dataset, uuid.UUID(user_id), mint.json()["token"]
+
+    async def test_revoking_sessions_revokes_an_outstanding_download_token(
+        self, client: AsyncClient, admin_auth_header, test_db_session
+    ):
+        """After a sign-out everywhere, a download token minted earlier gets 401."""
+        from app.modules.auth.service import AuthService
+
+        dataset, user_id, token = await self._mint(
+            client, admin_auth_header, test_db_session
+        )
+        url = f"/datasets/{dataset.id}/download/cog?token={token}"
+        before = await client.get(url, follow_redirects=False)
+        assert before.status_code not in (401, 403), before.text
+
+        await AuthService(test_db_session).revoke_all_tokens(user_id)
+
+        after = await client.get(url, follow_redirects=False)
+        assert after.status_code == 401, after.text
+
+    async def test_a_token_without_the_version_claim_is_refused(
+        self, client: AsyncClient, admin_auth_header, test_db_session
+    ):
+        """A user-bound download token minted without the version claim gets 401."""
+        dataset, user_id, _ = await self._mint(
+            client, admin_auth_header, test_db_session
+        )
+        now = datetime.now(UTC)
+        legacy = jwt.encode(
+            {
+                "sub": str(user_id),
+                "typ": "download",
+                "scope": f"dataset:{dataset.id}",
+                "exp": now + timedelta(seconds=60),
+                "iat": now,
+            },
+            settings.jwt_secret_key.get_secret_value(),
+            algorithm=settings.jwt_algorithm,
+        )
+        resp = await client.get(
+            f"/datasets/{dataset.id}/download/cog?token={legacy}",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 401, resp.text
+
+    async def test_a_download_token_is_not_a_session_token(
+        self, client: AsyncClient, admin_auth_header, test_db_session
+    ):
+        """A download token presented as a bearer token is refused."""
+        _, _, token = await self._mint(client, admin_auth_header, test_db_session)
+        resp = await client.get(
+            "/auth/me/", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert resp.status_code == 401, resp.text
