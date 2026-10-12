@@ -181,7 +181,7 @@ async def login(
         await db.commit()
 
     throttle_key = attempted_username.lower()
-    retry_after = _LOGIN_FAILURES.retry_after(throttle_key)
+    retry_after = _LOGIN_FAILURES.acquire(throttle_key)
     if retry_after is not None:
         await _audit_login_failure("too_many_failures", user_id=None)
         raise HTTPException(
@@ -196,7 +196,6 @@ async def login(
             username=form_data.username, password=form_data.password
         )
     except AuthenticationError:
-        _LOGIN_FAILURES.record_failure(throttle_key)
         # user_id stays None: LocalAuthProvider deliberately doesn't disclose
         # whether the username exists (both branches raise identically, a
         # timing-attack guard), and the audit row must not either.
@@ -206,6 +205,7 @@ async def login(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    _LOGIN_FAILURES.release(throttle_key)
 
     # Check user status before issuing token
     result = await db.execute(select(User).where(User.id == identity.user_id))

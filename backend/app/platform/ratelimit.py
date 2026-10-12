@@ -181,29 +181,37 @@ limiter = _FallbackAnnouncingLimiter(
 class FailureThrottle:
     """A per-key budget that only failed attempts spend.
 
-    Unlike a route limit, a success costs nothing, so the key's owner isn't
-    throttled by their own successful requests. It shares the limiter's store
-    and its switch: ``limiter.enabled = False`` turns it off too.
+    Each attempt reserves a unit before it runs and gives it back once it
+    succeeds, so concurrent attempts can't all pass a check made before any of
+    them failed. It shares the limiter's store and its switch:
+    ``limiter.enabled = False`` turns it off too.
     """
 
     def __init__(self, namespace: str, limit: RateLimitItem) -> None:
         self._namespace = namespace
         self._limit = limit
 
-    def retry_after(self, key: str) -> int | None:
-        """Seconds until ``key`` may try again, or None while it has budget left."""
+    def acquire(self, key: str) -> int | None:
+        """Reserve a unit for ``key``; None on success, else seconds to wait."""
         if not limiter.enabled:
             return None
-        if self._call(lambda store: store.test(self._limit, self._namespace, key)):
+        if self._call(lambda store: store.hit(self._limit, self._namespace, key)):
             return None
         reset_at, _ = self._call(
             lambda store: store.get_window_stats(self._limit, self._namespace, key)
         )
         return max(1, math.ceil(reset_at - time.time()))
 
-    def record_failure(self, key: str) -> None:
+    def release(self, key: str) -> None:
+        """Return the unit ``acquire`` reserved, for an attempt that succeeded."""
         if limiter.enabled:
-            self._call(lambda store: store.hit(self._limit, self._namespace, key))
+            self._call(
+                lambda store: store.storage.incr(
+                    self._limit.key_for(self._namespace, key),
+                    self._limit.get_expiry(),
+                    amount=-1,
+                )
+            )
 
     def _call(self, operation: Callable[[RateLimiter], _T]) -> _T:
         try:

@@ -1,5 +1,6 @@
 """Failed sign-ins are throttled per username; successful ones never count."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -68,6 +69,19 @@ async def test_failures_lock_the_username_and_successes_do_not(
     assert (await _login(client, bystander, PASSWORD)).status_code == 200
 
 
+@pytest.mark.anyio
+async def test_concurrent_failures_cannot_overrun_the_budget(
+    client: AsyncClient, throttle
+):
+    """Wrong-password attempts sent at once still get only the budget's two tries."""
+    username = f"absent_{uuid.uuid4().hex[:8]}"
+    responses = await asyncio.gather(
+        *(_login(client, username, "wrong-password") for _ in range(6))
+    )
+    statuses = sorted(resp.status_code for resp in responses)
+    assert statuses == [401, 401, 429, 429, 429, 429]
+
+
 def test_an_unreachable_store_falls_back_to_counting_in_memory(throttle):
     """A store error moves the count to the in-memory fallback instead of failing the request."""
 
@@ -82,10 +96,9 @@ def test_an_unreachable_store_falls_back_to_counting_in_memory(throttle):
     limiter._limiter = Unreachable()
     try:
         key = uuid.uuid4().hex
-        assert throttle.retry_after(key) is None
-        throttle.record_failure(key)
-        throttle.record_failure(key)
-        assert throttle.retry_after(key) is not None
+        assert throttle.acquire(key) is None
+        assert throttle.acquire(key) is None
+        assert throttle.acquire(key) is not None
     finally:
         limiter._limiter = real
         limiter._storage_dead = False
