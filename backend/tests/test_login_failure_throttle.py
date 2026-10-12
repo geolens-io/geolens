@@ -100,14 +100,35 @@ async def test_concurrent_failures_cannot_overrun_the_budget(
     assert statuses == [401, 401, 429, 429, 429, 429]
 
 
-def test_a_refund_never_leaves_extra_tries(throttle):
-    """Releasing a unit the current window never reserved doesn't raise the budget."""
+def _tries_left(throttle, key: str) -> int:
+    tries = 0
+    while throttle.acquire(key).retry_after is None:
+        tries += 1
+    return tries
+
+
+def test_a_refund_after_the_window_ends_leaves_no_extra_tries(throttle):
+    """A release whose window has already ended doesn't raise the next window's budget."""
     key = uuid.uuid4().hex
-    throttle.release(key)
-    throttle.release(key)
-    assert throttle.acquire(key) is None
-    assert throttle.acquire(key) is None
-    assert throttle.acquire(key) is not None
+    reservation = throttle.acquire(key)
+    limiter.limiter.storage.clear(throttle._limit.key_for(throttle._namespace, key))
+
+    reservation.release()
+
+    assert _tries_left(throttle, key) == 2
+
+
+def test_a_refund_goes_to_the_store_that_took_the_unit(throttle):
+    """A release after the limiter switched stores refunds the store that reserved the unit."""
+    key = uuid.uuid4().hex
+    reservation = throttle.acquire(key)
+    limiter._storage_dead = True
+    try:
+        reservation.release()
+    finally:
+        limiter._storage_dead = False
+
+    assert _tries_left(throttle, key) == 2
 
 
 def test_an_unreachable_store_falls_back_to_counting_in_memory(throttle):
@@ -123,10 +144,7 @@ def test_an_unreachable_store_falls_back_to_counting_in_memory(throttle):
     real = limiter._limiter
     limiter._limiter = Unreachable()
     try:
-        key = uuid.uuid4().hex
-        assert throttle.acquire(key) is None
-        assert throttle.acquire(key) is None
-        assert throttle.acquire(key) is not None
+        assert _tries_left(throttle, uuid.uuid4().hex) == 2
     finally:
         limiter._limiter = real
         limiter._storage_dead = False

@@ -26,6 +26,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import cache
 from typing import Any, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -178,6 +179,23 @@ limiter = _FallbackAnnouncingLimiter(
 )
 
 
+@dataclass(frozen=True)
+class Reservation:
+    """One attempt's claim on a ``FailureThrottle`` budget.
+
+    ``retry_after`` is None when the attempt may go ahead, else the seconds
+    until the budget's window ends.
+    """
+
+    retry_after: int | None
+    _refund: Callable[[], None] | None = None
+
+    def release(self) -> None:
+        """Give the unit back, for an attempt that succeeded."""
+        if self._refund is not None:
+            self._refund()
+
+
 class FailureThrottle:
     """A per-key budget that only failed attempts spend.
 
@@ -191,35 +209,38 @@ class FailureThrottle:
         self._namespace = namespace
         self._limit = limit
 
-    def acquire(self, key: str) -> int | None:
-        """Reserve a unit for ``key``; None on success, else seconds to wait."""
+    def acquire(self, key: str) -> Reservation:
+        """Reserve a unit of ``key``'s budget."""
         if not limiter.enabled:
-            return None
-        if self._call(lambda store: store.hit(self._limit, self._namespace, key)):
-            return None
-        reset_at, _ = self._call(
+            return Reservation(None)
+        reserved, store = self._call(
+            lambda store: store.hit(self._limit, self._namespace, key)
+        )
+        if reserved:
+            return Reservation(None, lambda: self._refund(store, key))
+        (reset_at, _), _ = self._call(
             lambda store: store.get_window_stats(self._limit, self._namespace, key)
         )
-        return max(1, math.ceil(reset_at - time.time()))
-
-    def release(self, key: str) -> None:
-        """Return the unit ``acquire`` reserved, for an attempt that succeeded."""
-        if limiter.enabled:
-            self._call(lambda store: self._refund(store, key))
+        return Reservation(max(1, math.ceil(reset_at - time.time())))
 
     def _refund(self, store: RateLimiter, key: str) -> None:
         bucket = self._limit.key_for(self._namespace, key)
         expiry = self._limit.get_expiry()
-        # The window may have expired, or the store changed, since the unit was
-        # reserved; a count below zero would hand the next window extra tries.
-        if store.storage.incr(bucket, expiry, amount=-1) < 0:
-            store.storage.incr(bucket, expiry, amount=1)
-
-    def _call(self, operation: Callable[[RateLimiter], _T]) -> _T:
         try:
-            return operation(limiter.limiter)
+            # The window may have expired since the unit was reserved; a count
+            # below zero would hand the next window extra tries.
+            if store.storage.incr(bucket, expiry, amount=-1) < 0:
+                store.storage.incr(bucket, expiry, amount=1)
+        except Exception:  # broad: the store that took the unit is gone; losing one refund only spends one try
+            pass
+
+    def _call(self, operation: Callable[[RateLimiter], _T]) -> tuple[_T, RateLimiter]:
+        store = limiter.limiter
+        try:
+            return operation(store), store
         except Exception:  # broad: an unreachable store degrades to per-worker counting, as route limits do
             if limiter._storage_dead:
                 raise
             limiter._storage_dead = True
-            return operation(limiter.limiter)
+            store = limiter.limiter
+            return operation(store), store

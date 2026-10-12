@@ -184,13 +184,13 @@ async def login(
     # Folded by the database, as the account lookup is, so every spelling that
     # finds one account spends one budget.
     throttle_key = await db.scalar(select(func.lower(attempted_username)))
-    retry_after = _LOGIN_FAILURES.acquire(throttle_key)
-    if retry_after is not None:
+    reservation = _LOGIN_FAILURES.acquire(throttle_key)
+    if reservation.retry_after is not None:
         await _audit_login_failure("too_many_failures", user_id=None)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed sign-in attempts; try again later",
-            headers={"Retry-After": str(retry_after)},
+            headers={"Retry-After": str(reservation.retry_after)},
         )
 
     provider = LocalAuthProvider(db)
@@ -208,7 +208,7 @@ async def login(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    _LOGIN_FAILURES.release(throttle_key)
+    reservation.release()
 
     # Check user status before issuing token
     result = await db.execute(select(User).where(User.id == identity.user_id))
