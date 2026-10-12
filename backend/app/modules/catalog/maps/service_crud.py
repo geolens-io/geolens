@@ -658,7 +658,8 @@ async def duplicate_map(
     new_map = Map(
         name=fork_name,
         description=source.description,
-        notes=source.notes,
+        # Notes are private to the source's owner, so only the owner's fork keeps them.
+        notes=source.notes if source.created_by == user.id else None,
         center_lng=source.center_lng,
         center_lat=source.center_lat,
         zoom=source.zoom,

@@ -181,7 +181,9 @@ async def create_map_endpoint(
     )
     await db.commit()
     await db.refresh(map_obj)
-    return _build_map_response(map_obj, [], created_by_username=user.username)
+    return _build_map_response(
+        map_obj, [], created_by_username=user.username, include_notes=True
+    )
 
 
 # Dual-shape decorator, see POST /maps above.
@@ -362,6 +364,7 @@ async def import_map_style_endpoint(
             layers,
             forked_from_name=forked_name,
             created_by_username=owner_username,
+            include_notes=True,
         ),
         summary=imported.summary,
     )
@@ -398,6 +401,7 @@ async def get_map_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
+        include_notes=await _can_edit_map(map_obj, user, db),
         terrain_dataset_ids=await terrain_dataset_ids_visible_to(
             db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
         ),
@@ -661,6 +665,7 @@ async def update_map_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
+        include_notes=True,
     )
 
 
@@ -835,6 +840,7 @@ async def patch_map_layers_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
+        include_notes=True,
     )
 
 
@@ -930,6 +936,7 @@ async def duplicate_map_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
+        include_notes=True,
     )
     return DuplicateMapResponse(
         **base_resp.model_dump(),

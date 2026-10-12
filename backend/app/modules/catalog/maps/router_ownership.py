@@ -71,4 +71,5 @@ async def patch_map_endpoint(
         _layers_from_tuples(layer_tuples),
         forked_from_name=forked_name,
         created_by_username=owner_username,
+        include_notes=True,
     )
