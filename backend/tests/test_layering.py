@@ -1266,8 +1266,8 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router_assets.py": 161,
     "backend/app/modules/catalog/maps/router_sharing.py": 435,
     "backend/app/modules/catalog/search/query_params.py": 205,
-    "backend/app/modules/catalog/search/router_saved.py": 97,
-    "backend/app/modules/admin/router_operations.py": 323,
+    "backend/app/modules/catalog/search/router_saved.py": 104,
+    "backend/app/modules/admin/router_operations.py": 330,
     "backend/app/modules/settings/router_public.py": 175,
 }
 
@@ -1381,7 +1381,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1439,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1537,
+    "backend/app/modules/catalog/maps/router.py": 1544,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1404,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
@@ -1398,7 +1398,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1547,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1556,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 559,
