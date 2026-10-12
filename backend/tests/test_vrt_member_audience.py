@@ -604,3 +604,29 @@ async def test_a_transfer_checks_the_incoming_owners_vrts(
             test_db_session, dataset, owner_id=other_id
         )
     assert refused.value.status_code == 422
+
+
+async def test_deleting_an_owner_rolls_their_vrt_publication_version(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    _, editor_id = await _make_editor(client, admin_auth_header)
+    src = await _create_raster_dataset(test_db_session, created_by=editor_id)
+    vrt_id = await _create_vrt_dataset(
+        test_db_session, created_by=editor_id, visibility="public"
+    )
+    await _link_source(test_db_session, vrt_id, src, 0)
+
+    async def _version() -> int:
+        return (
+            await test_db_session.execute(
+                text("SELECT publication_version FROM catalog.datasets WHERE id = :id"),
+                {"id": vrt_id},
+            )
+        ).scalar_one() or 0
+
+    before = await _version()
+    resp = await client.delete(f"/admin/users/{editor_id}", headers=admin_auth_header)
+    test_db_session.expire_all()
+
+    assert resp.status_code == 204, resp.text
+    assert await _version() > before

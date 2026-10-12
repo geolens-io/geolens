@@ -20,6 +20,7 @@ from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password_async
 from app.modules.auth.service import AuthService
 from app.core.text import escape_ilike
+from app.platform.catalog_locks import bump_publication_versions_for_owner
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -764,6 +765,7 @@ class AdminService:
 
         username = user.username
 
+        await bump_publication_versions_for_owner(self.db, user_id)
         # Delete related records that have CASCADE or need explicit cleanup
         await self.db.execute(delete(UserRole).where(UserRole.user_id == user_id))
         await self.db.execute(delete(ApiKey).where(ApiKey.user_id == user_id))

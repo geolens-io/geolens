@@ -342,6 +342,33 @@ async def bump_publication_version_on(
     return version
 
 
+async def bump_publication_versions_for_owner(
+    session: AsyncSession, owner_id: uuid.UUID
+) -> None:
+    """Roll ``publication_version`` on every dataset ``owner_id`` owns and on
+    every VRT linking one, before the owner is deleted.
+
+    Deleting the owner clears ``created_by`` through the foreign key, which
+    moves who may read those datasets without passing
+    :func:`bump_publication_version_on`.
+    """
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets d "
+            "SET publication_version = coalesce(d.publication_version, 0) + 1 "
+            "WHERE d.id IN ("
+            "SELECT owned.id FROM catalog.datasets owned "
+            "JOIN catalog.records r ON r.id = owned.record_id "
+            "WHERE r.created_by = :owner_id "
+            "UNION SELECT vsl.vrt_dataset_id FROM catalog.vrt_source_links vsl "
+            "JOIN catalog.datasets s ON s.id = vsl.source_dataset_id "
+            "JOIN catalog.records sr ON sr.id = s.record_id "
+            "WHERE sr.created_by = :owner_id)"
+        ),
+        {"owner_id": owner_id},
+    )
+
+
 async def bump_tile_cache_version_on(session: AsyncSession, dataset: Any) -> int | None:
     """:func:`bump_tile_cache_version_atomic` for a loaded ``Dataset`` instance.
 
