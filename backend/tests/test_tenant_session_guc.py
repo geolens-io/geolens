@@ -507,6 +507,100 @@ class TestResolveTenantUuid:
             assert await _resolve_tenant_uuid("acme") is None
 
 
+def _registry(rows: dict[str, uuid.UUID]) -> tuple[MagicMock, list[str]]:
+    """An async_session stand-in answering slug lookups from ``rows``."""
+    lookups: list[str] = []
+
+    async def _scalar(_statement, params):
+        lookups.append(params["slug"])
+        return rows.get(params["slug"])
+
+    session = MagicMock()
+    session.scalar = _scalar
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=session)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return MagicMock(return_value=cm), lookups
+
+
+class TestTenantHostCache:
+    """Host resolutions are reused for a short TTL; misses are never cached."""
+
+    @pytest.mark.asyncio
+    async def test_repeat_host_is_answered_without_a_lookup(self):
+        import app.core.db as core_db
+        from app.api.middleware.tenant_context import _resolve_tenant_uuid
+
+        target = uuid.uuid4()
+        factory, lookups = _registry({"acme": target})
+        with patch.object(core_db, "async_session", factory):
+            assert await _resolve_tenant_uuid("acme") == str(target)
+            assert await _resolve_tenant_uuid("acme") == str(target)
+        assert lookups == ["acme"]
+
+    @pytest.mark.asyncio
+    async def test_deleted_tenant_stops_resolving_after_the_ttl(self, monkeypatch):
+        import app.core.db as core_db
+        from app.api.middleware import tenant_context
+
+        clock = [1000.0]
+        monkeypatch.setattr(tenant_context.time, "monotonic", lambda: clock[0])
+        rows = {"acme": uuid.uuid4()}
+        factory, lookups = _registry(rows)
+        with patch.object(core_db, "async_session", factory):
+            assert await tenant_context._resolve_tenant_uuid("acme") is not None
+            del rows["acme"]
+            clock[0] += tenant_context._TENANT_HOST_CACHE_TTL_SECONDS
+            assert await tenant_context._resolve_tenant_uuid("acme") is None
+        assert lookups == ["acme", "acme"]
+
+    @pytest.mark.asyncio
+    async def test_reregistered_slug_resolves_to_the_new_tenant_after_the_ttl(
+        self, monkeypatch
+    ):
+        import app.core.db as core_db
+        from app.api.middleware import tenant_context
+
+        clock = [1000.0]
+        monkeypatch.setattr(tenant_context.time, "monotonic", lambda: clock[0])
+        old, new = uuid.uuid4(), uuid.uuid4()
+        rows = {"acme": old}
+        factory, _ = _registry(rows)
+        with patch.object(core_db, "async_session", factory):
+            assert await tenant_context._resolve_tenant_uuid("acme") == str(old)
+            rows["acme"] = new
+            clock[0] += tenant_context._TENANT_HOST_CACHE_TTL_SECONDS
+            assert await tenant_context._resolve_tenant_uuid("acme") == str(new)
+
+    @pytest.mark.asyncio
+    async def test_unknown_host_is_looked_up_every_time(self):
+        import app.core.db as core_db
+        from app.api.middleware.tenant_context import _resolve_tenant_uuid
+
+        rows: dict[str, uuid.UUID] = {}
+        factory, lookups = _registry(rows)
+        with patch.object(core_db, "async_session", factory):
+            assert await _resolve_tenant_uuid("acme") is None
+            rows["acme"] = uuid.uuid4()
+            assert await _resolve_tenant_uuid("acme") == str(rows["acme"])
+        assert lookups == ["acme", "acme"]
+
+    @pytest.mark.asyncio
+    async def test_cache_is_bounded(self, monkeypatch):
+        import app.core.db as core_db
+        from app.api.middleware import tenant_context
+
+        monkeypatch.setattr(tenant_context, "_TENANT_HOST_CACHE_MAX_ENTRIES", 2)
+        factory, lookups = _registry(
+            {slug: uuid.uuid4() for slug in ("a1", "b2", "c3")}
+        )
+        with patch.object(core_db, "async_session", factory):
+            for slug in ("a1", "b2", "c3", "a1"):
+                await tenant_context._resolve_tenant_uuid(slug)
+        assert lookups == ["a1", "b2", "c3", "a1"]
+        assert len(tenant_context._tenant_host_cache) == 2
+
+
 class TestVerifiedJwtTenantClaim:
     """JWT fallback may scope RLS only from a verified GeoLens access token."""
 

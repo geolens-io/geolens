@@ -20,7 +20,9 @@ never a slug.
 from __future__ import annotations
 
 import re
+import time
 import uuid
+from collections import OrderedDict
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
@@ -161,6 +163,38 @@ def _extract_jwt_tenant_claim(authorization: str) -> str | None:
         return None
 
 
+# Only hits are cached, so a new tenant resolves at once. A hit can outlive a
+# deleted tenant by the TTL but still names only that tenant: ids are never
+# reused, and no code path changes a live tenant's slug.
+_TENANT_HOST_CACHE_TTL_SECONDS = 30.0
+_TENANT_HOST_CACHE_MAX_ENTRIES = 1024
+_tenant_host_cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
+
+
+def _tenant_host_cache_get(tenant_signal: str) -> str | None:
+    entry = _tenant_host_cache.get(tenant_signal)
+    if entry is None:
+        return None
+    resolved_at, tenant_id = entry
+    if time.monotonic() - resolved_at >= _TENANT_HOST_CACHE_TTL_SECONDS:
+        del _tenant_host_cache[tenant_signal]
+        return None
+    _tenant_host_cache.move_to_end(tenant_signal)
+    return tenant_id
+
+
+def _tenant_host_cache_put(tenant_signal: str, tenant_id: str) -> None:
+    _tenant_host_cache[tenant_signal] = (time.monotonic(), tenant_id)
+    _tenant_host_cache.move_to_end(tenant_signal)
+    while len(_tenant_host_cache) > _TENANT_HOST_CACHE_MAX_ENTRIES:
+        _tenant_host_cache.popitem(last=False)
+
+
+def _tenant_host_cache_clear() -> None:
+    """Clear the host-resolution cache (test-helper)."""
+    _tenant_host_cache.clear()
+
+
 async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
     """Resolve an untrusted Host signal against the tenant registry.
 
@@ -177,6 +211,9 @@ async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
     """
     if tenant_signal is None:
         return None
+    cached = _tenant_host_cache_get(tenant_signal)
+    if cached is not None:
+        return cached
 
     tenant_uuid: uuid.UUID | None = None
     try:
@@ -201,7 +238,6 @@ async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
                     text("SELECT id FROM catalog.tenants WHERE slug = :slug"),
                     {"slug": tenant_signal},
                 )
-        return str(resolved) if resolved is not None else None
     except Exception:  # broad: a resolution failure must not 500 the request
         logger.warning(
             "tenant Host resolution failed; running request unscoped",
@@ -209,6 +245,10 @@ async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
             exc_info=True,
         )
         return None
+    if resolved is None:
+        return None
+    _tenant_host_cache_put(tenant_signal, str(resolved))
+    return str(resolved)
 
 
 class TenantContextMiddleware(BaseHTTPMiddleware):

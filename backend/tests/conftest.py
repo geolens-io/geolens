@@ -620,6 +620,16 @@ def _reset_credential_registry():
 
 
 @pytest.fixture(autouse=True)
+def _clear_tenant_host_cache():
+    """Start every test with no cached tenant Host resolutions."""
+    from app.api.middleware.tenant_context import _tenant_host_cache_clear
+
+    _tenant_host_cache_clear()
+    yield
+    _tenant_host_cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _enable_dataset_editing(monkeypatch):
     """Turn on the `enable_dataset_editing` flag for the whole suite.
 
