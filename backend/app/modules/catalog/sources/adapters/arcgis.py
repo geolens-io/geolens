@@ -77,6 +77,11 @@ ARCGIS_ID_PLAN_MAX_IDS = 100_000
 ARCGIS_ID_FETCH_CHUNK_SIZE = 1_000
 _ARCGIS_OID_MAX = (1 << 63) - 1
 
+# The remote service decides how many layers it lists, so the probe counts
+# only the first few and stops waiting at one deadline for all of them.
+_COUNTED_LAYER_LIMIT = 100
+_COUNT_ENRICHMENT_DEADLINE = DEFAULT_CHECK_TIMEOUT
+
 
 class ArcGISIDPlanError(ValueError):
     """The source cannot support a bounded, exact ArcGIS OID plan."""
@@ -107,6 +112,18 @@ class ArcGISTokenError(Exception):
     def __init__(self, code: int, message: str):
         self.code = code
         super().__init__(f"ArcGIS token error ({code}): {message}")
+
+
+def _arcgis_error_parts(error_info: object) -> tuple[int, str]:
+    """The code and message of an ArcGIS error envelope, whatever its shape."""
+    if not isinstance(error_info, dict):
+        error_info = {}
+    code = error_info.get("code")
+    message = error_info.get("message")
+    return (
+        code if isinstance(code, int) else 0,
+        message if isinstance(message, str) else "Unknown ArcGIS error",
+    )
 
 
 _ESRI_GEOM_TYPE_MAP = {
@@ -509,9 +526,7 @@ async def _probe_arcgis_service_within_deadline(
 
     # ArcGIS reports refusals as HTTP 200 with an error envelope.
     if "error" in data:
-        error_info = data["error"]
-        code = error_info.get("code", 0)
-        message = error_info.get("message", "Unknown ArcGIS error")
+        code, message = _arcgis_error_parts(data["error"])
         logger.warning(
             "ArcGIS error response: url=%s code=%s message=%s", base_url, code, message
         )
@@ -553,9 +568,12 @@ async def enrich_arcgis_feature_counts(
 ) -> list[dict]:
     """Enrich ArcGIS layers with feature counts.
 
-    Fetches returnCountOnly=true for each layer via
-    ``build_arcgis_count_query_url``, concurrency-limited by
-    ``asyncio.Semaphore(5)``. A failure keeps feature_count=None.
+    Fetches returnCountOnly=true for each of the first
+    ``_COUNTED_LAYER_LIMIT`` layers via ``build_arcgis_count_query_url``,
+    concurrency-limited by ``asyncio.Semaphore(5)``, within one
+    ``_COUNT_ENRICHMENT_DEADLINE`` for the whole set. A failure, a layer past
+    the limit, or a count still pending at the deadline keeps
+    feature_count=None.
 
     fix(#1770): bounded manually (``bounded_probe_read`` under
     ``DEFAULT_CHECK_TIMEOUT``) because ``assert_endpoints_stay_on_origin``
@@ -589,7 +607,10 @@ async def enrich_arcgis_feature_counts(
                     return {**layer, "feature_count": None}
                 if "error" in data:
                     return {**layer, "feature_count": None}
-                return {**layer, "feature_count": data.get("count")}
+                count = data.get("count")
+                if isinstance(count, bool) or not isinstance(count, int):
+                    count = None
+                return {**layer, "feature_count": count}
             except (
                 httpx.HTTPStatusError,
                 httpx.TransportError,
@@ -608,8 +629,22 @@ async def enrich_arcgis_feature_counts(
                 # `probe_arcgis_service`).
                 return {**layer, "feature_count": None}
 
-    enriched = await asyncio.gather(*[_fetch_count(layer) for layer in layers])
-    return list(enriched)
+    counted = layers[:_COUNTED_LAYER_LIMIT]
+    tasks = [asyncio.create_task(_fetch_count(layer)) for layer in counted]
+    try:
+        if tasks:
+            await asyncio.wait(tasks, timeout=_COUNT_ENRICHMENT_DEADLINE)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    enriched = [
+        {**layer, "feature_count": None} if task.cancelled() else task.result()
+        for task, layer in zip(tasks, counted, strict=True)
+    ]
+    return enriched + [
+        {**layer, "feature_count": None} for layer in layers[_COUNTED_LAYER_LIMIT:]
+    ]
 
 
 def build_arcgis_count_query_url(layer_url: str, query_token: str | None = None) -> str:
@@ -685,10 +720,9 @@ def _parse_arcgis_id_plan(
         raise ArcGISIDPlanError("ArcGIS object-ID response is not an object")
     error = data.get("error")
     if isinstance(error, dict):
-        code = error.get("code")
-        message = error.get("message", "Unknown ArcGIS error")
+        code, message = _arcgis_error_parts(error)
         if code in _ARCGIS_TOKEN_ERROR_CODES:
-            raise ArcGISTokenError(code, str(message))
+            raise ArcGISTokenError(code, message)
         raise ArcGISIDPlanError("ArcGIS object-ID query was rejected")
     if data.get("exceededTransferLimit") is True:
         raise ArcGISIDPlanError("ArcGIS object-ID response was truncated")
@@ -796,9 +830,7 @@ async def fetch_arcgis_feature_count(
     if not isinstance(data, dict):
         return None
     if "error" in data:
-        error_info = data["error"]
-        code = error_info.get("code", 0)
-        message = error_info.get("message", "Unknown ArcGIS error")
+        code, message = _arcgis_error_parts(data["error"])
         if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
         return None
@@ -861,9 +893,7 @@ async def fetch_arcgis_pagination_info(
         return None, False, fallback_order_field
 
     if "error" in data:
-        error_info = data["error"]
-        code = error_info.get("code", 0)
-        message = error_info.get("message", "Unknown ArcGIS error")
+        code, message = _arcgis_error_parts(data["error"])
         if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
         return None, False, fallback_order_field
@@ -930,9 +960,7 @@ async def fetch_arcgis_layer_preview(
         raise ValueError("ArcGIS layer metadata is not an object")
 
     if "error" in meta:
-        error_info = meta["error"]
-        code = error_info.get("code", 0)
-        message = error_info.get("message", "Unknown ArcGIS error")
+        code, message = _arcgis_error_parts(meta["error"])
         if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
         raise ValueError(f"ArcGIS layer metadata error ({code}): {message}")

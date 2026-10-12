@@ -61,33 +61,37 @@ def arcgis_probe_layers(
     """Layer and table entries of a service root, with ArcGIS type and parent.
 
     Root layer lists usually omit objectIdField, and a guessed name makes the
-    server reject the query; the worker reads the layer's own JSON.
+    server reject the query; the worker reads the layer's own JSON. Entries
+    without a usable id and name are skipped, and a field of the wrong type
+    reads as absent.
     """
     layers = []
-    for layer in data.get("layers", []):
+    for layer in _well_formed_entries(data.get("layers")):
         parent = layer.get("parentLayerId")
-        arcgis_type = layer.get("type")
         layers.append(
             {
                 "id": layer["id"],
                 "name": layer["name"],
-                "title": layer.get("title"),
-                "geometry_type": normalize_geometry(layer.get("geometryType")),
+                "title": _str_or_none(layer.get("title")),
+                "geometry_type": normalize_geometry(
+                    _str_or_none(layer.get("geometryType"))
+                ),
                 "type": "layer",
-                "arcgis_type": arcgis_type if isinstance(arcgis_type, str) else None,
+                "arcgis_type": _str_or_none(layer.get("type")),
                 "importable": is_importable_arcgis_layer(layer),
                 "parent_layer_id": parent
                 if isinstance(parent, int) and parent >= 0
                 else None,
-                "object_id_field": layer.get("objectIdField") or service_oid,
+                "object_id_field": _str_or_none(layer.get("objectIdField"))
+                or _str_or_none(service_oid),
             }
         )
-    for table in data.get("tables", []):
+    for table in _well_formed_entries(data.get("tables")):
         layers.append(
             {
                 "id": table["id"],
                 "name": table["name"],
-                "title": table.get("title"),
+                "title": _str_or_none(table.get("title")),
                 "geometry_type": None,
                 "type": "table",
                 "arcgis_type": "Table",
@@ -96,3 +100,21 @@ def arcgis_probe_layers(
             }
         )
     return layers
+
+
+def _well_formed_entries(entries: object) -> list[dict]:
+    if not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and isinstance(entry.get("id"), int | str)
+        and not isinstance(entry.get("id"), bool)
+        and isinstance(entry.get("name"), str)
+        and entry["name"]
+    ]
+
+
+def _str_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
