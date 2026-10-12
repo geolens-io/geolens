@@ -23,18 +23,12 @@ pre-#2018 behaviour, rather than to no limit or a 500 per request.
 
 from __future__ import annotations
 
-import math
-import time
-from collections.abc import Callable
-from dataclasses import dataclass
 from functools import cache
-from typing import Any, TypeVar
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
 from fastapi import Request
-from limits import RateLimitItem
-from limits.strategies import RateLimiter
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -42,8 +36,6 @@ from app.core.config import settings
 from app.core.persistent_config import get_cached_global_rate_limit
 
 logger = structlog.stdlib.get_logger(__name__)
-
-_T = TypeVar("_T")
 
 # fix(#2018): the storage decision is made while this module is imported,
 # which `app/api/main.py` does before it calls `setup_logging`. Logging there
@@ -177,70 +169,3 @@ limiter = _FallbackAnnouncingLimiter(
     },
     in_memory_fallback_enabled=True,
 )
-
-
-@dataclass(frozen=True)
-class Reservation:
-    """One attempt's claim on a ``FailureThrottle`` budget.
-
-    ``retry_after`` is None when the attempt may go ahead, else the seconds
-    until the budget's window ends.
-    """
-
-    retry_after: int | None
-    _refund: Callable[[], None] | None = None
-
-    def release(self) -> None:
-        """Give the unit back, for an attempt that succeeded."""
-        if self._refund is not None:
-            self._refund()
-
-
-class FailureThrottle:
-    """A per-key budget that only failed attempts spend.
-
-    Each attempt reserves a unit before it runs and gives it back once it
-    succeeds, so concurrent attempts can't all pass a check made before any of
-    them failed. It shares the limiter's store and its switch:
-    ``limiter.enabled = False`` turns it off too.
-    """
-
-    def __init__(self, namespace: str, limit: RateLimitItem) -> None:
-        self._namespace = namespace
-        self._limit = limit
-
-    def acquire(self, key: str) -> Reservation:
-        """Reserve a unit of ``key``'s budget."""
-        if not limiter.enabled:
-            return Reservation(None)
-        reserved, store = self._call(
-            lambda store: store.hit(self._limit, self._namespace, key)
-        )
-        if reserved:
-            return Reservation(None, lambda: self._refund(store, key))
-        (reset_at, _), _ = self._call(
-            lambda store: store.get_window_stats(self._limit, self._namespace, key)
-        )
-        return Reservation(max(1, math.ceil(reset_at - time.time())))
-
-    def _refund(self, store: RateLimiter, key: str) -> None:
-        bucket = self._limit.key_for(self._namespace, key)
-        expiry = self._limit.get_expiry()
-        try:
-            # The window may have expired since the unit was reserved; a count
-            # below zero would hand the next window extra tries.
-            if store.storage.incr(bucket, expiry, amount=-1) < 0:
-                store.storage.incr(bucket, expiry, amount=1)
-        except Exception:  # broad: the store that took the unit is gone; losing one refund only spends one try
-            pass
-
-    def _call(self, operation: Callable[[RateLimiter], _T]) -> tuple[_T, RateLimiter]:
-        store = limiter.limiter
-        try:
-            return operation(store), store
-        except Exception:  # broad: an unreachable store degrades to per-worker counting, as route limits do
-            if limiter._storage_dead:
-                raise
-            limiter._storage_dead = True
-            store = limiter.limiter
-            return operation(store), store

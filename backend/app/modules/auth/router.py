@@ -14,7 +14,6 @@ from fastapi import (
     status,
 )
 from fastapi.security import OAuth2PasswordRequestForm
-from limits import RateLimitItemPerMinute
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,7 +78,7 @@ from app.core.persistent_config import (
     get_cached_login_rate_limit,
 )
 from app.modules.auth.domain_policy import enforce_email_domain_gate
-from app.platform.ratelimit import FailureThrottle, limiter
+from app.platform.ratelimit import limiter
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
@@ -87,13 +86,6 @@ router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH
 
 def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
-
-
-# Failed sign-ins per username from every address combined. Anyone can spend an
-# account's budget, so the window is short and fixed: a lockout lasts at most 15
-# minutes. A fixed window, unlike a moving one, lets a success refund its
-# reservation; the cost is up to twice the budget across one window boundary.
-_LOGIN_FAILURES = FailureThrottle("login-failures", RateLimitItemPerMinute(10, 15))
 
 
 # fix(#1496): the browser cookie flow is negotiated via two request headers
@@ -181,18 +173,6 @@ async def login(
         )
         await db.commit()
 
-    # Folded by the database, as the account lookup is, so every spelling that
-    # finds one account spends one budget.
-    throttle_key = await db.scalar(select(func.lower(attempted_username)))
-    reservation = _LOGIN_FAILURES.acquire(throttle_key)
-    if reservation.retry_after is not None:
-        await _audit_login_failure("too_many_failures", user_id=None)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many failed sign-in attempts; try again later",
-            headers={"Retry-After": str(reservation.retry_after)},
-        )
-
     provider = LocalAuthProvider(db)
     try:
         identity = await provider.authenticate(
@@ -208,7 +188,6 @@ async def login(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    reservation.release()
 
     # Check user status before issuing token
     result = await db.execute(select(User).where(User.id == identity.user_id))
