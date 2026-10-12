@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Search, Plus, Loader2 } from 'lucide-react';
@@ -24,6 +24,14 @@ export function CollectionMembershipManager({
   const addDatasets = useAddDatasetsToCollection();
   const { data: datasetsData } = useCollectionDatasets(collectionId, 0, 200);
   const currentDatasetIds = datasetsData?.datasets.map((d) => d.id) ?? [];
+  // Once the membership list shows an added dataset it covers it, so a later
+  // removal makes the dataset addable again.
+  useEffect(() => {
+    setAddedIds((prev) => {
+      const next = prev.filter((id) => !currentDatasetIds.includes(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [datasetsData]); // eslint-disable-line react-hooks/exhaustive-deps -- currentDatasetIds derives from datasetsData
   const {
     data: searchData,
     isFetching: searching,
