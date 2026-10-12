@@ -179,6 +179,35 @@ def test_validate_icon_upload_accepts_svg_and_rejects_scripts():
         validate_icon_upload("x.svg", "image/svg+xml", b"<svg><script /></svg>")
 
 
+def test_validate_icon_upload_drops_markup_outside_the_svg_namespaces():
+    _, _, sanitized = validate_icon_upload(
+        "x.svg",
+        "image/svg+xml",
+        b'<svg xmlns="http://www.w3.org/2000/svg" '
+        b'xmlns:h="http://www.w3.org/1999/xhtml" '
+        b'xmlns:x="http://www.w3.org/1999/xlink" '
+        b'xmlns:i="http://www.inkscape.org/namespaces/inkscape">'
+        b"<h:script>alert(1)</h:script>"
+        b'<path d="M0 0L1 1" h:onclick="x" i:label="a" x:title="t"/>'
+        b"</svg>",
+    )
+
+    assert b"script" not in sanitized
+    assert b"onclick" not in sanitized
+    assert b"inkscape" not in sanitized
+    assert b'd="M0 0L1 1"' in sanitized
+    assert b'xlink:title="t"' in sanitized
+
+
+def test_validate_icon_upload_refuses_a_root_outside_svg():
+    with pytest.raises(ValueError, match="invalid"):
+        validate_icon_upload(
+            "x.svg",
+            "image/svg+xml",
+            b'<h:html xmlns:h="http://www.w3.org/1999/xhtml"><svg/></h:html>',
+        )
+
+
 def test_validate_icon_upload_accepts_real_png_content():
     slug, media_type, sanitized = validate_icon_upload(
         "marker.png",

@@ -34,10 +34,24 @@ from app.modules.catalog.maps.service import MapAssetPublication
 from app.modules.catalog.maps.schemas import MapIconResponse
 from app.platform.storage import get_storage
 
+_SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 # Register the SVG namespace as the empty prefix so
 # re-serialized SVGs emit `<svg xmlns="...">`, keeping the
 # active-content denylist matching `<script` after round-trip.
-_stdlib_ET.register_namespace("", "http://www.w3.org/2000/svg")
+_stdlib_ET.register_namespace("", _SVG_NAMESPACE)
+_XLINK_NAMESPACE = "http://www.w3.org/1999/xlink"
+_stdlib_ET.register_namespace("xlink", _XLINK_NAMESPACE)
+# Markup in any other namespace is dropped before the denylist runs: a prefix
+# would hide it from the byte match, and dropping rather than refusing keeps
+# editor exports with inert metadata namespaces uploadable.
+_ICON_ELEMENT_NAMESPACES = frozenset({None, _SVG_NAMESPACE})
+_ICON_ATTRIBUTE_NAMESPACES = frozenset(
+    {
+        None,
+        _XLINK_NAMESPACE,
+        "http://www.w3.org/XML/1998/namespace",
+    }
+)
 
 MAX_ICON_BYTES = 512 * 1024
 # fix(#1428): compressed size says nothing about decoded size. Two caps:
@@ -194,6 +208,9 @@ def validate_icon_upload(
             root = fromstring(content)
         except Exception as exc:  # broad: lxml fromstring can throw varied parser errors on malformed SVG; map to ValueError
             raise ValueError("SVG icon content is invalid") from exc
+        if _namespace(root.tag) != _SVG_NAMESPACE and root.tag != "svg":
+            raise ValueError("SVG icon content is invalid")
+        _drop_foreign_markup(root)
         sanitized = tostring(root, encoding="utf-8")
 
         lower = sanitized.lower()
@@ -207,6 +224,30 @@ def validate_icon_upload(
         # downstream callers persist the canonical form, not the raw upload
         content = sanitized
     return slugify_icon_name(filename or "icon"), media_type, content
+
+
+def _namespace(name: object) -> str | None:
+    if not isinstance(name, str) or not name.startswith("{"):
+        return None
+    return name[1:].partition("}")[0]
+
+
+def _drop_foreign_markup(root: Element) -> None:
+    """Remove elements and attributes outside the namespaces an icon may use."""
+    pending = [root]
+    while pending:
+        element = pending.pop()
+        for child in list(element):
+            if (
+                isinstance(child.tag, str)
+                and _namespace(child.tag) in _ICON_ELEMENT_NAMESPACES
+            ):
+                pending.append(child)
+            else:
+                element.remove(child)
+        for name in list(element.attrib):
+            if _namespace(name) not in _ICON_ATTRIBUTE_NAMESPACES:
+                del element.attrib[name]
 
 
 def icon_url(icon_id: str) -> str:
