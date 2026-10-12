@@ -40,6 +40,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
     check_public_visibility_allowed,
+    check_vrt_serves,
     get_user_roles,
     visible_lineage_summary,
 )
@@ -261,6 +262,9 @@ async def get_quicklook(
 
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
+    # A VRT quicklook is drawn from its members' pixels, so it follows the tile rule.
+    await check_vrt_serves(db, dataset)
+
     record_type = getattr(dataset.record, "record_type", None)
 
     if record_type in RASTER_FAMILY_RECORD_TYPES:
@@ -326,9 +330,9 @@ async def get_quicklook(
     record = dataset.record
     if not is_publicly_cacheable(record.visibility, record.record_status):
         headers = {"Cache-Control": "private, no-store"}
-    elif record_type == "vector_dataset":
-        # A replacement redraws the image under the same URL, so a cache
-        # revalidates every use against a tag of the bytes.
+    elif record_type in ("vector_dataset", "vrt_dataset"):
+        # A vector replacement redraws the image under the same URL, and a VRT
+        # stops serving when a member narrows, so a cache revalidates every use.
         etag = '"' + hashlib.sha256(data).hexdigest() + '"'
         headers = {"Cache-Control": "public, no-cache", "ETag": etag}
         if if_none_match_matches(request.headers.get("if-none-match"), etag):

@@ -793,6 +793,21 @@ async def check_vrt_within_member_audience(
         )
 
 
+async def check_vrt_serves(db: AsyncSession, dataset: Any) -> None:
+    """Raise 409 for a VRT that reaches past one of its members, the answer its
+    tiles give; any other dataset passes."""
+    if dataset.record.record_type != "vrt_dataset":
+        return
+    member_ids = await vrt_member_ids(db, dataset.id)
+    if await vrt_members_beyond_audience(
+        db, member_ids, dataset_audience_query(dataset)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A source of this mosaic is not visible to everyone who can see it",
+        )
+
+
 async def check_vrt_members(
     db: AsyncSession, vrt_dataset: Any, *, adding: uuid.UUID | None = None
 ) -> None:

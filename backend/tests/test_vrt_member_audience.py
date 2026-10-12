@@ -552,3 +552,19 @@ async def test_the_owner_exemption_needs_the_owner_to_read_the_member(
     assert await authorization.vrt_members_beyond_audience(
         test_db_session, [src], vrt
     ) == [src]
+
+
+async def test_a_vrt_quicklook_follows_the_tile_rule(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    admin_id = await _get_admin_id(test_db_session)
+    _, editor_id = await _make_editor(client, admin_auth_header)
+    src = await _create_raster_dataset(test_db_session, created_by=editor_id)
+    vrt_id = await _create_vrt_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    await _link_source(test_db_session, vrt_id, src, 0)
+
+    resp = await client.get(f"/datasets/{vrt_id}/quicklook")
+
+    assert resp.status_code == 409, resp.text
