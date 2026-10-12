@@ -1596,6 +1596,8 @@ async def test_raster_metadata_cache_is_tenant_scoped_and_filtered():
         "tile_cache_version": 1,
         "publication_version": 0,
         "member_sources": {},
+        "record_id": uuid.uuid4(),
+        "member_ids": [],
     }
     result_a = MagicMock()
     result_a.mappings.return_value.one_or_none.return_value = row

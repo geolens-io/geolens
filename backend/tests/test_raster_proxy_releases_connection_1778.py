@@ -50,6 +50,8 @@ def _row(dataset_id: uuid.UUID) -> dict:
         "tile_cache_version": 1,
         "publication_version": 0,
         "member_sources": {},
+        "record_id": uuid.uuid4(),
+        "member_ids": [],
     }
 
 

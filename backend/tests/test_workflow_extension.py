@@ -73,7 +73,15 @@ def _dataset(record_status: str):
         # disclosure check on the resolved state, which starts from
         # record.derived_from — None models a record that is not
         # analysis-derived, so the check exits before touching the fake DB.
-        record=SimpleNamespace(record_status=record_status, derived_from=None),
+        record=SimpleNamespace(
+            id=uuid.uuid4(),
+            record_status=record_status,
+            derived_from=None,
+            visibility="public",
+            record_type="raster_dataset",
+            # No owner and no VRT links: the VRT audience check needs no queries.
+            created_by=None,
+        ),
     )
 
 
