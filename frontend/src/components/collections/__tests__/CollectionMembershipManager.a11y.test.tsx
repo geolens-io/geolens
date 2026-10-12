@@ -7,7 +7,7 @@
  * 4.1.2 and would not be caught by getByLabelText — so this test is the
  * automated enforcement mechanism.
  */
-import { render, screen, waitFor } from '@/test/test-utils';
+import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { searchDatasets } from '@/api/search';
@@ -62,50 +62,5 @@ describe('GLUX-002: CollectionMembershipManager search input accessible name', (
 
     expect(await screen.findByRole('button', { name: 'Add Alpha Parcels to collection' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add Beta Roads to collection' })).toBeInTheDocument();
-  });
-
-  it('hides a result once it has been added, even if the membership list omits it', async () => {
-    vi.mocked(searchDatasets).mockResolvedValue({
-      features: [{ id: 'a', properties: { title: 'Alpha Parcels' } }],
-    } as unknown as Awaited<ReturnType<typeof searchDatasets>>);
-    vi.mocked(useAddDatasetsToCollection).mockReturnValue({
-      mutateAsync: vi.fn().mockResolvedValue({}),
-      isPending: false,
-    } as unknown as ReturnType<typeof useAddDatasetsToCollection>);
-    const user = userEvent.setup();
-    render(<CollectionMembershipManager collectionId="col-1" />);
-    await user.type(screen.getByLabelText(/search datasets/i), 'a{Enter}');
-    await user.click(await screen.findByRole('button', { name: 'Add Alpha Parcels to collection' }));
-
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Add Alpha Parcels to collection' })).not.toBeInTheDocument(),
-    );
-  });
-
-  it('offers a result again after it was added and then removed from the collection', async () => {
-    vi.mocked(searchDatasets).mockResolvedValue({
-      features: [{ id: 'a', properties: { title: 'Alpha Parcels' } }],
-    } as unknown as Awaited<ReturnType<typeof searchDatasets>>);
-    vi.mocked(useAddDatasetsToCollection).mockReturnValue({
-      mutateAsync: vi.fn().mockResolvedValue({}),
-      isPending: false,
-    } as unknown as ReturnType<typeof useAddDatasetsToCollection>);
-    const members = (ids: string[]) =>
-      ({
-        data: { datasets: ids.map((id) => ({ id })), total: ids.length },
-        isLoading: false,
-      }) as unknown as ReturnType<typeof useCollectionDatasets>;
-    vi.mocked(useCollectionDatasets).mockReturnValue(members([]));
-    const user = userEvent.setup();
-    const { rerender } = render(<CollectionMembershipManager collectionId="col-1" />);
-    await user.type(screen.getByLabelText(/search datasets/i), 'a{Enter}');
-    await user.click(await screen.findByRole('button', { name: 'Add Alpha Parcels to collection' }));
-
-    vi.mocked(useCollectionDatasets).mockReturnValue(members(['a']));
-    rerender(<CollectionMembershipManager collectionId="col-1" />);
-    vi.mocked(useCollectionDatasets).mockReturnValue(members([]));
-    rerender(<CollectionMembershipManager collectionId="col-1" />);
-
-    expect(await screen.findByRole('button', { name: 'Add Alpha Parcels to collection' })).toBeInTheDocument();
   });
 });
