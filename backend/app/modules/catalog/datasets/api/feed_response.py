@@ -41,8 +41,8 @@ async def serve_feed(
 ) -> Response:
     """Load feed inputs on the loop, then build and serialize them in a thread.
 
-    ``load`` must fully populate the ORM objects ``build`` reads: the session
-    is not usable from the worker thread. Only anonymous responses are cached;
+    ``load`` must fully populate the ORM objects ``build`` reads and detach
+    them from the session, which is not usable from the worker thread. Only anonymous responses are cached;
     their visibility is the same for every caller, so ``key`` needs no roles.
     """
     cache_key: str | None = None
@@ -60,12 +60,13 @@ async def serve_feed(
 
     inputs = await load()
 
-    def render() -> tuple[str, dict[str, str]]:
+    def render() -> tuple[str, int, dict[str, str]]:
         content, headers = build(inputs)
-        return _encode(content), headers
+        body = _encode(content)
+        return body, len(body.encode()), headers
 
-    body, headers = await run_in_threadpool(render)
-    if cache_key is not None and len(body) <= _FEED_CACHE_MAX_BYTES:
+    body, size, headers = await run_in_threadpool(render)
+    if cache_key is not None and size <= _FEED_CACHE_MAX_BYTES:
         await get_cache().set(
             cache_key, {"body": body, "headers": headers}, ttl=FEED_CACHE_TTL
         )

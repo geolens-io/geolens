@@ -1327,3 +1327,45 @@ async def test_feed_cache_is_keyed_on_page(
     page_two = await client.get("/datasets/dcat/", params={"limit": 1, "offset": 1})
     assert page_one.json()["dcat:dataset"] != page_two.json()["dcat:dataset"]
     assert len(page_one.json()["dcat:dataset"]) == 1
+
+
+@pytest.mark.anyio
+async def test_feed_render_holds_no_pooled_connection(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    """Rendering runs in a thread, so the request's connection goes back first."""
+    import app.core.db as db_module
+    from app.modules.catalog.datasets.api import router_export
+    from sqlalchemy import event
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    await _create_dcat_dataset(test_db_session, created_by=admin_id, name="Pool Feed")
+
+    live = {"n": 0}
+
+    def _out(*_):
+        live["n"] += 1
+
+    def _in(*_):
+        live["n"] -= 1
+
+    engine = db_module.engine.sync_engine
+    event.listen(engine, "checkout", _out)
+    event.listen(engine, "checkin", _in)
+    seen: dict = {}
+    real = router_export.catalog_to_dcat
+
+    def _probe(*args, **kwargs):
+        seen["during"] = live["n"]
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(router_export, "catalog_to_dcat", _probe)
+    try:
+        baseline = live["n"]
+        resp = await client.get("/datasets/dcat/")
+    finally:
+        event.remove(engine, "checkout", _out)
+        event.remove(engine, "checkin", _in)
+
+    assert resp.status_code == 200
+    assert seen["during"] == baseline

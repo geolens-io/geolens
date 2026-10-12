@@ -360,11 +360,16 @@ async def _load_feed_inputs(
 ) -> _FeedInputs:
     """Everything a feed builder reads, loaded before leaving the session's loop."""
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
-    return (
+    inputs = (
         datasets,
         await _visible_lineage(db, datasets, user),
         await _dcat_raster_asset_presence(db, datasets),
     )
+    # Detached first, since a rollback expires attached instances; the render
+    # can then run without holding a pooled connection.
+    db.expunge_all()
+    await db.rollback()
+    return inputs
 
 
 @router.get("/dcat", response_class=JSONResponse, include_in_schema=False)
