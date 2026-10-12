@@ -629,12 +629,6 @@ async def export_dataset_endpoint(
         # Only the cold case reaches here; a hit returned above.
         return _head_export_response(dataset_title, format)
 
-    # 7. Run export. GeoParquet uses the pyarrow writer (no Arrow driver in
-    # Debian's GDAL); every other format uses ogr2ogr.
-    #
-    # fix(#1532): stamped when conversion starts reading, not at
-    # publication — ages the artifact from before build+upload+TTL, so it's
-    # never older than that bound.
     if _conversion_slots.locked():
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -642,6 +636,13 @@ async def export_dataset_endpoint(
             headers={"Retry-After": "5", "Cache-Control": "no-store"},
         )
     await _conversion_slots.acquire()
+
+    # 7. Run export. GeoParquet uses the pyarrow writer (no Arrow driver in
+    # Debian's GDAL); every other format uses ogr2ogr.
+    #
+    # fix(#1532): stamped when conversion starts reading, not at
+    # publication — ages the artifact from before build+upload+TTL, so it's
+    # never older than that bound.
     snapshot_at = time.time()
     try:
         if format == ExportFormat.parquet:

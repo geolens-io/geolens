@@ -46,8 +46,9 @@ async def serve_feed(
     """Load feed inputs on the loop, then build and serialize them in a thread.
 
     ``load`` must fully populate the ORM objects ``build`` reads and detach
-    them from the session, which is not usable from the worker thread. Only anonymous responses are cached;
-    their visibility is the same for every caller, so ``key`` needs no roles.
+    them from the session, which is not usable from the worker thread. Only
+    anonymous responses are cached; their visibility is the same for every
+    caller, so ``key`` needs no roles.
     """
     cache_key: str | None = None
     if user is None and tenant_cache_context_available():
