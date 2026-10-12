@@ -1,5 +1,6 @@
 """Search and OGC API Records response schemas."""
 
+import json
 import uuid
 from datetime import date, datetime
 
@@ -278,11 +279,28 @@ class OGCFeatureCollectionResponse(BaseModel):
     )
 
 
+SAVED_SEARCH_PARAMS_MAX_BYTES = 64 * 1024
+
+
 class SavedSearchCreate(BaseModel):
     """Request body for creating a saved search."""
 
     name: str = Field(min_length=1, max_length=255)
-    params: dict = Field(description="Serialized SearchParams filters to replay")
+    params: dict = Field(
+        description=(
+            "Serialized SearchParams filters to replay, at most 64 KiB as JSON"
+        )
+    )
+
+    @field_validator("params")
+    @classmethod
+    def bound_params(cls, v: dict) -> dict:
+        encoded = json.dumps(v, ensure_ascii=False, separators=(",", ":")).encode()
+        if len(encoded) > SAVED_SEARCH_PARAMS_MAX_BYTES:
+            raise ValueError(
+                f"params must be at most {SAVED_SEARCH_PARAMS_MAX_BYTES} bytes as JSON"
+            )
+        return v
 
 
 class SavedSearchResponse(BaseModel):

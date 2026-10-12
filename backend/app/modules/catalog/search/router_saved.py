@@ -11,6 +11,7 @@ from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.catalog.search.saved import (
+    SavedSearchLimitError,
     create_saved_search,
     delete_saved_search,
     get_saved_search,
@@ -21,7 +22,7 @@ from app.modules.catalog.search.schemas import (
     SavedSearchListResponse,
     SavedSearchResponse,
 )
-from app.standards.ogc.errors import NOT_FOUND_RESPONSE
+from app.standards.ogc.errors import CONFLICT_RESPONSE, NOT_FOUND_RESPONSE
 
 router = APIRouter(prefix="/saved")
 
@@ -33,7 +34,10 @@ router = APIRouter(prefix="/saved")
     include_in_schema=False,
 )
 @router.post(
-    "/", response_model=SavedSearchResponse, status_code=status.HTTP_201_CREATED
+    "/",
+    response_model=SavedSearchResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={409: CONFLICT_RESPONSE},
 )
 async def create_saved_search_endpoint(
     body: SavedSearchCreate,
@@ -41,7 +45,10 @@ async def create_saved_search_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> SavedSearchResponse:
     """Save a search query with a name for later reuse."""
-    saved = await create_saved_search(db, user.id, body.name, body.params)
+    try:
+        saved = await create_saved_search(db, user.id, body.name, body.params)
+    except SavedSearchLimitError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     await db.commit()
     await db.refresh(saved)
     return SavedSearchResponse.model_validate(saved)

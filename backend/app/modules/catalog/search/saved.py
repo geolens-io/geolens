@@ -35,13 +35,39 @@ class SavedSearch(Base):
     )
 
 
+MAX_SAVED_SEARCHES_PER_USER = 100
+
+
+class SavedSearchLimitError(Exception):
+    """The user already has ``MAX_SAVED_SEARCHES_PER_USER`` saved searches."""
+
+
 async def create_saved_search(
     session: AsyncSession,
     user_id: uuid.UUID,
     name: str,
     params: dict,
 ) -> SavedSearch:
-    """Create a saved search, or update params/updated_at if (user_id, name) exists."""
+    """Create a saved search, or update params/updated_at if (user_id, name) exists.
+
+    Raises SavedSearchLimitError when a new name would exceed the per-user cap.
+    """
+    existing = await session.scalar(
+        select(SavedSearch.id).where(
+            SavedSearch.user_id == user_id, SavedSearch.name == name
+        )
+    )
+    if existing is None:
+        count = await session.scalar(
+            select(func.count())
+            .select_from(SavedSearch)
+            .where(SavedSearch.user_id == user_id)
+        )
+        if count >= MAX_SAVED_SEARCHES_PER_USER:
+            raise SavedSearchLimitError(
+                f"You can keep at most {MAX_SAVED_SEARCHES_PER_USER} saved "
+                "searches; delete one to save another"
+            )
     stmt = (
         pg_insert(SavedSearch)
         .values(user_id=user_id, name=name, params=params)

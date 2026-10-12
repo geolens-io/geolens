@@ -224,3 +224,56 @@ async def test_delete_saved_search_unauthenticated(
 
     resp = await client.delete(f"/search/saved/{uuid.uuid4()}")
     assert resp.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_oversized_params_are_rejected(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """Params larger than the serialized-size cap get 422 and nothing is stored."""
+    from app.modules.catalog.search.schemas import SAVED_SEARCH_PARAMS_MAX_BYTES
+
+    resp = await client.post(
+        "/search/saved/",
+        json={
+            "name": "Too Big",
+            "params": {"q": "x" * SAVED_SEARCH_PARAMS_MAX_BYTES},
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.anyio
+async def test_saved_searches_are_capped_per_user(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A new name past the per-user cap gets 409; re-saving an existing name still works."""
+    from app.modules.catalog.search import saved
+
+    monkeypatch.setattr(saved, "MAX_SAVED_SEARCHES_PER_USER", 2)
+    headers, _ = await _create_test_user(client, admin_auth_header, "viewer")
+    for name in ("First", "Second"):
+        resp = await client.post(
+            "/search/saved/", json={"name": name, "params": {}}, headers=headers
+        )
+        assert resp.status_code == 201, resp.text
+
+    over = await client.post(
+        "/search/saved/", json={"name": "Third", "params": {}}, headers=headers
+    )
+    assert over.status_code == 409, over.text
+
+    resaved = await client.post(
+        "/search/saved/",
+        json={"name": "Second", "params": {"q": "updated"}},
+        headers=headers,
+    )
+    assert resaved.status_code == 201, resaved.text
+    assert resaved.json()["params"] == {"q": "updated"}
+
+    listed = await client.get("/search/saved/", headers=headers)
+    assert listed.json()["total"] == 2
