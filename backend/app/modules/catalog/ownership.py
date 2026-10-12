@@ -122,8 +122,13 @@ async def transfer_dataset_owner(
     *,
     actor: Identity,
     ip_address: str | None,
+    visibility: str | None = None,
+    record_status: str | None = None,
 ) -> None:
     """Make ``owner_id`` the owner of the dataset and write one audit row.
+
+    ``visibility`` and ``record_status`` are the values the same request will
+    set, so the VRT audience check sees the request's final state.
 
     Call after the dataset's catalog rows are locked. A transfer to the
     current owner changes nothing, vets nothing and writes no row. Raises 422
@@ -150,7 +155,13 @@ async def transfer_dataset_owner(
                 ),
             },
         )
-    await check_vrt_audiences_after_change(db, dataset, owner_id=new_owner.id)
+    await check_vrt_audiences_after_change(
+        db,
+        dataset,
+        visibility=visibility,
+        record_status=record_status,
+        owner_id=new_owner.id,
+    )
     record.created_by = new_owner.id
     record.updated_by = actor.id
     # Signed tile templates bind this counter, and the previous owner may

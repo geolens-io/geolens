@@ -389,6 +389,8 @@ async def update_dataset_metadata(
             owner_id,
             actor=user,
             ip_address=request.client.host if request.client else None,
+            visibility=meta.visibility,
+            record_status=meta.record_status,
         )
 
     # feat(#1070): advisory warnings from the metadata chokepoint, e.g. a

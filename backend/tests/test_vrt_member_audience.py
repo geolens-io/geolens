@@ -360,3 +360,54 @@ async def test_transfer_may_not_leave_a_vrt_past_its_members(
 
     assert vrt_away.status_code == 422, vrt_away.text
     assert member_away.status_code == 422, member_away.text
+
+
+async def test_transfer_with_a_widening_is_checked_as_one_change(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    _, editor_id = await _make_editor(client, admin_auth_header)
+    _, other_id = await _make_editor(client, admin_auth_header)
+    src = await _create_raster_dataset(test_db_session, created_by=editor_id)
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=editor_id)
+    await _link_source(test_db_session, vrt_id, src, 0)
+
+    resp = await client.patch(
+        f"/datasets/{src}",
+        json={"owner_id": str(other_id), "visibility": "public"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+
+
+async def test_an_authority_whose_audience_is_stale_counts_every_member(
+    test_db_session, monkeypatch
+):
+    from app.modules.catalog import authorization
+    from app.platform.extensions import DefaultPermissionExtension, RecordAudienceQuery
+
+    class _WiderReads(DefaultPermissionExtension):
+        def filter_visible(self, *args, **kwargs):
+            return super().filter_visible(*args, **kwargs)
+
+    admin_id = await _get_admin_id(test_db_session)
+    src = await _create_raster_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    vrt = RecordAudienceQuery(
+        dataset_id=None,
+        record_id=None,
+        owner_id=admin_id,
+        visibility="private",
+        record_status="published",
+    )
+    assert (
+        await authorization.vrt_members_beyond_audience(test_db_session, [src], vrt)
+        == []
+    )
+
+    monkeypatch.setattr(authorization, "get_permission_extension", _WiderReads)
+
+    assert await authorization.vrt_members_beyond_audience(
+        test_db_session, [src], vrt
+    ) == [src]

@@ -33,7 +33,11 @@ from app.core.identity import Identity
 from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
 from app.modules.auth.permissions import get_user_roles as _get_user_roles
-from app.platform.extensions import RecordAudienceQuery, get_permission_extension
+from app.platform.extensions import (
+    DefaultPermissionExtension,
+    RecordAudienceQuery,
+    get_permission_extension,
+)
 
 
 # catalog.vrt_source_links, whose ORM class belongs to processing.
@@ -606,6 +610,26 @@ async def can_export(
     )
 
 
+def answers_audience_questions(permission: object) -> bool:
+    """Whether this permission authority's ``record_audience`` can be trusted.
+
+    False when it has none, or when it inherits the community answer while
+    overriding a method that decides reads: the reported audience and what
+    viewers get could then disagree. ``check_permission`` is not in the set,
+    since capabilities don't decide which records a viewer can read.
+    """
+    default = DefaultPermissionExtension
+    own = getattr(type(permission), "record_audience", None)
+    if own is None:
+        return False
+    if own is not default.record_audience:
+        return True
+    return all(
+        getattr(type(permission), name, None) is getattr(default, name)
+        for name in ("filter_visible", "can_access_dataset")
+    )
+
+
 VRT_AUDIENCE_EXCEEDS_SOURCES = (
     "This VRT would reach people who cannot see all of its source datasets. "
     "Narrow the VRT's visibility or use sources its audience can see."
@@ -620,14 +644,14 @@ async def _audiences_exceeded(
 
     "Certainly": an account the authority leaves unclassified (NULL) on the
     inner side does not count, so an overlay that narrows reads by record
-    attributes doesn't refuse every mosaic. Without ``record_audience`` the
-    question can't be asked, and every pair counts.
+    attributes doesn't refuse every mosaic. An authority that can't answer
+    (:func:`answers_audience_questions`) gets every pair counted.
     """
     from app.modules.auth.models import User
     from app.modules.catalog.datasets.domain.models import DatasetGrant
 
     permission = get_permission_extension()
-    if getattr(type(permission), "record_audience", None) is None:
+    if not answers_audience_questions(permission):
         return [True] * len(pairs)
     audiences = [
         (

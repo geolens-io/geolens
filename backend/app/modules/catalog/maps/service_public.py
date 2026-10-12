@@ -16,7 +16,10 @@ from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.tile_scope import tile_template_query
 from app.core.text import escape_ilike
 from app.modules.auth.models import User
-from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.authorization import (
+    answers_audience_questions,
+    apply_visibility_filter,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
 from app.modules.catalog.maps.sharing_policy import (
@@ -35,7 +38,6 @@ from app.modules.embed_tokens.sharing import (
     get_active_allowed_origins,
 )
 from app.platform.extensions import (
-    DefaultPermissionExtension,
     RecordAudience,
     RecordAudienceQuery,
     get_catalog_port,
@@ -66,35 +68,6 @@ async def validate_public_visibility(
 # beyond owner/grantees, so it can never be stranded. Who a MAP reaches
 # is core's own rule, not the permission seam's, so an overlay can't narrow this.
 _SHARED_MAP_AUDIENCES = ("public", "internal")
-
-
-def _answers_audience_questions(permission: object) -> bool:
-    """Can this permission authority say who a record's audience is?
-
-    feat(#1068): the guard used to rebuild the audience from the community
-    ladder, so #1111 refused under ANY overlay — true only while the
-    ladder IS the policy. ``record_audience`` lets the authority answer
-    for itself, narrowing the refusal to two cases: no ``record_audience``
-    at all (only a legacy overlay with no EXTENSION_API_VERSION), or one
-    that inherits the community answer while overriding a read-deciding
-    method (so the reported audience and what viewers get can silently
-    disagree). Keys on the read methods rather than #1111's
-    ``type(...) is DefaultPermissionExtension``, so a no-op wrapper
-    subclass still passes.
-
-    ``check_permission`` is deliberately not in the set: capabilities
-    don't decide which records a viewer can read.
-    """
-    default = DefaultPermissionExtension
-    own = getattr(type(permission), "record_audience", None)
-    if own is None:
-        return False
-    if own is not default.record_audience:
-        return True
-    return all(
-        getattr(type(permission), name, None) is getattr(default, name)
-        for name in ("filter_visible", "can_access_dataset")
-    )
 
 
 async def _stranded_viewer_exists(
@@ -151,7 +124,7 @@ async def find_maps_broken_by_dataset_visibility(
     but a WIDENING one (SLOT-02) under-refuses silently, the break this
     guard exists to prevent.
 
-    An unanswerable authority (:func:`_answers_audience_questions`) gets
+    An unanswerable authority (:func:`answers_audience_questions`) gets
     the conservative refusal. An unpublished record needs no special
     case: a draft's audience is owner+admins both before and after, so
     the difference (= safe to apply) is empty.
@@ -162,7 +135,7 @@ async def find_maps_broken_by_dataset_visibility(
     if old_visibility == new_visibility:
         return []
     permission = get_permission_extension()
-    if _answers_audience_questions(permission):
+    if answers_audience_questions(permission):
         query = RecordAudienceQuery(
             dataset_id=dataset_id,
             record_id=record_id,
