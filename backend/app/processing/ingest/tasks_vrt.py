@@ -21,6 +21,7 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
 from sqlalchemy import select
 
+from app.platform.extensions import RecordAudienceQuery
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
@@ -70,6 +71,12 @@ from app.processing.ingest.tasks_raster_common import (
 # Its only holders are request handlers that dirty the record and hold it from
 # flush to commit; nothing caps that, so this is a stuck-not-queued threshold.
 _PUBLISH_CATALOG_TIMEOUT = "15s"
+
+# Builds re-check members against the mosaic's audience: access may have
+# changed since the request was admitted.
+_MEMBER_AUDIENCE_FAILURE = (
+    "A source dataset is not visible to everyone this VRT would reach"
+)
 
 
 def _log_publish_wait_failure(
@@ -549,6 +556,17 @@ async def ingest_vrt(
             await note_vrt_members(session, job_uuid, attempt_uuid, ids)
             await session.commit()
 
+            um: dict = job.user_metadata or {}
+            new_vrt = RecordAudienceQuery(
+                dataset_id=None,
+                record_id=None,
+                owner_id=uuid.UUID(user_id),
+                visibility=um.get("visibility", "private"),
+                record_status="published",
+            )
+            if await _port.vrt_members_beyond_audience(session, ids, new_vrt):
+                raise ValueError(_MEMBER_AUDIENCE_FAILURE)
+
             # 3. Load RasterAsset rows for source datasets, stamped first.
             # fix(#1290): the creation tail had NO snapshot instant, so
             # a member replaced during the initial build was masked exactly as
@@ -568,9 +586,6 @@ async def ingest_vrt(
                 )
                 for asset in ordered_assets
             ]
-
-            # Snapshot job fields needed in phase 2.
-            um: dict = job.user_metadata or {}
 
         # ----------------------------------------------------------------- #
         # CPU work — NO session open. asyncio.to_thread calls run GDAL/numpy
@@ -928,7 +943,8 @@ async def regenerate_vrt(
     from app.processing.raster.models import RasterAsset, VrtGeneration
     from sqlalchemy import func, select, text, update
 
-    Dataset = get_processing_port().get_dataset_orm_class()
+    port = get_processing_port()
+    Dataset = port.get_dataset_orm_class()
 
     logger_regen = __import__("logging").getLogger(__name__)
 
@@ -1088,6 +1104,7 @@ async def regenerate_vrt(
             # would rebuild the existing composition and then apply a set
             # the artifact doesn't contain. A generation that stages
             # nothing (plain regenerate) keeps the live links.
+            served_ids = set(source_ids)
             staged_source_ids = staged_source_ids_or_none(generation)
             if staged_source_ids is not None:
                 source_ids = staged_source_ids
@@ -1096,6 +1113,22 @@ async def regenerate_vrt(
             generation_heartbeat_task = asyncio.create_task(
                 maintain_vrt_generation_heartbeat(generation_uuid)
             )
+
+            vrt_record = (await port.get_dataset(session, vrt_id)).record
+            vrt_audience = RecordAudienceQuery(
+                dataset_id=vrt_id,
+                record_id=vrt_record.id,
+                owner_id=vrt_record.created_by,
+                visibility=vrt_record.visibility,
+                record_status=vrt_record.record_status,
+            )
+            # A pure removal links nothing new, so it may proceed even while a
+            # kept member is outside the audience; tiles stay refused until it fits.
+            removal = staged_source_ids is not None and set(source_ids) <= served_ids
+            if not removal and await port.vrt_members_beyond_audience(
+                session, source_ids, vrt_audience
+            ):
+                raise ValueError(_MEMBER_AUDIENCE_FAILURE)
 
             # 4. Load source RasterAsset rows and resolve paths
             snapshot_at, ordered_assets = await snapshot_member_sources(

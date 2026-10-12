@@ -22,6 +22,7 @@ from app.modules.catalog.authorization import (
     can_view_dataset_provenance,
     check_dataset_access,
     check_dataset_write_access,
+    check_vrt_members,
 )
 from app.modules.catalog.datasets.domain.schemas import (
     VrtActiveGeneration,
@@ -428,6 +429,8 @@ async def regenerate_vrt_endpoint(
     # Owner-or-admin: regenerating mutates asset status and enqueues work;
     # any authenticated user could otherwise trigger it on a peer's raster.
     await check_dataset_write_access(db, dataset, dataset_id, user)
+    # Members were authorized when linked; their owners may have narrowed them since.
+    await check_vrt_members(db, dataset)
 
     asset_result = await db.execute(
         select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)

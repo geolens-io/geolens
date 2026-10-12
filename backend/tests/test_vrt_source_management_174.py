@@ -116,7 +116,8 @@ def _make_mock_source_asset(band_count: int = 1, epsg: int = 4326) -> MagicMock:
 def _stub_vrt_source_authz():
     """``add_vrt_source`` authorizes the new source and the parent VRT, and both
     add/remove_vrt_source now require owner-or-admin on the VRT via
-    ``check_dataset_write_access``. Those helpers issue their own ``db.execute``
+    ``check_dataset_write_access``, and checks the members against the VRT's
+    audience. Those helpers issue their own ``db.execute``
     calls, which would shift the call-count-ordered mock ``db`` sequences these
     pure unit tests rely on. Stub them to make ZERO ``db.execute`` calls (and
     always allow) so the existing sequences stay valid and the tests reach the
@@ -135,6 +136,10 @@ def _stub_vrt_source_authz():
         patch(
             "app.modules.catalog.authorization.check_dataset_write_access",
             new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "app.modules.catalog.authorization.check_vrt_members",
+            new=AsyncMock(return_value=None),
         ),
         patch(
             "app.modules.catalog.datasets.domain.service.get_dataset",

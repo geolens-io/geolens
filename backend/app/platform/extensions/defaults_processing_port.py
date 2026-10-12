@@ -93,6 +93,11 @@ class DefaultProcessingPort:
 
         return await get_user_roles(session, user)
 
+    async def vrt_members_beyond_audience(self, session, member_ids, vrt):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.authorization import vrt_members_beyond_audience
+
+        return await vrt_members_beyond_audience(session, member_ids, vrt)
+
     async def run_analysis_preview(  # type: ignore[no-untyped-def]
         self,
         session,

@@ -565,6 +565,7 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
             ":!backend/app/modules/catalog/datasets/domain/helpers.py",
             ":!backend/app/modules/catalog/search/service_semantic.py",
             ":!backend/app/modules/catalog/records/inherited.py",
+            ":!backend/app/modules/catalog/authorization.py",
             ":!backend/tests/",
         ],
         cwd=REPO_ROOT,
@@ -1194,7 +1195,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service_diff.py": 400,
         "backend/app/modules/catalog/maps/service_shared.py": 400,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 665,
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 555,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 557,
         # Internal pointer reads sit beside the detail query that shares them.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
@@ -1206,7 +1207,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 576,
+        "backend/app/platform/extensions/defaults_processing_port.py": 581,
         "backend/app/platform/extensions/defaults_extensions.py": 433,
         "backend/app/modules/catalog/search/service_filters.py": 366,
     }
@@ -1350,9 +1351,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1616,
-    # VRT creation and regeneration share publication, owed-object records and
-    # superseded-object cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1650,
+    # VRT creation and regeneration share publication, member re-authorization,
+    # owed-object records and superseded-object cleanup.
+    "backend/app/processing/ingest/tasks_vrt.py": 1683,
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 614,
     # File and remote-source imports own publication fencing, heartbeat phases
@@ -1371,7 +1372,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1026,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1562,
+    "backend/app/processing/ingest/service.py": 1566,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
@@ -1388,7 +1389,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1891,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2724,
+    "backend/app/processing/tiles/router.py": 2753,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection

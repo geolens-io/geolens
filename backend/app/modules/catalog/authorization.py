@@ -8,11 +8,23 @@ module (Phase 213).
 
 import enum
 import uuid
+from dataclasses import replace
 from collections.abc import Iterable, Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import Select, Uuid, any_, bindparam, column, func, select, table
+from sqlalchemy import (
+    Select,
+    Uuid,
+    any_,
+    bindparam,
+    column,
+    func,
+    literal,
+    select,
+    table,
+    union_all,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -21,7 +33,7 @@ from app.core.identity import Identity
 from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
 from app.modules.auth.permissions import get_user_roles as _get_user_roles
-from app.platform.extensions import get_permission_extension
+from app.platform.extensions import RecordAudienceQuery, get_permission_extension
 
 
 # catalog.vrt_source_links, whose ORM class belongs to processing.
@@ -592,3 +604,224 @@ async def can_export(
         user_roles=user_roles,
         permission_matrix=await get_effective_permissions(db),
     )
+
+
+VRT_AUDIENCE_EXCEEDS_SOURCES = (
+    "This VRT would reach people who cannot see all of its source datasets. "
+    "Narrow the VRT's visibility or use sources its audience can see."
+)
+
+
+async def _audiences_exceeded(
+    db: AsyncSession, pairs: Sequence[tuple[Any, Any]]
+) -> list[bool]:
+    """For each ``(outer, inner)`` RecordAudienceQuery pair: does somebody who
+    may read ``outer`` certainly lack access to ``inner``?
+
+    "Certainly": an account the authority leaves unclassified (NULL) on the
+    inner side does not count, so an overlay that narrows reads by record
+    attributes doesn't refuse every mosaic. Without ``record_audience`` the
+    question can't be asked, and every pair counts.
+    """
+    from app.modules.auth.models import User
+    from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+    permission = get_permission_extension()
+    if getattr(type(permission), "record_audience", None) is None:
+        return [True] * len(pairs)
+    audiences = [
+        (
+            await permission.record_audience(outer, User, grant_cls=DatasetGrant),
+            await permission.record_audience(inner, User, grant_cls=DatasetGrant),
+        )
+        for outer, inner in pairs
+    ]
+    if not audiences:
+        return []
+    # One statement whatever the member count: each arm names its pair's index
+    # when a reader of the outer record is certainly outside the inner one.
+    arms = [
+        select(literal(index)).where(
+            select(User.id)
+            .where(User.is_active.is_(True))
+            .where(User.status == "active")
+            .where(outer.users.is_not(False))
+            .where(inner.users.is_(False))
+            .exists()
+        )
+        for index, (outer, inner) in enumerate(audiences)
+    ]
+    statement = arms[0] if len(arms) == 1 else union_all(*arms)
+    exceeded = set((await db.execute(statement)).scalars())
+    return [
+        index in exceeded or (outer.includes_anonymous and not inner.includes_anonymous)
+        for index, (outer, inner) in enumerate(audiences)
+    ]
+
+
+async def _record_audience_queries(
+    db: AsyncSession, dataset_ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, tuple[RecordAudienceQuery, str]]:
+    """Each dataset's current audience question and title, keyed by dataset id."""
+    wanted = set(dataset_ids)
+    if not wanted:
+        return {}
+
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+    rows = await db.execute(
+        select(
+            Dataset.id,
+            Record.id.label("record_id"),
+            Record.created_by,
+            Record.visibility,
+            Record.record_status,
+            Record.title,
+        )
+        .join(Record, Record.id == Dataset.record_id)
+        .where(Dataset.id.in_(wanted))
+    )
+    return {
+        row.id: (
+            RecordAudienceQuery(
+                dataset_id=row.id,
+                record_id=row.record_id,
+                owner_id=row.created_by,
+                visibility=row.visibility,
+                record_status=row.record_status,
+            ),
+            row.title,
+        )
+        for row in rows.all()
+    }
+
+
+async def vrt_member_ids(
+    db: AsyncSession, vrt_dataset_id: uuid.UUID
+) -> list[uuid.UUID]:
+    """The source datasets currently linked into a VRT."""
+    links = _VRT_SOURCE_LINKS
+    rows = await db.execute(
+        select(links.c.source_dataset_id).where(
+            links.c.vrt_dataset_id == vrt_dataset_id
+        )
+    )
+    return list(rows.scalars())
+
+
+def dataset_audience_query(dataset: Any) -> RecordAudienceQuery:
+    """The audience question for a loaded dataset as it stands."""
+    record = dataset.record
+    return RecordAudienceQuery(
+        dataset_id=dataset.id,
+        record_id=record.id,
+        owner_id=record.created_by,
+        visibility=record.visibility,
+        record_status=record.record_status,
+    )
+
+
+async def vrt_members_beyond_audience(
+    db: AsyncSession, member_ids: Iterable[uuid.UUID], vrt: RecordAudienceQuery
+) -> list[uuid.UUID]:
+    """Members that somebody in ``vrt``'s audience cannot read.
+
+    A mosaic serves its members' pixels to everyone who can read the mosaic,
+    so each member's audience has to contain the mosaic's.
+    """
+    members = await _record_audience_queries(db, member_ids)
+    ids = list(members)
+    flags = await _audiences_exceeded(db, [(vrt, members[i][0]) for i in ids])
+    return [dataset_id for dataset_id, flag in zip(ids, flags, strict=True) if flag]
+
+
+async def check_vrt_within_member_audience(
+    db: AsyncSession, member_ids: Iterable[uuid.UUID], vrt: RecordAudienceQuery
+) -> None:
+    """Raise 422 when the VRT described by ``vrt`` would reach past a member."""
+    if await vrt_members_beyond_audience(db, member_ids, vrt):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=VRT_AUDIENCE_EXCEEDS_SOURCES,
+        )
+
+
+async def check_vrt_members(
+    db: AsyncSession, vrt_dataset: Any, *, adding: uuid.UUID | None = None
+) -> None:
+    """Raise 422 when a VRT, with ``adding`` linked too, reaches past a member."""
+    member_ids = await vrt_member_ids(db, vrt_dataset.id)
+    if adding is not None:
+        member_ids.append(adding)
+    await check_vrt_within_member_audience(
+        db, member_ids, dataset_audience_query(vrt_dataset)
+    )
+
+
+async def check_vrt_audiences_after_change(
+    db: AsyncSession,
+    dataset: Any,
+    *,
+    visibility: str | None = None,
+    record_status: str | None = None,
+) -> None:
+    """Raise 422 when a new visibility or status (None keeps the current one)
+    would make a VRT reach past a member it doesn't reach past now.
+
+    A VRT is compared with its members; a source with its owner's VRTs, since
+    another user's VRT may not hold the owner's dataset open (it stops serving
+    tiles instead). Only a newly exceeded member is refused, so a VRT can
+    always narrow and a source can always widen.
+    """
+    record = dataset.record
+    before = dataset_audience_query(dataset)
+    after = replace(
+        before,
+        visibility=visibility or before.visibility,
+        record_status=record_status or before.record_status,
+    )
+    if after == before:
+        return
+    is_vrt = record.record_type == "vrt_dataset"
+    if is_vrt:
+        linked = await _record_audience_queries(
+            db, await vrt_member_ids(db, dataset.id)
+        )
+        pairs = [((before, q), (after, q), t) for q, t in linked.values()]
+    else:
+        linked = await _record_audience_queries(db, await _owner_vrt_ids(db, dataset))
+        pairs = [((q, before), (q, after), t) for q, t in linked.values()]
+    then = await _audiences_exceeded(db, [pair[0] for pair in pairs])
+    now = await _audiences_exceeded(db, [pair[1] for pair in pairs])
+    newly = sorted(
+        pair[2]
+        for pair, was, is_ in zip(pairs, then, now, strict=True)
+        if is_ and not was
+    )
+    if newly:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=VRT_AUDIENCE_EXCEEDS_SOURCES
+            if is_vrt
+            else "This dataset is a source of VRTs that would reach people who "
+            f"cannot see it: {', '.join(newly)}",
+        )
+
+
+async def _owner_vrt_ids(db: AsyncSession, dataset: Any) -> list[uuid.UUID]:
+    """VRTs linking ``dataset`` that share its owner."""
+    owner_id = dataset.record.created_by
+    if owner_id is None:
+        return []
+
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+    links = _VRT_SOURCE_LINKS
+    rows = await db.execute(
+        select(links.c.vrt_dataset_id)
+        .join(Dataset, Dataset.id == links.c.vrt_dataset_id)
+        .join(Record, Record.id == Dataset.record_id)
+        .where(links.c.source_dataset_id == dataset.id)
+        .where(Record.created_by == owner_id)
+    )
+    return list(rows.scalars())

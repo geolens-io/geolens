@@ -140,7 +140,12 @@ logger = logging.getLogger(__name__)
 # 15 -> 16: CatalogPort gained the required ``restore_previous_version_task``
 # method, which the previous-version restore route defers. An overlay
 # replacing the ``catalog_port`` slot without it fails every restore request.
-EXTENSION_API_VERSION: int = 16
+#
+# 16 -> 17: ProcessingPort gained the required ``vrt_members_beyond_audience``
+# method. Raster tile serving and VRT builds ask it whether a mosaic reaches
+# anyone who cannot read one of its members, so an overlay replacing the
+# ``processing_port`` slot without it fails every VRT tile and build.
+EXTENSION_API_VERSION: int = 17
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

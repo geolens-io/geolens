@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.catalog.authorization import check_vrt_audiences_after_change
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
 from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
 from app.modules.catalog.datasets.domain.models import (
@@ -385,6 +386,9 @@ async def update_user_metadata(
         _apply_tile_columns(dataset, meta),
     ]
 
+    await check_vrt_audiences_after_change(
+        session, dataset, visibility=meta.visibility, record_status=meta.record_status
+    )
     if meta.visibility is not None:
         mutated_flags.append(
             await _apply_visibility_change(

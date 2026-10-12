@@ -210,6 +210,13 @@ class ProcessingPort(Protocol):
         self, session: AsyncSession, user: Identity
     ) -> set[str]: ...
 
+    # A VRT serves its members' pixels to its own audience, which the tile path
+    # and the build tasks compare against each member's. ``vrt`` is a
+    # ``RecordAudienceQuery``, typed Any since core/ may not import platform/.
+    async def vrt_members_beyond_audience(
+        self, session: AsyncSession, member_ids: Sequence[uuid.UUID], vrt: Any
+    ) -> list[uuid.UUID]: ...
+
     async def run_analysis_preview(
         self,
         session: AsyncSession,

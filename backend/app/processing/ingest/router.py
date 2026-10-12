@@ -1441,13 +1441,12 @@ async def add_vrt_source(
             detail=f"Source dataset {request.source_dataset_id} not found or not a raster dataset",
         )
 
-    # fix(SEC-C): authorize the new source before linking it into the VRT
-    # mosaic — compiled pixels can't be filtered at read time, and this runs
-    # BEFORE the duplicate-link check so a foreign source 404s, not a leaked
-    # 409. Defense-in-depth: also requires access to the parent VRT itself.
+    # Authorize the new source before the duplicate-link check, so a source the
+    # caller can't read gets a 404 rather than a 409 confirming it is linked.
     from app.modules.catalog.authorization import (
         check_dataset_access,
         check_dataset_write_access,
+        check_vrt_members,
         get_user_roles,
     )
     from app.modules.catalog.datasets.domain.service import get_dataset
@@ -1463,6 +1462,7 @@ async def add_vrt_source(
     await check_dataset_write_access(
         db, vrt_dataset, dataset_id, user, user_roles=user_roles
     )
+    await check_vrt_members(db, vrt_dataset, adding=request.source_dataset_id)
 
     # SRC-05 / fix(#1955): admission, not a status read — the check and the
     # flip below are one sequence, and only the lock inside makes it atomic.

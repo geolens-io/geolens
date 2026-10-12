@@ -26,6 +26,7 @@ from app.modules.auth.dependencies import (
 from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
+    check_vrt_audiences_after_change,
 )
 from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
 from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
@@ -336,6 +337,7 @@ async def update_publication_status(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=WorkflowTransitionDenied(current, target, allowed).detail,
         )
+    await check_vrt_audiences_after_change(db, dataset, record_status=target)
 
     # The transition rolls the signed-scope counter, so this
     # handler dirties the datasets row too and must take both in house order.
@@ -432,6 +434,8 @@ async def set_target_status(
             )
         chain.append((next_status, context))
         idx = next_idx
+
+    await check_vrt_audiences_after_change(db, dataset, record_status=target)
 
     # Once for the whole chain, immediately before its writes.
     await _roll_publication_version(db, dataset)

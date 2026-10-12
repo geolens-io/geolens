@@ -1054,22 +1054,26 @@ async def create_vrt_job(
                 detail=f"Source dataset {sid} not found or not a raster dataset",
             )
 
-    # Authorize EVERY source dataset before mosaicking: the worker compiles
-    # all source pixels into one served asset, so a foreign private source
-    # can't be filtered at read time — authorize at write/link time instead
-    # (check_datasets_access_bulk raises 404). Runs before validate_sources
-    # so a foreign source 404s rather than leaking a 422 about a dataset the
-    # caller can't see.
-    #
-    # fix(#1298): batched — a 500-source request used to cost one round trip
-    # per source.
+    # Every source must be readable by the caller, checked before
+    # validate_sources so an unreadable one gets a 404 rather than a 422 about
+    # it, and by everyone the new VRT reaches once published.
     from app.modules.catalog.authorization import (
         check_datasets_access_bulk,
+        check_vrt_within_member_audience,
         get_user_roles,
     )
+    from app.platform.extensions import RecordAudienceQuery
 
     user_roles = await get_user_roles(db, user)
     await check_datasets_access_bulk(db, request.source_dataset_ids, user, user_roles)
+    new_vrt = RecordAudienceQuery(
+        dataset_id=None,
+        record_id=None,
+        owner_id=user.id,
+        visibility=request.visibility,
+        record_status="published",
+    )
+    await check_vrt_within_member_audience(db, request.source_dataset_ids, new_vrt)
 
     errors = await validate_sources_async(request.vrt_type, list(found_assets))
     if errors:

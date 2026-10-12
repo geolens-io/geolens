@@ -122,11 +122,16 @@ class TestExtensionApiVersionConstant:
         v16 adds the required ``restore_previous_version_task`` method to
         ``CatalogPort``, which the previous-version restore route defers.
 
+        v17 adds the required ``vrt_members_beyond_audience`` method to
+        ``ProcessingPort``. Raster tile serving and VRT builds call it, so an
+        overlay that replaces the ``processing_port`` key without it fails
+        every VRT tile and build.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 16
+        assert EXTENSION_API_VERSION == 17
 
 
 class TestCheckExtensionApiVersion:

@@ -52,6 +52,7 @@ from app.platform.cache.provider import (
 )
 from app.platform.cache.scope import is_publicly_cacheable, public_cache_control
 from app.platform.extensions import (
+    RecordAudienceQuery,
     get_billing_extensions,
     get_data_serving_extension,
     get_processing_port,
@@ -299,6 +300,8 @@ class _RasterMeta(NamedTuple):
     # fix(#1963): the signed scope binds this, not `tile_cache_version` above.
     publication_version: int
     member_sources: dict
+    # A mosaic that reaches someone one of its members hides from serves nobody.
+    members_beyond_audience: bool = False
 
 
 # Bounded LRU mirroring the vector `_dataset_cache`. An
@@ -721,6 +724,7 @@ async def _read_raster_meta(
         text(
             f"""
             SELECT
+                r.id AS record_id,
                 r.visibility,
                 r.record_status,
                 r.created_by,
@@ -733,7 +737,11 @@ async def _read_raster_meta(
                 ra.band_info,
                 ra.nodata,
                 d.tile_cache_version,
-                d.publication_version, {remote_sources.MEMBER_SOURCES_COLUMN}
+                d.publication_version, {remote_sources.MEMBER_SOURCES_COLUMN},
+                ARRAY(
+                    SELECT vsl.source_dataset_id FROM catalog.vrt_source_links vsl
+                    WHERE vsl.vrt_dataset_id = d.id
+                ) AS member_ids
             FROM catalog.datasets d
             JOIN catalog.records r ON d.record_id = r.id
             LEFT JOIN catalog.raster_assets ra ON ra.dataset_id = d.id
@@ -759,6 +767,19 @@ async def _read_raster_meta(
             status_code=status.HTTP_404_NOT_FOUND, detail="No raster asset"
         )
 
+    members_beyond_audience = bool(row["member_ids"]) and bool(
+        await get_processing_port().vrt_members_beyond_audience(
+            db,
+            row["member_ids"],
+            RecordAudienceQuery(
+                dataset_id=dataset_id,
+                record_id=row["record_id"],
+                owner_id=row["created_by"],
+                visibility=row["visibility"],
+                record_status=row["record_status"],
+            ),
+        )
+    )
     return _RasterMeta(
         visibility=row["visibility"],
         record_status=row["record_status"],
@@ -774,6 +795,7 @@ async def _read_raster_meta(
         tile_cache_version=row["tile_cache_version"] or 1,
         publication_version=row["publication_version"] or 0,
         member_sources=row["member_sources"] or {},
+        members_beyond_audience=members_beyond_audience,
     )
 
 
@@ -936,6 +958,12 @@ async def _resolve_raster_access(
                         detail="Dataset not found",
                     )
 
+    if meta.members_beyond_audience:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A source of this mosaic is not visible to everyone who can see it",
+        )
+
     # fix(#1778): hand the API-pool connection back before the caller goes
     # upstream, or a handful of concurrent tiles park the pool for three Titiler
     # attempts at a 30s timeout. Read-only, so the rollback discards nothing.
@@ -963,7 +991,8 @@ async def raster_auth_check(
 
     Returns 200 with the open-path/cache-status headers, 401 if auth is
     missing, 403 if the embed token is invalid, 404 if not found/not
-    raster/no asset, 409 for a mosaic naming a remote member.
+    raster/no asset, 409 for a mosaic naming a remote member or reaching
+    anyone who cannot read one of its members.
     """
     # fix(#1372): nginx keys on the FIRST occurrence of `v` and matches the
     # name case-insensitively; `QueryParams.get()` returns the LAST occurrence

@@ -95,6 +95,9 @@ class FakeProcessingPort:
     async def get_user_roles(self, session, user):
         return {"viewer"}
 
+    async def vrt_members_beyond_audience(self, session, member_ids, vrt):
+        return []
+
     async def run_analysis_preview(
         self,
         session,
