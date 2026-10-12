@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as app_settings
 from app.core.dependencies import get_client_ip, get_db
+from app.core.identity import Identity
 from app.modules.admin.schemas import (
     AdminApiKeyCreateRequest,
     AdminApiKeyListItem,
@@ -24,7 +25,11 @@ from app.modules.admin.schemas import (
 )
 from app.modules.admin.service import AdminService
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.modules.auth.dependencies import require_mode_permission, require_permission
+from app.modules.auth.dependencies import (
+    require_mode_permission,
+    require_permission,
+    require_session_credential,
+)
 from app.modules.auth.models import ApiKey, User
 from app.platform.ratelimit import limiter
 from app.modules.auth.schemas import ApiKeyCreateResponse
@@ -66,11 +71,13 @@ async def create_api_key(
     body: AdminApiKeyCreateRequest,
     request: Request,
     current_user: User = Depends(require_permission("manage_users")),
+    _session: Identity = Depends(require_session_credential),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyCreateResponse:
     """Create an API key for a user (admin only).
 
     The raw key is returned only in this response and cannot be retrieved again.
+    Requires a signed-in session: a request that presents an API key gets 403.
     """
     from app.modules.auth.service import (
         ApiKeyTargetUserInactiveError,

@@ -645,6 +645,23 @@ async def get_current_active_user(
     return current_user
 
 
+async def require_session_credential(
+    request: Request,
+    current_user: Annotated[Identity, Depends(get_current_active_user)],
+) -> Identity:
+    """The signed-in user, refusing a request that presents an API key.
+
+    A key able to mint another key would let a leaked key outlive its own
+    revocation.
+    """
+    if _supplied_api_key(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API keys can't be created with an API key; sign in instead",
+        )
+    return current_user
+
+
 async def get_cached_user_roles(
     request: Request,
     db: AsyncSession = Depends(get_db),

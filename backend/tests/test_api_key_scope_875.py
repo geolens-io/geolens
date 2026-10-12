@@ -284,11 +284,35 @@ async def test_full_key_is_unchanged_on_read_and_write(client: AsyncClient):
     assert me_resp.status_code == 200
 
     created = await client.post(
-        "/auth/api-keys/",
-        json={"name": "Minted By A Full Key"},
+        "/maps/",
+        json={"name": f"Made By A Full Key {uuid.uuid4().hex[:6]}"},
         headers={"X-Api-Key": raw_key},
     )
-    assert created.status_code == 201
+    assert created.status_code == 201, created.text
+
+
+@pytest.mark.anyio
+async def test_no_api_key_can_create_an_api_key(client: AsyncClient):
+    """Both key-creation routes refuse a request that presents an API key, even alongside a valid session."""
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    admin_id = await _get_admin(client, headers)
+    raw_key = (await _mint(client, headers, scope="full"))["key"]
+    before = (await client.get("/auth/api-keys/", headers=headers)).json()["total"]
+
+    for caller in ({"X-Api-Key": raw_key}, {**headers, "X-Api-Key": raw_key}):
+        own = await client.post(
+            "/auth/api-keys/", json={"name": "Child Key"}, headers=caller
+        )
+        assert own.status_code == 403, own.text
+        admin = await client.post(
+            "/admin/api-keys/",
+            json={"user_id": str(admin_id), "name": "Child Key"},
+            headers=caller,
+        )
+        assert admin.status_code == 403, admin.text
+
+    after = (await client.get("/auth/api-keys/", headers=headers)).json()["total"]
+    assert after == before
 
 
 @pytest.mark.anyio
@@ -312,11 +336,11 @@ async def test_key_predating_the_migration_resolves_as_full(
     await test_db_session.commit()
 
     resp = await client.post(
-        "/auth/api-keys/",
-        json={"name": "Backfilled Key Still Writes"},
+        "/maps/",
+        json={"name": f"Backfilled Key Still Writes {uuid.uuid4().hex[:6]}"},
         headers={"X-Api-Key": data["key"]},
     )
-    assert resp.status_code == 201
+    assert resp.status_code == 201, resp.text
 
 
 @pytest.mark.anyio

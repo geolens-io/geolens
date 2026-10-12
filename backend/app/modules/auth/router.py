@@ -34,6 +34,7 @@ from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
     get_optional_user_fail_open,
+    require_session_credential,
 )
 from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.core.identity import Identity
@@ -1179,12 +1180,13 @@ async def list_my_api_keys(
 async def create_my_api_key(
     body: ApiKeyCreateRequest,
     request: Request,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_session_credential),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyCreateResponse:
     """Create an API key for the current user.
 
     The raw key is returned only in this response and cannot be retrieved again.
+    Requires a signed-in session: a request that presents an API key gets 403.
     """
     from app.modules.audit.service import (
         AuditEvent,
