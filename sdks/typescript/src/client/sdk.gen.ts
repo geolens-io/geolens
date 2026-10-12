@@ -3442,9 +3442,9 @@ export const registerTableIngestRegisterPost = <ThrowOnError extends boolean = f
  * Bulk-register multiple existing PostGIS tables as datasets.
  *
  * Each table is registered independently -- one failure does not block
- * others. Tables are processed in parallel via ``asyncio.gather`` with
- * a fresh session per task, which keeps transaction isolation while
- * removing the sequential per-table latency.
+ * others. Each table gets its own session, and at most
+ * ``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the
+ * shared connection pool.
  */
 export const bulkRegisterTablesIngestRegisterBulkPost = <ThrowOnError extends boolean = false>(options: Options<BulkRegisterTablesIngestRegisterBulkPostData, ThrowOnError>): RequestResult<BulkRegisterTablesIngestRegisterBulkPostResponses, BulkRegisterTablesIngestRegisterBulkPostErrors, ThrowOnError> => (options.client ?? client).post<BulkRegisterTablesIngestRegisterBulkPostResponses, BulkRegisterTablesIngestRegisterBulkPostErrors, ThrowOnError>({
     security: [

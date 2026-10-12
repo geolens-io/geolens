@@ -164,6 +164,9 @@ from app.standards.ogc.errors import (
 
 logger = structlog.get_logger(__name__)
 
+# Each bulk-register item holds a pooled connection while it runs.
+_BULK_REGISTER_CONCURRENCY = 4
+
 router = APIRouter(
     prefix="/ingest",
     tags=["Datasets"],
@@ -1285,9 +1288,9 @@ async def bulk_register_tables(
     """Bulk-register multiple existing PostGIS tables as datasets.
 
     Each table is registered independently -- one failure does not block
-    others. Tables are processed in parallel via ``asyncio.gather`` with
-    a fresh session per task, which keeps transaction isolation while
-    removing the sequential per-table latency.
+    others. Each table gets its own session, and at most
+    ``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the
+    shared connection pool.
     """
     from app.core.db import async_session
 
@@ -1299,10 +1302,12 @@ async def bulk_register_tables(
     if any(item.visibility == "public" for item in request.tables):
         await check_public_visibility_allowed(db, user, "public")
 
+    slots = asyncio.Semaphore(_BULK_REGISTER_CONCURRENCY)
+
     async def _register_one(
         table_req: BulkRegisterItem,
     ) -> BulkRegisterResult:
-        async with async_session() as task_db:
+        async with slots, async_session() as task_db:
             try:
                 reg_request = RegisterRequest(
                     table_name=table_req.table_name,

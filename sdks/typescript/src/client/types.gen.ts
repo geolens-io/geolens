@@ -1705,7 +1705,7 @@ export type BulkRegisterRequest = {
     /**
      * Tables
      *
-     * List of tables to register as datasets in a single request.
+     * Tables to register as datasets in a single request, at most 100.
      */
     tables: Array<BulkRegisterItem>;
 };

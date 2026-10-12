@@ -3255,9 +3255,9 @@ export interface paths {
          * @description Bulk-register multiple existing PostGIS tables as datasets.
          *
          *     Each table is registered independently -- one failure does not block
-         *     others. Tables are processed in parallel via ``asyncio.gather`` with
-         *     a fresh session per task, which keeps transaction isolation while
-         *     removing the sequential per-table latency.
+         *     others. Each table gets its own session, and at most
+         *     ``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the
+         *     shared connection pool.
          */
         post: operations["bulk_register_tables_ingest_register_bulk__post"];
         delete?: never;
@@ -6984,7 +6984,7 @@ export interface components {
         BulkRegisterRequest: {
             /**
              * Tables
-             * @description List of tables to register as datasets in a single request.
+             * @description Tables to register as datasets in a single request, at most 100.
              */
             tables: components["schemas"]["BulkRegisterItem"][];
         };

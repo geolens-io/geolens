@@ -18,7 +18,7 @@ T = TypeVar("T", bound="BulkRegisterRequest")
 class BulkRegisterRequest:
     """
     Attributes:
-        tables (list[BulkRegisterItem]): List of tables to register as datasets in a single request.
+        tables (list[BulkRegisterItem]): Tables to register as datasets in a single request, at most 100.
     """
 
     tables: list[BulkRegisterItem]

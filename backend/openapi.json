@@ -2769,10 +2769,11 @@
       "BulkRegisterRequest": {
         "properties": {
           "tables": {
-            "description": "List of tables to register as datasets in a single request.",
+            "description": "Tables to register as datasets in a single request, at most 100.",
             "items": {
               "$ref": "#/components/schemas/BulkRegisterItem"
             },
+            "maxItems": 100,
             "title": "Tables",
             "type": "array"
           }
@@ -45058,7 +45059,7 @@
     },
     "/ingest/register/bulk/": {
       "post": {
-        "description": "Bulk-register multiple existing PostGIS tables as datasets.\n\nEach table is registered independently -- one failure does not block\nothers. Tables are processed in parallel via ``asyncio.gather`` with\na fresh session per task, which keeps transaction isolation while\nremoving the sequential per-table latency.",
+        "description": "Bulk-register multiple existing PostGIS tables as datasets.\n\nEach table is registered independently -- one failure does not block\nothers. Each table gets its own session, and at most\n``_BULK_REGISTER_CONCURRENCY`` run at once so one batch cannot drain the\nshared connection pool.",
         "operationId": "bulk_register_tables_ingest_register_bulk__post",
         "requestBody": {
           "content": {

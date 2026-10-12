@@ -580,7 +580,8 @@ class BulkRegisterItem(BaseModel):
 
 class BulkRegisterRequest(BaseModel):
     tables: list[BulkRegisterItem] = Field(
-        description="List of tables to register as datasets in a single request."
+        max_length=100,
+        description="Tables to register as datasets in a single request, at most 100.",
     )
 
 
