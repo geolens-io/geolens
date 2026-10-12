@@ -400,6 +400,21 @@ class TestSTACAnonymousCache:
         for path in ("/stac/", "/stac/collections"):
             assert str(coll.id) in (await client.get(path)).text
 
+    async def test_catalog_invalidation_drops_cached_listings(
+        self, client: AsyncClient, test_db_session
+    ):
+        from app.platform.cache.tiles import invalidate_catalog_cache
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        for path in ("/stac/", "/stac/collections"):
+            await client.get(path)
+        ds = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        coll = await _add_collection(test_db_session, admin_id, ds)
+        await invalidate_catalog_cache()
+
+        for path in ("/stac/", "/stac/collections"):
+            assert str(coll.id) in (await client.get(path)).text
+
     async def test_cache_stores_a_bounded_number_of_live_keys(
         self, client: AsyncClient, monkeypatch
     ):

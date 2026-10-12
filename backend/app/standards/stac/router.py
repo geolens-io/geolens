@@ -570,7 +570,7 @@ def _anon_cache_key(name: str, user: Identity | None, stac_api_url: str) -> str 
     API URL is the only varying part."""
     if user is not None or not tenant_cache_context_available():
         return None
-    return tenant_cache_key(f"stac:{name}:{stac_api_url}")
+    return tenant_cache_key(f"catalog:stac:{name}:{stac_api_url}")
 
 
 async def _anon_cache_get(key: str | None, model: type[_M]) -> _M | None:

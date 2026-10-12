@@ -1474,3 +1474,17 @@ async def test_feed_waiting_for_a_render_slot_holds_no_pooled_connection(
         event.remove(engine, "checkin", _in)
 
     assert held_while_waiting == baseline
+
+
+@pytest.mark.anyio
+async def test_catalog_invalidation_drops_cached_feeds(
+    client: AsyncClient, test_db_session
+):
+    from app.platform.cache.tiles import invalidate_catalog_cache
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    await client.get("/datasets/dcat/")
+    ds = await _create_dcat_dataset(test_db_session, created_by=admin_id, name="Inval")
+    await invalidate_catalog_cache()
+
+    assert str((await client.get("/datasets/dcat/")).text).count(str(ds.id)) >= 1
