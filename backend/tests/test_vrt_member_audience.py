@@ -512,3 +512,43 @@ async def test_transfer_to_the_vrt_owner_makes_the_member_their_own(
     )
 
     assert resp.status_code == 200, resp.text
+
+
+async def test_the_owner_exemption_needs_the_owner_to_read_the_member(
+    test_db_session, monkeypatch
+):
+    import sqlalchemy as sa
+
+    from app.modules.catalog import authorization
+    from app.platform.extensions import (
+        DefaultPermissionExtension,
+        RecordAudience,
+        RecordAudienceQuery,
+    )
+
+    admin_id = await _get_admin_id(test_db_session)
+    src = await _create_raster_dataset(test_db_session, created_by=admin_id)
+
+    class _DeniesTheSource(DefaultPermissionExtension):
+        async def record_audience(self, query, user_cls, *, grant_cls=None):
+            if query.dataset_id == src:
+                return RecordAudience(users=sa.false(), includes_anonymous=False)
+            return await super().record_audience(query, user_cls, grant_cls=grant_cls)
+
+    vrt = RecordAudienceQuery(
+        dataset_id=None,
+        record_id=None,
+        owner_id=admin_id,
+        visibility="private",
+        record_status="published",
+    )
+    assert (
+        await authorization.vrt_members_beyond_audience(test_db_session, [src], vrt)
+        == []
+    )
+
+    monkeypatch.setattr(authorization, "get_permission_extension", _DeniesTheSource)
+
+    assert await authorization.vrt_members_beyond_audience(
+        test_db_session, [src], vrt
+    ) == [src]

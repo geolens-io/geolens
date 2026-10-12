@@ -639,11 +639,13 @@ VRT_AUDIENCE_EXCEEDS_SOURCES = (
 async def _audiences_exceeded(
     db: AsyncSession, pairs: Sequence[tuple[Any, Any]]
 ) -> list[bool]:
-    """For each ``(outer, inner)`` RecordAudienceQuery pair: may somebody who
-    can read ``outer`` be unable to read ``inner``?
+    """For each ``(vrt, member)`` RecordAudienceQuery pair: may somebody who
+    can read the VRT be unable to read the member?
 
-    An account the authority leaves unclassified (NULL) counts as unable, as
-    in the shared-map guard. An authority that can't answer
+    A member the VRT's owner also owns and can read never counts: publishing
+    a mosaic of one's own data is the owner's choice, as exporting it would
+    be. An account the authority leaves unclassified (NULL) counts as unable,
+    as in the shared-map guard. An authority that can't answer
     (:func:`answers_audience_questions`) gets every pair counted.
     """
     from app.modules.auth.models import User
@@ -654,17 +656,18 @@ async def _audiences_exceeded(
         return [True] * len(pairs)
     audiences = [
         (
-            await permission.record_audience(outer, User, grant_cls=DatasetGrant),
-            await permission.record_audience(inner, User, grant_cls=DatasetGrant),
+            await permission.record_audience(vrt, User, grant_cls=DatasetGrant),
+            await permission.record_audience(member, User, grant_cls=DatasetGrant),
         )
-        for outer, inner in pairs
+        for vrt, member in pairs
     ]
     if not audiences:
         return []
-    # One statement whatever the member count: each arm names its pair's index
-    # when a reader of the outer record may be outside the inner one.
+    # One statement whatever the member count. An "x" row names a pair where a
+    # reader of the VRT may be outside the member; an "o" row, a shared owner
+    # who can read the member.
     arms = [
-        select(literal(index)).where(
+        select(literal(index), literal("x")).where(
             select(User.id)
             .where(User.is_active.is_(True))
             .where(User.status == "active")
@@ -674,10 +677,26 @@ async def _audiences_exceeded(
         )
         for index, (outer, inner) in enumerate(audiences)
     ]
+    shared = [
+        index for index, (vrt, member) in enumerate(pairs) if _shares_owner(vrt, member)
+    ]
+    arms += [
+        select(literal(index), literal("o")).where(
+            select(User.id)
+            .where(User.id == pairs[index][0].owner_id)
+            .where(audiences[index][1].users.is_(True))
+            .exists()
+        )
+        for index in shared
+    ]
     statement = arms[0] if len(arms) == 1 else union_all(*arms)
-    exceeded = set((await db.execute(statement)).scalars())
+    rows = {(index, kind) for index, kind in (await db.execute(statement)).all()}
     return [
-        index in exceeded or (outer.includes_anonymous and not inner.includes_anonymous)
+        (index, "o") not in rows
+        and (
+            (index, "x") in rows
+            or (outer.includes_anonymous and not inner.includes_anonymous)
+        )
         for index, (outer, inner) in enumerate(audiences)
     ]
 
@@ -748,35 +767,18 @@ def _shares_owner(vrt: RecordAudienceQuery, member: RecordAudienceQuery) -> bool
     return vrt.owner_id is not None and vrt.owner_id == member.owner_id
 
 
-async def _exceeded_across_owners(
-    db: AsyncSession, pairs: Sequence[tuple[Any, Any]]
-) -> list[bool]:
-    """:func:`_audiences_exceeded` for ``(vrt, member)`` pairs, never counting a
-    member the VRT's owner also owns: publishing a mosaic of one's own data is
-    the owner's choice, as exporting it would be."""
-    checked = [
-        i for i, (vrt, member) in enumerate(pairs) if not _shares_owner(vrt, member)
-    ]
-    flags = [False] * len(pairs)
-    exceeded = await _audiences_exceeded(db, [pairs[i] for i in checked])
-    for index, flag in zip(checked, exceeded, strict=True):
-        flags[index] = flag
-    return flags
-
-
 async def vrt_members_beyond_audience(
     db: AsyncSession, member_ids: Iterable[uuid.UUID], vrt: RecordAudienceQuery
 ) -> list[uuid.UUID]:
-    """Members owned by someone else that somebody in ``vrt``'s audience cannot
-    read.
+    """Members that somebody in ``vrt``'s audience cannot read.
 
     A mosaic serves its members' pixels to everyone who can read the mosaic,
-    so each member another user owns has to have an audience containing the
-    mosaic's. ``vrt.owner_id`` is the mosaic's owner.
+    so each member's audience has to contain the mosaic's, unless the
+    mosaic's owner (``vrt.owner_id``) also owns and can read the member.
     """
     members = await _record_audience_queries(db, member_ids)
     ids = list(members)
-    flags = await _exceeded_across_owners(db, [(vrt, members[i][0]) for i in ids])
+    flags = await _audiences_exceeded(db, [(vrt, members[i][0]) for i in ids])
     return [dataset_id for dataset_id, flag in zip(ids, flags, strict=True) if flag]
 
 
@@ -843,8 +845,8 @@ async def check_vrt_audiences_after_change(
         )
         linked = await _record_audience_queries(db, vrt_ids)
         pairs = [((q, before), (q, after), t) for q, t in linked.values()]
-    then = await _exceeded_across_owners(db, [pair[0] for pair in pairs])
-    now = await _exceeded_across_owners(db, [pair[1] for pair in pairs])
+    then = await _audiences_exceeded(db, [pair[0] for pair in pairs])
+    now = await _audiences_exceeded(db, [pair[1] for pair in pairs])
     newly = sorted(
         pair[2]
         for pair, was, is_ in zip(pairs, then, now, strict=True)
