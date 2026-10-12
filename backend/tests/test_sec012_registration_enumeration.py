@@ -173,3 +173,31 @@ class TestSec012UniformRegistrationResponse:
         assert result_after.scalar_one() == 1, (
             "New registration must create exactly one row"
         )
+
+
+class TestRegistrationHashesEveryAttempt:
+    """A colliding registration pays the same password-hash cost as a new one."""
+
+    @pytest.mark.parametrize("collides_on", ["username", "email"])
+    async def test_collision_hashes_the_password(
+        self, client: AsyncClient, monkeypatch, collides_on: str
+    ):
+        """register_user hashes the submitted password before refusing a taken username or email."""
+        from app.modules.auth import service as auth_service
+
+        monkeypatch.setattr(
+            REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
+        )
+        username = _unique("hashed")
+        email = f"{_unique('hashed')}@example.com"
+        assert (await _register(client, username, email=email)).status_code == 201
+
+        hashed = AsyncMock(wraps=auth_service.hash_password_async)
+        monkeypatch.setattr(auth_service, "hash_password_async", hashed)
+        if collides_on == "username":
+            resp = await _register(client, username)
+        else:
+            resp = await _register(client, _unique("hashed"), email=email)
+
+        assert resp.status_code == 201
+        hashed.assert_awaited_once()

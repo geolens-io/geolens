@@ -582,6 +582,10 @@ class AuthService:
         ADMIN-05 (L-02): FLUSHES but does NOT commit — the caller controls
         the transaction so a follow-up audit_emit lands in the same one.
         """
+        # Hashed before the existence checks so a taken name or email costs
+        # the same bcrypt time as a new account and the timing can't tell
+        # them apart.
+        password_hash = await hash_password_async(password)
         existing = await self.db.execute(
             select(User).where(func.lower(User.username) == func.lower(username))
         )
@@ -597,7 +601,7 @@ class AuthService:
 
         user = User(
             username=username,
-            password_hash=await hash_password_async(password),
+            password_hash=password_hash,
             email=email,
             status="pending",
             is_active=False,
