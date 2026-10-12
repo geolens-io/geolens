@@ -14,6 +14,7 @@ from fastapi import (
     status,
 )
 from fastapi.security import OAuth2PasswordRequestForm
+from limits import RateLimitItemPerMinute
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,7 +79,7 @@ from app.core.persistent_config import (
     get_cached_login_rate_limit,
 )
 from app.modules.auth.domain_policy import enforce_email_domain_gate
-from app.platform.ratelimit import limiter
+from app.platform.ratelimit import FailureThrottle, limiter
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
@@ -86,6 +87,12 @@ router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH
 
 def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
+
+
+# Failed sign-ins per username from every address combined. Anyone can spend
+# an account's budget, so the window is short: a lockout ends 15 minutes after
+# the failures stop, and a successful sign-in never counts.
+_LOGIN_FAILURES = FailureThrottle("login-failures", RateLimitItemPerMinute(10, 15))
 
 
 # fix(#1496): the browser cookie flow is negotiated via two request headers
@@ -173,12 +180,23 @@ async def login(
         )
         await db.commit()
 
+    throttle_key = attempted_username.lower()
+    retry_after = _LOGIN_FAILURES.retry_after(throttle_key)
+    if retry_after is not None:
+        await _audit_login_failure("too_many_failures", user_id=None)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed sign-in attempts; try again later",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     provider = LocalAuthProvider(db)
     try:
         identity = await provider.authenticate(
             username=form_data.username, password=form_data.password
         )
     except AuthenticationError:
+        _LOGIN_FAILURES.record_failure(throttle_key)
         # user_id stays None: LocalAuthProvider deliberately doesn't disclose
         # whether the username exists (both branches raise identically, a
         # timing-attack guard), and the audit row must not either.

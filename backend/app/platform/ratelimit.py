@@ -23,12 +23,17 @@ pre-#2018 behaviour, rather than to no limit or a 500 per request.
 
 from __future__ import annotations
 
+import math
+import time
+from collections.abc import Callable
 from functools import cache
-from typing import Any
+from typing import Any, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
 from fastapi import Request
+from limits import RateLimitItem
+from limits.strategies import RateLimiter
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -36,6 +41,8 @@ from app.core.config import settings
 from app.core.persistent_config import get_cached_global_rate_limit
 
 logger = structlog.stdlib.get_logger(__name__)
+
+_T = TypeVar("_T")
 
 # fix(#2018): the storage decision is made while this module is imported,
 # which `app/api/main.py` does before it calls `setup_logging`. Logging there
@@ -169,3 +176,40 @@ limiter = _FallbackAnnouncingLimiter(
     },
     in_memory_fallback_enabled=True,
 )
+
+
+class FailureThrottle:
+    """A per-key budget that only failed attempts spend.
+
+    Unlike a route limit, a success costs nothing, so the key's owner isn't
+    throttled by their own successful requests. It shares the limiter's store
+    and its switch: ``limiter.enabled = False`` turns it off too.
+    """
+
+    def __init__(self, namespace: str, limit: RateLimitItem) -> None:
+        self._namespace = namespace
+        self._limit = limit
+
+    def retry_after(self, key: str) -> int | None:
+        """Seconds until ``key`` may try again, or None while it has budget left."""
+        if not limiter.enabled:
+            return None
+        if self._call(lambda store: store.test(self._limit, self._namespace, key)):
+            return None
+        reset_at, _ = self._call(
+            lambda store: store.get_window_stats(self._limit, self._namespace, key)
+        )
+        return max(1, math.ceil(reset_at - time.time()))
+
+    def record_failure(self, key: str) -> None:
+        if limiter.enabled:
+            self._call(lambda store: store.hit(self._limit, self._namespace, key))
+
+    def _call(self, operation: Callable[[RateLimiter], _T]) -> _T:
+        try:
+            return operation(limiter.limiter)
+        except Exception:  # broad: an unreachable store degrades to per-worker counting, as route limits do
+            if limiter._storage_dead:
+                raise
+            limiter._storage_dead = True
+            return operation(limiter.limiter)
