@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
-from collections import OrderedDict
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, TypeVar
@@ -558,9 +558,9 @@ async def _collection_scope_filter(
 
 _STAC_ANON_CACHE_TTL = 30  # seconds, matches the search cache
 # The API URL can follow the request host, so distinct hosts mint distinct keys;
-# only the most recent ones stay stored.
+# a process stores at most this many live keys.
 _STAC_ANON_CACHE_MAX_KEYS = 64
-_stac_stored_keys: OrderedDict[str, None] = OrderedDict()
+_stac_stored_keys: dict[str, float] = {}  # key -> expiry (monotonic)
 
 _M = TypeVar("_M", bound=BaseModel)
 
@@ -580,17 +580,16 @@ async def _anon_cache_get(key: str | None, model: type[_M]) -> _M | None:
 
 async def _anon_cache_put(key: str | None, result: BaseModel) -> None:
     if key is not None:
-        cache = get_cache()
-        await cache.set(
-            key,
-            result.model_dump(mode="json", exclude_none=True),
-            ttl=_STAC_ANON_CACHE_TTL,
-        )
-        _stac_stored_keys[key] = None
-        _stac_stored_keys.move_to_end(key)
-        while len(_stac_stored_keys) > _STAC_ANON_CACHE_MAX_KEYS:
-            evicted, _ = _stac_stored_keys.popitem(last=False)
-            await cache.delete(evicted)
+        now = time.monotonic()
+        for stale in [k for k, t in _stac_stored_keys.items() if t <= now]:
+            del _stac_stored_keys[stale]
+        if len(_stac_stored_keys) < _STAC_ANON_CACHE_MAX_KEYS:
+            _stac_stored_keys[key] = now + _STAC_ANON_CACHE_TTL
+            await get_cache().set(
+                key,
+                result.model_dump(mode="json", exclude_none=True),
+                ttl=_STAC_ANON_CACHE_TTL,
+            )
 
 
 # ---------------------------------------------------------------------------

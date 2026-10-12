@@ -3,7 +3,7 @@
 import asyncio
 import hashlib
 import json
-from collections import OrderedDict
+import time
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -20,11 +20,12 @@ from app.platform.cache import (
 FEED_CACHE_TTL = 30  # seconds, matches the search cache
 
 # Distinct limit/offset values mint distinct keys, so oversized bodies skip the
-# cache and only the most recent keys stay stored: at most
-# _FEED_CACHE_MAX_KEYS * _FEED_CACHE_MAX_BYTES (128 MiB) per process.
+# cache and a process stores at most _FEED_CACHE_MAX_KEYS live keys: at most
+# _FEED_CACHE_MAX_KEYS * _FEED_CACHE_MAX_BYTES (128 MiB) per process. Entries
+# are never deleted early because the store may be shared with other workers.
 _FEED_CACHE_MAX_BYTES = 4 * 1024 * 1024
 _FEED_CACHE_MAX_KEYS = 32
-_stored_keys: OrderedDict[str, None] = OrderedDict()
+_stored_keys: dict[str, float] = {}  # key -> expiry (monotonic)
 _in_flight: dict[str, list] = {}  # key -> [lock, waiters]
 
 # Cold renders are CPU-bound; without a cap they would all run at once in the
@@ -33,6 +34,12 @@ _MAX_CONCURRENT_RENDERS = 2
 _render_slots = asyncio.Semaphore(_MAX_CONCURRENT_RENDERS)
 
 T = TypeVar("T")
+
+
+def _prune_stored_keys() -> None:
+    now = time.monotonic()
+    for key in [k for k, expires in _stored_keys.items() if expires <= now]:
+        del _stored_keys[key]
 
 
 def _encode(content: dict) -> str:
@@ -109,13 +116,10 @@ async def _render(
 
     body, size, headers = await run_in_threadpool(render)
     if cache_key is not None and size <= _FEED_CACHE_MAX_BYTES:
-        cache = get_cache()
-        await cache.set(
-            cache_key, {"body": body, "headers": headers}, ttl=FEED_CACHE_TTL
-        )
-        _stored_keys[cache_key] = None
-        _stored_keys.move_to_end(cache_key)
-        while len(_stored_keys) > _FEED_CACHE_MAX_KEYS:
-            evicted, _ = _stored_keys.popitem(last=False)
-            await cache.delete(evicted)
+        _prune_stored_keys()
+        if len(_stored_keys) < _FEED_CACHE_MAX_KEYS:
+            _stored_keys[cache_key] = time.monotonic() + FEED_CACHE_TTL
+            await get_cache().set(
+                cache_key, {"body": body, "headers": headers}, ttl=FEED_CACHE_TTL
+            )
     return Response(body, media_type=media_type, headers=headers)
