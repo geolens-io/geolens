@@ -20,6 +20,7 @@ export function CollectionMembershipManager({
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
   const [addingId, setAddingId] = useState<string | null>(null);
+  const [addedIds, setAddedIds] = useState<string[]>([]);
   const addDatasets = useAddDatasetsToCollection();
   const { data: datasetsData } = useCollectionDatasets(collectionId, 0, 200);
   const currentDatasetIds = datasetsData?.datasets.map((d) => d.id) ?? [];
@@ -47,6 +48,8 @@ export function CollectionMembershipManager({
     try {
       await addDatasets.mutateAsync({ collectionId, datasetIds: [datasetId] });
       toast.success(t('toasts.datasetAdded'));
+      // The membership list is paginated, so it may not show the new member.
+      setAddedIds((prev) => [...prev, datasetId]);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t('toasts.addError'),
@@ -57,7 +60,7 @@ export function CollectionMembershipManager({
   }
 
   // Filter out datasets already in the collection
-  const available = results.filter((r) => !currentDatasetIds.includes(r.id));
+  const available = results.filter((r) => !currentDatasetIds.includes(r.id) && !addedIds.includes(r.id));
 
   return (
     <div className="space-y-4">
