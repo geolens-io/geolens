@@ -100,6 +100,16 @@ async def test_concurrent_failures_cannot_overrun_the_budget(
     assert statuses == [401, 401, 429, 429, 429, 429]
 
 
+def test_a_refund_never_leaves_extra_tries(throttle):
+    """Releasing a unit the current window never reserved doesn't raise the budget."""
+    key = uuid.uuid4().hex
+    throttle.release(key)
+    throttle.release(key)
+    assert throttle.acquire(key) is None
+    assert throttle.acquire(key) is None
+    assert throttle.acquire(key) is not None
+
+
 def test_an_unreachable_store_falls_back_to_counting_in_memory(throttle):
     """A store error moves the count to the in-memory fallback instead of failing the request."""
 

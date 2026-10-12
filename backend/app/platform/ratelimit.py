@@ -205,13 +205,15 @@ class FailureThrottle:
     def release(self, key: str) -> None:
         """Return the unit ``acquire`` reserved, for an attempt that succeeded."""
         if limiter.enabled:
-            self._call(
-                lambda store: store.storage.incr(
-                    self._limit.key_for(self._namespace, key),
-                    self._limit.get_expiry(),
-                    amount=-1,
-                )
-            )
+            self._call(lambda store: self._refund(store, key))
+
+    def _refund(self, store: RateLimiter, key: str) -> None:
+        bucket = self._limit.key_for(self._namespace, key)
+        expiry = self._limit.get_expiry()
+        # The window may have expired, or the store changed, since the unit was
+        # reserved; a count below zero would hand the next window extra tries.
+        if store.storage.incr(bucket, expiry, amount=-1) < 0:
+            store.storage.incr(bucket, expiry, amount=1)
 
     def _call(self, operation: Callable[[RateLimiter], _T]) -> _T:
         try:
