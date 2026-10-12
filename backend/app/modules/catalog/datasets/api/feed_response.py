@@ -116,17 +116,17 @@ async def _render(
 ) -> Response:
     inputs = await load()
 
-    def render() -> tuple[str, int, dict[str, str]]:
+    def render() -> tuple[str, bytes, dict[str, str]]:
         content, headers = build(inputs)
         body = _encode(content)
-        return body, len(body.encode()), headers
+        return body, body.encode(), headers
 
-    body, size, headers = await run_in_threadpool(render)
-    if cache_key is not None and size <= _FEED_CACHE_MAX_BYTES:
+    text, payload, headers = await run_in_threadpool(render)
+    if cache_key is not None and len(payload) <= _FEED_CACHE_MAX_BYTES:
         _prune_stored_keys()
         if len(_stored_keys) < _FEED_CACHE_MAX_KEYS:
             _stored_keys[cache_key] = time.monotonic() + FEED_CACHE_TTL
             await get_cache().set(
-                cache_key, {"body": body, "headers": headers}, ttl=FEED_CACHE_TTL
+                cache_key, {"body": text, "headers": headers}, ttl=FEED_CACHE_TTL
             )
-    return Response(body, media_type=media_type, headers=headers)
+    return Response(payload, media_type=media_type, headers=headers)
