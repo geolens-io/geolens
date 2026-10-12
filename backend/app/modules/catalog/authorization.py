@@ -639,12 +639,11 @@ VRT_AUDIENCE_EXCEEDS_SOURCES = (
 async def _audiences_exceeded(
     db: AsyncSession, pairs: Sequence[tuple[Any, Any]]
 ) -> list[bool]:
-    """For each ``(outer, inner)`` RecordAudienceQuery pair: does somebody who
-    may read ``outer`` certainly lack access to ``inner``?
+    """For each ``(outer, inner)`` RecordAudienceQuery pair: may somebody who
+    can read ``outer`` be unable to read ``inner``?
 
-    "Certainly": an account the authority leaves unclassified (NULL) on the
-    inner side does not count, so an overlay that narrows reads by record
-    attributes doesn't refuse every mosaic. An authority that can't answer
+    An account the authority leaves unclassified (NULL) counts as unable, as
+    in the shared-map guard. An authority that can't answer
     (:func:`answers_audience_questions`) gets every pair counted.
     """
     from app.modules.auth.models import User
@@ -663,14 +662,14 @@ async def _audiences_exceeded(
     if not audiences:
         return []
     # One statement whatever the member count: each arm names its pair's index
-    # when a reader of the outer record is certainly outside the inner one.
+    # when a reader of the outer record may be outside the inner one.
     arms = [
         select(literal(index)).where(
             select(User.id)
             .where(User.is_active.is_(True))
             .where(User.status == "active")
             .where(outer.users.is_not(False))
-            .where(inner.users.is_(False))
+            .where(inner.users.is_not(True))
             .exists()
         )
         for index, (outer, inner) in enumerate(audiences)

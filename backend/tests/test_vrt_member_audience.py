@@ -411,3 +411,43 @@ async def test_an_authority_whose_audience_is_stale_counts_every_member(
     assert await authorization.vrt_members_beyond_audience(
         test_db_session, [src], vrt
     ) == [src]
+
+
+async def test_an_account_the_authority_cannot_classify_counts_as_outside(
+    test_db_session, monkeypatch
+):
+    import sqlalchemy as sa
+
+    from app.modules.catalog import authorization
+    from app.platform.extensions import (
+        DefaultPermissionExtension,
+        RecordAudience,
+        RecordAudienceQuery,
+    )
+
+    class _Unclassified(DefaultPermissionExtension):
+        async def record_audience(self, query, user_cls, *, grant_cls=None):
+            community = await super().record_audience(
+                query, user_cls, grant_cls=grant_cls
+            )
+            return RecordAudience(
+                users=sa.and_(community.users, sa.cast(sa.null(), sa.Boolean)),
+                includes_anonymous=community.includes_anonymous,
+            )
+
+    admin_id = await _get_admin_id(test_db_session)
+    src = await _create_raster_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    vrt = RecordAudienceQuery(
+        dataset_id=None,
+        record_id=None,
+        owner_id=admin_id,
+        visibility="private",
+        record_status="published",
+    )
+    monkeypatch.setattr(authorization, "get_permission_extension", _Unclassified)
+
+    assert await authorization.vrt_members_beyond_audience(
+        test_db_session, [src], vrt
+    ) == [src]
