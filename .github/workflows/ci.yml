@@ -259,6 +259,8 @@ jobs:
               # test_audit_1798_runbook_shell_sourcing.py, which asserts this
               # wrapper exists, is executable, and calls get_env_value.
               - 'scripts/env-value.sh'
+              # test_compose_db_healthcheck.py reads its db healthcheck.
+              - 'scripts/tests/ci-restore-db.compose.yml'
               # fix(#1517): test_alert_rules.py reads both of these by literal
               # path — it checks the alert rules' handler selectors against the
               # app's real route table, and that every rule has a promtool case.

@@ -26,7 +26,9 @@ services:
     volumes:
       - ../lib/configure-runtime-db-role.sh:/usr/local/bin/configure-runtime-db-role:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-geolens} -d ${POSTGRES_DB:-geolens}"]
+      # Over TCP: the entrypoint's first-boot init server listens only on the
+      # socket and is stopped before the real server starts.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-geolens} -d ${POSTGRES_DB:-geolens}"]
       interval: 5s
       timeout: 5s
       retries: 12
