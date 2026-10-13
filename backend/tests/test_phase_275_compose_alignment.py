@@ -74,9 +74,9 @@ def test_valkey_image_pinned() -> None:
         "valkey is still pinned at 8.1.6-alpine — bump (L-20)"
     )
     match = re.search(r"valkey/valkey:(\d+)\.(\d+)\.(\d+)-alpine", body)
-    assert match, "valkey 8.x-alpine image pin missing"
+    assert match, "valkey 9.x-alpine image pin missing"
     major = int(match.group(1))
-    assert major == 8, f"valkey major version is {major}; should remain 8"
+    assert major == 9, f"valkey major version is {major}; should remain 9"
 
 
 def test_uv_installer_pins_are_aligned() -> None:
