@@ -31,8 +31,8 @@ class CatalogStatsResponse:
     Attributes:
         total_datasets (int): Total number of datasets in the catalog.
         recent_additions (int): Number of datasets added in the last 30 days.
-        total_storage_bytes (int | None): Total storage used by all dataset tables, in bytes. Null if calculation is
-            unavailable.
+        total_storage_bytes (int | None): Total storage used by dataset tables and stored asset files, in bytes. Null if
+            calculation is unavailable.
         datasets_by_geometry_type (CatalogStatsResponseDatasetsByGeometryType): Histogram of datasets keyed by geometry
             type (Point, MultiPolygon, etc.).
         datasets_by_visibility (CatalogStatsResponseDatasetsByVisibility): Histogram of datasets keyed by visibility

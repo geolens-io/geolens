@@ -80,7 +80,8 @@ class PendingUserTransitionConflict(ValueError):
 
 
 async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int:
-    """Measure visible dataset tables without mixing catalog and data roles.
+    """Measure visible dataset tables and stored asset files without mixing
+    catalog and data roles.
 
     In hosted mode, catalog rows are visible to the runtime role through RLS,
     while physical table metadata is visible only after the statement hook
@@ -93,8 +94,13 @@ async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int
     data_schema = tenant_data_schema(current_tenant_var.get())
     table_result = await db.execute(select(dataset_model.table_name))
     table_names = list(table_result.scalars().all())
+    # Recorded sizes only; raster_assets.size_bytes repeats the 'data' row.
+    asset_result = await db.execute(
+        text("SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM catalog.dataset_assets")
+    )
+    asset_bytes = asset_result.scalar_one()
     if not table_names:
-        return 0
+        return asset_bytes
 
     async with db.begin_nested():
         result = await db.execute(
@@ -105,7 +111,7 @@ async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int
                 "FROM unnest(CAST(:table_names AS text[])) AS names(table_name)"
             ).bindparams(schema=data_schema, table_names=table_names)
         )
-        return result.scalar_one()
+        return result.scalar_one() + asset_bytes
 
 
 @dataclass(frozen=True)

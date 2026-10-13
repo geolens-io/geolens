@@ -2911,7 +2911,7 @@
                 "type": "null"
               }
             ],
-            "description": "Total storage used by all dataset tables, in bytes. Null if calculation is unavailable.",
+            "description": "Total storage used by dataset tables and stored asset files, in bytes. Null if calculation is unavailable.",
             "title": "Total Storage Bytes"
           },
           "datasets_by_geometry_type": {

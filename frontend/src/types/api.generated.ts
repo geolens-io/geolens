@@ -7051,7 +7051,7 @@ export interface components {
             recent_additions: number;
             /**
              * Total Storage Bytes
-             * @description Total storage used by all dataset tables, in bytes. Null if calculation is unavailable.
+             * @description Total storage used by dataset tables and stored asset files, in bytes. Null if calculation is unavailable.
              */
             total_storage_bytes: number | null;
             /**

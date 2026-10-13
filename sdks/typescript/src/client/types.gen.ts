@@ -1797,7 +1797,7 @@ export type CatalogStatsResponse = {
     /**
      * Total Storage Bytes
      *
-     * Total storage used by all dataset tables, in bytes. Null if calculation is unavailable.
+     * Total storage used by dataset tables and stored asset files, in bytes. Null if calculation is unavailable.
      */
     total_storage_bytes: number | null;
     /**

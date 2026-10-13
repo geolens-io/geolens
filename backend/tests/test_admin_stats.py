@@ -79,11 +79,13 @@ async def test_hosted_storage_query_separates_catalog_and_tenant_data_roles(
 
     catalog_result = MagicMock()
     catalog_result.scalars.return_value.all.return_value = ["roads"]
+    asset_result = MagicMock()
+    asset_result.scalar_one.return_value = 1000
     storage_result = MagicMock()
     storage_result.scalar_one.return_value = 4096
 
     db = MagicMock()
-    db.execute = AsyncMock(side_effect=[catalog_result, storage_result])
+    db.execute = AsyncMock(side_effect=[catalog_result, asset_result, storage_result])
     nested = MagicMock()
     nested.__aenter__ = AsyncMock(return_value=nested)
     nested.__aexit__ = AsyncMock(return_value=False)
@@ -95,10 +97,10 @@ async def test_hosted_storage_query_separates_catalog_and_tenant_data_roles(
     finally:
         current_tenant_var.reset(token)
 
-    assert total == 4096
-    assert db.execute.await_count == 2
+    assert total == 4096 + 1000
+    assert db.execute.await_count == 3
     catalog_statement = db.execute.await_args_list[0].args[0]
-    storage_statement = db.execute.await_args_list[1].args[0]
+    storage_statement = db.execute.await_args_list[2].args[0]
     catalog_sql = str(catalog_statement)
     storage_sql = str(storage_statement)
     assert "catalog.datasets" in catalog_sql
@@ -109,6 +111,46 @@ async def test_hosted_storage_query_separates_catalog_and_tenant_data_roles(
         "schema": expected_schema,
         "table_names": ["roads"],
     }
+
+
+@pytest.mark.anyio
+async def test_stats_storage_includes_recorded_asset_bytes(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Raster, point cloud and tileset bytes count toward the storage total."""
+    from sqlalchemy import text
+
+    from app.processing.raster.models import DatasetAsset
+    from tests.factories import create_raster_dataset, get_user_id
+
+    asset_bytes = 7_000_000_000
+    before = (await client.get("/admin/stats/", headers=admin_auth_header)).json()
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await create_raster_dataset(
+        test_db_session, created_by=admin_id, name="Storage total raster"
+    )
+    test_db_session.add(
+        DatasetAsset(
+            dataset_id=dataset.id,
+            key="data",
+            href=f"https://example.invalid/{uuid.uuid4()}.tif",
+            size_bytes=asset_bytes,
+        )
+    )
+    await test_db_session.commit()
+    try:
+        after = (await client.get("/admin/stats/", headers=admin_auth_header)).json()
+    finally:
+        await test_db_session.execute(
+            text("DELETE FROM catalog.records WHERE id = :id"),
+            {"id": dataset.record_id},
+        )
+        await test_db_session.commit()
+
+    assert after["total_storage_bytes"] - before["total_storage_bytes"] >= asset_bytes
 
 
 @pytest.mark.anyio
