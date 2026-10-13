@@ -332,17 +332,21 @@ async def _sweep_expired(db: AsyncSession, now: datetime) -> None:
     Fixed order with locked rows skipped, so two sweeps for different
     accounts never deadlock over the same expired rows. Each reservation
     adds one row and removes up to a batch, so a backlog drains without
-    one sign-in paying for all of it.
+    one sign-in paying for all of it. The batch is a materialized CTE: as a
+    plain ``IN`` subquery the planner may rescan it, and each rescan of a
+    ``LIMIT ... SKIP LOCKED`` select can hand back a fresh batch.
     """
-    expired = (
+    batch = (
         select(LoginAttempt.id)
         .where(LoginAttempt.attempted_at < now - LOGIN_FAILURE_WINDOW)
         .order_by(LoginAttempt.id)
         .limit(_SWEEP_BATCH)
         .with_for_update(skip_locked=True)
+        .cte("expired_login_attempts")
+        .prefix_with("MATERIALIZED")
     )
     await db.execute(
-        delete(LoginAttempt).where(LoginAttempt.id.in_(expired.scalar_subquery()))
+        delete(LoginAttempt).where(LoginAttempt.id.in_(select(batch.c.id)))
     )
 
 
