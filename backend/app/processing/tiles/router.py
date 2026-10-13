@@ -323,10 +323,15 @@ _DTYPE_MAX = {
 }
 
 _FLOAT_DTYPES = frozenset({"float32", "float64"})
+# Signed integers have negative values the 0..max dtype rescale would clip, but
+# only a single band gets the data range: multi-band signed imagery keeps the
+# dtype rescale.
+_SIGNED_INT_DTYPES = frozenset({"int8", "int16", "int32"})
 
-# Set by raster_auth_check when the default rescale for a float raster should
-# come from the data range; the tile proxy reads statistics so that work sits
-# behind the tile rate limit and is skipped when another stretch replaces it.
+# Set by raster_auth_check when the default rescale for a float or signed
+# integer raster should come from the data range; the tile proxy reads
+# statistics so that work sits behind the tile rate limit and is skipped when
+# another stretch replaces it.
 _DATA_RANGE_HEADER = "X-GeoLens-Data-Range-Default"
 
 _WEB_MERCATOR_EQUATOR_RESOLUTION_M = 156543.03392804097
@@ -1050,7 +1055,10 @@ async def raster_auth_check(
         render_params = "&".join(parts)
     else:
         render_params = _titiler_render_params(meta.band_count, meta.dtype)
-        float_default_range = (meta.dtype or "").lower() in _FLOAT_DTYPES
+        dtype = (meta.dtype or "").lower()
+        float_default_range = dtype in _FLOAT_DTYPES or (
+            dtype in _SIGNED_INT_DTYPES and (meta.band_count or 1) == 1
+        )
 
     return Response(
         status_code=status.HTTP_200_OK,
@@ -1132,9 +1140,10 @@ async def raster_tile_proxy(
     ``stretch`` chooses how pixel values map to the output range. ``minmax``
     keeps the range the dataset already implies: the recorded per-band minimum
     and maximum for a raster imported from a remote source that published
-    statistics, the data range read from band statistics for floating-point
-    data, a range derived from the data type for other integer data, and no
-    rescale parameter for 8-bit data, which needs none. ``percentile`` and
+    statistics, the data range read from band statistics for floating-point and
+    single-band signed integer data, a range derived from the data type for
+    other integer data, and no rescale parameter for 8-bit data, which needs
+    none. ``percentile`` and
     ``stddev`` instead derive a range from band statistics read at request
     time, for up to three bands. A digital elevation model ignores the
     parameter, and so does a request whose band statistics cannot be read,
@@ -1279,7 +1288,8 @@ async def raster_tile_proxy(
         )
 
     # minmax keeps the default rescale already in render_params, except for a
-    # float raster, whose data range replaces the 0..1 dtype rescale;
+    # float or single-band signed integer raster, whose data range replaces the
+    # dtype rescale;
     # percentile/stddev override it from Titiler band statistics, one fragment
     # per band up to three. Falls back to minmax when stats are missing.
     if stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
@@ -1310,7 +1320,7 @@ async def raster_tile_proxy(
         if rescale_parts:
             render_params = _apply_stretch_rescale(render_params, rescale_parts)
         else:
-            # The 0..1 fallback must not outlive the statistics outage in a
+            # The dtype fallback must not outlive the statistics outage in a
             # shared cache.
             cache_status = "private"
 

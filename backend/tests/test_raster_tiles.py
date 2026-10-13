@@ -671,7 +671,8 @@ class TestDemTerrainNodataAuthCheck:
 
 
 class TestDefaultRescaleAuthCheck:
-    """raster_auth_check flags float rasters whose default rescale is the data range."""
+    """raster_auth_check flags float and single-band signed integer rasters whose
+    default rescale is the data range."""
 
     async def _headers(self, client, session, **raster):
         admin_id = await _get_admin_id(session)
@@ -692,17 +693,38 @@ class TestDefaultRescaleAuthCheck:
         assert headers.get("x-geolens-data-range-default") == "1"
         assert headers["x-geolens-render-params"] == "rescale=0,1.0"
 
-    @pytest.mark.parametrize("dtype", ["int16", "uint8", None])
+    @pytest.mark.parametrize("dtype", ["int8", "int16", "int32"])
+    async def test_signed_int_raster_is_flagged_and_keeps_the_dtype_fallback(
+        self, client: AsyncClient, test_db_session, dtype
+    ):
+        headers = await self._headers(client, test_db_session, dtype=dtype)
+        assert headers.get("x-geolens-data-range-default") == "1"
+        assert headers["x-geolens-render-params"].startswith("rescale=0,")
+
+    async def test_multiband_signed_int_raster_is_not_flagged(
+        self, client: AsyncClient, test_db_session
+    ):
+        admin_id = await _get_admin_id(test_db_session)
+        _, dataset, _ = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, band_count=3, dtype="int16"
+        )
+        resp = await client.get(
+            "/tiles/raster-auth-check/", params={"dataset_id": str(dataset.id)}
+        )
+        assert "x-geolens-data-range-default" not in resp.headers
+
+    @pytest.mark.parametrize("dtype", ["uint8", "uint16", "uint32", None])
     async def test_other_rasters_are_not_flagged(
         self, client: AsyncClient, test_db_session, dtype
     ):
         headers = await self._headers(client, test_db_session, dtype=dtype)
         assert "x-geolens-data-range-default" not in headers
 
-    async def test_float_dem_is_not_flagged(self, client: AsyncClient, test_db_session):
-        headers = await self._headers(
-            client, test_db_session, dtype="float32", is_dem=True
-        )
+    @pytest.mark.parametrize("dtype", ["float32", "int16"])
+    async def test_dem_is_not_flagged(
+        self, client: AsyncClient, test_db_session, dtype
+    ):
+        headers = await self._headers(client, test_db_session, dtype=dtype, is_dem=True)
         assert "x-geolens-data-range-default" not in headers
         assert headers["x-geolens-render-params"].startswith("algorithm=terrainrgb")
 
