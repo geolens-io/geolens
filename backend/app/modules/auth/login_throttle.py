@@ -37,7 +37,7 @@ from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_client_ip
 from app.modules.auth.cookies import cookie_values, set_login_device_cookie
-from app.modules.auth.models import LoginAttempt, LoginTrustToken
+from app.modules.auth.models import LoginAttempt, LoginTrustToken, User
 from app.platform.audit import AuditEvent, audit_emit
 
 LOGIN_FAILURE_LIMIT = 10
@@ -78,13 +78,19 @@ def login_account_key(normalized: str) -> str:
     )
 
 
-async def account_key_for(db: AsyncSession, username: str) -> str:
-    """The handle for *username*, lowercased by the database as sign-in matches it.
+async def _db_lower(db: AsyncSession, username: str) -> str:
+    """*username* lowercased by the database, as sign-in matches it.
 
     Python's ``str.lower`` disagrees with PostgreSQL's ``lower`` on some
     characters, which would split one account across several budgets.
     """
-    return login_account_key(await db.scalar(select(func.lower(username))))
+    return await db.scalar(select(func.lower(username)))
+
+
+async def _user_id(db: AsyncSession, normalized: str) -> uuid.UUID | None:
+    return await db.scalar(
+        select(User.id).where(func.lower(User.username) == normalized)
+    )
 
 
 def device_cookie_name(account_key: str) -> str:
@@ -92,21 +98,27 @@ def device_cookie_name(account_key: str) -> str:
     return _DEVICE_COOKIE_PREFIX + account_key[:16]
 
 
-def _device_mac(account_key: str, nonce: str, issued_at: int) -> str:
-    # The account key binds the tenant and the lowercased username.
-    message = f"{_DEVICE_COOKIE_VERSION}|{account_key}|{nonce}|{issued_at}"
+def _device_mac(
+    account_key: str, user_id: uuid.UUID, nonce: str, issued_at: int
+) -> str:
+    # The account key binds the tenant and the lowercased username, and the
+    # user id the account itself, so a username deleted and created again
+    # starts with no remembered browsers.
+    message = f"{_DEVICE_COOKIE_VERSION}|{account_key}|{user_id}|{nonce}|{issued_at}"
     return _keyed_digest(b"device-cookie", message)
 
 
-def mint_device_cookie(account_key: str) -> str:
+def mint_device_cookie(account_key: str, user_id: uuid.UUID) -> str:
     nonce = secrets.token_urlsafe(_NONCE_BYTES)
     issued_at = int(time.time())
-    mac = _device_mac(account_key, nonce, issued_at)
+    mac = _device_mac(account_key, user_id, nonce, issued_at)
     return f"{_DEVICE_COOKIE_VERSION}.{nonce}.{issued_at}.{mac}"
 
 
-def _device_nonce(value: str, account_key: str, now: int) -> str | None:
-    """The nonce of a device cookie minted for *account_key*, or None."""
+def _device_nonce(
+    value: str, account_key: str, user_id: uuid.UUID, now: int
+) -> str | None:
+    """The nonce of a device cookie minted for this account, or None."""
     parts = value.split(".")
     if len(parts) != 4 or parts[0] != _DEVICE_COOKIE_VERSION:
         return None
@@ -117,33 +129,39 @@ def _device_nonce(value: str, account_key: str, now: int) -> str | None:
     max_age = int(DEVICE_COOKIE_MAX_AGE.total_seconds())
     if not now - max_age <= issued_at <= now + _ISSUED_AT_SKEW_SECONDS:
         return None
-    expected = _device_mac(account_key, nonce, issued_at)
+    expected = _device_mac(account_key, user_id, nonce, issued_at)
     if not hmac.compare_digest(mac.encode(), expected.encode()):
         return None
     return nonce
 
 
-def _presented_device_key(request: Request, account_key: str) -> str | None:
+def _presented_device_key(
+    request: Request, account_key: str, user_id: uuid.UUID | None
+) -> str | None:
     """The ledger key of a valid device cookie for this account, if any.
 
     Every occurrence is tried: a cookie planted from a sibling domain cannot
     carry a valid MAC, and refusing on a duplicate would let one plant cost
     the owner their remembered browser.
     """
+    if user_id is None:
+        return None
     now = int(time.time())
     for value in cookie_values(request, device_cookie_name(account_key)):
-        nonce = _device_nonce(value, account_key, now)
+        nonce = _device_nonce(value, account_key, user_id, now)
         if nonce is not None:
             return _keyed_digest(b"device-key", nonce)
     return None
 
 
-def issue_device_cookie(response: Response, request: Request, account_key: str) -> None:
+def issue_device_cookie(
+    response: Response, request: Request, account_key: str, user_id: uuid.UUID
+) -> None:
     set_login_device_cookie(
         response,
         request,
         device_cookie_name(account_key),
-        mint_device_cookie(account_key),
+        mint_device_cookie(account_key, user_id),
         int(DEVICE_COOKIE_MAX_AGE.total_seconds()),
     )
 
@@ -239,8 +257,12 @@ async def reserve_login_attempt(
 
     Commits the request session's transaction.
     """
-    account_key = await account_key_for(db, username)
-    device_key = _presented_device_key(request, account_key)
+    normalized = await _db_lower(db, username)
+    account_key = login_account_key(normalized)
+    device_key = None
+    if cookie_values(request, device_cookie_name(account_key)):
+        user_id = await _user_id(db, normalized)
+        device_key = _presented_device_key(request, account_key, user_id)
     try:
         if device_key is not None:
             try:
@@ -312,11 +334,16 @@ def _trust_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-async def create_trust_token(db: AsyncSession, username: str) -> str:
+async def create_trust_token(db: AsyncSession, username: str) -> str | None:
     """Mint a single-use link token that remembers a browser for *username*.
 
-    Only the token's digest is stored. The caller commits.
+    Returns None when no account has that username. Only the token's digest
+    is stored, and deleting the account deletes its tokens. The caller commits.
     """
+    normalized = await _db_lower(db, username)
+    user_id = await _user_id(db, normalized)
+    if user_id is None:
+        return None
     now = datetime.now(tz=UTC)
     await db.execute(delete(LoginTrustToken).where(LoginTrustToken.expires_at <= now))
     token = secrets.token_urlsafe(32)
@@ -324,26 +351,32 @@ async def create_trust_token(db: AsyncSession, username: str) -> str:
         LoginTrustToken(
             id=uuid.uuid4(),
             token_hash=_trust_token_hash(token),
-            account_key=await account_key_for(db, username),
+            account_key=login_account_key(normalized),
+            user_id=user_id,
             expires_at=now + TRUST_TOKEN_TTL,
         )
     )
     return token
 
 
-async def redeem_trust_token(db: AsyncSession, token: str) -> str | None:
-    """Consume *token* and return its account key, or None if unusable.
+async def redeem_trust_token(
+    db: AsyncSession, token: str
+) -> tuple[str, uuid.UUID] | None:
+    """Consume *token* and return its account key and user id, or None if unusable.
 
     One ``DELETE ... RETURNING``, so two requests racing on one link cannot
     both succeed. The caller commits.
     """
     if not token or len(token) > _TRUST_TOKEN_MAX_LENGTH:
         return None
-    return await db.scalar(
-        delete(LoginTrustToken)
-        .where(
-            LoginTrustToken.token_hash == _trust_token_hash(token),
-            LoginTrustToken.expires_at > func.now(),
+    row = (
+        await db.execute(
+            delete(LoginTrustToken)
+            .where(
+                LoginTrustToken.token_hash == _trust_token_hash(token),
+                LoginTrustToken.expires_at > func.now(),
+            )
+            .returning(LoginTrustToken.account_key, LoginTrustToken.user_id)
         )
-        .returning(LoginTrustToken.account_key)
-    )
+    ).one_or_none()
+    return None if row is None else (row.account_key, row.user_id)

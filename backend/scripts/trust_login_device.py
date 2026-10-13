@@ -24,9 +24,6 @@ import uuid
 
 from sqlalchemy import text
 
-_USER_EXISTS = text(
-    "SELECT 1 FROM catalog.users WHERE lower(username) = lower(:username)"
-)
 _TENANT_EXISTS = text("SELECT id FROM catalog.tenants WHERE id = :tenant_id")
 _TRUST_PATH = "/auth/device-trust"
 # The API's mount point when no public URL is configured.
@@ -82,10 +79,10 @@ async def _run(username: str, tenant: str | None) -> int:
         tenant = registered
     with tenant_job_context(tenant):
         async with db_module.async_session() as db:
-            if await db.scalar(_USER_EXISTS, {"username": username}) is None:
+            token = await create_trust_token(db, username)
+            if token is None:
                 print(f"No account has the username {username!r}.", file=sys.stderr)
                 return 1
-            token = await create_trust_token(db, username)
             base = await _api_base(db, tenant)
             await db.commit()
     print(f"{base}{_TRUST_PATH}?token={token}")

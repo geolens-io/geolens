@@ -358,19 +358,24 @@ class LoginAttempt(Base):
 class LoginTrustToken(Base):
     """A single-use link that remembers one browser for one account.
 
-    Stores only the token's sha256 digest and the account key, outside the
-    RLS boundary for the same reason as :class:`LoginAttempt`.
+    Stores the token's sha256 digest, never the token. Outside the RLS
+    boundary like :class:`LoginAttempt`: it is redeemed before any tenant
+    check could apply, and the token itself is the capability.
     """
 
     __tablename__ = "login_trust_tokens"
     __table_args__ = (
         Index("ix_catalog_login_trust_tokens_expires_at", "expires_at"),
+        Index("ix_login_trust_tokens_user_id", "user_id"),
         {"schema": "catalog"},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     account_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False
+    )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

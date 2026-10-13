@@ -3,10 +3,11 @@
 ``login_attempts`` counts password sign-in attempts per account, and per
 remembered browser for that account, over a sliding window.
 ``login_trust_tokens`` holds the digests of the links an operator mints on
-the host to remember a browser during a throttle. Both sit outside the RLS
+the host to remember a browser during a throttle, bound to the account's
+user id so deleting the account deletes them. Both sit outside the RLS
 boundary, like ``arcgis_signin_attempts`` (0056): every key is a keyed
-digest that already includes the tenant, and no row holds a username, user
-id, tenant id or secret.
+digest that already includes the tenant, and no row holds a username,
+tenant id or secret.
 
 Revision ID: 0082_login_throttle
 Revises: 0081_admin_entered_email_verified
@@ -57,6 +58,12 @@ def upgrade() -> None:
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
         sa.Column("token_hash", sa.String(length=64), nullable=False, unique=True),
         sa.Column("account_key", sa.String(length=64), nullable=False),
+        sa.Column(
+            "user_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("catalog.users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         schema="catalog",
     )
@@ -66,9 +73,20 @@ def upgrade() -> None:
         ["expires_at"],
         schema="catalog",
     )
+    op.create_index(
+        "ix_login_trust_tokens_user_id",
+        "login_trust_tokens",
+        ["user_id"],
+        schema="catalog",
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "ix_login_trust_tokens_user_id",
+        table_name="login_trust_tokens",
+        schema="catalog",
+    )
     op.drop_index(
         "ix_catalog_login_trust_tokens_expires_at",
         table_name="login_trust_tokens",

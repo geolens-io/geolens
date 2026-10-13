@@ -339,17 +339,20 @@ async def test_login_without_cookie_mode_sets_no_cookie(client: AsyncClient):
 
 def test_forged_expired_and_foreign_device_cookies_are_ignored():
     key = login_account_key("alice")
+    alice = uuid.uuid4()
     name = device_cookie_name(key)
-    good = mint_device_cookie(key)
-    assert _presented_device_key(_request(f"{name}={good}"), key) is not None
+    good = mint_device_cookie(key, alice)
+    assert _presented_device_key(_request(f"{name}={good}"), key, alice) is not None
 
     version, nonce, issued_at, mac = good.split(".")
     forged = f"{version}.{nonce}.{issued_at}.{'0' * len(mac)}"
     stale_at = int(time.time()) - 181 * 24 * 3600
-    expired = f"v1.{nonce}.{stale_at}.{_device_mac(key, nonce, stale_at)}"
-    other_account = mint_device_cookie(login_account_key("bob"))
+    expired = f"v1.{nonce}.{stale_at}.{_device_mac(key, alice, nonce, stale_at)}"
+    other_account = mint_device_cookie(login_account_key("bob"), alice)
     for value in (forged, expired, other_account, "v1.x", "", "v2" + good[2:]):
-        assert _presented_device_key(_request(f"{name}={value}"), key) is None
+        assert _presented_device_key(_request(f"{name}={value}"), key, alice) is None
+    # Same username, a different account behind it.
+    assert _presented_device_key(_request(f"{name}={good}"), key, uuid.uuid4()) is None
 
     token = current_tenant_var.set(str(uuid.uuid4()))
     try:
@@ -357,7 +360,7 @@ def test_forged_expired_and_foreign_device_cookies_are_ignored():
         assert tenant_key != key
         assert (
             _presented_device_key(
-                _request(f"{device_cookie_name(tenant_key)}={good}"), tenant_key
+                _request(f"{device_cookie_name(tenant_key)}={good}"), tenant_key, alice
             )
             is None
         )
@@ -367,10 +370,43 @@ def test_forged_expired_and_foreign_device_cookies_are_ignored():
 
 def test_any_valid_occurrence_of_a_duplicated_device_cookie_counts():
     key = login_account_key("alice")
+    alice = uuid.uuid4()
     name = device_cookie_name(key)
-    good = mint_device_cookie(key)
+    good = mint_device_cookie(key, alice)
     request = _request(f"{name}=v1.planted.1.bad; {name}={good}")
-    assert _presented_device_key(request, key) is not None
+    assert _presented_device_key(request, key, alice) is not None
+
+
+async def test_a_recreated_username_does_not_inherit_remembered_browsers(
+    client: AsyncClient,
+):
+    admin = await get_auth_header(
+        client,
+        settings.geolens_admin_username,
+        settings.geolens_admin_password.get_secret_value(),
+    )
+    username = await _new_user(client)
+    device = await _remembered_device(client, username)
+    old_id = (
+        await client.get("/auth/me", headers=await _bearer(client, username))
+    ).json()["id"]
+    assert (
+        await client.delete(f"/admin/users/{old_id}", headers=admin)
+    ).status_code == 204
+    recreated = await client.post(
+        "/admin/users/",
+        json={"username": username, "password": PASSWORD, "role": "viewer"},
+        headers=admin,
+    )
+    assert recreated.status_code == 201, recreated.text
+    await _fail(client, username, LOGIN_FAILURE_LIMIT)
+
+    assert (await _login(client, username, PASSWORD, device=device)).status_code == 429
+
+
+async def _bearer(client: AsyncClient, username: str) -> dict[str, str]:
+    resp = await _login(client, username, PASSWORD)
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
 async def test_a_device_cookie_is_not_a_bearer_token(client: AsyncClient):

@@ -390,8 +390,7 @@ test('S06 — admin user with known-public password "demodemo" cannot log in', a
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     form: { username: 'admin', password: 'demodemo' },
   });
-  // 429 once a long-lived stack has seen enough failed sign-ins for admin.
-  expect([400, 401, 429]).toContain(res.status());
+  expect([400, 401]).toContain(res.status());
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

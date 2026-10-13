@@ -277,7 +277,7 @@ async def login(
 
     if wants_cookie_auth(request):
         issue_browser_session(response, request, refresh_token, expire_days)
-        issue_device_cookie(response, request, throttle.account_key)
+        issue_device_cookie(response, request, throttle.account_key, user.id)
         return TokenResponse(
             access_token=token,
             refresh_token=None,
@@ -302,9 +302,9 @@ async def trust_login_device(
     The link is single use, and grants only what a past sign-in would: this
     browser may try a password while the account refuses unknown clients.
     """
-    account_key = await redeem_trust_token(db, token)
+    redeemed = await redeem_trust_token(db, token)
     await db.commit()
-    if account_key is None:
+    if redeemed is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="This link is invalid, expired or already used",
@@ -314,7 +314,7 @@ async def trust_login_device(
     except PublicUrlNotConfiguredError:
         app_url = ""
     redirect = RedirectResponse(f"{app_url}/login", status_code=303)
-    issue_device_cookie(redirect, request, account_key)
+    issue_device_cookie(redirect, request, *redeemed)
     return redirect
 
 
