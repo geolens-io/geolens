@@ -1840,7 +1840,12 @@ the marker:
 docker compose exec backup rm /backups/.last-offsite-success
 ```
 
-Installs that never enabled offsite upload have no marker and see no change.
+The trade-off: a deliberate switch-off also reads as `unhealthy`, about a day
+later, until you delete the marker. That is the price of catching an accidental
+one. An `unhealthy` backup service blocks nothing (no other service waits on
+it), and `scripts/upgrade.sh` lets it through while it is inside its start
+period. Installs that never enabled offsite upload have no marker and see no
+change.
 
 Tuning and edge behavior:
 

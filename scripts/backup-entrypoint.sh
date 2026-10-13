@@ -1332,7 +1332,8 @@ if [ "$BACKUP_S3_ENABLED" != "true" ]; then
         log "WARNING: offsite upload succeeded earlier on this volume and is now off."
         log "WARNING:   The healthcheck turns unhealthy once that last offsite copy is"
         log "WARNING:   older than BACKUP_MAX_AGE_MINUTES. Set BACKUP_S3_ENABLED=true again,"
-        log "WARNING:   or delete ${BACKUP_DIR}/.last-offsite-success if the change is intended."
+        log "WARNING:   or, if turning offsite upload off was intended, clear the marker with:"
+        log "WARNING:     docker compose exec backup rm ${BACKUP_DIR}/.last-offsite-success"
     fi
 fi
 

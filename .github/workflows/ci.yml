@@ -859,6 +859,7 @@ jobs:
             -v /tmp/ci-backups:/backups -v /tmp/ci-staging:/staging:ro
           )
           docker run "${run_args[@]}" geolens-backup:ci --run-backup
+          sudo chmod -R a+rX /tmp/ci-backups
 
           # Verify the backup image produced a non-empty dump.
           DUMP_FILE=$(find /tmp/ci-backups/daily -name '*.dump' -type f | head -1)

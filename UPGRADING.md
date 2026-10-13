@@ -249,6 +249,19 @@ Notes:
   instead of silently skipping the offsite upload. Either misconfiguration
   surfaces as a restarting/unhealthy `backup` container after an upgrade —
   fix the `.env` values; the rest of the stack is unaffected.
+- Retention keeps one backup per calendar day (`BACKUP_RETENTION_DAILY` days)
+  and one per ISO week (`BACKUP_RETENTION_WEEKLY` weeks). These used to count
+  dump files, so extra cycles from container restarts pushed older days out of
+  the window. With one cycle a day the result is the same. Weekly entries are
+  now hard links to the daily files, and new backup files are written `0600`.
+- Once a cycle has uploaded offsite, the backup healthcheck also requires the
+  last offsite upload to be younger than `BACKUP_MAX_AGE_MINUTES`, even if
+  `BACKUP_S3_ENABLED` is later turned off. An override or `.env` edit that
+  drops the offsite settings then shows as an `unhealthy` backup service. If
+  you turn offsite upload off on purpose, run
+  `docker compose exec backup rm /backups/.last-offsite-success`; until then
+  the service reports `unhealthy`, which blocks nothing else. See RUNBOOK.md,
+  "Backup service healthcheck".
 - The upgrade flow takes its own **pre-upgrade** dump under
   `backups/pre-upgrade/` independently of the scheduled backup service, so you
   always have a known-good restore point for the upgrade you just ran.
