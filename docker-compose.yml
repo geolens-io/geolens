@@ -537,22 +537,19 @@ services:
 
   titiler:
     # Pinned to 2.x stable (held back from 3.x without contract testing).
-    # 2.2.1 bump per the 2026-08 TiTiler reassessment (#1190). Upstream ships
-    # security fixes as ordinary bugfix releases with no advisory, and OSV and
-    # the GitHub advisory database carry nothing for rio-tiler or titiler.core,
-    # so Dependabot cannot see this drift — a deliberate bump is the only
-    # control. 2.1.0 -> 2.2.1 is additive against our surface (tileset min/max
-    # zoom params, a WMTS zooms param, httpx -> httpx2); the four endpoints we
-    # consume and all six query params were exercised against both images and
-    # returned identical status + content-type.
+    # Upstream ships security fixes as ordinary bugfix releases with no
+    # advisory, and OSV and the GitHub advisory database carry nothing for
+    # rio-tiler or titiler.core, so only a deliberate bump is a control. The
+    # endpoints we consume (tiles, statistics, info) and their query params
+    # behave the same on 2.4.0 as before.
     #
     # NOTE: this does NOT move GDAL. The image installs rasterio from PyPI
-    # wheels, so the wheel pins GDAL, not the titiler tag — 2.0.5 and 2.2.1 both
-    # resolve rasterio 1.5.0 / GDAL 3.12.1 (measured). Only rio-tiler moves,
-    # 9.2.1 -> 9.4.2. CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED (the /vsicurl
-    # header_file clamp) needs GDAL >= 3.13.2, so it stays unavailable and the
-    # #1192 gap is gated on a rasterio wheel bump, not on a titiler tag.
-    image: ghcr.io/developmentseed/titiler:2.2.1
+    # wheels, so the wheel pins GDAL, not the titiler tag; 2.4.0 resolves
+    # rasterio 1.5.1 / GDAL 3.12.4 and rio-tiler 9.4.4.
+    # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED (the /vsicurl header_file clamp)
+    # needs GDAL >= 3.13.2, so it stays unavailable and the #1192 gap is gated
+    # on a rasterio wheel bump, not on a titiler tag.
+    image: ghcr.io/developmentseed/titiler:2.4.0
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
@@ -673,8 +670,8 @@ services:
       # /vsicurl/ header_file option and needs GDAL >= 3.13.2. NOT SET because
       # it is not available yet: the image installs rasterio from PyPI wheels,
       # so the rasterio wheel gates the GDAL version, not the titiler tag —
-      # titiler 2.0.5 and 2.2.1 both ship rasterio 1.5.0 / GDAL 3.12.1
-      # (measured 2026-08-04). Add it here when a wheel bump crosses 3.13.2.
+      # titiler 2.4.0 ships rasterio 1.5.1 / GDAL 3.12.4 (measured
+      # 2026-10-13). Add it here when a wheel bump crosses 3.13.2.
       VSI_CACHE: "TRUE"                                  # Enable /vsicurl block caching for range-request reuse
       CPL_VSIL_CURL_CACHE_SIZE: "16777216"               # /vsicurl cache size in bytes (16 MB)
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"          # Merge adjacent HTTP range requests into fewer round-trips
@@ -936,7 +933,7 @@ services:
   azurite:
     # Azure Blob Storage emulator — cloud-dev profile only (Phase 1210 / STOR-03).
     # Pinned by SHA256 digest (tag is documentation only).
-    image: mcr.microsoft.com/azure-storage/azurite:3.35.0@sha256:647c63a91102a9d8e8000aab803436e1fc85fbb285e7ce830a82ee5d6661cf37
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0@sha256:830430c1da1a2d537e08f3e6764dd1f5ae00cf0346bcaf625b968ec3f0971fd5
     profiles: ["cloud-dev"]
     # D04 / T-1210-03: cloud-dev opt-in, loopback-only. cap_drop ALL + no-new-privileges
     # are cheap insurance — Azurite holds no keys that matter outside localhost.

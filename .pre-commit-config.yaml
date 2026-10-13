@@ -179,7 +179,7 @@ repos:
 
   # --- Generic hygiene + secret scanning ---
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       # Auto-fixers — generated/vendored trees excluded so they keep matching
       # their generators, and backend/licenses/ so verbatim third-party license
