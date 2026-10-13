@@ -1,5 +1,6 @@
 """The prod compose file's bundled cache is a supported, bounded service."""
 
+import secrets
 import subprocess
 
 import pytest
@@ -71,12 +72,13 @@ def _start_valkey(tmp_path, password):
 
 
 def test_valkey_requires_the_password_when_one_is_set(tmp_path):
-    result, args = _start_valkey(tmp_path, "s3cret-Value_1.~")
+    password = f"{secrets.token_hex(8)}-_.~{secrets.token_hex(8)}"
+    result, args = _start_valkey(tmp_path, password)
     assert result.returncode == 0, result.stderr
     argv = (tmp_path / "argv").read_text().splitlines()
     assert argv == [*args[1:], "-"]
-    assert (tmp_path / "stdin").read_text() == "requirepass s3cret-Value_1.~\n"
-    assert not any("s3cret" in a for a in argv)
+    assert (tmp_path / "stdin").read_text() == f"requirepass {password}\n"
+    assert not any(password in a for a in argv)
 
 
 @pytest.mark.parametrize("password", [None, ""])
@@ -87,8 +89,9 @@ def test_valkey_without_a_password_starts_as_before(tmp_path, password):
     assert (tmp_path / "stdin").read_text() == ""
 
 
-@pytest.mark.parametrize("password", ["two words", "a\nrequirepass b", 'q"uote'])
-def test_valkey_refuses_a_password_that_could_add_config(tmp_path, password):
+@pytest.mark.parametrize("separator", [" ", "\nrequirepass ", '"'])
+def test_valkey_refuses_a_password_that_could_add_config(tmp_path, separator):
+    password = separator.join([secrets.token_hex(8), secrets.token_hex(8)])
     result, _ = _start_valkey(tmp_path, password)
     assert result.returncode != 0
     assert "VALKEY_PASSWORD" in result.stderr
@@ -120,14 +123,17 @@ def _healthcheck(tmp_path, password, reply):
 
 
 def test_healthcheck_authenticates_without_putting_the_password_on_argv(tmp_path):
-    code, auth = _healthcheck(tmp_path, "s3cret", "PONG")
+    password = secrets.token_hex(16)
+    code, auth = _healthcheck(tmp_path, password, "PONG")
     assert code == 0
-    assert auth == "s3cret"
-    assert "s3cret" not in (tmp_path / "argv").read_text()
+    assert auth == password
+    assert password not in (tmp_path / "argv").read_text()
 
 
 def test_healthcheck_fails_on_a_noauth_reply(tmp_path):
-    code, _ = _healthcheck(tmp_path, "s3cret", "NOAUTH Authentication required.")
+    code, _ = _healthcheck(
+        tmp_path, secrets.token_hex(16), "NOAUTH Authentication required."
+    )
     assert code != 0
 
 
