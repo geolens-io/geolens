@@ -69,7 +69,11 @@ compose() {
   _cf_ifs=$IFS
   IFS=:
   for _cf_entry in $COMPOSE_FILE; do
-    [ -n "$_cf_entry" ] && set -- "$@" -f "$PROJECT_ROOT/$_cf_entry"
+    case "$_cf_entry" in
+      "") ;;
+      /*) set -- "$@" -f "$_cf_entry" ;;
+      *) set -- "$@" -f "$PROJECT_ROOT/$_cf_entry" ;;
+    esac
   done
   IFS=$_cf_ifs
   set -- "$@" --project-directory "$PROJECT_ROOT"

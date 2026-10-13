@@ -976,8 +976,9 @@ fi
 # every compose call keeps the override.
 # ============================================================================
 seed_prod_env
-printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\nGEOLENS_VERSION=1.2.3\nPOSTGRES_USER=geolens\nPOSTGRES_DB=geolens\n' > "$FAKE/.env"
+printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml:%s/abs-override.yml\nGEOLENS_VERSION=1.2.3\nPOSTGRES_USER=geolens\nPOSTGRES_DB=geolens\n' "$FAKE" > "$FAKE/.env"
 printf 'services: {}\n' > "$FAKE/override.yml"
+printf 'services: {}\n' > "$FAKE/abs-override.yml"
 run_upgrade ok 1.2.4
 if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of migrate_up)" ]; then
   ok "a COMPOSE_FILE list with the prod file upgrades like a plain prod install"
@@ -985,13 +986,15 @@ else
   bad "a COMPOSE_FILE list was refused (exit=$(cat "$WORK/code.txt"))"
   sed 's/^/    # /' "$WORK/out.txt"
 fi
-if grep -q 'override.yml$' "$CALLLOG.files" && grep -q 'docker-compose.prod.yml$' "$CALLLOG.files"; then
+if grep -q "^$FAKE/override.yml\$" "$CALLLOG.files" \
+   && grep -q "^$FAKE/docker-compose.prod.yml\$" "$CALLLOG.files" \
+   && grep -q "^$FAKE/abs-override.yml\$" "$CALLLOG.files"; then
   ok "compose is invoked with every file in the list"
 else
   bad "compose calls dropped the override: $(sort -u "$CALLLOG.files" | tr '\n' ',')"
 fi
 
-rm -f "$FAKE/override.yml"
+rm -f "$FAKE/override.yml" "$FAKE/abs-override.yml"
 seed_prod_env
 printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\nGEOLENS_VERSION=1.2.3\n' > "$FAKE/.env"
 run_upgrade ok 1.2.4
