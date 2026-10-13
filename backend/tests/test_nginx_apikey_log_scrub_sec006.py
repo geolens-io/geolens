@@ -31,6 +31,8 @@ def test_nginx_logs_no_query_strings_or_referrers():
     assert "$request_id" in log_format
     assert "$status" in log_format
     assert "$geolens_safe_log_path" in log_format
+    assert "$request_time" in log_format
+    assert "$upstream_response_time" in log_format
 
 
 def test_nginx_redacts_capability_path_segments():
@@ -59,3 +61,13 @@ def test_nginx_wires_safe_log_format_to_access_log():
     assert re.search(rf"access_log\s+\S+\s+{re.escape(fmt_name)}\s*;", text), (
         f"the capability-safe log_format '{fmt_name}' must be wired to access_log"
     )
+
+
+def test_robots_txt_is_a_real_file_that_allows_crawling():
+    robots = repo_root(__file__) / "frontend" / "public" / "robots.txt"
+    lines = [ln.strip() for ln in robots.read_text().splitlines() if ln.strip()]
+
+    assert "User-agent: *" in lines
+    assert "Allow: /" in lines
+    # Social crawlers fetch map preview images from /api/.
+    assert not any(ln.lower().startswith("disallow") for ln in lines)
