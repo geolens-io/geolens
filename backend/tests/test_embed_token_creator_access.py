@@ -23,6 +23,14 @@ async def data_table(test_db_session):
     await _cleanup_data_table(test_db_session, table)
 
 
+@pytest.fixture
+async def second_table(test_db_session):
+    table = f"embed_reader_{uuid.uuid4().hex[:8]}"
+    await _create_data_table(test_db_session, table)
+    yield table
+    await _cleanup_data_table(test_db_session, table)
+
+
 async def _dataset(session, owner_id, table, *, visibility):
     return await create_dataset(
         session,
@@ -34,7 +42,9 @@ async def _dataset(session, owner_id, table, *, visibility):
     )
 
 
-async def _embed(client, session, headers, map_owner_id, dataset_id) -> tuple[str, str]:
+async def _embed(
+    client, session, headers, map_owner_id, *dataset_ids
+) -> tuple[str, str]:
     """A public map holding the dataset; returns its embed token and share token."""
     map_obj = Map(
         name=f"Embed {uuid.uuid4().hex[:6]}",
@@ -43,7 +53,10 @@ async def _embed(client, session, headers, map_owner_id, dataset_id) -> tuple[st
     )
     session.add(map_obj)
     await session.flush()
-    session.add(MapLayer(map_id=map_obj.id, dataset_id=dataset_id, sort_order=0))
+    for order, dataset_id in enumerate(dataset_ids):
+        session.add(
+            MapLayer(map_id=map_obj.id, dataset_id=dataset_id, sort_order=order)
+        )
     await session.commit()
     resp = await client.post(
         f"/maps/{map_obj.id}/embed-tokens/", json={}, headers=headers
@@ -177,5 +190,52 @@ async def test_an_admin_minted_embed_serves_while_its_creator_is_an_admin(
         sa.delete(UserRole).where(UserRole.user_id == uuid.UUID(admin_id))
     )
     await test_db_session.commit()
+
+    assert await _tile_status(client, data_table, raw) == 403
+
+
+async def test_a_private_flip_stops_that_dataset_while_other_layers_serve(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    data_table,
+    second_table,
+):
+    _, owner_id = await create_user(client, admin_auth_header, "editor")
+    creator_headers, creator_id = await create_user(client, admin_auth_header, "editor")
+    flipped = await _dataset(test_db_session, owner_id, data_table, visibility="public")
+    kept = await _dataset(test_db_session, owner_id, second_table, visibility="public")
+    raw, share = await _embed(
+        client, test_db_session, creator_headers, creator_id, flipped.id, kept.id
+    )
+    assert await _tile_status(client, data_table, raw) in (200, 204)
+
+    await test_db_session.execute(
+        sa.update(Record)
+        .where(Record.id == flipped.record_id)
+        .values(visibility="private")
+    )
+    await test_db_session.commit()
+
+    assert await _tile_status(client, data_table, raw) == 403
+    assert await _tile_status(client, second_table, raw) in (200, 204)
+    assert await _shared_layer_ids(client, share, raw) == {str(kept.id)}
+
+
+async def test_an_embed_whose_creator_was_deleted_serves_nothing(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, data_table
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    creator_headers, creator_id = await create_user(client, admin_auth_header, "admin")
+    dataset = await _dataset(test_db_session, admin_id, data_table, visibility="public")
+    raw, _ = await _embed(
+        client, test_db_session, creator_headers, admin_id, dataset.id
+    )
+    assert await _tile_status(client, data_table, raw) in (200, 204)
+
+    deleted = await client.delete(
+        f"/admin/users/{creator_id}", headers=admin_auth_header
+    )
+    assert deleted.status_code == 204, deleted.text
 
     assert await _tile_status(client, data_table, raw) == 403
