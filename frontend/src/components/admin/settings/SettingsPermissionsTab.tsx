@@ -106,6 +106,11 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
                   <TableRow key={key}>
                     <TableCell>
                       <Label className="font-normal">{label}</Label>
+                      {key === 'export' && (
+                        <p id="permission-export-description" className="text-xs text-muted-foreground">
+                          {t('settings.permissions.capabilities.exportDescription')}
+                        </p>
+                      )}
                     </TableCell>
                     {ROLES.map((role) => {
                       const locked = isLocked(role, key);
@@ -117,6 +122,7 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
                             onCheckedChange={(v) => handleToggle(role, key, v === true)}
                             disabled={locked || envOnly}
                             aria-label={t('settings.permissions.capabilityForRole', { capability: label, role: t(`roles.${role}`) })}
+                            aria-describedby={key === 'export' ? 'permission-export-description' : undefined}
                           />
                         </TableCell>
                       );

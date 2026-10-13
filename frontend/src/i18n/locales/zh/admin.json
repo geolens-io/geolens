@@ -539,6 +539,7 @@
         "upload": "上传数据集",
         "create_layers": "创建图层",
         "export": "导出数据",
+        "exportDescription": "下载文件，并将分析结果保存为新数据集。能够查看数据集的用户仍可通过 API、地图瓦片和属性表读取其要素。",
         "edit_metadata": "编辑元数据",
         "manage_collections": "管理集合",
         "use_ai_chat": "AI 聊天",

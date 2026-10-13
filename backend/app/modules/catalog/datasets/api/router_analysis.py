@@ -479,12 +479,9 @@ async def analysis_materialize_endpoint(
     dataset_id: uuid.UUID,
     body: AnalysisMaterializeRequest,
     request: Request,
-    # Materialize creates a dataset, so it carries the same
-    # permission as every ingest endpoint. It also hands the caller a
-    # durable, caller-owned copy of the source attributes (a centroid
-    # preserves every column), the outcome download endpoints gate on
-    # `export`, so it requires that too. Preview stays on the plain
-    # active-user dependency: read-only, and the chat tool depends on it.
+    # `export` is required because materialize creates a durable dataset the
+    # caller owns. Preview stays on the plain active-user dependency:
+    # read-only, and the chat tool depends on it.
     user: Identity = Depends(require_permission("upload", "export")),
     db: AsyncSession = Depends(get_db),
 ) -> AnalysisMaterializeResponse:
