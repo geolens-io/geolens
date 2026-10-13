@@ -294,6 +294,25 @@ async def _roll_publication_version(db: AsyncSession, dataset: DatasetModel) -> 
     await bump_publication_version_on(db, dataset)
 
 
+async def _require_publishable(db: AsyncSession, dataset: DatasetModel) -> None:
+    """Refuse a transition into published while the metadata requirement is unmet.
+
+    Runs after the catalog rows are locked, with the record reloaded, so a
+    concurrent metadata edit that committed first is validated, not a stale
+    snapshot.
+    """
+    if not await REQUIRE_METADATA_FOR_PUBLISH.get(db):
+        return
+    await db.refresh(dataset.record)
+    result = await run_validation(db, dataset.record, dataset)
+    if not result.is_valid:
+        error_msgs = [f"{e.field}: {e.message}" for e in result.errors]
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot publish: {'; '.join(error_msgs)}",
+        )
+
+
 @router.patch("/{dataset_id}/status/", response_model=StatusUpdateResponse)
 async def update_publication_status(
     dataset_id: uuid.UUID,
@@ -346,6 +365,9 @@ async def update_publication_status(
     # handler dirties the datasets row too and must take both in house order.
     # Keep this immediately before the writes and after the workflow query.
     await _roll_publication_version(db, dataset)
+    if target == "published" and current != "published":
+        await _require_publishable(db, dataset)
+        dataset.record.published_at = func.now()
     dataset.record.record_status = target
     await workflow.on_transition(context)
     # Writes record_status without going through
@@ -439,20 +461,13 @@ async def set_target_status(
         idx = next_idx
 
     enters_published = any(next_status == "published" for next_status, _ in chain)
-    if enters_published:
-        if await REQUIRE_METADATA_FOR_PUBLISH.get(db):
-            result = await run_validation(db, dataset.record, dataset)
-            if not result.is_valid:
-                error_msgs = [f"{e.field}: {e.message}" for e in result.errors]
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"Cannot publish: {'; '.join(error_msgs)}",
-                )
 
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
 
     # Once for the whole chain, immediately before its writes.
     await _roll_publication_version(db, dataset)
+    if enters_published:
+        await _require_publishable(db, dataset)
 
     for next_status, context in chain:
         if next_status == "published":

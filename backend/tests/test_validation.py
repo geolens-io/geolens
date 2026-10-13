@@ -578,3 +578,38 @@ async def test_target_status_already_published_is_unaffected(
     body = await _get_dataset(client, admin_auth_header, ds.id)
     assert body["record_status"] == "published"
     assert body["published_at"] == stamped
+
+
+@pytest.mark.anyio
+async def test_single_step_status_publish_enforces_requirement(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    await _set_require_metadata(test_db_session, True)
+    ds = await _create_validation_dataset(
+        test_db_session,
+        created_by=admin_id,
+        title="Single Step Incomplete",
+        record_status="internal",
+    )
+
+    blocked = await client.patch(
+        f"/datasets/{ds.id}/status/",
+        json={"status": "published"},
+        headers=admin_auth_header,
+    )
+    assert blocked.status_code == 422
+    assert "Cannot publish" in blocked.json()["detail"]
+    body = await _get_dataset(client, admin_auth_header, ds.id)
+    assert body["record_status"] == "internal"
+
+    await _set_require_metadata(test_db_session, False)
+    allowed = await client.patch(
+        f"/datasets/{ds.id}/status/",
+        json={"status": "published"},
+        headers=admin_auth_header,
+    )
+    assert allowed.status_code == 200
+    body = await _get_dataset(client, admin_auth_header, ds.id)
+    assert body["record_status"] == "published"
+    assert body["published_at"] is not None
