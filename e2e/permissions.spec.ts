@@ -31,14 +31,14 @@ test.describe('Permissions', () => {
     });
 
     // Verify all 8 capability labels render
-    await expect(page.getByText('Upload Datasets')).toBeVisible();
-    await expect(page.getByText('Create Layers')).toBeVisible();
-    await expect(page.getByText('Export Data')).toBeVisible();
-    await expect(page.getByText('Edit Metadata')).toBeVisible();
-    await expect(page.getByText('Manage Collections')).toBeVisible();
-    await expect(page.getByText('AI Chat')).toBeVisible();
-    await expect(page.getByText('Manage Users')).toBeVisible();
-    await expect(page.getByText('Manage Settings')).toBeVisible();
+    await expect(page.getByText('Upload Datasets', { exact: true })).toBeVisible();
+    await expect(page.getByText('Create Layers', { exact: true })).toBeVisible();
+    await expect(page.getByText('Export Data', { exact: true })).toBeVisible();
+    await expect(page.getByText('Edit Metadata', { exact: true })).toBeVisible();
+    await expect(page.getByText('Manage Collections', { exact: true })).toBeVisible();
+    await expect(page.getByText('AI Chat', { exact: true })).toBeVisible();
+    await expect(page.getByText('Manage Users', { exact: true })).toBeVisible();
+    await expect(page.getByText('Manage Settings', { exact: true })).toBeVisible();
 
     // Verify role column headers
     await expect(page.getByRole('columnheader', { name: 'viewer' })).toBeVisible();
