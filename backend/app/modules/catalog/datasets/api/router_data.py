@@ -303,8 +303,10 @@ async def _require_publishable(db: AsyncSession, dataset: DatasetModel) -> None:
     """
     if not await REQUIRE_METADATA_FOR_PUBLISH.get(db):
         return
-    await db.refresh(dataset.record)
-    result = await run_validation(db, dataset.record, dataset)
+    record = dataset.record
+    await db.refresh(dataset)
+    await db.refresh(record)
+    result = await run_validation(db, record, dataset)
     if not result.is_valid:
         error_msgs = [f"{e.field}: {e.message}" for e in result.errors]
         raise HTTPException(
