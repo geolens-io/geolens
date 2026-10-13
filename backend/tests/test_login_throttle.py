@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from starlette.requests import Request
 
 from app.core.config import settings
@@ -672,3 +672,25 @@ async def test_cookies_from_a_rotated_secret_are_cleared_not_counted(
     # A sign-in clears a bounded number, so a flood can't swell the response.
     assert cleared == stale[:5]
     _set_cookie(resp, device_cookie_name(login_account_key(username)))
+
+
+async def test_a_reservation_sweeps_a_bounded_batch_of_expired_rows(
+    client: AsyncClient, test_db_session
+):
+    import app.core.db as db_module
+
+    old = datetime.now(tz=UTC) - timedelta(hours=2)
+    test_db_session.add_all(
+        LoginAttempt(id=uuid.uuid4(), account_key="0" * 64, attempted_at=old)
+        for _ in range(150)
+    )
+    await test_db_session.commit()
+    async with db_module.async_session() as db:
+        await reserve_login_attempt(db, _request(), f"sweep_{uuid.uuid4().hex[:8]}")
+
+    left = await test_db_session.scalar(
+        select(func.count()).where(
+            LoginAttempt.attempted_at < old + timedelta(minutes=1)
+        )
+    )
+    assert left == 50

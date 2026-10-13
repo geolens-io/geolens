@@ -74,6 +74,7 @@ LOGIN_THROTTLED_MESSAGE = (
 _DEVICE_COOKIE_PREFIX = "geolens_device_"
 _DEVICE_COOKIE_VERSION = "v1"
 _MAX_REMEMBERED_ACCOUNTS = 5
+_SWEEP_BATCH = 100
 _NONCE_BYTES = 32
 # Tolerates a clock step between workers; a cookie dated further ahead is forged.
 _ISSUED_AT_SKEW_SECONDS = 300
@@ -324,15 +325,18 @@ async def _reserve_in(
 
 
 async def _sweep_expired(db: AsyncSession, now: datetime) -> None:
-    """Drop rows that left the window.
+    """Drop up to ``_SWEEP_BATCH`` rows that left the window.
 
     Fixed order with locked rows skipped, so two sweeps for different
-    accounts never deadlock over the same expired rows.
+    accounts never deadlock over the same expired rows. Each reservation
+    adds one row and removes up to a batch, so a backlog drains without
+    one sign-in paying for all of it.
     """
     expired = (
         select(LoginAttempt.id)
         .where(LoginAttempt.attempted_at < now - LOGIN_FAILURE_WINDOW)
         .order_by(LoginAttempt.id)
+        .limit(_SWEEP_BATCH)
         .with_for_update(skip_locked=True)
     )
     await db.execute(
