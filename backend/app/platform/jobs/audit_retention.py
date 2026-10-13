@@ -67,7 +67,10 @@ async def _prune_audit_logs_safely() -> None:
 
 
 async def run_audit_log_prunes() -> None:
-    """Prune on an interval for the life of the worker, sleeping first."""
+    """Prune now and then on an interval for the life of the worker.
+
+    Runs as a background task so a large first prune never delays job claiming.
+    """
     while True:
-        await asyncio.sleep(AUDIT_PRUNE_INTERVAL_SECONDS)
         await _prune_audit_logs_safely()
+        await asyncio.sleep(AUDIT_PRUNE_INTERVAL_SECONDS)
