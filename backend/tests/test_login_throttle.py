@@ -482,6 +482,7 @@ async def test_ledger_rows_hold_no_username(client: AsyncClient, test_db_session
         "id",
         "account_key",
         "device_key",
+        "failed",
         "tripped",
         "attempted_at",
     }
@@ -520,3 +521,53 @@ async def test_spellings_the_database_matches_share_one_budget(client: AsyncClie
 
     statuses = [await attempt(spellings[i % 2]) for i in range(LOGIN_FAILURE_LIMIT + 1)]
     assert statuses == [200] * LOGIN_FAILURE_LIMIT + [429]
+
+
+async def _age_attempts(test_db_session, username: str, by: timedelta) -> None:
+    await test_db_session.execute(
+        update(LoginAttempt)
+        .where(LoginAttempt.account_key == login_account_key(username))
+        .values(attempted_at=LoginAttempt.attempted_at - by)
+    )
+    await test_db_session.commit()
+
+
+async def test_an_unsettled_attempt_stops_counting_but_a_failure_does_not(
+    client: AsyncClient, test_db_session
+):
+    import app.core.db as db_module
+
+    unsettled = f"unsettled_{uuid.uuid4().hex[:8]}"
+    for _ in range(LOGIN_FAILURE_LIMIT):
+        async with db_module.async_session() as db:
+            await reserve_login_attempt(db, _request(), unsettled)
+    async with db_module.async_session() as db:
+        with pytest.raises(HTTPException):
+            await reserve_login_attempt(db, _request(), unsettled)
+    await _age_attempts(test_db_session, unsettled, timedelta(minutes=6))
+    async with db_module.async_session() as db:
+        await reserve_login_attempt(db, _request(), unsettled)
+
+    failing = await _new_user(client)
+    await _fail(client, failing, LOGIN_FAILURE_LIMIT)
+    await _age_attempts(test_db_session, failing, timedelta(minutes=6))
+    assert (await _login(client, failing, PASSWORD)).status_code == 429
+
+
+async def test_a_browser_remembers_a_bounded_number_of_accounts(client: AsyncClient):
+    username = await _new_user(client)
+    others = "; ".join(
+        f"geolens_device_{index:016x}=v1.n.{1_000 + index}.mac" for index in range(6)
+    )
+    resp = await client.post(
+        "/auth/login",
+        data={"username": username, "password": PASSWORD},
+        headers={**COOKIE_MODE, "Cookie": others},
+    )
+    assert resp.status_code == 200, resp.text
+    cleared = sorted(
+        header.split("=", 1)[0]
+        for header in resp.headers.get_list("set-cookie")
+        if header.startswith("geolens_device_") and "Max-Age=0" in header
+    )
+    assert cleared == [f"geolens_device_{0:016x}", f"geolens_device_{1:016x}"]

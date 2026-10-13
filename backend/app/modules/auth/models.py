@@ -346,6 +346,10 @@ class LoginAttempt(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     account_key: Mapped[str] = mapped_column(String(64), nullable=False)
     device_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Set when the password was wrong; an unsettled row counts only briefly.
+    failed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     # The attempt that filled its bucket, so a window is audited once.
     tripped: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")

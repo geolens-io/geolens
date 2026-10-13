@@ -8,10 +8,12 @@ remembered browser that spends its own budget is treated as unknown.
 
 An attempt is reserved before the password check, in one short transaction
 under an advisory lock on its budget, so parallel requests cannot all read
-the count before any of them is recorded. A failure keeps its reservation,
-and so does a request cancelled mid-check; anything past the password check
-removes it. A refused attempt never reaches the password check or writes a
-row, whether or not the account exists.
+the count before any of them is recorded. A wrong password marks its
+reservation failed, in the transaction that commits before the 401 is sent,
+and a correct one removes it. A reservation never settled, because the
+request failed or was cancelled first, counts for ``_UNSETTLED_GRACE``: its
+caller never saw an outcome. A refused attempt never reaches the password
+check or writes a row, whether or not the account exists.
 
 Every key is a keyed digest over the tenant and the lowercased username, so
 nothing here stores a username, and the device cookie is an HMAC token, never
@@ -30,13 +32,29 @@ from datetime import UTC, datetime, timedelta
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from fastapi import HTTPException, Request, Response, status
-from sqlalchemy import ColumnElement, and_, delete, exists, func, select, text, update
+from sqlalchemy import (
+    ColumnElement,
+    and_,
+    delete,
+    exists,
+    func,
+    not_,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_client_ip
-from app.modules.auth.cookies import cookie_values, set_login_device_cookie
+from app.modules.auth.cookies import (
+    clear_login_device_cookie,
+    cookie_values,
+    cookies_with_prefix,
+    set_login_device_cookie,
+)
 from app.modules.auth.models import LoginAttempt, LoginTrustToken, User
 from app.platform.audit import AuditEvent, audit_emit
 
@@ -44,6 +62,8 @@ LOGIN_FAILURE_LIMIT = 10
 LOGIN_FAILURE_WINDOW = timedelta(hours=1)
 DEVICE_COOKIE_MAX_AGE = timedelta(days=180)
 TRUST_TOKEN_TTL = timedelta(minutes=10)
+# Far longer than a password check takes, so in-flight attempts still count.
+_UNSETTLED_GRACE = timedelta(minutes=5)
 
 LOGIN_THROTTLED_CODE = "login_throttled"
 LOGIN_THROTTLED_MESSAGE = (
@@ -53,6 +73,7 @@ LOGIN_THROTTLED_MESSAGE = (
 
 _DEVICE_COOKIE_PREFIX = "geolens_device_"
 _DEVICE_COOKIE_VERSION = "v1"
+_MAX_REMEMBERED_ACCOUNTS = 5
 _NONCE_BYTES = 32
 # Tolerates a clock step between workers; a cookie dated further ahead is forged.
 _ISSUED_AT_SKEW_SECONDS = 300
@@ -154,16 +175,35 @@ def _presented_device_key(
     return None
 
 
+def _issued_at(value: str) -> int:
+    parts = value.split(".")
+    raw = parts[2] if len(parts) == 4 else ""
+    return int(raw) if raw.isascii() and raw.isdigit() and len(raw) <= 12 else 0
+
+
 def issue_device_cookie(
     response: Response, request: Request, account_key: str, user_id: uuid.UUID
 ) -> None:
+    """Remember this browser for the account, forgetting its oldest others past the cap.
+
+    Every device cookie rides every sign-in request, so without a cap a
+    browser used for many accounts would outgrow the proxy's header limit.
+    """
+    name = device_cookie_name(account_key)
     set_login_device_cookie(
         response,
         request,
-        device_cookie_name(account_key),
+        name,
         mint_device_cookie(account_key, user_id),
         int(DEVICE_COOKIE_MAX_AGE.total_seconds()),
     )
+    others: dict[str, int] = {}
+    for other, value in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX):
+        if other != name:
+            others[other] = max(others.get(other, 0), _issued_at(value))
+    newest_first = sorted(others, key=others.__getitem__, reverse=True)
+    for other in newest_first[_MAX_REMEMBERED_ACCOUNTS - 1 :]:
+        clear_login_device_cookie(response, request, other)
 
 
 @dataclass(frozen=True)
@@ -190,6 +230,17 @@ def _bucket(account_key: str, device_key: str | None) -> ColumnElement[bool]:
     return and_(LoginAttempt.account_key == account_key, device)
 
 
+def _counted(
+    account_key: str, device_key: str | None, now: datetime
+) -> ColumnElement[bool]:
+    """The rows that spend this budget now: failures, and attempts still in flight."""
+    return and_(
+        _bucket(account_key, device_key),
+        LoginAttempt.attempted_at >= now - LOGIN_FAILURE_WINDOW,
+        or_(LoginAttempt.failed, LoginAttempt.attempted_at >= now - _UNSETTLED_GRACE),
+    )
+
+
 async def _lock_bucket(
     db: AsyncSession, account_key: str, device_key: str | None
 ) -> None:
@@ -204,16 +255,22 @@ async def _check_budget(
     db: AsyncSession, account_key: str, device_key: str | None, now: datetime
 ) -> None:
     """Raise ``_BudgetSpent`` when the window already holds the limit."""
-    count, oldest = (
+    count, oldest_failed, oldest_unsettled = (
         await db.execute(
-            select(func.count(), func.min(LoginAttempt.attempted_at)).where(
-                _bucket(account_key, device_key),
-                LoginAttempt.attempted_at >= now - LOGIN_FAILURE_WINDOW,
-            )
+            select(
+                func.count(),
+                func.min(LoginAttempt.attempted_at).filter(LoginAttempt.failed),
+                func.min(LoginAttempt.attempted_at).filter(not_(LoginAttempt.failed)),
+            ).where(_counted(account_key, device_key, now))
         )
     ).one()
     if count >= LOGIN_FAILURE_LIMIT:
-        frees_at = oldest + LOGIN_FAILURE_WINDOW
+        frees = []
+        if oldest_failed is not None:
+            frees.append(oldest_failed + LOGIN_FAILURE_WINDOW)
+        if oldest_unsettled is not None:
+            frees.append(oldest_unsettled + _UNSETTLED_GRACE)
+        frees_at = min(frees)
         raise _BudgetSpent(max(1, math.ceil((frees_at - now).total_seconds())))
 
 
@@ -284,22 +341,29 @@ async def reserve_login_attempt(
 async def settle_login_failure(
     db: AsyncSession, request: Request, reservation: LoginReservation
 ) -> None:
-    """Keep a wrong password counted; audit the attempt that fills its budget.
+    """Count a wrong password for the window; audit the attempt that fills its budget.
 
     One audit row per window: a later failure in the same window finds the
     tripped row and stays quiet. Runs in the caller's transaction, which the
-    caller commits.
+    caller commits before answering.
     """
     await _lock_bucket(db, reservation.account_key, reservation.device_key)
-    now = datetime.now(tz=UTC)
-    in_window = and_(
-        _bucket(reservation.account_key, reservation.device_key),
-        LoginAttempt.attempted_at >= now - LOGIN_FAILURE_WINDOW,
+    await db.execute(
+        update(LoginAttempt)
+        .where(LoginAttempt.id == reservation.attempt_id)
+        .values(failed=True)
     )
+    now = datetime.now(tz=UTC)
+    in_window = _counted(reservation.account_key, reservation.device_key, now)
     failures = await db.scalar(select(func.count()).where(in_window))
     if int(failures or 0) < LOGIN_FAILURE_LIMIT:
         return
-    if await db.scalar(select(exists().where(in_window, LoginAttempt.tripped))):
+    tripped = and_(
+        _bucket(reservation.account_key, reservation.device_key),
+        LoginAttempt.attempted_at >= now - LOGIN_FAILURE_WINDOW,
+        LoginAttempt.tripped,
+    )
+    if await db.scalar(select(exists().where(tripped))):
         return
     await db.execute(
         update(LoginAttempt)

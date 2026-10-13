@@ -32,6 +32,7 @@ def upgrade() -> None:
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
         sa.Column("account_key", sa.String(length=64), nullable=False),
         sa.Column("device_key", sa.String(length=64), nullable=True),
+        sa.Column("failed", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("tripped", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column(
             "attempted_at",

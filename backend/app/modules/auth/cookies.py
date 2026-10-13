@@ -200,15 +200,29 @@ def set_login_device_cookie(
     )
 
 
+def clear_login_device_cookie(response: Response, request: Request, name: str) -> None:
+    response.delete_cookie(
+        name,
+        path=_login_device_cookie_path(request),
+        httponly=True,
+        secure=_secure_cookies(),
+        samesite="strict",
+    )
+
+
+def cookies_with_prefix(request: Request, prefix: str) -> list[tuple[str, str]]:
+    """Every (name, value) in the raw ``Cookie:`` header whose name starts with *prefix*."""
+    pairs = []
+    for part in request.headers.get("cookie", "").split(";"):
+        key, sep, value = part.partition("=")
+        if sep and key.strip().startswith(prefix):
+            pairs.append((key.strip(), value.strip()))
+    return pairs
+
+
 def cookie_values(request: Request, name: str) -> list[str]:
     """Every value *name* carries in the raw ``Cookie:`` header, in order."""
-    raw = request.headers.get("cookie", "")
-    values = []
-    for part in raw.split(";"):
-        key, sep, value = part.partition("=")
-        if sep and key.strip() == name:
-            values.append(value.strip())
-    return values
+    return [value for key, value in cookies_with_prefix(request, name) if key == name]
 
 
 def read_refresh_cookie(request: Request) -> str | None:
