@@ -504,7 +504,7 @@
         "upload": "Subir conjuntos de datos",
         "create_layers": "Crear capas",
         "export": "Exportar datos",
-        "exportDescription": "Descargar archivos de conjuntos de datos y, junto con «Subir conjuntos de datos», guardar resultados de análisis como conjuntos de datos nuevos. Cualquiera puede descargar los conjuntos de datos públicos, y quien pueda ver un conjunto de datos puede leer sus entidades mediante la API, las teselas del mapa y la tabla de atributos.",
+        "exportDescription": "Descargar archivos de conjuntos de datos y, junto con «Subir conjuntos de datos», guardar resultados de análisis como conjuntos de datos nuevos. Cualquiera puede descargar los conjuntos de datos públicos publicados, y quien pueda ver un conjunto de datos puede leer sus entidades mediante la API, las teselas del mapa y la tabla de atributos.",
         "edit_metadata": "Editar metadatos",
         "manage_collections": "Gestionar colecciones",
         "use_ai_chat": "Chat IA",

@@ -539,7 +539,7 @@
         "upload": "Upload Datasets",
         "create_layers": "Create Layers",
         "export": "Export Data",
-        "exportDescription": "Download dataset files and, together with Upload Datasets, save analysis results as new datasets. Anyone can still download public datasets, and anyone who can view a dataset can read its features through the API, map tiles and the attribute table.",
+        "exportDescription": "Download dataset files and, together with Upload Datasets, save analysis results as new datasets. Anyone can still download published public datasets, and anyone who can view a dataset can read its features through the API, map tiles and the attribute table.",
         "edit_metadata": "Edit Metadata",
         "manage_collections": "Manage Collections",
         "use_ai_chat": "AI Chat",

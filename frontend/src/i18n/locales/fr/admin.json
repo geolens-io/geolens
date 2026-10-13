@@ -504,7 +504,7 @@
         "upload": "Télécharger des jeux de données",
         "create_layers": "Créer des couches",
         "export": "Exporter des données",
-        "exportDescription": "Télécharger les fichiers des jeux de données et, avec « Télécharger des jeux de données », enregistrer les résultats d'analyse comme nouveaux jeux de données. Tout le monde peut télécharger les jeux de données publics, et toute personne pouvant consulter un jeu de données peut lire ses entités via l'API, les tuiles de la carte et la table attributaire.",
+        "exportDescription": "Télécharger les fichiers des jeux de données et, avec « Télécharger des jeux de données », enregistrer les résultats d'analyse comme nouveaux jeux de données. Tout le monde peut télécharger les jeux de données publics publiés, et toute personne pouvant consulter un jeu de données peut lire ses entités via l'API, les tuiles de la carte et la table attributaire.",
         "edit_metadata": "Modifier les métadonnées",
         "manage_collections": "Gérer les collections",
         "use_ai_chat": "Chat IA",
