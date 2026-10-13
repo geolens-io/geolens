@@ -454,9 +454,9 @@ async def set_target_status(
     # Once for the whole chain, immediately before its writes.
     await _roll_publication_version(db, dataset)
 
-    if enters_published:
-        dataset.record.published_at = func.now()
     for next_status, context in chain:
+        if next_status == "published":
+            dataset.record.published_at = func.now()
         dataset.record.record_status = next_status
         await workflow.on_transition(context)
 
