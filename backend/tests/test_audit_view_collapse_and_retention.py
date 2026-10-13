@@ -256,3 +256,24 @@ async def test_settings_api_rejects_below_the_minimum_and_clears_with_null(
     items = [i for tab in cleared.json()["tabs"].values() for i in tab]
     item = next(i for i in items if i["key"] == "audit_retention_days")
     assert item["value"] is None
+
+
+@pytest.mark.anyio
+async def test_a_failed_prune_event_keeps_the_rows(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    old_ids, _ = await _seed_rows(test_db_session, old=2, new=0)
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("insert rejected")
+
+    monkeypatch.setattr("app.modules.audit.service.log_action", broken)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+
+    with pytest.raises(RuntimeError):
+        await prune_audit_logs(
+            test_db_session, cutoff=cutoff, batch_size=10, retention_days=90
+        )
+    await test_db_session.rollback()
+
+    assert await _surviving(test_db_session, old_ids) == 2

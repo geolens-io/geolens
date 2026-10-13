@@ -214,8 +214,8 @@ async def prune_audit_logs(
 ) -> int:
     """Delete every audit row created before ``cutoff``, committing per batch.
 
-    Each batch commits together with an ``audit.prune`` event recording it, so
-    no deletion is ever left without its record. Rows another transaction
+    Each batch commits together with an ``audit.prune`` row recording it, so
+    no deletion is ever left without its record; a failed insert aborts the batch. Rows another transaction
     holds are skipped and picked up by a later run. Returns the number deleted.
     """
     deleted = 0
@@ -229,19 +229,27 @@ async def prune_audit_logs(
         result = await session.execute(delete(AuditLog).where(AuditLog.id.in_(batch)))
         count = result.rowcount
         if count:
-            await audit_emit(
-                session,
-                AuditEvent(
-                    user_id=None,
-                    action="audit.prune",
-                    resource_type="audit_log",
-                    details={
-                        "deleted": count,
-                        "cutoff": cutoff.isoformat(),
-                        "retention_days": retention_days,
-                    },
-                ),
+            event = AuditEvent(
+                user_id=None,
+                action="audit.prune",
+                resource_type="audit_log",
+                details={
+                    "deleted": count,
+                    "cutoff": cutoff.isoformat(),
+                    "retention_days": retention_days,
+                },
             )
+            # Written directly, not through the fail-open sink path: a failed
+            # insert must roll the deletion back instead of leaving it unrecorded.
+            await log_action(
+                session,
+                user_id=None,
+                action=event.action,
+                resource_type=event.resource_type,
+                details=event.details,
+            )
+            await session.flush()
+            await audit_emit(session, event, sinks=extension_audit_sinks())
         await session.commit()
         deleted += count
         if count < batch_size:
