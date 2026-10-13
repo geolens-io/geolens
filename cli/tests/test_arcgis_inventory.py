@@ -2746,6 +2746,13 @@ def _nested(value):
         ('prefix {"clientSecret": "abc123KEY"} suffix', "abc123KEY"),
         ('{"nested": "{\\"apiKey\\": \\"abc123KEY\\"}"}', "abc123KEY"),
         ("a=1&secret=abc123KEY", "abc123KEY"),
+        ("https://s.example/q?token=abc123KEY&f=json", "abc123KEY"),
+        ("https://s.example/q?api-key=abc123KEY&layer=2", "abc123KEY"),
+        ("https://s.example/q?api-key=abc123KEY#frag", "abc123KEY"),
+        ("https://s.example/q?authorization=Bearer%20abc123KEY&m=1", "abc123KEY"),
+        ("https://s.example/q?authorization=Bearer abc123KEY&m=1", "abc123KEY"),
+        ("Authorization: Bearer abc.def", "abc.def"),
+        ("Authorization: Basic configuration", "configuration"),
     ],
 )
 def test_string_scrubber_masks_each_credential_shape(raw, gone):
@@ -2760,6 +2767,8 @@ def test_string_scrubber_masks_each_credential_shape(raw, gone):
         "Bearer tokens",
         "Bearer tokens are described elsewhere",
         "Token ring network",
+        "Basic configuration options",
+        "Token authentication required",
         "authorization of the county board",
         "eyJ is a prefix",
         "keywords=parcels&title=Roads",
@@ -2771,6 +2780,28 @@ def test_string_scrubber_keeps_ordinary_text(raw):
     cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
     kept = cleaned["a"]["b"]["c"]["note"]
     assert json.loads(kept) == json.loads(raw) if raw.startswith("{") else kept == raw
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            "https://s.example/q?api-key=abc123KEY&layer=2",
+            "https://s.example/q?api-key=[REDACTED]&layer=2",
+        ),
+        (
+            "https://s.example/q?authorization=Bearer%20abc123KEY&mode=edit",
+            "https://s.example/q?authorization=[REDACTED]&mode=edit",
+        ),
+        (
+            "https://s.example/q?api-key=abc123KEY#frag",
+            "https://s.example/q?api-key=[REDACTED]#frag",
+        ),
+    ],
+)
+def test_url_header_parameter_masks_only_its_value(raw, expected):
+    cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
+    assert cleaned["a"]["b"]["c"]["note"] == expected
 
 
 def test_json_text_inside_a_string_keeps_its_structure():

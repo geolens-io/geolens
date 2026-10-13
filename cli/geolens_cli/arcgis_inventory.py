@@ -251,7 +251,7 @@ def _scrub_param(match: re.Match[str]) -> str:
 
 _HEADER = re.compile(
     r"\b((?:proxy-)?authorization|cookie|set-cookie|(?:x[-_]?)?api[-_]?key|x-esri-authorization)"
-    r"(\s*[:=]\s*)[^\r\n]+",
+    r"(\s*[:=]\s*)([^\r\n]+)",
     re.IGNORECASE,
 )
 _SCHEME_CREDENTIAL = re.compile(
@@ -268,8 +268,29 @@ _MAX_EMBEDDED_DEPTH = 3
 
 
 def _scrub_scheme(match: re.Match[str]) -> str:
-    scheme, space, _ = match.groups()
+    scheme, space, value = match.groups()
+    # Bearer is rarely prose; the other schemes also open ordinary sentences
+    # ("Basic configuration options"), so a plain word after them is left alone.
+    if scheme.lower() != "bearer" and re.fullmatch(r"[A-Za-z][a-z]*", value):
+        return match.group(0)
     return f"{scheme}{space}[REDACTED]"
+
+
+_URL_HEADER_VALUE = re.compile(r"(?:(?:Bearer|Basic|Token|Digest)\s+)?[^&#\s]*", re.I)
+
+
+def _scrub_header(match: re.Match[str]) -> str:
+    name, sep = match.group(1), match.group(2)
+    start = match.start()
+    in_url = start > 0 and match.string[start - 1] in "?&#"
+    if not in_url:
+        return f"{name}{sep}[REDACTED]"
+    # A URL parameter ends at the next delimiter, though a scheme and its
+    # token ("Bearer abc") may be separated by a space.
+    value = match.group(3)
+    consumed = _URL_HEADER_VALUE.match(value)
+    rest = value[consumed.end() :] if consumed else value
+    return f"{name}{sep}[REDACTED]{rest}"
 
 
 def _scrub_pair(match: re.Match[str]) -> str:
@@ -297,7 +318,7 @@ def _scrub_text(text: str, redact: Redactor, depth: int = 0) -> str:
             return json.dumps(_redact_json(embedded, redact, depth + 1))
     text = redact(text)
     text = _PEM.sub("[REDACTED]", text)
-    text = _HEADER.sub(r"\1\2[REDACTED]", text)
+    text = _HEADER.sub(_scrub_header, text)
     text = _SCHEME_CREDENTIAL.sub(_scrub_scheme, text)
     text = _JWT.sub("[REDACTED]", text)
     text = _AWS_KEY_ID.sub("[REDACTED]", text)
