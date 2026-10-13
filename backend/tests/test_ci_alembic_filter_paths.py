@@ -75,6 +75,9 @@ def _parse_alembic_filter_globs() -> list[str]:
     return _parse_filter_globs("alembic")
 
 
+_PATH_PARTS = re.compile(r'"(scripts|frontend|e2e)"((?:\s*/\s*"[^"\n]+")+)')
+_PATH_PART = re.compile(r'"([^"\n]+)"')
+
 # Tests of the filters themselves, which name paths as filter inputs.
 _FILTER_TESTS = frozenset({pathlib.Path(__file__).name, "test_ci_job_selection.py"})
 
@@ -83,9 +86,10 @@ def _referenced_by_backend_tests(pattern: re.Pattern[str]) -> dict[str, list[str
     """Map each path matching *pattern* that a backend test names to the tests
     naming it.
 
-    Literal-path reads only. A test that shells out to (or imports) a path it
-    never names is invisible here, which is the limit of this guard, not a
-    reason to skip it.
+    A test names a path either as one literal (``"scripts/x.sh"``) or as quoted
+    parts joined with ``/`` (``ROOT / "scripts" / "x.sh"``). A test that shells
+    out to (or imports) a path it never names is invisible here, which is the
+    limit of this guard, not a reason to skip it.
     """
     found: dict[str, list[str]] = {}
     tests_dir = REPO_ROOT / "backend" / "tests"
@@ -98,7 +102,12 @@ def _referenced_by_backend_tests(pattern: re.Pattern[str]) -> dict[str, list[str
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:  # pragma: no cover - unreadable file
             continue
-        for ref in set(pattern.findall(text)):
+        joined = {
+            "/".join([m.group(1), *_PATH_PART.findall(m.group(2))])
+            for m in _PATH_PARTS.finditer(text)
+        }
+        refs = set(pattern.findall(text)) | {j for j in joined if pattern.fullmatch(j)}
+        for ref in refs:
             if (REPO_ROOT / ref).is_file():
                 found.setdefault(ref, []).append(path.name)
     return found

@@ -302,6 +302,14 @@ jobs:
               - '.pre-commit-config.yaml'
               # test_runtime_db_role.py reads this script's source.
               - 'scripts/tests/test-backup-restore-roundtrip.sh'
+              # Backend tests that build these paths from parts
+              # (ROOT / "scripts" / ...) and read or import them.
+              - 'scripts/flatten_openapi_defs.py'
+              - 'scripts/init-test-db.sh'
+              - 'scripts/install.sh'
+              - 'scripts/minio-setup.sh'
+              - 'scripts/restore.sh'
+              - 'scripts/showcase-121-state.py'
             frontend:
               - 'frontend/**'
               - 'backend/openapi.json'
