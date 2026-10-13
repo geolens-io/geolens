@@ -77,12 +77,35 @@ describe('useMap', () => {
   });
 
   it('returns error state on failure', async () => {
-    mockGetMap.mockRejectedValueOnce(new Error('Not found'));
+    mockGetMap.mockRejectedValueOnce(new ApiError('Not found', 404));
 
     const { result } = renderHook(() => useMap('bad-id'));
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.data).toBeUndefined();
+  });
+
+  function retryingWrapper({ children }: { children: ReactNode }) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 0 } } });
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  }
+
+  it.each([404, 403])('requests a map once when the API answers %i', async (status) => {
+    mockGetMap.mockRejectedValue(new ApiError('nope', status));
+
+    const { result } = renderHookWithWrapper(() => useMap('gone'), { wrapper: retryingWrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(mockGetMap).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a server error once', async () => {
+    mockGetMap.mockRejectedValue(new ApiError('boom', 503));
+
+    const { result } = renderHookWithWrapper(() => useMap('flaky'), { wrapper: retryingWrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(mockGetMap).toHaveBeenCalledTimes(2);
   });
 });
 

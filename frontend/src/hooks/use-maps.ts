@@ -33,6 +33,7 @@ import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowsePar
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { useAnalysisAddedStore } from '@/stores/analysis-job-store';
+import { ApiError } from '@/api/client';
 
 export type { MapBrowseParams };
 
@@ -70,6 +71,9 @@ export function useMap(id: string | undefined, opts?: { refetchOnWindowFocus?: b
     enabled: !!id,
     staleTime: 60_000,
     refetchOnWindowFocus: opts?.refetchOnWindowFocus,
+    // A missing or forbidden map stays that way; retrying only delays the not-found state.
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && (error.status === 404 || error.status === 403)) && failureCount < 1,
   });
 }
 
