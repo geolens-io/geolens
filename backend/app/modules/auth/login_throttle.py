@@ -78,6 +78,8 @@ _NONCE_BYTES = 32
 # Tolerates a clock step between workers; a cookie dated further ahead is forged.
 _ISSUED_AT_SKEW_SECONDS = 300
 _TRUST_TOKEN_MAX_LENGTH = 128
+# The audit row stores the username as the failure row does, at the column width.
+_AUDIT_USERNAME_MAX = 150
 _KDF_SALT = b"geolens-login-throttle"
 
 
@@ -312,7 +314,8 @@ async def reserve_login_attempt(
 ) -> LoginReservation:
     """Count one attempt before its password is checked, or refuse it with 429.
 
-    Commits the request session's transaction.
+    Commits the request session's transaction. *username* is the whole
+    submitted value, as the password check matches it.
     """
     normalized = await _db_lower(db, username)
     account_key = login_account_key(normalized)
@@ -324,7 +327,9 @@ async def reserve_login_attempt(
         if device_key is not None:
             try:
                 attempt_id = await _reserve_in(db, account_key, device_key)
-                return LoginReservation(attempt_id, account_key, device_key, username)
+                return LoginReservation(
+                    attempt_id, account_key, device_key, username[:_AUDIT_USERNAME_MAX]
+                )
             except _BudgetSpent:
                 device_key = None
         attempt_id = await _reserve_in(db, account_key, None)
@@ -335,7 +340,9 @@ async def reserve_login_attempt(
             detail={"code": LOGIN_THROTTLED_CODE, "message": LOGIN_THROTTLED_MESSAGE},
             headers={"Retry-After": str(spent.retry_after)},
         ) from None
-    return LoginReservation(attempt_id, account_key, None, username)
+    return LoginReservation(
+        attempt_id, account_key, None, username[:_AUDIT_USERNAME_MAX]
+    )
 
 
 async def settle_login_failure(
@@ -353,17 +360,17 @@ async def settle_login_failure(
         .where(LoginAttempt.id == reservation.attempt_id)
         .values(failed=True)
     )
-    now = datetime.now(tz=UTC)
-    in_window = _counted(reservation.account_key, reservation.device_key, now)
-    failures = await db.scalar(select(func.count()).where(in_window))
+    in_window = and_(
+        _bucket(reservation.account_key, reservation.device_key),
+        LoginAttempt.attempted_at >= datetime.now(tz=UTC) - LOGIN_FAILURE_WINDOW,
+    )
+    # Recorded failures only: an attempt still in flight may yet succeed.
+    failures = await db.scalar(
+        select(func.count()).where(in_window, LoginAttempt.failed)
+    )
     if int(failures or 0) < LOGIN_FAILURE_LIMIT:
         return
-    tripped = and_(
-        _bucket(reservation.account_key, reservation.device_key),
-        LoginAttempt.attempted_at >= now - LOGIN_FAILURE_WINDOW,
-        LoginAttempt.tripped,
-    )
-    if await db.scalar(select(exists().where(tripped))):
+    if await db.scalar(select(exists().where(in_window, LoginAttempt.tripped))):
         return
     await db.execute(
         update(LoginAttempt)

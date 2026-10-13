@@ -571,3 +571,34 @@ async def test_a_browser_remembers_a_bounded_number_of_accounts(client: AsyncCli
         if header.startswith("geolens_device_") and "Max-Age=0" in header
     )
     assert cleared == [f"geolens_device_{0:016x}", f"geolens_device_{1:016x}"]
+
+
+async def test_longer_usernames_do_not_spend_a_prefixed_accounts_budget(
+    client: AsyncClient,
+):
+    account = "a" * 149 + uuid.uuid4().hex[:1]
+    for index in range(LOGIN_FAILURE_LIMIT):
+        assert await _fail(client, f"{account}{index}", 1) == [401]
+    assert await _fail(client, account, 1) == [401]
+
+
+async def test_attempts_still_in_flight_do_not_trip_the_audit(
+    client: AsyncClient, test_db_session
+):
+    import app.core.db as db_module
+
+    username = await _new_user(client)
+    for _ in range(LOGIN_FAILURE_LIMIT - 1):
+        async with db_module.async_session() as db:
+            await reserve_login_attempt(db, _request(), username)
+    assert await _fail(client, username, 1) == [401]
+
+    trips = await test_db_session.scalar(
+        text(
+            "SELECT count(*) FROM catalog.audit_logs "
+            "WHERE action = 'user.login.throttled' "
+            "AND details->>'username' = :username"
+        ),
+        {"username": username},
+    )
+    assert trips == 0

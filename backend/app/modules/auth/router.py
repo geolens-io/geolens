@@ -182,7 +182,7 @@ async def login(
         )
         await db.commit()
 
-    throttle = await reserve_login_attempt(db, request, attempted_username)
+    throttle = await reserve_login_attempt(db, request, form_data.username)
     provider = LocalAuthProvider(db)
     try:
         identity = await provider.authenticate(
