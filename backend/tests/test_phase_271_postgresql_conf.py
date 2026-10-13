@@ -33,6 +33,15 @@ def test_postgresql_conf_documents_hnsw_override_rationale():
     )
 
 
+def test_postgresql_conf_enables_lock_wait_and_io_observability():
+    """Lock waits and I/O time must be visible without an ALTER SYSTEM first."""
+    text = _POSTGRESQL_CONF.read_text()
+    for setting in ("log_lock_waits", "track_io_timing"):
+        assert re.search(rf"^\s*{setting}\s*=\s*on\b", text, re.MULTILINE), (
+            f"Expected `{setting} = on` in db/postgresql.conf"
+        )
+
+
 def test_map_model_documents_index_deferral_trigger():
     """Map.__table_args__ must document the visibility-index deferral with a revisit trigger."""
     text = _MAP_MODEL.read_text()

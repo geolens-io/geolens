@@ -141,7 +141,7 @@ x-app-runtime-env: &app-runtime-env
 # would weaken its profile.
 x-hardened-base: &hardened-base
   security_opt:
-    - no-new-privileges:true
+    - no-new-privileges=true
   cap_drop:
     - ALL
   cap_add:
@@ -221,7 +221,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     # D02 (docker-audit-20260604): drop ALL caps; re-add only what the postgres
     # entrypoint needs (initdb chowns the data dir, then gosu-drops to postgres).
     # no-new-privileges permits this de-escalation. Verify on a FRESH pgdata
@@ -557,7 +557,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     # titiler binds port 8000 inside container (>1024) — no NET_BIND_SERVICE needed.
     cap_drop:
       - ALL
@@ -726,7 +726,7 @@ services:
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     # USER node (uid 1000) set in frontend/Dockerfile.dev — cap_drop ALL is safe.
     # vite + esbuild + node hot-reload need no Linux capabilities.
     cap_drop:
@@ -779,7 +779,7 @@ services:
     # /backups (and a crontab under /var/spool/cron if a base ever provides cron).
     init: true
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     # The postgres base declares PGDATA as a VOLUME. Override it with ephemeral
@@ -872,7 +872,7 @@ services:
     # D04 (docker-audit-20260604): cloud-dev is opt-in + loopback-only, but minio
     # holds root S3 creds — drop caps + block privilege gain as cheap insurance.
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     ports:
@@ -913,7 +913,7 @@ services:
     # D04 (docker-audit-20260604): one-shot setup, but no-new-privileges + cap_drop
     # are free hardening.
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     depends_on:
@@ -941,7 +941,7 @@ services:
     # D04 / T-1210-03: cloud-dev opt-in, loopback-only. cap_drop ALL + no-new-privileges
     # are cheap insurance — Azurite holds no keys that matter outside localhost.
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     ports:
@@ -964,7 +964,7 @@ services:
     user: "valkey"
     # D04 (docker-audit-20260604): drop caps + block privilege gain (opt-in dev cache).
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     ports:

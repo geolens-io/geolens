@@ -145,7 +145,7 @@ x-app-runtime-env: &app-runtime-env
 # volume, then setpriv-drop to uid 1001. read_only root fs + dropped caps.
 x-hardened-base: &hardened-base
   security_opt:
-    - no-new-privileges:true
+    - no-new-privileges=true
   cap_drop:
     - ALL
   cap_add:
@@ -231,7 +231,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     cap_add:
@@ -466,7 +466,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     # GAP-001: 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
@@ -581,7 +581,7 @@ services:
     # keeps a leak from eating a small host's headroom.
     mem_limit: "${FRONTEND_MEM_LIMIT:-128m}"
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     read_only: true
@@ -636,7 +636,7 @@ services:
     # 512m default leaves headroom while bounding it on small hosts.
     mem_limit: "${BACKUP_MEM_LIMIT:-512m}"
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     # The postgres base declares PGDATA as a VOLUME. Override it with ephemeral
@@ -731,7 +731,7 @@ services:
         fi
         exec silo server /data --console-address ":9001"
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     ports:
@@ -772,7 +772,7 @@ services:
     # BUG-015 (Phase 1184): same fix as docker-compose.yml — mounted script
     # replaces the broken YAML folded-scalar heredoc.
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     depends_on:
@@ -795,7 +795,7 @@ services:
     # fix(#1746): cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a non-root user skips setpriv.
     user: "valkey"
     security_opt:
-      - no-new-privileges:true
+      - no-new-privileges=true
     cap_drop:
       - ALL
     # Without a limit, memory alerts that divide usage by the limit read +Inf.

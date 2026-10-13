@@ -47,15 +47,15 @@ def services(compose):
 
 
 class TestInf02SecurityOpt:
-    """api, worker, migrate (and existing db, titiler, frontend) declare no-new-privileges:true."""
+    """api, worker, migrate (and existing db, titiler, frontend) declare no-new-privileges=true."""
 
     @pytest.mark.parametrize(
         "service", ["api", "worker", "migrate", "db", "titiler", "frontend"]
     )
     def test_service_has_no_new_privileges(self, services, service):
         sec_opts = services[service].get("security_opt", [])
-        assert "no-new-privileges:true" in sec_opts, (
-            f"{service} missing 'no-new-privileges:true' in security_opt"
+        assert "no-new-privileges=true" in sec_opts, (
+            f"{service} missing 'no-new-privileges=true' in security_opt"
         )
 
 
