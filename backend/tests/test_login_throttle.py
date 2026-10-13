@@ -456,3 +456,10 @@ def _clear_tenant():
     token = current_tenant_var.set(None)
     yield
     current_tenant_var.reset(token)
+
+
+async def test_a_tenant_trust_link_is_a_bare_path(monkeypatch):
+    from scripts.trust_login_device import _api_base
+
+    monkeypatch.setattr(settings, "public_api_url", "https://fleet.example.com/api")
+    assert await _api_base(None, str(uuid.uuid4())) == "/api"

@@ -3292,7 +3292,8 @@ If you're locked out, try these ways back in, in order:
    docker compose exec api /app/.venv/bin/python -m scripts.trust_login_device <username>
    ```
 
-   In multi-tenant mode add `--tenant <tenant id>`. The command prints a link
-   that works once, within 10 minutes. Paste it into the browser's address
+   It prints a link that works once, within 10 minutes. In multi-tenant mode
+   add `--tenant <tenant id>`, and put that tenant's own address in front of
+   the path it prints. Paste the link into the browser's address
    bar yourself; a chat or mail client that previews links can use it up. The
    link only lets that browser try a password. It doesn't sign anyone in.

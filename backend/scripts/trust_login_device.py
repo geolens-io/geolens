@@ -45,9 +45,16 @@ async def _registered_tenant(db_module, tenant: str) -> str | None:
     return str(tenant_id)
 
 
-async def _api_base(db) -> str:
+async def _api_base(db, tenant: str | None) -> str:
+    """The configured public API URL, or the bare mount path.
+
+    A tenant's device cookie only works on that tenant's own host, which the
+    fleet-wide URL is not, so a tenant's link is always the bare path.
+    """
     from app.core.public_urls import PublicUrlNotConfiguredError, get_public_api_url
 
+    if tenant is not None:
+        return _DEFAULT_API_PATH
     try:
         return await get_public_api_url(db, for_external_use=True)
     except PublicUrlNotConfiguredError:
@@ -79,10 +86,12 @@ async def _run(username: str, tenant: str | None) -> int:
                 print(f"No account has the username {username!r}.", file=sys.stderr)
                 return 1
             token = await create_trust_token(db, username)
-            base = await _api_base(db)
+            base = await _api_base(db, tenant)
             await db.commit()
     print(f"{base}{_TRUST_PATH}?token={token}")
-    if base.startswith("/"):
+    if tenant is not None:
+        print("Put the tenant's own address in front of the path.", file=sys.stderr)
+    elif base.startswith("/"):
         print(
             "No public URL is configured: put this GeoLens's address in front of "
             "the path.",
