@@ -58,7 +58,7 @@ Commands start at the repository root unless specified. Setup: [.github/CONTRIBU
 - Contracts: `make openapi-check`, `make sdks-check` (regenerates files), `make cli-test` (includes DB integration), `make mcp-test`.
 - Versions: `make bump VERSION=X.Y.Z`; never edit versions individually. Gate: `make version-check`.
 - Pre-commit: `pre-commit run --files <changed paths>` runs the hooks CI runs, including the Rule 1/Rule 2 structural checks, finding and agent-tag markers, ruff and README assets. Scope it to your files; `--all-files` is slow.
-- Other CI gates, when a change touches their area: new settings or env vars, `make env-doc-check`; public-facing wording, `make public-surface-check`; frontend strings, `npm run check:i18n:changed`, `check:i18n:toast-strings` and `check:i18n:api-errors` (which also scans backend `detail=` strings). New Python dependencies face `pip-audit` and `bandit` in the Security Scan job.
+- Other CI gates, when a change touches their area: new settings or env vars, `make env-doc-check`; public-facing wording, `make public-surface-check`; frontend strings, from `frontend/`: `npm run check:i18n:changed`, `npm run check:i18n:toast-strings` and `npm run check:i18n:api-errors` (which also scans backend `detail=` strings). New Python dependencies face `pip-audit` and `bandit` in the Security Scan job.
 
 Run focused tests during development and affected package gates before completion. Documentation-only edits need link/command checks and `git diff --check`, not application suites. Report failed or unrun checks accurately.
 
