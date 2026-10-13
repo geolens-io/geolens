@@ -660,7 +660,7 @@ async def test_cookies_from_a_rotated_secret_are_cleared_not_counted(
     client: AsyncClient,
 ):
     username = await _new_user(client)
-    stale = [f"geolens_device_zzzz_{index:016x}" for index in range(5)]
+    stale = [f"geolens_device_zzzz_{index:016x}" for index in range(8)]
     resp = await client.post(
         "/auth/login",
         data={"username": username, "password": PASSWORD},
@@ -669,5 +669,6 @@ async def test_cookies_from_a_rotated_secret_are_cleared_not_counted(
     assert resp.status_code == 200, resp.text
     headers = resp.headers.get_list("set-cookie")
     cleared = sorted(h.split("=", 1)[0] for h in headers if "Max-Age=0" in h)
-    assert cleared == stale
+    # A sign-in clears a bounded number, so a flood can't swell the response.
+    assert cleared == stale[:5]
     _set_cookie(resp, device_cookie_name(login_account_key(username)))

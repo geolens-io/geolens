@@ -215,11 +215,15 @@ def issue_device_cookie(
     name = device_cookie_name(account_key)
     current = _current_cookie_prefix()
     others = set()
+    stale = set()
     for other, _ in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX):
         if not other.startswith(current):
-            clear_login_device_cookie(response, request, other)
+            stale.add(other)
         elif other != name:
             others.add(other)
+    # Bounded, so names a sibling domain floods in can't swell every response.
+    for other in sorted(stale)[:_MAX_REMEMBERED_ACCOUNTS]:
+        clear_login_device_cookie(response, request, other)
     if (
         capped
         and not cookie_values(request, name)
