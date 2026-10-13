@@ -5916,9 +5916,10 @@ export const searchPostStacSearchPost = <ThrowOnError extends boolean = false>(o
  * ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
  * a dataset still being restored answers 202 with a job id to poll. Requests
  * answer 429 with ``Retry-After`` when the per-process capacity for uncached
- * renders is full, tile-pool acquisition times out, a tile query exceeds the
- * pool's per-command timeout, or the configured per-tenant concurrency limit
- * is exceeded. Any other failure serving the tile answers 503.
+ * renders stays full for a short wait, tile-pool acquisition times out, a
+ * tile query exceeds the pool's per-command timeout, or the configured
+ * per-tenant concurrency limit is exceeded. Any other failure serving the
+ * tile answers 503.
  */
 export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError extends boolean = false>(options: Options<ClusterTileEndpointTilesClustersTablePathZxyPbfGetData, ThrowOnError>): RequestResult<ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses, ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors, ThrowOnError> => (options.client ?? client).get<ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses, ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors, ThrowOnError>({
     security: [
@@ -6101,9 +6102,10 @@ export const getTileTokensBatchTilesTokensPost = <ThrowOnError extends boolean =
  * ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
  * a dataset still being restored answers 202 with a job id to poll. Requests
  * answer 429 with ``Retry-After`` when the per-process capacity for uncached
- * renders is full, tile-pool acquisition times out, a tile query exceeds the
- * pool's per-command timeout, or the configured per-tenant concurrency limit
- * is exceeded. Any other failure serving the tile answers 503.
+ * renders stays full for a short wait, tile-pool acquisition times out, a
+ * tile query exceeds the pool's per-command timeout, or the configured
+ * per-tenant concurrency limit is exceeded. Any other failure serving the
+ * tile answers 503.
  */
 export const tileEndpointTilesTablePathZXYPbfGet = <ThrowOnError extends boolean = false>(options: Options<TileEndpointTilesTablePathZxyPbfGetData, ThrowOnError>): RequestResult<TileEndpointTilesTablePathZxyPbfGetResponses, TileEndpointTilesTablePathZxyPbfGetErrors, ThrowOnError> => (options.client ?? client).get<TileEndpointTilesTablePathZxyPbfGetResponses, TileEndpointTilesTablePathZxyPbfGetErrors, ThrowOnError>({
     security: [

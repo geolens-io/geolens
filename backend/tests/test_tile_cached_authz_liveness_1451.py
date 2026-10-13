@@ -474,6 +474,7 @@ async def test_the_catalog_is_asked_before_anything_acts_on_the_cached_meta(
 
     assert response.status_code == 200, response.text
     assert events == [
+        "db.rollback",
         "db.execute",
         "db.rollback",
         "cold_seam",
@@ -573,5 +574,5 @@ async def test_a_refusal_costs_no_capacity_and_no_storage_work(tile_kind: str):
             response = await c.get(path)
 
     assert response.status_code == 404
-    assert events == ["db.execute", "db.rollback"], events
+    assert events == ["db.rollback", "db.execute", "db.rollback"], events
     assert pool.acquired == 0

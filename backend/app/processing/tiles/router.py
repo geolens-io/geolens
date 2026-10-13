@@ -2415,9 +2415,10 @@ async def cluster_tile_endpoint(
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders is full, tile-pool acquisition times out, a tile query exceeds the
-    pool's per-command timeout, or the configured per-tenant concurrency limit
-    is exceeded. Any other failure serving the tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, a
+    tile query exceeds the pool's per-command timeout, or the configured
+    per-tenant concurrency limit is exceeded. Any other failure serving the
+    tile answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2491,9 +2492,8 @@ async def cluster_tile_endpoint(
             )
 
     tenant_sem = _cluster_limiter if is_multi_tenant() else None
-    if tenant_sem is not None:
-        # Authorization is complete; quota waits must not retain an API connection.
-        await db.rollback()
+    # Authorization is complete; admission waits must not retain an API connection.
+    await db.rollback()
     async with tile_render_slot(tenant_sem):
         # Recheck catalog registration before cold storage or rendering acts on
         # cached authorization; byte-cache hits need no database round trip.
@@ -2615,9 +2615,10 @@ async def tile_endpoint(
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders is full, tile-pool acquisition times out, a tile query exceeds the
-    pool's per-command timeout, or the configured per-tenant concurrency limit
-    is exceeded. Any other failure serving the tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, a
+    tile query exceeds the pool's per-command timeout, or the configured
+    per-tenant concurrency limit is exceeded. Any other failure serving the
+    tile answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2684,9 +2685,8 @@ async def tile_endpoint(
             )
 
     tenant_sem = _tile_serving_limiter if is_multi_tenant() else None
-    if tenant_sem is not None:
-        # Authorization is complete; quota waits must not retain an API connection.
-        await db.rollback()
+    # Authorization is complete; admission waits must not retain an API connection.
+    await db.rollback()
     async with tile_render_slot(tenant_sem):
         # Recheck catalog registration before cold storage or rendering acts on
         # cached authorization; byte-cache hits need no database round trip.

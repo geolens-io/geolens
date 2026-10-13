@@ -182,9 +182,10 @@ def sync_detailed(
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders is full, tile-pool acquisition times out, a tile query exceeds the
-    pool's per-command timeout, or the configured per-tenant concurrency limit
-    is exceeded. Any other failure serving the tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, a
+    tile query exceeds the pool's per-command timeout, or the configured
+    per-tenant concurrency limit is exceeded. Any other failure serving the
+    tile answers 503.
 
     Args:
         table_path (str):
@@ -272,9 +273,10 @@ def sync(
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders is full, tile-pool acquisition times out, a tile query exceeds the
-    pool's per-command timeout, or the configured per-tenant concurrency limit
-    is exceeded. Any other failure serving the tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, a
+    tile query exceeds the pool's per-command timeout, or the configured
+    per-tenant concurrency limit is exceeded. Any other failure serving the
+    tile answers 503.
 
     Args:
         table_path (str):
@@ -357,9 +359,10 @@ async def asyncio_detailed(
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders is full, tile-pool acquisition times out, a tile query exceeds the
-    pool's per-command timeout, or the configured per-tenant concurrency limit
-    is exceeded. Any other failure serving the tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, a
+    tile query exceeds the pool's per-command timeout, or the configured
+    per-tenant concurrency limit is exceeded. Any other failure serving the
+    tile answers 503.
 
     Args:
         table_path (str):
@@ -445,9 +448,10 @@ async def asyncio(
     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders is full, tile-pool acquisition times out, a tile query exceeds the
-    pool's per-command timeout, or the configured per-tenant concurrency limit
-    is exceeded. Any other failure serving the tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, a
+    tile query exceeds the pool's per-command timeout, or the configured
+    per-tenant concurrency limit is exceeded. Any other failure serving the
+    tile answers 503.
 
     Args:
         table_path (str):
