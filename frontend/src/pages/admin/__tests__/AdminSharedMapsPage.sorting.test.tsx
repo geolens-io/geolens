@@ -1,4 +1,5 @@
-import { render, screen, within } from '@/test/test-utils';
+import { render, screen, waitFor, within } from '@/test/test-utils';
+import { configure } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router';
 import { AdminSharedMapsPage } from '../AdminSharedMapsPage';
@@ -8,6 +9,10 @@ import { AdminSharedMapsPage } from '../AdminSharedMapsPage';
 // and page 2 unrelated, which looks correct in the UI and is not. These tests
 // pin the URL-owned sort state, the accessibility contract, and the link-status
 // column that deliberately has no sort control.
+
+// A loaded CI worker can stall longer than the 1s default between a click and
+// the re-render it triggers.
+configure({ asyncUtilTimeout: 3000 });
 
 const { mockUseShareTokens } = vi.hoisted(() => ({ mockUseShareTokens: vi.fn() }));
 
@@ -100,10 +105,10 @@ describe('AdminSharedMapsPage sorting', () => {
     renderPage();
 
     await user.click(screen.getByRole('button', { name: /^Map,/ }));
-    expect(lastCall()).toMatchObject({ sort: 'map_name', order: 'asc' });
+    await waitFor(() => expect(lastCall()).toMatchObject({ sort: 'map_name', order: 'asc' }));
 
     await user.click(screen.getByRole('button', { name: /^Map,/ }));
-    expect(lastCall()).toMatchObject({ sort: 'map_name', order: 'desc' });
+    await waitFor(() => expect(lastCall()).toMatchObject({ sort: 'map_name', order: 'desc' }));
   });
 
   it('flips the default column to ascending on first activation', async () => {
@@ -114,7 +119,7 @@ describe('AdminSharedMapsPage sorting', () => {
     // reverse rather than re-assert descending.
     await user.click(screen.getByRole('button', { name: /^Created/ }));
 
-    expect(lastCall()).toMatchObject({ sort: 'created_at', order: 'asc' });
+    await waitFor(() => expect(lastCall()).toMatchObject({ sort: 'created_at', order: 'asc' }));
   });
 
   it('sorts by the embed count, which the API orders as 0 not NULL', async () => {
@@ -123,7 +128,9 @@ describe('AdminSharedMapsPage sorting', () => {
 
     await user.click(screen.getByRole('button', { name: /^Embeds/ }));
 
-    expect(lastCall()).toMatchObject({ sort: 'embed_token_count', order: 'asc' });
+    await waitFor(() =>
+      expect(lastCall()).toMatchObject({ sort: 'embed_token_count', order: 'asc' }),
+    );
   });
 
   it('is operable from the keyboard', async () => {
@@ -134,7 +141,7 @@ describe('AdminSharedMapsPage sorting', () => {
     header.focus();
     await user.keyboard('{Enter}');
 
-    expect(lastCall()).toMatchObject({ sort: 'expires_at', order: 'asc' });
+    await waitFor(() => expect(lastCall()).toMatchObject({ sort: 'expires_at', order: 'asc' }));
   });
 
   it('owns sort state in the URL', async () => {
@@ -143,9 +150,11 @@ describe('AdminSharedMapsPage sorting', () => {
 
     await user.click(screen.getByRole('button', { name: /^Creator/ }));
 
-    const search = screen.getByTestId('location').textContent ?? '';
-    expect(new URLSearchParams(search).get('sort')).toBe('creator');
-    expect(new URLSearchParams(search).get('order')).toBe('asc');
+    await waitFor(() => {
+      const search = screen.getByTestId('location').textContent ?? '';
+      expect(new URLSearchParams(search).get('sort')).toBe('creator');
+      expect(new URLSearchParams(search).get('order')).toBe('asc');
+    });
   });
 
   it('reads sort state back out of the URL', () => {
@@ -169,19 +178,21 @@ describe('AdminSharedMapsPage sorting', () => {
     await user.click(screen.getByRole('button', { name: 'Active' }));
     await user.click(screen.getByRole('button', { name: /^Map,/ }));
 
-    expect(lastCall()).toMatchObject({ status: 'active', sort: 'map_name' });
+    await waitFor(() => expect(lastCall()).toMatchObject({ status: 'active', sort: 'map_name' }));
   });
 
   it('returns to the first page when the ordering changes', async () => {
     const user = userEvent.setup();
     renderPage('/admin/shared-maps', 200);
 
-    await user.click(screen.getByRole('button', { name: 'Next' }));
-    expect(lastCall()).toMatchObject({ skip: 50 });
+    const next = await screen.findByRole('button', { name: 'Next' });
+    await waitFor(() => expect(next).toBeEnabled());
+    await user.click(next);
+    await waitFor(() => expect(lastCall()).toMatchObject({ skip: 50 }));
 
     await user.click(screen.getByRole('button', { name: /^Map,/ }));
     // Page 3 of the old ordering names different rows under the new one.
-    expect(lastCall()).toMatchObject({ skip: 0, sort: 'map_name' });
+    await waitFor(() => expect(lastCall()).toMatchObject({ skip: 0, sort: 'map_name' }));
   });
 
   it('offers no sort control for the link-status column', () => {
