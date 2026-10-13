@@ -100,9 +100,23 @@ map \"\$remote_addr,\$realip_remote_addr\" \$geolens_vector_limit_key {
 }"
 fi
 
-export API_UPSTREAM NGINX_RESOLVER CLIENT_MAX_BODY_SIZE TRUSTED_PROXY_CONFIG
+# Extra script-src sources (for example an edge-injected analytics script) go
+# into a quoted add_header string, so only characters a source list needs are
+# accepted. Empty keeps script-src at 'self' and WebAssembly.
+CSP_SCRIPT_SRC_EXTRA="${CSP_SCRIPT_SRC_EXTRA:-}"
+case "$CSP_SCRIPT_SRC_EXTRA" in
+  *[!A-Za-z0-9:/._*"'"\ -]*)
+    echo "ERROR: CSP_SCRIPT_SRC_EXTRA may only contain letters, digits and : / . _ * ' - and spaces" >&2
+    exit 1
+    ;;
+esac
+if [ -n "$CSP_SCRIPT_SRC_EXTRA" ]; then
+  CSP_SCRIPT_SRC_EXTRA=" $CSP_SCRIPT_SRC_EXTRA"
+fi
+
+export API_UPSTREAM NGINX_RESOLVER CLIENT_MAX_BODY_SIZE TRUSTED_PROXY_CONFIG CSP_SCRIPT_SRC_EXTRA
 mkdir -p /tmp/geolens-nginx
-envsubst '$API_UPSTREAM $NGINX_RESOLVER $CLIENT_MAX_BODY_SIZE $TRUSTED_PROXY_CONFIG' \
+envsubst '$API_UPSTREAM $NGINX_RESOLVER $CLIENT_MAX_BODY_SIZE $TRUSTED_PROXY_CONFIG $CSP_SCRIPT_SRC_EXTRA' \
   < /opt/geolens/default.conf.template \
   > /tmp/geolens-nginx/default.conf
 
