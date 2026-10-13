@@ -504,7 +504,7 @@
         "upload": "Datensätze hochladen",
         "create_layers": "Ebenen erstellen",
         "export": "Daten exportieren",
-        "exportDescription": "Datensatzdateien (Vektor, Raster und Tabellen) herunterladen, außer öffentliche Datensätze, die jeder herunterladen kann, und Analyseergebnisse als neue Datensätze speichern. Wer einen Datensatz ansehen kann, kann seine Objekte weiterhin über die API, die Kartenkacheln und die Attributtabelle lesen.",
+        "exportDescription": "Datensatzdateien (Vektor, Raster und Tabellen) herunterladen, außer öffentliche Datensätze, die jeder herunterladen kann, und Analyseergebnisse als neue Datensätze speichern (dafür ist auch die Berechtigung zum Hochladen von Datensätzen nötig). Wer einen Datensatz ansehen kann, kann seine Objekte weiterhin über die API, die Kartenkacheln und die Attributtabelle lesen.",
         "edit_metadata": "Metadaten bearbeiten",
         "manage_collections": "Sammlungen verwalten",
         "use_ai_chat": "KI-Chat",
