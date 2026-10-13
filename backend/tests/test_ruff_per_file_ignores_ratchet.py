@@ -63,11 +63,11 @@ def _configured() -> dict[str, frozenset[str]]:
         "backend/pyproject.toml extends another ruff config, whose per-file-ignores "
         "this ratchet cannot see."
     )
-    lint = ruff["lint"]
     merged: dict[str, frozenset[str]] = {}
-    for table in ("per-file-ignores", "extend-per-file-ignores"):
-        for glob, codes in lint.get(table, {}).items():
-            merged[glob] = merged.get(glob, frozenset()) | frozenset(codes)
+    for section in (ruff, ruff["lint"]):
+        for table in ("per-file-ignores", "extend-per-file-ignores"):
+            for glob, codes in section.get(table, {}).items():
+                merged[glob] = merged.get(glob, frozenset()) | frozenset(codes)
     return merged
 
 
