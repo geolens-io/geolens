@@ -210,12 +210,13 @@ async def recently_audited(
 
 
 async def prune_audit_logs(
-    session: AsyncSession, *, cutoff: datetime, batch_size: int
+    session: AsyncSession, *, cutoff: datetime, batch_size: int, retention_days: int
 ) -> int:
     """Delete every audit row created before ``cutoff``, committing per batch.
 
-    Rows another transaction holds are skipped and picked up by a later run.
-    Returns the number deleted.
+    Each batch commits together with an ``audit.prune`` event recording it, so
+    no deletion is ever left without its record. Rows another transaction
+    holds are skipped and picked up by a later run. Returns the number deleted.
     """
     deleted = 0
     while True:
@@ -226,8 +227,22 @@ async def prune_audit_logs(
             .with_for_update(skip_locked=True)
         )
         result = await session.execute(delete(AuditLog).where(AuditLog.id.in_(batch)))
-        await session.commit()
         count = result.rowcount
+        if count:
+            await audit_emit(
+                session,
+                AuditEvent(
+                    user_id=None,
+                    action="audit.prune",
+                    resource_type="audit_log",
+                    details={
+                        "deleted": count,
+                        "cutoff": cutoff.isoformat(),
+                        "retention_days": retention_days,
+                    },
+                ),
+            )
+        await session.commit()
         deleted += count
         if count < batch_size:
             return deleted

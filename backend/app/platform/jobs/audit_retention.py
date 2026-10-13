@@ -14,35 +14,21 @@ AUDIT_PRUNE_BATCH_SIZE = 5000
 async def prune_expired_audit_logs(*, batch_size: int = AUDIT_PRUNE_BATCH_SIZE) -> int:
     """Delete audit rows older than ``audit_retention_days`` in the current scope.
 
-    Unset keeps everything. Records one ``audit.prune`` event when rows went.
-    Returns the number deleted.
+    Unset keeps everything. Each deleted batch is recorded by an ``audit.prune``
+    event. Returns the number deleted.
     """
     from app.core.db import async_session
     from app.core.persistent_config import AUDIT_RETENTION_DAYS
-    from app.modules.audit.service import AuditEvent, audit_emit, prune_audit_logs
+    from app.modules.audit.service import prune_audit_logs
 
     async with async_session() as session:
         days = await AUDIT_RETENTION_DAYS.get(session)
         if days is None:
             return 0
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        deleted = await prune_audit_logs(session, cutoff=cutoff, batch_size=batch_size)
-        if deleted:
-            await audit_emit(
-                session,
-                AuditEvent(
-                    user_id=None,
-                    action="audit.prune",
-                    resource_type="audit_log",
-                    details={
-                        "deleted": deleted,
-                        "cutoff": cutoff.isoformat(),
-                        "retention_days": days,
-                    },
-                ),
-            )
-            await session.commit()
-        return deleted
+        return await prune_audit_logs(
+            session, cutoff=cutoff, batch_size=batch_size, retention_days=days
+        )
 
 
 async def prune_expired_audit_logs_for_all_tenants() -> None:

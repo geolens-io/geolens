@@ -583,7 +583,10 @@ async def main() -> None:
     from app.observability.metrics.jobs import update_job_metrics
     from app.observability.metrics.memory import update_memory_metrics
     from app.observability.metrics.pool import update_pool_metrics
-    from app.platform.jobs.audit_retention import run_audit_log_prunes
+    from app.platform.jobs.audit_retention import (
+        _prune_audit_logs_safely,
+        run_audit_log_prunes,
+    )
     from app.platform.refresh.credentials import renew_credentials_periodically
     from app.platform.extensions import get_scheduled_refresh_lifecycle
     from app.platform.extensions.scheduled_refresh import (
@@ -686,6 +689,7 @@ async def main() -> None:
             # fix(#1778): early, before the jobs-by-events join this query
             # builds has a large table to sort.
             await _purge_terminal_jobs_safely()
+            await _prune_audit_logs_safely()
             await _expire_unclaimed_scheduled_refreshes_safely()
             await _queue_crs_facts_repair_safely()
             sweep_task = asyncio.create_task(run_stalled_queue_sweeps())

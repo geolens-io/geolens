@@ -164,11 +164,20 @@ async def test_pruning_runs_across_several_batches(
     old_ids, new_ids = await _seed_rows(test_db_session, old=5, new=1)
     cutoff = datetime.now(timezone.utc) - timedelta(days=90)
 
-    deleted = await prune_audit_logs(test_db_session, cutoff=cutoff, batch_size=2)
+    deleted = await prune_audit_logs(
+        test_db_session, cutoff=cutoff, batch_size=2, retention_days=90
+    )
 
     assert deleted >= 5
     assert await _surviving(test_db_session, old_ids) == 0
     assert await _surviving(test_db_session, new_ids) == 1
+    events = await test_db_session.scalars(
+        select(AuditLog).where(
+            AuditLog.action == "audit.prune",
+            AuditLog.details["cutoff"].astext == cutoff.isoformat(),
+        )
+    )
+    assert sum(e.details["deleted"] for e in events) == deleted
 
 
 @pytest.mark.anyio
