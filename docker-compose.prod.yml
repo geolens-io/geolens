@@ -805,7 +805,23 @@ services:
     # mounted. maxmemory sits below mem_limit so Valkey evicts instead of being
     # OOM-killed. volatile-ttl drops the soonest-expiring keys first: tiles
     # (300s) and rate-limit windows go before credential handoffs (900s).
+    # VALKEY_PASSWORD reaches requirepass through config on stdin, which keeps
+    # it out of the process list; the charset check stops it from adding config
+    # lines and lets the same value go into REDIS_URL unencoded.
     command:
+      - /bin/sh
+      - -c
+      - |
+        case "$$VALKEY_PASSWORD" in
+          *[!A-Za-z0-9._~-]*)
+            echo "FATAL: VALKEY_PASSWORD may contain only letters, digits and . _ ~ - (try: openssl rand -hex 32)." >&2
+            exit 1 ;;
+          "") exec "$$@" ;;
+        esac
+        exec "$$@" - <<EOF
+        requirepass $$VALKEY_PASSWORD
+        EOF
+      - valkey
       - valkey-server
       - --save
       - ""
@@ -815,10 +831,16 @@ services:
       - "${VALKEY_MAXMEMORY:-192mb}"
       - --maxmemory-policy
       - volatile-ttl
+    environment:
+      # Empty keeps the cache open to the compose network, as before.
+      VALKEY_PASSWORD: "${VALKEY_PASSWORD:-}"
     # No host port: the API and worker reach it at valkey:6379 over the compose
-    # network, and the cache has no auth, so it stays off the host.
+    # network, and the cache is unauthenticated unless VALKEY_PASSWORD is set.
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      # valkey-cli exits 0 on a NOAUTH reply, so only PONG counts as healthy.
+      test:
+        - CMD-SHELL
+        - '[ -z "$$VALKEY_PASSWORD" ] || export REDISCLI_AUTH="$$VALKEY_PASSWORD"; valkey-cli ping | grep -qx PONG'
       interval: 10s
       timeout: 5s
       retries: 3
