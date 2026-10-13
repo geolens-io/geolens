@@ -469,3 +469,112 @@ async def test_publish_allowed_when_require_metadata_off(
     assert resp.status_code == 200
     assert resp.json()["record_status"] == "published"
     assert resp.json()["published_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# target-status applies the same publish gate as the metadata PATCH
+# ---------------------------------------------------------------------------
+
+
+async def _set_require_metadata(session, value: bool) -> None:
+    from app.core.persistent_config import REQUIRE_METADATA_FOR_PUBLISH
+
+    await REQUIRE_METADATA_FOR_PUBLISH.set(session, value)
+
+
+async def _get_dataset(client: AsyncClient, headers: dict, dataset_id) -> dict:
+    resp = await client.get(f"/datasets/{dataset_id}", headers=headers)
+    assert resp.status_code == 200
+    return resp.json()
+
+
+@pytest.mark.anyio
+async def test_target_status_publish_blocked_when_metadata_incomplete(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    await _set_require_metadata(test_db_session, True)
+    ds = await _create_validation_dataset(
+        test_db_session, created_by=admin_id, title="Target Incomplete"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}/target-status/",
+        json={"status": "published"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+    assert "Cannot publish" in resp.json()["detail"]
+
+    body = await _get_dataset(client, admin_auth_header, ds.id)
+    assert body["record_status"] != "published"
+    assert body["published_at"] is None
+
+
+@pytest.mark.anyio
+async def test_target_status_publish_succeeds_for_valid_record(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    await _set_require_metadata(test_db_session, True)
+    ds = await _make_fully_valid_dataset(test_db_session, created_by=admin_id)
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}/target-status/",
+        json={"status": "published"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    body = await _get_dataset(client, admin_auth_header, ds.id)
+    assert body["record_status"] == "published"
+    assert body["published_at"] is not None
+
+
+@pytest.mark.anyio
+async def test_target_status_publish_allowed_when_requirement_off(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    await _set_require_metadata(test_db_session, False)
+    ds = await _create_validation_dataset(
+        test_db_session, created_by=admin_id, title="Target Requirement Off"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}/target-status/",
+        json={"status": "published"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    body = await _get_dataset(client, admin_auth_header, ds.id)
+    assert body["record_status"] == "published"
+    assert body["published_at"] is not None
+
+
+@pytest.mark.anyio
+async def test_target_status_already_published_is_unaffected(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    await _set_require_metadata(test_db_session, False)
+    ds = await _create_validation_dataset(
+        test_db_session, created_by=admin_id, title="Target Already Published"
+    )
+    first = await client.patch(
+        f"/datasets/{ds.id}/target-status/",
+        json={"status": "published"},
+        headers=admin_auth_header,
+    )
+    assert first.status_code == 200
+    stamped = (await _get_dataset(client, admin_auth_header, ds.id))["published_at"]
+
+    await _set_require_metadata(test_db_session, True)
+    again = await client.patch(
+        f"/datasets/{ds.id}/target-status/",
+        json={"status": "published"},
+        headers=admin_auth_header,
+    )
+    assert again.status_code == 200
+    body = await _get_dataset(client, admin_auth_header, ds.id)
+    assert body["record_status"] == "published"
+    assert body["published_at"] == stamped

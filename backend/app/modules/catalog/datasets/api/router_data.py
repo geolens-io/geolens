@@ -10,7 +10,7 @@ from fastapi import (
     Request,
     status,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 
 from app.core.db.sqlstate import BAD_QUERY_INPUT, sqlstate
@@ -46,7 +46,10 @@ from app.modules.catalog.datasets.domain.service import (
     get_related_datasets,
 )
 from app.core.dependencies import get_db
-from app.core.persistent_config import get_cached_semantic_search_rate_limit
+from app.core.persistent_config import (
+    REQUIRE_METADATA_FOR_PUBLISH,
+    get_cached_semantic_search_rate_limit,
+)
 from app.platform.ratelimit import limiter
 from app.platform.extensions import get_catalog_port, get_workflow_extension
 from app.platform.extensions.defaults import DefaultWorkflowExtension
@@ -435,11 +438,24 @@ async def set_target_status(
         chain.append((next_status, context))
         idx = next_idx
 
+    enters_published = any(next_status == "published" for next_status, _ in chain)
+    if enters_published:
+        if await REQUIRE_METADATA_FOR_PUBLISH.get(db):
+            result = await run_validation(db, dataset.record, dataset)
+            if not result.is_valid:
+                error_msgs = [f"{e.field}: {e.message}" for e in result.errors]
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Cannot publish: {'; '.join(error_msgs)}",
+                )
+
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
 
     # Once for the whole chain, immediately before its writes.
     await _roll_publication_version(db, dataset)
 
+    if enters_published:
+        dataset.record.published_at = func.now()
     for next_status, context in chain:
         dataset.record.record_status = next_status
         await workflow.on_transition(context)
