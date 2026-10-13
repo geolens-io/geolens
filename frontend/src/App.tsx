@@ -17,6 +17,7 @@ import { AnalysisJobWatcher } from '@/components/analysis/AnalysisJobWatcher';
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import('./pages/RegisterPage').then(m => ({ default: m.RegisterPage })));
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage').then(m => ({ default: m.VerifyEmailPage })));
+const TrustBrowserPage = lazy(() => import('./pages/TrustBrowserPage').then(m => ({ default: m.TrustBrowserPage })));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage').then(m => ({ default: m.OAuthCallbackPage })));
 // fix(#448): map routes kick off the map-vendor chunk (~306KB gz, maplibre-gl)
 // in parallel with the route chunk. Without this the vendor download
@@ -102,6 +103,7 @@ export const appRoutes = (
   <Route element={<RootLayout />}>
     <Route element={<BannerShell />}>
       <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="/login/trust" element={<TrustBrowserPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="/register" element={<RegisterPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="/oauth/callback" element={<OAuthCallbackPage />} errorElement={<RouteErrorBoundary />} />

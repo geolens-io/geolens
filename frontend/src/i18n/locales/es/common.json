@@ -300,6 +300,9 @@
     "mapNotFound": "Mapa no encontrado",
     "incorrectCredentials": "Nombre de usuario o contraseña incorrectos",
     "loginThrottled": "Demasiados intentos fallidos de inicio de sesión en esta cuenta. Usa un navegador con el que hayas iniciado sesión antes o inicia sesión con SSO.",
+    "deviceTrustLinkInvalid": "Este enlace no es válido, ha caducado o ya se usó. Pide uno nuevo a tu administrador.",
+    "deviceTrustBrowserFull": "Este navegador ya recuerda tantas cuentas como puede. Abre el enlace en una ventana privada o en otro navegador.",
+    "deviceTrustUnavailable": "Este GeoLens no puede recordar navegadores en su dirección actual. Consulta a tu administrador.",
     "awaitingApproval": "Su cuenta está pendiente de aprobación",
     "accountNotActive": "Cuenta no activa",
     "insufficientPermissions": "Permisos insuficientes",
@@ -704,7 +707,8 @@
     "adminSettings": "Ajustes admin",
     "adminSaml": "Configuración de SSO SAML",
     "verifyEmail": "Verificar correo",
-    "signingIn": "Iniciando sesión"
+    "signingIn": "Iniciando sesión",
+    "trustBrowser": "Recordar este navegador"
   },
   "sidebar": {
     "title": "Barra lateral",

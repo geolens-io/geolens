@@ -429,6 +429,9 @@
     "mapNotFound": "Map not found",
     "incorrectCredentials": "Incorrect username or password",
     "loginThrottled": "Too many failed sign-ins for this account. Use a browser you've signed in with before, or sign in with SSO.",
+    "deviceTrustLinkInvalid": "This link is invalid, expired or already used. Ask your administrator for a new one.",
+    "deviceTrustBrowserFull": "This browser already remembers as many accounts as it can. Open the link in a private window or another browser.",
+    "deviceTrustUnavailable": "This GeoLens can't remember browsers at its current address. Ask your administrator.",
     "awaitingApproval": "Your account is awaiting approval",
     "accountNotActive": "Account not active",
     "insufficientPermissions": "Insufficient permissions",
@@ -729,7 +732,8 @@
     "adminSettings": "Admin Settings",
     "adminSaml": "SAML SSO Configuration",
     "verifyEmail": "Verify email",
-    "signingIn": "Signing in"
+    "signingIn": "Signing in",
+    "trustBrowser": "Remember this browser"
   },
   "sidebar": {
     "title": "Sidebar",

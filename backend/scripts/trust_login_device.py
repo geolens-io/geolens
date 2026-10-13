@@ -25,9 +25,7 @@ import uuid
 from sqlalchemy import text
 
 _TENANT_EXISTS = text("SELECT id FROM catalog.tenants WHERE id = :tenant_id")
-_TRUST_PATH = "/auth/login/device-trust"
-# The API's mount point when no public URL is configured.
-_DEFAULT_API_PATH = "/api"
+_TRUST_PATH = "/login/trust"
 
 
 async def _registered_tenant(db_module, tenant: str) -> str | None:
@@ -42,25 +40,20 @@ async def _registered_tenant(db_module, tenant: str) -> str | None:
     return str(tenant_id)
 
 
-async def _api_base(db, tenant: str | None) -> str:
-    """The configured public API URL, or the bare mount path.
+async def _app_base(db, tenant: str | None) -> str:
+    """The configured public app URL, or nothing for a bare path.
 
     A tenant's device cookie only works on that tenant's own host, which the
-    fleet-wide URL is not, so a tenant's link is the configured API path alone.
+    fleet-wide URL is not, so a tenant's link is always the bare path.
     """
-    from app.core.public_urls import (
-        PublicUrlNotConfiguredError,
-        get_configured_api_path,
-        get_public_api_url,
-    )
+    from app.core.public_urls import PublicUrlNotConfiguredError, get_public_app_url
 
     if tenant is not None:
-        path = await get_configured_api_path(db)
-        return _DEFAULT_API_PATH if path is None else path
+        return ""
     try:
-        return await get_public_api_url(db, for_external_use=True)
+        return await get_public_app_url(db, for_external_use=True)
     except PublicUrlNotConfiguredError:
-        return _DEFAULT_API_PATH
+        return ""
 
 
 async def _run(username: str, tenant: str | None) -> int:
@@ -88,12 +81,12 @@ async def _run(username: str, tenant: str | None) -> int:
             if token is None:
                 print(f"No account has the username {username!r}.", file=sys.stderr)
                 return 1
-            base = await _api_base(db, tenant)
+            base = await _app_base(db, tenant)
             await db.commit()
     print(f"{base}{_TRUST_PATH}?token={token}")
     if tenant is not None:
         print("Put the tenant's own address in front of the path.", file=sys.stderr)
-    elif base.startswith("/"):
+    elif not base:
         print(
             "No public URL is configured: put this GeoLens's address in front of "
             "the path.",

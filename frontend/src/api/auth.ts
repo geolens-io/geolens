@@ -316,6 +316,26 @@ export async function verifyEmail(token: string): Promise<MessageResponse> {
   return response.json() as Promise<MessageResponse>;
 }
 
+/**
+ * Redeem an operator's single-use trust link so this browser counts as one the
+ * account has signed in with before. Sent from this origin so the browser's
+ * device cookies ride along for the server's per-browser cap.
+ */
+export async function rememberThisBrowser(token: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/auth/login/device-trust?token=${encodeURIComponent(token)}`,
+    { method: 'POST', credentials: 'same-origin' },
+  );
+  if (!response.ok) {
+    let detail: unknown;
+    try {
+      const body = await response.json();
+      detail = body.detail;
+    } catch { /* ignore */ }
+    throw new Error(translateApiErrorDetail(detail, response.status));
+  }
+}
+
 export async function resendVerification(email: string): Promise<MessageResponse> {
   const response = await fetch(`${API_BASE}/auth/resend-verification/`, {
     method: 'POST',

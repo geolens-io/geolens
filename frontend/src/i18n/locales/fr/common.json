@@ -300,6 +300,9 @@
     "mapNotFound": "Carte introuvable",
     "incorrectCredentials": "Nom d'utilisateur ou mot de passe incorrect",
     "loginThrottled": "Trop d'échecs de connexion pour ce compte. Utilisez un navigateur avec lequel vous vous êtes déjà connecté, ou connectez-vous avec l'authentification unique (SSO).",
+    "deviceTrustLinkInvalid": "Ce lien est invalide, expiré ou déjà utilisé. Demandez-en un nouveau à votre administrateur.",
+    "deviceTrustBrowserFull": "Ce navigateur mémorise déjà autant de comptes que possible. Ouvrez le lien dans une fenêtre privée ou un autre navigateur.",
+    "deviceTrustUnavailable": "Ce GeoLens ne peut pas mémoriser de navigateurs à son adresse actuelle. Contactez votre administrateur.",
     "awaitingApproval": "Votre compte est en attente d'approbation",
     "accountNotActive": "Compte non actif",
     "insufficientPermissions": "Permissions insuffisantes",
@@ -704,7 +707,8 @@
     "adminSettings": "Paramètres admin",
     "adminSaml": "Configuration SSO SAML",
     "verifyEmail": "Vérifier l'e-mail",
-    "signingIn": "Connexion en cours"
+    "signingIn": "Connexion en cours",
+    "trustBrowser": "Mémoriser ce navigateur"
   },
   "sidebar": {
     "title": "Barre latérale",

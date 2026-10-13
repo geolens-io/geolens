@@ -436,8 +436,7 @@ async def test_a_trust_link_remembers_the_browser_once(client: AsyncClient):
     token = await _mint_trust_link(username)
 
     resp = await client.post(f"/auth/login/device-trust?token={token}")
-    assert resp.status_code == 303
-    assert resp.headers["location"].endswith("/login")
+    assert resp.status_code == 204
     device = _set_cookie(resp, device_cookie_name(login_account_key(username)))
     assert (
         await _login(client, username, PASSWORD, device=device["value"])
@@ -469,9 +468,9 @@ async def test_the_trust_script_prints_a_working_link(client: AsyncClient, capsy
     username = await _new_user(client)
     assert await _run(username.upper(), None) == 0
     link = capsys.readouterr().out.strip()
-    assert "/auth/login/device-trust?token=" in link
+    assert link.endswith("/login/trust?token=" + link.rsplit("=", 1)[1])
     resp = await client.post("/auth/login/device-trust?token=" + link.rsplit("=", 1)[1])
-    assert resp.status_code == 303
+    assert resp.status_code == 204
 
     assert await _run(f"nobody_{uuid.uuid4().hex[:8]}", None) == 1
 
@@ -510,22 +509,14 @@ def _clear_tenant():
     current_tenant_var.reset(token)
 
 
-@pytest.mark.parametrize(
-    ("public_api_url", "expected"),
-    [
-        ("https://fleet.example.com/geo-api", "/geo-api"),
-        ("https://fleet.example.com", ""),
-    ],
-)
-async def test_a_tenant_trust_link_is_the_configured_api_path(
-    client: AsyncClient, monkeypatch, public_api_url, expected
-):
+async def test_a_tenant_trust_link_is_a_bare_path(client: AsyncClient, monkeypatch):
     import app.core.db as db_module
-    from scripts.trust_login_device import _api_base
+    from scripts.trust_login_device import _app_base
 
-    monkeypatch.setattr(settings, "public_api_url", public_api_url)
+    monkeypatch.setattr(settings, "public_app_url", "https://fleet.example.com")
     async with db_module.async_session() as db:
-        assert await _api_base(db, str(uuid.uuid4())) == expected
+        assert await _app_base(db, None) == "https://fleet.example.com"
+        assert await _app_base(db, str(uuid.uuid4())) == ""
 
 
 async def test_a_trust_link_survives_a_failure_before_its_response(
@@ -549,7 +540,7 @@ async def test_a_trust_link_survives_a_failure_before_its_response(
     monkeypatch.undo()
 
     resp = await client.post(f"/auth/login/device-trust?token={token}")
-    assert resp.status_code == 303
+    assert resp.status_code == 204
 
 
 async def test_spellings_the_database_matches_share_one_budget(client: AsyncClient):
@@ -706,7 +697,7 @@ async def test_a_browser_at_the_cap_is_refused_a_trust_link_it_can_use_elsewhere
     assert full.headers.get_list("set-cookie") == []
 
     resp = await client.post(f"/auth/login/device-trust?token={token}")
-    assert resp.status_code == 303
+    assert resp.status_code == 204
     _set_cookie(resp, device_cookie_name(login_account_key(username)))
 
 
@@ -769,13 +760,29 @@ async def test_a_device_cookie_without_the_app_header_is_not_trusted(
     assert resp.status_code == 429
 
 
-async def test_opening_a_trust_link_changes_nothing(client: AsyncClient):
+async def test_a_trust_link_is_refused_where_the_cookie_cannot_return(
+    client: AsyncClient, monkeypatch
+):
     username = await _new_user(client)
     token = await _mint_trust_link(username)
+    from app.core import public_urls
 
-    page = await client.get(f"/auth/login/device-trust?token={token}")
-    assert page.status_code == 200
-    assert '<form method="post">' in page.text
-    assert page.headers.get_list("set-cookie") == []
+    async def no_stored_urls(db):
+        return {}
+
+    # So a stored URL setting can't shadow this one.
+    monkeypatch.setattr(public_urls, "_load_public_url_overrides", no_stored_urls)
+    monkeypatch.setattr(
+        public_urls.settings, "public_app_url", "https://geo.example.com"
+    )
+    monkeypatch.setattr(
+        public_urls.settings, "public_api_url", "https://geo.example.com/geo-api"
+    )
+
     resp = await client.post(f"/auth/login/device-trust?token={token}")
-    assert resp.status_code == 303
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "device_trust_unavailable"
+    monkeypatch.undo()
+    assert (
+        await client.post(f"/auth/login/device-trust?token={token}")
+    ).status_code == 204

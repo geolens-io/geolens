@@ -13,7 +13,6 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
@@ -25,6 +24,7 @@ from app.modules.auth.cookies import (
     CSRF_COOKIE_NAME,
     CSRF_HEADER_NAME,
     REFRESH_COOKIE_NAME,
+    api_path_is_cookie_scoped,
     clear_browser_session,
     enforce_csrf,
     issue_browser_session,
@@ -72,7 +72,7 @@ from app.modules.quota.schemas import UserQuotaUsage
 from app.modules.quota.service import get_user_quota_usage
 from app.core.config import settings
 from app.core.dependencies import get_client_ip, get_db
-from app.core.public_urls import PublicUrlNotConfiguredError, get_public_app_url
+from app.core.public_urls import PublicUrlNotConfiguredError, get_public_api_url
 from app.core.tenancy import is_multi_tenant
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -297,77 +297,60 @@ async def login(
     )
 
 
-_TRUST_PAGE = (
-    '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-    "<title>Remember this browser</title></head><body>"
-    "<p>Remember this browser for signing in to the account this link was made for."
-    " It lets the browser try the account's password; it doesn't sign you in.</p>"
-    '<form method="post"><button type="submit">Remember this browser</button>'
-    "</form></body></html>"
-)
-
-
-@router.get("/login/device-trust", include_in_schema=False)
-@limiter.limit("10/minute")
-async def trust_login_device_page(request: Request) -> HTMLResponse:
-    """The page an operator's trust link opens; its button posts back here.
-
-    Opening the link changes nothing, so a link preview can't use it up, and
-    the post comes from this origin, so it carries the browser's device
-    cookies for the cap check even when the link was opened from elsewhere.
-    """
-    return HTMLResponse(
-        _TRUST_PAGE,
-        headers={
-            "Cache-Control": "no-store",
-            "Content-Security-Policy": (
-                "default-src 'none'; form-action 'self'; frame-ancestors 'none'"
-            ),
-            "Referrer-Policy": "no-referrer",
-        },
+def _trust_refusal(status_code: int, code: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status_code, detail={"code": code, "message": message}
     )
 
 
-@router.post("/login/device-trust", include_in_schema=False)
+@router.post(
+    "/login/device-trust",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+)
 @limiter.limit("10/minute")
 async def trust_login_device(
     request: Request,
     token: str = Query(default="", max_length=128),
     db: AsyncSession = Depends(get_db),
-) -> RedirectResponse:
+) -> Response:
     """Remember this browser for one account, from a link minted on the host.
 
     The link is single use, and grants only what a past sign-in would: this
     browser may try a password while the account refuses unknown clients.
-    Served under the device cookies' path so it sees them: a browser already
-    at its cap is refused and the link stays usable elsewhere.
+    The SPA's own page posts here, so the request is same-site and, under
+    the device cookies' path, carries them for the cap check. The deletion
+    commits last, so any refusal or failure leaves the link usable.
     """
     try:
-        app_url = await get_public_app_url(db, request=request, for_external_use=True)
+        api_url = await get_public_api_url(db, request=request, for_external_use=True)
     except PublicUrlNotConfiguredError:
-        app_url = ""
-    # Committed last, so a failure before the response is ready leaves the
-    # link usable.
+        api_url = None
+    if api_url is not None and not api_path_is_cookie_scoped(request, api_url):
+        raise _trust_refusal(
+            status.HTTP_409_CONFLICT,
+            "device_trust_unavailable",
+            "This deployment's API address can't hold a remembered browser.",
+        )
     redeemed = await redeem_trust_token(db, token)
     if redeemed is None:
         await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="This link is invalid, expired or already used",
+        raise _trust_refusal(
+            status.HTTP_404_NOT_FOUND,
+            "device_trust_link_invalid",
+            "This link is invalid, expired or already used.",
         )
     if not device_cookie_fits(request, redeemed[0]):
         await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "This browser already remembers as many accounts as it can. "
-                "Open the link in a private window or another browser."
-            ),
+        raise _trust_refusal(
+            status.HTTP_409_CONFLICT,
+            "device_trust_browser_full",
+            "This browser already remembers as many accounts as it can.",
         )
-    redirect = RedirectResponse(f"{app_url}/login", status_code=303)
-    issue_device_cookie(redirect, request, *redeemed)
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    issue_device_cookie(response, request, *redeemed)
     await db.commit()
-    return redirect
+    return response
 
 
 # Every page load in the SPA spends one refresh, so many users behind one

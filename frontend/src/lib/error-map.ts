@@ -595,6 +595,15 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'login_throttled') {
       return { key: 'errors.loginThrottled' };
     }
+    if (value.code === 'device_trust_link_invalid') {
+      return { key: 'errors.deviceTrustLinkInvalid' };
+    }
+    if (value.code === 'device_trust_browser_full') {
+      return { key: 'errors.deviceTrustBrowserFull' };
+    }
+    if (value.code === 'device_trust_unavailable') {
+      return { key: 'errors.deviceTrustUnavailable' };
+    }
     if (value.code === 'arcgis_signin_rejected') {
       return { key: 'errors.arcgisSigninRejected' };
     }

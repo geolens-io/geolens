@@ -429,6 +429,9 @@
     "mapNotFound": "未找到地图",
     "incorrectCredentials": "用户名或密码错误",
     "loginThrottled": "此账户登录失败次数过多。请使用之前登录过的浏览器，或通过 SSO 登录。",
+    "deviceTrustLinkInvalid": "此链接无效、已过期或已被使用。请向管理员索取新链接。",
+    "deviceTrustBrowserFull": "此浏览器记住的账户已达上限。请在隐私窗口或其他浏览器中打开该链接。",
+    "deviceTrustUnavailable": "此 GeoLens 在当前地址下无法记住浏览器。请联系管理员。",
     "awaitingApproval": "您的账户正在等待审批",
     "accountNotActive": "账户未激活",
     "insufficientPermissions": "权限不足",
@@ -729,7 +732,8 @@
     "adminSettings": "管理设置",
     "adminSaml": "SAML 单点登录配置",
     "verifyEmail": "验证电子邮箱",
-    "signingIn": "正在登录"
+    "signingIn": "正在登录",
+    "trustBrowser": "记住此浏览器"
   },
   "sidebar": {
     "title": "侧边栏",
