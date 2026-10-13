@@ -1,5 +1,7 @@
 """Ruff ``per-file-ignores`` in ``backend/pyproject.toml`` may only shrink.
 
+``extend-per-file-ignores`` counts toward the same baseline.
+
 The config must match ``_BASELINE`` exactly: adding a glob or a rule code fails
 the test, and so does removing one without deleting it from the baseline.
 """
@@ -44,8 +46,12 @@ _BASELINE: dict[str, frozenset[str]] = {
 
 def _configured() -> dict[str, frozenset[str]]:
     with _PYPROJECT.open("rb") as f:
-        raw = tomllib.load(f)["tool"]["ruff"]["lint"]["per-file-ignores"]
-    return {glob: frozenset(codes) for glob, codes in raw.items()}
+        lint = tomllib.load(f)["tool"]["ruff"]["lint"]
+    merged: dict[str, frozenset[str]] = {}
+    for table in ("per-file-ignores", "extend-per-file-ignores"):
+        for glob, codes in lint.get(table, {}).items():
+            merged[glob] = merged.get(glob, frozenset()) | frozenset(codes)
+    return merged
 
 
 def test_per_file_ignores_never_grow() -> None:
