@@ -106,24 +106,39 @@ settings/provider replacement tool, not a backup.
 
 Artifacts land at:
 - Daily: `backup_data` volume → `/backups/daily/`
-- Weekly (every Sunday): `backup_data` volume → `/backups/weekly/`
+- Weekly (every Sunday): `backup_data` volume → `/backups/weekly/`. Weekly
+  entries are hard links to the daily files, so they take no extra space. If
+  the filesystem refuses hard links, the service logs a warning and writes a
+  full copy instead.
 
-Default retention: 7 daily, 4 weekly (set `BACKUP_RETENTION_DAILY` /
-`BACKUP_RETENTION_WEEKLY` in `.env` to override). The count applies to the
-`.dump` files, ordered by the timestamp in the filename; the paired
-`staging-*.tar.gz` and `globals-*.sql` artifacts are pruned when the dump they
-belong with ages out. Retention therefore evicts whole backup sets, and a
-companion artifact never outlives its dump — which matters because a cycle can
+Default retention: 7 days of daily backups and 4 weeks of weekly backups (set
+`BACKUP_RETENTION_DAILY` / `BACKUP_RETENTION_WEEKLY` in `.env` to override).
+Retention keeps the newest dump of each calendar day, for the 7 most recent days
+that have a backup, and the newest weekly dump of each ISO week (Monday to
+Sunday), for the 4 most recent weeks that have one. Days and weeks are read from
+the timestamp in the filename. Only days and weeks that hold a backup count, so
+a stopped service never ages out the backups it already has. Extra cycles on the
+same day (every container start runs one) replace each other instead of pushing
+older days out of the window.
+
+The paired `staging-*.tar.gz` and `globals-*.sql` artifacts are pruned when the
+dump they belong with goes. Retention therefore evicts whole backup sets, and a
+companion artifact never outlives its dump. That matters because a cycle can
 produce a dump without a companion (an empty staging volume, or a failed
-`pg_dumpall`), and counting each kind separately would prune complete sets while
-leaving orphans behind.
+`pg_dumpall`). Files whose names don't match the backup naming
+(`<db>_<YYYYmmdd_HHMMSS>.dump` and its companions) are never touched.
 
-One exception: the **newest complete set** — a dump that still has its globals
-dump — is held back on top of the window, so a directory can hold `keep` + 1
-dumps. A run of `pg_dumpall` failures still produces valid database dumps each
-cycle, and without the exemption those would walk the last restorable-onto-a-
-fresh-cluster set out of retention while the healthcheck was already reporting
-the problem. The cost is one extra dump plus a few KB of SQL.
+One exception: the **newest complete set**, meaning a dump that still has its
+globals dump, is always kept. It stands for its own day or week, so only a newer
+dump from that same day is kept beside it, and it doesn't use up one of the
+other days in the window. A run of `pg_dumpall` failures still produces valid
+database dumps each cycle, and without the exemption those would walk the last
+set that can restore onto a fresh cluster out of retention, while the
+healthcheck was already reporting the problem.
+
+Backup files are written owner-only (`umask 077`: files `0600`, new directories
+`0700`). Files written by older releases keep their mode until retention removes
+them; run `chmod -R go-rwx` on the `backup_data` volume to tighten them now.
 
 ### Offsite (S3) upload
 
@@ -157,10 +172,10 @@ local retention pruning has run — the local dump is kept and pruned normally e
 when the offsite copy fails, so the failure is visible in container logs without
 sacrificing the local backup.
 
-The offsite copies get the **same retention** as the local ones —
-`BACKUP_RETENTION_DAILY` / `BACKUP_RETENTION_WEEKLY` daily and weekly sets,
-applied to the `backups/daily/` and `backups/weekly/` prefixes with the same
-pairing rule (a companion is pruned when the dump it belongs with ages out).
+The offsite copies get the **same retention** as the local ones:
+`BACKUP_RETENTION_DAILY` days and `BACKUP_RETENTION_WEEKLY` weeks, applied to
+the `backups/daily/` and `backups/weekly/` prefixes with the same pairing rule
+(a companion is pruned when the dump it belongs with ages out).
 There is no separate knob for offsite retention. A failure to list or delete
 objects for pruning is logged as an `ERROR` and fails the cycle the same way
 an upload failure does.
@@ -1812,6 +1827,21 @@ minutes = 26 hours, the default daily schedule plus slack). A container whose
 backups quietly stop succeeding therefore turns `unhealthy` roughly one missed
 cycle later, and `docker compose ps` shows it — no monitoring stack required.
 
+A cycle with `BACKUP_S3_ENABLED=true` also touches
+`/backups/.last-offsite-success`. Once that marker exists, the healthcheck
+holds it to the same `BACKUP_MAX_AGE_MINUTES`, even if offsite upload is later
+switched off. A compose override that drops the offsite settings, or an `.env`
+edit that loses them, then turns the service `unhealthy` instead of leaving it
+quietly local-only. The container also logs a startup warning when it finds the
+marker with offsite upload off. If you meant to turn offsite upload off, delete
+the marker:
+
+```bash
+docker compose exec backup rm /backups/.last-offsite-success
+```
+
+Installs that never enabled offsite upload have no marker and see no change.
+
 Tuning and edge behavior:
 
 - **Changed only the time of day?** `BACKUP_SCHEDULE` accepts a single fixed
@@ -1854,7 +1884,7 @@ catches those:
 docker compose logs backup | grep 'ERROR:'
 ```
 
-A few raw tool failures are not wrapped (for example the weekly `cp` copies in
+A few raw tool failures are not wrapped (for example `aws configure set` in
 the entrypoint) and surface only as the tool's own stderr, with no `ERROR:`
 marker. When a backup looks wrong but the grep comes back quiet, read the
 unfiltered `docker compose logs backup`.

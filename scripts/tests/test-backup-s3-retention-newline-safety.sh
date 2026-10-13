@@ -72,12 +72,14 @@ HARNESS="${WORKDIR}/harness.sh"
     awk '/^log\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
     awk '/^s3_list_prefix\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
     awk '/^s3_newest_complete_ts\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
+    awk '/^backup_period_key\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
+    awk '/^mark_retained\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
     awk '/^prune_s3_prefix\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
 } > "$HARNESS"
 
 # Sanity: the extraction actually pulled non-trivial bodies (a silent empty
 # extraction would make every assertion below vacuous).
-for fn in log s3_list_prefix s3_newest_complete_ts prune_s3_prefix; do
+for fn in log s3_list_prefix s3_newest_complete_ts backup_period_key mark_retained prune_s3_prefix; do
     grep -q "^${fn}() {" "$HARNESS" \
         && check "extracted ${fn}() from the shipped script" "ok" \
         || check "extracted ${fn}() from the shipped script — not found in harness" "fail"
@@ -137,7 +139,7 @@ run_prune() {
     PATH="${STUB_BIN}:${PATH}" \
         S3_BUCKET="test-bucket" S3_ACCESS_KEY_ID="test-key" S3_SECRET_ACCESS_KEY="test-secret" \
         S3_REGION="us-east-1" S3_ADDRESSING_STYLE="auto" \
-        bash -c 'set -euo pipefail; . "$1"; prune_s3_prefix "daily" "$2"' _ "$HARNESS" "$keep"
+        bash -c 'set -euo pipefail; . "$1"; prune_s3_prefix "daily" "$2" day' _ "$HARNESS" "$keep"
 }
 
 # --- Run: BACKUP_RETENTION_DAILY=1 ---

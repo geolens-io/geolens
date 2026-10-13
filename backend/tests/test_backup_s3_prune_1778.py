@@ -141,6 +141,8 @@ def _extract_prune_s3_prefix() -> str:
     return (
         f"{_extract_function('s3_list_prefix')}\n"
         f"{_extract_function('s3_newest_complete_ts')}\n"
+        f"{_extract_function('backup_period_key')}\n"
+        f"{_extract_function('mark_retained')}\n"
         f"{_extract_function('prune_s3_prefix')}"
     )
 
@@ -242,7 +244,7 @@ def _run(
         'log() { echo "$@" >&2; }\n'
         f"{creds}"
         f"{_extract_prune_s3_prefix()}\n"
-        f'prune_s3_prefix "daily" "{keep}"\n'
+        f'prune_s3_prefix "daily" "{keep}" day\n'
     )
     result = subprocess.run(
         ["bash", "-c", harness],
@@ -296,7 +298,7 @@ def _run_prune_s3_prefix_with_real_log(
         'S3_BUCKET="test-bucket"\n'
         'S3_ACCESS_KEY_ID="test-key"\n'
         'S3_SECRET_ACCESS_KEY="test-secret"\n'
-        'prune_s3_prefix "daily" "2"\n'
+        'prune_s3_prefix "daily" "2" day\n'
     )
     return subprocess.run(
         ["bash", "-c", harness],

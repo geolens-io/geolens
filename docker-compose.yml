@@ -823,7 +823,10 @@ services:
       # daily schedule plus slack; raise the knob in .env for less-frequent
       # BACKUP_SCHEDULE values). A missing marker fails the probe too, so a
       # container whose backups never succeed goes unhealthy after start_period.
-      test: ["CMD-SHELL", "find /backups/.last-success -mmin -${BACKUP_MAX_AGE_MINUTES:-1560} | grep -q . || exit 1"]
+      # /backups/.last-offsite-success is touched after each fully uploaded
+      # cycle; once it exists it must stay as fresh, so offsite upload dropped
+      # from the config (BACKUP_S3_ENABLED no longer true) also goes unhealthy.
+      test: ["CMD-SHELL", "find /backups/.last-success -mmin -${BACKUP_MAX_AGE_MINUTES:-1560} | grep -q . || exit 1; [ ! -e /backups/.last-offsite-success ] || find /backups/.last-offsite-success -mmin -${BACKUP_MAX_AGE_MINUTES:-1560} | grep -q . || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

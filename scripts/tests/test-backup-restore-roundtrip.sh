@@ -1679,10 +1679,11 @@ if ! env BACKUP_RETENTION_DAILY=1 BACKUP_RETENTION_WEEKLY=1 \
     cat "$ORPHAN_LOG" >&2
     fail "retention-1 cycle exited non-zero"
 fi
-# keep=1 plus the held-back complete set = 2 dumps.
+# Every cycle so far ran today, and this one is the newest complete set, so
+# it stands for the day and the older runs go.
 REMAINING_DUMPS="$(find "${CYCLE_BACKUPS}/daily" -name '*.dump' -type f | wc -l | tr -d ' ')"
-[ "$REMAINING_DUMPS" = "2" ] \
-    || fail "expected retention to leave 2 dumps (1 kept + 1 protected complete set), found ${REMAINING_DUMPS}"
+[ "$REMAINING_DUMPS" = "1" ] \
+    || fail "expected retention to leave today's newest complete set only, found ${REMAINING_DUMPS} dumps"
 for g in "${CYCLE_BACKUPS}"/daily/globals-*.sql; do
     [ -f "$g" ] || continue
     g_ts="$(basename "$g" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*$/\1/p')"

@@ -15,8 +15,8 @@ set -euo pipefail
 #   POSTGRES_DB            Database name (default: geolens)
 #   POSTGRES_HOST          Database hostname (default: db)
 #   BACKUP_SCHEDULE        Cron expression (default: "0 2 * * *")
-#   BACKUP_RETENTION_DAILY Number of daily backups to keep (default: 7)
-#   BACKUP_RETENTION_WEEKLY Number of weekly backups to keep (default: 4)
+#   BACKUP_RETENTION_DAILY Days of daily backups to keep, one per day (default: 7)
+#   BACKUP_RETENTION_WEEKLY Weeks of weekly backups to keep, one per ISO week (default: 4)
 #   BACKUP_S3_ENABLED      Upload to S3 (default: false)
 #   S3_ENDPOINT            S3/MinIO endpoint URL
 #   S3_BUCKET              S3 bucket name
@@ -51,14 +51,18 @@ BACKUP_RETENTION_WEEKLY="${BACKUP_RETENTION_WEEKLY:-4}"
 BACKUP_S3_ENABLED="${BACKUP_S3_ENABLED:-false}"
 S3_REGION="${S3_REGION:-us-east-1}"
 
+# Dumps carry every row and the globals carry role password verifiers, so
+# nothing this script writes is readable by other users.
+umask 077
+
 mkdir -p "$DAILY_DIR" "$WEEKLY_DIR"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
-# Retention must be a positive integer: prune keeps only the newest N files,
-# so a retention of 0 would delete the dump this very cycle just produced and
+# Retention must be a positive integer: prune keeps only the newest N days or
+# weeks, so a retention of 0 would delete the dump this very cycle just produced and
 # then mark the cycle successful — a backup service that retains nothing.
 # Checked on every invocation (startup and cron --run-backup re-entry).
 for _ret_var in BACKUP_RETENTION_DAILY BACKUP_RETENTION_WEEKLY; do
@@ -162,15 +166,8 @@ run_backup() {
     # Weekly copy on Sundays. Skipped when verification above already
     # discarded the dump (dump_ok=0) — there is nothing left to copy.
     if [ "$dump_ok" -eq 1 ] && [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
-        # fix(#1778): same .tmp-then-rename as the daily dump and the weekly
-        # globals copy — a container killed mid-cp (OOM, `compose stop`,
-        # ENOSPC) would otherwise leave a truncated file under the final
-        # weekly dump name, indistinguishable from a good one until a
-        # restore months later tries to read it.
-        if ! cp "$filepath" "${WEEKLY_DIR}/${filename}.tmp" \
-            || ! mv "${WEEKLY_DIR}/${filename}.tmp" "${WEEKLY_DIR}/${filename}"; then
+        if ! publish_weekly_copy "$filepath"; then
             log "ERROR: could not write the weekly dump copy to ${WEEKLY_DIR}"
-            rm -f "${WEEKLY_DIR}/${filename}.tmp"
             # fix(#1778 review round 3, P1): mark failed and fall through —
             # a nearly full volume is the typical cause, and the fix for
             # that is retention pruning, which a `return` here used to skip
@@ -244,8 +241,8 @@ run_backup() {
     # Retention runs regardless of S3 outcome (dumps set the window; their
     # companions follow) — local backups must be pruned even when the offsite
     # upload failed, or backup_data fills up during an S3 outage.
-    prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
-    prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
+    prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY" day
+    prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY" week
     # Must run after prune_old_backups — it prunes by what that just left.
     prune_orphaned_companions "$DAILY_DIR"
     prune_orphaned_companions "$WEEKLY_DIR"
@@ -255,8 +252,8 @@ run_backup() {
     # same reason local pruning does — a transient S3 hiccup on THIS cycle's
     # upload must not stop last cycle's objects from being pruned.
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
-        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" || cycle_failed=1
-        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" || cycle_failed=1
+        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" day || cycle_failed=1
+        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" week || cycle_failed=1
     fi
 
     # Surface the S3 failure now that retention has run, so the cycle is still
@@ -271,8 +268,31 @@ run_backup() {
     # healthcheck in docker-compose(.prod).yml goes unhealthy when it is
     # missing or older than BACKUP_MAX_AGE_MINUTES.
     touch "${BACKUP_DIR}/.last-success"
+    # Stays on the volume when offsite upload is later switched off, so the
+    # healthcheck can tell a dropped offsite copy from one never configured.
+    if [ "$BACKUP_S3_ENABLED" = "true" ]; then
+        touch "${BACKUP_DIR}/.last-offsite-success"
+    fi
 
     log "Backup cycle complete"
+}
+
+# Weekly entries are hard links to the daily files: a weekly set costs no extra
+# space and appears under its final name only once complete. A filesystem that
+# refuses links gets a full copy through a .tmp name instead.
+publish_weekly_copy() {
+    local src="$1"
+    local dst
+    dst="${WEEKLY_DIR}/$(basename "$src")"
+    if ln "$src" "$dst" 2>/dev/null; then
+        return 0
+    fi
+    log "WARNING: could not hard-link $(basename "$src") into ${WEEKLY_DIR}; writing a full copy instead" >&2
+    if cp "$src" "${dst}.tmp" && mv "${dst}.tmp" "$dst"; then
+        return 0
+    fi
+    rm -f "${dst}.tmp"
+    return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -352,13 +372,8 @@ backup_staging() {
     # behaves) while still printing the path every other path already does.
     local weekly_failed=0
     if [ "${CYCLE_IS_WEEKLY:-0}" -eq 1 ]; then
-        # Same .tmp-then-rename as the weekly dump/globals copies, and for the
-        # same reason: a container killed mid-cp must never leave a truncated
-        # file under the final weekly archive name.
-        if ! cp "$archive" "${WEEKLY_DIR}/$(basename "$archive").tmp" \
-            || ! mv "${WEEKLY_DIR}/$(basename "$archive").tmp" "${WEEKLY_DIR}/$(basename "$archive")"; then
+        if ! publish_weekly_copy "$archive"; then
             log "ERROR: could not write the weekly object-storage copy to ${WEEKLY_DIR}" >&2
-            rm -f "${WEEKLY_DIR}/$(basename "$archive").tmp"
             weekly_failed=1
         else
             log "Weekly object-storage copy saved: $(basename "$archive")" >&2
@@ -422,30 +437,11 @@ backup_globals() {
     size="$(du -h "$globals_file" | cut -f1)"
     log "Cluster globals complete: $(basename "$globals_file") (${size})" >&2
     if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
-        # Same .tmp-then-rename as the daily artifact, and for the same reason:
-        # a container killed mid-`cp` never reaches the failure branch, so
-        # copying straight to the final name would leave a truncated file under
-        # the weekly globals filename beside an already-published weekly dump,
-        # where a recovery would take it for the valid paired artifact.
-        #
-        # cp carries the source's 0600 across (measured on both busybox and GNU
-        # cp), but the weekly copy is the one an operator reaches for months
-        # later, so pin the mode rather than inheriting it, and do it before the
-        # rename so the file is never visible under its final name at a wider
-        # mode.
-        local weekly_copy="${WEEKLY_DIR}/$(basename "$globals_file")"
-        # fix(#1778 review round 5, P2): as with backup_staging above, a
-        # weekly-copy failure must not `return` before the final printf —
-        # $globals_file is already published under DAILY_DIR, and
-        # run_backup's caller does `globals_dump="$(backup_globals
-        # "$timestamp")" || cycle_failed=1`. Returning early left
-        # $globals_dump empty, orphaning the valid daily globals dump from
-        # the offsite upload too.
-        if ! cp "$globals_file" "${weekly_copy}.tmp" \
-            || ! chmod 600 "${weekly_copy}.tmp" \
-            || ! mv "${weekly_copy}.tmp" "$weekly_copy"; then
+        # A weekly-copy failure must not `return` before the final printf:
+        # $globals_file is already published under DAILY_DIR, and the caller
+        # needs its path to upload it offsite.
+        if ! publish_weekly_copy "$globals_file"; then
             log "ERROR: could not write the weekly globals copy to ${WEEKLY_DIR}" >&2
-            rm -f "${weekly_copy}.tmp"
             weekly_failed=1
         else
             log "Weekly globals copy saved: $(basename "$globals_file")" >&2
@@ -654,20 +650,14 @@ for obj in data.get("Contents", []):
 }
 
 # ---------------------------------------------------------------------------
-# fix(#1778): S3 retention pruning
+# S3 retention pruning
 # ---------------------------------------------------------------------------
-# upload_to_s3 only ever adds objects under backups/<prefix>/ — nothing ever
-# removed one, so with BACKUP_S3_ENABLED=true the offsite copies grow without
-# bound while RUNBOOK documents a fixed "N daily / N weekly" retention. This
-# mirrors that local policy against the S3 prefix: keep the newest `keep`
-# *.dump objects by their embedded timestamp (same sort key
-# dump_listing_arrays uses), then drop any *.sql/*.tar.gz companion whose
-# paired dump is no longer among the kept set (the S3 analogue of
-# prune_orphaned_companions).
-#
-# No new env var: this is gated by the same BACKUP_S3_ENABLED an operator
-# already opted into for the upload itself, and uses the same
-# BACKUP_RETENTION_DAILY / BACKUP_RETENTION_WEEKLY counts as the local path.
+# Applies the local retention to backups/<prefix>/: keep the newest *.dump
+# object of each of the `keep` most recent days or weeks, by the embedded
+# timestamp (mark_retained, as prune_old_backups does), then drop any
+# *.sql/*.tar.gz companion whose paired dump is no longer kept (the S3
+# analogue of prune_orphaned_companions). It runs only with
+# BACKUP_S3_ENABLED=true and reads the same BACKUP_RETENTION_* values.
 #
 # fix(#1778 review round 2, P1): the S3 analogue of newest_complete_ts()
 # below — the timestamp of the newest set that is COMPLETE (a *.dump object
@@ -731,6 +721,7 @@ s3_newest_complete_ts() {
 prune_s3_prefix() {
     local prefix="$1"
     local keep="$2"
+    local period="$3"
 
     if [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY_ID:-}" ] || [ -z "${S3_SECRET_ACCESS_KEY:-}" ]; then
         log "ERROR: BACKUP_S3_ENABLED=true but S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are not all set — cannot prune offsite retention"
@@ -887,36 +878,33 @@ prune_s3_prefix() {
     fi
 
     local count="${#dump_ts[@]}"
-    if [ "$count" -gt "$keep" ]; then
-        local to_remove=$((count - keep))
-        log "Pruning ${to_remove} old offsite backup(s) from s3://${S3_BUCKET}/backups/${prefix}/"
-        # fix(#1778 review round 3, P2): a dump whose `aws s3 rm` FAILED
-        # is still an object in S3 — it must not be dropped from the
-        # kept set below just because it was sliced off the candidate
-        # list for deletion. Before this fix, a failed dump deletion
-        # left the dump behind but its timestamp missing from the kept
-        # set, so the orphan-companion pass right below read its globals/
-        # staging as orphaned and deleted them, turning a complete
-        # backup set into an incomplete one.
-        local -a failed_ts=() failed_name=()
+    local to_remove=0
+    if [ "$count" -gt 0 ]; then
+        RK_TS=("${dump_ts[@]}")
+        mark_retained "$period" "$keep" "$protect"
         local _i
-        for ((_i = 0; _i < to_remove; _i++)); do
-            if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${dump_name[$_i]}" "${aws_args[@]:-}" > /dev/null; then
-                log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${dump_name[$_i]}"
-                rm_failed=1
-                failed_ts+=("${dump_ts[$_i]}")
-                failed_name+=("${dump_name[$_i]}")
+        for ((_i = 0; _i < count; _i++)); do
+            if [ "${RK_KEEP[$_i]}" -eq 0 ]; then
+                to_remove=$((to_remove + 1))
             fi
         done
+    fi
+    if [ "$to_remove" -gt 0 ]; then
+        log "Pruning ${to_remove} old offsite backup(s) from s3://${S3_BUCKET}/backups/${prefix}/"
+        # A dump whose `aws s3 rm` failed is still in the bucket, so it stays
+        # in the kept set and the orphan pass below leaves its companions.
         local -a surviving_ts=() surviving_name=()
-        for ((_i = to_remove; _i < count; _i++)); do
+        for ((_i = 0; _i < count; _i++)); do
+            if [ "${RK_KEEP[$_i]}" -eq 0 ]; then
+                if aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${dump_name[$_i]}" "${aws_args[@]:-}" > /dev/null; then
+                    continue
+                fi
+                log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${dump_name[$_i]}"
+                rm_failed=1
+            fi
             surviving_ts+=("${dump_ts[$_i]}")
             surviving_name+=("${dump_name[$_i]}")
         done
-        if [ "${#failed_ts[@]}" -gt 0 ]; then
-            surviving_ts+=("${failed_ts[@]}")
-            surviving_name+=("${failed_name[@]}")
-        fi
         dump_ts=("${surviving_ts[@]:-}")
         dump_name=("${surviving_name[@]:-}")
     fi
@@ -1093,9 +1081,61 @@ newest_complete_ts() {
     printf '%s' "$best"
 }
 
+# Retention bucket of a YYYYmmdd_HHMMSS timestamp, in PERIOD_KEY: the calendar
+# day, or the ISO week named by its Monday as a day count since 1970-01-01.
+# Plain arithmetic, so GNU, BSD and busybox hosts all agree.
+backup_period_key() {
+    local period="$1" ts="$2"
+    if [ "$period" = "day" ]; then
+        PERIOD_KEY="${ts:0:8}"
+        return 0
+    fi
+    local y=$((10#${ts:0:4})) m=$((10#${ts:4:2})) d=$((10#${ts:6:2}))
+    if [ "$m" -le 2 ]; then
+        y=$((y - 1))
+    fi
+    local era=$((y / 400))
+    local yoe=$((y - era * 400))
+    local doy=$(((153 * ((m + 9) % 12) + 2) / 5 + d - 1))
+    local days=$((era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468))
+    PERIOD_KEY=$((days - (days + 3) % 7))
+}
+
+# Sets RK_KEEP[i] to 1 for the newest entry of each of the `keep` most recent
+# periods in RK_TS (sorted oldest first) and to 0 for the rest. Only periods
+# that hold a backup count, so neither a stopped service nor a wrong clock
+# ages out history that nothing newer has replaced. `protect` is the newest
+# complete set, kept by the caller outside RK_TS: it stands for its own
+# period, so only a newer entry in that period is kept beside it.
+mark_retained() {
+    local period="$1" keep="$2" protect="${3:-}"
+    local protect_key=""
+    if [ -n "$protect" ]; then
+        backup_period_key "$period" "$protect"
+        protect_key="$PERIOD_KEY"
+    fi
+    RK_KEEP=()
+    local _i last="" seen=0
+    for ((_i = ${#RK_TS[@]} - 1; _i >= 0; _i--)); do
+        RK_KEEP[_i]=0
+        backup_period_key "$period" "${RK_TS[$_i]}"
+        if [ "$PERIOD_KEY" = "$protect_key" ] && [ "${RK_TS[$_i]}" \< "$protect" ]; then
+            continue
+        fi
+        if [ "$PERIOD_KEY" != "$last" ]; then
+            last="$PERIOD_KEY"
+            seen=$((seen + 1))
+            if [ "$seen" -le "$keep" ]; then
+                RK_KEEP[_i]=1
+            fi
+        fi
+    done
+}
+
 prune_old_backups() {
     local dir="$1"
     local keep="$2"
+    local period="$3"
 
     dump_listing_arrays "$dir"
     [ "${#DL_TS[@]}" -gt 0 ] || return 0
@@ -1124,13 +1164,21 @@ prune_old_backups() {
     done
     [ "${#cand_ts[@]}" -gt 0 ] || return 0
 
-    local count="${#cand_ts[@]}"
-    [ "$count" -gt "$keep" ] || return 0
+    RK_TS=("${cand_ts[@]}")
+    mark_retained "$period" "$keep" "$protect"
+    local to_remove=0
+    for ((_i = 0; _i < ${#cand_ts[@]}; _i++)); do
+        if [ "${RK_KEEP[$_i]}" -eq 0 ]; then
+            to_remove=$((to_remove + 1))
+        fi
+    done
+    [ "$to_remove" -gt 0 ] || return 0
 
-    local to_remove=$((count - keep))
     log "Pruning ${to_remove} old backup(s) from ${dir}"
-    for ((_i = 0; _i < to_remove; _i++)); do
-        rm -f "${cand_path[$_i]}"
+    for ((_i = 0; _i < ${#cand_ts[@]}; _i++)); do
+        if [ "${RK_KEEP[$_i]}" -eq 0 ]; then
+            rm -f "${cand_path[$_i]}"
+        fi
     done
 }
 
@@ -1280,6 +1328,12 @@ if [ "$BACKUP_S3_ENABLED" != "true" ]; then
     log "WARNING:   Enable the offsite copy (RUNBOOK.md, section 1, \"Offsite (S3) upload\")"
     log "WARNING:   or point the backup volume at different storage before relying on"
     log "WARNING:   this for disaster recovery."
+    if [ -e "${BACKUP_DIR}/.last-offsite-success" ]; then
+        log "WARNING: offsite upload succeeded earlier on this volume and is now off."
+        log "WARNING:   The healthcheck turns unhealthy once that last offsite copy is"
+        log "WARNING:   older than BACKUP_MAX_AGE_MINUTES. Set BACKUP_S3_ENABLED=true again,"
+        log "WARNING:   or delete ${BACKUP_DIR}/.last-offsite-success if the change is intended."
+    fi
 fi
 
 # Run an initial backup on startup

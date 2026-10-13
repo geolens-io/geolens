@@ -77,18 +77,20 @@ die() {
     exit 1
 }
 
-# --- Extract the five functions under test ---
+# --- Extract the functions under test ---
 HARNESS="${WORKDIR}/harness.sh"
 {
     echo 'set -euo pipefail'
     awk '/^log\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
     awk '/^dump_listing_arrays\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
     awk '/^newest_complete_ts\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
+    awk '/^backup_period_key\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
+    awk '/^mark_retained\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
     awk '/^prune_old_backups\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
     awk '/^prune_orphaned_companions\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$SCRIPT"
 } > "$HARNESS"
 
-for fn in log dump_listing_arrays newest_complete_ts prune_old_backups prune_orphaned_companions; do
+for fn in log dump_listing_arrays newest_complete_ts backup_period_key mark_retained prune_old_backups prune_orphaned_companions; do
     grep -q "^${fn}() {" "$HARNESS" \
         && check "extracted ${fn}() from the shipped script" "ok" \
         || check "extracted ${fn}() from the shipped script — not found in harness" "fail"
@@ -125,7 +127,7 @@ set -euo pipefail
 . "$1"
 dump_listing_arrays "$2"
 printf "DL_COUNT=%s\n" "${#DL_TS[@]}"
-prune_old_backups "$2" "$3"
+prune_old_backups "$2" "$3" day
 prune_orphaned_companions "$2"
 ' _ "$HARNESS" "$DIR" 1 > "${WORKDIR}/run.log" 2>&1 \
     || { cat "${WORKDIR}/run.log" >&2; die "the extracted retention pipeline exited non-zero against the fixture"; }
