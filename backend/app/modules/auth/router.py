@@ -38,6 +38,7 @@ from app.modules.auth.dependencies import (
     require_session_credential,
 )
 from app.modules.auth.login_throttle import (
+    account_binding,
     issue_device_cookie,
     redeem_trust_token,
     reserve_login_attempt,
@@ -277,7 +278,12 @@ async def login(
 
     if wants_cookie_auth(request):
         issue_browser_session(response, request, refresh_token, expire_days)
-        issue_device_cookie(response, request, throttle.account_key, user.id)
+        issue_device_cookie(
+            response,
+            request,
+            throttle.account_key,
+            account_binding(user.id, user.key_epoch),
+        )
         return TokenResponse(
             access_token=token,
             refresh_token=None,

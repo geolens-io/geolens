@@ -339,7 +339,7 @@ async def test_login_without_cookie_mode_sets_no_cookie(client: AsyncClient):
 
 def test_forged_expired_and_foreign_device_cookies_are_ignored():
     key = login_account_key("alice")
-    alice = uuid.uuid4()
+    alice = f"{uuid.uuid4()}:1"
     name = device_cookie_name(key)
     good = mint_device_cookie(key, alice)
     assert _presented_device_key(_request(f"{name}={good}"), key, alice) is not None
@@ -351,8 +351,9 @@ def test_forged_expired_and_foreign_device_cookies_are_ignored():
     other_account = mint_device_cookie(login_account_key("bob"), alice)
     for value in (forged, expired, other_account, "v1.x", "", "v2" + good[2:]):
         assert _presented_device_key(_request(f"{name}={value}"), key, alice) is None
-    # Same username, a different account behind it.
-    assert _presented_device_key(_request(f"{name}={good}"), key, uuid.uuid4()) is None
+    # Same username, a different account or credential generation behind it.
+    for binding in (f"{uuid.uuid4()}:1", alice[:-1] + "2"):
+        assert _presented_device_key(_request(f"{name}={good}"), key, binding) is None
 
     token = current_tenant_var.set(str(uuid.uuid4()))
     try:
@@ -370,7 +371,7 @@ def test_forged_expired_and_foreign_device_cookies_are_ignored():
 
 def test_any_valid_occurrence_of_a_duplicated_device_cookie_counts():
     key = login_account_key("alice")
-    alice = uuid.uuid4()
+    alice = f"{uuid.uuid4()}:1"
     name = device_cookie_name(key)
     good = mint_device_cookie(key, alice)
     request = _request(f"{name}=v1.planted.1.bad; {name}={good}")
@@ -556,21 +557,42 @@ async def test_an_unsettled_attempt_stops_counting_but_a_failure_does_not(
 
 async def test_a_browser_remembers_a_bounded_number_of_accounts(client: AsyncClient):
     username = await _new_user(client)
-    others = "; ".join(
-        f"geolens_device_{index:016x}=v1.n.{1_000 + index}.mac" for index in range(6)
+    name = device_cookie_name(login_account_key(username))
+
+    async def sign_in(cookie: str):
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": PASSWORD},
+            headers={**COOKIE_MODE, "Cookie": cookie},
+        )
+        assert resp.status_code == 200, resp.text
+        return [h for h in resp.headers.get_list("set-cookie") if h.startswith(name)]
+
+    def others(count: int) -> str:
+        return "; ".join(
+            f"geolens_device_{index:016x}=v1.n.1.mac" for index in range(count)
+        )
+
+    assert len(await sign_in(others(4))) == 1
+    # At the cap a new account is not remembered, and no other cookie is touched.
+    assert await sign_in(others(5)) == []
+    # An account this browser already remembers is still rotated.
+    assert len(await sign_in(f"{others(5)}; {name}=v1.n.1.mac")) == 1
+
+
+async def test_a_password_change_forgets_remembered_browsers(client: AsyncClient):
+    username = await _new_user(client)
+    device = await _remembered_device(client, username)
+    changed = await client.post(
+        "/auth/change-password/",
+        json={"current_password": PASSWORD, "new_password": "OtherPass5678!"},
+        headers=await _bearer(client, username),
     )
-    resp = await client.post(
-        "/auth/login",
-        data={"username": username, "password": PASSWORD},
-        headers={**COOKIE_MODE, "Cookie": others},
-    )
-    assert resp.status_code == 200, resp.text
-    cleared = sorted(
-        header.split("=", 1)[0]
-        for header in resp.headers.get_list("set-cookie")
-        if header.startswith("geolens_device_") and "Max-Age=0" in header
-    )
-    assert cleared == [f"geolens_device_{0:016x}", f"geolens_device_{1:016x}"]
+    assert changed.status_code == 204, changed.text
+    await _fail(client, username, LOGIN_FAILURE_LIMIT)
+
+    resp = await _login(client, username, "OtherPass5678!", device=device)
+    assert resp.status_code == 429
 
 
 async def test_longer_usernames_do_not_spend_a_prefixed_accounts_budget(

@@ -50,7 +50,6 @@ from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_client_ip
 from app.modules.auth.cookies import (
-    clear_login_device_cookie,
     cookie_values,
     cookies_with_prefix,
     set_login_device_cookie,
@@ -110,10 +109,25 @@ async def _db_lower(db: AsyncSession, username: str) -> str:
     return await db.scalar(select(func.lower(username)))
 
 
-async def _user_id(db: AsyncSession, normalized: str) -> uuid.UUID | None:
-    return await db.scalar(
-        select(User.id).where(func.lower(User.username) == normalized)
-    )
+def account_binding(user_id: uuid.UUID, key_epoch: int) -> str:
+    """What a device cookie is bound to beyond the username.
+
+    The user id makes a username deleted and created again a new account,
+    and ``key_epoch``, which password changes and resets advance, makes a
+    credential reset forget every remembered browser.
+    """
+    return f"{user_id}:{key_epoch}"
+
+
+async def _account(db: AsyncSession, normalized: str) -> tuple[uuid.UUID, str] | None:
+    row = (
+        await db.execute(
+            select(User.id, User.key_epoch).where(
+                func.lower(User.username) == normalized
+            )
+        )
+    ).one_or_none()
+    return None if row is None else (row.id, account_binding(row.id, row.key_epoch))
 
 
 def device_cookie_name(account_key: str) -> str:
@@ -121,26 +135,20 @@ def device_cookie_name(account_key: str) -> str:
     return _DEVICE_COOKIE_PREFIX + account_key[:16]
 
 
-def _device_mac(
-    account_key: str, user_id: uuid.UUID, nonce: str, issued_at: int
-) -> str:
-    # The account key binds the tenant and the lowercased username, and the
-    # user id the account itself, so a username deleted and created again
-    # starts with no remembered browsers.
-    message = f"{_DEVICE_COOKIE_VERSION}|{account_key}|{user_id}|{nonce}|{issued_at}"
+def _device_mac(account_key: str, binding: str, nonce: str, issued_at: int) -> str:
+    # The account key binds the tenant and the lowercased username.
+    message = f"{_DEVICE_COOKIE_VERSION}|{account_key}|{binding}|{nonce}|{issued_at}"
     return _keyed_digest(b"device-cookie", message)
 
 
-def mint_device_cookie(account_key: str, user_id: uuid.UUID) -> str:
+def mint_device_cookie(account_key: str, binding: str) -> str:
     nonce = secrets.token_urlsafe(_NONCE_BYTES)
     issued_at = int(time.time())
-    mac = _device_mac(account_key, user_id, nonce, issued_at)
+    mac = _device_mac(account_key, binding, nonce, issued_at)
     return f"{_DEVICE_COOKIE_VERSION}.{nonce}.{issued_at}.{mac}"
 
 
-def _device_nonce(
-    value: str, account_key: str, user_id: uuid.UUID, now: int
-) -> str | None:
+def _device_nonce(value: str, account_key: str, binding: str, now: int) -> str | None:
     """The nonce of a device cookie minted for this account, or None."""
     parts = value.split(".")
     if len(parts) != 4 or parts[0] != _DEVICE_COOKIE_VERSION:
@@ -152,14 +160,14 @@ def _device_nonce(
     max_age = int(DEVICE_COOKIE_MAX_AGE.total_seconds())
     if not now - max_age <= issued_at <= now + _ISSUED_AT_SKEW_SECONDS:
         return None
-    expected = _device_mac(account_key, user_id, nonce, issued_at)
+    expected = _device_mac(account_key, binding, nonce, issued_at)
     if not hmac.compare_digest(mac.encode(), expected.encode()):
         return None
     return nonce
 
 
 def _presented_device_key(
-    request: Request, account_key: str, user_id: uuid.UUID | None
+    request: Request, account_key: str, binding: str | None
 ) -> str | None:
     """The ledger key of a valid device cookie for this account, if any.
 
@@ -167,45 +175,42 @@ def _presented_device_key(
     carry a valid MAC, and refusing on a duplicate would let one plant cost
     the owner their remembered browser.
     """
-    if user_id is None:
+    if binding is None:
         return None
     now = int(time.time())
     for value in cookie_values(request, device_cookie_name(account_key)):
-        nonce = _device_nonce(value, account_key, user_id, now)
+        nonce = _device_nonce(value, account_key, binding, now)
         if nonce is not None:
             return _keyed_digest(b"device-key", nonce)
     return None
 
 
-def _issued_at(value: str) -> int:
-    parts = value.split(".")
-    raw = parts[2] if len(parts) == 4 else ""
-    return int(raw) if raw.isascii() and raw.isdigit() and len(raw) <= 12 else 0
-
-
 def issue_device_cookie(
-    response: Response, request: Request, account_key: str, user_id: uuid.UUID
+    response: Response, request: Request, account_key: str, binding: str
 ) -> None:
-    """Remember this browser for the account, forgetting its oldest others past the cap.
+    """Remember this browser for the account, up to a cap of accounts per browser.
 
     Every device cookie rides every sign-in request, so without a cap a
     browser used for many accounts would outgrow the proxy's header limit.
+    At the cap a new account goes unremembered rather than displacing one:
+    other accounts' cookies can't be verified here, and one planted from a
+    sibling domain must not be able to push out a real one.
     """
     name = device_cookie_name(account_key)
+    others = {
+        other
+        for other, _ in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX)
+        if other != name
+    }
+    if not cookie_values(request, name) and len(others) >= _MAX_REMEMBERED_ACCOUNTS:
+        return
     set_login_device_cookie(
         response,
         request,
         name,
-        mint_device_cookie(account_key, user_id),
+        mint_device_cookie(account_key, binding),
         int(DEVICE_COOKIE_MAX_AGE.total_seconds()),
     )
-    others: dict[str, int] = {}
-    for other, value in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX):
-        if other != name:
-            others[other] = max(others.get(other, 0), _issued_at(value))
-    newest_first = sorted(others, key=others.__getitem__, reverse=True)
-    for other in newest_first[_MAX_REMEMBERED_ACCOUNTS - 1 :]:
-        clear_login_device_cookie(response, request, other)
 
 
 @dataclass(frozen=True)
@@ -321,8 +326,9 @@ async def reserve_login_attempt(
     account_key = login_account_key(normalized)
     device_key = None
     if cookie_values(request, device_cookie_name(account_key)):
-        user_id = await _user_id(db, normalized)
-        device_key = _presented_device_key(request, account_key, user_id)
+        account = await _account(db, normalized)
+        binding = None if account is None else account[1]
+        device_key = _presented_device_key(request, account_key, binding)
     try:
         if device_key is not None:
             try:
@@ -412,8 +418,8 @@ async def create_trust_token(db: AsyncSession, username: str) -> str | None:
     is stored, and deleting the account deletes its tokens. The caller commits.
     """
     normalized = await _db_lower(db, username)
-    user_id = await _user_id(db, normalized)
-    if user_id is None:
+    account = await _account(db, normalized)
+    if account is None:
         return None
     now = datetime.now(tz=UTC)
     await db.execute(delete(LoginTrustToken).where(LoginTrustToken.expires_at <= now))
@@ -423,17 +429,15 @@ async def create_trust_token(db: AsyncSession, username: str) -> str | None:
             id=uuid.uuid4(),
             token_hash=_trust_token_hash(token),
             account_key=login_account_key(normalized),
-            user_id=user_id,
+            user_id=account[0],
             expires_at=now + TRUST_TOKEN_TTL,
         )
     )
     return token
 
 
-async def redeem_trust_token(
-    db: AsyncSession, token: str
-) -> tuple[str, uuid.UUID] | None:
-    """Consume *token* and return its account key and user id, or None if unusable.
+async def redeem_trust_token(db: AsyncSession, token: str) -> tuple[str, str] | None:
+    """Consume *token* and return its account key and binding, or None if unusable.
 
     One ``DELETE ... RETURNING``, so two requests racing on one link cannot
     both succeed. The caller commits.
@@ -450,4 +454,9 @@ async def redeem_trust_token(
             .returning(LoginTrustToken.account_key, LoginTrustToken.user_id)
         )
     ).one_or_none()
-    return None if row is None else (row.account_key, row.user_id)
+    if row is None:
+        return None
+    key_epoch = await db.scalar(select(User.key_epoch).where(User.id == row.user_id))
+    if key_epoch is None:
+        return None
+    return row.account_key, account_binding(row.user_id, key_epoch)

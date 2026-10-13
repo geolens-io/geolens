@@ -200,16 +200,6 @@ def set_login_device_cookie(
     )
 
 
-def clear_login_device_cookie(response: Response, request: Request, name: str) -> None:
-    response.delete_cookie(
-        name,
-        path=_login_device_cookie_path(request),
-        httponly=True,
-        secure=_secure_cookies(),
-        samesite="strict",
-    )
-
-
 def cookies_with_prefix(request: Request, prefix: str) -> list[tuple[str, str]]:
     """Every (name, value) in the raw ``Cookie:`` header whose name starts with *prefix*."""
     pairs = []
