@@ -324,7 +324,8 @@ export async function verifyEmail(token: string): Promise<MessageResponse> {
 export async function rememberThisBrowser(token: string): Promise<void> {
   const response = await fetch(
     `${API_BASE}/auth/login/device-trust?token=${encodeURIComponent(token)}`,
-    { method: 'POST', credentials: 'same-origin' },
+    // The header shows the server this came from the app, not a cross-site form.
+    { method: 'POST', credentials: 'same-origin', headers: { [AUTH_MODE_HEADER]: 'cookie' } },
   );
   if (!response.ok) {
     let detail: unknown;

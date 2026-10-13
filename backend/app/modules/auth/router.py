@@ -322,6 +322,15 @@ async def trust_login_device(
     the device cookies' path, carries them for the cap check. The deletion
     commits last, so any refusal or failure leaves the link usable.
     """
+    # The cookie-mode header proves the app's own script sent this: a
+    # cross-site form can't set it, and would arrive without the device
+    # cookies the cap check needs.
+    if not wants_cookie_auth(request):
+        raise _trust_refusal(
+            status.HTTP_400_BAD_REQUEST,
+            "device_trust_unavailable",
+            "Open the link in the browser to remember.",
+        )
     try:
         api_url = await get_public_api_url(db, request=request, for_external_use=True)
     except PublicUrlNotConfiguredError:
