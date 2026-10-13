@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getgeolens.com/schemas/publish_manifest_v2.schema.json",
+  "$comment": "SPDX-License-Identifier: Apache-2.0 OR MIT. Wire contract for POST /api/ingest/manifest/apply, manifest_version 2 (publish_contract 2). Desktop and web publishing clients may vendor this file under either licence.",
+  "title": "GeoLens publish manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest_version", "catalog", "client"],
+  "properties": {
+    "manifest_version": {"const": "2"},
+    "catalog": {"$ref": "#/$defs/catalog"},
+    "client": {"$ref": "#/$defs/client"},
+    "dry_run": {"type": "boolean"},
+    "public_fallback": {"const": "internal"},
+    "datasets": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/dataset"}
+    },
+    "maps": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/map"}
+    }
+  },
+  "anyOf": [
+    {"required": ["datasets"], "properties": {"datasets": {"minItems": 1}}},
+    {"required": ["maps"], "properties": {"maps": {"minItems": 1}}}
+  ],
+  "$defs": {
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "visibility": {"enum": ["private", "internal", "public"]},
+    "text500": {"type": "string", "minLength": 1, "maxLength": 500},
+    "text5000": {"type": "string", "minLength": 1, "maxLength": 5000},
+    "freeObject": {"type": "object"},
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title"],
+      "properties": {
+        "title": {"$ref": "#/$defs/text500"},
+        "description": {"$ref": "#/$defs/text5000"},
+        "organization": {"$ref": "#/$defs/text500"}
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "app": {"type": "string", "minLength": 1, "maxLength": 200},
+        "project": {"type": "string", "minLength": 1, "maxLength": 500}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "uri", "checksum"],
+      "properties": {
+        "type": {"enum": ["vector", "raster_cog"]},
+        "uri": {
+          "type": "string",
+          "pattern": "^upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "checksum": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "datasetMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 100}
+        },
+        "organization": {"$ref": "#/$defs/text500"},
+        "crs": {"type": "string", "pattern": "^EPSG:[0-9]{1,6}$"},
+        "license": {"$ref": "#/$defs/text500"},
+        "attribution": {"$ref": "#/$defs/text5000"},
+        "bbox": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"type": "number", "minimum": -180, "maximum": 180}
+        }
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intent"],
+      "properties": {
+        "intent": {"type": "string", "minLength": 1, "maxLength": 20}
+      }
+    },
+    "collection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": {"id": {"$ref": "#/$defs/uuid"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {"name": {"$ref": "#/$defs/text500"}}
+        }
+      ]
+    },
+    "attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_name"],
+      "properties": {
+        "source_name": {"type": "string", "minLength": 1},
+        "title": {"type": ["string", "null"], "maxLength": 500},
+        "description": {"type": ["string", "null"], "maxLength": 5000},
+        "units": {"type": ["string", "null"], "maxLength": 100}
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "title", "sources", "publication"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"},
+        "title": {"$ref": "#/$defs/text500"},
+        "description": {"$ref": "#/$defs/text5000"},
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/source"}
+        },
+        "metadata": {"$ref": "#/$defs/datasetMetadata"},
+        "publication": {"$ref": "#/$defs/publication"},
+        "visibility": {"$ref": "#/$defs/visibility"},
+        "collection": {"$ref": "#/$defs/collection"},
+        "attributes": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {"$ref": "#/$defs/attribute"}
+        }
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["center", "zoom"],
+      "properties": {
+        "center": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {"type": "number", "minimum": -180, "maximum": 180},
+            {"type": "number", "minimum": -90, "maximum": 90}
+          ]
+        },
+        "zoom": {"type": "number", "minimum": 0, "maximum": 24},
+        "bearing": {"type": "number", "minimum": -360, "maximum": 360},
+        "pitch": {"type": "number", "minimum": 0, "maximum": 85}
+      }
+    },
+    "lossReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "kind"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "kind": {"type": "string", "minLength": 1},
+              "detail": {"type": "string"}
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "oneOf": [
+        {"required": ["dataset_key"], "not": {"required": ["dataset_id"]}},
+        {"required": ["dataset_id"], "not": {"required": ["dataset_key"]}}
+      ],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"},
+        "dataset_key": {"$ref": "#/$defs/key"},
+        "dataset_id": {"$ref": "#/$defs/uuid"},
+        "display_name": {"$ref": "#/$defs/text500"},
+        "visible": {"type": "boolean"},
+        "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_zoom": {"type": ["number", "null"], "minimum": 0, "maximum": 24},
+        "max_zoom": {"type": ["number", "null"], "minimum": 0, "maximum": 24},
+        "style_config": {"type": ["object", "null"]},
+        "paint": {"$ref": "#/$defs/freeObject"},
+        "layout": {"$ref": "#/$defs/freeObject"},
+        "filter": {"type": ["array", "null"]},
+        "label_config": {"type": ["object", "null"]},
+        "popup_config": {"type": ["object", "null"]},
+        "show_in_legend": {"type": "boolean"}
+      }
+    },
+    "map": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "name", "layers"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"},
+        "name": {"$ref": "#/$defs/text500"},
+        "description": {"$ref": "#/$defs/text5000"},
+        "view": {"$ref": "#/$defs/view"},
+        "basemap_style": {"type": "string", "minLength": 1},
+        "styling": {"enum": ["replace_if_unedited", "replace", "keep"]},
+        "visibility": {"$ref": "#/$defs/visibility"},
+        "thumbnail": {
+          "type": "string",
+          "maxLength": 100000,
+          "pattern": "^data:image/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$"
+        },
+        "loss_report": {"$ref": "#/$defs/lossReport"},
+        "layers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/layer"}
+        }
+      }
+    }
+  }
+}

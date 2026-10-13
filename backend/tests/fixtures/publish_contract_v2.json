@@ -1,0 +1,5603 @@
+{
+  "contract_version": 2,
+  "valid": [
+    {
+      "name": "create",
+      "description": "First publish: one vector dataset and one map, with Sharing set on the dataset only.",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "create_with_raster_and_fallback",
+      "description": "A vector and a raster upload, and the public-to-internal fallback opt-in.",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "public",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          },
+          {
+            "key": "qgis-elevation-dataset",
+            "title": "Elevation",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "raster_cog",
+                "uri": "upload:a7c3e9f0-1b24-4d6a-9e58-3f0c2b7d1a64",
+                "checksum": "sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "id": "7b2d4c1e-8f3a-4e6b-9c0d-1a5e7f2b3c48"
+            },
+            "attributes": []
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              },
+              {
+                "key": "elevation",
+                "dataset_key": "qgis-elevation-dataset",
+                "display_name": "Elevation",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": null,
+                "paint": {},
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ],
+        "public_fallback": "internal"
+      }
+    },
+    {
+      "name": "republish",
+      "description": "Second publish of the same keys. Visibility is omitted so the server keeps the current level, and the unchanged checksum lets the dataset classify as skip.",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "keep",
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "dry_run",
+      "description": "Analyze's server half: the same body with dry_run set.",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": true,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "maps_only_by_dataset_id",
+      "description": "A map that references a dataset already in GeoLens, so nothing is uploaded.",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true,
+                "dataset_id": "0c9e6f21-3b7a-4d58-a1e4-8f2b5c7d9a03"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "datasets_only_minimal",
+      "description": "The smallest accepted dataset entry.",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "t"
+        },
+        "client": {
+          "id": "geolens-cli",
+          "version": "1.0.0"
+        },
+        "datasets": [
+          {
+            "key": "a",
+            "title": "A",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "publication": {
+              "intent": "draft"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "dataset_key_uppercase",
+      "breaks": "key pattern: dataset keys are lowercase",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "QGIS-Parks",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "dataset_key_leading_dot",
+      "breaks": "key pattern: a key starts with a letter or digit",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": ".parks",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "dataset_key_too_long",
+      "breaks": "key length: at most 128 characters",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "map_key_with_space",
+      "breaks": "key pattern: map keys follow the same pattern",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "my map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "layer_key_with_slash",
+      "breaks": "key pattern: layer keys follow the same pattern",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks/1",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "upload_uri_not_a_uuid",
+      "breaks": "source uri: upload:<job_id> needs a lowercase uuid",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:123",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "upload_uri_uppercase",
+      "breaks": "source uri: the job id is lowercase",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5D1F0E2A-7C3B-4A9D-B2E1-0C8F6A4D3B21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "uri_without_upload_scheme",
+      "breaks": "source uri: v2 clients send upload: only",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "parks.fgb",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "checksum_missing",
+      "breaks": "source checksum: required for upload sources",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "checksum_uppercase",
+      "breaks": "source checksum: lowercase hex only",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "checksum_wrong_algorithm",
+      "breaks": "source checksum: sha256 only",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "md5:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "source_type_unknown",
+      "breaks": "source type: vector or raster_cog",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "table",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "two_sources",
+      "breaks": "sources: exactly one per dataset",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              },
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_top_level_field",
+      "breaks": "unknown field: the manifest allows no extra top-level fields",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ],
+        "notes": "hi"
+      }
+    },
+    {
+      "name": "unknown_dataset_field",
+      "breaks": "unknown field: datasets allow no extra fields",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ],
+            "owner": "ana"
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_layer_field",
+      "breaks": "unknown field: layers allow no extra fields",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true,
+                "order": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "wrong_manifest_version",
+      "breaks": "manifest_version: must be the string \"2\"",
+      "manifest": {
+        "manifest_version": "1",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "manifest_version_number",
+      "breaks": "manifest_version: a string, not a number",
+      "manifest": {
+        "manifest_version": 2,
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "client_missing",
+      "breaks": "client: required in v2",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty_datasets_and_maps",
+      "breaks": "at least one of datasets and maps is non-empty",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [],
+        "maps": []
+      }
+    },
+    {
+      "name": "public_fallback_public",
+      "breaks": "public_fallback: only \"internal\"",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ],
+        "public_fallback": "public"
+      }
+    },
+    {
+      "name": "dataset_visibility_unknown",
+      "breaks": "visibility: private, internal or public",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "everyone",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "map_visibility_unknown",
+      "breaks": "visibility: private, internal or public",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ],
+            "visibility": "published"
+          }
+        ]
+      }
+    },
+    {
+      "name": "collection_id_and_name",
+      "breaks": "collection: id or name, not both",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "id": "7b2d4c1e-8f3a-4e6b-9c0d-1a5e7f2b3c48",
+              "name": "x"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "collection_id_not_uuid",
+      "breaks": "collection: id is a uuid",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "id": "parks"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "attribute_units_too_long",
+      "breaks": "attributes: units at most 100 characters",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "a",
+                "units": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "attribute_source_name_missing",
+      "breaks": "attributes: source_name is required",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "title": "x"
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "layer_both_dataset_refs",
+      "breaks": "layer: exactly one of dataset_key and dataset_id",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true,
+                "dataset_id": "0c9e6f21-3b7a-4d58-a1e4-8f2b5c7d9a03"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "layer_no_dataset_ref",
+      "breaks": "layer: exactly one of dataset_key and dataset_id",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "layer_opacity_above_one",
+      "breaks": "layer: opacity is 0 to 1",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 1.5,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "map_without_layers",
+      "breaks": "map: at least one layer",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "styling_unknown",
+      "breaks": "styling: replace_if_unedited, replace or keep",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "merge",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "thumbnail_not_an_image_data_uri",
+      "breaks": "thumbnail: PNG or JPEG data URI",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "https://example.org/t.png",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "view_center_out_of_range",
+      "breaks": "view: center is [lon, lat] within range",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                139.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "dataset_metadata_unknown_field",
+      "breaks": "unknown field: metadata allows no extra fields",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "parks",
+                "recreation"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield",
+              "keywords": [
+                "x"
+              ]
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate_tags",
+      "breaks": "metadata tags: unique",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "Parks project"
+        },
+        "client": {
+          "id": "geolens-qgis",
+          "version": "0.2.0",
+          "app": "QGIS 4.2.1",
+          "project": "parks.qgz"
+        },
+        "dry_run": false,
+        "datasets": [
+          {
+            "key": "qgis-parks-dataset",
+            "title": "Parks",
+            "description": "City parks maintained by Parks & Recreation.",
+            "sources": [
+              {
+                "type": "vector",
+                "uri": "upload:5d1f0e2a-7c3b-4a9d-b2e1-0c8f6a4d3b21",
+                "checksum": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            ],
+            "metadata": {
+              "tags": [
+                "a",
+                "a"
+              ],
+              "license": "CC-BY-4.0",
+              "attribution": "City of Springfield"
+            },
+            "publication": {
+              "intent": "published"
+            },
+            "visibility": "private",
+            "collection": {
+              "name": "Parks project"
+            },
+            "attributes": [
+              {
+                "source_name": "PARK_NAME",
+                "title": "Park name",
+                "description": null,
+                "units": null
+              }
+            ]
+          }
+        ],
+        "maps": [
+          {
+            "key": "qgis-parks-map",
+            "name": "Springfield parks",
+            "description": "Parks and trails.",
+            "view": {
+              "center": [
+                -89.65,
+                39.78
+              ],
+              "zoom": 11.2,
+              "bearing": 0,
+              "pitch": 0
+            },
+            "basemap_style": "openfreemap-positron",
+            "styling": "replace_if_unedited",
+            "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+            "loss_report": {
+              "items": [
+                {
+                  "path": "layers[1].style.renderer",
+                  "kind": "rule_based_approximated",
+                  "detail": "3 rules -> categories"
+                }
+              ],
+              "summary": {
+                "rule_based_approximated": 1
+              }
+            },
+            "layers": [
+              {
+                "key": "parks",
+                "dataset_key": "qgis-parks-dataset",
+                "display_name": "Parks",
+                "visible": true,
+                "opacity": 0.9,
+                "min_zoom": 8.0,
+                "max_zoom": null,
+                "style_config": {
+                  "mode": "categorical",
+                  "column": "PARK_TYPE",
+                  "categories": [
+                    {
+                      "value": "city",
+                      "label": "City park",
+                      "color": "#4daf4a"
+                    },
+                    {
+                      "value": "state",
+                      "label": "State park",
+                      "color": "#377eb8"
+                    }
+                  ]
+                },
+                "paint": {
+                  "fill-color": [
+                    "match",
+                    [
+                      "get",
+                      "PARK_TYPE"
+                    ],
+                    "city",
+                    "#4daf4a",
+                    "state",
+                    "#377eb8",
+                    "#cccccc"
+                  ]
+                },
+                "layout": {},
+                "filter": null,
+                "label_config": {
+                  "column": "PARK_NAME",
+                  "fontSize": 12
+                },
+                "popup_config": {
+                  "enabled": true,
+                  "visible_fields": [
+                    "PARK_NAME",
+                    "ACRES"
+                  ]
+                },
+                "show_in_legend": true
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
