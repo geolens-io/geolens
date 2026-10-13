@@ -50,6 +50,7 @@ from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_client_ip
 from app.modules.auth.cookies import (
+    wants_cookie_auth,
     clear_login_device_cookie,
     cookie_values,
     cookies_with_prefix,
@@ -355,7 +356,12 @@ async def reserve_login_attempt(
     normalized = await _db_lower(db, username)
     account_key = login_account_key(normalized)
     device_key = None
-    if cookie_values(request, device_cookie_name(account_key)):
+    # The cookie-mode header proves the request came from this app's own
+    # script: a cross-origin form, which a same-site sibling can submit with
+    # the cookie attached, cannot set it without a CORS preflight.
+    if wants_cookie_auth(request) and cookie_values(
+        request, device_cookie_name(account_key)
+    ):
         account = await _account(db, normalized)
         binding = None if account is None else account[1]
         device_key = _presented_device_key(request, account_key, binding)

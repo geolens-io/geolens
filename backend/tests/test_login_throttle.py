@@ -56,7 +56,7 @@ async def _login(
     device: str | None = None,
     cookie_mode: bool = False,
 ):
-    headers = dict(COOKIE_MODE) if cookie_mode else {}
+    headers = dict(COOKIE_MODE) if cookie_mode or device is not None else {}
     if device is not None:
         headers["Cookie"] = (
             f"{device_cookie_name(login_account_key(username))}={device}"
@@ -694,3 +694,19 @@ async def test_a_reservation_sweeps_a_bounded_batch_of_expired_rows(
         )
     )
     assert left == 50
+
+
+async def test_a_device_cookie_without_the_app_header_is_not_trusted(
+    client: AsyncClient,
+):
+    username = await _new_user(client)
+    device = await _remembered_device(client, username)
+    await _fail(client, username, LOGIN_FAILURE_LIMIT)
+    name = device_cookie_name(login_account_key(username))
+
+    resp = await client.post(
+        "/auth/login",
+        data={"username": username, "password": PASSWORD},
+        headers={"Cookie": f"{name}={device}"},
+    )
+    assert resp.status_code == 429
