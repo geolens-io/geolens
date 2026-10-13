@@ -100,12 +100,14 @@ async def test_hosted_storage_query_separates_catalog_and_tenant_data_roles(
     assert total == 4096 + 1000
     assert db.execute.await_count == 3
     catalog_statement = db.execute.await_args_list[0].args[0]
+    asset_sql = str(db.execute.await_args_list[1].args[0])
     storage_statement = db.execute.await_args_list[2].args[0]
     catalog_sql = str(catalog_statement)
     storage_sql = str(storage_statement)
     assert "catalog.datasets" in catalog_sql
     assert expected_schema not in catalog_sql
     assert "catalog.datasets" not in storage_sql
+    assert "JOIN catalog.datasets" in asset_sql
     assert "unnest" in storage_sql
     assert storage_statement.compile().params == {
         "schema": expected_schema,
