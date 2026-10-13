@@ -1954,11 +1954,6 @@ async def client(tmp_path):
         await _run_with_too_many_clients_retry(
             lambda: _ensure_roles_and_admin(test_session_factory)
         )
-        # Sign-in throttle state must not carry from one test to the next,
-        # like the limiter counters reset_limiter_storage clears.
-        async with test_session_factory() as session:
-            await session.execute(text("DELETE FROM catalog.login_attempts"))
-            await session.commit()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -2277,6 +2272,21 @@ async def clean_tables(test_db_session):
     except Exception:
         # Best-effort cleanup; don't mask test failures
         await test_db_session.rollback()
+
+
+@pytest.fixture(autouse=True)
+def _relax_login_throttle(request, monkeypatch):
+    """Keep the per-account sign-in throttle out of tests that aren't about it.
+
+    Tests across the suite fail sign-ins against shared usernames such as
+    admin, and the ledger outlives a test. Raising the limit in this process
+    only leaves other workers, and the throttle's own tests, untouched.
+    """
+    if request.module.__name__.rpartition(".")[2] != "test_login_throttle":
+        from app.modules.auth import login_throttle
+
+        monkeypatch.setattr(login_throttle, "LOGIN_FAILURE_LIMIT", 1_000_000)
+    yield
 
 
 @pytest.fixture(autouse=True)

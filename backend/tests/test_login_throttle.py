@@ -1,6 +1,7 @@
 """Password sign-in is throttled per account, and remembered browsers keep their own budget."""
 
 import asyncio
+import hashlib
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -15,8 +16,10 @@ from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
 from app.modules.auth.login_throttle import (
     LOGIN_FAILURE_LIMIT,
+    _SWEEP_BATCH,
     _current_cookie_prefix,
     _device_mac,
+    _sweep_expired,
     _presented_device_key,
     create_trust_token,
     device_cookie_name,
@@ -449,9 +452,9 @@ async def test_an_expired_trust_link_does_nothing(client: AsyncClient, test_db_s
     username = await _new_user(client)
     token = await _mint_trust_link(username)
     await test_db_session.execute(
-        update(LoginTrustToken).values(
-            expires_at=datetime.now(tz=UTC) - timedelta(seconds=1)
-        )
+        update(LoginTrustToken)
+        .where(LoginTrustToken.token_hash == hashlib.sha256(token.encode()).hexdigest())
+        .values(expires_at=datetime.now(tz=UTC) - timedelta(seconds=1))
     )
     await test_db_session.commit()
 
@@ -476,8 +479,18 @@ async def test_the_trust_script_prints_a_working_link(client: AsyncClient, capsy
 async def test_ledger_rows_hold_no_username(client: AsyncClient, test_db_session):
     username = await _new_user(client)
     await _fail(client, username, 2)
-    rows = (await test_db_session.execute(select(LoginAttempt))).scalars().all()
-    assert rows
+    rows = (
+        (
+            await test_db_session.execute(
+                select(LoginAttempt).where(
+                    LoginAttempt.account_key == login_account_key(username)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
     for row in rows:
         assert username not in (row.account_key, row.device_key)
     assert set(LoginAttempt.__table__.c.keys()) == {
@@ -674,26 +687,29 @@ async def test_cookies_from_a_rotated_secret_are_cleared_not_counted(
     _set_cookie(resp, device_cookie_name(login_account_key(username)))
 
 
-async def test_a_reservation_sweeps_a_bounded_batch_of_expired_rows(
-    client: AsyncClient, test_db_session
-):
+async def test_a_sweep_deletes_a_bounded_batch_of_expired_rows(client: AsyncClient):
     import app.core.db as db_module
 
-    old = datetime.now(tz=UTC) - timedelta(hours=2)
-    test_db_session.add_all(
-        LoginAttempt(id=uuid.uuid4(), account_key="0" * 64, attempted_at=old)
-        for _ in range(150)
-    )
-    await test_db_session.commit()
+    now = datetime.now(tz=UTC)
+    account_key = uuid.uuid4().hex * 2
+    # The lowest possible ids, so this sweep reaches these rows first, and
+    # left uncommitted, so no other session can see or sweep them.
     async with db_module.async_session() as db:
-        await reserve_login_attempt(db, _request(), f"sweep_{uuid.uuid4().hex[:8]}")
-
-    left = await test_db_session.scalar(
-        select(func.count()).where(
-            LoginAttempt.attempted_at < old + timedelta(minutes=1)
+        db.add_all(
+            LoginAttempt(
+                id=uuid.UUID(int=index),
+                account_key=account_key,
+                attempted_at=now - timedelta(hours=2),
+            )
+            for index in range(150)
         )
-    )
-    assert left == 50
+        await db.flush()
+        await _sweep_expired(db, now)
+        left = await db.scalar(
+            select(func.count()).where(LoginAttempt.account_key == account_key)
+        )
+        await db.rollback()
+    assert left == 150 - _SWEEP_BATCH
 
 
 async def test_a_device_cookie_without_the_app_header_is_not_trusted(
