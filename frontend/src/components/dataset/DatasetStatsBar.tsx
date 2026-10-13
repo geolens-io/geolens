@@ -79,7 +79,7 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
         mono: true,
       });
     }
-    if (isVrt && dataset.raster?.source_count != null) {
+    if (isVrt && dataset.raster?.source_count) {
       cells.push({
         label: t('metadata.sourceCount', { defaultValue: 'Sources' }),
         value: String(dataset.raster.source_count),

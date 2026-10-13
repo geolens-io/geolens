@@ -130,6 +130,23 @@ describe('OverviewTab Table Name row', () => {
     expect(screen.queryByText('raster_d4e5f6')).not.toBeInTheDocument();
   });
 
+  it.each([
+    [5, true],
+    [1, true],
+    [0, false],
+    [null, false],
+  ])('VRT source_count %s shows the Sources row: %s', (count, shown) => {
+    renderOverview(
+      makeDataset({
+        record_type: 'vrt_dataset',
+        raster: { vrt_type: 'mosaic', source_count: count } as DatasetResponse['raster'],
+      }),
+    );
+
+    expect(screen.queryByText('Sources') !== null).toBe(shown);
+    if (shown) expect(screen.getByText(String(count))).toBeInTheDocument();
+  });
+
   it('hides the row for a 3D Tiles dataset', () => {
     renderOverview(makeDataset({ record_type: 'tiles3d_dataset', table_name: 'tiles3d_a1b2c3' }));
 

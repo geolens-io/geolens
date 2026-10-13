@@ -246,6 +246,28 @@ describe('SearchResultCard', () => {
       expect(specs).toHaveTextContent('3 bands');
     });
 
+    it.each([5, 1])('shows a source count of %i', (count) => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({ record_type: 'vrt_dataset', description: null, geometry_type: null, vrt_type: 'mosaic', source_count: count })}
+        />,
+      );
+
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent(count === 1 ? '1 source' : `${count} sources`);
+      expect(screen.getByText(new RegExp(`with ${count} source`))).toBeInTheDocument();
+    });
+
+    it.each([0, null])('leaves the count out when source_count is %s', (count) => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({ record_type: 'vrt_dataset', description: null, geometry_type: null, vrt_type: 'mosaic', source_count: count })}
+        />,
+      );
+
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('Mosaic');
+      expect(screen.queryByText(/\bsources?\b/i)).not.toBeInTheDocument();
+    });
+
     it('renders band_stack as "Band Stack"', () => {
       render(
         <SearchResultCard

@@ -76,7 +76,7 @@ function buildCardSpecs(
     specs.push({ icon: Combine, label: capitalizeVrtType(properties.vrt_type) });
   }
 
-  if (isVrt && properties.source_count != null) {
+  if (isVrt && properties.source_count) {
     specs.push({ icon: FolderOpen, label: t('card.sourceCount', { count: properties.source_count, defaultValue: '{{count}} sources' }) });
   }
 
@@ -124,9 +124,11 @@ function buildAutoDescription(
         gsd: properties.gsd != null ? formatGsd(properties.gsd, { isGeographic: properties.crs_is_geographic, crs: properties.crs }, locale) : '',
       });
     case 'vrt_dataset':
+      // A zero count means the viewer can't read any member, not that the VRT is empty.
+      if (!properties.source_count) break;
       return t('card.autoDesc.vrt', {
         vrtType: properties.vrt_type ? capitalizeVrtType(properties.vrt_type) : '',
-        count: properties.source_count ?? 0,
+        count: properties.source_count,
       });
     case 'table':
       return t('card.autoDesc.table', { count: properties.feature_count ?? 0 });

@@ -109,6 +109,22 @@ describe('DatasetStatsBar', () => {
     expect(screen.getByText('4')).toBeInTheDocument();
   });
 
+  it.each([0, null])('omits the VRT source count when it is %s', (count) => {
+    const ds: DatasetResponse = {
+      ...BASE,
+      record_type: 'vrt_dataset',
+      geometry_type: null,
+      feature_count: null,
+      column_info: null,
+      srid: null,
+      extent_bbox: null,
+      raster: { ...RASTER_META, source_count: count, vrt_type: 'mosaic', compression: null, size_bytes: null },
+    };
+    render(<DatasetStatsBar dataset={ds} />);
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sources')).not.toBeInTheDocument();
+  });
+
   it('renders a tileset with its size, version and bounding volume, and no vector cells', () => {
     const ds: DatasetResponse = {
       ...BASE,

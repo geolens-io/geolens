@@ -266,7 +266,7 @@ export function OverviewTab({
           </CardHeader>
           <CardContent className="pt-0">
             <div className="divide-y divide-border/60">
-              {dataset.raster.source_count != null && (
+              {!!dataset.raster.source_count && (
                 <SideKV label={t('metadata.sourceCount', { defaultValue: 'Sources' })} value={String(dataset.raster.source_count)} />
               )}
               {dataset.raster.resolution_strategy && (
