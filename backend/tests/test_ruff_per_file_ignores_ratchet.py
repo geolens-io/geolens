@@ -10,12 +10,13 @@ the test, and so does removing one without deleting it from the baseline.
 
 from __future__ import annotations
 
-import subprocess
+import os
 import tomllib
 from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parents[1]
 _PYPROJECT = _BACKEND / "pyproject.toml"
+_SKIP_DIRS = {"node_modules", "__pycache__", "staging"}
 
 _BASELINE: dict[str, frozenset[str]] = {
     path: frozenset({"C901"})
@@ -89,20 +90,25 @@ def test_per_file_ignores_baseline_is_exact() -> None:
     )
 
 
+def _other_ruff_configs() -> list[str]:
+    found = []
+    for root, dirs, files in os.walk(_BACKEND):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in _SKIP_DIRS]
+        for name in files:
+            path = Path(root) / name
+            if path == _PYPROJECT:
+                continue
+            if name in ("ruff.toml", ".ruff.toml"):
+                found.append(str(path.relative_to(_BACKEND)))
+            elif name == "pyproject.toml":
+                with path.open("rb") as f:
+                    if "ruff" in tomllib.load(f).get("tool", {}):
+                        found.append(str(path.relative_to(_BACKEND)))
+    return found
+
+
 def test_no_other_ruff_config_under_backend() -> None:
-    tracked = subprocess.run(
-        ["git", "ls-files", "*ruff.toml", "*pyproject.toml"],
-        cwd=_BACKEND,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
-    others = [
-        rel
-        for rel in tracked
-        if rel != "pyproject.toml"
-        and (rel.endswith("ruff.toml") or "[tool.ruff" in (_BACKEND / rel).read_text())
-    ]
+    others = _other_ruff_configs()
     assert not others, (
         f"Ruff configs {others} can override backend/pyproject.toml "
         "and escape the per-file-ignores ratchet."
