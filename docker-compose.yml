@@ -543,9 +543,9 @@ services:
     # endpoints we consume (tiles, statistics, info) and their query params
     # behave the same on 2.4.0 as before.
     #
-    # NOTE: this does NOT move GDAL. The image installs rasterio from PyPI
-    # wheels, so the wheel pins GDAL, not the titiler tag; 2.4.0 resolves
-    # rasterio 1.5.1 / GDAL 3.12.4 and rio-tiler 9.4.4.
+    # NOTE: the image installs rasterio from PyPI wheels, so the wheel pins
+    # GDAL, not the titiler tag; 2.4.0 resolves rasterio 1.5.1 / GDAL 3.12.4
+    # and rio-tiler 9.4.4.
     # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED (the /vsicurl header_file clamp)
     # needs GDAL >= 3.13.2, so it stays unavailable and the #1192 gap is gated
     # on a rasterio wheel bump, not on a titiler tag.

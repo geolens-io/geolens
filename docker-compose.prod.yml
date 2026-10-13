@@ -534,7 +534,7 @@ services:
       # fixture opens and reads under SIBLING_OR_CHILD_OF_VRT_PATH. NO preserves
       # today's behaviour in a value GDAL accepts.
       # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED needs GDAL >= 3.13.2 and is
-      # deliberately absent — the image ships GDAL 3.12.1. See the
+      # deliberately absent — the image ships GDAL 3.12.4. See the
       # docker-compose.yml note for the measurements.
       GDAL_VRT_ENABLE_RAWRASTERBAND: "NO"
       GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "SIBLING_OR_CHILD_OF_VRT_PATH"
