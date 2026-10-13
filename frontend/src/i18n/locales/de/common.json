@@ -299,6 +299,7 @@
     "collectionNotFound": "Sammlung nicht gefunden",
     "mapNotFound": "Karte nicht gefunden",
     "incorrectCredentials": "Falscher Benutzername oder falsches Passwort",
+    "loginThrottled": "Zu viele fehlgeschlagene Anmeldungen für dieses Konto. Verwenden Sie einen Browser, mit dem Sie sich bereits angemeldet haben, oder melden Sie sich per SSO an.",
     "awaitingApproval": "Ihr Konto wartet auf Genehmigung",
     "accountNotActive": "Konto nicht aktiv",
     "insufficientPermissions": "Unzureichende Berechtigungen",

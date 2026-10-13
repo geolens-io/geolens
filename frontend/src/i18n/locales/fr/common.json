@@ -299,6 +299,7 @@
     "collectionNotFound": "Collection introuvable",
     "mapNotFound": "Carte introuvable",
     "incorrectCredentials": "Nom d'utilisateur ou mot de passe incorrect",
+    "loginThrottled": "Trop d'échecs de connexion pour ce compte. Utilisez un navigateur avec lequel vous vous êtes déjà connecté, ou connectez-vous avec l'authentification unique (SSO).",
     "awaitingApproval": "Votre compte est en attente d'approbation",
     "accountNotActive": "Compte non actif",
     "insufficientPermissions": "Permissions insuffisantes",

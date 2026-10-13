@@ -428,6 +428,7 @@
     "collectionNotFound": "未找到集合",
     "mapNotFound": "未找到地图",
     "incorrectCredentials": "用户名或密码错误",
+    "loginThrottled": "此账户登录失败次数过多。请使用之前登录过的浏览器，或通过 SSO 登录。",
     "awaitingApproval": "您的账户正在等待审批",
     "accountNotActive": "账户未激活",
     "insufficientPermissions": "权限不足",

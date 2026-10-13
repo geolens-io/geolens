@@ -428,6 +428,7 @@
     "collectionNotFound": "Collection not found",
     "mapNotFound": "Map not found",
     "incorrectCredentials": "Incorrect username or password",
+    "loginThrottled": "Too many failed sign-ins for this account. Use a browser you've signed in with before, or sign in with SSO.",
     "awaitingApproval": "Your account is awaiting approval",
     "accountNotActive": "Account not active",
     "insufficientPermissions": "Insufficient permissions",

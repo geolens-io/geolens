@@ -299,6 +299,7 @@
     "collectionNotFound": "Colección no encontrada",
     "mapNotFound": "Mapa no encontrado",
     "incorrectCredentials": "Nombre de usuario o contraseña incorrectos",
+    "loginThrottled": "Demasiados intentos fallidos de inicio de sesión en esta cuenta. Usa un navegador con el que hayas iniciado sesión antes o inicia sesión con SSO.",
     "awaitingApproval": "Su cuenta está pendiente de aprobación",
     "accountNotActive": "Cuenta no activa",
     "insufficientPermissions": "Permisos insuficientes",

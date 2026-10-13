@@ -173,9 +173,11 @@ class TestLoginIsSerializedAgainstRevocation:
 
             Read over ``test_db_session``, a connection belonging to neither
             transaction in the race, because both of theirs are occupied.
-            ``pg_stat_activity`` reports live shared state rather than an MVCC
-            snapshot, so an open transaction here does not hide the waiter.
+            ``pg_stat_activity`` is snapshotted on first read in a transaction,
+            and the login can reach the lock on a connection opened after its
+            sign-in throttle commits, so each poll clears the snapshot first.
             """
+            await test_db_session.execute(text("SELECT pg_stat_clear_snapshot()"))
             waiting = await test_db_session.execute(
                 text(
                     "SELECT count(*) FROM pg_stat_activity "

@@ -142,6 +142,8 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         # prefix.
         "user.login.failure",
         "user.login.success",
+        # A sign-in budget filling up; one row per budget per window.
+        "user.login.throttled",
         "user.logout",
         # feat(#1715): an admin setting another account's password. Distinct
         # from user.change_password, which is the self-service path and proves

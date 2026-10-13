@@ -175,6 +175,42 @@ def clear_sso_exchange_cookie(response: Response, request: Request, code: str) -
     )
 
 
+def _login_device_cookie_path(request: Request) -> str:
+    root_path = request.scope.get("root_path", "").rstrip("/")
+    return f"{root_path}/auth/login"
+
+
+def set_login_device_cookie(
+    response: Response, request: Request, name: str, value: str, max_age: int
+) -> None:
+    """Remember this browser for one account's sign-in throttle.
+
+    Scoped to the sign-in route and ``SameSite=Strict``, so it only rides a
+    same-site sign-in POST. Logout leaves it in place: remembering the browser
+    past a sign-out is what it is for.
+    """
+    response.set_cookie(
+        name,
+        value,
+        max_age=max_age,
+        httponly=True,
+        secure=_secure_cookies(),
+        samesite="strict",
+        path=_login_device_cookie_path(request),
+    )
+
+
+def cookie_values(request: Request, name: str) -> list[str]:
+    """Every value *name* carries in the raw ``Cookie:`` header, in order."""
+    raw = request.headers.get("cookie", "")
+    values = []
+    for part in raw.split(";"):
+        key, sep, value = part.partition("=")
+        if sep and key.strip() == name:
+            values.append(value.strip())
+    return values
+
+
 def read_refresh_cookie(request: Request) -> str | None:
     """The refresh cookie's value, or None when absent or not trustworthy.
 

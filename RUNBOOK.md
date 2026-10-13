@@ -24,6 +24,7 @@ documentation.
 9. [Uploaded source-file retention](#9-uploaded-source-file-retention)
 10. [Routine version upgrade: outage and rollback](#10-routine-version-upgrade-outage-and-rollback)
 11. [Secret rotation](#11-secret-rotation)
+12. [Password sign-in throttled for an account](#12-password-sign-in-throttled-for-an-account)
 
 ---
 
@@ -3233,7 +3234,7 @@ Every access token, refresh token and session cookie stops verifying at once,
 so every signed-in user is signed out and has to sign in again. That is the
 point of the rotation, and it is immediate: there is no dual-key grace period.
 
-Four other things are keyed off the same secret and change with it. None
+Five other things are keyed off the same secret and change with it. None
 require action, but each is worth knowing before an incident call:
 
 - **Signed tile URLs** stop verifying unless `TILE_SIGNING_SECRET` is set,
@@ -3243,6 +3244,9 @@ require action, but each is worth knowing before an incident call:
   have to be re-requested.
 - **ArcGIS sign-in rate-limit counters** are keyed by a digest derived from the
   secret, so existing per-account lockout counters reset to zero.
+- **Password sign-in throttle counters and remembered browsers** reset the
+  same way. Every browser is unknown again until its next sign-in, which
+  matters only while an account is being throttled.
 - **Config import preview tokens** stop verifying. Re-run the preview.
 
 **If `SECRET_ENCRYPTION_KEY` is not set, this rotation also destroys every
@@ -3260,3 +3264,35 @@ rotation costs nothing.
 If you still have the old `JWT_SECRET_KEY`, the cheaper recovery is to put it
 back, set `SECRET_ENCRYPTION_KEY`, run `rotate_secrets.py`, and only then
 rotate the JWT secret again.
+
+---
+
+## 12. Password sign-in throttled for an account
+
+After 10 failed password sign-ins within an hour, an account refuses password
+sign-in from clients it doesn't know, with HTTP 429 and a `Retry-After`
+header, even when the password is right. The window slides, so it clears an
+hour after the failures stop. Each browser that has signed in to the account
+before has its own budget of 10 and keeps working. Each time a budget fills,
+the audit log gets one `user.login.throttled` row.
+
+Clients the account doesn't know include a new browser, a private window, an
+SPA served from a different origin than the API, and password sign-in from
+the CLI, the SDKs or scripts.
+
+If you're locked out, try these ways back in, in order:
+
+1. A browser you have signed in with before.
+2. A session that is still signed in, in any browser or in the CLI.
+3. SSO, if a provider is configured.
+4. An API key, for automation and the CLI (`geolens login --api-key`).
+5. Have a browser remembered from the host:
+
+   ```bash
+   docker compose exec api /app/.venv/bin/python -m scripts.trust_login_device <username>
+   ```
+
+   In multi-tenant mode add `--tenant <tenant id>`. The command prints a link
+   that works once, within 10 minutes. Paste it into the browser's address
+   bar yourself; a chat or mail client that previews links can use it up. The
+   link only lets that browser try a password. It doesn't sign anyone in.

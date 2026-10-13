@@ -13,6 +13,7 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
@@ -35,6 +36,13 @@ from app.modules.auth.dependencies import (
     get_optional_user,
     get_optional_user_fail_open,
     require_session_credential,
+)
+from app.modules.auth.login_throttle import (
+    issue_device_cookie,
+    redeem_trust_token,
+    reserve_login_attempt,
+    settle_login_failure,
+    settle_login_success,
 )
 from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.core.identity import Identity
@@ -62,6 +70,7 @@ from app.modules.quota.schemas import UserQuotaUsage
 from app.modules.quota.service import get_user_quota_usage
 from app.core.config import settings
 from app.core.dependencies import get_client_ip, get_db
+from app.core.public_urls import PublicUrlNotConfiguredError, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -173,6 +182,7 @@ async def login(
         )
         await db.commit()
 
+    throttle = await reserve_login_attempt(db, request, attempted_username)
     provider = LocalAuthProvider(db)
     try:
         identity = await provider.authenticate(
@@ -182,12 +192,16 @@ async def login(
         # user_id stays None: LocalAuthProvider deliberately doesn't disclose
         # whether the username exists (both branches raise identically, a
         # timing-attack guard), and the audit row must not either.
+        await settle_login_failure(db, request, throttle)
         await _audit_login_failure("invalid_credentials", user_id=None)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Denials past this point follow a correct password, so they don't count.
+    await settle_login_success(db, throttle)
 
     # Check user status before issuing token
     result = await db.execute(select(User).where(User.id == identity.user_id))
@@ -263,6 +277,7 @@ async def login(
 
     if wants_cookie_auth(request):
         issue_browser_session(response, request, refresh_token, expire_days)
+        issue_device_cookie(response, request, throttle.account_key)
         return TokenResponse(
             access_token=token,
             refresh_token=None,
@@ -273,6 +288,34 @@ async def login(
         refresh_token=refresh_token,
         expires_in=expire_minutes * 60,
     )
+
+
+@router.get("/device-trust", include_in_schema=False)
+@limiter.limit("10/minute")
+async def trust_login_device(
+    request: Request,
+    token: str = Query(default="", max_length=128),
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Remember this browser for one account, from a link minted on the host.
+
+    The link is single use, and grants only what a past sign-in would: this
+    browser may try a password while the account refuses unknown clients.
+    """
+    account_key = await redeem_trust_token(db, token)
+    await db.commit()
+    if account_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This link is invalid, expired or already used",
+        )
+    try:
+        app_url = await get_public_app_url(db, request=request, for_external_use=True)
+    except PublicUrlNotConfiguredError:
+        app_url = ""
+    redirect = RedirectResponse(f"{app_url}/login", status_code=303)
+    issue_device_cookie(redirect, request, account_key)
+    return redirect
 
 
 # Every page load in the SPA spends one refresh, so many users behind one

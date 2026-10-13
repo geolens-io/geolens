@@ -1954,6 +1954,11 @@ async def client(tmp_path):
         await _run_with_too_many_clients_retry(
             lambda: _ensure_roles_and_admin(test_session_factory)
         )
+        # Sign-in throttle state must not carry from one test to the next,
+        # like the limiter counters reset_limiter_storage clears.
+        async with test_session_factory() as session:
+            await session.execute(text("DELETE FROM catalog.login_attempts"))
+            await session.commit()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:

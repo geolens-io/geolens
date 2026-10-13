@@ -592,6 +592,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     // reuses the same code name a later probe-reason-code door (plan 3.6,
     // not built yet) may also emit; if that lands with different intended
     // copy for the same code, reconcile then rather than here.
+    if (value.code === 'login_throttled') {
+      return { key: 'errors.loginThrottled' };
+    }
     if (value.code === 'arcgis_signin_rejected') {
       return { key: 'errors.arcgisSigninRejected' };
     }
