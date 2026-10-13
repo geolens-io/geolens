@@ -1,7 +1,8 @@
 # Code owners for GeoLens.
 # Each line maps a path pattern to the GitHub account(s) auto-requested for
 # review on matching changes. Later matches take precedence over earlier ones.
-# Required-review enforcement is configured via branch protection on `main`.
+# Branch protection on `main` does not require code-owner review, so this file
+# only requests reviewers and does not block merging.
 
 # Default owner for everything in the repo.
 *       @ishiland

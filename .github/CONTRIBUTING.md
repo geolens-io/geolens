@@ -273,7 +273,7 @@ We will acknowledge your report within 48 hours and work with you on a fix befor
 
 For non-security bugs, feature requests, and questions, open an issue in the [GeoLens repo](https://github.com/geolens-io/geolens/issues). Include:
 
-- GeoLens version (find in admin overview or `docker compose exec api python -c "import importlib.metadata; print(importlib.metadata.version('geolens'))"`)
+- GeoLens version (find in admin overview or the `version` field of `curl -s http://localhost:8001/health`)
 - Reproduction steps
 - Expected vs. actual behavior
 - Logs (`docker compose logs api worker | tail -200`)

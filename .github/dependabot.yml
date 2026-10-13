@@ -4,6 +4,9 @@ version: 2
 # Reworked 2026-06-02 (dep-audit): switched backend from "pip" to "uv" so it
 # reads backend/uv.lock; added root + sdks/typescript npm; fixed the docker
 # directories to point at the actual Dockerfile locations (/, /db, /frontend).
+# Every ecosystem has a `*-security` group (security updates) and a
+# `*-minor-patch` group (version updates). A dependency joins the first group
+# it matches, so the named groups above the generic ones keep their members.
 updates:
   # --- Python backend (uv) ---
   - package-ecosystem: "uv"        # was "pip" — uv reads backend/uv.lock
@@ -19,10 +22,17 @@ updates:
         patterns: ["sqlalchemy*", "alembic", "asyncpg", "psycopg*"]
       geo-stack:
         patterns: ["geoalchemy2", "shapely", "pgvector", "rasterio"]
-    ignore:
-      # Major bumps reviewed individually, not auto-grouped.
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+      backend-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      backend-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+      # Majors arrive as one reviewable PR. A blanket ignore would also hide
+      # security fixes that ship only in a new major.
+      backend-major:
+        update-types: ["major"]
+        patterns: ["*"]
 
   # --- Frontend React app (npm) ---
   - package-ecosystem: "npm"
@@ -36,6 +46,17 @@ updates:
         patterns: ["react", "react-dom", "@types/react*"]
       tanstack:
         patterns: ["@tanstack/*"]
+      frontend-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      frontend-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+    ignore:
+      # eslint 10 is blocked on the jsx-a11y and react plugin peer ranges.
+      # Remove this entry when #1836 is closed.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
   # --- Root E2E (Playwright) — was untracked ---
   - package-ecosystem: "npm"
@@ -44,6 +65,13 @@ updates:
       interval: "weekly"
     labels: ["dependencies", "e2e"]
     open-pull-requests-limit: 5
+    groups:
+      e2e-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      e2e-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
 
   # --- TypeScript SDK — was untracked ---
   - package-ecosystem: "npm"
@@ -52,6 +80,13 @@ updates:
       interval: "weekly"
     labels: ["dependencies", "sdk"]
     open-pull-requests-limit: 5
+    groups:
+      sdk-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      sdk-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
 
   # --- GitHub Actions ---
   - package-ecosystem: "github-actions"
@@ -67,6 +102,12 @@ updates:
       # it opens — as #1147/#1150/#1155 each were for v3.37.4.
       codeql-action:
         patterns: ["github/codeql-action*"]
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
 
   # --- Docker images ---
   # Root multi-stage Dockerfile (python + node + nginx) — was MISSING; this is
@@ -76,15 +117,79 @@ updates:
     schedule:
       interval: "weekly"
     labels: ["dependencies", "docker"]
+    groups:
+      docker-root-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      docker-root-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
   # DB image (postgis + pgvector build) — was MISSING.
   - package-ecosystem: "docker"
     directory: "/db"
     schedule:
       interval: "weekly"
     labels: ["dependencies", "docker"]
+    groups:
+      docker-db-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      docker-db-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
   # Frontend Vite dev-server image.
   - package-ecosystem: "docker"
     directory: "/frontend"
     schedule:
       interval: "weekly"
     labels: ["dependencies", "docker"]
+    groups:
+      docker-frontend-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      docker-frontend-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+
+  # --- MCP server (uv) ---
+  - package-ecosystem: "uv"
+    directory: "/mcp"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "backend"]
+    open-pull-requests-limit: 5
+    groups:
+      mcp-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      mcp-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+
+  # --- Compose service images (docker-compose.yml and docker-compose.prod.yml) ---
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
+    groups:
+      compose-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      compose-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]
+
+  # --- Pre-commit hook revisions ---
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "ci"]
+    groups:
+      pre-commit-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      pre-commit-minor-patch:
+        update-types: ["minor", "patch"]
+        patterns: ["*"]

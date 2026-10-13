@@ -31,6 +31,7 @@ jobs:
   publish:
     name: Build & Push ${{ matrix.image }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +62,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0

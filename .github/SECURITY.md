@@ -13,7 +13,7 @@ We only patch the latest release. If you're running an older version, please upg
 
 **Do not open a public issue for security vulnerabilities.**
 
-Email **security@getgeolens.com** with:
+Report it privately through [GitHub private vulnerability reporting](https://github.com/geolens-io/geolens/security/advisories/new), or email **security@getgeolens.com**. Include:
 
 - Description of the vulnerability
 - Steps to reproduce

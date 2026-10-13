@@ -118,7 +118,7 @@ branches to core code.
 
 `frontend/src/` — React 19, Vite, TanStack Query (server state), Zustand (`stores/`,
 client state), `@vis.gl/react-maplibre` v8 + `maplibre-gl`
-v5, Tailwind, and shadcn/ui primitives in `components/ui/`.
+v6, Tailwind, and shadcn/ui primitives in `components/ui/`.
 
 - **Auth session:** the access token lives in memory only. The `geolens-auth` entry in
   localStorage holds just the session id and the user. On reload, `lib/session-sync.ts`

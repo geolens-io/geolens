@@ -1,11 +1,20 @@
 name: Bug Report
 description: Report a bug in GeoLens
-labels: ["bug"]
+labels: ["bug", "needs-triage"]
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for taking the time to report a bug. Please fill out the sections below so we can reproduce and fix the issue.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched existing issues and this bug has not been reported.
+          required: true
+        - label: This is a bug, not a usage question. Questions belong in [Discussions](https://github.com/geolens-io/geolens/discussions/categories/q-a).
+          required: true
   - type: textarea
     id: description
     attributes:

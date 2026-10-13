@@ -63,4 +63,10 @@ describe('bug_report.yml parity with the in-app reporter', () => {
   it('ISSUE_AREAS matches the area dropdown options exactly', () => {
     expect(extractAreaOptions(template)).toEqual([...ISSUE_AREAS]);
   });
+
+  it('labels new reports for triage and requires the confirmation checkboxes', () => {
+    expect(template).toMatch(/^labels:.*"needs-triage"/m);
+    const checks = template.slice(template.indexOf('id: checks'), template.indexOf('id: description'));
+    expect([...checks.matchAll(/^\s+required:\s*true\s*$/gm)]).toHaveLength(2);
+  });
 });

@@ -20,11 +20,14 @@ jobs:
   python-audit:
     name: Python audit (uv)
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           version: "0.11.11"
@@ -64,12 +67,15 @@ jobs:
   js-audit:
     name: JS audit (${{ matrix.directory }})
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         directory: [".", "frontend", "sdks/typescript"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: "24" # CI tooling runner (LTS); build image is node 26
@@ -96,10 +102,13 @@ jobs:
   resolve-docker-audit-matrix:
     name: Resolve docker-audit image pins
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     outputs:
       include: ${{ steps.matrix.outputs.include }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       # fix(#1983): node/python/nginx are Dockerfile FROM tags Dependabot
       # bumps; deriving them here (not a second literal copy) is the single
       # source of truth, so this matrix can't drift behind the Dockerfile.
@@ -124,6 +133,7 @@ jobs:
     name: Docker image scan (Trivy)
     needs: resolve-docker-audit-matrix
     runs-on: ubuntu-26.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -143,6 +153,8 @@ jobs:
         include: ${{ fromJson(needs.resolve-docker-audit-matrix.outputs.include) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       # Scope is CRITICAL (not HIGH): these scan UPSTREAM base images, whose HIGH
       # OS-CVE count churns with every Debian/Alpine disclosure independent of our
       # code — gating on HIGH would red the build on upstream timing. The built
@@ -170,6 +182,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Both backend builder and runtime inherit this exact OS layer. No cache
       # ensures a successful scan includes the current Debian security packages.
       - name: Build the shared patched Python OS layer
@@ -187,8 +201,11 @@ jobs:
   iac-scan:
     name: IaC config scan (Trivy)
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       # Enforcing gate: Trivy config mode auto-detects Dockerfiles,
       # docker-compose*.yml, and nginx config at the repo root; fails the job on
       # any CRITICAL or HIGH misconfiguration finding. ignore-unfixed is inert for

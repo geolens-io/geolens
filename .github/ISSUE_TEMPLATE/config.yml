@@ -6,3 +6,9 @@ contact_links:
   - name: Share an Idea
     url: https://github.com/geolens-io/geolens/discussions/categories/ideas
     about: Suggest features or discuss enhancements before opening an issue
+  - name: Read the Documentation
+    url: https://docs.getgeolens.com
+    about: Setup guides, configuration and API reference
+  - name: Report a Security Vulnerability
+    url: https://github.com/geolens-io/geolens/security/advisories/new
+    about: Private report for security issues. Do not open a public issue

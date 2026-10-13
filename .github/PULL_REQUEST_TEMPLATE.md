@@ -1,16 +1,14 @@
 ## Summary
 
-<!-- Brief description of what this PR does and why. -->
+<!-- What this PR changes and why. -->
 
-## Changes
+## Related issue
 
-<!-- Bullet list of key changes. -->
+<!-- Closes #1234. Write "None" if there isn't one. -->
 
--
+Closes #
 
 ## Area
-
-<!-- Which part of GeoLens does this touch? -->
 
 - [ ] Backend (API, services, models)
 - [ ] Frontend (UI, components, hooks)
@@ -21,21 +19,26 @@
 - [ ] OGC / Standards
 - [ ] Docs / Config
 
+## Schema, API and config impact
+
+<!-- Migrations, API or OpenAPI changes (run `make sdks`), new or changed env vars or settings. Write "None" if there are none. -->
+
 ## Testing
 
-<!-- How was this tested? -->
+<!-- What you ran and what you checked by hand. -->
 
-- [ ] Unit tests pass (`pytest` / `npm test`)
-- [ ] Manual testing (describe below)
-- [ ] Playwright e2e (if UI changes)
-- [ ] No tests needed (docs, config, etc.)
+- [ ] Backend: `cd backend && uv run ruff check . && uv run ruff format --check .`, plus the affected tests
+- [ ] Frontend: `npm run lint`, `npm run typecheck` and `npm run test:coverage` from `frontend/`
+- [ ] Playwright e2e for user-flow changes
+- [ ] No tests needed (docs, config)
+
+## Screenshots
+
+<!-- Before and after for UI changes. Delete this section otherwise. -->
 
 ## Checklist
 
-- [ ] Code follows existing project conventions
-- [ ] i18n: new user-facing strings added to all 5 locales (en, fr, es, de, zh)
-- [ ] No new lint warnings (`ruff check`, `eslint`)
-- [ ] TypeScript compiles without errors
-- [ ] Migration included (if DB schema changed)
+- [ ] Every commit is signed off (`git commit -s`, see the DCO section in CONTRIBUTING.md)
+- [ ] New user-facing strings are in all five locales (en, es, fr, de, zh)
 - [ ] No secrets or credentials in the diff
 - [ ] Release/docs deploys: ran `make deployed-surface-check` after the marketing/docs deploy and recorded the result in Testing
