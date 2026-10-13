@@ -293,7 +293,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "modules/embed_tokens/admin_router.py": 5,
     "modules/embed_tokens/models.py": 2,
     "modules/embed_tokens/router.py": 2,
-    "modules/embed_tokens/service.py": 15,
+    "modules/embed_tokens/service.py": 13,
     "modules/embed_tokens/sharing.py": 1,
     "modules/quota/schemas.py": 1,
     "modules/settings/router.py": 22,

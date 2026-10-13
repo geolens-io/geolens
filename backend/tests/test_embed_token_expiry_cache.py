@@ -13,8 +13,19 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 from app.modules.embed_tokens.service import validate_embed_token_access
+
+
+@pytest.fixture(autouse=True)
+def _minter_reads_every_dataset(monkeypatch):
+    async def _readable(db, dataset_ids, user_id):
+        return set(dataset_ids)
+
+    monkeypatch.setattr(
+        "app.modules.embed_tokens.service.datasets_account_can_read", _readable
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +123,7 @@ class TestEmbedTokenExpiryCacheHit:
             "scoped_dataset_ids": [str(dataset_id)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
+            "created_by": "00000000-0000-0000-0000-000000000003",
             "generation": _TEST_GENERATION,
         }
 
@@ -160,6 +172,7 @@ class TestEmbedTokenExpiryCacheHit:
             "scoped_dataset_ids": [str(dataset_id)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
+            "created_by": "00000000-0000-0000-0000-000000000003",
             "expires_at": expires_at.isoformat(),
             "generation": _TEST_GENERATION,
         }
@@ -206,6 +219,7 @@ class TestEmbedTokenExpiryCacheHit:
             "scoped_dataset_ids": [str(dataset_id)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
+            "created_by": "00000000-0000-0000-0000-000000000003",
             "expires_at": expires_at.isoformat(),
             "generation": _TEST_GENERATION,
         }
@@ -261,6 +275,7 @@ class TestEmbedTokenExpiryEndToEnd:
         mock_token.allowed_origins = None
         mock_token.scoped_dataset_ids = [str(dataset_id)]
         mock_token.map_id = uuid.uuid4()
+        mock_token.created_by = uuid.uuid4()
         mock_token.id = uuid.uuid4()
         mock_token.expires_at = expires_at
 
@@ -332,6 +347,7 @@ class TestEmbedTokenExpiryEndToEnd:
         mock_token.allowed_origins = None
         mock_token.scoped_dataset_ids = [str(dataset_id)]
         mock_token.map_id = uuid.uuid4()
+        mock_token.created_by = uuid.uuid4()
         mock_token.id = uuid.uuid4()
         mock_token.expires_at = expires_at
 

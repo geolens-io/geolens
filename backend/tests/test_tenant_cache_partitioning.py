@@ -368,11 +368,17 @@ async def test_embed_token_negative_cache_cannot_poison_another_tenant(
     cache = _MemoryCache()
     monkeypatch.setattr(service, "get_cache", lambda: cache)
     monkeypatch.setattr(service, "map_contains_dataset", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        service,
+        "datasets_account_can_read",
+        AsyncMock(side_effect=lambda db, ids, user_id: set(ids)),
+    )
 
     dataset_id = uuid.uuid4()
     raw_token = "et_tenant_partition_regression"
     token_record = SimpleNamespace(
         id=uuid.uuid4(),
+        created_by=uuid.uuid4(),
         tenant_id=uuid.UUID(TENANT_A),
         allowed_origins=None,
         scoped_dataset_ids=[str(dataset_id)],

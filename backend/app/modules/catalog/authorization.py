@@ -334,6 +334,27 @@ async def _accessible_dataset_ids(
     return {row for row in rows.scalars() if row in wanted}
 
 
+async def datasets_account_can_read(
+    db: AsyncSession, dataset_ids: Iterable[uuid.UUID], user_id: uuid.UUID | None
+) -> set[uuid.UUID]:
+    """The subset of ``dataset_ids`` the account ``user_id`` may read now.
+
+    Empty for an account that is missing or that sign-in would refuse.
+    """
+    wanted = set(dataset_ids)
+    if user_id is None or not wanted:
+        return set()
+
+    from app.modules.auth.models import User
+
+    account = await db.get(User, user_id)
+    if account is None or not account.is_active or account.status != "active":
+        return set()
+    # User.roles loads with the account, so the role set costs no extra query.
+    user_roles = {role.name for role in account.roles}
+    return await _accessible_dataset_ids(db, wanted, account, user_roles)
+
+
 async def visible_lineage_summaries(
     db: AsyncSession,
     records: Sequence[Any],

@@ -1,8 +1,10 @@
-"""Embed token CRUD endpoints for map-scoped tile access.
+"""Embed token CRUD endpoints for map-scoped data access.
 
-An embed token grants tile-level access to a single shared map without
-login; it is DB-backed so revocation is enforced at request time. Scopes:
-a specific map, an Origin allowlist (domain locking), and an expiry.
+An embed token lets viewers of one shared map, without login, read the
+tiles, features and terrain of its layers, and adds those layers to the
+shared-map view. It reaches only datasets its creator can still read, and
+it is DB-backed so revocation is enforced at request time. Scopes: a
+specific map, an Origin allowlist (domain locking), and an expiry.
 
 Kept separate from share tokens (catalog/maps/share_tokens), which grant
 access to map metadata/viewer rendering rather than tiles/features, and

@@ -84,6 +84,7 @@ def _token_row(allowed_origins: list[str] | None) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
         map_id=MAP_ID,
+        created_by=uuid.uuid4(),
         allowed_origins=allowed_origins,
         scoped_dataset_ids=[str(DATASET_ID)],
         tenant_id=None,
@@ -109,6 +110,14 @@ def _self_origin_is_configured(monkeypatch):
         _fake_get_configured_public_app_url,
         raising=True,
     )
+
+
+@pytest.fixture(autouse=True)
+def _minter_reads_every_dataset(monkeypatch):
+    async def _readable(db, dataset_ids, user_id):
+        return set(dataset_ids)
+
+    monkeypatch.setattr(embed_service, "datasets_account_can_read", _readable)
 
 
 def test_the_self_origin_lookup_cannot_be_told_about_the_request():
@@ -183,6 +192,7 @@ async def _validate(request, allowed_origins: list[str] | None, monkeypatch) -> 
             "scoped_dataset_ids": [str(DATASET_ID)],
             "allowed_origins": allowed_origins,
             "map_id": str(MAP_ID),
+            "created_by": str(uuid.uuid4()),
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
             "tenant_id": None,
             # fix(#1778 codex r3): a positive entry now carries the revocation

@@ -438,6 +438,11 @@ class TestTheValidatorRefusesAStaleGeneration:
             ),
             patch.object(
                 embed_service,
+                "datasets_account_can_read",
+                AsyncMock(return_value={DATASET_ID}),
+            ),
+            patch.object(
+                embed_service,
                 "_request_origin_is_allowed",
                 AsyncMock(return_value=True),
             ),
@@ -461,6 +466,7 @@ class TestTheValidatorRefusesAStaleGeneration:
             "scoped_dataset_ids": [str(DATASET_ID)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
+            "created_by": str(uuid.uuid4()),
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
             "tenant_id": None,
             "generation": generation,
@@ -516,6 +522,7 @@ class TestTheValidatorRefusesAStaleGeneration:
         token_row = MagicMock(
             id=uuid.uuid4(),
             map_id=uuid.uuid4(),
+            created_by=uuid.uuid4(),
             allowed_origins=None,
             scoped_dataset_ids=[str(DATASET_ID)],
             expires_at=datetime.now(timezone.utc) + timedelta(days=30),

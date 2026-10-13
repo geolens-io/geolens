@@ -82,11 +82,22 @@ class RaceCache(InMemoryCacheProvider):
         return await super().get(key, security=security)
 
 
+@pytest.fixture(autouse=True)
+def _minter_reads_every_dataset(monkeypatch):
+    async def _readable(db, dataset_ids, user_id):
+        return set(dataset_ids)
+
+    monkeypatch.setattr(
+        "app.modules.embed_tokens.service.datasets_account_can_read", _readable
+    )
+
+
 def _active_token_row(map_id: uuid.UUID, dataset_id: uuid.UUID):
     """The row the racing select reads: still committed-active."""
     return MagicMock(
         id=uuid.uuid4(),
         map_id=map_id,
+        created_by=uuid.uuid4(),
         token_hash="unused",
         allowed_origins=None,
         scoped_dataset_ids=[str(dataset_id)],

@@ -84,6 +84,16 @@ class TestClientIsLoopback:
         assert embed_service._client_is_loopback(request) is False
 
 
+@pytest.fixture(autouse=True)
+def _minter_reads_every_dataset(monkeypatch):
+    async def _readable(db, dataset_ids, user_id):
+        return set(dataset_ids)
+
+    monkeypatch.setattr(
+        "app.modules.embed_tokens.service.datasets_account_can_read", _readable
+    )
+
+
 _TEST_GENERATION = 3
 
 
@@ -122,6 +132,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "scoped_dataset_ids": ["00000000-0000-0000-0000-000000000001"],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",
+                "created_by": "00000000-0000-0000-0000-000000000003",
                 "expires_at": (
                     datetime.now(timezone.utc) + timedelta(days=1)
                 ).isoformat(),
@@ -162,6 +173,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "scoped_dataset_ids": [str(dataset_id)],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",
+                "created_by": "00000000-0000-0000-0000-000000000003",
                 "expires_at": (
                     datetime.now(timezone.utc) + timedelta(days=1)
                 ).isoformat(),
@@ -198,6 +210,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "scoped_dataset_ids": ["00000000-0000-0000-0000-000000000001"],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",
+                "created_by": "00000000-0000-0000-0000-000000000003",
                 "expires_at": (
                     datetime.now(timezone.utc) + timedelta(days=1)
                 ).isoformat(),

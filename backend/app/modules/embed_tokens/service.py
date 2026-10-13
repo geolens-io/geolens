@@ -26,6 +26,7 @@ from app.platform.cache.revocation import (
     current_revocation_generation,
     is_usable_generation,
 )
+from app.modules.catalog.authorization import datasets_account_can_read
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.schemas import (
     ADVANCED_SHARING_ERROR,
@@ -390,34 +391,9 @@ class EmbedScopeNotVisibleError(Exception):
 async def _assert_scope_visible_to_minter(
     db: AsyncSession, dataset_ids: tuple[uuid.UUID, ...], user_id: uuid.UUID
 ) -> None:
-    """Refuse a mint whose scope reaches past what the minter can see.
-
-    fix(#1860): the dataset snapshot came straight off the map's layers
-    with no visibility check, so an owner who later LOST access (grant
-    revoked, role offboarded) could still mint a fresh anonymous tile
-    capability (up to 365 days) over a dataset no longer theirs to read.
-
-    Resolves the minter from user_id (not an Identity param) so "whose
-    capability is this" and "whose visibility was checked" are the same
-    value by construction. An unresolvable user is refused, not waved
-    through.
-    """
-    # Deferred: avoids a module-level cycle with the maps router's revoke
-    # paths. Imports via the maps package facade, not service_layers --
-    # test_layering's BOUND-01 reserves the private modules for maps itself.
-    from app.modules.auth.models import User
-    from app.modules.catalog.authorization import get_user_roles
-    from app.modules.catalog.maps.service import bulk_check_dataset_access
-
-    minter = await db.get(User, user_id)
-    if minter is None:
-        raise EmbedScopeNotVisibleError()
-
-    user_roles = await get_user_roles(db, minter)
-    accessible = await bulk_check_dataset_access(
-        db, list(dataset_ids), minter, user_roles
-    )
-    if any(dataset_id not in accessible for dataset_id in dataset_ids):
+    """Refuse a mint whose scope reaches past what the minter can see."""
+    readable = await datasets_account_can_read(db, dataset_ids, user_id)
+    if any(dataset_id not in readable for dataset_id in dataset_ids):
         raise EmbedScopeNotVisibleError()
 
 
@@ -700,7 +676,7 @@ async def resolve_embed_scope_for_map(
             scoped.add(uuid.UUID(str(raw_id)))
         except ValueError:
             continue
-    return scoped
+    return await datasets_account_can_read(db, scoped, token.created_by)
 
 
 async def validate_embed_token_access(
@@ -758,12 +734,12 @@ async def validate_embed_token_access(
         cached = None
 
     if cached is not None:
-        # SEC-014: re-check expiry on every cache hit so a token can't stay
-        # valid past its real expires_at for up to the positive-TTL window.
-        # A pre-fix entry with no expires_at is treated as a miss.
+        # Re-check expiry on every cache hit so a token can't stay valid past
+        # its real expires_at for up to the positive-TTL window. An entry
+        # without expires_at or the minter is treated as a miss.
         now = datetime.now(timezone.utc)
         cached_expires_at_str = cached.get("expires_at")
-        if cached_expires_at_str is None:
+        if cached_expires_at_str is None or "created_by" not in cached:
             await cache.delete(cache_key)
             cached = None
         else:
@@ -817,6 +793,7 @@ async def validate_embed_token_access(
                     "scoped_dataset_ids": scoped_dataset_ids,
                     "allowed_origins": allowed_origins,
                     "map_id": str(token.map_id),
+                    "created_by": str(token.created_by) if token.created_by else None,
                     "expires_at": token.expires_at.isoformat(),
                     "tenant_id": str(token.tenant_id) if token.tenant_id else None,
                     # generation this decision was made under (fix(#1778) r3).
@@ -875,6 +852,13 @@ async def validate_embed_token_access(
     if live_map_id is None:
         return False
     if not await map_contains_dataset(db, live_map_id, dataset_id):
+        return False
+    if token is not None:
+        minter_id = token.created_by
+    else:
+        raw_minter = cached.get("created_by") if cached else None  # type: ignore[union-attr]
+        minter_id = uuid.UUID(raw_minter) if raw_minter else None
+    if dataset_id not in await datasets_account_can_read(db, [dataset_id], minter_id):
         return False
 
     if token is not None:

@@ -371,6 +371,13 @@ class TestEmbedScopeVisibility:
             dataset,
             created_by=uuid.UUID(owner_id),
         )
+        still_readable = await create_dataset(
+            test_db_session, created_by=admin_id, name="Public DS", visibility="public"
+        )
+        test_db_session.add(
+            MapLayer(map_id=map_obj.id, dataset_id=still_readable.id, sort_order=1)
+        )
+        await test_db_session.commit()
 
         first = await client.post(
             f"/maps/{map_obj.id}/embed-tokens/",
@@ -378,7 +385,9 @@ class TestEmbedScopeVisibility:
             headers=owner_header,
         )
         assert first.status_code == 201, first.text
-        assert first.json()["scoped_dataset_ids"] == [str(dataset.id)]
+        assert sorted(first.json()["scoped_dataset_ids"]) == sorted(
+            [str(dataset.id), str(still_readable.id)]
+        )
         first_raw = first.json()["raw_token"]
 
         await self._revoke_grant(test_db_session, dataset.id, role_id)
@@ -403,9 +412,17 @@ class TestEmbedScopeVisibility:
         # after this gate precisely because the cache denial it writes is not
         # rolled back with the transaction, so a wrong order would leave the
         # caller's live token dead here while the database said otherwise.
+        # The token still serves what its minter can read, and no longer the
+        # dataset whose grant was revoked.
+        assert (
+            await validate_embed_token_access(
+                first_raw, still_readable.id, test_db_session
+            )
+            is True
+        )
         assert (
             await validate_embed_token_access(first_raw, dataset.id, test_db_session)
-            is True
+            is False
         )
         active = (
             await test_db_session.execute(
