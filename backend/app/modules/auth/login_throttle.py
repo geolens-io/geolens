@@ -15,6 +15,10 @@ request failed or was cancelled first, counts for ``_UNSETTLED_GRACE``: its
 caller never saw an outcome. A refused attempt never reaches the password
 check or writes a row, whether or not the account exists.
 
+Checks of the current password on a password change spend a budget of their
+own, keyed on the user id, so a session holder guessing there cannot pause
+sign-in for the account, and failed sign-ins cannot block a password change.
+
 Every key is a keyed digest over the tenant and the lowercased username, so
 nothing here stores a username, and the device cookie is an HMAC token, never
 a JWT, so it cannot pass as a bearer credential.
@@ -71,6 +75,10 @@ LOGIN_THROTTLED_MESSAGE = (
     "Too many failed sign-ins for this account. Use a browser you've signed "
     "in with before, or sign in with SSO."
 )
+PASSWORD_CHANGE_THROTTLED_CODE = "password_change_throttled"
+PASSWORD_CHANGE_THROTTLED_MESSAGE = (
+    "Too many incorrect current passwords for this account. Try again later."
+)
 
 _DEVICE_COOKIE_PREFIX = "geolens_device_"
 _DEVICE_COOKIE_VERSION = "v1"
@@ -101,6 +109,11 @@ def login_account_key(normalized: str) -> str:
     return _keyed_digest(
         b"account-key", f"{len(tenant)}:{tenant}:{len(normalized)}:{normalized}"
     )
+
+
+def password_change_account_key(user_id: uuid.UUID) -> str:
+    """The throttle's handle for current-password checks on this account."""
+    return _keyed_digest(b"password-change-key", str(user_id))
 
 
 async def _db_lower(db: AsyncSession, username: str) -> str:
@@ -257,6 +270,14 @@ class _BudgetSpent(Exception):
         self.retry_after = retry_after
 
 
+def _throttled(code: str, message: str, spent: _BudgetSpent) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail={"code": code, "message": message},
+        headers={"Retry-After": str(spent.retry_after)},
+    )
+
+
 def _bucket(account_key: str, device_key: str | None) -> ColumnElement[bool]:
     device = (
         LoginAttempt.device_key.is_(None)
@@ -382,24 +403,38 @@ async def reserve_login_attempt(
         attempt_id = await _reserve_in(db, account_key, None)
     except _BudgetSpent as spent:
         await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={"code": LOGIN_THROTTLED_CODE, "message": LOGIN_THROTTLED_MESSAGE},
-            headers={"Retry-After": str(spent.retry_after)},
+        raise _throttled(LOGIN_THROTTLED_CODE, LOGIN_THROTTLED_MESSAGE, spent) from None
+    return LoginReservation(
+        attempt_id, account_key, None, username[:_AUDIT_USERNAME_MAX]
+    )
+
+
+async def reserve_password_change_attempt(
+    db: AsyncSession, user_id: uuid.UUID, username: str
+) -> LoginReservation:
+    """Count one current-password check before it runs, or refuse it with 429.
+
+    Commits the request session's transaction, so the caller takes any row
+    lock it needs afterwards.
+    """
+    account_key = password_change_account_key(user_id)
+    try:
+        attempt_id = await _reserve_in(db, account_key, None)
+    except _BudgetSpent as spent:
+        await db.rollback()
+        raise _throttled(
+            PASSWORD_CHANGE_THROTTLED_CODE, PASSWORD_CHANGE_THROTTLED_MESSAGE, spent
         ) from None
     return LoginReservation(
         attempt_id, account_key, None, username[:_AUDIT_USERNAME_MAX]
     )
 
 
-async def settle_login_failure(
-    db: AsyncSession, request: Request, reservation: LoginReservation
-) -> None:
-    """Count a wrong password for the window; audit the attempt that fills its budget.
+async def _record_failure(db: AsyncSession, reservation: LoginReservation) -> int:
+    """Mark the reservation failed; return the failure count if that trips its budget.
 
-    One audit row per window: a later failure in the same window finds the
-    tripped row and stays quiet. Runs in the caller's transaction, which the
-    caller commits before answering.
+    Returns 0 otherwise. A budget trips once per window: a later failure in
+    the same window finds the tripped row.
     """
     await _lock_bucket(db, reservation.account_key, reservation.device_key)
     await db.execute(
@@ -416,14 +451,27 @@ async def settle_login_failure(
         select(func.count()).where(in_window, LoginAttempt.failed)
     )
     if int(failures or 0) < LOGIN_FAILURE_LIMIT:
-        return
+        return 0
     if await db.scalar(select(exists().where(in_window, LoginAttempt.tripped))):
-        return
+        return 0
     await db.execute(
         update(LoginAttempt)
         .where(LoginAttempt.id == reservation.attempt_id)
         .values(tripped=True)
     )
+    return int(failures)
+
+
+async def settle_login_failure(
+    db: AsyncSession, request: Request, reservation: LoginReservation
+) -> None:
+    """Count a wrong password for the window; audit the attempt that fills its budget.
+
+    Runs in the caller's transaction, which the caller commits before answering.
+    """
+    failures = await _record_failure(db, reservation)
+    if not failures:
+        return
     await audit_emit(
         db,
         AuditEvent(
@@ -433,7 +481,34 @@ async def settle_login_failure(
             details={
                 "username": reservation.username,
                 "scope": "untrusted" if reservation.device_key is None else "device",
-                "failures": int(failures),
+                "failures": failures,
+                "window_seconds": int(LOGIN_FAILURE_WINDOW.total_seconds()),
+            },
+            ip_address=get_client_ip(request),
+        ),
+    )
+
+
+async def settle_password_change_failure(
+    db: AsyncSession,
+    request: Request,
+    reservation: LoginReservation,
+    user_id: uuid.UUID,
+) -> None:
+    """``settle_login_failure`` for a wrong current password on a password change."""
+    failures = await _record_failure(db, reservation)
+    if not failures:
+        return
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user_id,
+            action="user.change_password.throttled",
+            resource_type="user",
+            resource_id=user_id,
+            details={
+                "username": reservation.username,
+                "failures": failures,
                 "window_seconds": int(LOGIN_FAILURE_WINDOW.total_seconds()),
             },
             ip_address=get_client_ip(request),

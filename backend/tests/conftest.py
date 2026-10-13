@@ -2277,13 +2277,16 @@ async def clean_tables(test_db_session):
 
 @pytest.fixture(autouse=True)
 def _relax_login_throttle(request, monkeypatch):
-    """Keep the per-account sign-in throttle out of tests that aren't about it.
+    """Keep the per-account password throttles out of tests that aren't about them.
 
     Tests across the suite fail sign-ins against shared usernames such as
     admin, and the ledger outlives a test. Raising the limit in this process
-    only leaves other workers, and the throttle's own tests, untouched.
+    only leaves other workers, and the throttles' own tests, untouched.
     """
-    if request.module.__name__.rpartition(".")[2] != "test_login_throttle":
+    if request.module.__name__.rpartition(".")[2] not in {
+        "test_login_throttle",
+        "test_password_change_throttle",
+    }:
         from app.modules.auth import login_throttle
 
         monkeypatch.setattr(login_throttle, "LOGIN_FAILURE_LIMIT", 1_000_000)

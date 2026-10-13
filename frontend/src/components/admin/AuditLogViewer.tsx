@@ -150,6 +150,7 @@ const CURRENT_AUDIT_ACTIONS = [
   'update',
   'user.approve',
   'user.change_password',
+  'user.change_password.throttled',
   'user.convert_saml_to_local',
   'user.create',
   'user.deactivate',

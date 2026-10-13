@@ -43,8 +43,10 @@ from app.modules.auth.login_throttle import (
     issue_device_cookie,
     redeem_trust_token,
     reserve_login_attempt,
+    reserve_password_change_attempt,
     settle_login_failure,
     settle_login_success,
+    settle_password_change_failure,
 )
 from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.core.identity import Identity
@@ -1381,19 +1383,22 @@ async def change_password(
         verify_password_async,
     )
 
-    # fix(#1715): lock and reload the row BEFORE reading anything
-    # off it. An admin reset takes the same row lock; without this ordering
-    # this handler could verify against the pre-reset hash, block inside
-    # revoke_all_tokens' own FOR UPDATE, and autoflush the self-service
-    # password AFTER the reset committed — silently reverting the reset.
-    # Blocking here means verify runs against the hash the reset just
-    # committed, so a stale current_password is refused normally.
+    # Reserving commits, so it comes before the row lock below.
+    throttle = await reserve_password_change_attempt(
+        db, current_user.id, current_user.username
+    )
+
+    # Lock and reload the row before reading it. An admin reset takes the same
+    # row lock, so verify runs against the hash a concurrent reset committed
+    # instead of reverting that reset with a write based on the old hash.
     #
-    # Lock ordering is safe: the reset takes the admin-lifecycle advisory lock
-    # then this row lock; this path only ever takes the row lock, so no cycle.
+    # The reset never takes the throttle's lock, and this path holds that lock
+    # only after the row lock, so the two cannot deadlock.
     await db.refresh(current_user, with_for_update=True)
 
     if current_user.auth_provider != "local":
+        await settle_login_success(db, throttle)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password change only available for local accounts",
@@ -1401,12 +1406,15 @@ async def change_password(
     if not current_user.password_hash or not await verify_password_async(
         body.current_password, current_user.password_hash
     ):
+        await settle_password_change_failure(db, request, throttle, current_user.id)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
         )
 
     current_user.password_hash = await hash_password_async(body.new_password)
+    await settle_login_success(db, throttle)
 
     # SEC-S15 (Phase 1062-01): bump token_version so all outstanding access
     # JWTs for this user are invalidated on their next request, forcing

@@ -132,6 +132,8 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "update",
         "user.approve",
         "user.change_password",
+        # A password-change budget filling up; one row per window.
+        "user.change_password.throttled",
         "user.convert_saml_to_local",
         "user.create",
         "user.deactivate",
