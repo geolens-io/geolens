@@ -148,6 +148,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_dormant_tenancy_schema",
     "test_arcgis_signin_tenancy",
     "test_audit_job_tenant_isolation",
+    "test_audit_prune_tenancy",
     "test_entitlement_port",
     "test_extension_api_version",
     "test_gate01_cross_tenant_isolation",

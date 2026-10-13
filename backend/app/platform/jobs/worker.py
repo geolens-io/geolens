@@ -583,6 +583,7 @@ async def main() -> None:
     from app.observability.metrics.jobs import update_job_metrics
     from app.observability.metrics.memory import update_memory_metrics
     from app.observability.metrics.pool import update_pool_metrics
+    from app.platform.jobs.audit_retention import run_audit_log_prunes
     from app.platform.refresh.credentials import renew_credentials_periodically
     from app.platform.extensions import get_scheduled_refresh_lifecycle
     from app.platform.extensions.scheduled_refresh import (
@@ -689,6 +690,7 @@ async def main() -> None:
             await _queue_crs_facts_repair_safely()
             sweep_task = asyncio.create_task(run_stalled_queue_sweeps())
             purge_task = asyncio.create_task(run_terminal_job_purges())
+            audit_prune_task = asyncio.create_task(run_audit_log_prunes())
             scheduled_expiry_task = asyncio.create_task(
                 run_scheduled_refresh_expiry_sweeps()
             )
@@ -718,10 +720,12 @@ async def main() -> None:
                 # the pool closes would raise on the way out.
                 sweep_task.cancel()
                 purge_task.cancel()
+                audit_prune_task.cancel()
                 scheduled_expiry_task.cancel()
                 await asyncio.gather(
                     sweep_task,
                     purge_task,
+                    audit_prune_task,
                     scheduled_expiry_task,
                     return_exceptions=True,
                 )

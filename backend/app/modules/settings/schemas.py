@@ -552,6 +552,17 @@ def validate_refresh_token_expire(v: Any) -> int:
     return _validate_bounded_int(v, "refresh_token_expire_days", 1, 365)
 
 
+AUDIT_RETENTION_MIN_DAYS = 90
+
+
+def validate_audit_retention_days(v: Any) -> int | None:
+    if v is None:
+        return None
+    return _validate_bounded_int(
+        v, "audit_retention_days", AUDIT_RETENTION_MIN_DAYS, 36500
+    )
+
+
 def validate_embedding_dims(v: Any) -> int:
     return _validate_bounded_int(v, "embedding_dims", 1, 4096)
 
@@ -673,6 +684,7 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "enabled_plugins": validate_enabled_plugins,
     "access_token_expire_minutes": validate_access_token_expire,
     "refresh_token_expire_days": validate_refresh_token_expire,
+    "audit_retention_days": validate_audit_retention_days,
     "embedding_dims": validate_embedding_dims,
     "tile_cache_ttl": validate_tile_cache_ttl,
     "max_storage_bytes_per_user": validate_max_storage_bytes_per_user,

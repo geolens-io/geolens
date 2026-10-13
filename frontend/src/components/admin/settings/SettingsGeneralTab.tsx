@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { AlertTriangle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,11 +33,36 @@ const FIELDS = [
   { key: 'privacy_url', defaultValue: '' },
   { key: 'log_level', defaultValue: 'INFO' },
   { key: 'log_json', defaultValue: false },
+  { key: 'audit_retention_days', defaultValue: '', coerce: (v: unknown) => (v == null ? '' : String(v)) },
 ] as const;
+
+const AUDIT_RETENTION_MIN_DAYS = 90;
+const AUDIT_RETENTION_COMPLIANCE_DAYS = 365;
+
+/** An empty field keeps audit records forever; the API stores that as null. */
+function parseRetentionDays(raw: string): number | null | undefined {
+  const text = raw.trim();
+  if (text === '') return null;
+  const days = Number(text);
+  if (!Number.isInteger(days) || days < AUDIT_RETENTION_MIN_DAYS) return undefined;
+  return days;
+}
 
 export function SettingsGeneralTab({ settings, envOnly, onSave, onReset: submitReset, isSaving, settingsUpdatedAt, saveFailed, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
+  const retentionRaw = values.audit_retention_days as string;
+  const retentionDays = parseRetentionDays(retentionRaw);
+  const retentionInvalid = retentionDays === undefined;
+  const retentionShort = typeof retentionDays === 'number' && retentionDays < AUDIT_RETENTION_COMPLIANCE_DAYS;
+
+  const save = (changes: Record<string, unknown>) => {
+    if (typeof changes.audit_retention_days === 'string') {
+      onSave({ ...changes, audit_retention_days: parseRetentionDays(changes.audit_retention_days) });
+    } else {
+      onSave(changes);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -221,7 +247,37 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset: submitR
         />
       </div>
 
-      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="audit-retention-days">{t('settings.general.auditRetentionDays')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'audit_retention_days')?.source ?? 'default'} settingKey="audit_retention_days" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.general.auditRetentionDaysDescription')}</p>
+        <Input
+          id="audit-retention-days"
+          type="number"
+          min={AUDIT_RETENTION_MIN_DAYS}
+          step={1}
+          placeholder={t('settings.general.auditRetentionKeepForever')}
+          value={retentionRaw}
+          onChange={(e) => setters.audit_retention_days(e.target.value)}
+          disabled={envOnly}
+          aria-invalid={retentionInvalid}
+          aria-describedby={retentionInvalid ? 'audit-retention-error' : retentionShort ? 'audit-retention-warning' : undefined}
+          className="w-40"
+        />
+        {retentionInvalid && (
+          <p id="audit-retention-error" className="text-sm text-destructive">{t('settings.general.auditRetentionInvalid', { min: AUDIT_RETENTION_MIN_DAYS })}</p>
+        )}
+        {retentionShort && (
+          <div id="audit-retention-warning" className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 max-w-md">
+            <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <p className="text-sm text-foreground">{t('settings.general.auditRetentionComplianceWarning', { days: AUDIT_RETENTION_COMPLIANCE_DAYS })}</p>
+          </div>
+        )}
+      </div>
+
+      <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly || retentionInvalid} isSaving={isSaving} onSave={save} onDiscard={discard} onDirtyChange={onDirtyChange} />
     </div>
   );
 }

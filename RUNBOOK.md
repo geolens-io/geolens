@@ -2266,24 +2266,37 @@ their own remediation in the error message; neither is auto-coerced.
 
 ## 8. Audit log retention
 
-`catalog.audit_logs` has no built-in expiry: every login, dataset mutation,
+`catalog.audit_logs` keeps every row by default: every login, dataset mutation,
 share change, and export is a permanent row (see
 `backend/app/modules/audit/router.py`'s module docstring, which already flags
-that the table can reach millions of rows on a busy instance). Community ships
-bounded CSV/JSON export
-(`GET /admin/audit-logs/export/{format}`, capped at 100,000 rows per request)
-but no automatic pruning — an operator who wants a retention window applies it
-out of band, with `scripts/audit_retention.sh`. That is deliberately an
-operator-run script rather than an in-app feature: an in-app pruning endpoint
-means a new destructive-write surface (Rule 1 of the Security pre-commit
-checklist, plus RBAC and rate-limit review for a delete-many endpoint), and a
-script an operator invokes deliberately is the smaller, auditable surface for a
-table whose entire purpose is being an audit trail.
+that the table can reach millions of rows on a busy instance). Two things keep
+it bounded:
+
+- Repeat dataset views collapse. A signed-in user opening the same dataset again
+  within 15 minutes of their last `dataset.view` row writes no new row, and
+  emits no event to any other audit sink either.
+- Admin Settings > General has an **Audit log retention (days)** field
+  (`audit_retention_days`). Empty, the default, keeps rows forever. A value of
+  90 or more makes the worker delete rows older than that every six hours, in
+  batches, and record one `audit.prune` event with the count and cutoff. Some
+  compliance regimes require at least a year of audit records, so the field
+  warns below 365 days. The prune deletes rows of every action and does not
+  archive them first, so export the window you care about before you set it.
+
+Community also ships bounded CSV/JSON export
+(`GET /admin/audit-logs/export/{format}`, capped at 100,000 rows per request).
+For archive-then-delete, or a window the setting cannot express, apply it out
+of band with `scripts/audit_retention.sh`. That script stays an operator-run
+tool rather than an endpoint: an in-app delete-many endpoint is a new
+destructive-write surface (Rule 1 of the Security pre-commit checklist, plus
+RBAC and rate-limit review), and a script an operator invokes deliberately is
+the smaller, auditable surface for a table whose entire purpose is being an
+audit trail.
 
 ### Deciding on a window
 
-There is no default; pick a retention period your compliance posture
-requires (30/90/365 days are common). Whatever you pick, keep two things in
+The setting is off by default; pick a retention period your compliance posture
+requires (90/365 days are common). Whatever you pick, keep two things in
 mind:
 - `dataset.download_cog`, `feature.*`, and `dataset.view` rows are usually the
   bulk of the table on an active instance — high-frequency, low-value-per-row

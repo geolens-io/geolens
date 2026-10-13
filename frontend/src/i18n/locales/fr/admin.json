@@ -545,7 +545,12 @@
       "privacyUrlDescription": "Affichée comme lien sur les pages de connexion et d'inscription. Laissez vide pour masquer le lien. Doit être une URL http(s) complète.",
       "logLevel": "Niveau de journalisation",
       "logJsonLabel": "Format de journal (JSON)",
-      "logJsonDescription": "Journaux de sortie au format JSON structuré."
+      "logJsonDescription": "Journaux de sortie au format JSON structuré.",
+      "auditRetentionDays": "Conservation du journal d'audit (jours)",
+      "auditRetentionDaysDescription": "Les enregistrements d'audit plus anciens que ce nombre de jours sont supprimés automatiquement. Laissez vide pour les conserver indéfiniment.",
+      "auditRetentionKeepForever": "Conserver indéfiniment",
+      "auditRetentionInvalid": "Saisissez un nombre entier de jours ({{min}} ou plus), ou laissez le champ vide.",
+      "auditRetentionComplianceWarning": "Certains régimes de conformité exigent de conserver les enregistrements d'audit au moins {{days}} jours."
     },
     "basemaps": {
       "title": "Fonds de carte",

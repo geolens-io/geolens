@@ -545,7 +545,12 @@
       "privacyUrlDescription": "Se muestra como enlace en las páginas de inicio de sesión y registro. Déjalo vacío para ocultar el enlace. Debe ser una URL http(s) completa.",
       "logLevel": "Nivel de registro",
       "logJsonLabel": "Formato de registro (JSON)",
-      "logJsonDescription": "Registros de salida en formato JSON estructurado."
+      "logJsonDescription": "Registros de salida en formato JSON estructurado.",
+      "auditRetentionDays": "Retención del registro de auditoría (días)",
+      "auditRetentionDaysDescription": "Los registros de auditoría más antiguos que este número de días se eliminan automáticamente. Déjelo vacío para conservarlos siempre.",
+      "auditRetentionKeepForever": "Conservar siempre",
+      "auditRetentionInvalid": "Introduzca un número entero de días ({{min}} o más) o deje el campo vacío.",
+      "auditRetentionComplianceWarning": "Algunos regímenes de cumplimiento exigen conservar los registros de auditoría al menos {{days}} días."
     },
     "basemaps": {
       "title": "Mapas base",

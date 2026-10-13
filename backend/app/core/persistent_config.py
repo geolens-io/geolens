@@ -593,6 +593,15 @@ REFRESH_TOKEN_EXPIRE_DAYS = PersistentConfig[int](
     label="Refresh Token Expiry (days)",
 )
 
+# None keeps audit rows forever; the admin validator enforces the minimum.
+AUDIT_RETENTION_DAYS = PersistentConfig[int | None](
+    key="audit_retention_days",
+    type_=int | None,
+    env_default=None,
+    tab="general",
+    label="Audit Log Retention (days)",
+)
+
 LOGIN_RATE_LIMIT = PersistentConfig[int](
     key="login_rate_limit",
     type_=int,

@@ -1,11 +1,11 @@
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import func, nulls_last, select
+from sqlalchemy import delete, func, nulls_last, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload
 
@@ -23,6 +23,8 @@ __all__ = [
     "audit_emit_durable",
     "extension_audit_sinks",
     "log_action",
+    "prune_audit_logs",
+    "recently_audited",
     "query_audit_logs",
     "query_column_ddl_history",
     "resolve_resource_names",
@@ -179,6 +181,56 @@ def _apply_filters(
         )
         query = query.where(search_filter)
     return query
+
+
+async def recently_audited(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    action: str,
+    resource_id: uuid.UUID,
+    within: timedelta,
+) -> bool:
+    """Whether ``user_id`` already has an ``action`` row for the resource in the window.
+
+    Reads ``audit_logs`` rather than a cache, so a cache flush can never cause a
+    row to be skipped. Two concurrent callers can both see ``False``.
+    """
+    found = await session.scalar(
+        select(AuditLog.id)
+        .where(
+            AuditLog.resource_id == resource_id,
+            AuditLog.user_id == user_id,
+            AuditLog.action == action,
+            AuditLog.created_at > func.now() - within,
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
+async def prune_audit_logs(
+    session: AsyncSession, *, cutoff: datetime, batch_size: int
+) -> int:
+    """Delete every audit row created before ``cutoff``, committing per batch.
+
+    Rows another transaction holds are skipped and picked up by a later run.
+    Returns the number deleted.
+    """
+    deleted = 0
+    while True:
+        batch = (
+            select(AuditLog.id)
+            .where(AuditLog.created_at < cutoff)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+        result = await session.execute(delete(AuditLog).where(AuditLog.id.in_(batch)))
+        await session.commit()
+        count = result.rowcount
+        deleted += count
+        if count < batch_size:
+            return deleted
 
 
 async def log_action(

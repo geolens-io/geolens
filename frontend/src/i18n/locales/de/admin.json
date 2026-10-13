@@ -545,7 +545,12 @@
       "privacyUrlDescription": "Wird als Link auf den Anmelde- und Registrierungsseiten angezeigt. Leer lassen, um den Link auszublenden. Muss eine vollständige http(s)-URL sein.",
       "logLevel": "Protokollierungsstufe",
       "logJsonLabel": "Protokollformat (JSON)",
-      "logJsonDescription": "Protokolle im strukturierten JSON-Format ausgeben."
+      "logJsonDescription": "Protokolle im strukturierten JSON-Format ausgeben.",
+      "auditRetentionDays": "Aufbewahrung des Audit-Protokolls (Tage)",
+      "auditRetentionDaysDescription": "Audit-Einträge, die älter als diese Anzahl Tage sind, werden automatisch gelöscht. Leer lassen, um sie dauerhaft aufzubewahren.",
+      "auditRetentionKeepForever": "Dauerhaft aufbewahren",
+      "auditRetentionInvalid": "Geben Sie eine ganze Zahl von Tagen ({{min}} oder mehr) ein oder lassen Sie das Feld leer.",
+      "auditRetentionComplianceWarning": "Einige Compliance-Vorgaben verlangen, Audit-Einträge mindestens {{days}} Tage aufzubewahren."
     },
     "basemaps": {
       "title": "Basiskarten",

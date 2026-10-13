@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import uuid
+from datetime import timedelta
 
 import structlog
 from fastapi import (
@@ -29,7 +30,12 @@ from app.platform.catalog_locks import (
 )
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
-from app.modules.audit.service import AuditEvent, audit_emit, query_audit_logs
+from app.modules.audit.service import (
+    AuditEvent,
+    audit_emit,
+    query_audit_logs,
+    recently_audited,
+)
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
@@ -93,6 +99,8 @@ from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 logger = structlog.get_logger()
+
+_DATASET_VIEW_AUDIT_WINDOW = timedelta(minutes=15)
 
 router = APIRouter(
     prefix="/datasets", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
@@ -192,8 +200,15 @@ async def get_single_dataset(
     # Visibility check — returns resolved user_roles to avoid duplicate DB query
     user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    # Log dataset access for authenticated users only
-    if user is not None:
+    # Authenticated views only; a repeat view inside the window writes nothing
+    # to any sink, which keeps a reloading page from flooding the audit log.
+    if user is not None and not await recently_audited(
+        db,
+        user_id=user.id,
+        action="dataset.view",
+        resource_id=dataset_id,
+        within=_DATASET_VIEW_AUDIT_WINDOW,
+    ):
         await audit_emit(
             db,
             AuditEvent(

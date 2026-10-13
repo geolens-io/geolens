@@ -31,6 +31,7 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "attribute.edit",
         "attribute.reset",
         "audit.export",
+        "audit.prune",
         "collection.add_datasets",
         "collection.create",
         "collection.delete",
