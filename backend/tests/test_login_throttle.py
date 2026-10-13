@@ -435,7 +435,7 @@ async def test_a_trust_link_remembers_the_browser_once(client: AsyncClient):
     await _fail(client, username, LOGIN_FAILURE_LIMIT)
     token = await _mint_trust_link(username)
 
-    resp = await client.get(f"/auth/device-trust?token={token}")
+    resp = await client.get(f"/auth/login/device-trust?token={token}")
     assert resp.status_code == 303
     assert resp.headers["location"].endswith("/login")
     device = _set_cookie(resp, device_cookie_name(login_account_key(username)))
@@ -443,7 +443,7 @@ async def test_a_trust_link_remembers_the_browser_once(client: AsyncClient):
         await _login(client, username, PASSWORD, device=device["value"])
     ).status_code == 200
 
-    again = await client.get(f"/auth/device-trust?token={token}")
+    again = await client.get(f"/auth/login/device-trust?token={token}")
     assert again.status_code == 404
     assert again.headers.get_list("set-cookie") == []
 
@@ -458,7 +458,7 @@ async def test_an_expired_trust_link_does_nothing(client: AsyncClient, test_db_s
     )
     await test_db_session.commit()
 
-    resp = await client.get(f"/auth/device-trust?token={token}")
+    resp = await client.get(f"/auth/login/device-trust?token={token}")
     assert resp.status_code == 404
     assert resp.headers.get_list("set-cookie") == []
 
@@ -469,8 +469,8 @@ async def test_the_trust_script_prints_a_working_link(client: AsyncClient, capsy
     username = await _new_user(client)
     assert await _run(username.upper(), None) == 0
     link = capsys.readouterr().out.strip()
-    assert "/auth/device-trust?token=" in link
-    resp = await client.get("/auth/device-trust?token=" + link.rsplit("=", 1)[1])
+    assert "/auth/login/device-trust?token=" in link
+    resp = await client.get("/auth/login/device-trust?token=" + link.rsplit("=", 1)[1])
     assert resp.status_code == 303
 
     assert await _run(f"nobody_{uuid.uuid4().hex[:8]}", None) == 1
@@ -651,20 +651,26 @@ async def test_a_credential_reset_voids_an_unused_trust_link(client: AsyncClient
     )
     assert changed.status_code == 204, changed.text
 
-    resp = await client.get(f"/auth/device-trust?token={token}")
+    resp = await client.get(f"/auth/login/device-trust?token={token}")
     assert resp.status_code == 404
     assert resp.headers.get_list("set-cookie") == []
 
 
-async def test_a_trust_link_takes_effect_past_the_cookie_cap(client: AsyncClient):
+async def test_a_browser_at_the_cap_is_refused_a_trust_link_it_can_use_elsewhere(
+    client: AsyncClient,
+):
     username = await _new_user(client)
     token = await _mint_trust_link(username)
     others = "; ".join(
         f"{_current_cookie_prefix()}{index:016x}=v1.n.1.mac" for index in range(5)
     )
-    resp = await client.get(
-        f"/auth/device-trust?token={token}", headers={"Cookie": others}
+    full = await client.get(
+        f"/auth/login/device-trust?token={token}", headers={"Cookie": others}
     )
+    assert full.status_code == 409
+    assert full.headers.get_list("set-cookie") == []
+
+    resp = await client.get(f"/auth/login/device-trust?token={token}")
     assert resp.status_code == 303
     _set_cookie(resp, device_cookie_name(login_account_key(username)))
 

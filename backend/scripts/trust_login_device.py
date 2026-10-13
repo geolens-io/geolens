@@ -25,7 +25,7 @@ import uuid
 from sqlalchemy import text
 
 _TENANT_EXISTS = text("SELECT id FROM catalog.tenants WHERE id = :tenant_id")
-_TRUST_PATH = "/auth/device-trust"
+_TRUST_PATH = "/auth/login/device-trust"
 # The API's mount point when no public URL is configured.
 _DEFAULT_API_PATH = "/api"
 

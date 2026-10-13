@@ -197,45 +197,46 @@ def _presented_device_key(
     return None
 
 
-def issue_device_cookie(
-    response: Response,
-    request: Request,
-    account_key: str,
-    binding: str,
-    *,
-    capped: bool = True,
-) -> None:
-    """Remember this browser for the account, up to a cap of accounts per browser.
+def device_cookie_fits(request: Request, account_key: str) -> bool:
+    """Whether this browser may hold a device cookie for the account.
 
-    Every device cookie rides every sign-in request, so without a cap a
-    browser used for many accounts would outgrow the proxy's header limit.
-    At the cap a new account goes unremembered rather than displacing one:
-    other accounts' cookies can't be verified here, and one planted from a
-    sibling domain must not be able to push out a real one. ``capped=False``
-    is for an operator's trust link, which must always take effect.
+    Every device cookie rides every sign-in request, so a browser holds at
+    most ``_MAX_REMEMBERED_ACCOUNTS`` of the current generation. At the cap a
+    new account goes unremembered rather than displacing one: other
+    accounts' cookies can't be verified here, and one planted from a sibling
+    domain must not be able to push out a real one.
     """
     name = device_cookie_name(account_key)
     current = _current_cookie_prefix()
-    others = set()
-    stale = set()
-    for other, _ in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX):
-        if not other.startswith(current):
-            stale.add(other)
-        elif other != name:
-            others.add(other)
-    # Bounded, so names a sibling domain floods in can't swell every response.
-    for other in sorted(stale)[:_MAX_REMEMBERED_ACCOUNTS]:
+    others = {
+        other for other, _ in cookies_with_prefix(request, current) if other != name
+    }
+    return bool(cookie_values(request, name)) or len(others) < _MAX_REMEMBERED_ACCOUNTS
+
+
+def issue_device_cookie(
+    response: Response, request: Request, account_key: str, binding: str
+) -> None:
+    """Remember this browser for the account, if it fits under the cap.
+
+    Also clears a bounded number of cookies a secret rotation voided, so they
+    neither fill the cap nor swell the response when a sibling floods names.
+    """
+    stale = sorted(
+        {
+            other
+            for other, _ in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX)
+            if not other.startswith(_current_cookie_prefix())
+        }
+    )
+    for other in stale[:_MAX_REMEMBERED_ACCOUNTS]:
         clear_login_device_cookie(response, request, other)
-    if (
-        capped
-        and not cookie_values(request, name)
-        and len(others) >= _MAX_REMEMBERED_ACCOUNTS
-    ):
+    if not device_cookie_fits(request, account_key):
         return
     set_login_device_cookie(
         response,
         request,
-        name,
+        device_cookie_name(account_key),
         mint_device_cookie(account_key, binding),
         int(DEVICE_COOKIE_MAX_AGE.total_seconds()),
     )

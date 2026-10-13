@@ -39,6 +39,7 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.login_throttle import (
     account_binding,
+    device_cookie_fits,
     issue_device_cookie,
     redeem_trust_token,
     reserve_login_attempt,
@@ -296,7 +297,7 @@ async def login(
     )
 
 
-@router.get("/device-trust", include_in_schema=False)
+@router.get("/login/device-trust", include_in_schema=False)
 @limiter.limit("10/minute")
 async def trust_login_device(
     request: Request,
@@ -307,8 +308,19 @@ async def trust_login_device(
 
     The link is single use, and grants only what a past sign-in would: this
     browser may try a password while the account refuses unknown clients.
+    Served under the device cookies' path so it sees them: a browser already
+    at its cap is refused and the link stays usable elsewhere.
     """
     redeemed = await redeem_trust_token(db, token)
+    if redeemed is not None and not device_cookie_fits(request, redeemed[0]):
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This browser already remembers as many accounts as it can. "
+                "Open the link in a private window or another browser."
+            ),
+        )
     await db.commit()
     if redeemed is None:
         raise HTTPException(
@@ -320,7 +332,7 @@ async def trust_login_device(
     except PublicUrlNotConfiguredError:
         app_url = ""
     redirect = RedirectResponse(f"{app_url}/login", status_code=303)
-    issue_device_cookie(redirect, request, *redeemed, capped=False)
+    issue_device_cookie(redirect, request, *redeemed)
     return redirect
 
 

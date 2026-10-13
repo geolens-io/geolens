@@ -603,7 +603,7 @@ _BENIGN_WRITING_GET_ROUTES: dict[str, str] = {
     "/auth/oauth/{provider_slug}/login": "browser OAuth leg, not an API-key path",
     "/auth/oauth/{provider_slug}/callback": "browser OAuth leg, not an API-key path",
     # Consumes an operator-minted single-use link; authenticates nobody.
-    "/auth/device-trust": "browser trust-link leg, not an API-key path",
+    "/auth/login/device-trust": "browser trust-link leg, not an API-key path",
 }
 
 
