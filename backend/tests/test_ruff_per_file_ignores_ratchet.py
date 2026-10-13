@@ -16,7 +16,14 @@ from pathlib import Path
 
 _BACKEND = Path(__file__).resolve().parents[1]
 _PYPROJECT = _BACKEND / "pyproject.toml"
-_SKIP_DIRS = {"node_modules", "__pycache__"}
+_SKIP_DIRS = {
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+}
 
 _BASELINE: dict[str, frozenset[str]] = {
     path: frozenset({"C901"})
@@ -96,9 +103,7 @@ def _other_ruff_configs() -> list[str]:
         dirs[:] = [
             d
             for d in dirs
-            if not d.startswith(".")
-            and d not in _SKIP_DIRS
-            and Path(root, d) != _BACKEND / "staging"
+            if d not in _SKIP_DIRS and Path(root, d) != _BACKEND / "staging"
         ]
         for name in files:
             path = Path(root) / name
