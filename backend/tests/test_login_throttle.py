@@ -510,11 +510,15 @@ def _clear_tenant():
     current_tenant_var.reset(token)
 
 
-async def test_a_tenant_trust_link_is_a_bare_path(monkeypatch):
+async def test_a_tenant_trust_link_is_the_configured_api_path(
+    client: AsyncClient, monkeypatch
+):
+    import app.core.db as db_module
     from scripts.trust_login_device import _api_base
 
-    monkeypatch.setattr(settings, "public_api_url", "https://fleet.example.com/api")
-    assert await _api_base(None, str(uuid.uuid4())) == "/api"
+    monkeypatch.setattr(settings, "public_api_url", "https://fleet.example.com/geo-api")
+    async with db_module.async_session() as db:
+        assert await _api_base(db, str(uuid.uuid4())) == "/geo-api"
 
 
 async def test_spellings_the_database_matches_share_one_budget(client: AsyncClient):

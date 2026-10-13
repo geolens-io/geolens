@@ -46,12 +46,16 @@ async def _api_base(db, tenant: str | None) -> str:
     """The configured public API URL, or the bare mount path.
 
     A tenant's device cookie only works on that tenant's own host, which the
-    fleet-wide URL is not, so a tenant's link is always the bare path.
+    fleet-wide URL is not, so a tenant's link is the configured API path alone.
     """
-    from app.core.public_urls import PublicUrlNotConfiguredError, get_public_api_url
+    from app.core.public_urls import (
+        PublicUrlNotConfiguredError,
+        get_configured_api_path,
+        get_public_api_url,
+    )
 
     if tenant is not None:
-        return _DEFAULT_API_PATH
+        return await get_configured_api_path(db) or _DEFAULT_API_PATH
     try:
         return await get_public_api_url(db, for_external_use=True)
     except PublicUrlNotConfiguredError:
