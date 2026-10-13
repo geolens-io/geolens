@@ -1,0 +1,74 @@
+"""Ruff ``per-file-ignores`` in ``backend/pyproject.toml`` may only shrink.
+
+The config must match ``_BASELINE`` exactly: adding a glob or a rule code fails
+the test, and so does removing one without deleting it from the baseline.
+"""
+
+from __future__ import annotations
+
+import tomllib
+from pathlib import Path
+
+_PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
+
+_BASELINE: dict[str, frozenset[str]] = {
+    path: frozenset({"C901"})
+    for path in (
+        "app/modules/auth/oauth/service.py",
+        "app/modules/catalog/maps/filter_grammar.py",
+        "app/modules/catalog/maps/service_diff.py",
+        "app/modules/catalog/maps/sprites.py",
+        "app/modules/catalog/maps/style_json.py",
+        "app/modules/catalog/search/router.py",
+        "app/modules/catalog/search/service_records.py",
+        "app/modules/catalog/sources/router.py",
+        "app/modules/embed_tokens/service.py",
+        "app/platform/extensions/defaults_ai_openai.py",
+        "app/processing/ai/chat_actions.py",
+        "app/processing/ai/metadata_service.py",
+        "app/processing/ai/streaming.py",
+        "app/processing/export/router.py",
+        "app/processing/ingest/tasks_raster.py",
+        "app/processing/ingest/tasks_vector.py",
+        "app/processing/ingest/tasks_vrt.py",
+        "app/processing/raster/quicklook.py",
+        "app/processing/tiles/router.py",
+        "app/standards/dcat/service.py",
+        "app/standards/dcat_us/service.py",
+        "app/standards/geodcat_ap/service.py",
+        "app/standards/ogc/router.py",
+        "app/standards/stac/router.py",
+    )
+}
+
+
+def _configured() -> dict[str, frozenset[str]]:
+    with _PYPROJECT.open("rb") as f:
+        raw = tomllib.load(f)["tool"]["ruff"]["lint"]["per-file-ignores"]
+    return {glob: frozenset(codes) for glob, codes in raw.items()}
+
+
+def test_per_file_ignores_never_grow() -> None:
+    configured = _configured()
+    added = sorted(
+        f"{glob}: {code}"
+        for glob, codes in configured.items()
+        for code in codes - _BASELINE.get(glob, frozenset())
+    )
+    assert not added, (
+        "New ruff per-file-ignores in backend/pyproject.toml: "
+        f"{added}. Fix the code instead of widening the ignore."
+    )
+
+
+def test_per_file_ignores_baseline_is_exact() -> None:
+    configured = _configured()
+    stale = sorted(
+        f"{glob}: {code}"
+        for glob, codes in _BASELINE.items()
+        for code in codes - configured.get(glob, frozenset())
+    )
+    assert not stale, (
+        "These per-file-ignores are gone from backend/pyproject.toml but still "
+        f"in _BASELINE: {stale}. Delete them from _BASELINE so the ratchet moves down."
+    )
