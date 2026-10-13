@@ -451,7 +451,7 @@ services:
       # Dockerfile. /health also probes the cache and the object store, both of
       # which the API is engineered to survive, and this probe gates
       # `frontend: depends_on: api: service_healthy`.
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')\""]
+      test: ["CMD-SHELL", "python -B -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')\""]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -529,7 +529,7 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')\""]
+      test: ["CMD-SHELL", "python -B -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')\""]
       interval: 10s
       timeout: 5s
       retries: 3

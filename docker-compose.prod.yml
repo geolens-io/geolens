@@ -446,7 +446,7 @@ services:
       # The api image's baked healthcheck targets :8000 (uvicorn); the worker
       # process serves :8001/health/live, so override it here to match the
       # geolens-worker image's baked check.
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')\""]
+      test: ["CMD-SHELL", "python -B -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')\""]
       interval: 10s
       timeout: 5s
       retries: 3

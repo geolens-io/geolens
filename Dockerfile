@@ -179,7 +179,7 @@ LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 # all. Orchestrator readiness probes belong on /health/ready, which checks only
 # the database; /health stays the full dependency report for dashboards.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"
+  CMD python -B -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"
 
 USER appuser
 
@@ -194,7 +194,7 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')"
+  CMD python -B -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')"
 
 USER appuser
 
