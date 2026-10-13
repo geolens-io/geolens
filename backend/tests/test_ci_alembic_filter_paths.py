@@ -75,6 +75,10 @@ def _parse_alembic_filter_globs() -> list[str]:
     return _parse_filter_globs("alembic")
 
 
+# Tests of the filters themselves, which name paths as filter inputs.
+_FILTER_TESTS = frozenset({pathlib.Path(__file__).name, "test_ci_job_selection.py"})
+
+
 def _referenced_by_backend_tests(pattern: re.Pattern[str]) -> dict[str, list[str]]:
     """Map each path matching *pattern* that a backend test names to the tests
     naming it.
@@ -87,6 +91,8 @@ def _referenced_by_backend_tests(pattern: re.Pattern[str]) -> dict[str, list[str
     tests_dir = REPO_ROOT / "backend" / "tests"
     for path in sorted(tests_dir.rglob("*")):
         if not path.is_file() or path.suffix not in {".py", ".sh"}:
+            continue
+        if path.name in _FILTER_TESTS:
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
@@ -109,6 +115,25 @@ _SCRIPTS_PATTERN = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py|yml|yaml)")
 _FRONTEND_PATTERN = re.compile(
     r"(?:frontend|e2e)/[A-Za-z0-9_./-]+\.(?:tsx|ts|json|conf|js|html|md)"
 )
+
+
+# Backend tests that name a frontend file only in a comment or docstring. None
+# of them reads it, so it stays out of the backend filter and a frontend-only
+# PR editing it does not run the backend shards. Only the listed test files are
+# exempt; any other backend test naming the path still needs filter coverage.
+_PROSE_ONLY_FRONTEND_REFERENCES: dict[str, frozenset[str]] = {
+    "frontend/package.json": frozenset({"test_audit_1778_docs.py"}),
+    "frontend/vite.config.ts": frozenset({"test_redirect_slashes.py"}),
+    "frontend/src/components/admin/__tests__/AdminSidebar.test.tsx": frozenset(
+        {"test_saml_overlay.py"}
+    ),
+    "frontend/src/lib/__tests__/public-urls.test.ts": frozenset(
+        {"test_public_app_url_shape_contract_1548.py"}
+    ),
+    "frontend/src/lib/normalize-style-config.ts": frozenset(
+        {"test_legacy_builder_paint_keys_drift.py"}
+    ),
+}
 
 
 def _scripts_referenced_by_backend_tests() -> dict[str, list[str]]:
@@ -377,7 +402,13 @@ class TestBackendFilterCoversReferencedScripts:
                 covered.add(str(pathlib.Path(match).relative_to(REPO_ROOT)))
 
         uncovered = {
-            ref: tests for ref, tests in referenced.items() if ref not in covered
+            ref: unexempt
+            for ref, tests in referenced.items()
+            if ref not in covered
+            and (
+                unexempt := set(tests)
+                - _PROSE_ONLY_FRONTEND_REFERENCES.get(ref, frozenset())
+            )
         }
         assert not uncovered, (
             "These frontend/ or e2e/ files are read by backend tests but are "
@@ -388,5 +419,24 @@ class TestBackendFilterCoversReferencedScripts:
                 f"  - {ref}  (read by {', '.join(sorted(tests))})"
                 for ref, tests in sorted(uncovered.items())
             )
-            + "\n\nAdd each path to the 'backend' filter."
+            + "\n\nAdd each path to the 'backend' filter, or, when a test only "
+            "mentions it in a comment or docstring, to "
+            "_PROSE_ONLY_FRONTEND_REFERENCES."
+        )
+
+    def test_prose_only_allowlist_names_only_current_mentions(self):
+        """An allowlist entry whose test no longer names the path is dead.
+
+        Leaving it would exempt a later, real read of that file from the scan
+        above.
+        """
+        referenced = _frontend_referenced_by_backend_tests()
+        stale = {
+            ref: sorted(tests - set(referenced.get(ref, [])))
+            for ref, tests in _PROSE_ONLY_FRONTEND_REFERENCES.items()
+            if tests - set(referenced.get(ref, []))
+        }
+        assert not stale, (
+            "These _PROSE_ONLY_FRONTEND_REFERENCES entries name tests that no "
+            f"longer mention the path; remove them: {stale}"
         )

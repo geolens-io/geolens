@@ -288,9 +288,12 @@ def test_changes_job_does_not_pretend_to_have_filtered_the_queue():
     # "merge_group" would keep passing if the condition were inverted to
     # `== 'merge_group'`, i.e. if the step ran on exactly the event this test
     # exists to exclude.
-    assert condition == "github.event_name != 'merge_group'", (
+    assert condition == (
+        "github.event_name != 'merge_group' && github.event_name != 'push'"
+    ), (
         "the paths-filter step must be skipped on merge_group; with no base to "
-        f"diff against its outputs cannot be trusted. Found: {condition!r}"
+        "diff against its outputs cannot be trusted. On push the queue lookup "
+        f"decides instead. Found: {condition!r}"
     )
 
 

@@ -5,22 +5,20 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # fix(#1000): merge-queue runs. All three required contexts (Detect Changes,
-  # Pre-commit, CI OK) come from this workflow, so the queue cannot validate a
-  # candidate merge commit without it.
+  # Merge-queue runs. All three required contexts (Detect Changes, Pre-commit,
+  # CI OK) come from this workflow, so the queue cannot validate a candidate
+  # merge commit without it.
   #
-  # Adding this line is the easy half. The job conditionals below are the
-  # reason the queue must NOT be enabled before they are fixed: 12 of them
-  # were gated on `needs.changes.outputs.X == 'true' || github.event_name ==
-  # 'push'`, and a merge_group event matches neither `push` nor
-  # `pull_request`, so every one of them would skip — while `ci-ok` counts a
-  # skip as a pass (correct for a path-filtered PR, catastrophic here). The
-  # queue would have reported green having tested nothing.
+  # The queue run is the full matrix: there is no path filter to trust there,
+  # and `ci-ok` counts a skip as a pass, so every gated job reads
+  # `|| github.event_name == 'merge_group'`. test_ci_merge_queue.py holds that.
   #
-  # A queue run validates a candidate merge commit against main the same way a
-  # push run validates the merged result, so both want the full matrix rather
-  # than a path-filtered subset. Every gated job below therefore reads
-  # `|| github.event_name == 'merge_group'` alongside its push clause.
+  # The queue squash-merges, so main fast-forwards to the exact commit the
+  # queue tested and the push run that follows sees the same SHA. Repeating
+  # the matrix there tests nothing new. `changes` looks up a passing
+  # merge_group run for the pushed SHA; when it finds one, the gated jobs skip
+  # on push. A direct push, or a queue run that failed or was cancelled, finds
+  # nothing and the push runs the full matrix.
   merge_group:
   # Nightly full-matrix E2E: the e2e-test job below runs ONLY on `schedule`/
   # `workflow_dispatch` (it stays skipped on push/PR). PRs that can affect the
@@ -63,7 +61,11 @@ jobs:
     # failure; the apt/Playwright install steps below also get their own
     # step-level timeout plus a bounded retry loop.
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     outputs:
+      queue_verified: ${{ steps.queue.outputs.verified }}
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
@@ -84,6 +86,26 @@ jobs:
           # the base resolution below needs.
           fetch-depth: 2
           persist-credentials: false
+      # Any failure here, including an API error or a timeout, leaves
+      # `verified` unset, and the push then runs the full matrix.
+      - name: Find a passing merge-queue run for this commit
+        id: queue
+        if: github.event_name == 'push'
+        timeout-minutes: 2
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          count="$(gh api -X GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?event=merge_group&status=success&head_sha=${GITHUB_SHA}" \
+            --jq '.total_count')" || count=0
+          if [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
+            echo "A merge-queue run passed on ${GITHUB_SHA}; the gated jobs skip."
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No passing merge-queue run for ${GITHUB_SHA}; running the full matrix."
+          fi
       # fix(#1094): resolve the PR diff base ourselves. paths-filter's no-token
       # path diffs `pull_request.base.sha .. merge-commit`, and base.sha is
       # frozen at PR-open time while GitHub recomputes the merge ref every time
@@ -107,16 +129,18 @@ jobs:
           echo "sha=$base" >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4
         id: filter
-        # fix(#1000): the filter has nothing to diff against on merge_group and
-        # nothing to say either way. Git-diff detection (see the token note
-        # below) resolves its base from pull-request context or a push's
-        # before-SHA, and a `gh-readonly-queue/*` branch supplies neither. Every
-        # gated job below ORs in `merge_group` and so ignores these outputs
-        # there, which leaves one requirement: this job, a REQUIRED context,
-        # must still succeed. Skipping the step is how it does — the outputs
-        # come out empty, which is exactly as meaningful as anything the filter
-        # could have produced without a base.
-        if: github.event_name != 'merge_group'
+        # The filter has nothing to diff against on merge_group. Git-diff
+        # detection (see the token note below) resolves its base from
+        # pull-request context or a push's before-SHA, and a
+        # `gh-readonly-queue/*` branch supplies neither. Every gated job ORs in
+        # `merge_group` and ignores these outputs there; this job, a REQUIRED
+        # context, still has to succeed, so the step is skipped and the outputs
+        # come out empty.
+        #
+        # On push the run is all or nothing, decided by the queue lookup above.
+        # A push diff that matched a filter would otherwise run those jobs again
+        # after the queue already passed them.
+        if: github.event_name != 'merge_group' && github.event_name != 'push'
         with:
           # fix(#546): empty token switches paths-filter to git-diff detection,
           # removing the GitHub API call whose transient 503s failed this
@@ -194,21 +218,13 @@ jobs:
               - 'frontend/src/lib/capabilities.ts'
               - 'frontend/src/lib/__tests__/record-type-capabilities.cases.json'
               - 'frontend/src/components/builder/layer-adapters/shared.ts'
-              # fix(#1778): more frontend files (plus one
-              # e2e spec below) that backend tests reference by literal path
-              # were absent from this list. A PR editing only AuditLogViewer.tsx
-              # matched the 'frontend' filter but not 'backend', so Backend
-              # Tests skipped and the audit-action parity gate
-              # (test_frontend_action_list_matches_backend_registry) never
-              # ran — the same "skipped required job reads as green" trap the
-              # #1088 fix above describes for scripts/backup-entrypoint.sh.
-              # test_ci_alembic_filter_paths.py::TestBackendFilterCoversReferencedScripts
-              # now scans for both scripts/ and frontend|e2e/ literals, so this
-              # list and that scan cannot drift apart again; the last four
-              # entries are cross-references inside docstrings rather than
-              # files under test, kept here anyway so the currency scan (which
-              # cannot tell the two apart, deliberately — see its docstring)
-              # stays green without special-casing prose mentions.
+              # More frontend files that backend parity gates read by literal
+              # path. Without them a PR editing only AuditLogViewer.tsx skips
+              # Backend Tests, and the audit-action parity gate reads as green
+              # without having run. test_ci_alembic_filter_paths.py fails when
+              # a backend test names a scripts/, frontend/ or e2e/ file this
+              # list misses. Files a test only mentions in prose sit in that
+              # test's allowlist instead, so editing them skips the shards.
               - 'frontend/src/components/admin/AuditLogViewer.tsx'
               - 'frontend/src/lib/__tests__/public-app-url-shape.cases.json'
               - 'frontend/src/lib/error-map.ts'
@@ -216,11 +232,6 @@ jobs:
               # fixed-failure-code to translation-key table); a
               # frontend-only edit here must still run Backend Tests.
               - 'frontend/src/lib/failure-reason.ts'
-              - 'frontend/README.md'
-              - 'frontend/src/components/admin/__tests__/AdminSidebar.test.tsx'
-              - 'frontend/src/lib/__tests__/public-urls.test.ts'
-              - 'frontend/src/lib/normalize-style-config.ts'
-              - 'frontend/vite.config.ts'
               # fix(#1778): test_settings_key_drift.py reads these by
               # literal path (the settings-key subset guard: frontend_keys
               # is a subset of backend registry keys) and
@@ -289,18 +300,8 @@ jobs:
               # and asserts the marker hook still runs the detector, so a
               # config-only PR must run the suite that notices a hook drifting.
               - '.pre-commit-config.yaml'
-              # fix(#1778 review): test_ci_alembic_filter_paths.py's currency
-              # scan flagged these two — both are docstring cross-references
-              # (test_backup_entrypoint_atomic_writes.py names this script as
-              # the real end-to-end coverage its own structural checks stand
-              # in for; test_audit_1778_docs.py's EGRESS/CONTRIBUTING test
-              # names package.json while asserting Prettier isn't a frontend
-              # dependency), not files under test, but the scan cannot tell
-              # the two apart from a literal path string, deliberately — see
-              # its docstring, and the "last four entries" comment above for
-              # the same shape.
+              # test_runtime_db_role.py reads this script's source.
               - 'scripts/tests/test-backup-restore-roundtrip.sh'
-              - 'frontend/package.json'
             frontend:
               - 'frontend/**'
               - 'backend/openapi.json'
@@ -466,7 +467,7 @@ jobs:
   backend-lint:
     name: Backend Lint
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.backend == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     defaults:
@@ -567,7 +568,7 @@ jobs:
   installer-test:
     name: Installer Tag Resolution
     needs: changes
-    if: needs.changes.outputs.installer == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.installer == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -646,7 +647,7 @@ jobs:
   backup-roundtrip:
     name: Backup Restore Round-trip
     needs: changes
-    if: needs.changes.outputs.backup == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.backup == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
@@ -966,7 +967,7 @@ jobs:
   openapi-snapshot:
     name: OpenAPI Snapshot Drift
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     defaults:
@@ -1005,7 +1006,7 @@ jobs:
   sdks-check:
     name: SDKs Drift Gate
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
@@ -1164,7 +1165,7 @@ jobs:
   monitoring-rules:
     name: Monitoring Rules
     needs: changes
-    if: needs.changes.outputs.monitoring == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.monitoring == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
@@ -1222,7 +1223,7 @@ jobs:
   cli-test:
     name: CLI Tests
     needs: changes
-    if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
@@ -1364,7 +1365,7 @@ jobs:
   mcp-test:
     name: MCP Server Tests
     needs: changes
-    if: needs.changes.outputs.mcp == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.mcp == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     # Compose boot + image build for the live tier need headroom on a shared
     # runner; the e2e-smoke job uses the same budget for a larger stack.
@@ -1435,7 +1436,7 @@ jobs:
     needs: changes
     # Alembic-only changes must run the suite too — this condition absorbed the
     # deleted pytest-parallel-isolation job's trigger when that job folded in.
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     strategy:
@@ -1797,7 +1798,7 @@ jobs:
   alembic-clean-db:
     name: Alembic Clean-DB Upgrade
     needs: changes
-    if: needs.changes.outputs.alembic == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.alembic == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -1831,7 +1832,7 @@ jobs:
   frontend-lint:
     name: Frontend Lint & Typecheck
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.frontend == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     defaults:
@@ -1902,7 +1903,7 @@ jobs:
   frontend-test:
     name: Frontend Tests
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.frontend == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     defaults:
@@ -2023,7 +2024,7 @@ jobs:
   security-scan:
     name: Security Scan
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    if: needs.changes.outputs.backend == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     defaults:
@@ -2115,9 +2116,9 @@ jobs:
       # fix(#825): PR-only browser gate; skipped (non-stack PRs, push, cron)
       # counts as pass below, failed blocks the merge.
       - e2e-smoke
-      # fix(#1096): skipped on PRs (both stay off pull_request), which the step
-      # below counts as pass, so per-PR cost stays zero. They RUN on
-      # merge_group and on push, and there a failure blocks.
+      # Skipped on PRs (both stay off pull_request), which the step below
+      # counts as pass, so per-PR cost stays zero. They run on merge_group, and
+      # on a push the queue did not already pass, and there a failure blocks.
       - accessibility
       - stac-validate
     # always() alone would rubber-stamp: it only guarantees this job RUNS.
@@ -2739,16 +2740,17 @@ jobs:
       - name: Run live AI evals (NL→SQL and tool choice)
         run: uv run pytest tests/evals/ -v --tb=short
 
-  # ---- E2E / A11Y trigger matrix (REL-03) ----
+  # ---- E2E / A11Y trigger matrix ----
   # nightly cron ("0 7 * * *") + workflow_dispatch → e2e-test (full npx playwright test
   #                                                  + builder-hardening chromium suite)
   # release tag push (v*)                         → prod-smoke.yml (e2e:smoke:audit against
   #                                                  published images), gates release.yml via
   #                                                  workflow_run on "Prod Compose Smoke"
-  # pull_request (e2e path filter)                → e2e-smoke (e2e:smoke:core only — fix #825)
-  # push(main) + nightly + dispatch               → accessibility (axe + keyboard-nav, below)
-  # push(main) + nightly + dispatch               → stac-validate (stac-api-validator, below)
+  # pull_request (e2e path filter) + merge_group  → e2e-smoke (e2e:smoke:core only)
+  # merge_group + unverified push + nightly + dispatch → accessibility (axe + keyboard-nav, below)
+  # merge_group + unverified push + nightly + dispatch → stac-validate (stac-api-validator, below)
   # nightly cron, e2e-test/accessibility not green → nightly-e2e-report (tracking issue, below)
+  # An unverified push is one with no passing merge-queue run for its SHA.
   accessibility:
     name: Accessibility (axe + keyboard-nav)
     # always() so this still evaluates when the needed jobs are SKIPPED on
@@ -2765,11 +2767,11 @@ jobs:
     # shards and finishes before they do.
     if: >-
       always()
-      && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
+      && ((github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-26.04
-    needs: [backend-lint, frontend-lint, security-scan]
+    needs: [changes, backend-lint, frontend-lint, security-scan]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -2961,11 +2963,11 @@ jobs:
     # security scan only, so it runs alongside the test shards.
     if: >-
       always()
-      && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
+      && ((github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group')
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-26.04
-    needs: [backend-lint, frontend-lint, security-scan]
+    needs: [changes, backend-lint, frontend-lint, security-scan]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
