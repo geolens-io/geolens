@@ -186,7 +186,12 @@ def _presented_device_key(
 
 
 def issue_device_cookie(
-    response: Response, request: Request, account_key: str, binding: str
+    response: Response,
+    request: Request,
+    account_key: str,
+    binding: str,
+    *,
+    capped: bool = True,
 ) -> None:
     """Remember this browser for the account, up to a cap of accounts per browser.
 
@@ -194,7 +199,8 @@ def issue_device_cookie(
     browser used for many accounts would outgrow the proxy's header limit.
     At the cap a new account goes unremembered rather than displacing one:
     other accounts' cookies can't be verified here, and one planted from a
-    sibling domain must not be able to push out a real one.
+    sibling domain must not be able to push out a real one. ``capped=False``
+    is for an operator's trust link, which must always take effect.
     """
     name = device_cookie_name(account_key)
     others = {
@@ -202,7 +208,11 @@ def issue_device_cookie(
         for other, _ in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX)
         if other != name
     }
-    if not cookie_values(request, name) and len(others) >= _MAX_REMEMBERED_ACCOUNTS:
+    if (
+        capped
+        and not cookie_values(request, name)
+        and len(others) >= _MAX_REMEMBERED_ACCOUNTS
+    ):
         return
     set_login_device_cookie(
         response,
@@ -430,6 +440,7 @@ async def create_trust_token(db: AsyncSession, username: str) -> str | None:
             token_hash=_trust_token_hash(token),
             account_key=login_account_key(normalized),
             user_id=account[0],
+            binding=account[1],
             expires_at=now + TRUST_TOKEN_TTL,
         )
     )
@@ -451,12 +462,18 @@ async def redeem_trust_token(db: AsyncSession, token: str) -> tuple[str, str] | 
                 LoginTrustToken.token_hash == _trust_token_hash(token),
                 LoginTrustToken.expires_at > func.now(),
             )
-            .returning(LoginTrustToken.account_key, LoginTrustToken.user_id)
+            .returning(
+                LoginTrustToken.account_key,
+                LoginTrustToken.user_id,
+                LoginTrustToken.binding,
+            )
         )
     ).one_or_none()
     if row is None:
         return None
+    # A credential reset since the link was minted voids it, as it voids
+    # every remembered browser.
     key_epoch = await db.scalar(select(User.key_epoch).where(User.id == row.user_id))
-    if key_epoch is None:
+    if key_epoch is None or account_binding(row.user_id, key_epoch) != row.binding:
         return None
-    return row.account_key, account_binding(row.user_id, key_epoch)
+    return row.account_key, row.binding

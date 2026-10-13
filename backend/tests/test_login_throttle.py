@@ -624,3 +624,29 @@ async def test_attempts_still_in_flight_do_not_trip_the_audit(
         {"username": username},
     )
     assert trips == 0
+
+
+async def test_a_credential_reset_voids_an_unused_trust_link(client: AsyncClient):
+    username = await _new_user(client)
+    token = await _mint_trust_link(username)
+    changed = await client.post(
+        "/auth/change-password/",
+        json={"current_password": PASSWORD, "new_password": "OtherPass5678!"},
+        headers=await _bearer(client, username),
+    )
+    assert changed.status_code == 204, changed.text
+
+    resp = await client.get(f"/auth/device-trust?token={token}")
+    assert resp.status_code == 404
+    assert resp.headers.get_list("set-cookie") == []
+
+
+async def test_a_trust_link_takes_effect_past_the_cookie_cap(client: AsyncClient):
+    username = await _new_user(client)
+    token = await _mint_trust_link(username)
+    others = "; ".join(f"geolens_device_{index:016x}=v1.n.1.mac" for index in range(5))
+    resp = await client.get(
+        f"/auth/device-trust?token={token}", headers={"Cookie": others}
+    )
+    assert resp.status_code == 303
+    _set_cookie(resp, device_cookie_name(login_account_key(username)))

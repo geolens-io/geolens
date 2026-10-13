@@ -380,6 +380,8 @@ class LoginTrustToken(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False
     )
+    # The user id and key_epoch at minting; a credential reset voids the link.
+    binding: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

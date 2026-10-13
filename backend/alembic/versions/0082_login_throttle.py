@@ -65,6 +65,7 @@ def upgrade() -> None:
             sa.ForeignKey("catalog.users.id", ondelete="CASCADE"),
             nullable=False,
         ),
+        sa.Column("binding", sa.String(length=64), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         schema="catalog",
     )

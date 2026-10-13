@@ -320,7 +320,7 @@ async def trust_login_device(
     except PublicUrlNotConfiguredError:
         app_url = ""
     redirect = RedirectResponse(f"{app_url}/login", status_code=303)
-    issue_device_cookie(redirect, request, *redeemed)
+    issue_device_cookie(redirect, request, *redeemed, capped=False)
     return redirect
 
 
