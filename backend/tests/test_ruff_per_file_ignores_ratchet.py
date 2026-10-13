@@ -1,7 +1,7 @@
 """Ruff ``per-file-ignores`` in ``backend/pyproject.toml`` may only shrink.
 
 ``extend-per-file-ignores`` counts toward the same baseline, and extending
-another ruff config, or adding a standalone one under ``backend/``, is rejected
+another ruff config, or adding another one under ``backend/``, is rejected
 because its ignores would go unchecked.
 
 The config must match ``_BASELINE`` exactly: adding a glob or a rule code fails
@@ -89,15 +89,21 @@ def test_per_file_ignores_baseline_is_exact() -> None:
     )
 
 
-def test_no_standalone_ruff_config_under_backend() -> None:
+def test_no_other_ruff_config_under_backend() -> None:
     tracked = subprocess.run(
-        ["git", "ls-files", "*ruff.toml"],
+        ["git", "ls-files", "*ruff.toml", "*pyproject.toml"],
         cwd=_BACKEND,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.split()
-    assert not tracked, (
-        f"Standalone ruff configs {tracked} can override backend/pyproject.toml "
+    others = [
+        rel
+        for rel in tracked
+        if rel != "pyproject.toml"
+        and (rel.endswith("ruff.toml") or "[tool.ruff" in (_BACKEND / rel).read_text())
+    ]
+    assert not others, (
+        f"Ruff configs {others} can override backend/pyproject.toml "
         "and escape the per-file-ignores ratchet."
     )
