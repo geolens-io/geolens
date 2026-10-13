@@ -504,7 +504,7 @@
         "upload": "Subir conjuntos de datos",
         "create_layers": "Crear capas",
         "export": "Exportar datos",
-        "exportDescription": "Descargar archivos vectoriales y ráster, salvo los conjuntos de datos públicos que cualquiera puede descargar, y guardar los resultados de un análisis como conjuntos de datos nuevos. Quien pueda ver un conjunto de datos sigue pudiendo leer sus entidades mediante la API, las teselas del mapa y la tabla de atributos.",
+        "exportDescription": "Descargar archivos de conjuntos de datos (vectoriales, ráster y tablas), salvo los conjuntos de datos públicos que cualquiera puede descargar, y guardar los resultados de un análisis como conjuntos de datos nuevos. Quien pueda ver un conjunto de datos sigue pudiendo leer sus entidades mediante la API, las teselas del mapa y la tabla de atributos.",
         "edit_metadata": "Editar metadatos",
         "manage_collections": "Gestionar colecciones",
         "use_ai_chat": "Chat IA",
