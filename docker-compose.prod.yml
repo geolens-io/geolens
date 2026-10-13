@@ -461,7 +461,7 @@ services:
     logging: *bounded-logs
     # Third-party image — identical to docker-compose.yml.
     # 2.2.1 per the 2026-08 reassessment (#1190); see the note there.
-    image: ghcr.io/developmentseed/titiler:2.2.1
+    image: ghcr.io/developmentseed/titiler:2.4.0
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
