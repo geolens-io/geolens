@@ -499,14 +499,21 @@ async def _load_public_url_overrides(db: AsyncSession) -> dict[str, str | None]:
     return overrides
 
 
-async def get_configured_api_path(db: AsyncSession) -> str:
-    """The configured public API path without its fleet origin, or ``""``."""
+async def get_configured_api_path(db: AsyncSession) -> str | None:
+    """The configured public API path without its fleet origin.
+
+    ``""`` is an API mounted at the origin root; None means no public URL is
+    configured at all.
+    """
     overrides = {} if _is_env_only() else await _load_public_url_overrides(db)
-    return _configured_api_path(
+    configured = (
         overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url),
         overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url),
         overrides.get(LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url),
     )
+    if not any(normalize_public_url(value) for value in configured):
+        return None
+    return _configured_api_path(*configured)
 
 
 async def get_public_urls(
@@ -531,7 +538,7 @@ async def get_public_urls(
             else:
                 # fix(#507): a proxy rewrite can clear root_path. Read the same
                 # DB or environment configuration used by the fleet fallback.
-                api_path = await get_configured_api_path(db)
+                api_path = await get_configured_api_path(db) or ""
             if api_path and (
                 not api_path.startswith("/") or "\\" in api_path or "//" in api_path
             ):

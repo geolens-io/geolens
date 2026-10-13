@@ -435,7 +435,7 @@ async def test_a_trust_link_remembers_the_browser_once(client: AsyncClient):
     await _fail(client, username, LOGIN_FAILURE_LIMIT)
     token = await _mint_trust_link(username)
 
-    resp = await client.get(f"/auth/login/device-trust?token={token}")
+    resp = await client.post(f"/auth/login/device-trust?token={token}")
     assert resp.status_code == 303
     assert resp.headers["location"].endswith("/login")
     device = _set_cookie(resp, device_cookie_name(login_account_key(username)))
@@ -443,7 +443,7 @@ async def test_a_trust_link_remembers_the_browser_once(client: AsyncClient):
         await _login(client, username, PASSWORD, device=device["value"])
     ).status_code == 200
 
-    again = await client.get(f"/auth/login/device-trust?token={token}")
+    again = await client.post(f"/auth/login/device-trust?token={token}")
     assert again.status_code == 404
     assert again.headers.get_list("set-cookie") == []
 
@@ -458,7 +458,7 @@ async def test_an_expired_trust_link_does_nothing(client: AsyncClient, test_db_s
     )
     await test_db_session.commit()
 
-    resp = await client.get(f"/auth/login/device-trust?token={token}")
+    resp = await client.post(f"/auth/login/device-trust?token={token}")
     assert resp.status_code == 404
     assert resp.headers.get_list("set-cookie") == []
 
@@ -470,7 +470,7 @@ async def test_the_trust_script_prints_a_working_link(client: AsyncClient, capsy
     assert await _run(username.upper(), None) == 0
     link = capsys.readouterr().out.strip()
     assert "/auth/login/device-trust?token=" in link
-    resp = await client.get("/auth/login/device-trust?token=" + link.rsplit("=", 1)[1])
+    resp = await client.post("/auth/login/device-trust?token=" + link.rsplit("=", 1)[1])
     assert resp.status_code == 303
 
     assert await _run(f"nobody_{uuid.uuid4().hex[:8]}", None) == 1
@@ -510,15 +510,46 @@ def _clear_tenant():
     current_tenant_var.reset(token)
 
 
+@pytest.mark.parametrize(
+    ("public_api_url", "expected"),
+    [
+        ("https://fleet.example.com/geo-api", "/geo-api"),
+        ("https://fleet.example.com", ""),
+    ],
+)
 async def test_a_tenant_trust_link_is_the_configured_api_path(
-    client: AsyncClient, monkeypatch
+    client: AsyncClient, monkeypatch, public_api_url, expected
 ):
     import app.core.db as db_module
     from scripts.trust_login_device import _api_base
 
-    monkeypatch.setattr(settings, "public_api_url", "https://fleet.example.com/geo-api")
+    monkeypatch.setattr(settings, "public_api_url", public_api_url)
     async with db_module.async_session() as db:
-        assert await _api_base(db, str(uuid.uuid4())) == "/geo-api"
+        assert await _api_base(db, str(uuid.uuid4())) == expected
+
+
+async def test_a_trust_link_survives_a_failure_before_its_response(
+    client: AsyncClient, monkeypatch
+):
+    from app.modules.auth import router as auth_router
+
+    username = await _new_user(client)
+    token = await _mint_trust_link(username)
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("cookie issuance failed")
+
+    monkeypatch.setattr(auth_router, "issue_device_cookie", unavailable)
+    try:
+        failed = await client.post(f"/auth/login/device-trust?token={token}")
+    except RuntimeError:
+        pass
+    else:
+        assert failed.status_code == 500
+    monkeypatch.undo()
+
+    resp = await client.post(f"/auth/login/device-trust?token={token}")
+    assert resp.status_code == 303
 
 
 async def test_spellings_the_database_matches_share_one_budget(client: AsyncClient):
@@ -655,7 +686,7 @@ async def test_a_credential_reset_voids_an_unused_trust_link(client: AsyncClient
     )
     assert changed.status_code == 204, changed.text
 
-    resp = await client.get(f"/auth/login/device-trust?token={token}")
+    resp = await client.post(f"/auth/login/device-trust?token={token}")
     assert resp.status_code == 404
     assert resp.headers.get_list("set-cookie") == []
 
@@ -668,13 +699,13 @@ async def test_a_browser_at_the_cap_is_refused_a_trust_link_it_can_use_elsewhere
     others = "; ".join(
         f"{_current_cookie_prefix()}{index:016x}=v1.n.1.mac" for index in range(5)
     )
-    full = await client.get(
+    full = await client.post(
         f"/auth/login/device-trust?token={token}", headers={"Cookie": others}
     )
     assert full.status_code == 409
     assert full.headers.get_list("set-cookie") == []
 
-    resp = await client.get(f"/auth/login/device-trust?token={token}")
+    resp = await client.post(f"/auth/login/device-trust?token={token}")
     assert resp.status_code == 303
     _set_cookie(resp, device_cookie_name(login_account_key(username)))
 
@@ -736,3 +767,15 @@ async def test_a_device_cookie_without_the_app_header_is_not_trusted(
         headers={"Cookie": f"{name}={device}"},
     )
     assert resp.status_code == 429
+
+
+async def test_opening_a_trust_link_changes_nothing(client: AsyncClient):
+    username = await _new_user(client)
+    token = await _mint_trust_link(username)
+
+    page = await client.get(f"/auth/login/device-trust?token={token}")
+    assert page.status_code == 200
+    assert '<form method="post">' in page.text
+    assert page.headers.get_list("set-cookie") == []
+    resp = await client.post(f"/auth/login/device-trust?token={token}")
+    assert resp.status_code == 303

@@ -55,7 +55,8 @@ async def _api_base(db, tenant: str | None) -> str:
     )
 
     if tenant is not None:
-        return await get_configured_api_path(db) or _DEFAULT_API_PATH
+        path = await get_configured_api_path(db)
+        return _DEFAULT_API_PATH if path is None else path
     try:
         return await get_public_api_url(db, for_external_use=True)
     except PublicUrlNotConfiguredError:
@@ -99,8 +100,9 @@ async def _run(username: str, tenant: str | None) -> int:
             file=sys.stderr,
         )
     print(
-        "Open this link in the browser to remember, within 10 minutes. It works "
-        "once and only lets that browser try the account's password.",
+        "Open this link in the browser to remember and press its button, within "
+        "10 minutes. It works once and only lets that browser try the account's "
+        "password.",
         file=sys.stderr,
     )
     return 0

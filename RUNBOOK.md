@@ -3292,8 +3292,9 @@ If you're locked out, try these ways back in, in order:
    docker compose exec api /app/.venv/bin/python -m scripts.trust_login_device <username>
    ```
 
-   It prints a link that works once, within 10 minutes. Paste the link into
-   the browser's address bar yourself; a chat or mail client that previews links can use it up. The
-   link only lets that browser try a password. It doesn't sign anyone in.
-   A browser remembers at most 5 accounts; one already at that limit is
-   refused, and the link still works in a private window.
+   It prints a link that works once, within 10 minutes. Open it in the
+   browser to remember and press the button on the page; opening the link
+   alone changes nothing. The link only lets that browser try a password. It
+   doesn't sign anyone in. A browser remembers at most 5 accounts; one
+   already at that limit is refused, and the link still works in a private
+   window.

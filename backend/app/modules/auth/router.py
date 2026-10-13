@@ -13,7 +13,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
@@ -297,7 +297,38 @@ async def login(
     )
 
 
+_TRUST_PAGE = (
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    "<title>Remember this browser</title></head><body>"
+    "<p>Remember this browser for signing in to the account this link was made for."
+    " It lets the browser try the account's password; it doesn't sign you in.</p>"
+    '<form method="post"><button type="submit">Remember this browser</button>'
+    "</form></body></html>"
+)
+
+
 @router.get("/login/device-trust", include_in_schema=False)
+@limiter.limit("10/minute")
+async def trust_login_device_page(request: Request) -> HTMLResponse:
+    """The page an operator's trust link opens; its button posts back here.
+
+    Opening the link changes nothing, so a link preview can't use it up, and
+    the post comes from this origin, so it carries the browser's device
+    cookies for the cap check even when the link was opened from elsewhere.
+    """
+    return HTMLResponse(
+        _TRUST_PAGE,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": (
+                "default-src 'none'; form-action 'self'; frame-ancestors 'none'"
+            ),
+            "Referrer-Policy": "no-referrer",
+        },
+    )
+
+
+@router.post("/login/device-trust", include_in_schema=False)
 @limiter.limit("10/minute")
 async def trust_login_device(
     request: Request,
@@ -311,8 +342,20 @@ async def trust_login_device(
     Served under the device cookies' path so it sees them: a browser already
     at its cap is refused and the link stays usable elsewhere.
     """
+    try:
+        app_url = await get_public_app_url(db, request=request, for_external_use=True)
+    except PublicUrlNotConfiguredError:
+        app_url = ""
+    # Committed last, so a failure before the response is ready leaves the
+    # link usable.
     redeemed = await redeem_trust_token(db, token)
-    if redeemed is not None and not device_cookie_fits(request, redeemed[0]):
+    if redeemed is None:
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This link is invalid, expired or already used",
+        )
+    if not device_cookie_fits(request, redeemed[0]):
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -321,18 +364,9 @@ async def trust_login_device(
                 "Open the link in a private window or another browser."
             ),
         )
-    await db.commit()
-    if redeemed is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="This link is invalid, expired or already used",
-        )
-    try:
-        app_url = await get_public_app_url(db, request=request, for_external_use=True)
-    except PublicUrlNotConfiguredError:
-        app_url = ""
     redirect = RedirectResponse(f"{app_url}/login", status_code=303)
     issue_device_cookie(redirect, request, *redeemed)
+    await db.commit()
     return redirect
 
 

@@ -602,8 +602,6 @@ _BENIGN_WRITING_GET_ROUTES: dict[str, str] = {
     # entered from a browser and carry no X-Api-Key.
     "/auth/oauth/{provider_slug}/login": "browser OAuth leg, not an API-key path",
     "/auth/oauth/{provider_slug}/callback": "browser OAuth leg, not an API-key path",
-    # Consumes an operator-minted single-use link; authenticates nobody.
-    "/auth/login/device-trust": "browser trust-link leg, not an API-key path",
 }
 
 
