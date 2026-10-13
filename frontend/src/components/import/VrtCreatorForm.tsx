@@ -327,6 +327,9 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
         limit: '10',
       }),
     enabled: debouncedQuery.length >= 2,
+    // Retrying a rate-limited search would keep the dropdown on its empty
+    // state until the retry also fails.
+    retry: (count, err) => !(err instanceof ApiError && err.status === 429) && count < 1,
   });
 
   // Filter out already selected datasets
@@ -505,10 +508,13 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
             {isDropdownOpen && debouncedQuery.length >= 2 && (
               <Card className="absolute z-50 w-full mt-1 shadow-lg">
                 <CardContent className="p-0">
-                  {searchError && (
-                    <p className="text-sm text-destructive px-3 py-2">{t('vrt.searchError', { defaultValue: 'Failed to load results' })}</p>
-                  )}
-                  {!searchError && filteredResults.length === 0 ? (
+                  {searchError ? (
+                    <p role="alert" className="text-sm text-destructive px-3 py-2">
+                      {searchError instanceof ApiError && searchError.status === 429
+                        ? t('vrt.searchRateLimited')
+                        : t('vrt.searchError')}
+                    </p>
+                  ) : filteredResults.length === 0 ? (
                     <p className="px-3 py-2 text-sm text-muted-foreground">
                       {t('vrt.noResults')}
                     </p>

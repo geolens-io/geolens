@@ -118,6 +118,7 @@ function makeCogSource(
 }
 
 import { searchDatasets } from '@/api/search';
+import { ApiError } from '@/api/client';
 
 const mockSearchDatasets = vi.mocked(searchDatasets);
 
@@ -738,5 +739,21 @@ describe('VrtCreatorForm', () => {
       vi.restoreAllMocks();
       vi.useRealTimers();
     }
+  });
+
+  it('says search is rate-limited on a 429 instead of showing the empty text', async () => {
+    mockSearchDatasets.mockRejectedValue(new ApiError('Too many requests', 429));
+    const user = userEvent.setup();
+    render(<VrtCreatorForm />);
+    await user.type(screen.getByPlaceholderText('vrt.searchPlaceholder'), 'cog');
+    expect(await screen.findByText('vrt.searchRateLimited', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.queryByText('vrt.noResults')).not.toBeInTheDocument();
+  });
+
+  it('shows the empty text for a successful empty search', async () => {
+    const user = userEvent.setup();
+    render(<VrtCreatorForm />);
+    await user.type(screen.getByPlaceholderText('vrt.searchPlaceholder'), 'cog');
+    expect(await screen.findByText('vrt.noResults', {}, { timeout: 5000 })).toBeInTheDocument();
   });
 });

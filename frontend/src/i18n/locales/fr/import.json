@@ -52,6 +52,7 @@
       "grid_misaligned": "Les dimensions de la grille ne correspondent pas"
     },
     "searchError": "Impossible de charger les résultats",
+    "searchRateLimited": "La recherche est temporairement limitée. Réessayez dans un instant.",
     "bandCount_one": "{{count}} bande",
     "bandCount_other": "{{count}} bandes",
     "resolutionValue": "Résolution : {{value}}"

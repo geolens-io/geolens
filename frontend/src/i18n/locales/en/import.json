@@ -52,6 +52,7 @@
       "grid_misaligned": "Grid dimensions do not match"
     },
     "searchError": "Failed to load results",
+    "searchRateLimited": "Search is temporarily rate-limited. Try again shortly.",
     "bandCount_one": "{{count}} band",
     "bandCount_other": "{{count}} bands",
     "resolutionValue": "Resolution: {{value}}"

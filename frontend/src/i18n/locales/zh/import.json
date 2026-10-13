@@ -52,6 +52,7 @@
       "grid_misaligned": "网格尺寸不匹配"
     },
     "searchError": "加载结果失败",
+    "searchRateLimited": "搜索暂时受到频率限制，请稍后再试。",
     "bandCount_one": "{{count}} 个波段",
     "bandCount_other": "{{count}} 个波段",
     "resolutionValue": "分辨率：{{value}}"

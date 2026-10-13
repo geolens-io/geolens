@@ -52,6 +52,7 @@
       "grid_misaligned": "Las dimensiones de la cuadrícula no coinciden"
     },
     "searchError": "No se pudieron cargar los resultados",
+    "searchRateLimited": "La búsqueda está limitada temporalmente. Inténtalo de nuevo en unos instantes.",
     "bandCount_one": "{{count}} banda",
     "bandCount_other": "{{count}} bandas",
     "resolutionValue": "Resolución: {{value}}"

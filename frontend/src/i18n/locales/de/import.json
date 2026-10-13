@@ -52,6 +52,7 @@
       "grid_misaligned": "Gitterabmessungen stimmen nicht überein"
     },
     "searchError": "Ergebnisse konnten nicht geladen werden",
+    "searchRateLimited": "Die Suche ist vorübergehend eingeschränkt. Bitte versuche es gleich noch einmal.",
     "bandCount_one": "{{count}} Band",
     "bandCount_other": "{{count}} Bänder",
     "resolutionValue": "Auflösung: {{value}}"
