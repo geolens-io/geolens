@@ -13,12 +13,13 @@ import asyncio
 import functools
 from typing import Annotated, Any, Callable, Optional, TypeVar
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
 from .client import GeoLensReadOnlyAPI, build_httpx_client
 
-mcp = FastMCP("geolens")
+mcp = MCPServer("geolens")
 
 _api: Optional[GeoLensReadOnlyAPI] = None
 
@@ -29,16 +30,22 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 def _tool(fn: _F) -> _F:
     """Register ``fn`` as an MCP tool and return it unchanged.
 
-    The tool bodies make blocking HTTP calls. FastMCP runs sync tools on the
-    event loop, which stalls ping and cancellation handling for the length of
-    the call, so the registered wrapper runs them in a worker thread. A
-    cancelled request stops awaiting the thread and sends no result. Arguments
-    outside the advertised schema are rejected instead of dropped.
+    The tool bodies make blocking HTTP calls. The SDK runs sync tools in a
+    worker thread that a cancelled request still waits for, so the registered
+    wrapper runs them through ``asyncio.to_thread`` instead: a cancelled
+    request stops awaiting the thread and sends no result. Arguments outside
+    the advertised schema are rejected instead of dropped. The client's
+    errors are written for the agent (API status and detail, unreachable
+    instance, bad id or config), and the SDK only relays a ``ToolError``'s
+    message, so they are re-raised as one.
     """
 
     @functools.wraps(fn)
     async def run_off_loop(*args: Any, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(fn, *args, **kwargs)
+        try:
+            return await asyncio.to_thread(fn, *args, **kwargs)
+        except (RuntimeError, ValueError) as exc:
+            raise ToolError(str(exc)) from exc
 
     mcp.tool(name=fn.__name__)(run_off_loop)
     registered = mcp._tool_manager.get_tool(fn.__name__)

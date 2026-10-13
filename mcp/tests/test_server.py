@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Registration self-checks for the MCP server module (test #827, mock tier).
 
-DB-less: asserts the FastMCP instance in server.py registers exactly the
+DB-less: asserts the MCPServer instance in server.py registers exactly the
 advertised read-only tools with the argument schemas agents rely on, and that
 the decorated functions stay plain callables (the live-contract tier in
 test_live_contract.py invokes them as normal functions).
@@ -13,6 +13,7 @@ import asyncio
 import threading
 
 import pytest
+from mcp import Client
 
 from geolens_mcp import server
 from geolens_mcp.client import ConfigError
@@ -42,8 +43,8 @@ def test_registers_exactly_the_advertised_tools():
 def test_tool_argument_schemas_match_contract():
     for tool in _tools():
         required, props = EXPECTED_TOOLS[tool.name]
-        assert set(tool.inputSchema.get("required") or []) == required, tool.name
-        assert set(tool.inputSchema.get("properties") or {}) == props, tool.name
+        assert set(tool.input_schema.get("required") or []) == required, tool.name
+        assert set(tool.input_schema.get("properties") or {}) == props, tool.name
 
 
 def test_every_tool_has_a_description():
@@ -89,7 +90,7 @@ def _call(name, arguments):
 
 
 def test_limit_schemas_advertise_and_enforce_the_documented_maximum():
-    schemas = {t.name: t.inputSchema["properties"] for t in _tools()}
+    schemas = {t.name: t.input_schema["properties"] for t in _tools()}
     for name in ("search_datasets", "get_features", "list_maps"):
         assert schemas[name]["limit"]["maximum"] == 200, name
         assert schemas[name]["limit"]["minimum"] == 1, name
@@ -165,4 +166,21 @@ def test_cancelled_tool_call_returns_no_result(monkeypatch):
 
 def test_published_schemas_forbid_additional_properties():
     for tool in _tools():
-        assert tool.inputSchema.get("additionalProperties") is False, tool.name
+        assert tool.input_schema.get("additionalProperties") is False, tool.name
+
+
+class _Failing:
+    def get_map(self, map_id):
+        raise RuntimeError("GeoLens API 404 for /maps/m: Map not found")
+
+
+def test_client_error_reaches_the_agent(monkeypatch):
+    monkeypatch.setattr(server, "_api", _Failing())
+
+    async def scenario():
+        async with Client(server.mcp) as client:
+            return await client.call_tool("get_map", {"map_id": "m"})
+
+    result = asyncio.run(scenario())
+    assert result.is_error
+    assert "GeoLens API 404 for /maps/m: Map not found" in result.content[0].text
