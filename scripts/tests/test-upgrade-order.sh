@@ -61,6 +61,7 @@ make_stubs() {
   _migrate_mode="$1"
   CALLLOG="$WORK/calls.log"
   : > "$CALLLOG"
+  : > "$CALLLOG.files"
   GITLOG="$WORK/git.log"
   : > "$GITLOG"
 
@@ -84,7 +85,10 @@ if [ "$1" = "compose" ]; then
   # emits `--project-directory VALUE` (see scripts/lib/common.sh) -- skip
   # any number of "-f VALUE" / "--project-directory VALUE" pairs, in
   # whichever order compose() sends them, before checking the subcommand.
-  while [ "$1" = "-f" ] || [ "$1" = "--project-directory" ]; do shift 2; done
+  while [ "$1" = "-f" ] || [ "$1" = "--project-directory" ]; do
+    [ "$1" = "-f" ] && printf '%s\n' "$2" >> "$LOG.files"
+    shift 2
+  done
   case "$1" in
     version) exit 0 ;;
     stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
@@ -965,6 +969,36 @@ if [ ! -s "$WORK/calls.log" ]; then
   ok "source-build install makes NO compose/backup calls (safe no-op)"
 else
   bad "source-build install touched the stack: $(tr '\n' ',' < "$WORK/calls.log")"
+fi
+
+# ============================================================================
+# CASE 3b — a COMPOSE_FILE list (prod file + override) is a prebuilt install;
+# every compose call keeps the override.
+# ============================================================================
+seed_prod_env
+printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\nGEOLENS_VERSION=1.2.3\nPOSTGRES_USER=geolens\nPOSTGRES_DB=geolens\n' > "$FAKE/.env"
+printf 'services: {}\n' > "$FAKE/override.yml"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of migrate_up)" ]; then
+  ok "a COMPOSE_FILE list with the prod file upgrades like a plain prod install"
+else
+  bad "a COMPOSE_FILE list was refused (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if grep -q 'override.yml$' "$CALLLOG.files" && grep -q 'docker-compose.prod.yml$' "$CALLLOG.files"; then
+  ok "compose is invoked with every file in the list"
+else
+  bad "compose calls dropped the override: $(sort -u "$CALLLOG.files" | tr '\n' ',')"
+fi
+
+rm -f "$FAKE/override.yml"
+seed_prod_env
+printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\nGEOLENS_VERSION=1.2.3\n' > "$FAKE/.env"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'override.yml' "$WORK/out.txt" && [ -z "$(pos_of backup)" ]; then
+  ok "a COMPOSE_FILE entry that does not exist is refused before any backup"
+else
+  bad "a missing override file was not refused (exit=$(cat "$WORK/code.txt"))"
 fi
 
 # ============================================================================

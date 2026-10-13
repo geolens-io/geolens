@@ -63,7 +63,22 @@
 # `.env` lookups elsewhere.
 compose() {
   [ -n "${PROJECT_ROOT:-}" ] || fail "compose(): PROJECT_ROOT must be set by the caller before sourcing common.sh"
-  docker compose -f "$PROJECT_ROOT/$COMPOSE_FILE" --project-directory "$PROJECT_ROOT" "$@"
+  # COMPOSE_FILE is a colon-separated list, as Compose itself reads it: each
+  # entry becomes its own -f, so overrides stay in effect.
+  _cf_argc=$#
+  _cf_ifs=$IFS
+  IFS=:
+  for _cf_entry in $COMPOSE_FILE; do
+    [ -n "$_cf_entry" ] && set -- "$@" -f "$PROJECT_ROOT/$_cf_entry"
+  done
+  IFS=$_cf_ifs
+  set -- "$@" --project-directory "$PROJECT_ROOT"
+  while [ "$_cf_argc" -gt 0 ]; do
+    set -- "$@" "$1"
+    shift
+    _cf_argc=$((_cf_argc - 1))
+  done
+  docker compose "$@"
 }
 
 say() {

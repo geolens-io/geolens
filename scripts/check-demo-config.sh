@@ -4,28 +4,68 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)"
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 DEMO_BASE_URL="${DEMO_BASE_URL:-https://demo.getgeolens.com}"
 
-case "$COMPOSE_FILE" in
-    /*) COMPOSE_PATH=$COMPOSE_FILE ;;
-    *) COMPOSE_PATH=$PROJECT_ROOT/$COMPOSE_FILE ;;
-esac
+# COMPOSE_FILE is the colon-separated list a bare `docker compose` would use:
+# the process environment first, then .env. Passing a single -f instead would
+# hide override drift from this check.
+if [ -z "${COMPOSE_FILE:-}" ] && [ -f "$PROJECT_ROOT/.env" ]; then
+    COMPOSE_FILE="$("$SCRIPT_DIR/env-value.sh" COMPOSE_FILE "$PROJECT_ROOT/.env" 2>/dev/null || true)"
+fi
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
     exit 1
 }
 
+COMPOSE_PATHS=""
+_ifs=$IFS
+IFS=:
+for entry in $COMPOSE_FILE; do
+    [ -n "$entry" ] || continue
+    case "$entry" in
+        /*) path=$entry ;;
+        *) path=$PROJECT_ROOT/$entry ;;
+    esac
+    [ -f "$path" ] || fail "compose file not found: $path"
+    COMPOSE_PATHS="${COMPOSE_PATHS:+$COMPOSE_PATHS,}$path"
+done
+IFS=$_ifs
+[ -n "$COMPOSE_PATHS" ] || fail "COMPOSE_FILE is empty"
+
 compose() {
-    docker compose -f "$COMPOSE_PATH" \
-        --project-directory "$PROJECT_ROOT" "$@"
+    _argc=$#
+    _ifs=$IFS
+    IFS=,
+    for path in $COMPOSE_PATHS; do
+        set -- "$@" -f "$path"
+    done
+    IFS=$_ifs
+    set -- "$@" --project-directory "$PROJECT_ROOT"
+    while [ "$_argc" -gt 0 ]; do
+        set -- "$@" "$1"
+        shift
+        _argc=$((_argc - 1))
+    done
+    docker compose "$@"
 }
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
-[ -f "$COMPOSE_PATH" ] || fail "compose file not found: $COMPOSE_PATH"
+
+# Containers keep the file list they were created with. A recreate that used
+# fewer files (for example a plain -f docker-compose.prod.yml) silently drops
+# the overrides, and nothing in the rendered config shows it.
+running="$(compose ps -q)" || fail "could not list the running containers"
+for container in $running; do
+    actual="$(docker inspect --format \
+        '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' \
+        "$container")" || fail "could not inspect container $container"
+    [ "$actual" = "$COMPOSE_PATHS" ] \
+        || fail "container $container was created from '$actual' but COMPOSE_FILE resolves to '$COMPOSE_PATHS'; recreate it with a bare 'docker compose up -d'"
+done
 
 # Render Compose so this also catches a pending .env change that would take
 # effect at the next recreate. Parse in memory and emit only this non-secret

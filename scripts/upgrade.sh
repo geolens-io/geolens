@@ -90,7 +90,23 @@ env_value_into COMPOSE_FILE COMPOSE_FILE .env || true
 env_value_into CURRENT_VERSION GEOLENS_VERSION .env || true
 : "${CURRENT_VERSION:=}"
 
-if [ "$COMPOSE_FILE" != "docker-compose.prod.yml" ]; then
+# COMPOSE_FILE may list several files separated by ":" (prod file plus
+# overrides). Every entry has to exist, and `-f` flags for the hints below are
+# built from the whole list so a printed command never drops an override.
+COMPOSE_FLAGS=""
+COMPOSE_IS_PREBUILT=0
+_cf_ifs=$IFS
+IFS=:
+for _cf_entry in $COMPOSE_FILE; do
+  [ -n "$_cf_entry" ] || continue
+  [ -f "$_cf_entry" ] || fail "COMPOSE_FILE lists $_cf_entry, which does not exist in $PROJECT_ROOT."
+  COMPOSE_FLAGS="$COMPOSE_FLAGS -f $_cf_entry"
+  [ "$_cf_entry" != "docker-compose.prod.yml" ] || COMPOSE_IS_PREBUILT=1
+done
+IFS=$_cf_ifs
+COMPOSE_FLAGS=${COMPOSE_FLAGS# }
+
+if [ "$COMPOSE_IS_PREBUILT" != "1" ]; then
   say "This install builds images from source (COMPOSE_FILE=$COMPOSE_FILE)."
   say ""
   say "scripts/upgrade.sh upgrades PREBUILT-IMAGE installs only. To upgrade a"
@@ -583,7 +599,7 @@ previous_app_settled() {
 report_restore() {
   if ! restore_previous_app; then
     warn "Could not start api + worker on GeoLens ${PREVIOUS_VERSION} — this instance is DOWN."
-    warn "  docker compose -f $COMPOSE_FILE logs api"
+    warn "  docker compose $COMPOSE_FLAGS logs api"
     return 0
   fi
   if previous_app_settled; then
@@ -594,7 +610,7 @@ report_restore() {
   warn "If the migration got far enough to commit a revision, the previous release"
   warn "cannot start against it: its own boot-time 'alembic upgrade heads' does not"
   warn "know that revision. Check with:"
-  warn "  docker compose -f $COMPOSE_FILE logs api"
+  warn "  docker compose $COMPOSE_FLAGS logs api"
   warn "If that is what happened, going back means restoring the pre-upgrade dump"
   warn "(step 2 below), not restarting containers."
 }
@@ -653,7 +669,7 @@ print_rollback() {
   say "2. Restore the pre-upgrade database dump:"
   say "     scripts/restore.sh \"$BACKUP_FILE\""
   say "3. Bring the previous version back up:"
-  say "     docker compose -f $COMPOSE_FILE up -d"
+  say "     docker compose $COMPOSE_FLAGS up -d"
   say ""
   say "Note: 'alembic downgrade' is NOT a supported rollback — restore the dump."
   say "======================================================================="
