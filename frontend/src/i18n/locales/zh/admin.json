@@ -592,7 +592,7 @@
       "auditRetentionDays": "审计日志保留期（天）",
       "auditRetentionDaysDescription": "超过该天数的审计记录将被自动删除。留空则永久保留。",
       "auditRetentionKeepForever": "永久保留",
-      "auditRetentionInvalid": "请输入整数天数（{{min}} 或更大），或将该字段留空。",
+      "auditRetentionInvalid": "请输入整数天数（{{min}} 至 {{max}}），或将该字段留空。",
       "auditRetentionComplianceWarning": "部分合规制度要求审计记录至少保留 {{days}} 天。"
     },
     "basemaps": {

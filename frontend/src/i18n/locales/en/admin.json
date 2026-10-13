@@ -592,7 +592,7 @@
       "auditRetentionDays": "Audit log retention (days)",
       "auditRetentionDaysDescription": "Audit records older than this many days are deleted automatically. Leave empty to keep them forever.",
       "auditRetentionKeepForever": "Keep forever",
-      "auditRetentionInvalid": "Enter a whole number of days ({{min}} or more), or leave the field empty.",
+      "auditRetentionInvalid": "Enter a whole number of days ({{min}} to {{max}}), or leave the field empty.",
       "auditRetentionComplianceWarning": "Some compliance regimes require audit records to be kept for at least {{days}} days."
     },
     "basemaps": {

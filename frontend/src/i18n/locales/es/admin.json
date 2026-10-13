@@ -549,7 +549,7 @@
       "auditRetentionDays": "Retención del registro de auditoría (días)",
       "auditRetentionDaysDescription": "Los registros de auditoría más antiguos que este número de días se eliminan automáticamente. Déjelo vacío para conservarlos siempre.",
       "auditRetentionKeepForever": "Conservar siempre",
-      "auditRetentionInvalid": "Introduzca un número entero de días ({{min}} o más) o deje el campo vacío.",
+      "auditRetentionInvalid": "Introduzca un número entero de días ({{min}} a {{max}}) o deje el campo vacío.",
       "auditRetentionComplianceWarning": "Algunos regímenes de cumplimiento exigen conservar los registros de auditoría al menos {{days}} días."
     },
     "basemaps": {

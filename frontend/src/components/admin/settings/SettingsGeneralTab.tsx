@@ -37,6 +37,7 @@ const FIELDS = [
 ] as const;
 
 const AUDIT_RETENTION_MIN_DAYS = 90;
+const AUDIT_RETENTION_MAX_DAYS = 36500;
 const AUDIT_RETENTION_COMPLIANCE_DAYS = 365;
 
 /** An empty field keeps audit records forever; the API stores that as null. */
@@ -44,7 +45,7 @@ function parseRetentionDays(raw: string): number | null | undefined {
   const text = raw.trim();
   if (text === '') return null;
   const days = Number(text);
-  if (!Number.isInteger(days) || days < AUDIT_RETENTION_MIN_DAYS) return undefined;
+  if (!Number.isInteger(days) || days < AUDIT_RETENTION_MIN_DAYS || days > AUDIT_RETENTION_MAX_DAYS) return undefined;
   return days;
 }
 
@@ -257,6 +258,7 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset: submitR
           id="audit-retention-days"
           type="number"
           min={AUDIT_RETENTION_MIN_DAYS}
+          max={AUDIT_RETENTION_MAX_DAYS}
           step={1}
           placeholder={t('settings.general.auditRetentionKeepForever')}
           value={retentionRaw}
@@ -267,7 +269,7 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset: submitR
           className="w-40"
         />
         {retentionInvalid && (
-          <p id="audit-retention-error" className="text-sm text-destructive">{t('settings.general.auditRetentionInvalid', { min: AUDIT_RETENTION_MIN_DAYS })}</p>
+          <p id="audit-retention-error" className="text-sm text-destructive">{t('settings.general.auditRetentionInvalid', { min: AUDIT_RETENTION_MIN_DAYS, max: AUDIT_RETENTION_MAX_DAYS })}</p>
         )}
         {retentionShort && (
           <div id="audit-retention-warning" className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 max-w-md">

@@ -63,4 +63,15 @@ describe('audit retention field', () => {
     expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
+
+  it('rejects a value above the maximum', async () => {
+    const user = userEvent.setup();
+    renderGeneral(null);
+    const field = screen.getByLabelText('Audit log retention (days)');
+
+    await user.type(field, '36501');
+
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
 });

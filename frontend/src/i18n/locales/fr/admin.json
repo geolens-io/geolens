@@ -549,7 +549,7 @@
       "auditRetentionDays": "Conservation du journal d'audit (jours)",
       "auditRetentionDaysDescription": "Les enregistrements d'audit plus anciens que ce nombre de jours sont supprimés automatiquement. Laissez vide pour les conserver indéfiniment.",
       "auditRetentionKeepForever": "Conserver indéfiniment",
-      "auditRetentionInvalid": "Saisissez un nombre entier de jours ({{min}} ou plus), ou laissez le champ vide.",
+      "auditRetentionInvalid": "Saisissez un nombre entier de jours ({{min}} à {{max}}), ou laissez le champ vide.",
       "auditRetentionComplianceWarning": "Certains régimes de conformité exigent de conserver les enregistrements d'audit au moins {{days}} jours."
     },
     "basemaps": {
