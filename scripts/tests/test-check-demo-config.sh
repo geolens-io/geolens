@@ -71,6 +71,14 @@ if ! TEST_CONFIG_FILES=$LISTED PATH="$FAKE_BIN:$PATH" \
     exit 1
 fi
 
+printf 'COMPOSE_FILE=./docker-compose.prod.yml:override.yml\n' >"$PROJECT/.env"
+if ! TEST_CONFIG_FILES=$LISTED PATH="$FAKE_BIN:$PATH" \
+    "$PROJECT/scripts/check-demo-config.sh" >/dev/null 2>&1; then
+    printf 'FAIL: an equivalent ./ spelling reported false drift\n' >&2
+    exit 1
+fi
+printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\n' >"$PROJECT/.env"
+
 if TEST_CONFIG_FILES=$PROJECT/docker-compose.prod.yml PATH="$FAKE_BIN:$PATH" \
     "$PROJECT/scripts/check-demo-config.sh" >/dev/null 2>&1; then
     printf 'FAIL: a container missing the override file was accepted\n' >&2

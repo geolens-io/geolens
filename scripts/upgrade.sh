@@ -101,7 +101,10 @@ for _cf_entry in $COMPOSE_FILE; do
   [ -n "$_cf_entry" ] || continue
   [ -f "$_cf_entry" ] || fail "COMPOSE_FILE lists $_cf_entry, which does not exist in $PROJECT_ROOT."
   COMPOSE_FLAGS="$COMPOSE_FLAGS -f $_cf_entry"
-  [ "$_cf_entry" != "docker-compose.prod.yml" ] || COMPOSE_IS_PREBUILT=1
+  # ./docker-compose.prod.yml and $PROJECT_ROOT/docker-compose.prod.yml name
+  # the same file as the bare spelling.
+  _cf_norm=$(printf '%s' "$_cf_entry" | sed -e 's|/\./|/|g' -e 's|//*|/|g' -e 's|^\./||')
+  [ "${_cf_norm#"$PROJECT_ROOT"/}" != "docker-compose.prod.yml" ] || COMPOSE_IS_PREBUILT=1
 done
 IFS=$_cf_ifs
 COMPOSE_FLAGS=${COMPOSE_FLAGS# }

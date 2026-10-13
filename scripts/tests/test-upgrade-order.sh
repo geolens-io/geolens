@@ -994,6 +994,19 @@ else
   bad "compose calls dropped the override: $(sort -u "$CALLLOG.files" | tr '\n' ',')"
 fi
 
+# Equivalent spellings of the prod file still classify as a prebuilt install.
+FAKE_ABS="$(cd "$FAKE" && pwd)"
+for spelling in "./docker-compose.prod.yml" "$FAKE_ABS/docker-compose.prod.yml"; do
+  seed_prod_env
+  printf 'COMPOSE_FILE=%s\nGEOLENS_VERSION=1.2.3\nPOSTGRES_USER=geolens\nPOSTGRES_DB=geolens\n' "$spelling" > "$FAKE/.env"
+  run_upgrade ok 1.2.4
+  if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of migrate_up)" ]; then
+    ok "COMPOSE_FILE=$spelling is upgraded as a prebuilt install"
+  else
+    bad "COMPOSE_FILE=$spelling was not treated as the prod file (exit=$(cat "$WORK/code.txt"))"
+  fi
+done
+
 rm -f "$FAKE/override.yml" "$FAKE/abs-override.yml"
 seed_prod_env
 printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\nGEOLENS_VERSION=1.2.3\n' > "$FAKE/.env"

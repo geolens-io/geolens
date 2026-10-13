@@ -29,6 +29,8 @@ for entry in $COMPOSE_FILE; do
         *) path=$PROJECT_ROOT/$entry ;;
     esac
     [ -f "$path" ] || fail "compose file not found: $path"
+    # Compose records the cleaned absolute path in its container label.
+    path="$(printf '%s' "$path" | sed -e 's|/\./|/|g' -e 's|//*|/|g')"
     COMPOSE_PATHS="${COMPOSE_PATHS:+$COMPOSE_PATHS,}$path"
 done
 IFS=$_ifs
