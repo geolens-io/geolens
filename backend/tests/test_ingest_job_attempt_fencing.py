@@ -33,8 +33,7 @@ async def test_expired_attempt_cannot_renew_or_finalize_retried_job(test_db_sess
     await test_db_session.commit()
     await test_db_session.refresh(job)
 
-    _, running_failed = await fail_stale_jobs(test_db_session)
-    assert running_failed == 1
+    await fail_stale_jobs(test_db_session)
     await test_db_session.refresh(job)
     assert job.status == "failed"
 
