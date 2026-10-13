@@ -539,7 +539,7 @@
         "upload": "Upload Datasets",
         "create_layers": "Create Layers",
         "export": "Export Data",
-        "exportDescription": "Download files and save analysis results as new datasets. Anyone who can view a dataset can still read its features through the API, map tiles and the attribute table.",
+        "exportDescription": "Download vector and raster files, except public datasets anyone can download, and save analysis results as new datasets. Anyone who can view a dataset can still read its features through the API, map tiles and the attribute table.",
         "edit_metadata": "Edit Metadata",
         "manage_collections": "Manage Collections",
         "use_ai_chat": "AI Chat",

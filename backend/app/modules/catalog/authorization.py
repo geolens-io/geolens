@@ -578,9 +578,10 @@ async def can_export_dataset(
     """Whether a caller who can already see *dataset* may download its data.
 
     The export capability covers file downloads and durable copies: the
-    ``/export`` route, ``/download/cog``, the STAC ``data`` and ``vrt`` asset
-    hrefs, and analysis materialize. Paged reads through the API, map tiles
-    and the attribute table follow read access instead.
+    ``/export`` route, ``/download/cog`` and the STAC ``data`` asset href of an
+    eligible raster, and analysis materialize. Paged reads through the API,
+    map tiles, the attribute table and COPC and 3D Tiles files follow read
+    access instead.
 
     Every caller may download a public dataset an anonymous caller can read,
     so signing in never takes away what signing out gives; anything beyond

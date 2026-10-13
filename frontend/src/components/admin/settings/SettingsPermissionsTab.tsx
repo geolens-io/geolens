@@ -107,7 +107,7 @@ export function SettingsPermissionsTab({ settings, envOnly, onSave, onReset, isS
                     <TableCell>
                       <Label className="font-normal">{label}</Label>
                       {key === 'export' && (
-                        <p id="permission-export-description" className="text-xs text-muted-foreground">
+                        <p id="permission-export-description" className="max-w-prose whitespace-normal text-xs text-muted-foreground">
                           {t('settings.permissions.capabilities.exportDescription')}
                         </p>
                       )}
