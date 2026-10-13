@@ -137,7 +137,12 @@ async def test_stored_images_go_only_to_callers_who_can_read_every_dataset(
 
     anonymous = await client.get(f"/maps/{map_id}/thumbnail/")
     assert anonymous.status_code == 200
-    assert anonymous.headers["cache-control"] == "public, max-age=3600, s-maxage=60"
+    assert anonymous.headers["cache-control"] == "public, no-cache"
+    revalidated = await client.get(
+        f"/maps/{map_id}/thumbnail/",
+        headers={"If-None-Match": anonymous.headers["etag"]},
+    )
+    assert revalidated.status_code == 304
     card = await client.get(card_path)
     assert card.headers["cache-control"] == "public, max-age=300, s-maxage=60"
     assert f"/maps/{map_id}/og-image/" in card.text
@@ -150,6 +155,10 @@ async def test_stored_images_go_only_to_callers_who_can_read_every_dataset(
 
     for path in ("thumbnail", "og-image"):
         assert (await client.get(f"/maps/{map_id}/{path}/")).status_code == 404
+        cached_copy = {"If-None-Match": anonymous.headers["etag"]}
+        assert (
+            await client.get(f"/maps/{map_id}/{path}/", headers=cached_copy)
+        ).status_code == 404
         viewer = await client.get(f"/maps/{map_id}/{path}/", headers=viewer_header)
         assert viewer.status_code == 404
         owner = await client.get(f"/maps/{map_id}/{path}/", headers=admin_auth_header)

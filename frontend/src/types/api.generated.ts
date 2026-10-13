@@ -4153,9 +4153,8 @@ export interface paths {
          * Get Og Image
          * @description Serve the OG social-card image from storage (visibility-checked).
          *
-         *     Uses ``public, max-age=86400`` for public maps — OG images change
-         *     less often than thumbnails (which use 3600s). Mirrors get_thumbnail
-         *     but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+         *     Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
+         *     ``maps/og-images/`` key space.
          */
         get: operations["get_og_image_maps__map_id__og_image__get"];
         /**

@@ -112,6 +112,7 @@ from app.modules.catalog.maps._router_helpers import (
     _meta_to_kwargs,
     _reject_non_public_datasets,
     _stored_image_cache_control,
+    _stored_image_response,
     _visibility_value,
 )
 
@@ -1101,6 +1102,7 @@ async def upload_thumbnail(
 )
 async def get_thumbnail(
     map_id: uuid.UUID,
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -1115,7 +1117,7 @@ async def get_thumbnail(
         )
 
     await _check_map_read_access(map_obj, user, db)
-    cache_control = await _stored_image_cache_control(db, map_obj, user, max_age=3600)
+    cache_control = await _stored_image_cache_control(db, map_obj, user)
     if cache_control is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1131,11 +1133,7 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
     media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
-    return Response(
-        content=data,
-        media_type=media_type,
-        headers={"Cache-Control": cache_control},
-    )
+    return _stored_image_response(request, data, media_type, cache_control)
 
 
 # ---------------------------------------------------------------------------
@@ -1264,14 +1262,14 @@ async def upload_og_image(
 )
 async def get_og_image(
     map_id: uuid.UUID,
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Serve the OG social-card image from storage (visibility-checked).
 
-    Uses ``public, max-age=86400`` for public maps — OG images change
-    less often than thumbnails (which use 3600s). Mirrors get_thumbnail
-    but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+    Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
+    ``maps/og-images/`` key space.
     """
     from app.platform.storage.provider import get_storage
 
@@ -1283,7 +1281,7 @@ async def get_og_image(
         )
 
     await _check_map_read_access(map_obj, user, db)
-    cache_control = await _stored_image_cache_control(db, map_obj, user, max_age=86400)
+    cache_control = await _stored_image_cache_control(db, map_obj, user)
     if cache_control is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1299,11 +1297,7 @@ async def get_og_image(
             detail="OG image not found",
         )
     media_type = "image/jpeg" if map_obj.og_image_uri.endswith(".jpg") else "image/png"
-    return Response(
-        content=data,
-        media_type=media_type,
-        headers={"Cache-Control": cache_control},
-    )
+    return _stored_image_response(request, data, media_type, cache_control)
 
 
 @router.post(

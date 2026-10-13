@@ -4,10 +4,11 @@ No dependency on ``router.py``, so importing these back does not create a
 circular import.
 """
 
+import hashlib
 import uuid
 
 import structlog
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
@@ -23,7 +24,7 @@ from app.modules.catalog.maps.schemas import (
 from app.modules.catalog.maps.service import LayerRow, validate_public_visibility
 from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.modules.catalog.maps.style_json import project_terrain_config
-from app.platform.cache.scope import public_cache_control
+from app.platform.http.ranges import if_none_match_matches
 from app.platform.extensions import get_permission_extension
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -275,21 +276,33 @@ async def _reject_non_public_datasets(db: AsyncSession, map_obj: Map) -> None:
 
 
 async def _stored_image_cache_control(
-    db: AsyncSession, map_obj: Map, user: Identity | None, *, max_age: int
+    db: AsyncSession, map_obj: Map, user: Identity | None
 ) -> str | None:
     """Cache-Control for a map's stored thumbnail or OG image; None withholds it.
 
     A stored image can't leave out a layer the way live map responses do, so
     it goes only to a caller who can read every dataset the map draws. It is
-    publicly cacheable only when an anonymous caller could read them all too.
+    publicly cacheable only when an anonymous caller could read them all too,
+    and every use is revalidated, since narrowing a dataset withholds it.
     """
     if not await can_read_every_map_dataset(db, map_obj, user):
         return None
     if map_obj.visibility == "public" and (
         user is None or await can_read_every_map_dataset(db, map_obj, None)
     ):
-        return public_cache_control(max_age)
+        return "public, no-cache"
     return "private, no-cache"
+
+
+def _stored_image_response(
+    request: Request, data: bytes, media_type: str, cache_control: str
+) -> Response:
+    """The stored image, or a 304 when the caller's copy matches it."""
+    etag = '"' + hashlib.sha256(data).hexdigest() + '"'
+    headers = {"Cache-Control": cache_control, "ETag": etag}
+    if if_none_match_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    return Response(content=data, media_type=media_type, headers=headers)
 
 
 async def _is_map_owner_or_admin(

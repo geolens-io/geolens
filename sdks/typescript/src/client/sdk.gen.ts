@@ -4460,9 +4460,8 @@ export const removeLayerEndpointMapsMapIdLayersLayerIdDelete = <ThrowOnError ext
  *
  * Serve the OG social-card image from storage (visibility-checked).
  *
- * Uses ``public, max-age=86400`` for public maps — OG images change
- * less often than thumbnails (which use 3600s). Mirrors get_thumbnail
- * but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+ * Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
+ * ``maps/og-images/`` key space.
  */
 export const getOgImageMapsMapIdOgImageGet = <ThrowOnError extends boolean = false>(options: Options<GetOgImageMapsMapIdOgImageGetData, ThrowOnError>): RequestResult<GetOgImageMapsMapIdOgImageGetResponses, GetOgImageMapsMapIdOgImageGetErrors, ThrowOnError> => (options.client ?? client).get<GetOgImageMapsMapIdOgImageGetResponses, GetOgImageMapsMapIdOgImageGetErrors, ThrowOnError>({
     security: [

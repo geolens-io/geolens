@@ -107,9 +107,8 @@ def sync_detailed(
 
      Serve the OG social-card image from storage (visibility-checked).
 
-    Uses ``public, max-age=86400`` for public maps — OG images change
-    less often than thumbnails (which use 3600s). Mirrors get_thumbnail
-    but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+    Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
+    ``maps/og-images/`` key space.
 
     Args:
         map_id (UUID):
@@ -142,9 +141,8 @@ def sync(
 
      Serve the OG social-card image from storage (visibility-checked).
 
-    Uses ``public, max-age=86400`` for public maps — OG images change
-    less often than thumbnails (which use 3600s). Mirrors get_thumbnail
-    but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+    Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
+    ``maps/og-images/`` key space.
 
     Args:
         map_id (UUID):
@@ -172,9 +170,8 @@ async def asyncio_detailed(
 
      Serve the OG social-card image from storage (visibility-checked).
 
-    Uses ``public, max-age=86400`` for public maps — OG images change
-    less often than thumbnails (which use 3600s). Mirrors get_thumbnail
-    but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+    Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
+    ``maps/og-images/`` key space.
 
     Args:
         map_id (UUID):
@@ -205,9 +202,8 @@ async def asyncio(
 
      Serve the OG social-card image from storage (visibility-checked).
 
-    Uses ``public, max-age=86400`` for public maps — OG images change
-    less often than thumbnails (which use 3600s). Mirrors get_thumbnail
-    but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+    Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
+    ``maps/og-images/`` key space.
 
     Args:
         map_id (UUID):

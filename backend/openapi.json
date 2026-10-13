@@ -51588,7 +51588,7 @@
     },
     "/maps/{map_id}/og-image/": {
       "get": {
-        "description": "Serve the OG social-card image from storage (visibility-checked).\n\nUses ``public, max-age=86400`` for public maps \u2014 OG images change\nless often than thumbnails (which use 3600s). Mirrors get_thumbnail\nbut reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.",
+        "description": "Serve the OG social-card image from storage (visibility-checked).\n\nMirrors get_thumbnail but reads ``og_image_uri`` and uses the\n``maps/og-images/`` key space.",
         "operationId": "get_og_image_maps__map_id__og_image__get",
         "parameters": [
           {
