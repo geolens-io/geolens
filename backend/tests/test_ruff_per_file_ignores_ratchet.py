@@ -1,7 +1,8 @@
 """Ruff ``per-file-ignores`` in ``backend/pyproject.toml`` may only shrink.
 
 ``extend-per-file-ignores`` counts toward the same baseline, and extending
-another ruff config is rejected because its ignores would go unchecked.
+another ruff config, or adding a standalone one under ``backend/``, is rejected
+because its ignores would go unchecked.
 
 The config must match ``_BASELINE`` exactly: adding a glob or a rule code fails
 the test, and so does removing one without deleting it from the baseline.
@@ -9,10 +10,12 @@ the test, and so does removing one without deleting it from the baseline.
 
 from __future__ import annotations
 
+import subprocess
 import tomllib
 from pathlib import Path
 
-_PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
+_BACKEND = Path(__file__).resolve().parents[1]
+_PYPROJECT = _BACKEND / "pyproject.toml"
 
 _BASELINE: dict[str, frozenset[str]] = {
     path: frozenset({"C901"})
@@ -83,4 +86,18 @@ def test_per_file_ignores_baseline_is_exact() -> None:
     assert not stale, (
         "These per-file-ignores are gone from backend/pyproject.toml but still "
         f"in _BASELINE: {stale}. Delete them from _BASELINE so the ratchet moves down."
+    )
+
+
+def test_no_standalone_ruff_config_under_backend() -> None:
+    tracked = subprocess.run(
+        ["git", "ls-files", "*ruff.toml"],
+        cwd=_BACKEND,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert not tracked, (
+        f"Standalone ruff configs {tracked} can override backend/pyproject.toml "
+        "and escape the per-file-ignores ratchet."
     )
