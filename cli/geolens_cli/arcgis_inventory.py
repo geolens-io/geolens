@@ -276,7 +276,8 @@ def _scrub_scheme(match: re.Match[str]) -> str:
     return f"{scheme}{space}[REDACTED]"
 
 
-_URL_HEADER_VALUE = re.compile(r"(?:(?:Bearer|Basic|Token|Digest)\s+)?[^&#\s]*", re.I)
+_URL_HEADER_VALUE = re.compile(r"[^&#\s]*")
+_URL_AUTH_VALUE = re.compile(r"[^&#\s]*(?:[ \t]+[^&#\s]+)?")
 
 
 def _scrub_header(match: re.Match[str]) -> str:
@@ -285,10 +286,11 @@ def _scrub_header(match: re.Match[str]) -> str:
     in_url = start > 0 and match.string[start - 1] in "?&#"
     if not in_url:
         return f"{name}{sep}[REDACTED]"
-    # A URL parameter ends at the next delimiter, though a scheme and its
-    # token ("Bearer abc") may be separated by a space.
+    # A URL parameter ends at the next delimiter, though an authorization value
+    # may be "<scheme> <token>" for any scheme name.
     value = match.group(3)
-    consumed = _URL_HEADER_VALUE.match(value)
+    pattern = _URL_AUTH_VALUE if "authorization" in name.lower() else _URL_HEADER_VALUE
+    consumed = pattern.match(value)
     rest = value[consumed.end() :] if consumed else value
     return f"{name}{sep}[REDACTED]{rest}"
 

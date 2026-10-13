@@ -2751,6 +2751,10 @@ def _nested(value):
         ("https://s.example/q?api-key=abc123KEY#frag", "abc123KEY"),
         ("https://s.example/q?authorization=Bearer%20abc123KEY&m=1", "abc123KEY"),
         ("https://s.example/q?authorization=Bearer abc123KEY&m=1", "abc123KEY"),
+        (
+            "https://s.example/q?authorization=Negotiate abc123KEYabc&m=1",
+            "abc123KEYabc",
+        ),
         ("Authorization: Bearer abc.def", "abc.def"),
         ("Authorization: Basic configuration", "configuration"),
     ],
