@@ -9,6 +9,7 @@ import redis.asyncio as redis_async
 import structlog
 
 from app.platform.cache.memory import InMemoryCacheProvider
+from app.platform.redis_protocol import REDIS_PROTOCOL
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -84,7 +85,9 @@ class RedisCacheProvider:
         max_failures: int = 5,
         cooldown_seconds: int = 30,
     ) -> None:
-        self._client = redis_async.from_url(url, decode_responses=True)
+        self._client = redis_async.from_url(
+            url, decode_responses=True, protocol=REDIS_PROTOCOL
+        )
         self._max_failures = max_failures
         self._cooldown_seconds = cooldown_seconds
         self._failure_count = 0

@@ -178,7 +178,11 @@ class RedisCredentialBackend:
     def __init__(self, url: str) -> None:
         import redis.asyncio as redis_async
 
-        self._client = redis_async.from_url(url, decode_responses=True)
+        from app.platform.redis_protocol import REDIS_PROTOCOL
+
+        self._client = redis_async.from_url(
+            url, decode_responses=True, protocol=REDIS_PROTOCOL
+        )
 
     async def put(self, key: str, value: str, ttl_seconds: int) -> None:
         try:

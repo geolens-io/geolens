@@ -30,6 +30,8 @@ import structlog
 from cachetools import LRUCache  # PERF-01 (Phase 274)
 from prometheus_client import Counter
 
+from app.platform.redis_protocol import REDIS_PROTOCOL
+
 logger = structlog.stdlib.get_logger(__name__)
 
 # PERF-11: per-table cache observability (cardinality bounded by _safe_label).
@@ -80,7 +82,9 @@ class TileCacheProvider:
     """
 
     def __init__(self, url: str) -> None:
-        self._client = redis_async.from_url(url, decode_responses=False)
+        self._client = redis_async.from_url(
+            url, decode_responses=False, protocol=REDIS_PROTOCOL
+        )
 
     async def get(
         self,

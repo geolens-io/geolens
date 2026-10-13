@@ -34,6 +34,7 @@ from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.core.persistent_config import get_cached_global_rate_limit
+from app.platform.redis_protocol import REDIS_PROTOCOL
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -164,6 +165,7 @@ limiter = _FallbackAnnouncingLimiter(
     key_style="endpoint",
     storage_uri=shared_storage_uri(),
     storage_options={
+        "protocol": REDIS_PROTOCOL,
         "socket_timeout": STORAGE_SOCKET_TIMEOUT_SECONDS,
         "socket_connect_timeout": STORAGE_SOCKET_TIMEOUT_SECONDS,
     },

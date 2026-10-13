@@ -16,6 +16,7 @@ from typing import Any
 import structlog
 
 from app.platform.ratelimit import STORAGE_SOCKET_TIMEOUT_SECONDS, shared_storage_uri
+from app.platform.redis_protocol import REDIS_PROTOCOL
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -148,6 +149,7 @@ def _build_store() -> SharedClaimStore | None:
         client = redis.Redis.from_url(
             uri,
             decode_responses=True,
+            protocol=REDIS_PROTOCOL,
             socket_timeout=STORAGE_SOCKET_TIMEOUT_SECONDS,
             socket_connect_timeout=STORAGE_SOCKET_TIMEOUT_SECONDS,
         )
