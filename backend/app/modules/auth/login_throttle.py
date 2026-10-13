@@ -70,13 +70,21 @@ def _keyed_digest(info: bytes, message: str) -> str:
     return hmac.new(_derived_key(info), message.encode(), hashlib.sha256).hexdigest()
 
 
-def login_account_key(username: str) -> str:
-    """The throttle's handle for *username* in the active tenant."""
+def login_account_key(normalized: str) -> str:
+    """The throttle's handle for an already-lowercased username in the active tenant."""
     tenant = current_tenant_var.get() or ""
-    normalized = username.lower()
     return _keyed_digest(
         b"account-key", f"{len(tenant)}:{tenant}:{len(normalized)}:{normalized}"
     )
+
+
+async def account_key_for(db: AsyncSession, username: str) -> str:
+    """The handle for *username*, lowercased by the database as sign-in matches it.
+
+    Python's ``str.lower`` disagrees with PostgreSQL's ``lower`` on some
+    characters, which would split one account across several budgets.
+    """
+    return login_account_key(await db.scalar(select(func.lower(username))))
 
 
 def device_cookie_name(account_key: str) -> str:
@@ -231,7 +239,7 @@ async def reserve_login_attempt(
 
     Commits the request session's transaction.
     """
-    account_key = login_account_key(username)
+    account_key = await account_key_for(db, username)
     device_key = _presented_device_key(request, account_key)
     try:
         if device_key is not None:
@@ -316,7 +324,7 @@ async def create_trust_token(db: AsyncSession, username: str) -> str:
         LoginTrustToken(
             id=uuid.uuid4(),
             token_hash=_trust_token_hash(token),
-            account_key=login_account_key(username),
+            account_key=await account_key_for(db, username),
             expires_at=now + TRUST_TOKEN_TTL,
         )
     )

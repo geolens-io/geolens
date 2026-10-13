@@ -463,3 +463,24 @@ async def test_a_tenant_trust_link_is_a_bare_path(monkeypatch):
 
     monkeypatch.setattr(settings, "public_api_url", "https://fleet.example.com/api")
     assert await _api_base(None, str(uuid.uuid4())) == "/api"
+
+
+async def test_spellings_the_database_matches_share_one_budget(client: AsyncClient):
+    import app.core.db as db_module
+
+    async with db_module.async_session() as db:
+        if await db.scalar(text("SELECT lower('İ')")) != "i":
+            pytest.skip("this collation keeps İ distinct from i")
+    suffix = uuid.uuid4().hex[:8]
+    spellings = [f"İx{suffix}", f"ix{suffix}"]
+
+    async def attempt(username: str) -> int:
+        async with db_module.async_session() as db:
+            try:
+                await reserve_login_attempt(db, _request(), username)
+            except HTTPException as exc:
+                return exc.status_code
+            return 200
+
+    statuses = [await attempt(spellings[i % 2]) for i in range(LOGIN_FAILURE_LIMIT + 1)]
+    assert statuses == [200] * LOGIN_FAILURE_LIMIT + [429]
