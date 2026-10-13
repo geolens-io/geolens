@@ -481,42 +481,45 @@ async def create_trust_token(db: AsyncSession, username: str) -> str | None:
 async def redeem_trust_token(db: AsyncSession, token: str) -> tuple[str, str] | None:
     """Consume *token* and return its account key and binding, or None if unusable.
 
-    One ``DELETE ... RETURNING``, so two requests racing on one link cannot
-    both succeed. The caller commits.
+    The account row is locked first, as a password reset and the login lock
+    it, so no credential change can land between this check and the commit,
+    and in the same order an account deletion takes the row and then its
+    tokens. One ``DELETE ... RETURNING`` then consumes the token, so two
+    requests racing on one link cannot both succeed. The caller commits.
     """
     if not token or len(token) > _TRUST_TOKEN_MAX_LENGTH:
+        return None
+    live = and_(
+        LoginTrustToken.token_hash == _trust_token_hash(token),
+        LoginTrustToken.expires_at > func.now(),
+    )
+    user_id = await db.scalar(select(LoginTrustToken.user_id).where(live))
+    if user_id is None:
+        return None
+    current = (
+        await db.execute(
+            select(func.lower(User.username), User.key_epoch)
+            .where(User.id == user_id)
+            .with_for_update(key_share=True)
+        )
+    ).one_or_none()
+    if current is None:
         return None
     row = (
         await db.execute(
             delete(LoginTrustToken)
-            .where(
-                LoginTrustToken.token_hash == _trust_token_hash(token),
-                LoginTrustToken.expires_at > func.now(),
-            )
-            .returning(
-                LoginTrustToken.account_key,
-                LoginTrustToken.user_id,
-                LoginTrustToken.binding,
-            )
+            .where(live, LoginTrustToken.user_id == user_id)
+            .returning(LoginTrustToken.account_key, LoginTrustToken.binding)
         )
     ).one_or_none()
     if row is None:
         return None
     # A credential reset, rename or secret rotation since the link was minted
     # voids it, as each does every remembered browser.
-    current = (
-        await db.execute(
-            select(func.lower(User.username), User.key_epoch).where(
-                User.id == row.user_id
-            )
-        )
-    ).one_or_none()
-    if current is None:
-        return None
     normalized, key_epoch = current
     if (
         login_account_key(normalized) != row.account_key
-        or account_binding(row.user_id, key_epoch) != row.binding
+        or account_binding(user_id, key_epoch) != row.binding
     ):
         return None
     return row.account_key, row.binding
