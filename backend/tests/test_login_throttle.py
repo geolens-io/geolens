@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
 from app.modules.auth.login_throttle import (
     LOGIN_FAILURE_LIMIT,
+    _current_cookie_prefix,
     _device_mac,
     _presented_device_key,
     create_trust_token,
@@ -570,7 +571,8 @@ async def test_a_browser_remembers_a_bounded_number_of_accounts(client: AsyncCli
 
     def others(count: int) -> str:
         return "; ".join(
-            f"geolens_device_{index:016x}=v1.n.1.mac" for index in range(count)
+            f"{_current_cookie_prefix()}{index:016x}=v1.n.1.mac"
+            for index in range(count)
         )
 
     assert len(await sign_in(others(4))) == 1
@@ -644,9 +646,28 @@ async def test_a_credential_reset_voids_an_unused_trust_link(client: AsyncClient
 async def test_a_trust_link_takes_effect_past_the_cookie_cap(client: AsyncClient):
     username = await _new_user(client)
     token = await _mint_trust_link(username)
-    others = "; ".join(f"geolens_device_{index:016x}=v1.n.1.mac" for index in range(5))
+    others = "; ".join(
+        f"{_current_cookie_prefix()}{index:016x}=v1.n.1.mac" for index in range(5)
+    )
     resp = await client.get(
         f"/auth/device-trust?token={token}", headers={"Cookie": others}
     )
     assert resp.status_code == 303
+    _set_cookie(resp, device_cookie_name(login_account_key(username)))
+
+
+async def test_cookies_from_a_rotated_secret_are_cleared_not_counted(
+    client: AsyncClient,
+):
+    username = await _new_user(client)
+    stale = [f"geolens_device_zzzz_{index:016x}" for index in range(5)]
+    resp = await client.post(
+        "/auth/login",
+        data={"username": username, "password": PASSWORD},
+        headers={**COOKIE_MODE, "Cookie": "; ".join(f"{n}=v1.n.1.mac" for n in stale)},
+    )
+    assert resp.status_code == 200, resp.text
+    headers = resp.headers.get_list("set-cookie")
+    cleared = sorted(h.split("=", 1)[0] for h in headers if "Max-Age=0" in h)
+    assert cleared == stale
     _set_cookie(resp, device_cookie_name(login_account_key(username)))

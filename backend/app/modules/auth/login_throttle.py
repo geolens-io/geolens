@@ -50,6 +50,7 @@ from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_client_ip
 from app.modules.auth.cookies import (
+    clear_login_device_cookie,
     cookie_values,
     cookies_with_prefix,
     set_login_device_cookie,
@@ -130,9 +131,18 @@ async def _account(db: AsyncSession, normalized: str) -> tuple[uuid.UUID, str] |
     return None if row is None else (row.id, account_binding(row.id, row.key_epoch))
 
 
+def _current_cookie_prefix() -> str:
+    """The name prefix of cookies minted under the current secret.
+
+    A rotated secret changes it, so cookies the rotation voided are told
+    apart by name and cleared instead of filling the per-browser cap.
+    """
+    return _DEVICE_COOKIE_PREFIX + _keyed_digest(b"device-generation", "")[:4] + "_"
+
+
 def device_cookie_name(account_key: str) -> str:
     """One cookie per account, so a browser remembered for two keeps both."""
-    return _DEVICE_COOKIE_PREFIX + account_key[:16]
+    return _current_cookie_prefix() + account_key[:16]
 
 
 def _device_mac(account_key: str, binding: str, nonce: str, issued_at: int) -> str:
@@ -203,11 +213,13 @@ def issue_device_cookie(
     is for an operator's trust link, which must always take effect.
     """
     name = device_cookie_name(account_key)
-    others = {
-        other
-        for other, _ in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX)
-        if other != name
-    }
+    current = _current_cookie_prefix()
+    others = set()
+    for other, _ in cookies_with_prefix(request, _DEVICE_COOKIE_PREFIX):
+        if not other.startswith(current):
+            clear_login_device_cookie(response, request, other)
+        elif other != name:
+            others.add(other)
     if (
         capped
         and not cookie_values(request, name)
