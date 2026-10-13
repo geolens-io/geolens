@@ -216,7 +216,7 @@ async def _apply_visibility_change(
     dataset_id: uuid.UUID,
     new_visibility: str,
 ) -> bool:
-    """Set record.visibility, blocking a change that would strand a shared map.
+    """Set record.visibility unless it strands one of the owner's shared maps.
 
     The helper compares the before and after audiences so internal-map
     viewers are protected as well as public-map viewers.

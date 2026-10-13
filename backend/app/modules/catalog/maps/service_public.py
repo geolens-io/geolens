@@ -19,6 +19,7 @@ from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
     answers_audience_questions,
     apply_visibility_filter,
+    audience_admits,
 )
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
@@ -113,27 +114,30 @@ async def find_maps_broken_by_dataset_visibility(
     record_id: uuid.UUID,
     owner_id: uuid.UUID | None,
 ) -> list[str]:
-    """Names of shared maps that work at ``old_visibility`` and would not at ``new``.
+    """Names of the owner's shared maps that work at ``old_visibility`` and
+    would not at ``new_visibility``.
 
-    fix(#931): this was ``find_public_maps_using_dataset``, matching
-    ``visibility == "public"`` only — an internal map's viewers silently
-    lost the layer on a flip that went unchecked.
+    Only maps the dataset's owner (``owner_id``) created count, and only while
+    the owner can read the dataset. Other users' maps lose the layer instead,
+    since every map read authorizes each layer against the dataset.
 
-    feat(#1068): asked of the permission authority, not reconstructed
-    from the community ladder — a NARROWING overlay over-refuses safely,
-    but a WIDENING one (SLOT-02) under-refuses silently, the break this
-    guard exists to prevent.
-
-    An unanswerable authority (:func:`answers_audience_questions`) gets
-    the conservative refusal. An unpublished record needs no special
-    case: a draft's audience is owner+admins both before and after, so
-    the difference (= safe to apply) is empty.
+    The audiences come from the permission authority, so an overlay's own
+    policy decides who would be stranded. An authority that can't answer
+    (:func:`answers_audience_questions`) gets all of the owner's shared maps. An
+    unpublished record needs no special case: a draft's audience is owner and
+    admins both before and after, so nobody is stranded.
     """
-    # fix(#1126): a no-op change strands nobody for any authority,
-    # so it's settled before asking one — a round-tripped record resubmits
-    # the same visibility, and both branches below mishandled that pre-fix.
-    if old_visibility == new_visibility:
+    # A no-op change strands nobody for any authority, and a round-tripped
+    # record resubmits the same visibility.
+    if old_visibility == new_visibility or owner_id is None:
         return []
+    stmt = (
+        select(Map.name)
+        .select_from(MapLayer)
+        .join(Map, MapLayer.map_id == Map.id)
+        .where(MapLayer.dataset_id == dataset_id)
+        .where(Map.created_by == owner_id)
+    )
     permission = get_permission_extension()
     if answers_audience_questions(permission):
         query = RecordAudienceQuery(
@@ -147,9 +151,8 @@ async def find_maps_broken_by_dataset_visibility(
         after = await permission.record_audience(
             replace(query, visibility=new_visibility), User, grant_cls=DatasetGrant
         )
-        # fix(#931): asked PER AUDIENCE — a public map losing a
-        # public dataset strands anonymous visitors independent of an
-        # internal map beside it whose viewers may all hold grants.
+        # Asked per audience: a public map losing a public dataset strands
+        # anonymous visitors even when an internal map's viewers all hold grants.
         signed_in_stranded = await _stranded_viewer_exists(session, before, after)
         anonymous_stranded = before.includes_anonymous and not after.includes_anonymous
         audiences = [
@@ -159,16 +162,10 @@ async def find_maps_broken_by_dataset_visibility(
         ]
         if not audiences:
             return []
+        stmt = stmt.where(audience_admits(before, owner_id))
     else:
         audiences = list(_SHARED_MAP_AUDIENCES)
-    stmt = (
-        select(Map.name)
-        .select_from(MapLayer)
-        .join(Map, MapLayer.map_id == Map.id)
-        .where(MapLayer.dataset_id == dataset_id)
-        .where(Map.visibility.in_(audiences))
-    )
-    result = await session.execute(stmt)
+    result = await session.execute(stmt.where(Map.visibility.in_(audiences)))
     return [row[0] for row in result.all()]
 
 

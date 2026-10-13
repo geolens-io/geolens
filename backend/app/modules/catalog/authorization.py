@@ -709,10 +709,7 @@ async def _audiences_exceeded(
     ]
     arms += [
         select(literal(index), literal("o")).where(
-            select(User.id)
-            .where(User.id == pairs[index][0].owner_id)
-            .where(audiences[index][1].users.is_(True))
-            .exists()
+            audience_admits(audiences[index][1], pairs[index][0].owner_id)
         )
         for index in shared
     ]
@@ -787,6 +784,21 @@ def dataset_audience_query(dataset: Any) -> RecordAudienceQuery:
         owner_id=record.created_by,
         visibility=record.visibility,
         record_status=record.record_status,
+    )
+
+
+def audience_admits(audience: Any, user_id: uuid.UUID | None) -> Any:
+    """EXISTS clause: the account ``user_id`` is in ``audience``.
+
+    An account the authority leaves unclassified (NULL) is not in it.
+    """
+    from app.modules.auth.models import User
+
+    return (
+        select(User.id)
+        .where(User.id == user_id)
+        .where(audience.users.is_(True))
+        .exists()
     )
 
 
