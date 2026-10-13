@@ -97,14 +97,15 @@ async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int
     # Recorded sizes only; raster_assets.size_bytes repeats the 'data' row.
     # dataset_assets has no RLS of its own, so the join scopes it to the
     # tenant's visible datasets.
-    asset_result = await db.execute(
-        text(
-            "SELECT COALESCE(SUM(da.size_bytes), 0)::bigint "
-            "FROM catalog.dataset_assets da "
-            "JOIN catalog.datasets d ON d.id = da.dataset_id"
+    async with db.begin_nested():
+        asset_result = await db.execute(
+            text(
+                "SELECT COALESCE(SUM(da.size_bytes), 0)::bigint "
+                "FROM catalog.dataset_assets da "
+                "JOIN catalog.datasets d ON d.id = da.dataset_id"
+            )
         )
-    )
-    asset_bytes = asset_result.scalar_one()
+        asset_bytes = asset_result.scalar_one()
     if not table_names:
         return asset_bytes
 

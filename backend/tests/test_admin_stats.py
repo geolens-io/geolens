@@ -99,6 +99,9 @@ async def test_hosted_storage_query_separates_catalog_and_tenant_data_roles(
 
     assert total == 4096 + 1000
     assert db.execute.await_count == 3
+    # Each measurement gets its own savepoint so one failure can't abort the
+    # surrounding stats transaction.
+    assert db.begin_nested.call_count == 2
     catalog_statement = db.execute.await_args_list[0].args[0]
     asset_sql = str(db.execute.await_args_list[1].args[0])
     storage_statement = db.execute.await_args_list[2].args[0]
