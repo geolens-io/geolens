@@ -516,13 +516,32 @@ def _clear_tenant():
     current_tenant_var.reset(token)
 
 
+_APP_URL = "https://geolens.example.com"
+
+
+def _pin_public_urls(monkeypatch, app_url: str, api_url: str) -> None:
+    from app.core import public_urls
+
+    async def no_stored_urls(db):
+        return {}
+
+    # A URL another test stored in the settings table can't shadow these.
+    monkeypatch.setattr(public_urls, "_load_public_url_overrides", no_stored_urls)
+    monkeypatch.setattr(public_urls.settings, "public_app_url", app_url)
+    monkeypatch.setattr(public_urls.settings, "public_api_url", api_url)
+
+
+@pytest.fixture(autouse=True)
+def _public_urls(monkeypatch):
+    _pin_public_urls(monkeypatch, _APP_URL, f"{_APP_URL}/api")
+
+
 async def test_a_tenant_trust_link_is_a_bare_path(client: AsyncClient, monkeypatch):
     import app.core.db as db_module
     from scripts.trust_login_device import _app_base
 
-    monkeypatch.setattr(settings, "public_app_url", "https://fleet.example.com")
     async with db_module.async_session() as db:
-        assert await _app_base(db, None) == "https://fleet.example.com"
+        assert await _app_base(db, None) == _APP_URL
         assert await _app_base(db, str(uuid.uuid4())) == ""
 
 
@@ -537,6 +556,7 @@ async def test_a_trust_link_survives_a_failure_before_its_response(
     def unavailable(*args, **kwargs):
         raise RuntimeError("cookie issuance failed")
 
+    issue = auth_router.issue_device_cookie
     monkeypatch.setattr(auth_router, "issue_device_cookie", unavailable)
     try:
         failed = await _redeem(client, token)
@@ -544,7 +564,7 @@ async def test_a_trust_link_survives_a_failure_before_its_response(
         pass
     else:
         assert failed.status_code == 500
-    monkeypatch.undo()
+    monkeypatch.setattr(auth_router, "issue_device_cookie", issue)
 
     resp = await _redeem(client, token)
     assert resp.status_code == 204
@@ -770,24 +790,12 @@ async def test_a_trust_link_is_refused_where_the_cookie_cannot_return(
 ):
     username = await _new_user(client)
     token = await _mint_trust_link(username)
-    from app.core import public_urls
-
-    async def no_stored_urls(db):
-        return {}
-
-    # So a stored URL setting can't shadow this one.
-    monkeypatch.setattr(public_urls, "_load_public_url_overrides", no_stored_urls)
-    monkeypatch.setattr(
-        public_urls.settings, "public_app_url", "https://geo.example.com"
-    )
-    monkeypatch.setattr(
-        public_urls.settings, "public_api_url", "https://geo.example.com/geo-api"
-    )
+    _pin_public_urls(monkeypatch, _APP_URL, f"{_APP_URL}/geo-api")
 
     resp = await _redeem(client, token)
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "device_trust_unavailable"
-    monkeypatch.undo()
+    _pin_public_urls(monkeypatch, _APP_URL, f"{_APP_URL}/api")
     assert (await _redeem(client, token)).status_code == 204
 
 
