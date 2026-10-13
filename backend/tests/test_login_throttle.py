@@ -799,3 +799,21 @@ async def test_a_trust_link_post_without_the_app_header_is_refused(client: Async
     assert resp.status_code == 400
     assert resp.headers.get_list("set-cookie") == []
     assert (await _redeem(client, token)).status_code == 204
+
+
+async def test_a_secret_rotation_voids_an_unused_trust_link(
+    client: AsyncClient, monkeypatch
+):
+    from pydantic import SecretStr
+
+    from app.modules.auth import login_throttle
+
+    username = await _new_user(client)
+    token = await _mint_trust_link(username)
+    monkeypatch.setattr(
+        login_throttle.settings, "jwt_secret_key", SecretStr("rotated-" + "x" * 40)
+    )
+
+    resp = await _redeem(client, token)
+    assert resp.status_code == 404
+    assert resp.headers.get_list("set-cookie") == []

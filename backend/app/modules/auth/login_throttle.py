@@ -502,9 +502,21 @@ async def redeem_trust_token(db: AsyncSession, token: str) -> tuple[str, str] | 
     ).one_or_none()
     if row is None:
         return None
-    # A credential reset since the link was minted voids it, as it voids
-    # every remembered browser.
-    key_epoch = await db.scalar(select(User.key_epoch).where(User.id == row.user_id))
-    if key_epoch is None or account_binding(row.user_id, key_epoch) != row.binding:
+    # A credential reset, rename or secret rotation since the link was minted
+    # voids it, as each does every remembered browser.
+    current = (
+        await db.execute(
+            select(func.lower(User.username), User.key_epoch).where(
+                User.id == row.user_id
+            )
+        )
+    ).one_or_none()
+    if current is None:
+        return None
+    normalized, key_epoch = current
+    if (
+        login_account_key(normalized) != row.account_key
+        or account_binding(row.user_id, key_epoch) != row.binding
+    ):
         return None
     return row.account_key, row.binding
