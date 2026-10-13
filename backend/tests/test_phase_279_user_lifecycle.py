@@ -73,6 +73,9 @@ def test_user_fk_delete_behavior_locked():
         # Feature-create retry keys are per-user request state that matches a
         # retry to its first attempt; nothing can retry once the user is gone.
         "feature_create_keys.user_id",
+        # Single-use sign-in trust links name the account they remember a
+        # browser for; one for a deleted account must stop working.
+        "login_trust_tokens.user_id",
     }
 
     bad_fks: list[str] = []
