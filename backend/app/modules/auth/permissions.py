@@ -10,11 +10,11 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.modules.auth.models import Role, UserRole
+from app.modules.auth.models import Role, User, UserRole
 from app.core.permissions import (
     ALL_CAPABILITIES,
     CREATE_LAYERS,
@@ -121,12 +121,29 @@ async def get_user_roles(db: AsyncSession, user: Identity) -> set[str]:
     catalog; ``catalog.authorization`` re-exports it so its callers are
     unaffected.
     """
-    result = await db.execute(
+    result = await db.execute(_role_names(user.id))
+    return {row[0] for row in result.all()}
+
+
+def _role_names(user_id: Any) -> Select[tuple[str]]:
+    return (
         select(Role.name)
         .join(UserRole, Role.id == UserRole.role_id)
-        .where(UserRole.user_id == user.id)
+        .where(UserRole.user_id == user_id)
     )
-    return {row[0] for row in result.all()}
+
+
+def user_standing_columns(user_id: Any) -> tuple[ColumnElement, ColumnElement]:
+    """``user_id``'s role names (``roles``, an array) and whether the account
+    is active (``active``, NULL for no account), as columns for another
+    statement to select."""
+    return (
+        func.array(_role_names(user_id).scalar_subquery()).label("roles"),
+        select(User.is_active)
+        .where(User.id == user_id)
+        .scalar_subquery()
+        .label("active"),
+    )
 
 
 # ---------------------------------------------------------------------------

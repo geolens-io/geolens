@@ -1236,21 +1236,20 @@ async def lock_catalog_rows_for_write(
 ) -> Bounds | None:
     """Take this dataset's catalog rows in the house order, then read its extent.
 
-    Entry point to `platform.catalog_locks.lock_catalog_rows` — call from
-    ANY request path that dirties either row. Returns None unless the extent
-    is a simple POLYGON: an antimeridian-crossing dataset stores a
-    two-ring MULTIPOLYGON whose ST_XMin/ST_XMax are -180/180, so a longitude
-    in the gap would test inside a box the geometry never occupies.
-    The lock must be taken before either metadata path reads the
-    extent, or interleaved read-decide-write could shrink it from a stale
-    aggregate.
+    Entry point to `platform.catalog_locks.lock_catalog_rows` for ANY request path
+    that dirties either row. Re-checks under the lock the writer a guard admitted.
+    Returns None unless the extent is a simple POLYGON: an antimeridian-crossing
+    dataset stores a two-ring MULTIPOLYGON whose ST_XMin/ST_XMax are -180/180, so
+    a longitude in the gap would test inside a box the geometry never occupies.
+    The lock comes before either metadata path reads the extent, so interleaved
+    read-decide-write cannot shrink it from a stale aggregate.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
     from app.modules.catalog.datasets.domain.models import Record
+    from app.modules.catalog.write_recheck import recheck_dataset_write_access
     from app.platform.catalog_locks import lock_catalog_rows
 
-    # Through the port: `catalog/` may not import `app.processing.*`
-    # as enforced by the layering test.
+    # Through the port: the layering test keeps `app.processing.*` out of catalog.
     raster_asset_cls = (
         get_catalog_port().raster_asset_orm_class() if with_raster_asset else None
     )
@@ -1263,6 +1262,7 @@ async def lock_catalog_rows_for_write(
         record_id=dataset.record_id,
         raster_asset_cls=raster_asset_cls,
     )
+    await recheck_dataset_write_access(session, dataset)
 
     # Both rows are held now, so this is an ordinary read.
     result = await session.execute(

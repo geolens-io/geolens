@@ -20,10 +20,13 @@ from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service_diff import _replace_layers
 from app.modules.catalog.maps.service_layers import (
+    MAP_WRITE_DENIED,
     bulk_check_dataset_access,
     lock_map_layers,
+    recheck_map_ownership,
     terrain_dataset_ids_visible_to,
 )
+from app.modules.catalog.write_recheck import admit_writer
 from app.core.text import escape_ilike
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.catalog.maps.service_shared import (
@@ -65,7 +68,8 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     """Take the row lock that serializes one map's asset replacements.
 
     Callers take it AFTER validating the payload, so no decode or image
-    verification runs under the lock.
+    verification runs under the lock. Re-checks the writer
+    ``check_map_ownership`` admitted.
 
     Overlapping uploads can race their cleanup and
     strand the row on an object the other just deleted (404 on read).
@@ -103,6 +107,7 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Map not found",
         )
+    await recheck_map_ownership(session, map_id)
     return row
 
 
@@ -262,16 +267,15 @@ async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
 
 
 async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:
-    """Verify user owns the map or is admin. Raises 403 if neither."""
-    if map_obj.created_by == user.id:
-        return
-    user_roles = await get_user_roles(db, user)
-    if "admin" in user_roles:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Not authorized to modify this map",
-    )
+    """Verify user owns the map or is admin. Raises 403 if neither.
+
+    The map row locks check the caller again; see ``recheck_map_ownership``.
+    """
+    if map_obj.created_by != user.id and "admin" not in await get_user_roles(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=MAP_WRITE_DENIED
+        )
+    admit_writer(db, ("map", map_obj.id), user)
 
 
 async def create_map(
@@ -546,6 +550,8 @@ async def update_map(
         await _replace_layers(session, map_id, layers)
 
     await session.flush()
+    # The flush's UPDATE holds the map row when there was one to write.
+    await recheck_map_ownership(session, map_id)
     # Combined LEFT JOIN reads forked_name + owner_username + DB-side
     # updated_at in one round-trip — eliminates the explicit
     # ``session.refresh(map_obj)`` previously needed for ``updated_at``.

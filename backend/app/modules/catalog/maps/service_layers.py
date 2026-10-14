@@ -25,6 +25,9 @@ from app.modules.catalog.maps.service_shared import (
     get_dataset_meta,
     normalize_dem_style_config,
 )
+from app.modules.catalog.write_recheck import recheck_admitted_writer
+
+MAP_WRITE_DENIED = "Not authorized to modify this map"
 
 
 async def bulk_check_dataset_access(
@@ -105,7 +108,8 @@ async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
     insert on a stale count after another admitted its layer. Only the wait for
     this lock is bounded; a wait that outlasts the bound answers 409. The lock
     leaves the map's key shareable, so a layer delete holding its rows can still
-    insert the history event that references the map.
+    insert the history event that references the map. Re-checks the writer
+    ``check_map_ownership`` admitted.
     """
     await session.execute(
         text("SELECT set_config('lock_timeout', :timeout, true)"),
@@ -124,6 +128,26 @@ async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
             detail="Another change to this map is in progress. Retry shortly.",
         ) from exc
     await session.execute(text("RESET lock_timeout"))
+    await recheck_map_ownership(session, map_id)
+
+
+async def recheck_map_ownership(session: AsyncSession, map_id: uuid.UUID) -> None:
+    """Re-run ``check_map_ownership`` for the writer it admitted, against the
+    owner and roles as committed now. Call holding the map row lock."""
+
+    async def enforce(user: Identity, row: Any) -> None:
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
+            )
+        if not row.active or (row.created_by != user.id and "admin" not in row.roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=MAP_WRITE_DENIED
+            )
+
+    await recheck_admitted_writer(
+        session, ("map", map_id), (Map.created_by,), Map.id == map_id, enforce
+    )
 
 
 async def _admit_layer(session: AsyncSession, map_id: uuid.UUID) -> None:

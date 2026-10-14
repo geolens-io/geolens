@@ -33,6 +33,7 @@ from app.core.identity import Identity
 from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
 from app.modules.auth.permissions import get_user_roles as _get_user_roles
+from app.modules.catalog.write_recheck import admit_writer
 from app.platform.extensions import (
     DefaultPermissionExtension,
     RecordAudienceQuery,
@@ -491,19 +492,22 @@ async def check_dataset_write_access(
     (``record.created_by`` is NULL) are admin-only.
 
     Returns the resolved ``user_roles`` set so callers can reuse it downstream.
+    The caller is checked again once the write holds the catalog row lock; see
+    :func:`~app.modules.catalog.write_recheck.recheck_dataset_write_access`.
     """
     user_roles = await check_dataset_access(
         db, dataset, dataset_id, user, user_roles=user_roles
     )
     created_by = dataset.record.created_by
-    if created_by is not None and created_by == user.id:
-        return user_roles
-    if "admin" in user_roles:
+    if (created_by is not None and created_by == user.id) or "admin" in user_roles:
+        admit_writer(db, ("dataset", dataset_id), user)
         return user_roles
     raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Only the dataset owner or an admin may modify this dataset.",
+        status_code=status.HTTP_403_FORBIDDEN, detail=DATASET_WRITE_DENIED
     )
+
+
+DATASET_WRITE_DENIED = "Only the dataset owner or an admin may modify this dataset."
 
 
 async def require_dataset_editing_enabled(db: AsyncSession) -> None:
