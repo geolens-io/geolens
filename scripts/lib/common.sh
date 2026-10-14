@@ -82,6 +82,7 @@ compose() {
   _cf_argc=$#
   _cf_ifs=$IFS
   IFS=:
+  set -f
   for _cf_entry in $COMPOSE_FILE; do
     case "$_cf_entry" in
       "") ;;
@@ -89,6 +90,7 @@ compose() {
       *) set -- "$@" -f "$PROJECT_ROOT/$_cf_entry" ;;
     esac
   done
+  set +f
   IFS=$_cf_ifs
   set -- "$@" --project-directory "$PROJECT_ROOT"
   while [ "$_cf_argc" -gt 0 ]; do

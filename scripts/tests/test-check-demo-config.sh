@@ -88,6 +88,19 @@ if ! TEST_CONFIG_FILES=$LISTED PATH="$FAKE_BIN:$PATH" \
 fi
 printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\n' >"$PROJECT/.env"
 
+# Glob characters and commas in an entry are literal.
+mkdir -p "$PROJECT/a,b"
+: >"$PROJECT/over[1].yml"
+: >"$PROJECT/over1.yml"
+: >"$PROJECT/a,b/o.yml"
+printf 'COMPOSE_FILE=docker-compose.prod.yml:over[1].yml:a,b/o.yml\n' >"$PROJECT/.env"
+if ! (cd "$PROJECT" && TEST_CONFIG_FILES="$PROJECT/docker-compose.prod.yml,$PROJECT/over[1].yml,$PROJECT/a,b/o.yml" \
+    PATH="$FAKE_BIN:$PATH" "$PROJECT/scripts/check-demo-config.sh" >/dev/null 2>&1); then
+    printf 'FAIL: a glob or comma in a compose path was mishandled\n' >&2
+    exit 1
+fi
+printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\n' >"$PROJECT/.env"
+
 if TEST_CONFIG_FILES=$PROJECT/docker-compose.prod.yml PATH="$FAKE_BIN:$PATH" \
     "$PROJECT/scripts/check-demo-config.sh" >/dev/null 2>&1; then
     printf 'FAIL: a container missing the override file was accepted\n' >&2

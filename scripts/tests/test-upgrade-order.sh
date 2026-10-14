@@ -1045,6 +1045,20 @@ else
   bad "a backend/app bind mount was not refused (exit=$(cat "$WORK/code.txt"))"
 fi
 
+# A glob character in an entry is literal, not a pattern.
+seed_prod_env
+printf 'services: {}\n' > "$FAKE/over[1].yml"
+printf 'services: {}\n' > "$FAKE/over1.yml"
+printf 'COMPOSE_FILE=docker-compose.prod.yml:over[1].yml\nGEOLENS_VERSION=1.2.3\n' > "$FAKE/.env"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && grep -qF "$FAKE/over[1].yml" "$CALLLOG.files" \
+   && ! grep -qF "$FAKE/over1.yml" "$CALLLOG.files"; then
+  ok "a glob character in a COMPOSE_FILE entry is taken literally"
+else
+  bad "a glob in a COMPOSE_FILE entry was expanded: $(sort -u "$CALLLOG.files" | tr '\n' ',')"
+fi
+rm -f "$FAKE/over[1].yml" "$FAKE/over1.yml"
+
 # Entries with spaces stay copy-pasteable in the recovery hints.
 mkdir -p "$FAKE/my overrides"
 printf 'services: {}\n' > "$FAKE/my overrides/o.yml"

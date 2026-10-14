@@ -19,9 +19,13 @@ fail() {
     exit 1
 }
 
+NL='
+'
 COMPOSE_PATHS=""
+COMPOSE_LABEL=""
 _ifs=$IFS
 IFS=:
+set -f
 for entry in $COMPOSE_FILE; do
     [ -n "$entry" ] || continue
     case "$entry" in
@@ -32,18 +36,22 @@ for entry in $COMPOSE_FILE; do
     # Compose records the cleaned absolute path in its container label.
     dir="$(cd "$(dirname "$path")" && pwd)"
     path="${dir%/}/$(basename "$path")"
-    COMPOSE_PATHS="${COMPOSE_PATHS:+$COMPOSE_PATHS,}$path"
+    COMPOSE_PATHS="${COMPOSE_PATHS:+$COMPOSE_PATHS$NL}$path"
+    COMPOSE_LABEL="${COMPOSE_LABEL:+$COMPOSE_LABEL,}$path"
 done
+set +f
 IFS=$_ifs
 [ -n "$COMPOSE_PATHS" ] || fail "COMPOSE_FILE is empty"
 
 compose() {
     _argc=$#
     _ifs=$IFS
-    IFS=,
+    IFS=$NL
+    set -f
     for path in $COMPOSE_PATHS; do
         set -- "$@" -f "$path"
     done
+    set +f
     IFS=$_ifs
     set -- "$@" --project-directory "$PROJECT_ROOT"
     while [ "$_argc" -gt 0 ]; do
@@ -66,8 +74,8 @@ for container in $running; do
     actual="$(docker inspect --format \
         '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' \
         "$container")" || fail "could not inspect container $container"
-    [ "$actual" = "$COMPOSE_PATHS" ] \
-        || fail "container $container was created from '$actual' but COMPOSE_FILE resolves to '$COMPOSE_PATHS'; recreate it with a bare 'docker compose up -d'"
+    [ "$actual" = "$COMPOSE_LABEL" ] \
+        || fail "container $container was created from '$actual' but COMPOSE_FILE resolves to '$COMPOSE_LABEL'; recreate it with a bare 'docker compose up -d'"
 done
 
 # Render Compose so this also catches a pending .env change that would take

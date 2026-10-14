@@ -103,6 +103,7 @@ COMPOSE_FLAGS=""
 COMPOSE_IS_PREBUILT=0
 _cf_ifs=$IFS
 IFS=:
+set -f
 for _cf_entry in $COMPOSE_FILE; do
   [ -n "$_cf_entry" ] || continue
   [ -f "$_cf_entry" ] || fail "COMPOSE_FILE lists $_cf_entry, which does not exist in $PROJECT_ROOT."
@@ -110,6 +111,7 @@ for _cf_entry in $COMPOSE_FILE; do
   # Any spelling of the prod file (./, absolute, a/../) counts.
   [ "$(compose_clean_path "$_cf_entry")" != "$PROJECT_ROOT/docker-compose.prod.yml" ] || COMPOSE_IS_PREBUILT=1
 done
+set +f
 IFS=$_cf_ifs
 COMPOSE_FLAGS=${COMPOSE_FLAGS# }
 if [ "$COMPOSE_IS_PREBUILT" != "1" ]; then
