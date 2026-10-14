@@ -135,17 +135,20 @@ if [ "$COMPOSE_IS_PREBUILT" != "1" ]; then
   exit 0
 fi
 
-# The prod file does not reset a build definition merged in from another file,
-# and `pull --ignore-buildable` would skip that image, leaving the old checkout
-# to run. The db service builds locally by design.
-_buildable="$(compose config 2>/dev/null | awk '
+# The prod file does not reset a build definition or a source bind mount merged
+# in from another file. `pull --ignore-buildable` would skip a buildable image,
+# and a mounted ./backend/app or ./backend/alembic hides the target image's code,
+# so the old checkout would run. The db service builds locally by design.
+_rendered="$(compose config 2>/dev/null)" || _rendered=""
+_buildable="$(printf '%s\n' "$_rendered" | awk '
   /^services:/ { in_services = 1; next }
   /^[^ ]/ { in_services = 0 }
   in_services && /^  [A-Za-z0-9_-]+:/ { service = $1; sub(":", "", service) }
   in_services && /^    build:/ && service != "db" { print service }
-')" || _buildable=""
+  in_services && /^ +source: .*\/backend\/(app|alembic)\/?$/ { print service }
+')"
 if [ -n "$_buildable" ]; then
-  fail "COMPOSE_FILE gives $(printf '%s' "$_buildable" | tr '\n' ' ')a build definition. This script upgrades prebuilt-image installs only."
+  fail "COMPOSE_FILE makes $(printf '%s' "$_buildable" | sort -u | tr '\n' ' ')build or run from the checkout. This script upgrades prebuilt-image installs only."
 fi
 
 export GEOLENS_VERSION="${CURRENT_VERSION:-latest}"

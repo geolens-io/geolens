@@ -1020,7 +1020,7 @@ printf 'services: {}\n' > "$FAKE/override.yml"
 CONFIG_OUT='services:\n  db:\n    build:\n      context: db\n  api:\n    build:\n      context: backend\n'
 run_upgrade ok 1.2.4
 CONFIG_OUT=
-if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'build definition' "$WORK/out.txt" \
+if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'build or run from the checkout' "$WORK/out.txt" \
    && [ -z "$(pos_of backup)" ]; then
   ok "a COMPOSE_FILE list that makes api buildable is refused before any backup"
 else
@@ -1033,6 +1033,16 @@ if [ "$(cat "$WORK/code.txt")" = "0" ]; then
   ok "the db service's own build definition does not block an upgrade"
 else
   bad "a buildable db blocked the upgrade (exit=$(cat "$WORK/code.txt"))"
+fi
+
+CONFIG_OUT='services:\n  api:\n    volumes:\n      - type: bind\n        source: /srv/geolens/backend/app\n        target: /app/app\n'
+run_upgrade ok 1.2.4
+CONFIG_OUT=
+if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'run from the checkout' "$WORK/out.txt" \
+   && [ -z "$(pos_of backup)" ]; then
+  ok "a source bind mount over the app code is refused before any backup"
+else
+  bad "a backend/app bind mount was not refused (exit=$(cat "$WORK/code.txt"))"
 fi
 
 # Entries with spaces stay copy-pasteable in the recovery hints.
