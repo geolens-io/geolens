@@ -105,7 +105,8 @@ async function connectToDuplicateNameService() {
   const user = userEvent.setup();
   render(<ServiceUrlForm />);
 
-  await user.type(
+  await enterUrl(
+    user,
     screen.getByPlaceholderText('serviceUrl.placeholder'),
     'https://example.test/arcgis/rest/services/Rec/FeatureServer',
   );
@@ -218,9 +219,21 @@ function futureExpiry(msFromNow = 60 * 60 * 1000): string {
   return new Date(Date.now() + msFromNow).toISOString();
 }
 
+// One input event per URL instead of one per character: typing an ~85
+// character URL through this form can outlast the test timeout on a loaded
+// runner, and only the resulting URL matters to these tests.
+async function enterUrl(
+  user: ReturnType<typeof userEvent.setup>,
+  input: HTMLElement,
+  url: string,
+) {
+  await user.click(input);
+  await user.paste(url);
+}
+
 async function typeArcGisUrl(user: ReturnType<typeof userEvent.setup>) {
   render(<ServiceUrlForm />);
-  await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
+  await enterUrl(user, screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
   return user;
 }
 
@@ -270,7 +283,8 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     await user.clear(urlInput);
-    await user.type(
+    await enterUrl(
+      user,
       urlInput,
       'https://services7.arcgis.com/other-org/arcgis/rest/services/Bar/FeatureServer',
     );
@@ -287,7 +301,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     render(<ServiceUrlForm />);
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
-    await user.type(urlInput, 'https://example.test/wfs');
+    await enterUrl(user, urlInput, 'https://example.test/wfs');
     // feat(#1746 B4): the non-ArcGIS bearer field is now behind its own
     // method select, sharing the `token` state with ArcGIS's 'token'
     // method — the very thing this test proves does not carry across.
@@ -296,7 +310,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     await user.type(screen.getByLabelText('Bearer token'), 'stale-wfs-token');
 
     await user.clear(urlInput);
-    await user.type(urlInput, ARCGIS_URL);
+    await enterUrl(user, urlInput, ARCGIS_URL);
 
     // The plain token field and the ArcGIS token-method field are the same
     // underlying state; it must not carry the WFS-typed value across.
@@ -332,7 +346,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     const sameOriginNonArcGis = 'https://services6.arcgis.com/some/wfs/endpoint';
-    await user.type(urlInput, sameOriginNonArcGis);
+    await enterUrl(user, urlInput, sameOriginNonArcGis);
     await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
     await user.click(await screen.findByRole('option', { name: 'Bearer token' }));
     await user.type(screen.getByLabelText('Bearer token'), 'stale-token');
@@ -340,7 +354,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     // Path-only edit, SAME origin, now ArcGIS-shaped (matches ARCGIS_URL's
     // origin exactly).
     await user.clear(urlInput);
-    await user.type(urlInput, ARCGIS_URL);
+    await enterUrl(user, urlInput, ARCGIS_URL);
 
     expect(screen.getByRole('combobox', { name: 'Authentication' })).toHaveTextContent(
       'No authentication',
@@ -367,7 +381,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     const sameOriginNonArcGis = 'https://services6.arcgis.com/some/wfs/endpoint';
     await user.clear(urlInput);
-    await user.type(urlInput, sameOriginNonArcGis);
+    await enterUrl(user, urlInput, sameOriginNonArcGis);
 
     // No longer ArcGIS-shaped: the ArcGIS-specific method (and its pasted
     // token) is gone, replaced by the four-way WFS/OGC API Features select
@@ -391,18 +405,20 @@ describe('ServiceUrlForm credential reset notice', () => {
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     await user.clear(urlInput);
-    await user.type(urlInput, OTHER_ORG_URL);
+    await enterUrl(user, urlInput, OTHER_ORG_URL);
 
     expect(screen.getByTestId('credentials-reset-notice')).toBeInTheDocument();
   });
 
   it('stays quiet while the first URL is typed and when nothing was set', async () => {
-    const user = await typeArcGisUrl(userEvent.setup());
+    const user = userEvent.setup();
+    render(<ServiceUrlForm />);
+    await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
     expect(screen.queryByTestId('credentials-reset-notice')).not.toBeInTheDocument();
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     await user.clear(urlInput);
-    await user.type(urlInput, OTHER_ORG_URL);
+    await enterUrl(user, urlInput, OTHER_ORG_URL);
 
     expect(screen.queryByTestId('credentials-reset-notice')).not.toBeInTheDocument();
   });
@@ -422,7 +438,7 @@ describe('ServiceUrlForm credential reset notice', () => {
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     await user.clear(urlInput);
-    await user.type(urlInput, OTHER_ORG_URL);
+    await enterUrl(user, urlInput, OTHER_ORG_URL);
     expect(screen.getByTestId('credentials-reset-notice')).toBeInTheDocument();
 
     await chooseAuthMethod(user, 'Sign in with username and password');
@@ -570,7 +586,8 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     await user.clear(urlInput);
-    await user.type(
+    await enterUrl(
+      user,
       urlInput,
       'https://services7.arcgis.com/other-org/arcgis/rest/services/Bar/FeatureServer',
     );
@@ -674,7 +691,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
       });
 
       const { unmount } = render(<ServiceUrlForm />);
-      await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
+      await enterUrl(user, screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
       await fillSigninForm(user);
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -815,7 +832,8 @@ describe('ServiceUrlForm portal URL guidance', () => {
     const user = userEvent.setup();
     render(<ServiceUrlForm />);
 
-    await user.type(
+    await enterUrl(
+      user,
       screen.getByPlaceholderText('serviceUrl.placeholder'),
       'https://myorg.maps.arcgis.com/home/index.html',
     );
