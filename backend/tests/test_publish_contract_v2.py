@@ -198,3 +198,34 @@ def test_required_fields_are_required(path):
         target = target[step]
     del target[path[-1]]
     assert not VALIDATOR.is_valid(manifest)
+
+
+@pytest.mark.parametrize(
+    ("path", "low", "high"),
+    [
+        (("maps", 0, "view", "zoom"), 0, 24),
+        (("maps", 0, "view", "pitch"), 0, 85),
+        (("maps", 0, "view", "bearing"), -180, 180),
+        (("maps", 0, "view", "center", 0), -180, 180),
+        (("maps", 0, "view", "center", 1), -90, 90),
+        (("maps", 0, "layers", 0, "opacity"), 0, 1),
+        (("maps", 0, "layers", 0, "min_zoom"), 0, 24),
+        (("maps", 0, "layers", 0, "max_zoom"), 0, 24),
+        (("datasets", 0, "metadata", "bbox", 0), -180, 180),
+        (("datasets", 0, "metadata", "bbox", 3), -180, 180),
+    ],
+)
+def test_numeric_ranges_are_inclusive_and_bounded(path, low, high):
+    def with_value(value):
+        manifest = copy.deepcopy(_valid("create"))
+        manifest["datasets"][0]["metadata"]["bbox"] = [-89.7, 39.7, -89.6, 39.8]
+        target = manifest
+        for step in path[:-1]:
+            target = target[step]
+        target[path[-1]] = value
+        return manifest
+
+    assert VALIDATOR.is_valid(with_value(low))
+    assert VALIDATOR.is_valid(with_value(high))
+    assert not VALIDATOR.is_valid(with_value(low - 0.5))
+    assert not VALIDATOR.is_valid(with_value(high + 0.5))
