@@ -2887,6 +2887,14 @@ def test_scheme_token_masking_stops_at_url_separators(tail):
     assert cleaned["a"]["b"]["c"]["note"] == "Token [REDACTED]" + tail
 
 
+@pytest.mark.parametrize("name", ["authorization", "cookie"])
+def test_header_parameter_scan_is_linear_on_quote_runs(name):
+    raw = f"https://s.example/q?{name}=" + '\\"' * 30000 + "&x=1"
+    started = time.perf_counter()
+    inventory.redact_json(_nested(raw), inventory.Redactor())
+    assert time.perf_counter() - started < 1
+
+
 def test_json_text_inside_a_string_keeps_its_structure():
     raw = json.dumps({"layers": [{"id": 1, "token": "abc123KEY"}], "title": "T"})
     cleaned = inventory.redact_json({"cfg": raw}, inventory.Redactor())
