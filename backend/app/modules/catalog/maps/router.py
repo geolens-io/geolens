@@ -651,7 +651,7 @@ async def update_map_endpoint(
         )
 
     if "layers" in kwargs:
-        await _reject_non_public_datasets(db, map_obj)
+        await _reject_non_public_datasets(db, map_obj, None if new_visibility else user)
         # builder-audit #338 P0-01: replacing the layer set can drop a dataset an
         # embed token is scoped to; revoke any orphaned embed tokens so they
         # stop serving tiles for content the map no longer exposes.

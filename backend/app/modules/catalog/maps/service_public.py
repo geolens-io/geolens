@@ -31,6 +31,7 @@ from app.modules.catalog.maps.service_crud import get_map
 from app.modules.catalog.maps.service_shared import (
     _apply_map_visibility_filter,
     _extract_dem_vertical_units,
+    readable_dataset_ids,
 )
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
@@ -50,19 +51,25 @@ if TYPE_CHECKING:
 
 
 async def validate_public_visibility(
-    session: AsyncSession, map_id: uuid.UUID
+    session: AsyncSession, map_id: uuid.UUID, reader: Identity | None = None
 ) -> list[str]:
-    """Return names of non-public datasets in this map. Empty = OK to publish."""
+    """Return names of non-public datasets in this map. Empty = OK to publish.
+
+    With ``reader``, datasets that map reads hide from the reader don't count.
+    """
     stmt = (
-        select(Record.title, Record.visibility)
+        select(Record.title, Dataset.id)
         .select_from(MapLayer)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .where(MapLayer.map_id == map_id)
         .where(Record.visibility != "public")
     )
-    result = await session.execute(stmt)
-    return [row[0] for row in result.all()]
+    rows = (await session.execute(stmt)).all()
+    if reader is not None:
+        readable = await readable_dataset_ids(session, {row[1] for row in rows}, reader)
+        rows = [row for row in rows if row[1] in readable]
+    return [row[0] for row in rows]
 
 
 # fix(#931): the two shared audiences — a private map has no audience

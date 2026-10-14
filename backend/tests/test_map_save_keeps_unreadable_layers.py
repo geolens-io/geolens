@@ -6,6 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, update
 
 from app.modules.catalog.datasets.domain.models import Record
+from app.modules.catalog.maps import service_diff
 from app.modules.catalog.maps.models import Map, MapLayer
 
 from tests.factories import create_dataset, create_user, get_user_id
@@ -21,7 +22,7 @@ async def _map_with_hidden_middle_layer(
     owner_header, _ = await create_user(client, admin_auth_header, "editor")
     datasets = {
         key: await create_dataset(session, created_by=admin_id)
-        for key in ("a", "hidden", "b")
+        for key in ("a", "hidden", "b", "c")
     }
     created = await client.post(
         "/maps/", json={"name": f"Owner {uuid.uuid4().hex[:6]}"}, headers=owner_header
@@ -102,18 +103,17 @@ async def test_full_replace_keeps_hidden_layer_and_deletes_left_out_visible_one(
         f"/maps/{map_id}",
         json={
             "layers": [
-                _layer_input(ids["b"], ds["b"], 0),
-                _layer_input(ids["a"], ds["a"], 1),
+                _layer_input(ids["a"], ds["a"], 2),
+                {"dataset_id": str(ds["c"]), "sort_order": 0},
+                _layer_input(ids["b"], ds["b"], 1),
             ]
         },
         headers=owner,
     )
     assert swapped.status_code == 200, swapped.text
-    assert await _stored_stack(test_db_session, map_id) == [
-        ids["b"],
-        ids["hidden"],
-        ids["a"],
-    ]
+    stack = await _stored_stack(test_db_session, map_id)
+    assert stack[1:] == [ids["hidden"], ids["b"], ids["a"]]
+    ids["c"] = stack[0]
 
     dropped = await client.put(
         f"/maps/{map_id}",
@@ -122,6 +122,61 @@ async def test_full_replace_keeps_hidden_layer_and_deletes_left_out_visible_one(
     )
     assert dropped.status_code == 200, dropped.text
     assert await _stored_stack(test_db_session, map_id) == [ids["hidden"], ids["a"]]
+
+
+async def test_full_replace_counts_hidden_layers_against_the_cap(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    owner, map_id, ids, ds = await _map_with_hidden_middle_layer(
+        client, admin_auth_header, test_db_session
+    )
+    monkeypatch.setattr(service_diff, "_MAX_LAYERS_PER_MAP", 2)
+
+    over = await client.put(
+        f"/maps/{map_id}",
+        json={
+            "layers": [
+                _layer_input(ids["a"], ds["a"], 0),
+                _layer_input(ids["b"], ds["b"], 1),
+            ]
+        },
+        headers=owner,
+    )
+    assert over.status_code == 400, over.text
+    assert await _stored_stack(test_db_session, map_id) == [
+        ids["a"],
+        ids["hidden"],
+        ids["b"],
+    ]
+
+
+async def test_public_map_full_replace_ignores_hidden_non_public_layer(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    owner, map_id, ids, ds = await _map_with_hidden_middle_layer(
+        client, admin_auth_header, test_db_session
+    )
+    await test_db_session.execute(
+        update(Map).where(Map.id == uuid.UUID(map_id)).values(visibility="public")
+    )
+    await test_db_session.commit()
+
+    saved = await client.put(
+        f"/maps/{map_id}",
+        json={
+            "layers": [
+                _layer_input(ids["b"], ds["b"], 0),
+                _layer_input(ids["a"], ds["a"], 1),
+            ]
+        },
+        headers=owner,
+    )
+    assert saved.status_code == 200, saved.text
+    assert await _stored_stack(test_db_session, map_id) == [
+        ids["b"],
+        ids["hidden"],
+        ids["a"],
+    ]
 
 
 async def test_save_naming_no_dem_keeps_hidden_terrain_binding(
@@ -175,7 +230,7 @@ async def test_patch_order_keeps_hidden_layer_in_place(
 
     swapped = await client.patch(
         f"/maps/{map_id}/layers",
-        json={"order": [ids["b"], ids["a"]]},
+        json={"order": [ids["hidden"], ids["b"], ids["a"]]},
         headers=owner,
     )
     assert swapped.status_code == 200, swapped.text

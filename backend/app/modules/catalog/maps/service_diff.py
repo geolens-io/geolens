@@ -298,9 +298,8 @@ async def _replace_layers(
 ) -> None:
     """Reconcile a map's layers against ``layers`` by id.
 
-    fix(#430): update existing rows in place by id (create only for
-    unknown ids, delete rows no longer present) instead of delete-all-insert,
-    which regenerated every layer UUID and broke embed configs/bookmarks.
+    Existing rows are updated in place by id, so layer UUIDs that embed
+    configs and bookmarks hold stay stable; unknown ids create rows.
     A stored layer ``layers`` leaves out is kept, in its place in the stack,
     when map reads hide its dataset from ``user``.
     Applies default styles if paint/layout is None. Flushes but does NOT commit.

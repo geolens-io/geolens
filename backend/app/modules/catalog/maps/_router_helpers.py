@@ -261,15 +261,18 @@ async def _check_map_read_access(
             )
 
 
-async def _reject_non_public_datasets(db: AsyncSession, map_obj: Map) -> None:
+async def _reject_non_public_datasets(
+    db: AsyncSession, map_obj: Map, reader: Identity | None = None
+) -> None:
     """Raise 400 when a public map's layers include a non-public dataset.
 
     Publishing runs the same check, but a map that is already public only
-    meets it again when its layers change.
+    meets it again when its layers change. With ``reader``, only datasets the
+    reader can see count, since a save keeps the layers it can't see.
     """
     if map_obj.visibility != "public":
         return
-    non_public = await validate_public_visibility(db, map_obj.id)
+    non_public = await validate_public_visibility(db, map_obj.id, reader)
     if non_public:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
