@@ -2890,6 +2890,15 @@ def test_scheme_token_masking_stops_at_url_separators(tail):
 
 
 @pytest.mark.parametrize("name", ["authorization", "cookie"])
+@pytest.mark.parametrize("quote", ['"', "'"])
+@pytest.mark.parametrize("end", ["", "\nkeep=this"])
+def test_unterminated_quote_ending_in_a_backslash_is_masked(name, quote, end):
+    raw = f"https://s.example/q?{name}=Digest {quote}AAAA1111\\{end}"
+    cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
+    assert "AAAA1111" not in json.dumps(cleaned)
+
+
+@pytest.mark.parametrize("name", ["authorization", "cookie"])
 def test_header_parameter_scan_is_linear_on_quote_runs(name):
     raw = f"https://s.example/q?{name}=" + '\\"' * 30000 + "&x=1"
     started = time.perf_counter()
