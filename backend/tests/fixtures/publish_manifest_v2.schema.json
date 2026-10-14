@@ -220,6 +220,7 @@
         "visible_fields": {
           "type": ["array", "null"],
           "maxItems": 100,
+          "uniqueItems": true,
           "items": {"type": "string", "minLength": 1, "maxLength": 128}
         }
       }
@@ -264,6 +265,7 @@
         "visibility": {"$ref": "#/$defs/visibility"},
         "thumbnail": {
           "type": "string",
+          "minLength": 26,
           "maxLength": 100000,
           "pattern": "^data:image/(png|jpeg);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![\\s\\S])"
         },
