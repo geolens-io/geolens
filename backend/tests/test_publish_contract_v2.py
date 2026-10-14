@@ -148,6 +148,7 @@ def test_dataset_text_fields_stop_at_their_storage_limit(path, limit):
         (("datasets", 0, "metadata", "organization"), 500),
         (("datasets", 0, "metadata", "license"), 500),
         (("datasets", 0, "metadata", "attribution"), 5000),
+        (("datasets", 0, "publication", "intent"), 20),
     ],
 )
 def test_catalog_and_dataset_text_fields_stop_at_their_limit(path, limit):
