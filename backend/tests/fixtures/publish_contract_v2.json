@@ -903,6 +903,34 @@
           }
         ]
       }
+    },
+    {
+      "name": "null_label_and_popup_config",
+      "description": "A layer that explicitly clears its label and popup configuration.",
+      "manifest": {
+        "manifest_version": "2",
+        "catalog": {
+          "title": "t"
+        },
+        "client": {
+          "id": "geolens-cli",
+          "version": "1.0.0"
+        },
+        "maps": [
+          {
+            "key": "m",
+            "name": "M",
+            "layers": [
+              {
+                "key": "l",
+                "dataset_id": "0c9e6f21-3b7a-4d58-a1e4-8f2b5c7d9a03",
+                "label_config": null,
+                "popup_config": null
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "invalid": [

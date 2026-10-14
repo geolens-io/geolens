@@ -70,6 +70,7 @@
       "properties": {
         "type": {"enum": ["vector", "raster_cog"]},
         "uri": {
+          "$comment": "The connector subset: publishing clients upload first and reference the pending job. The server also accepts the v1 source URI schemes.",
           "type": "string",
           "pattern": "^upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\\s\\S])"
         },
