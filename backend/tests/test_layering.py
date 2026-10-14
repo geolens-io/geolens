@@ -1290,7 +1290,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1151,
     # ArcGIS identity enumeration and bounded verification share this adapter.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1067,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1077,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
     "backend/app/modules/catalog/sources/router.py": 1735,
@@ -1351,7 +1351,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 919,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1616,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1651,
     # VRT creation and regeneration share publication, member re-authorization,
     # owed-object records and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1683,

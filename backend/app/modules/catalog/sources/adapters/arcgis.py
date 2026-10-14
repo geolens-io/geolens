@@ -913,6 +913,41 @@ async def fetch_arcgis_pagination_info(
     return max_record_count, supports_pagination, order_field
 
 
+async def fetch_arcgis_layer_meta(
+    base: str,
+    safe_layer_id: str,
+    client: httpx.AsyncClient,
+    token: str | None = None,
+) -> dict:
+    """The layer's own ``?f=json`` metadata, refused when it holds no rows."""
+    # Params are percent-encoded via urlencode so a URL-reserved character
+    # in the token (+, &, %) cannot corrupt the query on the pre-10.5.1 path.
+    async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+        meta = await read_arcgis_json(
+            client,
+            lambda query_token: build_arcgis_layer_info_url(
+                base, safe_layer_id, query_token
+            ),
+            token,
+        )
+
+    # fix(#1770): a non-dict response makes `.get("fields", [])` raise
+    # `AttributeError`, uncaught by this function or the router's `except
+    # (httpx.HTTPError, ValueError, ...)`, reaching the caller as a 500
+    # instead of the ordinary refusal. Raise `ValueError` to match that.
+    if not isinstance(meta, dict):
+        raise ValueError("ArcGIS layer metadata is not an object")
+
+    if "error" in meta:
+        code, message = _arcgis_error_parts(meta["error"])
+        if code in _ARCGIS_TOKEN_ERROR_CODES:
+            raise ArcGISTokenError(code, message)
+        raise ValueError(f"ArcGIS layer metadata error ({code}): {message}")
+
+    reject_unsupported_arcgis_type(meta)
+    return meta
+
+
 async def fetch_arcgis_layer_preview(
     base_url: str,
     layer_id: int | str,
@@ -940,32 +975,7 @@ async def fetch_arcgis_layer_preview(
     """
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
-
-    # Params are percent-encoded via urlencode so a URL-reserved character
-    # in the token (+, &, %) cannot corrupt the query on the pre-10.5.1 path.
-    async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
-        meta = await read_arcgis_json(
-            client,
-            lambda query_token: build_arcgis_layer_info_url(
-                base, safe_layer_id, query_token
-            ),
-            token,
-        )
-
-    # fix(#1770): a non-dict response makes `.get("fields", [])` raise
-    # `AttributeError`, uncaught by this function or the router's `except
-    # (httpx.HTTPError, ValueError, ...)`, reaching the caller as a 500
-    # instead of the ordinary refusal. Raise `ValueError` to match that.
-    if not isinstance(meta, dict):
-        raise ValueError("ArcGIS layer metadata is not an object")
-
-    if "error" in meta:
-        code, message = _arcgis_error_parts(meta["error"])
-        if code in _ARCGIS_TOKEN_ERROR_CODES:
-            raise ArcGISTokenError(code, message)
-        raise ValueError(f"ArcGIS layer metadata error ({code}): {message}")
-
-    reject_unsupported_arcgis_type(meta)
+    meta = await fetch_arcgis_layer_meta(base, safe_layer_id, client, token)
 
     columns = [
         {

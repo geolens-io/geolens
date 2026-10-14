@@ -74,6 +74,10 @@ from app.core.record_types import is_table_or_raster_backed
 from app.core.pointcloud import LAZ_WITHOUT_KIND, POINTCLOUD_FILE_TYPE, is_laz
 from app.core.tiles3d import TILESET_ARCHIVE_SUFFIX
 from app.modules.quota.service import check_replacement_quota
+from app.modules.catalog.sources.adapters.arcgis import (
+    fetch_arcgis_layer_meta,
+    normalize_arcgis_url,
+)
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.platform.service_auth import (
@@ -81,7 +85,7 @@ from app.platform.service_auth import (
     url_query_token,
     wire_credential,
 )
-from app.platform.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, make_safe_client, validate_url_for_ssrf
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.platform.upload_filenames import (
@@ -496,6 +500,34 @@ async def reupload_dataset(
     )
 
 
+async def _refuse_featureless_arcgis_layer(
+    request: ReuploadServicePreviewRequest, token: str | None
+) -> None:
+    """Raise the coded 422 for a layer that holds no rows.
+
+    Any other failure to read the metadata is left to the preview below,
+    which reports it.
+    """
+    try:
+        base, url_layer_id = normalize_arcgis_url(request.url)
+    except Exception:  # broad: malformed ArcGIS URL, the preview reports it
+        return
+    layer_id = request.layer_id if request.layer_id is not None else url_layer_id
+    if layer_id is None:
+        return
+    try:
+        async with make_safe_client(timeout=15.0) as client:
+            await fetch_arcgis_layer_meta(
+                base.rstrip("/"), str(layer_id).strip("/"), client, token
+            )
+    except HTTPException:
+        raise
+    except SSRFError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception:  # broad: unreadable metadata, the preview reports it
+        return
+
+
 @router.post(
     "/{dataset_id}/reupload/service/preview",
     response_model=ReuploadPreviewResponse,
@@ -545,6 +577,9 @@ async def reupload_service_preview(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+
+    if request.service_type.startswith("ArcGIS"):
+        await _refuse_featureless_arcgis_layer(request, url_query_token(credential))
 
     try:
         gdal_source, layer_arg = build_gdal_source(
