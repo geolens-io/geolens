@@ -2838,6 +2838,10 @@ def test_string_scrubber_keeps_ordinary_text(raw):
             "https://s.example/q?f=json;api-key=[REDACTED];layer=2",
         ),
         (
+            "https://s.example/q?authorization=Bearer abc123KEY;layer=2",
+            "https://s.example/q?authorization=[REDACTED];layer=2",
+        ),
+        (
             "https://s.example/q?api-key=abc123KEY#frag",
             "https://s.example/q?api-key=[REDACTED]#frag",
         ),
@@ -2853,6 +2857,14 @@ def test_scheme_token_masking_stops_before_markup():
     cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
     assert cleaned["a"]["b"]["c"]["note"] == (
         "<p>Use Token [REDACTED]</p><p>Next field</p>"
+    )
+
+
+def test_scheme_token_masking_stops_before_markdown_link_end():
+    raw = "[Token abc123KEYabc](https://example.com/docs)"
+    cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
+    assert (
+        cleaned["a"]["b"]["c"]["note"] == "[Token [REDACTED]](https://example.com/docs)"
     )
 
 

@@ -251,18 +251,18 @@ def _scrub_param(match: re.Match[str]) -> str:
 
 _HEADER_NAME = r"(?:proxy-)?authorization|cookie|set-cookie|(?:x[-_]?)?api[-_]?key"
 _HEADER_SEP = r"\s*[:=]\s*"
-# After ?, & or # the match is a URL parameter and ends at the next delimiter;
-# an authorization value may still hold spaces, commas and semicolons
-# ("Digest u=x, r=y") and quoted parts, and a cookie value holds semicolons and spaces.
+# After ?, & # or ; the match is a URL parameter and ends at the next
+# delimiter. An authorization value may hold spaces, commas and quoted parts
+# ("Digest u=x, r=y"); a cookie value holds spaces and semicolons.
 _HEADER = re.compile(
-    rf"(?<=[?&#;])(?P<aname>(?:x-esri-|proxy-)?authorization)(?P<asep>{_HEADER_SEP})(?:\"(?:[^\"\\\r\n]|\\.)*\"|'(?:[^'\\\r\n]|\\.)*'|[^&#\r\n])*"
+    rf"(?<=[?&#;])(?P<aname>(?:x-esri-|proxy-)?authorization)(?P<asep>{_HEADER_SEP})(?:\"(?:[^\"\\\r\n]|\\.)*\"|'(?:[^'\\\r\n]|\\.)*'|[^&#;\r\n])*"
     rf"|(?<=[?&#;])(?P<cname>(?:set-)?cookie)(?P<csep>{_HEADER_SEP})[^&#\r\n]*"
     rf"|(?<=[?&#;])(?P<uname>{_HEADER_NAME})(?P<usep>{_HEADER_SEP})[^&#;\s]*"
     rf"|\b(?P<name>x-esri-authorization|{_HEADER_NAME})(?P<sep>{_HEADER_SEP})[^\r\n]+",
     re.IGNORECASE,
 )
 _SCHEME_CREDENTIAL = re.compile(
-    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,}[^\s<>\"']*)",
+    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,}[^\s<>\"'()\[\]]*)",
     re.IGNORECASE,
 )
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*")
