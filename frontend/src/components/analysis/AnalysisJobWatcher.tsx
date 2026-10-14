@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { INTERNAL_FAILURE_REASON, fixedFailureReason } from '@/lib/failure-reason';
 import { useNavigate } from 'react-router';
@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
+import { useRefreshSearchWhenQuicklookLands } from '@/components/dataset/hooks/use-quicklook-settled';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { useAnalysisFormStore } from '@/stores/analysis-form-store';
 import {
@@ -64,6 +65,10 @@ export function AnalysisJobWatcher() {
   );
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  // The job reports complete before the output's thumbnail is drawn, and the
+  // tracked job is cleared at completion, so the watch needs an id of its own.
+  const [quicklookJobId, setQuicklookJobId] = useState<string | null>(null);
+  useRefreshSearchWhenQuicklookLands(quicklookJobId);
   // Shares its query key with the Analysis panel, so both watching costs one poll.
   const { data, error } = useJobStatus(job?.jobId ?? null);
   const status = data?.status;
@@ -191,6 +196,7 @@ export function AnalysisJobWatcher() {
       refreshedRef.current.add(job.jobId);
       queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+      if (data?.quicklook_pending) setQuicklookJobId(job.jobId);
     }
 
     // feat(#1008): with two builders open, both tabs poll this job and both

@@ -11,6 +11,7 @@ import {
 } from '@/stores/analysis-job-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
+import { useRefreshSearchWhenQuicklookLands } from '@/components/dataset/hooks/use-quicklook-settled';
 import { ApiError } from '@/api/client';
 import type { UserResponse } from '@/types/api';
 
@@ -20,6 +21,9 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 vi.mock('@/components/import/hooks/use-ingest', () => ({ useJobStatus: vi.fn() }));
+vi.mock('@/components/dataset/hooks/use-quicklook-settled', () => ({
+  useRefreshSearchWhenQuicklookLands: vi.fn(),
+}));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     // Interpolates every {{placeholder}} from options, not just one: the
@@ -279,6 +283,27 @@ describe('AnalysisJobWatcher', () => {
     // Datasets and search, one apiece.
     expect(invalidate).toHaveBeenCalledTimes(2);
     invalidate.mockRestore();
+  });
+
+  it('keeps watching for the output thumbnail after the job completes', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9', quicklook_pending: true });
+
+    renderWatcher();
+
+    await waitFor(() =>
+      expect(useRefreshSearchWhenQuicklookLands).toHaveBeenLastCalledWith('j1'),
+    );
+  });
+
+  it('does not watch for a thumbnail that is already drawn', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'complete', dataset_id: 'ds9', quicklook_pending: false });
+
+    renderWatcher();
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    expect(useRefreshSearchWhenQuicklookLands).not.toHaveBeenCalledWith('j1');
   });
 
   // fix(#1008 codex P2): a tab throttled through the terminal poll never sees
