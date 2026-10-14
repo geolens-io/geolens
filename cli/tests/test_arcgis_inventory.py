@@ -2766,6 +2766,7 @@ def _nested(value):
         ("Token Abcdefghijkl", "Abcdefghijkl"),
         ("Token abcdefghijkl!secret", "secret"),
         ("https://s.example/q?" + "api-key=Kx9&" * 3000, "Kx9"),
+        ("https://s.example/q?cookie=sid=abc123KEY;theme=dark", "theme=dark"),
         ("Authorization: Bearer abc.def", "abc.def"),
         ("Authorization: Basic configuration", "configuration"),
     ],
@@ -2807,6 +2808,10 @@ def test_string_scrubber_keeps_ordinary_text(raw):
         (
             "https://s.example/q?authorization=Bearer%20abc123KEY&mode=edit",
             "https://s.example/q?authorization=[REDACTED]&mode=edit",
+        ),
+        (
+            "https://s.example/q?api-key=abc123KEY;layer=2",
+            "https://s.example/q?api-key=[REDACTED];layer=2",
         ),
         (
             "https://s.example/q?api-key=abc123KEY#frag",
