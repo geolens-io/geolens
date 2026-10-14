@@ -1351,7 +1351,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 919,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1651,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1654,
     # VRT creation and regeneration share publication, member re-authorization,
     # owed-object records and superseded-object cleanup.
     "backend/app/processing/ingest/tasks_vrt.py": 1683,

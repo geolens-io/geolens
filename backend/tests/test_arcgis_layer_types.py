@@ -232,6 +232,124 @@ class TestReuploadPreviewAnswersTheRefusal:
         assert resp.status_code == 200, resp.text
 
 
+class TestReuploadPreviewGuardsTheMetadataFetch:
+    _body = {
+        "url": _BASE,
+        "service_type": "ArcGIS MapServer",
+        "layer_name": "0",
+        "layer_id": 0,
+    }
+
+    async def _dataset(self, session, owner_id=None):
+        from tests.factories import create_dataset, get_user_id
+
+        created_by = owner_id or await get_user_id(session, "admin")
+        return await create_dataset(session, created_by=created_by, name="Guarded")
+
+    async def test_a_refused_redirect_is_a_fixed_400_and_skips_the_preview(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        from app.modules.catalog.datasets.api import router_reupload
+        from app.platform.security import SSRFResolutionError
+
+        dataset = await self._dataset(test_db_session)
+        preview = AsyncMock()
+        with (
+            patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
+            patch.object(
+                router_reupload,
+                "fetch_arcgis_layer_meta",
+                AsyncMock(side_effect=SSRFResolutionError("internal.example.net")),
+            ),
+            patch.object(router_reupload, "run_service_preview", preview),
+        ):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json=self._body,
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "redirect target refused by SSRF policy"
+        preview.assert_not_awaited()
+
+    async def test_a_non_owner_never_reaches_the_fetch(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        from app.modules.catalog.datasets.api import router_reupload
+        from tests.test_reupload_idor import (
+            _create_private_dataset,
+            _create_test_user_with_role,
+        )
+
+        _, owner_id = await _create_test_user_with_role(
+            client, admin_auth_header, "editor"
+        )
+        other_headers, _ = await _create_test_user_with_role(
+            client, admin_auth_header, "editor"
+        )
+        dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
+        fetch = AsyncMock()
+        with patch.object(router_reupload, "fetch_arcgis_layer_meta", fetch):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json=self._body,
+                headers=other_headers,
+            )
+        assert resp.status_code in (403, 404)
+        fetch.assert_not_awaited()
+
+    async def test_a_refused_url_never_reaches_the_fetch(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        from app.modules.catalog.datasets.api import router_reupload
+
+        dataset = await self._dataset(test_db_session)
+        fetch = AsyncMock()
+        with patch.object(router_reupload, "fetch_arcgis_layer_meta", fetch):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json={
+                    **self._body,
+                    "url": "http://127.0.0.1/arcgis/rest/services/W/MapServer",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 400
+        fetch.assert_not_awaited()
+
+    async def test_the_request_token_reaches_the_fetch(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        from app.modules.catalog.datasets.api import router_reupload
+
+        dataset = await self._dataset(test_db_session)
+        fetch = AsyncMock(return_value={})
+        reported = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "0",
+            "feature_count": 1,
+            "columns": [],
+            "sample_rows": [],
+        }
+        with (
+            patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
+            patch.object(router_reupload, "fetch_arcgis_layer_meta", fetch),
+            patch.object(
+                router_reupload,
+                "run_service_preview",
+                AsyncMock(return_value=reported),
+            ),
+        ):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json={**self._body, "token": "tok-123"},
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        assert fetch.await_args.args[3] == "tok-123"
+
+
 class TestAServerWithAnOddTypeValue:
     @pytest.mark.parametrize("odd", [["Group Layer"], {"name": "Group Layer"}, 7])
     async def test_a_non_string_type_is_treated_as_unknown(self, odd) -> None:
