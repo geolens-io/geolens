@@ -359,6 +359,8 @@ DATABASE_URL_OVERRIDE=postgresql://geolens_app:paste_generated_hex_here@db:5432/
 GEOLENS_MIGRATION_DB_ROLE=geolens
 MIGRATION_DATABASE_URL_OVERRIDE=postgresql://geolens:paste_existing_postgres_password_here@db:5432/geolens
 GEOLENS_API_RUN_MIGRATIONS=false
+#    Percent-encode any of : / @ ? # % in a password pasted into either URL;
+#    a hex password needs none.
 
 # 3. Stop writers. Recreate only db so it receives the new env and read-only
 #    reconciler mount; the named pgdata volume is preserved.
@@ -373,6 +375,11 @@ docker compose exec -T db /usr/local/bin/configure-runtime-db-role
 docker compose run --rm --no-deps migrate
 docker compose up -d
 ```
+
+Each password now appears twice in `.env`. When you rotate `POSTGRES_PASSWORD`,
+update `MIGRATION_DATABASE_URL_OVERRIDE` in the same edit. When you rotate the
+runtime password, update `GEOLENS_RUNTIME_DB_PASSWORD` and
+`DATABASE_URL_OVERRIDE` together, then rerun step 4.
 
 If the chosen login already exists, the command refuses to modify it unless it
 has the durable GeoLens marker. This protects unrelated provider/admin roles
@@ -423,59 +430,32 @@ will not treat adoption as a collision override. Legacy `v1` markers are
 unscoped and therefore require the same one-time safe adoption as an unmarked
 dedicated login.
 
-Load the needed values into the verification shell and query through the
-runtime login. `scripts/env-value.sh` reads `.env` through the same
-get_env_value parser `restore.sh`/`check-env.sh` use, never by sourcing it —
-an operator-typed value can legally contain characters `.` would execute.
-`scripts/env-value.sh` is a subprocess a copy-pasted snippet like this one
-invokes and captures via `$(...)`, so it stays stdout-based — the
-`env_value_into` interface `restore.sh`/`check-env.sh`/`upgrade.sh` use
-internally only works within the SAME shell process that sourced
-`scripts/lib/common.sh`, which a subprocess call from a snippet like this
-one is not. Command substitution here strips a trailing newline from the
-captured value the same way it always does; that only matters if one of
-these specific values were ever deliberately set to end in one (unlikely
-for a password, role name, or database name, but worth knowing if a value
-here ever looks truncated by exactly one trailing character).
-
-`scripts/env-value.sh` exits 1 with no output when the key has no line in
-`.env` at all — including the ordinary case of a value supplied purely
-through the process environment and deliberately left out of `.env`
-(`GEOLENS_RUNTIME_DB_ROLE=managed_reader` exported in this shell, say). An
-unconditional `VAR="$(scripts/env-value.sh KEY)"` does not distinguish that
-from a real failure: the assignment still runs, on a helper exit of 1, to an
-EMPTY string — blanking whatever this shell already had for `VAR` — and
-under `set -e` (common in a copy-pasted troubleshooting session) it aborts
-the snippet outright instead. Guard the assignment on the helper's own exit
-status, the same way `restore.sh`/`check-env.sh`/`upgrade.sh` guard
-`env_value_into` internally (see the comment above `env_value_into`'s
-definition in `scripts/lib/common.sh`): assign the real variable only
-inside the `if`, never on the failure branch, so a key absent from `.env`
-leaves this shell's existing value — inherited or default — untouched.
-
-Each line below is its own subprocess (`scripts/env-value.sh` is invoked
-fresh each time, never sourced), so running them in sequence in this
-interactive shell cannot reproduce the ordering bug fixed in
-`scripts/lib/common.sh` (fix(#1778) round 20): that bug needed one script
-process to assign a value into its OWN shell via `env_value_into` and
-have a LATER resolution in that SAME process misread it as an inherited
-override. A plain `VAR="$_v"` assignment here, with no `export`, never
-reaches a later subprocess's environment at all — if a future snippet
-here ever needs `export VAR=...` between two of these calls, re-check it
-against that fix before relying on the values lining up:
+Verify the runtime login from inside the `db` container. Compose gives that
+service `GEOLENS_RUNTIME_DB_ROLE` and `GEOLENS_RUNTIME_DB_PASSWORD`, so the
+password is read from the container's own environment and never appears in a
+host command line or process listing:
 
 ```bash
-if _v="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_PASSWORD)"; then GEOLENS_RUNTIME_DB_PASSWORD="$_v"; fi
-if _v="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_ROLE)"; then GEOLENS_RUNTIME_DB_ROLE="$_v"; fi
-if _v="$(scripts/env-value.sh POSTGRES_DB)"; then POSTGRES_DB="$_v"; fi
-docker compose exec -T db env PGPASSWORD="$GEOLENS_RUNTIME_DB_PASSWORD" \
+docker compose exec -T db sh -c 'PGPASSWORD="$GEOLENS_RUNTIME_DB_PASSWORD" \
   psql -h 127.0.0.1 -U "$GEOLENS_RUNTIME_DB_ROLE" -d "$POSTGRES_DB" -c \
   "SELECT current_user, rolsuper, rolbypassrls, rolcreaterole,
           rolcreatedb, rolreplication
-     FROM pg_roles WHERE rolname = current_user;"
+     FROM pg_roles WHERE rolname = current_user;"'
 ```
 
-All five capability booleans must be `f`. Also confirm API and worker are
+All five capability booleans must be `f`. Then confirm the application
+connects as the runtime role. Once API and worker are up, every session other
+than this query's own should belong to the runtime role:
+
+```bash
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
+SELECT usename, count(*) FROM pg_stat_activity
+ WHERE backend_type = 'client backend' GROUP BY 1;
+SQL
+```
+
+Expect the runtime role for API and worker, and `POSTGRES_USER` only for the
+`psql` session itself (a count of 1). Also confirm API and worker are
 healthy. To roll back the connection change, clear `GEOLENS_RUNTIME_DB_ROLE`,
 `GEOLENS_RUNTIME_DB_PASSWORD`, and `MIGRATION_DATABASE_URL_OVERRIDE`, restore
 the previous `DATABASE_URL_OVERRIDE`/migration-toggle values, then recreate API

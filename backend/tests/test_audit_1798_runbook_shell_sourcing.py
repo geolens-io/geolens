@@ -50,8 +50,6 @@ def test_runbook_uses_the_env_value_wrapper_for_postgres_settings() -> None:
     body = _read("RUNBOOK.md")
     assert "scripts/env-value.sh POSTGRES_USER" in body
     assert "scripts/env-value.sh POSTGRES_DB" in body
-    assert "scripts/env-value.sh GEOLENS_RUNTIME_DB_ROLE" in body
-    assert "scripts/env-value.sh GEOLENS_RUNTIME_DB_PASSWORD" in body
 
 
 def test_env_value_wrapper_script_exists_and_is_executable() -> None:
