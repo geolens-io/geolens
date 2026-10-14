@@ -109,3 +109,14 @@ def test_proxied_locations_send_each_security_header_once():
             )
     assert "proxy_hide_header X-Content-Type-Options" in blocks["/api/"]
     assert "proxy_hide_header Referrer-Policy" in blocks["/api/"]
+
+
+def test_api_referrer_policy_override_survives_the_proxy():
+    # An api route that sets its own Referrer-Policy (the OAuth callback uses
+    # no-referrer) must win over the nginx default rather than being dropped.
+    text = NGINX_CONF.read_text()
+    assert re.search(
+        r"map\s+\$upstream_http_referrer_policy\s+\$geolens_referrer_policy\s*\{",
+        text,
+    )
+    assert "add_header Referrer-Policy $geolens_referrer_policy always;" in text
