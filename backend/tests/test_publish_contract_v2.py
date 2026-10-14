@@ -129,3 +129,27 @@ def test_dataset_text_fields_stop_at_their_storage_limit(path, limit):
     assert VALIDATOR.is_valid(manifest)
     target[path[-1]] = "x" * (limit + 1)
     assert not VALIDATOR.is_valid(manifest)
+
+
+@pytest.mark.parametrize(
+    ("path", "limit"),
+    [
+        (("catalog", "title"), 500),
+        (("catalog", "description"), 5000),
+        (("catalog", "organization"), 500),
+        (("datasets", 0, "title"), 500),
+        (("datasets", 0, "description"), 5000),
+        (("datasets", 0, "metadata", "organization"), 500),
+        (("datasets", 0, "metadata", "license"), 500),
+        (("datasets", 0, "metadata", "attribution"), 5000),
+    ],
+)
+def test_catalog_and_dataset_text_fields_stop_at_their_limit(path, limit):
+    manifest = copy.deepcopy(_valid("create"))
+    target = manifest
+    for step in path[:-1]:
+        target = target[step]
+    target[path[-1]] = "x" * limit
+    assert VALIDATOR.is_valid(manifest)
+    target[path[-1]] = "x" * (limit + 1)
+    assert not VALIDATOR.is_valid(manifest)
