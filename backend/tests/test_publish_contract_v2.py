@@ -100,3 +100,32 @@ def test_map_text_fields_stop_at_their_storage_limit(path, limit):
     assert VALIDATOR.is_valid(manifest)
     target[path[-1]] = "x" * (limit + 1)
     assert not VALIDATOR.is_valid(manifest)
+
+
+def test_a_request_holds_at_most_100_maps():
+    manifest = copy.deepcopy(_valid("create"))
+    map_entry = manifest["maps"][0]
+    manifest["maps"] = [{**map_entry, "key": f"m{i}"} for i in range(100)]
+    assert VALIDATOR.is_valid(manifest)
+    manifest["maps"].append({**map_entry, "key": "m100"})
+    assert not VALIDATOR.is_valid(manifest)
+
+
+@pytest.mark.parametrize(
+    ("path", "limit"),
+    [
+        (("datasets", 0, "collection", "name"), 255),
+        (("datasets", 0, "attributes", 0, "title"), 500),
+        (("datasets", 0, "attributes", 0, "description"), 2000),
+        (("datasets", 0, "attributes", 0, "units"), 50),
+    ],
+)
+def test_dataset_text_fields_stop_at_their_storage_limit(path, limit):
+    manifest = copy.deepcopy(_valid("create"))
+    target = manifest
+    for step in path[:-1]:
+        target = target[step]
+    target[path[-1]] = "x" * limit
+    assert VALIDATOR.is_valid(manifest)
+    target[path[-1]] = "x" * (limit + 1)
+    assert not VALIDATOR.is_valid(manifest)

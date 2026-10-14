@@ -4117,7 +4117,7 @@
     },
     {
       "name": "attribute_units_too_long",
-      "breaks": "attributes: units at most 100 characters",
+      "breaks": "attributes: units at most 50 characters",
       "manifest": {
         "manifest_version": "2",
         "catalog": {
@@ -4160,7 +4160,7 @@
             "attributes": [
               {
                 "source_name": "a",
-                "units": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
+                "units": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
               }
             ]
           }

@@ -127,7 +127,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["name"],
-          "properties": {"name": {"$ref": "#/$defs/text500"}}
+          "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 255}}
         }
       ]
     },
@@ -138,8 +138,8 @@
       "properties": {
         "source_name": {"type": "string", "minLength": 1},
         "title": {"type": ["string", "null"], "maxLength": 500},
-        "description": {"type": ["string", "null"], "maxLength": 5000},
-        "units": {"type": ["string", "null"], "maxLength": 100}
+        "description": {"type": ["string", "null"], "maxLength": 2000},
+        "units": {"type": ["string", "null"], "maxLength": 50}
       }
     },
     "dataset": {
