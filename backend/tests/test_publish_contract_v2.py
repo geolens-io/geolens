@@ -250,3 +250,14 @@ def test_coordinate_arrays_have_a_fixed_length(path, size):
     assert VALIDATOR.is_valid(with_length(size))
     assert not VALIDATOR.is_valid(with_length(size - 1))
     assert not VALIDATOR.is_valid(with_length(size + 1))
+
+
+def test_popup_visible_fields_hold_at_most_100_entries():
+    def with_fields(count):
+        manifest = copy.deepcopy(_valid("create"))
+        popup = manifest["maps"][0]["layers"][0]["popup_config"]
+        popup["visible_fields"] = [f"f{i}" for i in range(count)]
+        return manifest
+
+    assert VALIDATOR.is_valid(with_fields(100))
+    assert not VALIDATOR.is_valid(with_fields(101))
