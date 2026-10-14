@@ -359,7 +359,8 @@ DATABASE_URL_OVERRIDE=postgresql://geolens_app:paste_generated_hex_here@db:5432/
 GEOLENS_MIGRATION_DB_ROLE=geolens
 MIGRATION_DATABASE_URL_OVERRIDE=postgresql://geolens:paste_existing_postgres_password_here@db:5432/geolens
 GEOLENS_API_RUN_MIGRATIONS=false
-#    Percent-encode any of : / @ ? # [ ] % in a password pasted into either URL;
+#    Percent-encode every character except letters, digits and - . _ ~ in a
+#    password pasted into either URL (including $, which Compose interpolates);
 #    a hex password needs none.
 
 # 3. Stop writers. Recreate only db so it receives the new env and read-only
