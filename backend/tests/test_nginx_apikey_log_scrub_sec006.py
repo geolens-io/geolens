@@ -71,3 +71,41 @@ def test_robots_txt_is_a_real_file_that_allows_crawling():
     assert "Allow: /" in lines
     # Social crawlers fetch map preview images from /api/.
     assert not any(ln.lower().startswith("disallow") for ln in lines)
+
+
+def _location_blocks(text: str):
+    """Yield (header, own directives) for each location, nested ones excluded."""
+    for match in re.finditer(r"^\s*location\s+([^{]+)\{", text, re.MULTILINE):
+        depth, i, own = 1, match.end(), []
+        start = i
+        while depth:
+            ch = text[i]
+            if ch == "{":
+                own.append(text[start:i].rsplit("\n", 1)[0])
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    own.append(text[start:i])
+                    break
+                start = i + 1
+            i += 1
+        yield match.group(1).strip(), "\n".join(own)
+
+
+def test_proxied_locations_send_each_security_header_once():
+    # The server scope and every location restating it use add_header, which
+    # appends to the api's own copy unless the upstream header is hidden.
+    # A location declaring any proxy_hide_header stops inheriting the outer set,
+    # so it has to list the pair itself.
+    text = NGINX_CONF.read_text()
+    blocks = dict(_location_blocks(text))
+    for header, body in blocks.items():
+        if "proxy_pass" not in body or "proxy_hide_header" not in body:
+            continue
+        for name in ("X-Content-Type-Options", "Referrer-Policy"):
+            assert re.search(rf"proxy_hide_header\s+{name}\s*;", body), (
+                f"location {header} proxies but does not hide upstream {name}"
+            )
+    assert "proxy_hide_header X-Content-Type-Options" in blocks["/api/"]
+    assert "proxy_hide_header Referrer-Policy" in blocks["/api/"]
