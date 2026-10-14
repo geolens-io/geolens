@@ -170,39 +170,6 @@ def test_catalog_and_dataset_text_fields_stop_at_their_limit(path, limit):
 
 
 @pytest.mark.parametrize(
-    "path",
-    [
-        ("manifest_version",),
-        ("catalog",),
-        ("catalog", "title"),
-        ("client",),
-        ("client", "id"),
-        ("client", "version"),
-        ("datasets", 0, "key"),
-        ("datasets", 0, "title"),
-        ("datasets", 0, "sources"),
-        ("datasets", 0, "publication"),
-        ("datasets", 0, "publication", "intent"),
-        ("datasets", 0, "sources", 0, "type"),
-        ("datasets", 0, "sources", 0, "uri"),
-        ("maps", 0, "key"),
-        ("maps", 0, "name"),
-        ("maps", 0, "layers"),
-        ("maps", 0, "layers", 0, "key"),
-        ("maps", 0, "view", "center"),
-        ("maps", 0, "view", "zoom"),
-    ],
-)
-def test_required_fields_are_required(path):
-    manifest = copy.deepcopy(_valid("create"))
-    target = manifest
-    for step in path[:-1]:
-        target = target[step]
-    del target[path[-1]]
-    assert not VALIDATOR.is_valid(manifest)
-
-
-@pytest.mark.parametrize(
     ("path", "low", "high"),
     [
         (("maps", 0, "view", "zoom"), 0, 24),
@@ -263,9 +230,11 @@ def test_popup_visible_fields_hold_at_most_100_entries():
     assert not VALIDATOR.is_valid(with_fields(101))
 
 
-_BOUNDS = ("maxLength", "maxItems", "minItems", "minimum", "maximum")
+_BOUNDS = ("maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum")
 # Bounded strings whose pattern fixes their shape, so a filler of "a" cannot
 # sit at the limit. Their patterns have their own invalid examples.
+MIN_BOUNDS = 89
+MIN_REQUIRED = 27
 _PATTERN_PINNED = {
     ("datasets", 0, "sources", 0, "checksum"),
     ("maps", 0, "thumbnail"),
@@ -312,10 +281,11 @@ def _mutated(path, name, limit, at_limit):
     target = manifest
     for step in path[:-1]:
         target = target[step]
+    beyond = 1 if name.startswith("max") else -1
     if name in ("maxLength", "minLength"):
-        value = "a" * (limit if at_limit else limit + 1)
+        value = "a" * (limit if at_limit else limit + beyond)
     elif name in ("maxItems", "minItems"):
-        count = limit if at_limit else (limit + 1 if name == "maxItems" else limit - 1)
+        count = limit if at_limit else limit + beyond
         sample = target[path[-1]][0]
         target[path[-1]] = [
             f"v{i}" if isinstance(sample, str) else copy.deepcopy(sample)
@@ -323,15 +293,14 @@ def _mutated(path, name, limit, at_limit):
         ]
         return manifest
     else:
-        outside = 0.5 if name == "maximum" else -0.5
-        value = limit if at_limit else limit + outside
+        value = limit if at_limit else limit + beyond / 2
     target[path[-1]] = value
     return manifest
 
 
 def test_every_schema_bound_is_pinned():
     cases = _bound_cases()
-    assert len(cases) >= 60
+    assert len(cases) >= MIN_BOUNDS
     unpinned = []
     for path, name, limit in cases:
         if path in _PATTERN_PINNED:
@@ -341,3 +310,38 @@ def test_every_schema_bound_is_pinned():
         if VALIDATOR.is_valid(_mutated(path, name, limit, at_limit=False)):
             unpinned.append((path, name, "over limit accepted"))
     assert unpinned == []
+
+
+def _required(node, path=()):
+    ref = node.get("$ref")
+    if ref:
+        node = SCHEMA["$defs"][ref.rsplit("/", 1)[1]]
+    for name in node.get("required", []):
+        yield (*path, name)
+    for prop, child in node.get("properties", {}).items():
+        yield from _required(child, (*path, prop))
+    if "items" in node:
+        yield from _required(node["items"], (*path, 0))
+    for branch in node.get("oneOf", []):
+        yield from _required(branch, path)
+
+
+def _without(path):
+    manifest = _full_example()
+    target = manifest
+    for step in path[:-1]:
+        if step not in target if isinstance(step, str) else step >= len(target):
+            return None
+        target = target[step]
+    if path[-1] not in target:
+        return None
+    del target[path[-1]]
+    return manifest
+
+
+def test_every_required_member_is_required():
+    omitted = [(path, _without(path)) for path in _required(SCHEMA)]
+    reachable = [(path, m) for path, m in omitted if m is not None]
+    assert len(reachable) >= MIN_REQUIRED
+    accepted = [path for path, m in reachable if VALIDATOR.is_valid(m)]
+    assert accepted == []
