@@ -2779,6 +2779,10 @@ def _nested(value):
             'https://s.example/q?authorization=Digest uri="/d?x=1&y=2", response="deadbeefSECRET123"&m=1',
             "deadbeefSECRET123",
         ),
+        (
+            'https://s.example/q?authorization=Digest uri="/d?x=\\"a&b\\"", response="deadbeefSECRET123"&m=1',
+            "deadbeefSECRET123",
+        ),
         ("Authorization: Bearer abc.def", "abc.def"),
         ("Authorization: Basic configuration", "configuration"),
     ],
@@ -2828,6 +2832,10 @@ def test_string_scrubber_keeps_ordinary_text(raw):
         (
             "https://s.example/q?authorization=Bearer abc123KEY\nkeep=this",
             "https://s.example/q?authorization=[REDACTED]\nkeep=this",
+        ),
+        (
+            "https://s.example/q?f=json;api-key=abc123KEY;layer=2",
+            "https://s.example/q?f=json;api-key=[REDACTED];layer=2",
         ),
         (
             "https://s.example/q?api-key=abc123KEY#frag",
