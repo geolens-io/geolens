@@ -359,7 +359,7 @@ DATABASE_URL_OVERRIDE=postgresql://geolens_app:paste_generated_hex_here@db:5432/
 GEOLENS_MIGRATION_DB_ROLE=geolens
 MIGRATION_DATABASE_URL_OVERRIDE=postgresql://geolens:paste_existing_postgres_password_here@db:5432/geolens
 GEOLENS_API_RUN_MIGRATIONS=false
-#    Percent-encode any of : / @ ? # % in a password pasted into either URL;
+#    Percent-encode any of : / @ ? # [ ] % in a password pasted into either URL;
 #    a hex password needs none.
 
 # 3. Stop writers. Recreate only db so it receives the new env and read-only
@@ -454,8 +454,10 @@ SELECT usename, count(*) FROM pg_stat_activity
 SQL
 ```
 
-Expect the runtime role for API and worker, and `POSTGRES_USER` only for the
-`psql` session itself (a count of 1). Also confirm API and worker are
+Expect the runtime role for API and worker. `POSTGRES_USER` should appear only
+for this `psql` session and any maintenance client that is running, such as a
+`pg_dump` from the `backup` service; a count above that, from a long-lived
+API or worker connection, means the adoption has not taken effect. Also confirm API and worker are
 healthy. To roll back the connection change, clear `GEOLENS_RUNTIME_DB_ROLE`,
 `GEOLENS_RUNTIME_DB_PASSWORD`, and `MIGRATION_DATABASE_URL_OVERRIDE`, restore
 the previous `DATABASE_URL_OVERRIDE`/migration-toggle values, then recreate API
