@@ -1,5 +1,5 @@
 import { getClusterSourceStrategy, isClusterRenderMode, type ClusterSourceStrategyKind } from '@/components/builder/cluster-source';
-import { clusterColorSteps } from '@/components/builder/layer-adapters/cluster-adapter';
+import { CLUSTER_STROKE_WIDTH, clusterColorSteps } from '@/components/builder/layer-adapters/cluster-adapter';
 import { resolveCirclePaint, resolvePointStroke } from '@/components/builder/layer-adapters/circle-adapter';
 import { resolveFillPaint, resolvePolygonStroke } from '@/components/builder/layer-adapters/fill-adapter';
 import { resolveHeatmapColor } from '@/components/builder/layer-adapters/heatmap-adapter';
@@ -114,8 +114,11 @@ export interface LegendFacts {
    */
   cluster: {
     kind: ClusterSourceStrategyKind;
-    /** The point counts that colour the cluster circles, as graduated colour classes; null for one flat colour or no clusters. */
-    steps: LegendClasses | null;
+    /**
+     * The point counts that colour the cluster circles, as graduated colour classes drawn
+     * with the cluster circle's own swatch; null for one flat colour or no clusters.
+     */
+    steps: { classes: LegendClasses; swatch: LegendSwatch } | null;
   } | null;
 }
 
@@ -713,12 +716,21 @@ function clusterFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts
   // A cluster layer the map drew as anything else is drawing its single points.
   if (kind !== 'cluster') return { kind: 'fallback', steps: null };
   const ramp = clusterColorSteps(getBuilderStyleConfig(layer).clusterColorRamp);
-  const steps: LegendClasses | null = ramp && {
-    mode: 'graduated',
-    target: 'color',
-    title: '',
-    items: ramp.colors.map((color) => ({ color })),
-    breaks: ramp.breaks,
+  const steps = ramp && {
+    classes: {
+      mode: 'graduated' as const,
+      target: 'color' as const,
+      title: '',
+      items: ramp.colors.map((color) => ({ color })),
+      breaks: ramp.breaks,
+    },
+    swatch: {
+      fill: null,
+      fillOpacity: 1,
+      opacity: layer.opacity ?? 1,
+      stroke: { color: MAP_COLORS.cluster.stroke, width: CLUSTER_STROKE_WIDTH },
+      pattern: null,
+    },
   };
   return { kind: getClusterSourceStrategy(layer).kind, steps };
 }

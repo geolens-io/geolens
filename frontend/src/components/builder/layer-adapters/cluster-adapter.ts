@@ -139,6 +139,8 @@ function unclusteredPointPaint(input: AdapterLayerInput) {
 // cluster-count paint are built ONCE here and consumed by both the add-time and
 // sync-time paths, so the step bucket thresholds (100/750) and stroke/text styling
 // can no longer drift between first render and a subsequent sync.
+export const CLUSTER_STROKE_WIDTH = 1.5;
+
 function clusterCirclePaint(input: AdapterLayerInput): Record<string, unknown> {
   const { circleColor } = clusterStyle(input);
   const opacity = input.opacity ?? 1;
@@ -147,7 +149,7 @@ function clusterCirclePaint(input: AdapterLayerInput): Record<string, unknown> {
     'circle-radius': ['step', ['get', 'point_count'], 16, 100, 21, 750, 27],
     'circle-opacity': opacity,
     'circle-stroke-color': MAP_COLORS.cluster.stroke,
-    'circle-stroke-width': 1.5,
+    'circle-stroke-width': CLUSTER_STROKE_WIDTH,
     'circle-stroke-opacity': Math.min(opacity + 0.1, 1),
   };
 }

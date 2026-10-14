@@ -223,7 +223,7 @@ export function LayerLegend({
                 {isVisible && facts.cluster?.steps && (
                   <div className="mt-1.5 ms-6 space-y-1">
                     <div className="text-mini font-medium text-muted-foreground">{t('viewer.legend.cluster.pointsPerCluster')}</div>
-                    <LegendClassesList classes={[facts.cluster.steps]} geometryType="POINT" />
+                    <LegendClassesList classes={[facts.cluster.steps.classes]} geometryType="POINT" style={facts.cluster.steps.swatch} />
                   </div>
                 )}
               </li>

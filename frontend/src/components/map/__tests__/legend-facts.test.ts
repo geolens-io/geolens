@@ -111,14 +111,21 @@ const fixtureHeat: Partial<Record<keyof typeof SAVED_LAYERS, Pick<LegendFacts, '
 };
 
 /** The cluster fixtures' kinds, from their saved strategies. */
-const SERVER_STEPS: LegendClasses = { mode: 'graduated', target: 'color', title: '', items: [{ color: '#bbf7d0' }, { color: '#16a34a' }], breaks: [100] };
+const CLUSTER_SWATCH: LegendSwatch = {
+  fill: null,
+  fillOpacity: 1,
+  opacity: 1,
+  stroke: { color: MAP_COLORS.cluster.stroke, width: 1.5 },
+  pattern: null,
+};
+const SERVER_STEPS = {
+  classes: { mode: 'graduated', target: 'color', title: '', items: [{ color: '#bbf7d0' }, { color: '#16a34a' }], breaks: [100] } satisfies LegendClasses,
+  swatch: CLUSTER_SWATCH,
+};
 
 const fixtureCluster: Partial<Record<keyof typeof SAVED_LAYERS, LegendFacts['cluster']>> = {
   boundedCluster: { kind: 'bounded-geojson', steps: null },
-  serverCluster: {
-    kind: 'server-tile',
-    steps: { mode: 'graduated', target: 'color', title: '', items: [{ color: '#bbf7d0' }, { color: '#16a34a' }], breaks: [100] },
-  },
+  serverCluster: { kind: 'server-tile', steps: SERVER_STEPS },
   fallbackCluster: { kind: 'fallback', steps: null },
 };
 
@@ -1122,12 +1129,15 @@ describe('legendFacts for what the map drew', () => {
       },
     };
 
-    expect(legendFacts(layer)?.cluster?.steps).toEqual({
-      mode: 'graduated',
-      target: 'color',
-      title: '',
-      items: [{ color: '#818cf8' }, { color: '#6366f1' }, { color: '#4338ca' }],
-      breaks: [25, 2500],
+    expect(legendFacts({ ...layer, opacity: 0.4 })?.cluster?.steps).toEqual({
+      classes: {
+        mode: 'graduated',
+        target: 'color',
+        title: '',
+        items: [{ color: '#818cf8' }, { color: '#6366f1' }, { color: '#4338ca' }],
+        breaks: [25, 2500],
+      },
+      swatch: { ...CLUSTER_SWATCH, opacity: 0.4 },
     });
   });
 
