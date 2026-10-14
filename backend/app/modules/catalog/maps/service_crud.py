@@ -16,7 +16,8 @@ from sqlalchemy.orm import aliased
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.auth.models import User
-from app.modules.catalog.authorization import get_user_roles
+from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service_diff import _replace_layers
 from app.modules.catalog.maps.service_layers import (
@@ -342,20 +343,27 @@ async def get_map_with_layers(
 
 
 async def _layer_counts_for_maps(
-    session: AsyncSession, map_ids: list[uuid.UUID]
+    session: AsyncSession,
+    map_ids: list[uuid.UUID],
+    user: Identity | None,
+    user_roles: set[str],
 ) -> dict[uuid.UUID, int]:
-    """Return layer counts for exactly the maps on one gallery page.
+    """Return how many layers map reads show ``user`` on one gallery page's maps.
 
     A query keyed by page IDs bounds work at every offset and uses the
     map_layers.map_id index without aggregating unrelated maps.
     """
     if not map_ids:
         return {}
-    result = await session.execute(
+    stmt = (
         select(MapLayer.map_id, func.count(MapLayer.id))
+        .join(Dataset, MapLayer.dataset_id == Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
         .where(MapLayer.map_id.in_(map_ids))
         .group_by(MapLayer.map_id)
     )
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    result = await session.execute(stmt)
     return {map_id: count for map_id, count in result.all()}
 
 
@@ -363,7 +371,7 @@ async def list_maps(
     session: AsyncSession,
     skip: int = 0,
     limit: int = 20,
-    user_id: uuid.UUID | None = None,
+    user: Identity | None = None,
     user_roles: set[str] | None = None,
     search: str | None = None,
     sort_by: str = "updated_at",
@@ -381,9 +389,11 @@ async def list_maps(
     - sort_dir: asc or desc.
     - visibility: additional filter on Map.visibility (additive on top of RBAC).
     - owned_only: restrict to the caller's maps; anonymous callers get no maps.
+    - layer_count counts only the layers whose dataset map reads show the caller.
 
     Returns (list of dicts with map fields + layer_count + created_by_username, total).
     """
+    user_id = user.id if user is not None else None
     if owned_only and user_id is None:
         return [], 0
     if user_roles is None:
@@ -450,7 +460,9 @@ async def list_maps(
 
     result = await session.execute(stmt)
     rows = result.all()
-    layer_counts = await _layer_counts_for_maps(session, [row[0].id for row in rows])
+    layer_counts = await _layer_counts_for_maps(
+        session, [row[0].id for row in rows], user, user_roles
+    )
 
     maps = []
     for row in rows:

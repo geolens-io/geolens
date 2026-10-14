@@ -51,11 +51,12 @@ if TYPE_CHECKING:
 
 
 async def validate_public_visibility(
-    session: AsyncSession, map_id: uuid.UUID, reader: Identity | None = None
+    session: AsyncSession, map_id: uuid.UUID, reader: Identity
 ) -> list[str]:
-    """Return names of non-public datasets in this map. Empty = OK to publish.
+    """Return names of this map's non-public datasets that ``reader`` can read.
 
-    With ``reader``, datasets that map reads hide from the reader don't count.
+    Empty = OK to publish. A dataset map reads hide from the reader doesn't
+    count: public reads leave its layer out as well.
     """
     stmt = (
         select(Record.title, Dataset.id)
@@ -66,10 +67,8 @@ async def validate_public_visibility(
         .where(Record.visibility != "public")
     )
     rows = (await session.execute(stmt)).all()
-    if reader is not None:
-        readable = await readable_dataset_ids(session, {row[1] for row in rows}, reader)
-        rows = [row for row in rows if row[1] in readable]
-    return [row[0] for row in rows]
+    readable = await readable_dataset_ids(session, {row[1] for row in rows}, reader)
+    return [row[0] for row in rows if row[1] in readable]
 
 
 # fix(#931): the two shared audiences — a private map has no audience

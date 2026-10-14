@@ -218,17 +218,12 @@ async def list_maps_endpoint(
     sort_dir (asc/desc), and visibility filter (private/internal/public).
     owned_only restricts results to the caller's maps; anonymous callers get no maps.
     """
-    if user is not None:
-        user_roles = await get_user_roles(db, user)
-        uid = user.id
-    else:
-        user_roles = set()
-        uid = None
+    user_roles = await get_user_roles(db, user) if user is not None else set()
     maps, total = await list_maps(
         db,
         skip=skip,
         limit=limit,
-        user_id=uid,
+        user=user,
         user_roles=user_roles,
         search=search,
         sort_by=sort_by,
@@ -494,7 +489,7 @@ async def update_map_endpoint(
         body.visibility == MapVisibility.public
         and "layers" not in body.model_fields_set
     ):
-        non_public = await validate_public_visibility(db, map_id)
+        non_public = await validate_public_visibility(db, map_id, user)
         if non_public:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -651,7 +646,7 @@ async def update_map_endpoint(
         )
 
     if "layers" in kwargs:
-        await _reject_non_public_datasets(db, map_obj, None if new_visibility else user)
+        await _reject_non_public_datasets(db, map_obj, user)
         # builder-audit #338 P0-01: replacing the layer set can drop a dataset an
         # embed token is scoped to; revoke any orphaned embed tokens so they
         # stop serving tiles for content the map no longer exposes.
@@ -732,7 +727,7 @@ async def patch_map_layers_endpoint(
         )
         raise HTTPException(status_code=status_code, detail=detail)
     if body.added:
-        await _reject_non_public_datasets(db, map_obj)
+        await _reject_non_public_datasets(db, map_obj, user)
 
     after_rows_by_id = _layer_rows_by_id(layer_tuples)
     await audit_emit(
@@ -1348,7 +1343,7 @@ async def add_layer_endpoint(
         )
 
     layer = await add_layer(db, map_id, body)
-    await _reject_non_public_datasets(db, map_obj)
+    await _reject_non_public_datasets(db, map_obj, user)
     meta = await get_dataset_meta(db, body.dataset_id)
     target_name = _layer_history_name(layer, meta.title if meta else None)
 

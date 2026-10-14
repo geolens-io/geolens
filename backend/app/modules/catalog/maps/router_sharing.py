@@ -206,7 +206,7 @@ async def visibility_check_endpoint(
         raise HTTPException(status_code=404, detail="Map not found")
     await _check_map_read_access(map_obj, user, db)
     await check_map_ownership(map_obj, user, db)
-    non_public_names = await validate_public_visibility(db, map_id)
+    non_public_names = await validate_public_visibility(db, map_id, user)
     return VisibilityCheckResponse(
         non_public_datasets=non_public_names,
         has_non_public=len(non_public_names) > 0,
