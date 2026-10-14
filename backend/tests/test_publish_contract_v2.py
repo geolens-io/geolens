@@ -189,6 +189,8 @@ def test_catalog_and_dataset_text_fields_stop_at_their_limit(path, limit):
         ("maps", 0, "name"),
         ("maps", 0, "layers"),
         ("maps", 0, "layers", 0, "key"),
+        ("maps", 0, "view", "center"),
+        ("maps", 0, "view", "zoom"),
     ],
 )
 def test_required_fields_are_required(path):
@@ -229,3 +231,22 @@ def test_numeric_ranges_are_inclusive_and_bounded(path, low, high):
     assert VALIDATOR.is_valid(with_value(high))
     assert not VALIDATOR.is_valid(with_value(low - 0.5))
     assert not VALIDATOR.is_valid(with_value(high + 0.5))
+
+
+@pytest.mark.parametrize(
+    ("path", "size"),
+    [(("maps", 0, "view", "center"), 2), (("datasets", 0, "metadata", "bbox"), 4)],
+)
+def test_coordinate_arrays_have_a_fixed_length(path, size):
+    def with_length(length):
+        manifest = copy.deepcopy(_valid("create"))
+        manifest["datasets"][0]["metadata"]["bbox"] = [-89.7, 39.7, -89.6, 39.8]
+        target = manifest
+        for step in path[:-1]:
+            target = target[step]
+        target[path[-1]] = [1.0] * length
+        return manifest
+
+    assert VALIDATOR.is_valid(with_length(size))
+    assert not VALIDATOR.is_valid(with_length(size - 1))
+    assert not VALIDATOR.is_valid(with_length(size + 1))
