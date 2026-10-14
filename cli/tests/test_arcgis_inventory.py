@@ -2868,6 +2868,13 @@ def test_scheme_token_masking_stops_before_markdown_link_end():
     )
 
 
+def test_scheme_token_masking_stops_at_a_comma():
+    cleaned = inventory.redact_json(
+        _nested("Token abc123KEYabc,field=value"), inventory.Redactor()
+    )
+    assert cleaned["a"]["b"]["c"]["note"] == "Token [REDACTED],field=value"
+
+
 def test_json_text_inside_a_string_keeps_its_structure():
     raw = json.dumps({"layers": [{"id": 1, "token": "abc123KEY"}], "title": "T"})
     cleaned = inventory.redact_json({"cfg": raw}, inventory.Redactor())
