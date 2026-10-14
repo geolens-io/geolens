@@ -261,3 +261,83 @@ def test_popup_visible_fields_hold_at_most_100_entries():
 
     assert VALIDATOR.is_valid(with_fields(100))
     assert not VALIDATOR.is_valid(with_fields(101))
+
+
+_BOUNDS = ("maxLength", "maxItems", "minItems", "minimum", "maximum")
+# Bounded strings whose pattern fixes their shape, so a filler of "a" cannot
+# sit at the limit. Their patterns have their own invalid examples.
+_PATTERN_PINNED = {
+    ("datasets", 0, "sources", 0, "checksum"),
+    ("maps", 0, "thumbnail"),
+}
+
+
+def _walk(node, path=()):
+    """Yield (instance path, bound name, limit) for every bound reachable from node."""
+    ref = node.get("$ref")
+    if ref:
+        node = SCHEMA["$defs"][ref.rsplit("/", 1)[1]]
+    for name in _BOUNDS:
+        if name in node:
+            yield path, name, node[name]
+    for prop, child in node.get("properties", {}).items():
+        yield from _walk(child, (*path, prop))
+    for index, child in enumerate(node.get("prefixItems", [])):
+        yield from _walk(child, (*path, index))
+    if "items" in node:
+        yield from _walk(node["items"], (*path, 0))
+    for branch in node.get("oneOf", []):
+        yield from _walk(branch, path)
+
+
+def _full_example() -> dict:
+    manifest = copy.deepcopy(_valid("create"))
+    manifest["catalog"].update(description="d", organization="o")
+    manifest["datasets"][0]["metadata"].update(
+        organization="o", crs="EPSG:4326", bbox=[-89.7, 39.7, -89.6, 39.8]
+    )
+    return manifest
+
+
+def _bound_cases() -> list[tuple[tuple, str, float]]:
+    return [
+        (path, name, limit)
+        for path, name, limit in _walk(SCHEMA)
+        if path and (path[0] in ("catalog", "client", "datasets", "maps"))
+    ]
+
+
+def _mutated(path, name, limit, at_limit):
+    manifest = _full_example()
+    target = manifest
+    for step in path[:-1]:
+        target = target[step]
+    if name in ("maxLength", "minLength"):
+        value = "a" * (limit if at_limit else limit + 1)
+    elif name in ("maxItems", "minItems"):
+        count = limit if at_limit else (limit + 1 if name == "maxItems" else limit - 1)
+        sample = target[path[-1]][0]
+        target[path[-1]] = [
+            f"v{i}" if isinstance(sample, str) else copy.deepcopy(sample)
+            for i in range(count)
+        ]
+        return manifest
+    else:
+        outside = 0.5 if name == "maximum" else -0.5
+        value = limit if at_limit else limit + outside
+    target[path[-1]] = value
+    return manifest
+
+
+def test_every_schema_bound_is_pinned():
+    cases = _bound_cases()
+    assert len(cases) >= 60
+    unpinned = []
+    for path, name, limit in cases:
+        if path in _PATTERN_PINNED:
+            continue
+        if not VALIDATOR.is_valid(_mutated(path, name, limit, at_limit=True)):
+            unpinned.append((path, name, "at limit rejected"))
+        if VALIDATOR.is_valid(_mutated(path, name, limit, at_limit=False)):
+            unpinned.append((path, name, "over limit accepted"))
+    assert unpinned == []
