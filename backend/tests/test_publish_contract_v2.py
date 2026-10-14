@@ -34,40 +34,46 @@ def test_invalid_example_is_rejected(example):
     assert not VALIDATOR.is_valid(example["manifest"])
 
 
-def _too_many_datasets() -> dict:
+def _datasets(count: int) -> dict:
     manifest = copy.deepcopy(_valid("create"))
     base = manifest["datasets"][0]
-    manifest["datasets"] = [{**base, "key": f"k{i}"} for i in range(101)]
+    manifest["datasets"] = [{**base, "key": f"k{i}"} for i in range(count)]
     return manifest
 
 
-def _too_many_attributes() -> dict:
+def _attributes(count: int) -> dict:
     manifest = copy.deepcopy(_valid("create"))
     manifest["datasets"][0]["attributes"] = [
-        {"source_name": f"c{i}"} for i in range(501)
+        {"source_name": f"c{i}"} for i in range(count)
     ]
     return manifest
 
 
-def _thumbnail_too_long() -> dict:
+def _thumbnail(payload_chars: int) -> dict:
     manifest = copy.deepcopy(_valid("create"))
-    manifest["maps"][0]["thumbnail"] = "data:image/png;base64," + "A" * 100_000
+    manifest["maps"][0]["thumbnail"] = "data:image/png;base64," + "A" * payload_chars
     return manifest
 
 
 @pytest.mark.parametrize(
-    "build", [_too_many_datasets, _too_many_attributes, _thumbnail_too_long]
+    ("build", "largest_valid", "smallest_invalid"),
+    [
+        (_datasets, 100, 101),
+        (_attributes, 500, 501),
+        # The prefix is 22 characters and the payload grows in groups of four,
+        # so no thumbnail is exactly 100,000 characters long.
+        (_thumbnail, 99_976, 99_980),
+    ],
 )
-def test_size_limits_are_enforced(build):
-    assert not VALIDATOR.is_valid(build())
+def test_size_limits_are_enforced(build, largest_valid, smallest_invalid):
+    assert VALIDATOR.is_valid(build(largest_valid))
+    assert not VALIDATOR.is_valid(build(smallest_invalid))
 
 
-def test_hundred_datasets_is_accepted():
-    boundary = copy.deepcopy(_valid("create"))
-    boundary["datasets"] = [
-        {**boundary["datasets"][0], "key": f"k{i}"} for i in range(100)
-    ]
-    assert VALIDATOR.is_valid(boundary)
+def test_a_jpeg_thumbnail_is_accepted():
+    manifest = copy.deepcopy(_valid("create"))
+    manifest["maps"][0]["thumbnail"] = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=="
+    assert VALIDATOR.is_valid(manifest)
 
 
 def _layers(count: int) -> dict:
