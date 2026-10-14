@@ -265,7 +265,7 @@ _HEADER = re.compile(
     re.IGNORECASE,
 )
 _SCHEME_CREDENTIAL = re.compile(
-    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,}[^\s<>\"'`{}()\[\],;&?#]*)",
+    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,}[^\s<>\"'`{}|()\[\],;&?#]*)",
     re.IGNORECASE,
 )
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*")
