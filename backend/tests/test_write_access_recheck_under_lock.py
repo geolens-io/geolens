@@ -21,7 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
 from app.modules.auth.models import User, UserRole
-from app.modules.catalog.authorization import check_dataset_write_access
+from app.modules.catalog.authorization import (
+    DATASET_WRITE_DENIED,
+    check_dataset_write_access,
+)
 from app.modules.catalog.datasets.api import router as datasets_router
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.service import get_dataset
@@ -264,3 +267,123 @@ async def test_admitted_writers_end_with_their_session(
     gc.collect()
 
     assert held() is None
+
+
+async def test_bulk_delete_reports_a_refusal_under_the_lock_per_item(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    people: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner_headers, owner_id = people["owner"]
+    dataset = await create_dataset(test_db_session, created_by=owner_id)
+    dataset_id, title = dataset.id, dataset.record.title
+    original = datasets_router.delete_dataset
+
+    async def transfer_then_delete(db, *args, **kwargs):
+        await _set_dataset_owner(test_db_session, dataset_id, people["target"])
+        return await original(db, *args, **kwargs)
+
+    monkeypatch.setattr(datasets_router, "delete_dataset", transfer_then_delete)
+    resp = await client.post(
+        "/datasets/bulk-delete/",
+        json={"datasets": [{"dataset_id": str(dataset_id), "confirm_title": title}]},
+        headers=owner_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    [item] = resp.json()["results"]
+    assert item["status"] == "error"
+    assert item["detail"] == DATASET_WRITE_DENIED
+    assert await test_db_session.scalar(
+        select(Dataset.id).where(Dataset.id == dataset_id)
+    )
+
+
+async def test_a_later_transaction_checks_again(
+    test_db_session: AsyncSession, request_session: AsyncSession, people: dict
+) -> None:
+    _, owner_id = people["owner"]
+    created = await create_dataset(test_db_session, created_by=owner_id)
+    dataset = await _admitted_dataset_writer(request_session, created.id, owner_id)
+    await lock_catalog_rows_for_write(request_session, dataset)
+    await request_session.commit()
+
+    await _set_dataset_owner(test_db_session, created.id, people["target"])
+
+    assert await _refused(lock_catalog_rows_for_write(request_session, dataset)) == 403
+
+
+async def test_a_dataset_deleted_before_the_lock_is_not_found(
+    test_db_session: AsyncSession, request_session: AsyncSession, people: dict
+) -> None:
+    _, owner_id = people["owner"]
+    created = await create_dataset(test_db_session, created_by=owner_id)
+    dataset = await _admitted_dataset_writer(request_session, created.id, owner_id)
+
+    await test_db_session.execute(delete(Record).where(Record.id == dataset.record_id))
+    await test_db_session.commit()
+
+    assert await _refused(lock_catalog_rows_for_write(request_session, dataset)) == 404
+
+
+async def _admitted_map_writer(
+    client: AsyncClient, session: AsyncSession, people: dict, user_id: uuid.UUID
+) -> uuid.UUID:
+    owner_headers, _ = people["owner"]
+    map_id = uuid.UUID((await create_map_via_api(client, owner_headers))["id"])
+    map_obj = await get_map(session, map_id)
+    await check_map_ownership(map_obj, await session.get(User, user_id), session)
+    return map_id
+
+
+async def test_map_lock_refuses_a_demoted_admin(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    request_session: AsyncSession,
+    people: dict,
+) -> None:
+    map_id = await _admitted_map_writer(
+        client, request_session, people, people["admin"]
+    )
+
+    await test_db_session.execute(
+        delete(UserRole).where(UserRole.user_id == people["admin"])
+    )
+    await test_db_session.commit()
+
+    assert await _refused(lock_map_layers(request_session, map_id)) == 403
+
+
+async def test_map_lock_refuses_a_deactivated_owner(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    request_session: AsyncSession,
+    people: dict,
+) -> None:
+    _, owner_id = people["owner"]
+    map_id = await _admitted_map_writer(client, request_session, people, owner_id)
+
+    await test_db_session.execute(
+        update(User)
+        .where(User.id == owner_id)
+        .values(status="deactivated", is_active=False)
+    )
+    await test_db_session.commit()
+
+    assert await _refused(lock_map_layers(request_session, map_id)) == 403
+
+
+async def test_a_map_deleted_before_the_lock_is_not_found(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    request_session: AsyncSession,
+    people: dict,
+) -> None:
+    _, owner_id = people["owner"]
+    map_id = await _admitted_map_writer(client, request_session, people, owner_id)
+
+    await test_db_session.execute(delete(Map).where(Map.id == map_id))
+    await test_db_session.commit()
+
+    assert await _refused(lock_map_layers(request_session, map_id)) == 404

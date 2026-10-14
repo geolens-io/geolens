@@ -642,6 +642,17 @@ async def bulk_delete_datasets_endpoint(
                 )
             )
             continue
+        except HTTPException as exc:
+            # The write guard's re-check under the catalog lock refuses here.
+            await _rollback_failed_item(db, user)
+            results.append(
+                BulkDeleteResultItem(
+                    dataset_id=item.dataset_id,
+                    status="error",
+                    detail=str(exc.detail),
+                )
+            )
+            continue
         except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
             await _rollback_failed_item(db, user)
             if is_lock_conflict(exc):

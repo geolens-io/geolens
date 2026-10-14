@@ -64,14 +64,18 @@ async def recheck_admitted_writer(
     One query reads ``columns`` of the row ``where`` names, the writer's role
     names as ``roles`` and whether the account is active as ``active``, all as
     committed now. ``enforce(user, row)`` raises to refuse; ``row`` is None
-    when the row is gone. Runs once per transaction, since the lock holds the
-    row from then until commit, and does nothing when no guard admitted a
-    writer to ``key`` in this session.
+    when the row is gone. Runs once per transaction or savepoint, since the
+    lock holds the row until that ends, and does nothing when no guard
+    admitted a writer to ``key`` in this session.
     """
-    admitted = _ADMITTED.get(db.sync_session, {}).get(key)
+    sync_session = db.sync_session
+    admitted = _ADMITTED.get(sync_session, {}).get(key)
     if admitted is None:
         return
-    transaction = db.sync_session.get_transaction()
+    # A savepoint's rollback releases the row locks taken inside it.
+    transaction = (
+        sync_session.get_nested_transaction() or sync_session.get_transaction()
+    )
     if admitted.rechecked_by(transaction):
         return
     statement = select(*columns, *user_standing_columns(admitted.user.id)).where(where)
