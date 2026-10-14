@@ -93,27 +93,25 @@ env_value_into CURRENT_VERSION GEOLENS_VERSION .env || true
 # COMPOSE_FILE may list several files separated by ":" (prod file plus
 # overrides). Every entry has to exist, and `-f` flags for the hints below are
 # built from the whole list so a printed command never drops an override.
+shell_quote() {
+  case "$1" in
+    *[!A-Za-z0-9_./:@%+=,-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
 COMPOSE_FLAGS=""
 COMPOSE_IS_PREBUILT=0
-COMPOSE_HAS_SOURCE=0
 _cf_ifs=$IFS
 IFS=:
 for _cf_entry in $COMPOSE_FILE; do
   [ -n "$_cf_entry" ] || continue
   [ -f "$_cf_entry" ] || fail "COMPOSE_FILE lists $_cf_entry, which does not exist in $PROJECT_ROOT."
-  COMPOSE_FLAGS="$COMPOSE_FLAGS -f $_cf_entry"
+  COMPOSE_FLAGS="$COMPOSE_FLAGS -f $(shell_quote "$_cf_entry")"
   # Any spelling of the prod file (./, absolute, a/../) counts.
   [ "$(compose_clean_path "$_cf_entry")" != "$PROJECT_ROOT/docker-compose.prod.yml" ] || COMPOSE_IS_PREBUILT=1
-  [ "$(compose_clean_path "$_cf_entry")" != "$PROJECT_ROOT/docker-compose.yml" ] || COMPOSE_HAS_SOURCE=1
 done
 IFS=$_cf_ifs
 COMPOSE_FLAGS=${COMPOSE_FLAGS# }
-# The prod file does not reset the source file's build definitions and bind
-# mounts, so a merged list is neither install type.
-if [ "$COMPOSE_IS_PREBUILT" = "1" ] && [ "$COMPOSE_HAS_SOURCE" = "1" ]; then
-  fail "COMPOSE_FILE lists both docker-compose.yml and docker-compose.prod.yml. Use one base file plus overrides."
-fi
-
 if [ "$COMPOSE_IS_PREBUILT" != "1" ]; then
   say "This install builds images from source (COMPOSE_FILE=$COMPOSE_FILE)."
   say ""
@@ -135,6 +133,19 @@ if [ "$COMPOSE_IS_PREBUILT" != "1" ]; then
   say "Take the backup with api + worker already stopped (see UPGRADING.md)."
   say "No changes were made."
   exit 0
+fi
+
+# The prod file does not reset a build definition merged in from another file,
+# and `pull --ignore-buildable` would skip that image, leaving the old checkout
+# to run. The db service builds locally by design.
+_buildable="$(compose config 2>/dev/null | awk '
+  /^services:/ { in_services = 1; next }
+  /^[^ ]/ { in_services = 0 }
+  in_services && /^  [A-Za-z0-9_-]+:/ { service = $1; sub(":", "", service) }
+  in_services && /^    build:/ && service != "db" { print service }
+')" || _buildable=""
+if [ -n "$_buildable" ]; then
+  fail "COMPOSE_FILE gives $(printf '%s' "$_buildable" | tr '\n' ' ')a build definition. This script upgrades prebuilt-image installs only."
 fi
 
 export GEOLENS_VERSION="${CURRENT_VERSION:-latest}"

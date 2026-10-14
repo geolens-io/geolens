@@ -197,6 +197,9 @@ if [ "$1" = "compose" ]; then
         *--images*db*)
           [ -n "${DOCKER_DB_IMAGE_TAG:-}" ] && printf '%s\n' "${DOCKER_DB_IMAGE_TAG}"
           ;;
+        *)
+          [ -n "${DOCKER_CONFIG_OUT:-}" ] && printf '%b' "${DOCKER_CONFIG_OUT}"
+          ;;
       esac
       exit 0 ;;
     *) exit 0 ;;
@@ -411,6 +414,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       GIT_DOCKERFILE_SYNC_TEST="${DOCKERFILE_SYNC_TEST:-}" \
       DOCKER_DB_RECREATE_MODE="${DB_RECREATE_MODE:-ok}" \
       DOCKER_DB_IMAGE_TAG="${DB_IMAGE_TAG:-}" \
+      DOCKER_CONFIG_OUT="${CONFIG_OUT:-}" \
       DOCKER_DB_PS_FAIL="${DB_PS_FAIL:-0}" \
       DOCKER_DB_RUNNING_IMAGE_ID="${DB_RUNNING_IMAGE_ID:-}" \
       DOCKER_DB_BUILT_IMAGE_ID="${DB_BUILT_IMAGE_ID:-}" \
@@ -1008,16 +1012,42 @@ for spelling in "./docker-compose.prod.yml" "$FAKE_ABS/docker-compose.prod.yml" 
   fi
 done
 
-# A source file merged with the prod file is neither install type.
+# An override that gives an app service a build definition is neither install
+# type: the later pull skips buildable images and the checkout would run.
 seed_prod_env
-printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml\nGEOLENS_VERSION=1.2.3\n' > "$FAKE/.env"
+printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\nGEOLENS_VERSION=1.2.3\n' > "$FAKE/.env"
+printf 'services: {}\n' > "$FAKE/override.yml"
+CONFIG_OUT='services:\n  db:\n    build:\n      context: db\n  api:\n    build:\n      context: backend\n'
 run_upgrade ok 1.2.4
-if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'both docker-compose.yml and docker-compose.prod.yml' "$WORK/out.txt" \
+CONFIG_OUT=
+if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'build definition' "$WORK/out.txt" \
    && [ -z "$(pos_of backup)" ]; then
-  ok "a COMPOSE_FILE list mixing the source and prod files is refused before any backup"
+  ok "a COMPOSE_FILE list that makes api buildable is refused before any backup"
 else
-  bad "a hybrid COMPOSE_FILE list was not refused (exit=$(cat "$WORK/code.txt"))"
+  bad "a buildable api was not refused (exit=$(cat "$WORK/code.txt"))"
 fi
+CONFIG_OUT='services:\n  db:\n    build:\n      context: db\n'
+run_upgrade ok 1.2.4
+CONFIG_OUT=
+if [ "$(cat "$WORK/code.txt")" = "0" ]; then
+  ok "the db service's own build definition does not block an upgrade"
+else
+  bad "a buildable db blocked the upgrade (exit=$(cat "$WORK/code.txt"))"
+fi
+
+# Entries with spaces stay copy-pasteable in the recovery hints.
+mkdir -p "$FAKE/my overrides"
+printf 'services: {}\n' > "$FAKE/my overrides/o.yml"
+seed_prod_env
+printf 'COMPOSE_FILE=docker-compose.prod.yml:my overrides/o.yml\nGEOLENS_VERSION=1.2.3\n' > "$FAKE/.env"
+STOP_MODE=ok MIGRATE_FAIL_ON_PURPOSE=1 run_upgrade fail 1.2.4
+if grep -q "docker compose -f docker-compose.prod.yml -f 'my overrides/o.yml' up -d" "$WORK/out.txt"; then
+  ok "recovery commands quote compose paths that contain spaces"
+else
+  bad "recovery commands did not quote a path with a space"
+  sed 's/^/    # /' "$WORK/out.txt" | tail -15
+fi
+rm -rf "$FAKE/my overrides"
 
 rm -f "$FAKE/override.yml" "$FAKE/abs-override.yml"
 seed_prod_env
