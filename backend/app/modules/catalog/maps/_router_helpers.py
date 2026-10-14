@@ -21,7 +21,12 @@ from app.modules.catalog.maps.schemas import (
     MapLayerResponse,
     MapResponse,
 )
-from app.modules.catalog.maps.service import LayerRow, validate_public_visibility
+from app.modules.catalog.maps.service import (
+    LayerRow,
+    filter_layer_rows_by_dataset_visibility,
+    terrain_dataset_ids_visible_to,
+    validate_public_visibility,
+)
 from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.platform.http.ranges import if_none_match_matches
@@ -384,4 +389,32 @@ def _build_map_response(
         layer_count=len(layers),
         plugins=map_obj.plugins,
         legend_title=map_obj.legend_title,
+    )
+
+
+async def _visible_map_response(
+    db: AsyncSession,
+    map_obj: Map,
+    layer_rows: list[LayerRow],
+    user: Identity | None,
+    forked_from_name: str | None,
+    created_by_username: str | None,
+    *,
+    include_notes: bool,
+) -> MapResponse:
+    """Build the map response from only the layers and terrain DEM ``user`` may read.
+
+    Stored layers are untouched; this shapes the response only.
+    """
+    visible_rows = await filter_layer_rows_by_dataset_visibility(db, layer_rows, user)
+    layers = _layers_from_tuples(visible_rows)
+    return _build_map_response(
+        map_obj,
+        layers,
+        forked_from_name=forked_from_name,
+        created_by_username=created_by_username,
+        include_notes=include_notes,
+        terrain_dataset_ids=await terrain_dataset_ids_visible_to(
+            db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
+        ),
     )

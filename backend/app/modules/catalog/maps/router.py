@@ -66,8 +66,6 @@ from app.modules.catalog.maps.service import (
     create_map,
     delete_map,
     discard_map_asset_objects,
-    filter_layer_rows_by_dataset_visibility,
-    terrain_dataset_ids_visible_to,
     get_dataset_meta,
     duplicate_map,
     get_map,
@@ -114,6 +112,7 @@ from app.modules.catalog.maps._router_helpers import (
     _stored_image_cache_control,
     _stored_image_response,
     _visibility_value,
+    _visible_map_response,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -396,17 +395,14 @@ async def get_map_endpoint(
         )
 
     await _check_map_read_access(map_obj, user, db)
-    layer_tuples = await filter_layer_rows_by_dataset_visibility(db, layer_tuples, user)
-    layers = _layers_from_tuples(layer_tuples)
-    return _build_map_response(
+    return await _visible_map_response(
+        db,
         map_obj,
-        layers,
-        forked_from_name=forked_name,
-        created_by_username=owner_username,
+        layer_tuples,
+        user,
+        forked_name,
+        owner_username,
         include_notes=await _is_map_owner_or_admin(map_obj, user, db),
-        terrain_dataset_ids=await terrain_dataset_ids_visible_to(
-            db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
-        ),
     )
 
 
@@ -660,15 +656,17 @@ async def update_map_endpoint(
         # embed token is scoped to; revoke any orphaned embed tokens so they
         # stop serving tiles for content the map no longer exposes.
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
-    await db.commit()
-
-    return _build_map_response(
+    response = await _visible_map_response(
+        db,
         map_obj,
-        layers,
-        forked_from_name=forked_name,
-        created_by_username=owner_username,
+        layer_tuples,
+        user,
+        forked_name,
+        owner_username,
         include_notes=True,
     )
+    await db.commit()
+    return response
 
 
 @router.patch("/{map_id}/layers", response_model=MapResponse)
@@ -736,7 +734,6 @@ async def patch_map_layers_endpoint(
     if body.added:
         await _reject_non_public_datasets(db, map_obj)
 
-    layers = _layers_from_tuples(layer_tuples)
     after_rows_by_id = _layer_rows_by_id(layer_tuples)
     await audit_emit(
         db,
@@ -835,15 +832,17 @@ async def patch_map_layers_endpoint(
     # token is scoped to; revoke any now-orphaned embed tokens.
     if body.removed:
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
-    await db.commit()
-
-    return _build_map_response(
+    response = await _visible_map_response(
+        db,
         map_obj,
-        layers,
-        forked_from_name=forked_name,
-        created_by_username=owner_username,
+        layer_tuples,
+        user,
+        forked_name,
+        owner_username,
         include_notes=True,
     )
+    await db.commit()
+    return response
 
 
 @router.delete("/{map_id}", status_code=status.HTTP_204_NO_CONTENT)
