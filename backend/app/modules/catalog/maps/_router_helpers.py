@@ -23,6 +23,7 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.service import (
     LayerRow,
+    bulk_check_dataset_access,
     filter_layer_rows_by_dataset_visibility,
     terrain_dataset_ids_visible_to,
     validate_public_visibility,
@@ -419,4 +420,42 @@ async def _visible_map_response(
         terrain_dataset_ids=await terrain_dataset_ids_visible_to(
             db, map_obj.terrain_config, [layer.dataset_id for layer in layers], user
         ),
+    )
+
+
+async def _readable_terrain(
+    db: AsyncSession,
+    user: Identity,
+    terrain_config: object,
+    stored: object = None,
+    *,
+    refuse: bool = True,
+) -> object:
+    """Return ``terrain_config`` when ``user`` may bind its DEM.
+
+    The caller may bind a DEM it can read, or the one the map already binds.
+    Otherwise this answers 403, or returns None with ``refuse=False``. A DEM
+    that doesn't exist is treated the same way, so the answer doesn't tell the
+    caller whether a dataset it can't read exists.
+    """
+    if isinstance(terrain_config, dict):
+        dem_id = terrain_config.get("source_dataset_id")
+    else:
+        dem_id = getattr(terrain_config, "source_dataset_id", None)
+    stored_id = stored.get("source_dataset_id") if isinstance(stored, dict) else None
+    if dem_id is None or str(dem_id) == str(stored_id):
+        return terrain_config
+    try:
+        parsed = uuid.UUID(str(dem_id))
+    except ValueError:
+        parsed = None
+    if parsed is not None and parsed in await bulk_check_dataset_access(
+        db, [parsed], user, await get_user_roles(db, user)
+    ):
+        return terrain_config
+    if not refuse:
+        return None
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Cannot access the terrain dataset",
     )

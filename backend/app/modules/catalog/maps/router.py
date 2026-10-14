@@ -100,6 +100,7 @@ from app.standards.ogc.errors import (
 from app.modules.catalog.maps._router_helpers import (
     _build_layer_response,
     _build_map_response,
+    _readable_terrain,
     _can_edit_map,
     _is_map_owner_or_admin,
     _check_map_read_access,
@@ -144,6 +145,7 @@ async def create_map_endpoint(
         if body.terrain_config is not None
         else None
     )
+    await _readable_terrain(db, user, terrain_config)
     basemap_config = (
         body.basemap_config.model_dump(mode="json")
         if body.basemap_config is not None
@@ -306,7 +308,9 @@ async def import_map_style_endpoint(
     if imported.basemap_style:
         map_obj.basemap_style = imported.basemap_style
     if imported.terrain_config is not None:
-        map_obj.terrain_config = imported.terrain_config
+        map_obj.terrain_config = await _readable_terrain(
+            db, user, imported.terrain_config, refuse=False
+        )
     if imported.basemap_config is not None:
         map_obj.basemap_config = imported.basemap_config
 
@@ -466,6 +470,7 @@ async def update_map_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
 
     # Auto-revoke share tokens when visibility moves away from public
     if body.visibility is not None and body.visibility != MapVisibility.public:
