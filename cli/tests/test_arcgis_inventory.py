@@ -2775,6 +2775,10 @@ def _nested(value):
             "https://s.example/q?cookie=sid=abc123KEY; session=sessionSECRET456&f=json",
             "sessionSECRET456",
         ),
+        (
+            'https://s.example/q?authorization=Digest uri="/d?x=1&y=2", response="deadbeefSECRET123"&m=1',
+            "deadbeefSECRET123",
+        ),
         ("Authorization: Bearer abc.def", "abc.def"),
         ("Authorization: Basic configuration", "configuration"),
     ],
@@ -2834,6 +2838,14 @@ def test_string_scrubber_keeps_ordinary_text(raw):
 def test_url_header_parameter_masks_only_its_value(raw, expected):
     cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
     assert cleaned["a"]["b"]["c"]["note"] == expected
+
+
+def test_scheme_token_masking_stops_before_markup():
+    raw = "<p>Use Token abc123KEYabc</p><p>Next field</p>"
+    cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
+    assert cleaned["a"]["b"]["c"]["note"] == (
+        "<p>Use Token [REDACTED]</p><p>Next field</p>"
+    )
 
 
 def test_json_text_inside_a_string_keeps_its_structure():
