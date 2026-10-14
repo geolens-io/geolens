@@ -35,6 +35,7 @@ from app.core.async_io import (
 )
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import check_dataset_write_access
+from app.modules.catalog.features.service import lock_catalog_rows_for_write
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.modules.catalog.datasets.domain.schemas import (
@@ -1167,10 +1168,7 @@ async def reupload_commit(
             },
         ) from exc
 
-    # fix(#1768): the origin door, and it has to be HERE -- after the run
-    # row took the one-active-run admission slot, not before it. See
-    # `_refuse_if_origin_changed` for why the reservation makes the
-    # re-read decisive.
+    # After the run row takes the one-active-run slot, which makes this re-read decisive.
     await _refuse_if_origin_changed(db, dataset, request.expected_origin_kind)
 
     # Staged before the commit so a store that is missing or unreachable
@@ -1217,6 +1215,8 @@ async def reupload_commit(
                 ),
             },
         )
+    # Held to the commit, so a transfer waits and then finds this run busy.
+    await lock_catalog_rows_for_write(db, dataset)
     await db.commit()
 
     # Each defer_async path is wrapped in the shared orphan guard so a

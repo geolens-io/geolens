@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 from functools import partial
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
@@ -161,6 +162,21 @@ _DATASET_DELETED = Failure(
         "The dataset was deleted while this job was running.", code="dataset_deleted"
     ),
 )
+
+
+class WriteAccessRevoked(Exception):
+    """The account that started the attempt can no longer write its dataset."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The account that started this job can no longer modify this "
+            "dataset, so its data was not replaced."
+        )
+
+
+# Recorded on the job and its run without a notice: the account it would
+# go to has lost access to the dataset.
+_WRITE_ACCESS_REVOKED = Failure("write_access_revoked", notify=False, refused=True)
 
 
 class ReplacementStrategy(Protocol):
@@ -369,11 +385,12 @@ async def settle_replacement(
         failed = await _publish(strategy, attempt)
     except Exception as exc:  # broad: every failure before the commit is recorded once
         failed = True
-        failure = (
-            _DATASET_DELETED
-            if isinstance(exc, DatasetDeleted)
-            else strategy.classify(exc)
-        )
+        if isinstance(exc, DatasetDeleted):
+            failure = _DATASET_DELETED
+        elif isinstance(exc, WriteAccessRevoked):
+            failure = _WRITE_ACCESS_REVOKED
+        else:
+            failure = strategy.classify(exc)
         logger.exception("Ingest task failed", job_id=job_id, task=strategy.task)
         await _record_failure(strategy.task, attempt, exc, failure)
         if failure.refused:
@@ -522,6 +539,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
 
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
+        await _require_submitter_can_write(session, dataset, job.created_by)
         published = await strategy.write(session, dataset)
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
@@ -559,6 +577,37 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
             session, job_id=job_id, attempt_id=attempt_id, task=strategy.task
         )
     return False
+
+
+async def _require_submitter_can_write(
+    session: AsyncSession, dataset: Any, submitter_id: uuid.UUID | None
+) -> None:
+    """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
+    the dataset, as committed now.
+
+    Call holding the catalog rows, which an ownership transfer also takes.
+    """
+    from fastapi import HTTPException
+
+    from app.platform.extensions import get_processing_port
+
+    # In SQL, since processing may not import the auth models.
+    active = submitter_id is not None and await session.scalar(
+        text("SELECT is_active FROM catalog.users WHERE id = :uid"),
+        {"uid": submitter_id},
+    )
+    if not active:
+        raise WriteAccessRevoked
+    await session.refresh(
+        dataset.record, attribute_names=["created_by", "visibility", "record_status"]
+    )
+    try:
+        # Identity is a structural Protocol; the write guard reads only its id.
+        await get_processing_port().check_dataset_write_access(
+            session, dataset, dataset.id, SimpleNamespace(id=submitter_id)
+        )
+    except HTTPException:
+        raise WriteAccessRevoked from None
 
 
 async def _take_catalog_rows(
