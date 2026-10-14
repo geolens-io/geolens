@@ -68,3 +68,15 @@ def test_hundred_datasets_is_accepted():
         {**boundary["datasets"][0], "key": f"k{i}"} for i in range(100)
     ]
     assert VALIDATOR.is_valid(boundary)
+
+
+def _layers(count: int) -> dict:
+    manifest = copy.deepcopy(_valid("create"))
+    layer = manifest["maps"][0]["layers"][0]
+    manifest["maps"][0]["layers"] = [{**layer, "key": f"l{i}"} for i in range(count)]
+    return manifest
+
+
+def test_a_map_holds_at_most_200_layers():
+    assert VALIDATOR.is_valid(_layers(200))
+    assert not VALIDATOR.is_valid(_layers(201))

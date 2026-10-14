@@ -32,11 +32,11 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}(?![\\s\\S])"
     },
     "uuid": {
       "type": "string",
-      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\\s\\S])"
     },
     "visibility": {"enum": ["private", "internal", "public"]},
     "text500": {"type": "string", "minLength": 1, "maxLength": 500},
@@ -71,13 +71,13 @@
         "type": {"enum": ["vector", "raster_cog"]},
         "uri": {
           "type": "string",
-          "pattern": "^upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          "pattern": "^upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\\s\\S])"
         },
         "checksum": {
           "type": "string",
           "minLength": 71,
           "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
+          "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"
         }
       }
     },
@@ -91,7 +91,7 @@
           "items": {"type": "string", "minLength": 1, "maxLength": 100}
         },
         "organization": {"$ref": "#/$defs/text500"},
-        "crs": {"type": "string", "pattern": "^EPSG:[0-9]{1,6}$"},
+        "crs": {"type": "string", "pattern": "^EPSG:[0-9]{1,6}(?![\\s\\S])"},
         "license": {"$ref": "#/$defs/text500"},
         "attribution": {"$ref": "#/$defs/text5000"},
         "bbox": {
@@ -246,12 +246,13 @@
         "thumbnail": {
           "type": "string",
           "maxLength": 100000,
-          "pattern": "^data:image/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$"
+          "pattern": "^data:image/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}(?![\\s\\S])"
         },
         "loss_report": {"$ref": "#/$defs/lossReport"},
         "layers": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 200,
           "items": {"$ref": "#/$defs/layer"}
         }
       }
