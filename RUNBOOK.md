@@ -379,7 +379,9 @@ docker compose up -d
 Each password now appears twice in `.env`. When you rotate `POSTGRES_PASSWORD`,
 update `MIGRATION_DATABASE_URL_OVERRIDE` in the same edit. When you rotate the
 runtime password, update `GEOLENS_RUNTIME_DB_PASSWORD` and
-`DATABASE_URL_OVERRIDE` together, then rerun step 4.
+`DATABASE_URL_OVERRIDE` together, then rerun steps 3 and 4: `exec` uses the
+environment the `db` container was created with, so it needs the recreate to see
+the new password.
 
 If the chosen login already exists, the command refuses to modify it unless it
 has the durable GeoLens marker. This protects unrelated provider/admin roles
