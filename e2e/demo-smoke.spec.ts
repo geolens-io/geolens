@@ -166,15 +166,19 @@ test.describe('live demo read-only smoke', () => {
     const signupOpen =
       authConfig.allow_signup === true ||
       (authConfig.allow_signup === undefined && authConfig.registration_enabled === true);
+    const passwordLoginEnabled = authConfig.password_login_enabled !== false;
     const supportHint = page.getByText('Need access? Contact a GeoLens administrator.');
     const registerLink = page.locator('a[href*="register"]');
-    if (signupOpen) {
-      await expect(registerLink).toHaveCount(1);
-      await expect(supportHint).toHaveCount(0);
-    } else {
+    await expect(registerLink).toHaveCount(signupOpen ? 1 : 0);
+    // The hint lives in the password form, which an SSO-only instance hides.
+    if (passwordLoginEnabled && !signupOpen) {
       await expect(supportHint).toBeVisible();
-      await expect(registerLink).toHaveCount(0);
+    } else {
+      await expect(supportHint).toHaveCount(0);
     }
+    await expect(page.getByRole('button', { name: 'Admin? Sign in with a password' })).toHaveCount(
+      passwordLoginEnabled ? 0 : 1,
+    );
 
     diagnostics.assertClean();
   });
