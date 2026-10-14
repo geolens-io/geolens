@@ -2783,6 +2783,10 @@ def _nested(value):
             'https://s.example/q?authorization=Digest uri="/d?x=\\"a&b\\"", response="deadbeefSECRET123"&m=1',
             "deadbeefSECRET123",
         ),
+        (
+            'https://s.example/q?cookie=sid="a&b"; session=sessionSECRET456&f=json',
+            "sessionSECRET456",
+        ),
         ("Authorization: Bearer abc.def", "abc.def"),
         ("Authorization: Basic configuration", "configuration"),
     ],
