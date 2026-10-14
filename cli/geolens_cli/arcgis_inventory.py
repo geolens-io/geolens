@@ -270,14 +270,14 @@ _MAX_EMBEDDED_DEPTH = 3
 def _scrub_scheme(match: re.Match[str]) -> str:
     scheme, space, value = match.groups()
     # Bearer is rarely prose; the other schemes also open ordinary sentences
-    # ("Basic configuration options"), so a plain word after them is left alone.
-    if scheme.lower() != "bearer" and re.fullmatch(r"[A-Za-z][a-z]*", value):
+    # ("Basic configuration options"), so a lowercase word after them is left alone.
+    if scheme.lower() != "bearer" and re.fullmatch(r"[a-z]+", value):
         return match.group(0)
     return f"{scheme}{space}[REDACTED]"
 
 
 _URL_HEADER_VALUE = re.compile(r"[^&#\s]*")
-_URL_AUTH_VALUE = re.compile(r"[^&#\s]*(?:[ \t]+[^&#\s]+)?")
+_URL_AUTH_VALUE = re.compile(r"[^&#]*")
 
 
 def _scrub_header(match: re.Match[str]) -> str:
@@ -287,7 +287,7 @@ def _scrub_header(match: re.Match[str]) -> str:
     if not in_url:
         return f"{name}{sep}[REDACTED]"
     # A URL parameter ends at the next delimiter, though an authorization value
-    # may be "<scheme> <token>" for any scheme name.
+    # may hold spaces and commas ("Digest user=..., response=...").
     value = match.group(3)
     pattern = _URL_AUTH_VALUE if "authorization" in name.lower() else _URL_HEADER_VALUE
     consumed = pattern.match(value)

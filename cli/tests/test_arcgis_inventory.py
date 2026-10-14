@@ -2759,6 +2759,11 @@ def _nested(value):
             "https://s.example/q?api-key=firstKEY123&cookie=sessionSECRET456",
             "sessionSECRET456",
         ),
+        (
+            'https://s.example/q?authorization=Digest u="x", response="deadbeefSECRET123"&m=1',
+            "deadbeefSECRET123",
+        ),
+        ("Token Abcdefghijkl", "Abcdefghijkl"),
         ("Authorization: Bearer abc.def", "abc.def"),
         ("Authorization: Basic configuration", "configuration"),
     ],
