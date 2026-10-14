@@ -419,7 +419,8 @@
       "cluster": {
         "server": "Server-Cluster",
         "bounded": "Begrenzter Cluster",
-        "fallback": "Punkt-Fallback"
+        "fallback": "Punkt-Fallback",
+        "pointsPerCluster": "Punkte pro Cluster"
       },
       "geometry": {
         "point": "Punkt",

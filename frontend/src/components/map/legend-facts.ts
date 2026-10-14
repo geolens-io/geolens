@@ -1,4 +1,5 @@
 import { getClusterSourceStrategy, isClusterRenderMode, type ClusterSourceStrategyKind } from '@/components/builder/cluster-source';
+import { clusterColorSteps } from '@/components/builder/layer-adapters/cluster-adapter';
 import { resolveCirclePaint, resolvePointStroke } from '@/components/builder/layer-adapters/circle-adapter';
 import { resolveFillPaint, resolvePolygonStroke } from '@/components/builder/layer-adapters/fill-adapter';
 import { resolveHeatmapColor } from '@/components/builder/layer-adapters/heatmap-adapter';
@@ -111,7 +112,11 @@ export interface LegendFacts {
    * Where a cluster layer's clusters come from: the browser over bounded GeoJSON,
    * the tile server, or nowhere when it draws single points. Null for other layers.
    */
-  cluster: { kind: ClusterSourceStrategyKind } | null;
+  cluster: {
+    kind: ClusterSourceStrategyKind;
+    /** The point counts that colour the cluster circles, as graduated colour classes; null for one flat colour or no clusters. */
+    steps: LegendClasses | null;
+  } | null;
 }
 
 /** What the map drew a layer as, when the caller knows. */
@@ -706,7 +711,16 @@ function weightFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts[
 function clusterFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts['cluster'] {
   if (!isClusterRenderMode(layer)) return null;
   // A cluster layer the map drew as anything else is drawing its single points.
-  return { kind: kind === 'cluster' ? getClusterSourceStrategy(layer).kind : 'fallback' };
+  if (kind !== 'cluster') return { kind: 'fallback', steps: null };
+  const ramp = clusterColorSteps(getBuilderStyleConfig(layer).clusterColorRamp);
+  const steps: LegendClasses | null = ramp && {
+    mode: 'graduated',
+    target: 'color',
+    title: '',
+    items: ramp.colors.map((color) => ({ color })),
+    breaks: ramp.breaks,
+  };
+  return { kind: getClusterSourceStrategy(layer).kind, steps };
 }
 
 /**

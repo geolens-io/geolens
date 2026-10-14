@@ -160,7 +160,8 @@
       "cluster": {
         "server": "Server cluster",
         "bounded": "Bounded cluster",
-        "fallback": "Point fallback"
+        "fallback": "Point fallback",
+        "pointsPerCluster": "Points per cluster"
       },
       "geometry": {
         "point": "Point",

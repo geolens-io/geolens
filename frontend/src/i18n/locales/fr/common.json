@@ -419,7 +419,8 @@
       "cluster": {
         "server": "Regroupement côté serveur",
         "bounded": "Regroupement limité",
-        "fallback": "Points de secours"
+        "fallback": "Points de secours",
+        "pointsPerCluster": "Points par cluster"
       },
       "geometry": {
         "point": "Point",

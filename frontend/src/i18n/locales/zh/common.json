@@ -160,7 +160,8 @@
       "cluster": {
         "server": "服务端聚合",
         "bounded": "客户端聚合",
-        "fallback": "回退为点"
+        "fallback": "回退为点",
+        "pointsPerCluster": "每个聚合的点数"
       },
       "geometry": {
         "point": "点",

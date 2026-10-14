@@ -220,6 +220,12 @@ export function LayerLegend({
                     </div>
                   ) : null
                 )}
+                {isVisible && facts.cluster?.steps && (
+                  <div className="mt-1.5 ms-6 space-y-1">
+                    <div className="text-mini font-medium text-muted-foreground">{t('viewer.legend.cluster.pointsPerCluster')}</div>
+                    <LegendClassesList classes={[facts.cluster.steps]} geometryType="POINT" />
+                  </div>
+                )}
               </li>
             );
           })}
