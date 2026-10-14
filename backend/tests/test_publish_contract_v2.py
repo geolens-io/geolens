@@ -1,11 +1,14 @@
 """The publish manifest v2 schema accepts every valid example and rejects every invalid one."""
 
+import base64
 import copy
+import io
 import json
 from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
+from PIL import Image
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SCHEMA = json.loads((FIXTURES / "publish_manifest_v2.schema.json").read_text())
@@ -71,8 +74,12 @@ def test_size_limits_are_enforced(build, largest_valid, smallest_invalid):
 
 
 def test_a_jpeg_thumbnail_is_accepted():
+    buffer = io.BytesIO()
+    Image.new("RGB", (1, 1), (255, 255, 255)).save(buffer, "JPEG")
+    payload = base64.b64encode(buffer.getvalue()).decode()
+    Image.open(io.BytesIO(base64.b64decode(payload))).verify()
     manifest = copy.deepcopy(_valid("create"))
-    manifest["maps"][0]["thumbnail"] = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=="
+    manifest["maps"][0]["thumbnail"] = f"data:image/jpeg;base64,{payload}"
     assert VALIDATOR.is_valid(manifest)
 
 
