@@ -433,6 +433,23 @@ describe('AnalysisJobWatcher', () => {
     invalidate.mockRestore();
   });
 
+  it('watches for the thumbnail of a run another tab reported', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'running', dataset_id: null });
+    renderWatcher();
+
+    act(() => {
+      useAnalysisJobStore.setState({
+        job: null,
+        completedAt: { jobId: 'j1', tabId: 'some-other-tab', status: 'complete', at: Date.now() },
+      });
+    });
+
+    await waitFor(() =>
+      expect(useRefreshSearchWhenQuicklookLands).toHaveBeenLastCalledWith('j1'),
+    );
+  });
+
   // fix(#1008 codex P2, fourth pass): claim and clear are separate persisted
   // writes and arrive in either order, and a swept job departs with no claim
   // at all. Retiring the remembered title therefore keys on the departure of

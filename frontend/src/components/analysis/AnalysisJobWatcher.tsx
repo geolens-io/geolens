@@ -366,6 +366,10 @@ export function AnalysisJobWatcher() {
       // not correct itself.
       queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.search.all });
+      // The claim outlives the tracked job, so this also covers a tab that
+      // missed the terminal poll or reloaded since. The watch ends at once
+      // for a thumbnail that is already drawn.
+      if (completedAt.status === 'complete') setQuicklookJobId(completedAt.jobId);
     }
 
     const pending = pendingCleanupRef.current;
