@@ -80,3 +80,23 @@ def _layers(count: int) -> dict:
 def test_a_map_holds_at_most_200_layers():
     assert VALIDATOR.is_valid(_layers(200))
     assert not VALIDATOR.is_valid(_layers(201))
+
+
+@pytest.mark.parametrize(
+    ("path", "limit"),
+    [
+        (("maps", 0, "name"), 255),
+        (("maps", 0, "description"), 2000),
+        (("maps", 0, "basemap_style"), 2000),
+        (("maps", 0, "layers", 0, "display_name"), 255),
+    ],
+)
+def test_map_text_fields_stop_at_their_storage_limit(path, limit):
+    manifest = copy.deepcopy(_valid("create"))
+    target = manifest
+    for step in path[:-1]:
+        target = target[step]
+    target[path[-1]] = "x" * limit
+    assert VALIDATOR.is_valid(manifest)
+    target[path[-1]] = "x" * (limit + 1)
+    assert not VALIDATOR.is_valid(manifest)

@@ -93,7 +93,12 @@
         "organization": {"$ref": "#/$defs/text500"},
         "crs": {"type": "string", "pattern": "^EPSG:[0-9]{1,6}(?![\\s\\S])"},
         "license": {"$ref": "#/$defs/text500"},
-        "attribution": {"$ref": "#/$defs/text5000"},
+        "attribution": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000,
+          "pattern": "^[^<>]*$"
+        },
         "bbox": {
           "type": "array",
           "minItems": 4,
@@ -217,7 +222,7 @@
         "key": {"$ref": "#/$defs/key"},
         "dataset_key": {"$ref": "#/$defs/key"},
         "dataset_id": {"$ref": "#/$defs/uuid"},
-        "display_name": {"$ref": "#/$defs/text500"},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 255},
         "visible": {"type": "boolean"},
         "opacity": {"type": "number", "minimum": 0, "maximum": 1},
         "min_zoom": {"type": ["number", "null"], "minimum": 0, "maximum": 24},
@@ -237,10 +242,10 @@
       "required": ["key", "name", "layers"],
       "properties": {
         "key": {"$ref": "#/$defs/key"},
-        "name": {"$ref": "#/$defs/text500"},
-        "description": {"$ref": "#/$defs/text5000"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 255},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000},
         "view": {"$ref": "#/$defs/view"},
-        "basemap_style": {"type": "string", "minLength": 1},
+        "basemap_style": {"type": "string", "minLength": 1, "maxLength": 2000},
         "styling": {"enum": ["replace_if_unedited", "replace", "keep"]},
         "visibility": {"$ref": "#/$defs/visibility"},
         "thumbnail": {
