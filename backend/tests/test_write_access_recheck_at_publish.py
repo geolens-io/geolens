@@ -18,8 +18,10 @@ from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
+from app.core.identity import IdentityProtocol
 from app.modules.auth.models import User, UserRole
 from app.modules.catalog.datasets.domain.models import Record
+from app.platform.extensions import get_processing_port
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
@@ -237,3 +239,21 @@ async def test_the_commit_door_refuses_a_submitter_who_lost_the_dataset(
         )
     assert runs is None
     assert status == "pending"
+
+
+async def test_the_write_guard_is_handed_a_complete_identity(
+    submitted_by_editor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    port_cls = type(get_processing_port())
+    original = port_cls.check_dataset_write_access
+    identities: list[bool] = []
+
+    async def recording(self, session, dataset, dataset_id, user, **kwargs):
+        identities.append(isinstance(user, IdentityProtocol))
+        return await original(self, session, dataset, dataset_id, user, **kwargs)
+
+    monkeypatch.setattr(port_cls, "check_dataset_write_access", recording)
+    await _settle(_Fake(submitted_by_editor))
+
+    assert identities == [True]
+    assert (await _state(submitted_by_editor))["job"] == "complete"

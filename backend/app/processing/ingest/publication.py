@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 from functools import partial
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Protocol
 
 import structlog
@@ -579,6 +578,32 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
     return False
 
 
+@dataclass(frozen=True, slots=True)
+class _Role:
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class _Submitter:
+    """The job's submitter as an ``Identity``, read as committed now."""
+
+    id: uuid.UUID
+    username: str
+    email: str | None
+    is_active: bool
+    roles: tuple[_Role, ...]
+    created_at: datetime
+
+
+# In SQL, since processing may not import the auth models.
+_SUBMITTER = text(
+    "SELECT u.id, u.username, u.email, u.is_active, u.created_at, "
+    "ARRAY(SELECT r.name FROM catalog.user_roles ur "
+    "JOIN catalog.roles r ON r.id = ur.role_id WHERE ur.user_id = u.id) AS roles "
+    "FROM catalog.users u WHERE u.id = :uid"
+)
+
+
 async def _require_submitter_can_write(
     session: AsyncSession, dataset: Any, submitter_id: uuid.UUID | None
 ) -> None:
@@ -591,20 +616,29 @@ async def _require_submitter_can_write(
 
     from app.platform.extensions import get_processing_port
 
-    # In SQL, since processing may not import the auth models.
-    active = submitter_id is not None and await session.scalar(
-        text("SELECT is_active FROM catalog.users WHERE id = :uid"),
-        {"uid": submitter_id},
-    )
-    if not active:
+    row = None
+    if submitter_id is not None:
+        row = (await session.execute(_SUBMITTER, {"uid": submitter_id})).first()
+    if row is None or not row.is_active:
         raise WriteAccessRevoked
+    submitter = _Submitter(
+        id=row.id,
+        username=row.username,
+        email=row.email,
+        is_active=row.is_active,
+        roles=tuple(_Role(name) for name in row.roles),
+        created_at=row.created_at,
+    )
     await session.refresh(
         dataset.record, attribute_names=["created_by", "visibility", "record_status"]
     )
     try:
-        # Identity is a structural Protocol; the write guard reads only its id.
         await get_processing_port().check_dataset_write_access(
-            session, dataset, dataset.id, SimpleNamespace(id=submitter_id)
+            session,
+            dataset,
+            dataset.id,
+            submitter,
+            user_roles={role.name for role in submitter.roles},
         )
     except HTTPException:
         raise WriteAccessRevoked from None
