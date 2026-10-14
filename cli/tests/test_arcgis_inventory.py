@@ -2764,6 +2764,8 @@ def _nested(value):
             "deadbeefSECRET123",
         ),
         ("Token Abcdefghijkl", "Abcdefghijkl"),
+        ("Token abcdefghijkl!secret", "secret"),
+        ("https://s.example/q?" + "api-key=Kx9&" * 3000, "Kx9"),
         ("Authorization: Bearer abc.def", "abc.def"),
         ("Authorization: Basic configuration", "configuration"),
     ],

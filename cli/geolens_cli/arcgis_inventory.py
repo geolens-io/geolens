@@ -249,13 +249,18 @@ def _scrub_param(match: re.Match[str]) -> str:
     return f"{lead}{name}={value}"
 
 
+_HEADER_NAME = r"(?:proxy-)?authorization|cookie|set-cookie|(?:x[-_]?)?api[-_]?key"
+_HEADER_SEP = r"\s*[:=]\s*"
+# After ?, & or # the match is a URL parameter and ends at the next delimiter;
+# an authorization value may still hold spaces and commas ("Digest u=x, r=y").
 _HEADER = re.compile(
-    r"\b((?:proxy-)?authorization|cookie|set-cookie|(?:x[-_]?)?api[-_]?key|x-esri-authorization)"
-    r"(\s*[:=]\s*)([^\r\n]+)",
+    rf"(?<=[?&#])(?P<aname>(?:x-esri-|proxy-)?authorization)(?P<asep>{_HEADER_SEP})[^&#]*"
+    rf"|(?<=[?&#])(?P<uname>x-esri-authorization|{_HEADER_NAME})(?P<usep>{_HEADER_SEP})[^&#\s]*"
+    rf"|\b(?P<name>x-esri-authorization|{_HEADER_NAME})(?P<sep>{_HEADER_SEP})[^\r\n]+",
     re.IGNORECASE,
 )
 _SCHEME_CREDENTIAL = re.compile(
-    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,})", re.IGNORECASE
+    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,}\S*)", re.IGNORECASE
 )
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*")
 _PEM = re.compile(
@@ -276,23 +281,12 @@ def _scrub_scheme(match: re.Match[str]) -> str:
     return f"{scheme}{space}[REDACTED]"
 
 
-_URL_HEADER_VALUE = re.compile(r"[^&#\s]*")
-_URL_AUTH_VALUE = re.compile(r"[^&#]*")
-
-
 def _scrub_header(match: re.Match[str]) -> str:
-    name, sep = match.group(1), match.group(2)
-    start = match.start()
-    in_url = start > 0 and match.string[start - 1] in "?&#"
-    if not in_url:
-        return f"{name}{sep}[REDACTED]"
-    # A URL parameter ends at the next delimiter, though an authorization value
-    # may hold spaces and commas ("Digest user=..., response=...").
-    value = match.group(3)
-    pattern = _URL_AUTH_VALUE if "authorization" in name.lower() else _URL_HEADER_VALUE
-    consumed = pattern.match(value)
-    rest = value[consumed.end() :] if consumed else value
-    return f"{name}{sep}[REDACTED]{_HEADER.sub(_scrub_header, rest)}"
+    groups = match.groupdict()
+    for key in ("a", "u", ""):
+        if groups[f"{key}name"] is not None:
+            return f"{groups[f'{key}name']}{groups[f'{key}sep']}[REDACTED]"
+    raise AssertionError("unreachable")
 
 
 def _scrub_pair(match: re.Match[str]) -> str:
