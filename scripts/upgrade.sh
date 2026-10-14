@@ -90,22 +90,29 @@ env_value_into COMPOSE_FILE COMPOSE_FILE .env || true
 env_value_into CURRENT_VERSION GEOLENS_VERSION .env || true
 : "${CURRENT_VERSION:=}"
 
-# COMPOSE_FILE may list several files (prod file plus overrides), separated
-# by COMPOSE_PATH_SEPARATOR (":" by default). Every entry has to exist, and `-f` flags for the hints below are
+# COMPOSE_FILE may list several files separated by ":" (prod file plus
+# overrides). Every entry has to exist, and `-f` flags for the hints below are
 # built from the whole list so a printed command never drops an override.
 COMPOSE_FLAGS=""
 COMPOSE_IS_PREBUILT=0
+COMPOSE_HAS_SOURCE=0
 _cf_ifs=$IFS
-IFS=$(compose_path_separator)
+IFS=:
 for _cf_entry in $COMPOSE_FILE; do
   [ -n "$_cf_entry" ] || continue
   [ -f "$_cf_entry" ] || fail "COMPOSE_FILE lists $_cf_entry, which does not exist in $PROJECT_ROOT."
   COMPOSE_FLAGS="$COMPOSE_FLAGS -f $_cf_entry"
   # Any spelling of the prod file (./, absolute, a/../) counts.
   [ "$(compose_clean_path "$_cf_entry")" != "$PROJECT_ROOT/docker-compose.prod.yml" ] || COMPOSE_IS_PREBUILT=1
+  [ "$(compose_clean_path "$_cf_entry")" != "$PROJECT_ROOT/docker-compose.yml" ] || COMPOSE_HAS_SOURCE=1
 done
 IFS=$_cf_ifs
 COMPOSE_FLAGS=${COMPOSE_FLAGS# }
+# The prod file does not reset the source file's build definitions and bind
+# mounts, so a merged list is neither install type.
+if [ "$COMPOSE_IS_PREBUILT" = "1" ] && [ "$COMPOSE_HAS_SOURCE" = "1" ]; then
+  fail "COMPOSE_FILE lists both docker-compose.yml and docker-compose.prod.yml. Use one base file plus overrides."
+fi
 
 if [ "$COMPOSE_IS_PREBUILT" != "1" ]; then
   say "This install builds images from source (COMPOSE_FILE=$COMPOSE_FILE)."

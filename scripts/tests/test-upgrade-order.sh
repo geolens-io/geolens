@@ -1008,15 +1008,15 @@ for spelling in "./docker-compose.prod.yml" "$FAKE_ABS/docker-compose.prod.yml" 
   fi
 done
 
-# COMPOSE_PATH_SEPARATOR changes the delimiter for every consumer.
+# A source file merged with the prod file is neither install type.
 seed_prod_env
-printf 'COMPOSE_FILE=docker-compose.prod.yml|override.yml\nCOMPOSE_PATH_SEPARATOR=|\nGEOLENS_VERSION=1.2.3\nPOSTGRES_USER=geolens\nPOSTGRES_DB=geolens\n' > "$FAKE/.env"
-printf 'services: {}\n' > "$FAKE/override.yml"
+printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml\nGEOLENS_VERSION=1.2.3\n' > "$FAKE/.env"
 run_upgrade ok 1.2.4
-if [ "$(cat "$WORK/code.txt")" = "0" ] && grep -q "^$FAKE/override.yml\$" "$CALLLOG.files"; then
-  ok "a custom COMPOSE_PATH_SEPARATOR splits the COMPOSE_FILE list"
+if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'both docker-compose.yml and docker-compose.prod.yml' "$WORK/out.txt" \
+   && [ -z "$(pos_of backup)" ]; then
+  ok "a COMPOSE_FILE list mixing the source and prod files is refused before any backup"
 else
-  bad "a custom COMPOSE_PATH_SEPARATOR was ignored (exit=$(cat "$WORK/code.txt"))"
+  bad "a hybrid COMPOSE_FILE list was not refused (exit=$(cat "$WORK/code.txt"))"
 fi
 
 rm -f "$FAKE/override.yml" "$FAKE/abs-override.yml"

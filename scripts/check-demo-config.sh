@@ -13,11 +13,6 @@ if [ -z "${COMPOSE_FILE:-}" ] && [ -f "$PROJECT_ROOT/.env" ]; then
     COMPOSE_FILE="$("$SCRIPT_DIR/env-value.sh" COMPOSE_FILE "$PROJECT_ROOT/.env" 2>/dev/null || true)"
 fi
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
-SEPARATOR="${COMPOSE_PATH_SEPARATOR:-}"
-if [ -z "$SEPARATOR" ] && [ -f "$PROJECT_ROOT/.env" ]; then
-    SEPARATOR="$("$SCRIPT_DIR/env-value.sh" COMPOSE_PATH_SEPARATOR "$PROJECT_ROOT/.env" 2>/dev/null || true)"
-fi
-SEPARATOR="${SEPARATOR:-:}"
 
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
@@ -26,7 +21,7 @@ fail() {
 
 COMPOSE_PATHS=""
 _ifs=$IFS
-IFS=$SEPARATOR
+IFS=:
 for entry in $COMPOSE_FILE; do
     [ -n "$entry" ] || continue
     case "$entry" in

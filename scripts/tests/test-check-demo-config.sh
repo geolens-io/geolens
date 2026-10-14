@@ -80,10 +80,10 @@ fi
 printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\n' >"$PROJECT/.env"
 
 mkdir -p "$PROJECT/overrides"
-printf 'COMPOSE_FILE=overrides/../docker-compose.prod.yml|override.yml\nCOMPOSE_PATH_SEPARATOR=|\n' >"$PROJECT/.env"
+printf 'COMPOSE_FILE=overrides/../docker-compose.prod.yml:override.yml\n' >"$PROJECT/.env"
 if ! TEST_CONFIG_FILES=$LISTED PATH="$FAKE_BIN:$PATH" \
     "$PROJECT/scripts/check-demo-config.sh" >/dev/null 2>&1; then
-    printf 'FAIL: a ../ spelling or custom separator reported false drift\n' >&2
+    printf 'FAIL: a ../ spelling reported false drift\n' >&2
     exit 1
 fi
 printf 'COMPOSE_FILE=docker-compose.prod.yml:override.yml\n' >"$PROJECT/.env"

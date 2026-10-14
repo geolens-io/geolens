@@ -61,14 +61,6 @@
 # derive its own caller's project root the same way for every shell that
 # sources it) and this codebase already relies on that convention for
 # `.env` lookups elsewhere.
-# The delimiter between COMPOSE_FILE entries: Compose's COMPOSE_PATH_SEPARATOR
-# (process environment first, then .env), ":" when unset.
-compose_path_separator() {
-  _cps_sep=${COMPOSE_PATH_SEPARATOR:-}
-  [ -n "$_cps_sep" ] || env_value_into _cps_sep COMPOSE_PATH_SEPARATOR "$PROJECT_ROOT/.env" 2>/dev/null || true
-  printf '%s' "${_cps_sep:-:}"
-}
-
 # A COMPOSE_FILE entry as an absolute path with "." and ".." resolved
 # lexically, the way Compose records it in container labels.
 compose_clean_path() {
@@ -89,7 +81,7 @@ compose() {
   # own -f, so overrides stay in effect.
   _cf_argc=$#
   _cf_ifs=$IFS
-  IFS=$(compose_path_separator)
+  IFS=:
   for _cf_entry in $COMPOSE_FILE; do
     case "$_cf_entry" in
       "") ;;
