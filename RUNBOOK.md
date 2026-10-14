@@ -361,7 +361,8 @@ MIGRATION_DATABASE_URL_OVERRIDE=postgresql://geolens:paste_existing_postgres_pas
 GEOLENS_API_RUN_MIGRATIONS=false
 #    Percent-encode every character except letters, digits and - . _ ~ in a
 #    password pasted into either URL (including $, which Compose interpolates);
-#    a hex password needs none.
+#    a hex password needs none. Keep the runtime password to the generated hex
+#    value: its raw copy in GEOLENS_RUNTIME_DB_PASSWORD is unquoted too.
 
 # 3. Stop writers. Recreate only db so it receives the new env and read-only
 #    reconciler mount; the named pgdata volume is preserved.
