@@ -29,7 +29,7 @@ dependencies = [
   # WebSocket transport DoS), so a downstream install can't resolve to a
   # known-vulnerable runtime. Highest first-patched across the set is
   # GHSA-vj7q-gjh5-988w (1.28.1); <2 excludes the v2 alpha's FastMCP rename.
-  "mcp>=1.28.1,<2.0.0",
+  "mcp>=1.28.1,<3.0.0",
   "geolens>=1.2.0,<2.0.0",
   # CVE-2026-69247 (fixed 50.0.0), reached via mcp[crypto] -> pyjwt[crypto].
   # The published wheel builds from these deps, not uv.lock, so the floor is
