@@ -59,7 +59,12 @@ from app.platform.jobs.heartbeat import (
     write_job_failure_for_attempt,
 )
 from app.processing.ingest.metadata import _sql_quote_ident
+from app.processing.ingest.publish_followups import (
+    owed_followups,
+    run_publish_followups,
+)
 from app.processing.ingest.tasks import task_app
+from app.processing.ingest.tasks_common import cleanup_step
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -596,13 +601,23 @@ async def _complete_job_for_attempt(
     """
     try:
         await ledger.complete(
-            session, uuid.UUID(job_id), attempt_id, values={"dataset_id": dataset_id}
+            session,
+            uuid.UUID(job_id),
+            attempt_id,
+            values={
+                "dataset_id": dataset_id,
+                "user_metadata": owed_followups(
+                    attempt_id, "analysis", quicklook=out_table
+                ),
+            },
         )
     except StaleIngestAttempt:
         await session.rollback()
     else:
         await session.commit()
         ANALYSIS_JOBS.labels(operation=operation, status="complete").inc()
+        async with cleanup_step("analysis follow-ups", job_id=job_id):
+            await run_publish_followups(uuid.UUID(job_id), attempt_id=attempt_id)
         return
     logger.warning("analysis.complete_write_superseded", job_id=job_id)
     # fix(#814): the output table is durable from the build commit and this

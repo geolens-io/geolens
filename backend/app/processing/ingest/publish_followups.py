@@ -94,7 +94,7 @@ _LABELS: dict[str, str | None] = {
 _SWEEP_BATCH = 50
 
 # A record of these tasks that names no run-once item owes none.
-_ITEMS_ONLY = frozenset({"reupload_file", "reupload_raster", "ingest_file"})
+_ITEMS_ONLY = frozenset({"reupload_file", "reupload_raster", "ingest_file", "analysis"})
 
 # The items a record can owe, each a key in the record that is removed alone
 # once it is confirmed. The purges run first, so no reader of a completed job

@@ -1078,6 +1078,34 @@ class TestMaterializeWorker:
         ).scalar_one()
         assert name_count == 2
 
+    async def test_materialized_output_gets_a_quicklook(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(test_db_session, admin_id)
+
+        await _materialize(
+            job_id=str(job.id),
+            dataset_id=str(ds.id),
+            user_id=str(admin_id),
+            operation="buffer",
+            title=f"Buffered {uuid.uuid4().hex[:6]}",
+            distance_meters=100,
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "complete", job.error_message
+        output = await test_db_session.scalar(
+            select(Dataset.quicklook_256_uri)
+            .where(Dataset.id == job.dataset_id)
+            .execution_options(populate_existing=True)
+        )
+        assert output is not None
+
     async def test_centroid_materialize_creates_dataset(
         self,
         test_db_session: AsyncSession,
