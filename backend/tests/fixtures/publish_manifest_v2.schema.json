@@ -182,7 +182,7 @@
           ]
         },
         "zoom": {"type": "number", "minimum": 0, "maximum": 24},
-        "bearing": {"type": "number", "minimum": -360, "maximum": 360},
+        "bearing": {"type": "number", "minimum": -180, "maximum": 180},
         "pitch": {"type": "number", "minimum": 0, "maximum": 85}
       }
     },
@@ -210,6 +210,20 @@
         }
       }
     },
+    "popupConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "expression": {"type": ["string", "null"], "maxLength": 500},
+        "visible_fields": {
+          "type": ["array", "null"],
+          "maxItems": 100,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      }
+    },
     "layer": {
       "type": "object",
       "additionalProperties": false,
@@ -232,7 +246,7 @@
         "layout": {"$ref": "#/$defs/freeObject"},
         "filter": {"type": ["array", "null"]},
         "label_config": {"type": ["object", "null"]},
-        "popup_config": {"type": ["object", "null"]},
+        "popup_config": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/popupConfig"}]},
         "show_in_legend": {"type": "boolean"}
       }
     },
@@ -251,7 +265,7 @@
         "thumbnail": {
           "type": "string",
           "maxLength": 100000,
-          "pattern": "^data:image/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}(?![\\s\\S])"
+          "pattern": "^data:image/(png|jpeg);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![\\s\\S])"
         },
         "loss_report": {"$ref": "#/$defs/lossReport"},
         "layers": {
