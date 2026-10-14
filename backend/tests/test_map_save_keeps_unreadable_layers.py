@@ -111,6 +111,9 @@ async def test_full_replace_keeps_hidden_layer_and_deletes_left_out_visible_one(
         headers=owner,
     )
     assert swapped.status_code == 200, swapped.text
+    assert ids["hidden"] not in {layer["id"] for layer in swapped.json()["layers"]}
+    assert len(swapped.json()["layers"]) == 3
+    assert swapped.json()["terrain_config"] is None
     stack = await _stored_stack(test_db_session, map_id)
     assert stack[1:] == [ids["hidden"], ids["b"], ids["a"]]
     ids["c"] = stack[0]
