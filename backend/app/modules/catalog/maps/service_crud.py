@@ -476,6 +476,18 @@ async def list_maps(
     return maps, total
 
 
+async def _keeps_hidden_terrain(
+    session: AsyncSession, stored: object, requested: object, user: Identity | None
+) -> bool:
+    """Whether a request naming no DEM keeps a stored DEM ``user`` can't read."""
+    if not isinstance(stored, dict) or stored.get("source_dataset_id") is None:
+        return False
+    if isinstance(requested, dict) and requested.get("source_dataset_id") is not None:
+        return False
+    visible = await terrain_dataset_ids_visible_to(session, stored, (), user)
+    return str(stored["source_dataset_id"]) not in visible
+
+
 async def update_map(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -496,8 +508,13 @@ async def update_map(
     plugins: list[str] | None | object = _UNSET,
     legend_title: str | None | object = _UNSET,
     layers: list[dict] | None = None,
+    user: Identity | None = None,
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
+
+    ``user`` is the caller the save acts for (None reads as anonymous). Layers
+    whose dataset map reads hide from it survive a replacement, and a stored
+    terrain binding to a DEM hidden from it survives a request naming no DEM.
 
     Raises ValueError if not found. Flushes but does NOT commit --
     callers must own the commit lifecycle.
@@ -535,7 +552,9 @@ async def update_map(
         map_obj.notes = cast(str | None, notes)
     if basemap_config is not _UNSET:
         map_obj.basemap_config = cast(dict | None, basemap_config)
-    if terrain_config is not _UNSET:
+    if terrain_config is not _UNSET and not await _keeps_hidden_terrain(
+        session, map_obj.terrain_config, terrain_config, user
+    ):
         map_obj.terrain_config = cast(dict | None, terrain_config)
     if plugins is not _UNSET:
         map_obj.plugins = cast(list[str] | None, plugins)
@@ -547,7 +566,7 @@ async def update_map(
 
     # Replace layers if provided
     if layers is not None:
-        await _replace_layers(session, map_id, layers)
+        await _replace_layers(session, map_id, layers, user)
 
     await session.flush()
     # The flush's UPDATE holds the map row when there was one to write.

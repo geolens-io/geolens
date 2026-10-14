@@ -543,7 +543,7 @@ async def update_map_endpoint(
 
     try:
         map_obj, layer_tuples, forked_name, owner_username = await update_map(
-            db, map_id, **kwargs
+            db, map_id, user=user, **kwargs
         )
     except ValueError:
         raise HTTPException(
@@ -602,7 +602,7 @@ async def update_map_endpoint(
         ),
         (
             "terrain_config" in kwargs
-            and kwargs["terrain_config"] != previous_values["terrain_config"],
+            and map_obj.terrain_config != previous_values["terrain_config"],
             "map.terrain_update",
             "Updated terrain settings",
             {

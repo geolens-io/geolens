@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 
+from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +31,7 @@ from app.modules.catalog.maps.service_shared import (
     _resolve_save_response_metadata,
     generate_default_style,
     normalize_dem_style_config,
+    readable_dataset_ids,
 )
 from app.platform.extensions import get_catalog_port
 
@@ -40,6 +42,38 @@ _NULLABLE_PATCH_FIELDS = {
     "popup_config",
     "style_config",
 }
+
+
+def _coerce_uuid(value: object) -> uuid.UUID | None:
+    if isinstance(value, uuid.UUID):
+        return value
+    if isinstance(value, str):
+        try:
+            return uuid.UUID(value)
+        except ValueError:
+            return None
+    return None
+
+
+async def _unreadable_layer_ids(
+    session: AsyncSession, layers: list[MapLayer], user: Identity | None
+) -> set[uuid.UUID]:
+    """Ids of ``layers`` that map reads hide from ``user``; a save leaves them be."""
+    readable = await readable_dataset_ids(
+        session, {layer.dataset_id for layer in layers}, user
+    )
+    return {layer.id for layer in layers if layer.dataset_id not in readable}
+
+
+def _restack(
+    stack: list[MapLayer], hidden_ids: set[uuid.UUID], visible: list[MapLayer]
+) -> None:
+    """Keep each hidden layer at its index in ``stack``; ``visible`` fills the rest."""
+    hidden_at = {i: layer for i, layer in enumerate(stack) if layer.id in hidden_ids}
+    rest = iter(visible)
+    for position in range(len(hidden_at) + len(visible)):
+        layer = hidden_at[position] if position in hidden_at else next(rest)
+        layer.sort_order = position
 
 
 def _prepare_layer_storage(
@@ -236,19 +270,15 @@ async def apply_layer_diff(
 
     if order is not None:
         ordered_set = set(order)
-        surviving_existing = [
-            layer for layer in existing_layers if layer.id not in removed_ids
-        ]
-        remaining = [
-            layer for layer in surviving_existing if layer.id not in ordered_set
-        ]
-        order_index = 0
-        for layer_id in order:
-            existing_by_id[layer_id].sort_order = order_index
-            order_index += 1
-        for layer in remaining:
-            layer.sort_order = order_index
-            order_index += 1
+        surviving = [layer for layer in existing_layers if layer.id not in removed_ids]
+        hidden_ids = await _unreadable_layer_ids(session, surviving, user)
+        listed = [existing_by_id[layer_id] for layer_id in order]
+        unlisted = [layer for layer in surviving if layer.id not in ordered_set]
+        _restack(
+            surviving,
+            hidden_ids,
+            [layer for layer in listed + unlisted if layer.id not in hidden_ids],
+        )
 
     await session.flush()
     layer_rows = await _fetch_layer_rows_ordered(session, map_obj.id)
@@ -264,18 +294,33 @@ async def _replace_layers(
     session: AsyncSession,
     map_id: uuid.UUID,
     layers: list[dict],
+    user: Identity | None,
 ) -> None:
     """Reconcile a map's layers against ``layers`` by id.
 
     fix(#430): update existing rows in place by id (create only for
     unknown ids, delete rows no longer present) instead of delete-all-insert,
     which regenerated every layer UUID and broke embed configs/bookmarks.
+    A stored layer ``layers`` leaves out is kept, in its place in the stack,
+    when map reads hide its dataset from ``user``.
     Applies default styles if paint/layout is None. Flushes but does NOT commit.
     """
     existing_result = await session.execute(
-        select(MapLayer).where(MapLayer.map_id == map_id)
+        select(MapLayer)
+        .where(MapLayer.map_id == map_id)
+        .order_by(MapLayer.sort_order, MapLayer.id)
     )
-    existing_by_id = {layer.id: layer for layer in existing_result.scalars().all()}
+    stored = list(existing_result.scalars().all())
+    existing_by_id = {layer.id: layer for layer in stored}
+    requested_ids = {_coerce_uuid(layer_data.get("id")) for layer_data in layers}
+    hidden_ids = await _unreadable_layer_ids(
+        session, [layer for layer in stored if layer.id not in requested_ids], user
+    )
+    if len(layers) + len(hidden_ids) > _MAX_LAYERS_PER_MAP:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Layer count exceeds maximum {_MAX_LAYERS_PER_MAP}",
+        )
 
     dataset_ids = [ld["dataset_id"] for ld in layers]
     RasterAsset = get_catalog_port().raster_asset_orm_class()
@@ -295,17 +340,8 @@ async def _replace_layers(
         for row in ds_meta_result.all()
     }
 
-    def _coerce_uuid(value: object) -> uuid.UUID | None:
-        if isinstance(value, uuid.UUID):
-            return value
-        if isinstance(value, str):
-            try:
-                return uuid.UUID(value)
-            except ValueError:
-                return None
-        return None
-
-    kept_ids: set[uuid.UUID] = set()
+    kept_ids = set(hidden_ids)
+    placed: list[tuple[int, MapLayer]] = []
     for layer_data in layers:
         prepared = _prepare_layer_storage(layer_data, ds_meta)
         raw_id = _coerce_uuid(layer_data.get("id"))
@@ -327,24 +363,31 @@ async def _replace_layers(
             existing.style_config = prepared["style_config"]
             existing.show_in_legend = prepared.get("show_in_legend", True)
         else:
-            session.add(
-                MapLayer(
-                    map_id=map_id,
-                    dataset_id=prepared["dataset_id"],
-                    sort_order=prepared.get("sort_order", 0),
-                    visible=prepared.get("visible", True),
-                    opacity=prepared.get("opacity", 1.0),
-                    paint=prepared["paint"],
-                    layout=prepared["layout"],
-                    layer_type=prepared["layer_type"],
-                    display_name=prepared["display_name"],
-                    filter=prepared.get("filter"),
-                    label_config=prepared.get("label_config"),
-                    popup_config=prepared.get("popup_config"),
-                    style_config=prepared["style_config"],
-                    show_in_legend=prepared.get("show_in_legend", True),
-                )
+            existing = MapLayer(
+                map_id=map_id,
+                dataset_id=prepared["dataset_id"],
+                sort_order=prepared.get("sort_order", 0),
+                visible=prepared.get("visible", True),
+                opacity=prepared.get("opacity", 1.0),
+                paint=prepared["paint"],
+                layout=prepared["layout"],
+                layer_type=prepared["layer_type"],
+                display_name=prepared["display_name"],
+                filter=prepared.get("filter"),
+                label_config=prepared.get("label_config"),
+                popup_config=prepared.get("popup_config"),
+                style_config=prepared["style_config"],
+                show_in_legend=prepared.get("show_in_legend", True),
             )
+            session.add(existing)
+        placed.append((existing.sort_order, existing))
+
+    if hidden_ids:
+        _restack(
+            [layer for layer in stored if layer.id in kept_ids],
+            hidden_ids,
+            [layer for _, layer in sorted(placed, key=lambda item: item[0])],
+        )
 
     stale_ids = set(existing_by_id) - kept_ids
     if stale_ids:

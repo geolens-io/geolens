@@ -311,16 +311,26 @@ async def filter_layer_rows_by_dataset_visibility(
     """
     if not layer_rows:
         return layer_rows
+    visible_ids = await readable_dataset_ids(
+        session, {row.layer.dataset_id for row in layer_rows}, user
+    )
+    return [row for row in layer_rows if row.layer.dataset_id in visible_ids]
+
+
+async def readable_dataset_ids(
+    session: AsyncSession, dataset_ids: set[uuid.UUID], user: Identity | None
+) -> set[uuid.UUID]:
+    """The ids in ``dataset_ids`` whose dataset map reads show to ``user``."""
+    if not dataset_ids:
+        return set()
     user_roles = await get_user_roles(session, user) if user is not None else set()
-    layer_dataset_ids = {row.layer.dataset_id for row in layer_rows}
     stmt = (
         select(Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
-        .where(Dataset.id.in_(layer_dataset_ids))
+        .where(Dataset.id.in_(dataset_ids))
     )
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-    visible_ids = set((await session.execute(stmt)).scalars().all())
-    return [row for row in layer_rows if row.layer.dataset_id in visible_ids]
+    return set((await session.execute(stmt)).scalars().all())
 
 
 async def _resolve_save_response_metadata(
