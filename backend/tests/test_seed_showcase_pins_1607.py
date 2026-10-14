@@ -1047,3 +1047,51 @@ def test_sentinel2_accepts_a_title_match_whose_origin_names_the_pinned_scene(
         "other-ds-id",
         "pinned-ds-id",
     }
+
+
+def test_sentinel2_layers_on_one_date_are_named_by_tile(monkeypatch):
+    """Two tiles imaged on the same pass must not share a layer name."""
+    other = _fake_sentinel_feature(
+        "S2A_T19TCH_20260829T155705_L2A", datetime="2026-08-29T15:57:05Z"
+    )
+    pinned = _fake_sentinel_feature(
+        seeder.PINNED_HARBOR_SCENE_ID, datetime="2026-08-29T15:57:05Z"
+    )
+
+    def fake_post(url, *, json, timeout):
+        if "ids" in json:
+            return _FakeStacResponse([pinned])
+        return _FakeStacResponse([other])
+
+    monkeypatch.setattr(seeder.httpx, "post", fake_post)
+    api = _SentinelResolvedImportApi({"item_id": seeder.PINNED_HARBOR_SCENE_ID})
+
+    seeder.build_sentinel2(api)
+
+    assert sorted(layer["display_name"] for layer in api.added_layers) == [
+        "Sentinel-2 - 2026-08-29 (T18TWL)",
+        "Sentinel-2 - 2026-08-29 (T19TCH)",
+    ]
+
+
+def test_manhattan_buildings_start_at_zoom_12():
+    """Below z12 the building tiles are large and the footprints unreadable."""
+    body = _function_node(SOURCE, "build_manhattan")
+    buildings = next(
+        node
+        for node in ast.walk(body)
+        if isinstance(node, ast.Dict)
+        and any(
+            isinstance(k, ast.Constant)
+            and k.value == "display_name"
+            and isinstance(v, ast.Constant)
+            and v.value == "Buildings (3D height, colored by era)"
+            for k, v in zip(node.keys, node.values)
+        )
+    )
+    layout = next(
+        v
+        for k, v in zip(buildings.keys, buildings.values)
+        if isinstance(k, ast.Constant) and k.value == "layout"
+    )
+    assert ast.literal_eval(layout) == {"_minzoom": 12}

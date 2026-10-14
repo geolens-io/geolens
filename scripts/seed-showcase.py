@@ -3358,7 +3358,9 @@ def build_manhattan(api: Api, force: bool = False, force_pinned: bool = False) -
     the subway in official MTA route colors with ADA-coded stations.
 
     * Stations fade in past ~z12.5 via zoom-interpolated circle-opacity so
-      the city view stays clean (layout._minzoom would crash the viewer).
+      the city view stays clean.
+    * Buildings start at z12 (layout._minzoom): below it their tiles run to
+      0.7-0.8 MB each for footprints too small to read.
     * Socrata serialises numbers as strings - height_roof, construction_year
       and the stations' ada flag are all coerced before upload.
     * Era is a precomputed STRING column: the graduated legend abbreviates
@@ -3538,6 +3540,7 @@ def build_manhattan(api: Api, force: bool = False, force_pinned: bool = False) -
             "sort_order": 2,
             "opacity": 1.0,
             "display_name": "Buildings (3D height, colored by era)",
+            "layout": {"_minzoom": 12},
             "paint": {
                 "fill-color": [
                     "case",
@@ -3621,10 +3624,6 @@ def build_manhattan(api: Api, force: bool = False, force_pinned: bool = False) -
             "sort_order": 0,
             "opacity": 1.0,
             "display_name": "Stations (green = ADA accessible)",
-            # Zoom-gated via zoom-interpolated opacity, NOT layout._minzoom:
-            # MapLibre's addLayer validation rejects unknown layout properties,
-            # so a persisted underscore layout key crashes the whole layer on
-            # the viewer path (verified live 2026-07-04).
             "paint": {
                 "circle-radius": [
                     "interpolate",
@@ -4866,6 +4865,43 @@ def _sentinel2_tile(f: dict) -> str:
     )
 
 
+# Collection-1 ids read S2B_T18TXL_20260911T155930_L2A, legacy ids
+# S2B_18TXL_20230911_0_L2A.
+_SENTINEL2_SCENE_ID = re.compile(
+    r"S2([A-D])_T?(\d{2}[C-X][A-Z]{2})_(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2}))?"
+)
+
+
+def _sentinel2_scene_fields(title: str) -> dict:
+    """The scene's summary and Copernicus credit, from the item id in its title."""
+    m = _SENTINEL2_SCENE_ID.match(title.removeprefix("Sentinel-2 TCI "))
+    if not m:
+        return {}
+    unit, tile, year, month, day, hour, minute = m.groups()
+    when = f"{year}-{month}-{day}" + (f" at {hour}:{minute} UTC" if hour else "")
+    zone, north = int(tile[:2]), tile[2] >= "N"
+    epsg = (32600 if north else 32700) + zone
+    return {
+        "summary": (
+            f"Sentinel-2{unit} Level-2A true-colour image (TCI) of MGRS tile "
+            f"{tile}, acquired {when}. Three 8-bit bands (red, green and blue "
+            f"from B04, B03 and B02) at 10 m resolution in UTM zone {zone}"
+            f"{'N' if north else 'S'} (EPSG:{epsg}), on the tile's 10,980 x "
+            "10,980 pixel grid. Registered from Element84 Earth Search, the STAC "
+            "catalog of Sentinel-2 L2A Cloud-Optimized GeoTIFFs on AWS Open Data."
+        ),
+        "attribution": f"Contains modified Copernicus Sentinel data {year}",
+    }
+
+
+def _sentinel2_layer_label(item: dict) -> str:
+    """A scene layer's name. Tiles imaged on one pass share a date; the tile id
+    tells their layers apart."""
+    day = item["datetime_start"][:10]
+    m = _SENTINEL2_SCENE_ID.match(item["id"])
+    return f"{day} (T{m.group(2)})" if m else day
+
+
 def _sentinel2_item(f: dict) -> dict:
     """One build_sentinel2 import item from a Sentinel-2 STAC feature."""
     # Collection-1 items use projection-extension v2 "proj:code"
@@ -5208,21 +5244,21 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     # not unique: a newer same-titled own row would win the by-title lookup
     # and attach the wrong data to the map (round 8).
     id_to_title = {it["id"]: it["title"] for it in items}
-    id_to_date = {it["id"]: it["datetime_start"][:10] for it in items}
+    id_to_label = {it["id"]: _sentinel2_layer_label(it) for it in items}
     id_to_href = {it["id"]: it["data_asset_href"] for it in items}
     by_title = None
-    scenes = []  # (dataset_id, capture_date)
+    scenes = []  # (dataset_id, layer label)
     pinned_dataset_id = None
     for x in results:
         item_id = x.get("item_id")
         if x.get("dataset_id"):
-            scenes.append((x["dataset_id"], id_to_date.get(item_id, "?")))
+            scenes.append((x["dataset_id"], id_to_label.get(item_id, "?")))
             if item_id == PINNED_HARBOR_SCENE_ID:
                 pinned_dataset_id = x["dataset_id"]
         elif x.get("status") == "skipped":
             held_id = resolved_by_href.get(id_to_href.get(item_id, ""))
             if held_id:
-                scenes.append((held_id, id_to_date.get(item_id, "?")))
+                scenes.append((held_id, id_to_label.get(item_id, "?")))
                 if item_id == PINNED_HARBOR_SCENE_ID:
                     pinned_dataset_id = held_id
                 continue
@@ -5241,7 +5277,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                     continue  # leave pinned_dataset_id unset; the check below raises
                 pinned_dataset_id = existing
             if existing:
-                scenes.append((existing, id_to_date.get(item_id, "?")))
+                scenes.append((existing, id_to_label.get(item_id, "?")))
     if not scenes:
         raise RuntimeError(
             "STAC import resolved no dataset_ids (skipped items not found by "
@@ -5261,12 +5297,12 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
             "dataset_id": ds_id,
             "sort_order": i,  # newest first = on top (results are date-desc)
             "opacity": 1.0,
-            "display_name": f"Sentinel-2 - {day}",
+            "display_name": f"Sentinel-2 - {label}",
             "layer_type": "raster_geolens",
             # true color = NO render_mode, no paint (default RGB path).
             "style_config": {"builder": {}},
         }
-        for i, (ds_id, day) in enumerate(scenes)
+        for i, (ds_id, label) in enumerate(scenes)
     ]
     # fix(#1607 review r2): under a pinned repair the row the examples link is
     # reused instead of created. Resolved through list_maps(), which is what
@@ -5601,6 +5637,8 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "keywords": ["tree canopy", "change", "east village", "2010", "2017"],
         "source_organization": "NYC OTI and University of Vermont",
         "source_url": "https://data.cityofnewyork.us/d/by9k-vhck",
+        "data_vintage_start": "2010-01-01",
+        "data_vintage_end": "2017-12-31",
         "update_frequency": "notPlanned",
         "theme_category": ["environment"],
     },
@@ -5616,6 +5654,8 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "keywords": ["tree canopy", "gain", "loss", "analysis", "clip"],
         "source_organization": "NYC OTI and University of Vermont",
         "source_url": "https://data.cityofnewyork.us/d/by9k-vhck",
+        "data_vintage_start": "2010-01-01",
+        "data_vintage_end": "2017-12-31",
         "update_frequency": "notPlanned",
         "theme_category": ["environment"],
     },
@@ -5813,11 +5853,14 @@ SHOWCASE_METADATA: dict[str, dict] = {
     #
     # source_organization is deliberately UNSET on all three: no outside body
     # published them, GeoLens computed them, and the provenance panel already
-    # names the operation chain. The vintage IS set, because it is a real
-    # property of the inputs rather than a guess - these cover exactly the
-    # HURDAT2 seasons the corridors were buffered from.
+    # names the operation chain. attribution credits the inputs' publishers
+    # for their data, which is not a claim that they published the result. The
+    # vintage IS set, because it is a real property of the inputs rather than a
+    # guess - these cover exactly the HURDAT2 seasons the corridors were
+    # buffered from.
     "Major Hurricane Corridors (100 km buffer)": {
         "license": "Derived in GeoLens from NOAA NHC HURDAT2 (US public domain)",
+        "attribution": "NOAA National Hurricane Center (HURDAT2)",
         "keywords": ["hurricanes", "buffer", "analysis", "derived", "corridor"],
         "data_vintage_start": "1950-01-01",
         "theme_category": ["climatologyMeteorologyAtmosphere"],
@@ -5827,6 +5870,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "Derived in GeoLens from NOAA NHC HURDAT2 and Natural Earth "
             "(both public domain)"
         ),
+        "attribution": "NOAA National Hurricane Center (HURDAT2); Natural Earth",
         "keywords": ["hurricanes", "intersect", "analysis", "derived", "exposure"],
         "data_vintage_start": "1950-01-01",
         "theme_category": ["climatologyMeteorologyAtmosphere", "boundaries"],
@@ -5844,6 +5888,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "derived",
             "coastal",
         ],
+        "attribution": "NOAA National Hurricane Center (HURDAT2); Natural Earth",
         "data_vintage_start": "1950-01-01",
         "theme_category": ["climatologyMeteorologyAtmosphere", "boundaries"],
     },
@@ -5869,6 +5914,12 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "theme_category": ["location"],
     },
     "ETOPO 2022 Global Relief (60 arc-second)": {
+        "summary": (
+            "NOAA NCEI's ETOPO 2022 global relief model, combining land "
+            "topography and ocean bathymetry. A 60 arc-second grid (about "
+            "1.85 km at the equator) of 21,600 x 10,800 cells in WGS 84, with "
+            "one float32 band of elevation in metres."
+        ),
         "license": "US public domain (NOAA NCEI)",
         "keywords": ["bathymetry", "relief", "etopo", "global", "elevation"],
         "source_organization": "NOAA NCEI",
@@ -5912,6 +5963,7 @@ SHOWCASE_METADATA_BY_PREFIX: dict[str, dict] = {
         # satellite constellation continues to collect new scenes.
         "update_frequency": "notPlanned",
         "theme_category": ["imageryBaseMapsEarthCover"],
+        "from_title": _sentinel2_scene_fields,
     },
 }
 
@@ -5981,6 +6033,8 @@ def enrich_showcase_metadata(api: "Api") -> list[str]:
             fields = {k: spec[k] for k in _ENRICH_PATCH_FIELDS if k in spec}
             if spec.get("summary"):
                 fields["summary"] = spec["summary"]
+            if spec.get("from_title"):
+                fields.update(spec["from_title"](title))
             # Claims that are only true once the data really came from a given
             # origin are written only when the dataset OBSERVABLY has it. This
             # pass runs whether or not the builder that was supposed to make it
@@ -6278,8 +6332,10 @@ def _basin_context_layer_body(regions_ds: str) -> dict:
         "dataset_id": regions_ds,
         "sort_order": 2,
         "opacity": 1.0,
-        "display_name": "Atlantic basin regions (context)",
-        "show_in_legend": False,
+        "display_name": (
+            "Atlantic basin regions (hatched where no major storm passed within 100 km)"
+        ),
+        "show_in_legend": True,
         "paint": {
             "fill-pattern": "geolens-fill-hatch",
             "fill-color": "#64748b",

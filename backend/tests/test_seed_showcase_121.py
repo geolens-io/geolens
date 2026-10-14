@@ -488,3 +488,102 @@ def test_matterhorn_repair_adds_the_missing_half_of_a_route_pair(monkeypatch):
     by_title = {"Matterhorn Climbing Routes": "routes", "Matterhorn Peaks": "peaks"}
     seed.ensure_matterhorn_overlays(api, "m", by_title)
     assert api.added == ["Route casing", "Peaks"]
+
+
+class TitledEnrichApi(EnrichApi):
+    def __init__(self, *titles):
+        super().__init__()
+        self.titles = titles
+
+    def list_own_datasets(self):
+        return [{"title": t, "id": t, "origin": "upload"} for t in self.titles]
+
+    def existing_keywords(self, _):
+        return set()
+
+    def add_keyword(self, _record_id, _kw):
+        pass
+
+
+def _enriched(title):
+    api = TitledEnrichApi(title)
+    seed.enrich_showcase_metadata(api)
+    return api.patches[0]
+
+
+def test_enrich_names_the_sentinel_scene_in_its_summary_and_credit():
+    fields = _enriched("Sentinel-2 TCI S2B_T18TXL_20260911T155930_L2A")
+    assert fields["summary"].startswith(
+        "Sentinel-2B Level-2A true-colour image (TCI) of MGRS tile 18TXL, "
+        "acquired 2026-09-11 at 15:59 UTC."
+    )
+    assert "UTM zone 18N (EPSG:32618)" in fields["summary"]
+    assert fields["attribution"] == "Contains modified Copernicus Sentinel data 2026"
+
+
+def test_sentinel_fields_read_legacy_and_southern_scene_ids():
+    legacy = seed._sentinel2_scene_fields("Sentinel-2 TCI S2A_18TXK_20230829_0_L2A")
+    assert "MGRS tile 18TXK, acquired 2023-08-29. " in legacy["summary"]
+    south = seed._sentinel2_scene_fields(
+        "Sentinel-2 TCI S2A_T33HUD_20260101T090000_L2A"
+    )
+    assert "UTM zone 33S (EPSG:32733)" in south["summary"]
+
+
+def test_an_unrecognised_scene_title_keeps_its_ingest_summary():
+    fields = _enriched("Sentinel-2 TCI something-else")
+    assert "summary" not in fields and "attribution" not in fields
+    assert fields["license"] == "Copernicus Sentinel data (ESA), free and open"
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        (
+            "Major Hurricane Corridors (100 km buffer)",
+            {"attribution": "NOAA National Hurricane Center (HURDAT2)"},
+        ),
+        (
+            "Coastal Regions Inside a Major Hurricane Corridor",
+            {"attribution": "NOAA National Hurricane Center (HURDAT2); Natural Earth"},
+        ),
+        (
+            "Hurricane Exposure by Coastal Region",
+            {"attribution": "NOAA National Hurricane Center (HURDAT2); Natural Earth"},
+        ),
+        (
+            seed.CITY_SHADE_SOURCE,
+            {"data_vintage_start": "2010-01-01", "data_vintage_end": "2017-12-31"},
+        ),
+        (
+            seed.CITY_SHADE_RESULT,
+            {"data_vintage_start": "2010-01-01", "data_vintage_end": "2017-12-31"},
+        ),
+    ],
+)
+def test_enrich_writes_the_showcase_provenance(title, expected):
+    assert expected.items() <= _enriched(title).items()
+
+
+def test_enrich_describes_etopo():
+    summary = _enriched("ETOPO 2022 Global Relief (60 arc-second)")["summary"]
+    assert summary.startswith("NOAA NCEI's ETOPO 2022 global relief model")
+
+
+def test_enrich_leaves_unstated_coverage_unset():
+    # The seed cannot know which HURDAT2 season a reused dataset holds, and the
+    # volcano record starts before any storable date.
+    assert "data_vintage_end" not in _enriched(
+        "Major Hurricane Corridors (100 km buffer)"
+    )
+    volcano = _enriched("Significant Volcanic Eruptions (NCEI, 4360 BC-present)")
+    assert "data_vintage_start" not in volcano and "data_vintage_end" not in volcano
+
+
+def test_the_basin_context_layer_explains_its_hatch_in_the_legend():
+    body = seed._basin_context_layer_body("regions")
+    assert body["paint"]["fill-pattern"] == "geolens-fill-hatch"
+    assert body["show_in_legend"] is True
+    assert body["display_name"] == (
+        "Atlantic basin regions (hatched where no major storm passed within 100 km)"
+    )
