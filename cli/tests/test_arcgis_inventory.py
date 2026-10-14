@@ -2787,6 +2787,7 @@ def _nested(value):
             'https://s.example/q?cookie=sid="a&b"; session=sessionSECRET456&f=json',
             "sessionSECRET456",
         ),
+        ("https://s.example/q?author%69zation=Token abcdefghijkl&m=1", "abcdefghijkl"),
         ("Authorization: Bearer abc.def", "abc.def"),
         ("Authorization: Basic configuration", "configuration"),
     ],

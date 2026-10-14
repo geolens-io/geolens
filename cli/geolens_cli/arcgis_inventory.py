@@ -279,8 +279,10 @@ _MAX_EMBEDDED_DEPTH = 3
 def _scrub_scheme(match: re.Match[str]) -> str:
     scheme, space, value = match.groups()
     # Bearer is rarely prose; the other schemes also open ordinary sentences
-    # ("Basic configuration options"), so a lowercase word after them is left alone.
-    if scheme.lower() != "bearer" and re.fullmatch(r"[a-z]+", value):
+    # ("Basic configuration options"), so a lowercase word after them is left
+    # alone, except as the value of an assignment, whose name may be encoded.
+    assigned = match.string[: match.start()].rstrip().endswith(("=", ":"))
+    if scheme.lower() != "bearer" and not assigned and re.fullmatch(r"[a-z]+", value):
         return match.group(0)
     return f"{scheme}{space}[REDACTED]"
 
