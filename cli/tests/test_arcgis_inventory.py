@@ -2879,7 +2879,7 @@ def test_scheme_token_masking_stops_at_a_comma():
     assert cleaned["a"]["b"]["c"]["note"] == "Token [REDACTED],field=value"
 
 
-@pytest.mark.parametrize("tail", ["&layer=2", "?mode=edit", "#frag"])
+@pytest.mark.parametrize("tail", ["&layer=2", "?mode=edit", "#frag", "` then", "} x"])
 def test_scheme_token_masking_stops_at_url_separators(tail):
     cleaned = inventory.redact_json(
         _nested("Token abc123KEYabc" + tail), inventory.Redactor()
