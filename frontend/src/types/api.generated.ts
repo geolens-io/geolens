@@ -7051,7 +7051,7 @@ export interface components {
             recent_additions: number;
             /**
              * Total Storage Bytes
-             * @description Total storage used by dataset tables and stored asset files, in bytes. Null if calculation is unavailable.
+             * @description Total storage used by dataset tables plus the recorded sizes of stored data files (rasters, point clouds, 3D Tiles), in bytes. Quicklook images carry no recorded size and are not counted. Null if calculation is unavailable.
              */
             total_storage_bytes: number | null;
             /**
