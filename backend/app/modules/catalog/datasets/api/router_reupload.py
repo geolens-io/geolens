@@ -56,6 +56,7 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.jobs import ledger
 from app.platform.jobs.ledger import hold
 from app.platform.jobs.models import IngestJob
@@ -1188,17 +1189,11 @@ async def reupload_commit(
             await db.rollback()
             raise credential_store_refusal(exc, operation="re-upload") from exc
 
-    # fix(#1709): the pending check at the top is a plain read, and
-    # everything since flushes in THIS commit -- POST /jobs/{id}/cancel
-    # landing in between would, without a fence, bind a pending run to a
-    # now-cancelled job that holds `uq_refresh_runs_one_active` for up to
-    # an hour of false "busy" after a successful cancel.
-    #
-    # The hold below re-reads pending+attempt under the row lock, atomically
-    # with the run flush: a committed cancel fails it and rolls the whole
-    # request back into a clean 409; if this side takes the lock first, the
-    # cancel's own CAS then cancels job AND run together. No deadlock: this
-    # transaction's run row is invisible to the cancel's CAS until commit.
+    # The pending check at the top was a plain read. Re-read under the job row,
+    # with the run flush, a committed cancel refuses this request with a 409
+    # instead of leaving a run on a cancelled job holding the one-active-run
+    # slot. A cancel that comes second ends the job and run together; it cannot
+    # see this transaction's run until commit, so the two never deadlock.
     committing_attempt = job.attempt_id
     held = await ledger.hold(db, job.id, expect="pending")
     if held is None or held.attempt_id != committing_attempt:
@@ -1216,7 +1211,12 @@ async def reupload_commit(
             },
         )
     # Held to the commit, so a transfer waits and then finds this run busy.
-    await lock_catalog_rows_for_write(db, dataset)
+    try:
+        await lock_catalog_rows_for_write(db, dataset)
+    except (HTTPException, CatalogLockConflict):
+        await db.rollback()
+        await discard_service_credential(credential_ref)
+        raise
     await db.commit()
 
     # Each defer_async path is wrapped in the shared orphan guard so a

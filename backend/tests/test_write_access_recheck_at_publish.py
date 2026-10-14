@@ -8,12 +8,13 @@ Requirements: the docker database must be running with migrations applied.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
@@ -28,6 +29,7 @@ from tests.test_settle_replacement import (  # noqa: F401 - fixtures
     _Fake,
     _settle,
     _state,
+    _waits_on,
     embedding,
     notifications,
     seed,
@@ -97,6 +99,32 @@ async def test_a_replacement_whose_submitter_lost_the_dataset_is_not_published(
             select(IngestJob.error_message).where(IngestJob.id == seeded.job_id)
         )
     assert reason == str(WriteAccessRevoked())
+
+
+async def test_a_transfer_the_publish_waits_behind_is_seen_once_it_commits(
+    submitted_by_editor,
+) -> None:
+    seeded = submitted_by_editor
+    async with db_module.async_session() as transfer:
+        admin_id = await get_user_id(transfer, "admin")
+        # Holds the record the way an ownership transfer does, until it commits.
+        await transfer.execute(
+            update(Record)
+            .where(Record.id == seeded.record_id)
+            .values(created_by=admin_id)
+        )
+        transfer_pid = await transfer.scalar(text("SELECT pg_backend_pid()"))
+        task = asyncio.create_task(_settle(_Fake(seeded)))
+        try:
+            assert await _waits_on(transfer_pid, task)
+            await transfer.commit()
+        finally:
+            await transfer.rollback()
+        await asyncio.wait_for(task, timeout=20)
+
+    state = await _state(seeded)
+    assert state["run"] == ("failed", "write_access_revoked")
+    assert state["live"] == "before"
 
 
 async def test_a_replacement_whose_submitter_was_deactivated_is_not_published(
