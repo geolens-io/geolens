@@ -2907,6 +2907,14 @@ def test_header_parameter_scan_is_linear_on_quote_runs(name):
     assert time.perf_counter() - started < 1
 
 
+def test_prose_with_many_scheme_words_scrubs_in_linear_time():
+    raw = "Basic configuration " * 10000
+    started = time.perf_counter()
+    cleaned = inventory.redact_json(_nested(raw), inventory.Redactor())
+    assert time.perf_counter() - started < 1
+    assert cleaned["a"]["b"]["c"]["note"] == raw
+
+
 def test_json_text_inside_a_string_keeps_its_structure():
     raw = json.dumps({"layers": [{"id": 1, "token": "abc123KEY"}], "title": "T"})
     cleaned = inventory.redact_json({"cfg": raw}, inventory.Redactor())

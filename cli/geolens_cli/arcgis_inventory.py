@@ -263,7 +263,7 @@ _HEADER = re.compile(
     re.IGNORECASE,
 )
 _SCHEME_CREDENTIAL = re.compile(
-    r"\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,}[^\s<>\"'`{}|()\[\],;&?#]*)",
+    r"((?:[=:]\s*)?)\b(Bearer|Basic|Token|Digest)(\s+)([A-Za-z0-9._~+/=-]{12,}[^\s<>\"'`{}|()\[\],;&?#]*)",
     re.IGNORECASE,
 )
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*")
@@ -277,14 +277,13 @@ _MAX_EMBEDDED_DEPTH = 3
 
 
 def _scrub_scheme(match: re.Match[str]) -> str:
-    scheme, space, value = match.groups()
+    assigned, scheme, space, value = match.groups()
     # Bearer is rarely prose; the other schemes also open ordinary sentences
     # ("Basic configuration options"), so a lowercase word after them is left
     # alone, except as the value of an assignment, whose name may be encoded.
-    assigned = match.string[: match.start()].rstrip().endswith(("=", ":"))
     if scheme.lower() != "bearer" and not assigned and re.fullmatch(r"[a-z]+", value):
         return match.group(0)
-    return f"{scheme}{space}[REDACTED]"
+    return f"{assigned}{scheme}{space}[REDACTED]"
 
 
 def _scrub_header(match: re.Match[str]) -> str:
