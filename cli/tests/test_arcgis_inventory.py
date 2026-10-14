@@ -2814,6 +2814,10 @@ def test_string_scrubber_keeps_ordinary_text(raw):
             "https://s.example/q?api-key=[REDACTED];layer=2",
         ),
         (
+            "https://s.example/q?authorization=Bearer abc123KEY\nkeep=this",
+            "https://s.example/q?authorization=[REDACTED]\nkeep=this",
+        ),
+        (
             "https://s.example/q?api-key=abc123KEY#frag",
             "https://s.example/q?api-key=[REDACTED]#frag",
         ),

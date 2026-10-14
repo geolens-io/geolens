@@ -255,7 +255,7 @@ _HEADER_SEP = r"\s*[:=]\s*"
 # an authorization value may still hold spaces and commas ("Digest u=x, r=y"),
 # and a cookie value holds semicolons.
 _HEADER = re.compile(
-    rf"(?<=[?&#])(?P<aname>(?:x-esri-|proxy-)?authorization)(?P<asep>{_HEADER_SEP})[^&#;]*"
+    rf"(?<=[?&#])(?P<aname>(?:x-esri-|proxy-)?authorization)(?P<asep>{_HEADER_SEP})[^&#;\r\n]*"
     rf"|(?<=[?&#])(?P<cname>(?:set-)?cookie)(?P<csep>{_HEADER_SEP})[^&#\s]*"
     rf"|(?<=[?&#])(?P<uname>{_HEADER_NAME})(?P<usep>{_HEADER_SEP})[^&#;\s]*"
     rf"|\b(?P<name>x-esri-authorization|{_HEADER_NAME})(?P<sep>{_HEADER_SEP})[^\r\n]+",
