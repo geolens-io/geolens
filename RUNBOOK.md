@@ -453,7 +453,8 @@ than this query's own should belong to the runtime role:
 ```bash
 docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
 SELECT usename, count(*) FROM pg_stat_activity
- WHERE backend_type = 'client backend' GROUP BY 1;
+ WHERE backend_type = 'client backend'
+   AND datname = current_database() GROUP BY 1;
 SQL
 ```
 
@@ -601,12 +602,11 @@ first (step 0 of [full restore](#step-by-step-full-restore-db--object-storage)
 extracts all three artifacts together), then replay it **before** `pg_restore`:
 
 ```bash
-# Load $POSTGRES_USER / $POSTGRES_DB via get_env_value (not shell-sourcing
-# .env — see the runtime-role verification note above for why, including
-# the trailing-newline caveat on command substitution here, and why the
-# assignment is guarded on the helper's own exit status rather than
-# unconditional — a key supplied only via the process environment and
-# absent from .env must not be blanked).
+# Load $POSTGRES_USER / $POSTGRES_DB through get_env_value, never by sourcing
+# .env (a value with backticks or $(...) would execute). The assignment is
+# guarded on the helper's exit status: it exits 1 for a key absent from .env,
+# and an unguarded assignment would blank a value supplied via the environment.
+# Command substitution strips one trailing newline from the value.
 if _v="$(scripts/env-value.sh POSTGRES_USER)"; then POSTGRES_USER="$_v"; fi
 if _v="$(scripts/env-value.sh POSTGRES_DB)"; then POSTGRES_DB="$_v"; fi
 
