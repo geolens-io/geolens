@@ -292,7 +292,7 @@ def _scrub_header(match: re.Match[str]) -> str:
     pattern = _URL_AUTH_VALUE if "authorization" in name.lower() else _URL_HEADER_VALUE
     consumed = pattern.match(value)
     rest = value[consumed.end() :] if consumed else value
-    return f"{name}{sep}[REDACTED]{rest}"
+    return f"{name}{sep}[REDACTED]{_HEADER.sub(_scrub_header, rest)}"
 
 
 def _scrub_pair(match: re.Match[str]) -> str:
