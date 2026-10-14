@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import { configure } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router';
@@ -193,6 +193,22 @@ describe('AdminSharedMapsPage sorting', () => {
     await user.click(screen.getByRole('button', { name: /^Map,/ }));
     // Page 3 of the old ordering names different rows under the new one.
     await waitFor(() => expect(lastCall()).toMatchObject({ skip: 0, sort: 'map_name' }));
+  });
+
+  it('stays on the page the user paged to while the search debounce settles', () => {
+    vi.useFakeTimers();
+    try {
+      renderPage('/admin/shared-maps', 200);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(lastCall()).toMatchObject({ skip: 50 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('offers no sort control for the link-status column', () => {

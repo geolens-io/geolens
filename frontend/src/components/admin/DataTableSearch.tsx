@@ -27,7 +27,9 @@ export function DataTableSearch({ value, onChange, placeholder, debounceMs }: Da
 
   // Debounced onChange
   useEffect(() => {
-    if (!debounceMs) return;
+    // An unchanged value is not a search; firing for it would let the mount-time
+    // timer reset the parent's page after the user has already paged.
+    if (!debounceMs || internal === value) return;
     const timer = setTimeout(() => onChange(internal), debounceMs);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onChange fires through a stable debounce; adding it would re-arm the timer each render
