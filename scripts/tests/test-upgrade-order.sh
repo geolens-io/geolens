@@ -996,7 +996,8 @@ fi
 
 # Equivalent spellings of the prod file still classify as a prebuilt install.
 FAKE_ABS="$(cd "$FAKE" && pwd)"
-for spelling in "./docker-compose.prod.yml" "$FAKE_ABS/docker-compose.prod.yml"; do
+mkdir -p "$FAKE/overrides"
+for spelling in "./docker-compose.prod.yml" "$FAKE_ABS/docker-compose.prod.yml" "overrides/../docker-compose.prod.yml"; do
   seed_prod_env
   printf 'COMPOSE_FILE=%s\nGEOLENS_VERSION=1.2.3\nPOSTGRES_USER=geolens\nPOSTGRES_DB=geolens\n' "$spelling" > "$FAKE/.env"
   run_upgrade ok 1.2.4
@@ -1006,6 +1007,17 @@ for spelling in "./docker-compose.prod.yml" "$FAKE_ABS/docker-compose.prod.yml";
     bad "COMPOSE_FILE=$spelling was not treated as the prod file (exit=$(cat "$WORK/code.txt"))"
   fi
 done
+
+# COMPOSE_PATH_SEPARATOR changes the delimiter for every consumer.
+seed_prod_env
+printf 'COMPOSE_FILE=docker-compose.prod.yml|override.yml\nCOMPOSE_PATH_SEPARATOR=|\nGEOLENS_VERSION=1.2.3\nPOSTGRES_USER=geolens\nPOSTGRES_DB=geolens\n' > "$FAKE/.env"
+printf 'services: {}\n' > "$FAKE/override.yml"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && grep -q "^$FAKE/override.yml\$" "$CALLLOG.files"; then
+  ok "a custom COMPOSE_PATH_SEPARATOR splits the COMPOSE_FILE list"
+else
+  bad "a custom COMPOSE_PATH_SEPARATOR was ignored (exit=$(cat "$WORK/code.txt"))"
+fi
 
 rm -f "$FAKE/override.yml" "$FAKE/abs-override.yml"
 seed_prod_env

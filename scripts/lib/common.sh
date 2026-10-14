@@ -61,13 +61,35 @@
 # derive its own caller's project root the same way for every shell that
 # sources it) and this codebase already relies on that convention for
 # `.env` lookups elsewhere.
+# The delimiter between COMPOSE_FILE entries: Compose's COMPOSE_PATH_SEPARATOR
+# (process environment first, then .env), ":" when unset.
+compose_path_separator() {
+  _cps_sep=${COMPOSE_PATH_SEPARATOR:-}
+  [ -n "$_cps_sep" ] || env_value_into _cps_sep COMPOSE_PATH_SEPARATOR "$PROJECT_ROOT/.env" 2>/dev/null || true
+  printf '%s' "${_cps_sep:-:}"
+}
+
+# A COMPOSE_FILE entry as an absolute path with "." and ".." resolved
+# lexically, the way Compose records it in container labels.
+compose_clean_path() {
+  case "$1" in
+    /*) _ccp_path=$1 ;;
+    *) _ccp_path=$PROJECT_ROOT/$1 ;;
+  esac
+  _ccp_dir="$(cd "$(dirname "$_ccp_path")" 2>/dev/null && pwd)" || {
+    printf '%s' "$_ccp_path"
+    return 0
+  }
+  printf '%s/%s' "${_ccp_dir%/}" "$(basename "$_ccp_path")"
+}
+
 compose() {
   [ -n "${PROJECT_ROOT:-}" ] || fail "compose(): PROJECT_ROOT must be set by the caller before sourcing common.sh"
-  # COMPOSE_FILE is a colon-separated list, as Compose itself reads it: each
-  # entry becomes its own -f, so overrides stay in effect.
+  # COMPOSE_FILE is a list, as Compose itself reads it: each entry becomes its
+  # own -f, so overrides stay in effect.
   _cf_argc=$#
   _cf_ifs=$IFS
-  IFS=:
+  IFS=$(compose_path_separator)
   for _cf_entry in $COMPOSE_FILE; do
     case "$_cf_entry" in
       "") ;;

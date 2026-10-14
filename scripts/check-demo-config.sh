@@ -13,6 +13,11 @@ if [ -z "${COMPOSE_FILE:-}" ] && [ -f "$PROJECT_ROOT/.env" ]; then
     COMPOSE_FILE="$("$SCRIPT_DIR/env-value.sh" COMPOSE_FILE "$PROJECT_ROOT/.env" 2>/dev/null || true)"
 fi
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
+SEPARATOR="${COMPOSE_PATH_SEPARATOR:-}"
+if [ -z "$SEPARATOR" ] && [ -f "$PROJECT_ROOT/.env" ]; then
+    SEPARATOR="$("$SCRIPT_DIR/env-value.sh" COMPOSE_PATH_SEPARATOR "$PROJECT_ROOT/.env" 2>/dev/null || true)"
+fi
+SEPARATOR="${SEPARATOR:-:}"
 
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
@@ -21,7 +26,7 @@ fail() {
 
 COMPOSE_PATHS=""
 _ifs=$IFS
-IFS=:
+IFS=$SEPARATOR
 for entry in $COMPOSE_FILE; do
     [ -n "$entry" ] || continue
     case "$entry" in
@@ -30,7 +35,8 @@ for entry in $COMPOSE_FILE; do
     esac
     [ -f "$path" ] || fail "compose file not found: $path"
     # Compose records the cleaned absolute path in its container label.
-    path="$(printf '%s' "$path" | sed -e 's|/\./|/|g' -e 's|//*|/|g')"
+    dir="$(cd "$(dirname "$path")" && pwd)"
+    path="${dir%/}/$(basename "$path")"
     COMPOSE_PATHS="${COMPOSE_PATHS:+$COMPOSE_PATHS,}$path"
 done
 IFS=$_ifs
