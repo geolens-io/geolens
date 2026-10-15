@@ -144,20 +144,24 @@ const LegendLayerEntry = memo(function LegendLayerEntry(props: {
 }) {
   const entryName = legendFacts(props.layer)?.name ?? '';
   return (
-    <LegendEntryBoundary entryName={entryName} isLast={props.isLast}>
+    <LegendEntryBoundary layer={props.layer} entryName={entryName} isLast={props.isLast}>
       <LegendLayerBody {...props} entryName={entryName} />
     </LegendEntryBoundary>
   );
 });
 
 class LegendEntryBoundary extends Component<
-  { entryName: string; isLast: boolean; children: ReactNode },
+  { layer: MapLayerResponse; entryName: string; isLast: boolean; children: ReactNode },
   { hasError: boolean }
 > {
   state = { hasError: false };
 
   static getDerivedStateFromError() {
     return { hasError: true };
+  }
+
+  componentDidUpdate(prev: { layer: MapLayerResponse }) {
+    if (this.state.hasError && prev.layer !== this.props.layer) this.setState({ hasError: false });
   }
 
   componentDidCatch(err: Error) {

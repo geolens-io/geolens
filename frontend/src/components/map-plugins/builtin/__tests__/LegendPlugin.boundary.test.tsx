@@ -7,7 +7,7 @@ import type { MapLayerResponse } from '@/types/api';
 vi.mock('@/components/map/layer-icons', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/map/layer-icons')>()),
   LayerTypeIcon: ({ layer }: { layer: MapLayerResponse }) => {
-    if (layer.id === 'broken') throw new Error('icon failed');
+    if (layer.dataset_name === 'Broken layer') throw new Error('icon failed');
     return <span data-testid="icon" />;
   },
 }));
@@ -45,5 +45,21 @@ describe('LegendPlugin entry resilience', () => {
     expect(screen.getByText(/legend unavailable/i)).toBeInTheDocument();
     expect(screen.getByText('Roads')).toBeInTheDocument();
     expect(screen.getAllByTestId('icon')).toHaveLength(1);
+  });
+
+  it('renders the entry again once the layer data is replaced', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ctx = (name: string): PluginContext => ({
+      mapInstance: null,
+      layers: [layer('broken', name)],
+      mapId: 'test-map',
+      terrainConfig: null,
+    });
+    const { rerender } = render(<LegendPlugin ctx={ctx('Broken layer')} />);
+    expect(screen.getByText(/legend unavailable/i)).toBeInTheDocument();
+
+    rerender(<LegendPlugin ctx={ctx('Fixed layer')} />);
+    expect(screen.queryByText(/legend unavailable/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('icon')).toBeInTheDocument();
   });
 });
