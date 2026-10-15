@@ -37,7 +37,11 @@ from app.modules.embed_tokens.service import (
     revoke_embed_token,
     update_embed_token,
 )
-from app.modules.catalog.maps.service import check_map_ownership, get_map
+from app.modules.catalog.maps.service import (
+    check_map_ownership,
+    get_map,
+    lock_map_layers,
+)
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
@@ -91,6 +95,9 @@ async def create_embed_token_endpoint(
             detail=str(e),
         )
 
+    # Before the scope read, so the token freezes the layers the map has now,
+    # and before the revocation's cache denials, which no rollback undoes.
+    await lock_map_layers(db, map_id)
     try:
         token, raw_token = await create_embed_token(
             db,
@@ -208,6 +215,8 @@ async def update_embed_token_endpoint(
             detail=str(e),
         )
 
+    # Before the cache eviction, which no rollback undoes.
+    await lock_map_layers(db, map_id)
     try:
         token = await update_embed_token(db, token_id, map_id, body.allowed_origins)
     except ValueError as e:
@@ -253,6 +262,8 @@ async def revoke_embed_token_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
+    # Before the revocation's cache denial, which no rollback undoes.
+    await lock_map_layers(db, map_id)
     token = await revoke_embed_token(db, token_id, map_id)
     if token is None:
         raise HTTPException(

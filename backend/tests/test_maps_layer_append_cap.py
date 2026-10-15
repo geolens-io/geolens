@@ -266,16 +266,19 @@ async def test_a_full_save_and_an_append_at_the_boundary_admit_exactly_one(
 
 
 @pytest.mark.anyio
-async def test_a_layer_delete_records_its_history_while_a_layer_writer_holds_the_map(
-    client: AsyncClient, admin_auth_header: dict, test_db_session
+async def test_a_layer_delete_queues_behind_a_layer_writer_holding_the_map(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):
-    """A delete holds its layer rows while it writes history against the map.
+    """A delete takes the map before its layer rows, the order a save takes.
 
     A save holding the map while it waits on those rows would deadlock with a
-    delete that, in turn, waited on the map for its history insert.
+    delete that held the rows while it waited on the map.
     """
     from app.modules.catalog.maps.service_layers import lock_map_layers
 
+    monkeypatch.setattr(
+        "app.modules.catalog.maps.service_layers._LAYER_LOCK_TIMEOUT", "30s"
+    )
     map_id, _dataset_id = await _map_with_layers(
         client, admin_auth_header, test_db_session, 2
     )
@@ -290,13 +293,18 @@ async def test_a_layer_delete_records_its_history_while_a_layer_writer_holds_the
         client.delete(f"/maps/{map_id}/layers/{layer_id}", headers=admin_auth_header)
     )
     try:
-        done, _ = await asyncio.wait({delete}, timeout=10)
+        await _wait_for_a_blocked_writer(test_db_session)
+        await test_db_session.execute(
+            update(MapLayer)
+            .where(MapLayer.map_id == uuid.UUID(map_id))
+            .values(opacity=0.5)
+        )
+        await test_db_session.commit()
     finally:
         await test_db_session.rollback()
-    resp = await delete
+    resp = await asyncio.wait_for(delete, timeout=20)
 
-    assert done, "the delete waited on the layer writer's map lock"
-    assert resp.status_code == 204
+    assert resp.status_code == 204, resp.text
 
 
 @pytest.mark.anyio

@@ -33,6 +33,7 @@ from app.modules.catalog.maps.sharing_policy import (
     resolve_share_expiration as _resolve_share_expiration,
 )
 from app.modules.catalog.maps.service_crud import get_map
+from app.modules.catalog.maps.service_layers import lock_map_layers
 from app.modules.catalog.maps.service_shared import (
     _apply_map_visibility_filter,
     _extract_dem_vertical_units,
@@ -189,6 +190,7 @@ async def create_share_token(
 ) -> MapShareToken:
     """Create a share token for a map. Reuses existing token if one exists. Does NOT commit."""
     resolved_expiration = _resolve_share_expiration(expires_at, expires_in_days)
+    await lock_map_layers(session, map_id)
     visible_map_id = await session.scalar(select(Map.id).where(Map.id == map_id))
     visible_creator_id = await session.scalar(
         select(User.id).where(User.id == created_by)
@@ -241,6 +243,7 @@ async def update_share_token(
 ) -> MapShareToken | None:
     """Update expiration on the active share token for a map. Returns None if no active token."""
     resolved_expiration = _resolve_share_expiration(expires_at, expires_in_days)
+    await lock_map_layers(session, map_id)
     result = await session.execute(
         select(MapShareToken)
         .join(Map, MapShareToken.map_id == Map.id)
@@ -873,7 +876,13 @@ async def revoke_share_token_by_map(
     session: AsyncSession,
     map_id: uuid.UUID,
 ) -> bool:
-    """Revoke all share tokens for a map. Returns True if any were revoked."""
+    """Revoke all share tokens for a map. Returns True if any were revoked.
+
+    Takes the map row lock first, so a caller that revokes the map's embed
+    tokens afterwards writes their cache denials only once the writer is
+    re-checked.
+    """
+    await lock_map_layers(session, map_id)
     result = await session.execute(
         select(MapShareToken)
         .join(Map, MapShareToken.map_id == Map.id)
