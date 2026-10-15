@@ -119,9 +119,11 @@ async def test_public_map_without_images_uses_the_absolute_site_image(
         client, admin_auth_header, visibility="public", description=None
     )
 
-    resp = await client.get(f"/maps/{map_id}/link-preview")
+    # nginx forwards the id with whatever casing the crawler asked for.
+    resp = await client.get(f"/maps/{map_id.upper()}/link-preview")
 
     assert resp.status_code == 200, resp.text
+    assert _meta(resp.text, "property", "og:url") == f"{APP_URL}/maps/{map_id}"
     assert _meta(resp.text, "property", "og:image") == f"{APP_URL}/og-image.png"
     assert _meta(resp.text, "property", "og:description")
 

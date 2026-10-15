@@ -105,13 +105,34 @@ def test_preview_location_is_internal_and_anonymous() -> None:
     assert selected.modifier == "^~"
     own = selected.own
     assert "internal;" in own
-    assert (
-        "rewrite ^/_map_link_preview/maps/([^/]+) /maps/$1/link-preview? break;" in own
-    )
     assert "proxy_pass $upstream_api;" in own
     for header in ("Authorization", "Cookie", "X-Api-Key"):
         assert f'proxy_set_header {header} "";' in own
     assert "add_header" not in own
+
+
+def _rewrite_preview(uri: str) -> str | None:
+    """Apply the preview location's rewrite to ``uri`` the way PCRE would."""
+    own = _select(_tree(), f"/_map_link_preview{MAP_PAGE}").own
+    rewrite = re.search(r'rewrite "([^"]+)" (\S+)\? break;', own)
+    assert rewrite is not None, "the preview rewrite is gone"
+    match = re.search(rewrite.group(1), uri)
+    if match is None:
+        return None
+    return rewrite.group(2).replace("$1", match.group(1))
+
+
+@pytest.mark.parametrize(
+    "page", [MAP_PAGE, MAP_PAGE + "/", MAP_PAGE.upper(), MAP_PAGE.upper() + "/"]
+)
+def test_every_spelling_the_map_page_accepts_reaches_the_preview_route(
+    page: str,
+) -> None:
+    """The map-page location and the SPA router match paths case-insensitively."""
+    assert _select(_tree(), page) is not None
+    internal = _map_page_uri_for(CRAWLERS[0], uri=page)
+    map_id = page.split("/")[2]
+    assert _rewrite_preview(internal) == f"/maps/{map_id}/link-preview"
 
 
 def test_preview_failures_fall_back_to_the_spa_shell() -> None:
