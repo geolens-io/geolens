@@ -643,7 +643,11 @@ html [data-sonner-toaster][data-sonner-theme] {
 }
 
 /* ── MapLibre Popup Styling ─────────────────────────── */
-.maplibregl-popup-content {
+/* Scoped under .maplibregl-map so these rules outrank maplibre-gl.css. That
+   stylesheet is imported by the lazily loaded map components, so its chunk is
+   injected after index.css; at equal specificity its `background: #fff` won,
+   and in dark mode the popup showed light popover text on a white card. */
+.maplibregl-map .maplibregl-popup-content {
   background: var(--popover);
   color: var(--popover-foreground);
   box-shadow: var(--elevation-lg);
@@ -651,31 +655,31 @@ html [data-sonner-toaster][data-sonner-theme] {
 }
 
 /* Popup tip (arrow) — all four anchor directions */
-.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+.maplibregl-map .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
   border-top-color: var(--popover);
 }
-.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+.maplibregl-map .maplibregl-popup-anchor-top .maplibregl-popup-tip {
   border-bottom-color: var(--popover);
 }
-.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+.maplibregl-map .maplibregl-popup-anchor-left .maplibregl-popup-tip {
   border-right-color: var(--popover);
 }
-.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+.maplibregl-map .maplibregl-popup-anchor-right .maplibregl-popup-tip {
   border-left-color: var(--popover);
 }
-.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
-.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+.maplibregl-map .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-map .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
   border-top-color: var(--popover);
 }
-.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
-.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+.maplibregl-map .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-map .maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
   border-bottom-color: var(--popover);
 }
 
 /* Popup close button — 32×32 visible (border-box, so the padding is inside
    that box); coarse pointers get a ≥44px hit target via the pointer-coarse
    rule further down. */
-.maplibregl-popup-close-button {
+.maplibregl-map .maplibregl-popup-close-button {
   color: var(--popover-foreground);
   font-size: 18px;
   width: 32px;
@@ -688,7 +692,7 @@ html [data-sonner-toaster][data-sonner-theme] {
   inset-inline-end: 2px;
   top: 2px;
 }
-.maplibregl-popup-close-button:hover {
+.maplibregl-map .maplibregl-popup-close-button:hover {
   background-color: var(--muted);
 }
 
