@@ -38,6 +38,7 @@ from app.modules.catalog.collections.service import (
     get_collection,
     get_collection_datasets,
     list_collections,
+    lock_collection_for_write,
     remove_dataset_from_collection,
     update_collection,
 )
@@ -229,6 +230,7 @@ async def update_collection_endpoint(
             detail="Collection not found",
         )
     await check_collection_ownership(db, existing, user)
+    await lock_collection_for_write(db, collection_id)
     try:
         collection = await update_collection(
             db, collection_id, name=body.name, description=body.description
@@ -287,6 +289,7 @@ async def delete_collection_endpoint(
             detail="Collection not found",
         )
     await check_collection_ownership(db, existing, user)
+    await lock_collection_for_write(db, collection_id)
     try:
         name = await delete_collection(db, collection_id)
     except ValueError:
@@ -335,6 +338,7 @@ async def add_datasets_endpoint(
     user_roles = await get_user_roles(db, user)
     await check_datasets_access_bulk(db, body.dataset_ids, user, user_roles)
 
+    await lock_collection_for_write(db, collection_id)
     try:
         count = await add_datasets_to_collection(
             db, collection_id, body.dataset_ids, user.id
@@ -381,6 +385,7 @@ async def remove_dataset_endpoint(
         )
     await check_collection_ownership(db, collection, user)
 
+    await lock_collection_for_write(db, collection_id)
     removed = await remove_dataset_from_collection(db, collection_id, dataset_id)
     if not removed:
         raise HTTPException(
