@@ -539,7 +539,9 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
 
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
-        await _require_submitter_can_write(session, dataset, job)
+        await _require_submitter_can_write(
+            session, dataset, job, _replacement_capability(job)
+        )
         published = await strategy.write(session, dataset)
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
@@ -605,13 +607,18 @@ _SUBMITTER = text(
 )
 
 
+def _replacement_capability(job: IngestJob) -> str:
+    """The capability a replacement's door requires: ``upload`` for a manifest
+    apply, ``edit_metadata`` for a re-upload, refresh or restore."""
+    return UPLOAD if (job.user_metadata or {}).get("manifest_key") else EDIT_METADATA
+
+
 async def _require_submitter_can_write(
-    session: AsyncSession, dataset: Any, job: IngestJob
+    session: AsyncSession, dataset: Any, job: IngestJob, capability: str | None
 ) -> None:
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
-    the dataset, as committed now, and their roles still grant ``upload`` for
-    a manifest apply or ``edit_metadata`` for any other job, the capability a
-    dataset replacement's door requires.
+    the dataset, as committed now, and their roles still grant ``capability``
+    when one is given: the capability the job's door admitted it under.
 
     Call holding the catalog rows, which an ownership transfer also takes.
     """
@@ -645,10 +652,7 @@ async def _require_submitter_can_write(
         )
     except HTTPException:
         raise WriteAccessRevoked from None
-    capability = (
-        UPLOAD if (job.user_metadata or {}).get("manifest_key") else EDIT_METADATA
-    )
-    if not await get_permission_extension().check_permission(
+    if capability is not None and not await get_permission_extension().check_permission(
         session, submitter, capability, user_roles=set(row.roles)
     ):
         raise WriteAccessRevoked

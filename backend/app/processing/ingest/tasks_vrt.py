@@ -34,6 +34,7 @@ from app.platform.jobs.heartbeat import (
 )
 from app.core.failure_reason import redact_failure_reason
 from app.core.db import tenant_task
+from app.core.permissions import UPLOAD
 from app.processing.raster.cog import sha256_file
 from app.processing.raster.probe import (
     RENDER_TIMEOUT_SECONDS,
@@ -1466,8 +1467,15 @@ async def regenerate_vrt(
                         text("SELECT set_config('lock_timeout', :value, true)"),
                         {"value": pre_wait_lock_timeout},
                     )
+                    # The doors that stage a member set require upload; a
+                    # plain regenerate requires owner-or-admin only.
                     if job.created_by is not None:
-                        await _require_submitter_can_write(session, vrt_dataset, job)
+                        await _require_submitter_can_write(
+                            session,
+                            vrt_dataset,
+                            job,
+                            UPLOAD if staged_source_ids is not None else None,
+                        )
                     # feat(#1267) / ADR-002 Decision 5a: project the
                     # generation's completion instant into last_refreshed_at,
                     # in the SAME transaction as the generation swap, so

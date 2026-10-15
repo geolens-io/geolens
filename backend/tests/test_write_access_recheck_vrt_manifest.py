@@ -10,6 +10,7 @@ Requirements: the docker database must be running with migrations applied.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import pytest
 from fastapi import HTTPException
@@ -18,6 +19,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
+import app.modules.auth.permissions as permissions
 import app.modules.catalog.authorization as authorization
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import check_dataset_write_access
@@ -37,6 +39,7 @@ from tests.test_vrt_source_authz_1172 import (
 )
 
 from tests.test_regenerate_vrt_integration import (  # noqa: F401 - fixtures
+    _stage_generation,
     local_storage,
     quicklook_stub,
     source_tifs,
@@ -44,6 +47,7 @@ from tests.test_regenerate_vrt_integration import (  # noqa: F401 - fixtures
 )
 from tests.write_recheck_races import (  # noqa: F401 - people is a fixture
     _commit,
+    _deactivate,
     _demote_to_viewer,
     _then,
     _transfer_dataset,
@@ -157,7 +161,7 @@ async def test_manifest_run_admission_is_refused_after_a_transfer(
     )
 
 
-async def _give_vrt_regeneration_to(state: dict, owner_id: uuid.UUID) -> None:
+async def _hand_vrt_records_to(state: dict, owner_id: uuid.UUID) -> None:
     record_ids = select(Dataset.record_id).where(
         Dataset.id.in_(
             [uuid.UUID(state["vrt_dataset_id"]), *state["source_dataset_ids"]]
@@ -166,6 +170,10 @@ async def _give_vrt_regeneration_to(state: dict, owner_id: uuid.UUID) -> None:
     await _commit(
         update(Record).where(Record.id.in_(record_ids)).values(created_by=owner_id)
     )
+
+
+async def _give_vrt_regeneration_to(state: dict, owner_id: uuid.UUID) -> None:
+    await _hand_vrt_records_to(state, owner_id)
     await _commit(
         update(IngestJob)
         .where(IngestJob.id == uuid.UUID(state["job_id"]))
@@ -173,15 +181,27 @@ async def _give_vrt_regeneration_to(state: dict, owner_id: uuid.UUID) -> None:
     )
 
 
-async def _regenerate(state: dict) -> tuple[str, str | None, str | None]:
-    from app.processing.ingest.tasks import regenerate_vrt
+async def _regenerate(state: dict, *, staged: bool) -> tuple[str, str | None, Any]:
+    """Run the regeneration a source change (``staged``) or a plain
+    regenerate queues, and return the job's status and error and the VRT's
+    published hash."""
+    from app.processing.ingest.tasks import regenerate_vrt, regenerate_vrt_staged
 
+    kwargs = {
+        "job_id": state["job_id"],
+        "attempt_id": state["attempt_id"],
+        "vrt_dataset_id": state["vrt_dataset_id"],
+    }
+    task = regenerate_vrt
+    if staged:
+        async with db_module.async_session() as session:
+            generation_id = await _stage_generation(
+                session, state, state["source_dataset_ids"]
+            )
+        kwargs["generation_id"] = str(generation_id)
+        task = regenerate_vrt_staged
     try:
-        await regenerate_vrt.func(
-            job_id=state["job_id"],
-            attempt_id=state["attempt_id"],
-            vrt_dataset_id=state["vrt_dataset_id"],
-        )
+        await task.func(**kwargs)
     except WriteAccessRevoked:
         pass
     async with db_module.async_session() as session:
@@ -192,26 +212,62 @@ async def _regenerate(state: dict) -> tuple[str, str | None, str | None]:
     return job.status, job.error_message, sha256
 
 
-@pytest.mark.parametrize("demoted", [True, False])
+def _without_edit_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Editors keep upload and lose edit_metadata."""
+    effective = permissions.get_effective_permissions
+
+    async def editors_without_edit_metadata(db):
+        matrix = await effective(db)
+        matrix["editor"]["edit_metadata"] = False
+        return matrix
+
+    monkeypatch.setattr(
+        permissions, "get_effective_permissions", editors_without_edit_metadata
+    )
+
+
+@pytest.mark.parametrize(
+    ("staged", "change", "published"),
+    [
+        # A source change was admitted under upload.
+        (True, "viewer", False),
+        (True, "deactivate", False),
+        (True, "upload_only", True),
+        # A plain regenerate needs ownership and an active account only.
+        (False, "viewer", True),
+        (False, "transfer", False),
+        (False, None, True),
+    ],
+)
 async def test_a_vrt_regeneration_rechecks_its_submitter_before_it_publishes(
     vrt_db_state: dict,  # noqa: F811
     local_storage,  # noqa: F811
     quicklook_stub,  # noqa: F811
     clean_tables,
     people: dict,  # noqa: F811
-    demoted: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    staged: bool,
+    change: str | None,
+    published: bool,
 ) -> None:
     _, owner_id = people["owner"]
     await _give_vrt_regeneration_to(vrt_db_state, owner_id)
-    if demoted:
+    if change == "viewer":
         await _commit(_demote_to_viewer(owner_id))
+    elif change == "deactivate":
+        await _commit(_deactivate(owner_id))
+    elif change == "transfer":
+        # The members go too, so the VRT's audience check still passes.
+        await _hand_vrt_records_to(vrt_db_state, people["target"])
+    elif change == "upload_only":
+        _without_edit_metadata(monkeypatch)
 
-    status, error, sha256 = await _regenerate(vrt_db_state)
+    status, error, sha256 = await _regenerate(vrt_db_state, staged=staged)
 
-    if demoted:
+    if published:
+        assert status == "complete", error
+        assert sha256 is not None
+    else:
         assert status == "failed"
         assert error == str(WriteAccessRevoked())
         assert sha256 is None
-    else:
-        assert status == "complete", error
-        assert sha256 is not None
