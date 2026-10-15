@@ -42,6 +42,8 @@ async def test_map_access_matches_mutation_guards(
         visibility="public",
     )
     db = AsyncMock()
+    # require_permission records what it admitted in the session's info dict.
+    db.info = {}
     result = MagicMock()
     result.all.return_value = [(role,)]
     db.execute.return_value = result

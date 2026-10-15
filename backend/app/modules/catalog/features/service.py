@@ -1236,33 +1236,24 @@ async def lock_catalog_rows_for_write(
 ) -> Bounds | None:
     """Take this dataset's catalog rows in the house order, then read its extent.
 
-    Entry point to `platform.catalog_locks.lock_catalog_rows` for ANY request path
-    that dirties either row. Re-checks under the lock the writer a guard admitted.
+    The lock is `authorization.lock_dataset_rows_for_write`, which re-checks the
+    writer a guard admitted; a path with no use for the extent calls it directly.
     Returns None unless the extent is a simple POLYGON: an antimeridian-crossing
     dataset stores a two-ring MULTIPOLYGON whose ST_XMin/ST_XMax are -180/180, so
     a longitude in the gap would test inside a box the geometry never occupies.
     The lock comes before either metadata path reads the extent, so interleaved
     read-decide-write cannot shrink it from a stale aggregate.
     """
-    from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
+    from app.modules.catalog.authorization import lock_dataset_rows_for_write
     from app.modules.catalog.datasets.domain.models import Record
-    from app.modules.catalog.write_recheck import recheck_dataset_write_access
-    from app.platform.catalog_locks import lock_catalog_rows
 
     # Through the port: the layering test keeps `app.processing.*` out of catalog.
     raster_asset_cls = (
         get_catalog_port().raster_asset_orm_class() if with_raster_asset else None
     )
-
-    await lock_catalog_rows(
-        session,
-        dataset_cls=DatasetModel,
-        record_cls=Record,
-        dataset_id=dataset.id,
-        record_id=dataset.record_id,
-        raster_asset_cls=raster_asset_cls,
+    await lock_dataset_rows_for_write(
+        session, dataset, raster_asset_cls=raster_asset_cls
     )
-    await recheck_dataset_write_access(session, dataset)
 
     # Both rows are held now, so this is an ordinary read.
     result = await session.execute(

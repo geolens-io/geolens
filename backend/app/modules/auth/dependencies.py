@@ -745,7 +745,10 @@ def require_permission(*capabilities: str):
         current_user: Annotated[Identity, Depends(get_current_active_user)],
         db: AsyncSession = Depends(get_db),
     ) -> Identity:
-        from app.modules.auth.permissions import get_effective_permissions
+        from app.modules.auth.permissions import (
+            admit_capabilities,
+            get_effective_permissions,
+        )
 
         user_roles = await get_cached_user_roles(request, db, current_user)
 
@@ -773,6 +776,7 @@ def require_permission(*capabilities: str):
                     detail=f"Missing permission: {cap}",
                 )
 
+        admit_capabilities(db, current_user.id, capabilities, matrix)
         return current_user
 
     return _permission_checker

@@ -20,7 +20,7 @@ from sqlalchemy import delete, event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
-from app.modules.auth.models import User, UserRole
+from app.modules.auth.models import Role, User, UserRole
 from app.modules.catalog.authorization import (
     DATASET_WRITE_DENIED,
     check_dataset_write_access,
@@ -113,6 +113,41 @@ async def test_owner_patch_is_refused_when_a_transfer_lands_mid_request(
     )
 
     assert resp.status_code == 403, resp.text
+    title = await test_db_session.scalar(
+        select(Record.title).where(Record.id == record_id)
+    )
+    assert title != "renamed"
+
+
+async def test_owner_patch_is_refused_when_the_role_loses_edit_metadata(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    people: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner_headers, owner_id = people["owner"]
+    dataset = await create_dataset(test_db_session, created_by=owner_id)
+    dataset_id, record_id = dataset.id, dataset.record_id
+    original = datasets_router.check_public_visibility_allowed
+    viewer = select(Role.id).where(Role.name == "viewer").scalar_subquery()
+
+    # Runs after require_permission and the write guard, before the lock.
+    async def demote_then_continue(db, user, visibility, **kwargs):
+        await test_db_session.execute(
+            update(UserRole).where(UserRole.user_id == owner_id).values(role_id=viewer)
+        )
+        await test_db_session.commit()
+        return await original(db, user, visibility, **kwargs)
+
+    monkeypatch.setattr(
+        datasets_router, "check_public_visibility_allowed", demote_then_continue
+    )
+    resp = await client.patch(
+        f"/datasets/{dataset_id}", json={"title": "renamed"}, headers=owner_headers
+    )
+
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"] == "Missing permission: edit_metadata"
     title = await test_db_session.scalar(
         select(Record.title).where(Record.id == record_id)
     )

@@ -146,6 +146,27 @@ def user_standing_columns(user_id: Any) -> tuple[ColumnElement, ColumnElement]:
     )
 
 
+_ADMITTED_CAPABILITIES = "admitted_capabilities"
+
+
+def admit_capabilities(
+    db: AsyncSession, user_id: Any, capabilities: Any, matrix: dict
+) -> None:
+    """Record that ``require_permission`` admitted ``user_id`` under
+    ``capabilities``, read against ``matrix``, for this session."""
+    admitted = db.info.setdefault(_ADMITTED_CAPABILITIES, {})
+    held, _ = admitted.get(user_id, (frozenset(), matrix))
+    admitted[user_id] = (held | frozenset(capabilities), matrix)
+
+
+def admitted_capabilities(
+    db: AsyncSession, user_id: Any
+) -> tuple[frozenset[str], dict]:
+    """The capabilities and matrix :func:`admit_capabilities` recorded for
+    ``user_id`` in this session; none when nothing was recorded."""
+    return db.info.get(_ADMITTED_CAPABILITIES, {}).get(user_id, (frozenset(), {}))
+
+
 # ---------------------------------------------------------------------------
 # Effective permissions (DB override merged with defaults)
 # ---------------------------------------------------------------------------

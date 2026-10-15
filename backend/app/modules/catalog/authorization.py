@@ -33,7 +33,11 @@ from app.core.identity import Identity
 from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
 from app.modules.auth.permissions import get_user_roles as _get_user_roles
-from app.modules.catalog.write_recheck import admit_writer
+from app.modules.catalog.write_recheck import (
+    admit_writer,
+    recheck_dataset_write_access,
+)
+from app.platform.catalog_locks import lock_catalog_rows
 from app.platform.extensions import (
     DefaultPermissionExtension,
     RecordAudienceQuery,
@@ -508,6 +512,28 @@ async def check_dataset_write_access(
 
 
 DATASET_WRITE_DENIED = "Only the dataset owner or an admin may modify this dataset."
+
+
+async def lock_dataset_rows_for_write(
+    db: AsyncSession, dataset: Any, *, raster_asset_cls: Any = None
+) -> None:
+    """Take the dataset's catalog rows in the house order, then re-check the
+    writer :func:`check_dataset_write_access` admitted, with its 404 or 403.
+
+    The terms of :func:`~app.platform.catalog_locks.lock_catalog_rows`: call it
+    before the transaction's first write to either row, after any network I/O.
+    """
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+    await lock_catalog_rows(
+        db,
+        dataset_cls=Dataset,
+        record_cls=Record,
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        raster_asset_cls=raster_asset_cls,
+    )
+    await recheck_dataset_write_access(db, dataset)
 
 
 async def require_dataset_editing_enabled(db: AsyncSession) -> None:
