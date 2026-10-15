@@ -27,6 +27,7 @@ from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
     Dataset,
     DatasetRelationship,
+    Record,
     RecordContact,
     RecordTranslation,
 )
@@ -357,3 +358,36 @@ async def test_opposing_relationship_creates_both_land(
     )
 
     assert [r.status_code for r in responses] == [201, 201], [r.text for r in responses]
+
+
+async def test_a_readers_first_validation_fill_does_not_wait_on_the_record(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    people: dict,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fill writes the datasets row alone, so a held records row leaves it be."""
+    _, owner_id = people["owner"]
+    dataset = await create_dataset(test_db_session, created_by=owner_id)
+    dataset_id, record_id = dataset.id, dataset.record_id
+    port_cls = type(get_catalog_port())
+
+    async def fresh_score(self, *args, **kwargs) -> dict:
+        return {"score": 99}
+
+    monkeypatch.setattr(port_cls, "compute_quality_score", fresh_score)
+    async with db_module.async_session() as holder:
+        await holder.execute(
+            select(Record.id).where(Record.id == record_id).with_for_update()
+        )
+        resp = await asyncio.wait_for(
+            client.get(f"/datasets/{dataset_id}/validate/"), timeout=10
+        )
+        await holder.rollback()
+
+    assert resp.status_code == 200, resp.text
+    async with db_module.async_session() as session:
+        quality = await session.scalar(
+            select(Dataset.quality_detail).where(Dataset.id == dataset_id)
+        )
+    assert quality == {"score": 99}

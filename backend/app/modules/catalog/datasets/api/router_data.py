@@ -214,8 +214,10 @@ async def validate_dataset(
         quality = await get_catalog_port().compute_quality_score(
             db, dataset.table_name, dataset.column_info or [], dataset
         )
-        await lock_dataset_rows_for_write(db, dataset)
-        dataset.quality_detail = quality
+        if refresh:
+            await _store_refreshed_quality(db, dataset, quality)
+        else:
+            _fill_quality_cache(dataset, quality)
         await db.commit()
     else:
         quality = dataset.quality_detail
@@ -278,6 +280,24 @@ ALLOWED_TRANSITIONS = {
     status: set(targets)
     for status, targets in DefaultWorkflowExtension.DEFAULT_ALLOWED_TRANSITIONS.items()
 }
+
+
+async def _store_refreshed_quality(
+    db: AsyncSession, dataset: DatasetModel, quality: dict
+) -> None:
+    """The owner's forced recompute: a write, taken under the catalog rows and
+    re-checked there."""
+    await lock_dataset_rows_for_write(db, dataset)
+    dataset.quality_detail = quality
+
+
+def _fill_quality_cache(dataset: DatasetModel, quality: dict) -> None:
+    """A reader's first-read fill of the cached score.
+
+    It writes the datasets row alone and acts for no caller, so it takes
+    neither the records row nor a re-check.
+    """
+    dataset.quality_detail = quality
 
 
 async def _roll_publication_version(db: AsyncSession, dataset: DatasetModel) -> None:
