@@ -313,8 +313,15 @@ def test_vertex_client(monkeypatch):
     assert client.max_retries == 2
 
 
-def test_vertex_auth_dependency_is_installed():
-    import google.auth  # noqa: F401
+def test_blank_adc_path_from_compose_leaves_keyless_vertex_auth_alone(monkeypatch):
+    # Compose passes an unset GOOGLE_APPLICATION_CREDENTIALS as "". google-auth
+    # must skip the explicit-file step then, so the attached service account
+    # (metadata server) is still reached.
+    from google.auth import _default
+
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+
+    assert _default._get_explicit_environ_credentials() == (None, None)
 
 
 def test_llm_loop_is_the_only_claude_client_construction_site():
