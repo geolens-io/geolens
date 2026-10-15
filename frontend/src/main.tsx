@@ -19,6 +19,7 @@ import { installStaleAssetReload } from '@/lib/stale-asset-reload';
 import { wireAuthCacheReset } from '@/lib/auth-cache-reset';
 import { restoreSessionBeforeRender, wireSessionSync } from '@/lib/session-sync';
 import { ReportProblemHost } from '@/components/report/ReportProblemHost';
+import { preloadMatchedRoutes } from '@/lib/route-preload';
 import { appRoutes } from './App';
 import './index.css';
 
@@ -90,6 +91,8 @@ interface RootContainer extends HTMLElement { __glRoot?: Root }
 async function bootstrap() {
   // The access token lives in memory, so a reload recovers it before the first
   // render; otherwise every signed-in route would redirect to /login first.
+  // Fetch the current route's chunk while the refresh call is in flight.
+  preloadMatchedRoutes(router.routes, window.location);
   await Promise.all([initializeI18n(), restoreSessionBeforeRender()]);
 
   const container = document.getElementById('root')! as RootContainer;
