@@ -54,12 +54,10 @@ def get_anthropic_client() -> AsyncAnthropic:
     Surfaces missing settings as a clear ValueError rather than an opaque
     AuthenticationError on the first request.
     """
-    from app.core.ai_credentials import anthropic_configured
+    from app.core.ai_credentials import anthropic_unconfigured_reason
 
-    if not anthropic_configured():
-        if settings.anthropic_platform == "anthropic":
-            raise ValueError("Anthropic API key not configured")
-        raise ValueError(f"Claude on {settings.anthropic_platform} not configured")
+    if reason := anthropic_unconfigured_reason():
+        raise ValueError(reason)
 
     # Deferred import: DefaultAnthropicProvider would be a module-import cycle
     # (llm_loop -> defaults -> imports _LLM_TIMEOUT etc. from llm_loop).
@@ -76,6 +74,8 @@ def _build_anthropic_client() -> AsyncAnthropic:
     # subclasses, but they serve the same messages API.
     import anthropic
 
+    from app.core.ai_credentials import bedrock_credentials
+
     common: dict[str, Any] = {"timeout": _LLM_TIMEOUT, "max_retries": 2}
     platform = settings.anthropic_platform
     if platform == "foundry":
@@ -87,7 +87,7 @@ def _build_anthropic_client() -> AsyncAnthropic:
     if platform == "bedrock":
         return anthropic.AsyncAnthropicBedrock(
             aws_region=settings.anthropic_bedrock_aws_region,
-            **_bedrock_credentials(),
+            **bedrock_credentials(),
             **common,
         )
     if platform == "vertex":
@@ -103,28 +103,6 @@ def _build_anthropic_client() -> AsyncAnthropic:
         base_url=settings.anthropic_base_url or "https://api.anthropic.com",
         **common,
     )
-
-
-def _bedrock_credentials() -> dict[str, str | None]:
-    """Bedrock client credentials, never the S3 storage keys.
-
-    API and worker startup export the S3 storage key pair as AWS_ACCESS_KEY_ID
-    for GDAL, and the AWS default chain reads that variable before any role,
-    so the chain is refused while storage holds a static key.
-    """
-    if settings.anthropic_bedrock_api_key:
-        return {"api_key": reveal(settings.anthropic_bedrock_api_key)}
-    if settings.anthropic_bedrock_aws_access_key_id:
-        return {
-            "aws_access_key": settings.anthropic_bedrock_aws_access_key_id,
-            "aws_secret_key": reveal(settings.anthropic_bedrock_aws_secret_access_key),
-        }
-    if settings.storage_provider == "s3" and settings.s3_access_key_id:
-        raise ValueError(
-            "Claude on Bedrock would sign with the S3 storage key; set "
-            "ANTHROPIC_BEDROCK_API_KEY or the ANTHROPIC_BEDROCK_AWS_* key pair"
-        )
-    return {}
 
 
 def get_openai_client(base_url: str) -> AsyncOpenAI:

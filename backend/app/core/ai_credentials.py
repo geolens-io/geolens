@@ -146,26 +146,59 @@ def validate_persistent_openai_base_url(
     return canonicalize_openai_base_url(stripped)
 
 
-def anthropic_configured() -> bool:
-    """Whether the selected Claude platform has the settings its client needs.
+def bedrock_credentials() -> dict[str, str]:
+    """Bedrock client credentials as SDK arguments, never the S3 storage keys.
+
+    API and worker startup export the S3 storage key pair as AWS_ACCESS_KEY_ID
+    for GDAL, and the AWS default chain reads that variable before any role,
+    so the chain is refused while storage holds a static key. Raises
+    ValueError naming what to set.
+    """
+    if settings.anthropic_bedrock_api_key:
+        return {"api_key": settings.anthropic_bedrock_api_key.get_secret_value()}
+    key_id = settings.anthropic_bedrock_aws_access_key_id
+    secret = settings.anthropic_bedrock_aws_secret_access_key
+    if key_id and secret:
+        return {"aws_access_key": key_id, "aws_secret_key": secret.get_secret_value()}
+    if key_id or secret:
+        raise ValueError(
+            "Claude on Bedrock needs both ANTHROPIC_BEDROCK_AWS_ACCESS_KEY_ID and "
+            "ANTHROPIC_BEDROCK_AWS_SECRET_ACCESS_KEY"
+        )
+    if settings.storage_provider == "s3" and settings.s3_access_key_id:
+        raise ValueError(
+            "Claude on Bedrock would sign with the S3 storage key; set "
+            "ANTHROPIC_BEDROCK_API_KEY or the ANTHROPIC_BEDROCK_AWS_* key pair"
+        )
+    return {}
+
+
+def anthropic_unconfigured_reason() -> str | None:
+    """Why the selected Claude platform can't build a client, or None if it can.
 
     Bedrock without a bearer token or key pair falls back to the AWS default
     credential chain, which only a network call could check, so its region
     stands in for it.
     """
     platform = settings.anthropic_platform
-    if platform == "foundry":
-        return bool(
-            settings.anthropic_foundry_api_key and settings.anthropic_foundry_resource
+    if platform == "anthropic":
+        return (
+            None if settings.anthropic_api_key else "Anthropic API key not configured"
         )
-    if platform == "bedrock":
-        key_pair = (
-            settings.anthropic_bedrock_aws_access_key_id,
-            settings.anthropic_bedrock_aws_secret_access_key,
-        )
-        return bool(settings.anthropic_bedrock_aws_region) and (
-            any(key_pair) == all(key_pair)
-        )
-    if platform == "vertex":
-        return bool(settings.cloud_ml_region and settings.anthropic_vertex_project_id)
-    return bool(settings.anthropic_api_key)
+    if platform == "bedrock" and settings.anthropic_bedrock_aws_region:
+        try:
+            bedrock_credentials()
+        except ValueError as exc:
+            return str(exc)
+        return None
+    ready = {
+        "foundry": settings.anthropic_foundry_api_key
+        and settings.anthropic_foundry_resource,
+        "vertex": settings.cloud_ml_region and settings.anthropic_vertex_project_id,
+    }
+    return None if ready.get(platform) else f"Claude on {platform} not configured"
+
+
+def anthropic_configured() -> bool:
+    """Whether the selected Claude platform has the settings its client needs."""
+    return anthropic_unconfigured_reason() is None

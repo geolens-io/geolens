@@ -231,6 +231,38 @@ def test_bedrock_default_chain_refused_while_storage_exports_a_static_key(
 
     assert _STORAGE_KEY_ID not in str(exc_info.value)
     assert DefaultAnthropicProvider._client is None
+    # Readiness agrees, so chat isn't admitted only to fail on every request.
+    assert anthropic_configured() is False
+    assert admin_router._ai_status(True, "anthropic").configured is False
+
+
+def test_bedrock_api_key_wins_over_a_stale_key_pair_field(monkeypatch):
+    _use(
+        monkeypatch,
+        "bedrock",
+        anthropic_bedrock_aws_region="us-west-2",
+        anthropic_bedrock_api_key=SecretStr(_BEDROCK_API_KEY),
+        anthropic_bedrock_aws_access_key_id=_BEDROCK_KEY_ID,
+    )
+
+    assert anthropic_configured() is True
+    client = get_anthropic_client()
+    assert client.api_key == _BEDROCK_API_KEY
+    assert client.aws_access_key is None
+
+
+def test_bedrock_half_key_pair_names_the_missing_half(monkeypatch):
+    _use(
+        monkeypatch,
+        "bedrock",
+        anthropic_bedrock_aws_region="us-west-2",
+        anthropic_bedrock_aws_access_key_id=_BEDROCK_KEY_ID,
+    )
+
+    assert anthropic_configured() is False
+    with pytest.raises(ValueError, match="needs both") as exc_info:
+        get_anthropic_client()
+    assert _BEDROCK_KEY_ID not in str(exc_info.value)
 
 
 @pytest.mark.anyio
