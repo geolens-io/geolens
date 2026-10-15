@@ -13,7 +13,6 @@ import uuid
 from typing import Any
 
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -153,10 +152,9 @@ async def test_manifest_run_admission_is_refused_after_a_transfer(
         await _commit(_transfer_dataset(created.id, people["target"]))
         request_job = await request.get(IngestJob, job.id)
 
-        with pytest.raises(HTTPException) as refused:
+        with pytest.raises(WriteAccessRevoked):
             await _admit_refresh_run(request, request_job, created.id, owner)
 
-    assert refused.value.status_code == 403
     assert not await test_db_session.scalar(
         select(DatasetRefreshRun.id).where(DatasetRefreshRun.dataset_id == created.id)
     )

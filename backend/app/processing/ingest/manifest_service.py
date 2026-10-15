@@ -35,6 +35,7 @@ from app.platform.jobs.defer_guard import (
     settle_ingest_job_failed,
 )
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
+from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 
 from app.platform.jobs import ledger
@@ -50,6 +51,7 @@ from app.processing.ingest.manifest_reservation import (
     release_manifest_reservation,
     staged_source_is_referenced,
 )
+from app.processing.ingest.publication import WriteAccessRevoked
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
     ManifestApplyRequest,
@@ -658,8 +660,10 @@ async def _admit_refresh_run(
 ) -> None:
     """Take the dataset's one active-run slot for this update.
 
-    Raises ``DatasetBusyError`` while the dataset has another active run, or
-    the write guard's 404 or 403. ``trigger`` is ``api``, as refresh endpoints record.
+    Raises ``DatasetBusyError`` while the dataset has another active run or
+    another writer holds its catalog rows past the lock budget, and
+    ``WriteAccessRevoked`` when the caller has lost the dataset. ``trigger`` is
+    ``api``, as the refresh endpoints record.
     """
     from app.modules.catalog.authorization import lock_dataset_rows_for_write
 
@@ -669,7 +673,12 @@ async def _admit_refresh_run(
             "The dataset this entry updates was deleted while its source was "
             "being staged."
         )
-    await lock_dataset_rows_for_write(db, dataset)
+    try:
+        await lock_dataset_rows_for_write(db, dataset)
+    except CatalogLockConflict as exc:
+        raise DatasetBusyError(str(exc)) from exc
+    except HTTPException as exc:
+        raise WriteAccessRevoked from exc
     await create_pending_run(
         db,
         dataset_id=dataset_id,
@@ -860,6 +869,7 @@ async def _settle_under_reset(
     body: Callable[[], Awaitable[None]],
     *,
     job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None = None,
 ) -> bool:
     """Run every statement of one settlement on a session that was just reset.
 
@@ -870,10 +880,13 @@ async def _settle_under_reset(
     # fix(#1814): pinned once, never re-read. A retry can rotate the token
     # between the two attempts, and a reset reloads the new one, so the retry
     # body would settle a fresh attempt for the previous attempt's error.
-    pinned_attempt = getattr(job, "attempt_id", None)
+    pinned_attempt = attempt_id or getattr(job, "attempt_id", None)
     for attempt in (1, 2):
         await reset_session_for_settlement(job, db=db)
         if sa_inspect(job, raiseerr=False) is not None:
+            # The reset reloads the job, but a failed reload must not leave the
+            # body reading an expired id.
+            set_committed_value(job, "id", job_id)
             set_committed_value(job, "attempt_id", pinned_attempt)
         try:
             await body()
@@ -913,16 +926,19 @@ async def _settle_staged_entry(
     db: AsyncSession,
     job: IngestJob,
     exc: BaseException,
+    ids: tuple[uuid.UUID, uuid.UUID | None],
     *,
     prepared: ManifestPreparedSource,
     file_path: str,
 ) -> None:
     """Settle an entry that failed after its source was staged, then reap the copy.
 
+    ``ids`` are the job's id and attempt, read before the failure.
+
     fix(#1814): the row decides, not the exception — the two settlements
     fence on disjoint states, and read and settlement share one body.
     """
-    job_id = job.id
+    job_id, attempt_id = ids
     # The safe default if neither attempt can read: keep the bytes, because
     # orphaned ones are reclaimable and ones a durable row names are not.
     referenced = True
@@ -931,13 +947,19 @@ async def _settle_staged_entry(
     async def _decide_and_settle() -> None:
         nonlocal referenced, failed
         referenced = await staged_source_is_referenced(db, job_id, file_path=file_path)
-        if not await release_manifest_reservation(
-            db, job, prefixed_failure_reason("Failed to stage manifest source", exc)
-        ):
+        if not await release_manifest_reservation(db, job, reason):
             await _fail_unqueued_job(job, exc)
         failed = await _settled_failed(db, job_id)
 
-    committed = await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)
+    # A refusal under the catalog rows reads as one; anything else is staging.
+    reason = (
+        str(exc)
+        if isinstance(exc, WriteAccessRevoked)
+        else prefixed_failure_reason("Failed to stage manifest source", exc)
+    )
+    committed = await _settle_under_reset(
+        db, job, _decide_and_settle, job_id=job_id, attempt_id=attempt_id
+    )
     # Outside the retry: the filesystem is not part of the transaction, and an
     # HTTP download is owned by this attempt while a raw operator seed is not.
     # fix(#1888): only a committed settlement may reap; a failed row has no retry.
@@ -958,6 +980,8 @@ async def _finalize_reserved_entry(
 ) -> ManifestApplyEntryResult:
     """Stage the reserved entry's source, admit it, and queue the job."""
     job = reserved.job
+    # A failed admission rolls back, which expires ``job``.
+    ids = (job.id, job.attempt_id)
     prepared = reserved.prepared
     try:
         file_path = await _stage_source_if_needed(
@@ -1009,7 +1033,9 @@ async def _finalize_reserved_entry(
                 incoming_bytes=staged.incoming_bytes,
                 creates_dataset=reserved.creates_dataset,
             )
-        await _settle_staged_entry(db, job, exc, prepared=prepared, file_path=file_path)
+        await _settle_staged_entry(
+            db, job, exc, ids, prepared=prepared, file_path=file_path
+        )
         raise
 
     try:
@@ -1022,7 +1048,9 @@ async def _finalize_reserved_entry(
             incoming_bytes=staged.incoming_bytes,
             creates_dataset=reserved.creates_dataset,
         )
-        await _settle_staged_entry(db, job, exc, prepared=prepared, file_path=file_path)
+        await _settle_staged_entry(
+            db, job, exc, ids, prepared=prepared, file_path=file_path
+        )
         raise
 
     if reserved.dataset_id is None:

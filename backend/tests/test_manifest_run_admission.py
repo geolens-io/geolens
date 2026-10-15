@@ -428,3 +428,108 @@ class TestManifestUpdateRunAdmission:
         queue.assert_awaited_once()
         [free_run] = await _runs(test_db_session, free_id)
         assert free_run.ingest_job_id == response.results[1].job_id
+
+
+def _stage_then(after) -> tuple[list[str], AsyncMock]:
+    """Wrap staging to record the staged path and run ``after`` once staged."""
+    staged: list[str] = []
+    original = manifest_service._stage_source_if_needed
+
+    async def stage_then(*args, **kwargs):
+        path = await original(*args, **kwargs)
+        staged.append(path)
+        await after()
+        return path
+
+    return staged, stage_then
+
+
+async def _settled(key: str) -> tuple[str, str | None, bool]:
+    """The newest job for ``key``: its status and error, and whether the key
+    still reads as in flight."""
+    import app.core.db as db_module
+    from app.processing.ingest.manifest_reservation import (
+        latest_in_flight_manifest_job,
+    )
+
+    async with db_module.async_session() as session:
+        job = await _newest_job(session, key)
+        in_flight = await latest_in_flight_manifest_job(session, key)
+    return job.status, job.error_message, in_flight is not None
+
+
+class TestManifestAdmissionUnderTheCatalogRows:
+    async def test_a_held_dataset_row_answers_busy_and_settles_the_entry(
+        self, test_db_session, clean_tables
+    ):
+        import app.core.db as db_module
+
+        _stage_fixture()
+        user = await _admin(test_db_session)
+        dataset_id = await _applied_dataset(test_db_session, user, "row-held")
+        holder = db_module.async_session()
+        session = await holder.__aenter__()
+
+        async def hold_the_row() -> None:
+            await session.execute(
+                select(Dataset.id)
+                .where(Dataset.id == dataset_id)
+                .with_for_update(key_share=True)
+            )
+
+        staged, stage_then = _stage_then(hold_the_row)
+        try:
+            with (
+                _reupload_task() as task,
+                patch.object(manifest_service, "_stage_source_if_needed", stage_then),
+            ):
+                response = await apply_manifest(
+                    test_db_session, _update("row-held"), user, _http_request()
+                )
+        finally:
+            await session.rollback()
+            await holder.__aexit__(None, None, None)
+
+        assert response.results[0].errors == ["dataset_busy"]
+        task.defer_async.assert_not_awaited()
+        status, _error, in_flight = await _settled("row-held")
+        assert status == "failed"
+        assert not in_flight
+        assert staged and not Path(staged[0]).exists()
+        assert await _runs(test_db_session, dataset_id) == []
+
+    async def test_a_caller_deactivated_while_staging_is_refused_as_revoked(
+        self, test_db_session, clean_tables, client, admin_auth_header
+    ):
+        from app.processing.ingest.publication import WriteAccessRevoked
+        from tests.factories import create_user
+        from tests.write_recheck_races import _commit, _deactivate
+
+        _stage_fixture()
+        # Local sources are admin-only, so the caller starts as an admin.
+        _, caller_id = await create_user(client, admin_auth_header, "admin")
+        caller = await test_db_session.get(User, uuid.UUID(caller_id))
+        await _applied_dataset(test_db_session, caller, "row-lost")
+
+        async def deactivate() -> None:
+            await _commit(_deactivate(uuid.UUID(caller_id)))
+
+        staged, stage_then = _stage_then(deactivate)
+        with (
+            _reupload_task() as task,
+            patch.object(manifest_service, "_stage_source_if_needed", stage_then),
+        ):
+            response = await apply_manifest(
+                test_db_session, _update("row-lost"), caller, _http_request()
+            )
+
+        assert response.results[0].action == "error"
+        assert response.results[0].message == str(WriteAccessRevoked())
+        task.defer_async.assert_not_awaited()
+        status, error, in_flight = await _settled("row-lost")
+        assert (status, error, in_flight) == (
+            "failed",
+            str(WriteAccessRevoked()),
+            False,
+        )
+        assert staged and not Path(staged[0]).exists()
