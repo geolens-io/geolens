@@ -13,7 +13,7 @@ import { useAttributes } from '@/components/dataset/hooks/use-dataset';
 export interface FeatureInfo {
   properties: Record<string, unknown>;
   layerName: string;
-  columnInfo?: { name: string; type: string }[] | null;
+  columnInfo?: { name: string; type: string; title?: string }[] | null;
   /** Dataset whose attribute metadata supplies the row labels; without it
    *  every key is humanized. */
   datasetId?: string;
@@ -121,15 +121,21 @@ export function FeaturePopup({
   );
 
   const { data: attributeList } = useAttributes(feature?.datasetId);
+  const columnInfoForTitles = feature?.columnInfo;
   const fieldTitles = useMemo(() => {
+    // The attributes route is not readable with an embed token or API key, so
+    // a shared map's column_info carries the titles as the fallback.
     const titles = new Map<string, string>();
+    for (const column of columnInfoForTitles ?? []) {
+      if (column.title) titles.set(column.name, column.title);
+    }
     for (const attribute of attributeList?.attributes ?? []) {
       if (attribute.is_current && attribute.title) {
         titles.set(attribute.field_name, attribute.title);
       }
     }
     return titles;
-  }, [attributeList]);
+  }, [attributeList, columnInfoForTitles]);
 
   const properties = feature?.properties;
   const columnInfo = feature?.columnInfo;

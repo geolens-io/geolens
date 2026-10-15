@@ -369,4 +369,52 @@ describe('FeaturePopup — attribute titles', () => {
 
     expect(screen.getByText('Pop 2020')).toBeInTheDocument();
   });
+
+  it('falls back to the title in column_info when the attributes call returns nothing', () => {
+    mockUseAttributes.mockReturnValue({ data: undefined });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            columnInfo: [
+              { name: 'pop_2020', type: 'integer', title: 'Population (2020 census)' },
+              { name: 'state', type: 'text' },
+            ],
+            properties: { pop_2020: 5, state: 'NY' },
+            visibleFields: ['pop_2020', 'state'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Population (2020 census)')).toBeInTheDocument();
+    expect(screen.getByText('State')).toBeInTheDocument();
+  });
+
+  it('prefers the live attribute title over the one in column_info', () => {
+    mockUseAttributes.mockReturnValue({
+      data: { attributes: [attribute('pop_2020', 'Current label')], total: 1 },
+    });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            columnInfo: [{ name: 'pop_2020', type: 'integer', title: 'Stale label' }],
+            properties: { pop_2020: 5 },
+            visibleFields: ['pop_2020'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Current label')).toBeInTheDocument();
+  });
 });

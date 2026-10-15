@@ -21,7 +21,12 @@ from app.modules.catalog.authorization import (
     apply_visibility_filter,
     audience_admits,
 )
-from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
+from app.modules.catalog.datasets.domain.models import (
+    AttributeMetadata,
+    Dataset,
+    DatasetGrant,
+    Record,
+)
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
 from app.modules.catalog.maps.sharing_policy import (
     ShareExpirationPresetDays,
@@ -294,6 +299,44 @@ async def _validate_share_token(
     return token_obj
 
 
+async def _attribute_titles_by_dataset(
+    session: AsyncSession, dataset_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, str]]:
+    """Current attribute titles for datasets whose layers already passed authorization."""
+    if not dataset_ids:
+        return {}
+    rows = await session.execute(
+        select(
+            AttributeMetadata.dataset_id,
+            AttributeMetadata.field_name,
+            AttributeMetadata.title,
+        ).where(
+            AttributeMetadata.dataset_id.in_(dataset_ids),
+            AttributeMetadata.is_current.is_(True),
+            AttributeMetadata.title.is_not(None),
+            AttributeMetadata.title != "",
+        )
+    )
+    titles: dict[uuid.UUID, dict[str, str]] = {}
+    for dataset_id, field_name, title in rows.all():
+        titles.setdefault(dataset_id, {})[field_name] = title
+    return titles
+
+
+def _column_info_with_titles(
+    column_info: list | None, titles: dict[str, str] | None
+) -> list | None:
+    """Attach each exposed column's attribute title; columns outside ``column_info`` add nothing."""
+    if not column_info or not titles:
+        return column_info
+    return [
+        {**col, "title": titles[col["name"]]}
+        if isinstance(col, dict) and col.get("name") in titles
+        else col
+        for col in column_info
+    ]
+
+
 def _build_shared_layer_dict(
     layer: MapLayer,
     ds_name: str | None,
@@ -495,6 +538,9 @@ async def get_shared_map(
     has_non_public = False
     layers = []
     visible_dataset_ids: set[str] = set()
+    attribute_titles = await _attribute_titles_by_dataset(
+        session, {row[1].dataset_id for row in layer_rows}
+    )
     for (
         _map_obj,
         layer,
@@ -518,7 +564,9 @@ async def get_shared_map(
             ds_name,
             ds_geom_type,
             ds_table_name,
-            ds_column_info,
+            _column_info_with_titles(
+                ds_column_info, attribute_titles.get(layer.dataset_id)
+            ),
             ds_visibility,
             ds_record_type,
             ds_is_3d,

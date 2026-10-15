@@ -1646,7 +1646,9 @@ export interface SharedLayerResponse {
   display_name: string | null;
   table_name: string;
   geometry_type: GeometryTypeName | null;
-  column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
+  column_info:
+    | { name: string; type: string; title?: string; semantic_role?: string | null; domain_type?: string | null }[]
+    | null;
   sort_order: number;
   visible: boolean;
   opacity: number;

@@ -17,7 +17,11 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import (
+    AttributeMetadata,
+    Dataset,
+    Record,
+)
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import (
     create_embed_token,
@@ -409,3 +413,59 @@ class TestGeojsonZEmbedFallback:
             headers={"X-Embed-Token": raw_token},
         )
         assert with_token.status_code not in (401, 403, 404), with_token.text
+
+
+class TestSharedMapColumnTitles:
+    async def test_embed_payload_carries_titles_only_for_exposed_columns(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            column_info=[
+                {"name": "pop", "type": "integer"},
+                {"name": "plain", "type": "text"},
+            ],
+        )
+        test_db_session.add_all(
+            [
+                AttributeMetadata(
+                    dataset_id=ds.id, field_name="pop", title="Population"
+                ),
+                AttributeMetadata(dataset_id=ds.id, field_name="plain", title=None),
+                AttributeMetadata(
+                    dataset_id=ds.id, field_name="not_exposed", title="Internal"
+                ),
+                AttributeMetadata(
+                    dataset_id=ds.id,
+                    field_name="pop_old",
+                    title="Removed",
+                    is_current=False,
+                ),
+            ]
+        )
+        await test_db_session.commit()
+        map_id, share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(ds.id)]
+        )
+        _token_obj, raw_token = await create_embed_token(
+            test_db_session, uuid.UUID(map_id), admin_id
+        )
+        await test_db_session.commit()
+        await _downgrade_to_private(test_db_session, ds)
+
+        anon = await client.get(f"/maps/shared/{share_token}")
+        assert anon.status_code == 200
+        assert anon.json()["layers"] == []
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+        )
+        assert resp.status_code == 200, resp.text
+        column_info = resp.json()["layers"][0]["column_info"]
+        assert column_info == [
+            {"name": "pop", "type": "integer", "title": "Population"},
+            {"name": "plain", "type": "text"},
+        ]
