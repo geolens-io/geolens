@@ -27,7 +27,7 @@ INSTALL_SH = REPO_ROOT / "scripts" / "install.sh"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config.py"
 # Settings inherits these fields; they need documenting all the same.
-CLAUDE_SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config_ai.py"
+AI_SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config_ai.py"
 COMPOSE_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.prod.yml",
@@ -410,7 +410,7 @@ def main() -> int:
         INSTALL_SH,
         ENV_EXAMPLE,
         SETTINGS_PY,
-        CLAUDE_SETTINGS_PY,
+        AI_SETTINGS_PY,
         *COMPOSE_FILES,
     )
     missing_files = [path for path in required_files if not path.is_file()]
@@ -421,8 +421,10 @@ def main() -> int:
 
     written = keys_written_by_installer(INSTALL_SH)
     documented = keys_documented_in_example(ENV_EXAMPLE)
-    settings_keys = settings_field_keys(SETTINGS_PY) | settings_field_keys(
-        CLAUDE_SETTINGS_PY, "ClaudeSettings"
+    settings_keys = (
+        settings_field_keys(SETTINGS_PY)
+        | settings_field_keys(AI_SETTINGS_PY, "ClaudeSettings")
+        | settings_field_keys(AI_SETTINGS_PY, "OpenAISettings")
     )
     compose_keys = compose_host_keys(COMPOSE_FILES)
     raw_keys = raw_environment_keys()

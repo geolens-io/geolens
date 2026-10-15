@@ -15,7 +15,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.auth_settings import AuthSettings
-from app.core.config_ai import ClaudeSettings
+from app.core.config_ai import ClaudeSettings, OpenAISettings
 
 
 def reveal(secret: SecretStr | None) -> str | None:
@@ -285,7 +285,7 @@ MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
 MAX_PRESIGNED_URL_LIFETIME_SECONDS = 604800
 
 
-class Settings(AuthSettings, ClaudeSettings, BaseSettings):
+class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
     postgres_host: str = "localhost"
@@ -411,15 +411,6 @@ class Settings(AuthSettings, ClaudeSettings, BaseSettings):
     #                                boot guard (GUARD-01) fails loud without them.
     # An invalid value raises a Pydantic ValidationError at boot.
     geolens_tenancy_mode: Literal["single_tenant", "multi_tenant"] = "single_tenant"
-
-    openai_api_key: SecretStr | None = None
-    openai_model: str = "gpt-4o"
-    # Light model for SQL generation / metadata. Unset reuses openai_model, since
-    # on Azure OpenAI and gateways a hardcoded default 404s unless it names a
-    # real deployment.
-    openai_model_light: str | None = None
-    openai_base_url: str | None = None
-    openai_reasoning_effort: str | None = None
 
     embedding_model: str = "text-embedding-3-small"
     embedding_dims: int = Field(default=1536, ge=1, le=4096)
@@ -642,9 +633,6 @@ class Settings(AuthSettings, ClaudeSettings, BaseSettings):
     notification_admin_email: str | None = None
 
     @field_validator(
-        "openai_api_key",
-        "openai_model_light",
-        "openai_base_url",
         "embedding_base_url",
         "redis_url",
         "cdn_base_url",

@@ -715,7 +715,7 @@
     "errorSessionExpired": "Sesión expirada. Inicie sesión de nuevo.",
     "errorForbidden": "No tiene permiso para usar el chat de IA.",
     "errorAiUnavailable": "El servicio de IA no está disponible temporalmente.",
-    "errorModelUnsupported": "El modelo de IA que usa este sitio aún no es compatible. Pida a un administrador que elija otro modelo.",
+    "errorModelUnsupported": "El modelo de IA de este sitio necesita la API Responses de OpenAI. Pida a un administrador que la active o elija otro modelo.",
     "retry": "Reintentar",
     "undo": "Deshacer",
     "undoApplied": "Cambios deshecho",

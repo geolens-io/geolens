@@ -715,7 +715,7 @@
     "errorSessionExpired": "Session expired. Please log in again.",
     "errorForbidden": "You don't have permission to use AI chat.",
     "errorAiUnavailable": "AI service is temporarily unavailable.",
-    "errorModelUnsupported": "The AI model this site uses isn't supported yet. Ask an administrator to choose a different model.",
+    "errorModelUnsupported": "This site's AI model needs the OpenAI Responses API. Ask an administrator to turn it on or choose a different model.",
     "retry": "Retry",
     "undo": "Undo",
     "undoApplied": "Changes undone",

@@ -32,7 +32,7 @@ from app.processing.ai.llm_loop import (
     resolve_provider,
     stream_error_event,
 )
-from app.processing.ai.openai_request import create_chat_completion
+from app.processing.ai.openai_conversation import Round, ToolCall, open_conversation
 from app.processing.ai.schemas import ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import AITokenUsage, record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, select_chat_tools
@@ -414,9 +414,18 @@ async def _stream_openai_chat(
     tools: list | None = None,
     restrict_tables: frozenset[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(build_history_messages(history))
-    messages.append({"role": "user", "content": message})
+    selected_tools = CHAT_TOOLS_ANTHROPIC if tools is None else tools
+    conversation = open_conversation(
+        client,
+        base_url=base_url,
+        model=model,
+        system_prompt=system_prompt,
+        history=history,
+        user_message=message,
+        tools=selected_tools,
+        max_tokens=4096,
+        temperature=0.3,
+    )
 
     collected_actions: list[dict] = []
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
@@ -427,9 +436,7 @@ async def _stream_openai_chat(
     # below extracts tool calls from model text, bypassing the advertised schema.
     # Restrict execution/collection to the selected tool set so a view-only caller
     # cannot get a mutating action even from an XML-emitting model.
-    allowed_tool_names = {
-        t["name"] for t in (CHAT_TOOLS_ANTHROPIC if tools is None else tools)
-    }
+    allowed_tool_names = {t["name"] for t in selected_tools}
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
@@ -472,52 +479,22 @@ async def _stream_openai_chat(
             # Usage is recorded per-round, so nothing post-loop is skipped.
             return
 
-        # CHAT_TOOLS_OPENAI removed; convert from canonical Anthropic shape.
-        _tools_openai = [
-            {
-                "type": "function",
-                "function": {
-                    "name": t["name"],
-                    "description": t["description"],
-                    "parameters": t["input_schema"],
-                },
-            }
-            for t in (CHAT_TOOLS_ANTHROPIC if tools is None else tools)
-        ]
         await release_connection(session)
-        response_stream = await create_chat_completion(
-            client.chat.completions.create,
-            base_url=base_url,
-            model=model,
-            max_tokens=4096,
-            temperature=0.3,
-            tools=_tools_openai,
-            messages=messages,
-            stream=True,
-            # OpenAI streaming omits the usage block by default; opt in so
-            # per-round input/output token counts arrive on the FINAL chunk
-            # (the one with empty choices[]).
-            stream_options={"include_usage": True},
-        )
 
-        # Accumulate tool calls and content across chunks
         content_parts: list[str] = []
-        tool_calls_by_index: dict[int, dict] = {}
-        finish_reason = None
-        seen_tool_indices: set[int] = set()
         has_tool_use = False
         buffered_tokens: list[str] = []
         # fix(#402): buffer tool_start (flushed after the
         # per-round record below), so a disconnect can't skip this round's
         # accounting via a mid-stream tool_start yield.
         pending_tool_starts: list[dict] = []
+        round_ = None
 
-        async for chunk in response_stream:
-            # Usage-only chunks arrive after the last content chunk with
-            # empty choices[]; accumulate token counts and continue.
-            if getattr(chunk, "usage", None) is not None:
-                _round_in = getattr(chunk.usage, "prompt_tokens", 0) or 0
-                _round_out = getattr(chunk.usage, "completion_tokens", 0) or 0
+        async for delta in conversation.stream():
+            if isinstance(delta, Round):
+                round_ = delta
+            elif delta.usage is not None:
+                _round_in, _round_out = delta.usage
                 total_input += _round_in
                 total_output += _round_out
                 # fix(#402): record usage as it is learned, before the
@@ -533,48 +510,21 @@ async def _stream_openai_chat(
                     input_tokens=_round_in,
                     output_tokens=_round_out,
                 )
-            choice = chunk.choices[0] if chunk.choices else None
-            if not choice:
-                continue
-
-            delta = choice.delta
-            if delta and delta.content:
-                content_parts.append(delta.content)
+            elif delta.text:
+                content_parts.append(delta.text)
                 # Buffer tokens — emit after stream if no tool calls
                 if not has_tool_use:
-                    buffered_tokens.append(delta.content)
-
-            if delta and delta.tool_calls:
+                    buffered_tokens.append(delta.text)
+            elif delta.tool_name:
                 has_tool_use = True
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_by_index:
-                        tool_calls_by_index[idx] = {
-                            "id": tc.id or "",
-                            "name": "",
-                            "arguments": "",
-                        }
-                    entry = tool_calls_by_index[idx]
-                    if tc.id:
-                        entry["id"] = tc.id
-                    if tc.function and tc.function.name:
-                        entry["name"] = tc.function.name
-                    if tc.function and tc.function.arguments:
-                        entry["arguments"] += tc.function.arguments
-
-                    # Buffer tool_start on first appearance (flushed post-record)
-                    if idx not in seen_tool_indices and entry["name"]:
-                        seen_tool_indices.add(idx)
-                        pending_tool_starts.append(
-                            {
-                                "type": "tool_start",
-                                "tool": entry["name"],
-                                "label": tool_label(entry["name"]),
-                            }
-                        )
-
-            if choice.finish_reason:
-                finish_reason = choice.finish_reason
+                pending_tool_starts.append(
+                    {
+                        "type": "tool_start",
+                        "tool": delta.tool_name,
+                        "label": tool_label(delta.tool_name),
+                    }
+                )
+        finish_reason = round_.finish_reason if round_ else None
 
         # Flush buffered tool_start events — after the per-round record above, so
         # the record precedes every yield in the round (disconnect-safe).
@@ -590,52 +540,27 @@ async def _stream_openai_chat(
 
         if finish_reason == "tool_calls":
             # Discard pre-tool "thinking" text from content_parts for the done event
-            pre_tool_text = "".join(content_parts)
             content_parts.clear()
 
-            # Build assistant message with tool_calls for conversation history
-            assistant_tool_calls = []
-            for idx in sorted(tool_calls_by_index.keys()):
-                tc_data = tool_calls_by_index[idx]
-                assistant_tool_calls.append(
-                    {
-                        "id": tc_data["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc_data["name"],
-                            "arguments": tc_data["arguments"],
-                        },
-                    }
-                )
-
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": pre_tool_text or None,
-                    "tool_calls": assistant_tool_calls,
-                }
-            )
-
             parsed_native: list[tuple[str, dict]] = []
-            parsed_native_ids: list[str] = []
-            for idx in sorted(tool_calls_by_index.keys()):
-                tc_data = tool_calls_by_index[idx]
-                fn_name = tc_data["name"]
+            parsed_native_calls: list[ToolCall] = []
+            for call in round_.tool_calls:
+                fn_name = call.name
                 try:
-                    fn_args = json.loads(tc_data["arguments"])
+                    fn_args = json.loads(call.arguments)
                 except json.JSONDecodeError:
                     # Some models produce malformed JSON; extract first valid object
                     try:
-                        fn_args, _ = json.JSONDecoder().raw_decode(tc_data["arguments"])
+                        fn_args, _ = json.JSONDecoder().raw_decode(call.arguments)
                     except (json.JSONDecodeError, ValueError):
                         logger.warning(
                             "Unparseable tool arguments",
                             tool=fn_name,
-                            args=tc_data["arguments"],
+                            args=call.arguments,
                         )
                         continue
                 parsed_native.append((fn_name, fn_args))
-                parsed_native_ids.append(tc_data["id"])
+                parsed_native_calls.append(call)
 
             native_results: list[dict] = []
             async for evt in _execute_and_yield_tools(
@@ -653,17 +578,9 @@ async def _stream_openai_chat(
             ):
                 yield evt
 
-            for (fn_name, _), call_id, result in zip(
-                parsed_native, parsed_native_ids, native_results
-            ):
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        # fix(#1778): fenced, not bare JSON.
-                        "content": tool_result_content(result),
-                    }
-                )
+            conversation.add_tool_results(
+                round_, list(zip(parsed_native_calls, native_results))
+            )
             continue
 
         # finish_reason == "stop" or anything else — check for XML tool calls first

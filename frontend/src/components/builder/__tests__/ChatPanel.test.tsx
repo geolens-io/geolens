@@ -628,7 +628,7 @@ describe('ChatPanel', () => {
 
     expect(
       await screen.findByText(
-        "The AI model this site uses isn't supported yet. Ask an administrator to choose a different model.",
+        "This site's AI model needs the OpenAI Responses API. Ask an administrator to turn it on or choose a different model.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText('English server text')).not.toBeInTheDocument();

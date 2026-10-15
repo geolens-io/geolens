@@ -715,7 +715,7 @@
     "errorSessionExpired": "Sitzung abgelaufen. Bitte erneut anmelden.",
     "errorForbidden": "Sie haben keine Berechtigung, den KI-Chat zu verwenden.",
     "errorAiUnavailable": "Der KI-Dienst ist vorübergehend nicht verfügbar.",
-    "errorModelUnsupported": "Das KI-Modell dieser Seite wird noch nicht unterstützt. Bitten Sie einen Administrator, ein anderes Modell zu wählen.",
+    "errorModelUnsupported": "Das KI-Modell dieser Seite benötigt die OpenAI Responses API. Bitten Sie einen Administrator, sie zu aktivieren oder ein anderes Modell zu wählen.",
     "retry": "Erneut versuchen",
     "undo": "Rückgängig",
     "undoApplied": "Änderungen rückgängig gemacht",

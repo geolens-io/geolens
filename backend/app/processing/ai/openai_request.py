@@ -1,12 +1,13 @@
-"""Chat Completions request shaping for OpenAI-compatible servers.
+"""Request shaping for OpenAI-compatible servers.
 
 Servers disagree on request parameters: current OpenAI models reject
 ``max_tokens`` and non-default temperatures, older models and other servers
 reject ``reasoning_effort``, and some reasoning models call function tools
-only with ``reasoning_effort="none"``. Ollama and OpenRouter document
-``max_tokens``, so the first request keeps the caller's shape and a
-rejection naming one of these parameters adjusts it and retries. A rejected
-request generates no tokens, so token accounting is unaffected.
+in Chat Completions only with ``reasoning_effort="none"``. Ollama and
+OpenRouter document ``max_tokens``, so the first request keeps the caller's
+shape and a rejection naming one of these parameters adjusts it and
+retries. Responses API requests adapt the same way. A rejected request
+generates no tokens, so token accounting is unaffected.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ class ResponsesAPIRequiredError(UserFacingAIError):
     def __init__(self) -> None:
         super().__init__(
             "The configured AI model only calls tools through the OpenAI "
-            "Responses API, which GeoLens does not support yet. Choose a "
+            "Responses API. Set OPENAI_API_STYLE=responses or choose a "
             "different model."
         )
 
@@ -46,20 +47,28 @@ class _Shape:
     token_param: str = "max_tokens"
     temperature: bool = True
     reasoning_effort: str | None = None
+    include: bool = True
 
 
 # Process-local: a restart re-learns each shape with at most one rejected
 # request per parameter. Keyed by whether tools are sent, since a model can
-# need reasoning_effort "none" for tools only.
-_shapes: dict[tuple[str | None, str, bool], _Shape] = {}
+# need reasoning_effort "none" for tools only, and by API.
+_shapes: dict[tuple[str | None, str, bool, bool], _Shape] = {}
 
 
-def _apply(request: dict[str, Any], shape: _Shape) -> dict[str, Any]:
+def _apply(request: dict[str, Any], shape: _Shape, responses: bool) -> dict[str, Any]:
     kwargs = dict(request)
-    if shape.token_param != "max_tokens" and "max_tokens" in kwargs:
-        kwargs[shape.token_param] = kwargs.pop("max_tokens")
     if not shape.temperature:
         kwargs.pop("temperature", None)
+    if responses:
+        kwargs["max_output_tokens"] = kwargs.pop("max_tokens")
+        if shape.reasoning_effort is not None:
+            kwargs["reasoning"] = {"effort": shape.reasoning_effort}
+        if not shape.include:
+            kwargs.pop("include", None)
+        return kwargs
+    if shape.token_param != "max_tokens" and "max_tokens" in kwargs:
+        kwargs[shape.token_param] = kwargs.pop("max_tokens")
     if shape.reasoning_effort is not None:
         kwargs["reasoning_effort"] = shape.reasoning_effort
     return kwargs
@@ -92,6 +101,17 @@ def _tools_need_none(exc: BadRequestError) -> bool:
     )
 
 
+def _adjust_response(exc: BadRequestError, shape: _Shape) -> tuple[str, _Shape] | None:
+    """:func:`_adjust` for a Responses API request."""
+    if shape.temperature and _unsupported(exc, "temperature"):
+        return "temperature", replace(shape, temperature=False)
+    if shape.reasoning_effort is not None and _unsupported(exc, "reasoning.effort"):
+        return "reasoning_effort", replace(shape, reasoning_effort=None)
+    if shape.include and _unsupported(exc, "include"):
+        return "include", replace(shape, include=False)
+    return None
+
+
 def _adjust(exc: BadRequestError, shape: _Shape) -> tuple[str, _Shape] | None:
     """The parameter a rejection names and the shape that avoids it."""
     message = _message(exc)
@@ -114,6 +134,21 @@ def _adjust(exc: BadRequestError, shape: _Shape) -> tuple[str, _Shape] | None:
     return None
 
 
+async def create_response(
+    create: Callable[..., Awaitable[_T]],
+    *,
+    base_url: str | None,
+    **request: Any,
+) -> _T:
+    """:func:`create_chat_completion` for the Responses API.
+
+    ``max_tokens`` is sent as ``max_output_tokens`` and
+    ``OPENAI_REASONING_EFFORT`` as ``reasoning.effort``; a rejected
+    ``temperature``, ``reasoning.effort`` or ``include`` is left out.
+    """
+    return await _create(create, base_url, request, responses=True)
+
+
 async def create_chat_completion(
     create: Callable[..., Awaitable[_T]],
     *,
@@ -131,9 +166,19 @@ async def create_chat_completion(
     model both requires ``reasoning_effort="none"`` for tools and rejects
     that value, in either order; re-raises any other rejection unchanged.
     """
+    return await _create(create, base_url, request, responses=False)
+
+
+async def _create(
+    create: Callable[..., Awaitable[_T]],
+    base_url: str | None,
+    request: dict[str, Any],
+    *,
+    responses: bool,
+) -> _T:
     from openai import BadRequestError
 
-    key = (base_url, request["model"], bool(request.get("tools")))
+    key = (base_url, request["model"], bool(request.get("tools")), responses)
     # Compose passes an unset variable through as "".
     shape = _shapes.get(key) or _Shape(
         reasoning_effort=settings.openai_reasoning_effort or None
@@ -141,7 +186,7 @@ async def create_chat_completion(
     adjusted: set[str] = set()
     none_rejected = none_required = False
     while True:
-        kwargs = _apply(request, shape)
+        kwargs = _apply(request, shape, responses)
         try:
             response = await create(**kwargs)
         except BadRequestError as exc:
@@ -152,7 +197,7 @@ async def create_chat_completion(
             none_required = none_required or _tools_need_none(exc)
             if none_rejected and none_required:
                 raise ResponsesAPIRequiredError() from exc
-            adjustment = _adjust(exc, shape)
+            adjustment = (_adjust_response if responses else _adjust)(exc, shape)
             if adjustment is None or adjustment[0] in adjusted:
                 raise
             param, shape = adjustment

@@ -715,7 +715,7 @@
     "errorSessionExpired": "会话已过期。请重新登录。",
     "errorForbidden": "您没有使用 AI 聊天的权限。",
     "errorAiUnavailable": "AI 服务暂时不可用。",
-    "errorModelUnsupported": "本站使用的 AI 模型暂不受支持。请联系管理员选择其他模型。",
+    "errorModelUnsupported": "本站的 AI 模型需要 OpenAI Responses API。请联系管理员启用它或选择其他模型。",
     "retry": "重试",
     "undo": "撤销",
     "undoApplied": "已撤销更改",

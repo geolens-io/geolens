@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from app.platform.ai_tool_payloads import tool_result_content
-
 
 class DefaultOpenAICompatibleProvider:
     """Community-edition default: OpenAI-compatible tool-calling loop.
@@ -65,9 +63,8 @@ class DefaultOpenAICompatibleProvider:
             ToolLoopResult,
             _LLM_CONNECT_TIMEOUT_SECONDS,
             _LLM_TIMEOUT_SECONDS,
-            build_history_messages,
         )
-        from app.processing.ai.openai_request import create_chat_completion
+        from app.processing.ai.openai_conversation import open_conversation
         from app.processing.ai.tool_call_parser import parse_xml_tool_calls
 
         log = structlog.stdlib.get_logger(__name__)
@@ -77,20 +74,6 @@ class DefaultOpenAICompatibleProvider:
 
         if not settings.openai_api_key:
             raise ValueError("OpenAI-compatible API key not configured")
-
-        # Anthropic-shape tools -> OpenAI function-format tools, mirroring
-        # tools.py's conversion.
-        tools_openai = [
-            {
-                "type": "function",
-                "function": {
-                    "name": t["name"],
-                    "description": t["description"],
-                    "parameters": t["input_schema"],
-                },
-            }
-            for t in tools
-        ]
 
         effective_base_url = bind_openai_credential_base_url(
             base_url or settings.openai_base_url,
@@ -109,9 +92,17 @@ class DefaultOpenAICompatibleProvider:
             )
         client = DefaultOpenAICompatibleProvider._clients[effective_base_url]
 
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(build_history_messages(history))
-        messages.append({"role": "user", "content": user_message})
+        conversation = open_conversation(
+            client,
+            base_url=effective_base_url,
+            model=model,
+            system_prompt=system_prompt,
+            history=history,
+            user_message=user_message,
+            tools=tools,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
         collected_actions: list[dict] = []
         total_input = 0
@@ -137,38 +128,21 @@ class DefaultOpenAICompatibleProvider:
                         input_tokens=total_input,
                         output_tokens=total_output,
                     )
-                # OpenAI API rejects `tools=[]` similarly; omit when empty so
-                # no-tools paths work for OpenAI-compatible providers too.
-                response = await create_chat_completion(
-                    client.chat.completions.create,
-                    base_url=effective_base_url,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    messages=messages,
-                    **({"tools": tools_openai} if tools_openai else {}),
-                )
-
-                choice = response.choices[0]
-
-                # Track token usage
-                if response.usage:
-                    total_input += response.usage.prompt_tokens
-                    total_output += response.usage.completion_tokens
+                round_ = await conversation.complete()
+                total_input += round_.input_tokens
+                total_output += round_.output_tokens
 
                 log.info(
                     "LLM round",
                     provider="openai",
                     round=round_num + 1,
-                    finish_reason=choice.finish_reason,
-                    input_tokens=response.usage.prompt_tokens if response.usage else 0,
-                    output_tokens=response.usage.completion_tokens
-                    if response.usage
-                    else 0,
+                    finish_reason=round_.finish_reason,
+                    input_tokens=round_.input_tokens,
+                    output_tokens=round_.output_tokens,
                 )
 
-                if choice.finish_reason == "stop":
-                    text = choice.message.content or ""
+                if round_.finish_reason == "stop":
+                    text = round_.text
                     parsed_calls, cleaned_text = parse_xml_tool_calls(text)
 
                     if parsed_calls:
@@ -197,23 +171,22 @@ class DefaultOpenAICompatibleProvider:
                         output_tokens=total_output,
                     )
 
-                if choice.finish_reason == "tool_calls":
-                    messages.append(choice.message)
-
-                    for tool_call in choice.message.tool_calls:
-                        fn_name = tool_call.function.name
+                if round_.finish_reason == "tool_calls":
+                    results = []
+                    for tool_call in round_.tool_calls:
+                        fn_name = tool_call.name
                         try:
-                            fn_args = json.loads(tool_call.function.arguments)
+                            fn_args = json.loads(tool_call.arguments)
                         except json.JSONDecodeError:
                             try:
                                 fn_args, _ = json.JSONDecoder().raw_decode(
-                                    tool_call.function.arguments
+                                    tool_call.arguments
                                 )
                             except (json.JSONDecodeError, ValueError):
                                 log.warning(
                                     "Unparseable tool arguments",
                                     tool=fn_name,
-                                    args=tool_call.function.arguments,
+                                    args=tool_call.arguments,
                                 )
                                 continue
                         log.info("Tool call", tool=fn_name, input=fn_args)
@@ -225,19 +198,13 @@ class DefaultOpenAICompatibleProvider:
                             if action:
                                 collected_actions.append(action)
 
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                # fix(#1778): fenced, not bare JSON.
-                                "content": tool_result_content(result),
-                            }
-                        )
+                        results.append((tool_call, result))
+                    conversation.add_tool_results(round_, results)
                     continue
 
                 # Unexpected finish reason
                 return ToolLoopResult(
-                    text=choice.message.content or "",
+                    text=round_.text,
                     actions=collected_actions,
                     input_tokens=total_input,
                     output_tokens=total_output,
@@ -340,7 +307,7 @@ class DefaultOpenAICompatibleProvider:
         from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import settings
         from app.processing.ai.llm_loop import get_openai_client
-        from app.processing.ai.openai_request import create_chat_completion
+        from app.processing.ai.openai_conversation import structured_completion
 
         effective_base_url = bind_openai_credential_base_url(
             base_url or settings.openai_base_url,
@@ -355,27 +322,15 @@ class DefaultOpenAICompatibleProvider:
             response_model=response_model.__name__,
         )
 
-        response = await create_chat_completion(
-            client.beta.chat.completions.parse,
+        return await structured_completion(
+            client,
             base_url=effective_base_url,
             model=model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            response_model=response_model,
             max_tokens=max_tokens,
             temperature=temperature,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            response_format=response_model,
-        )
-
-        parsed = response.choices[0].message.parsed
-        if parsed is None:
-            raise ValueError("OpenAI returned no parsed response")
-        usage = response.usage
-        return (
-            parsed,
-            usage.prompt_tokens if usage else 0,
-            usage.completion_tokens if usage else 0,
         )
 
     async def resolve_runtime_config(  # type: ignore[no-untyped-def]

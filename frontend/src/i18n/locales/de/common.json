@@ -484,7 +484,7 @@
       "emptyHint": "Stellen Sie eine Frage zu den Daten dieser Karte.",
       "readOnlyNote": "Antworten sind schreibgeschützt — erkunden Sie die Daten, ohne die Karte zu ändern.",
       "error": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
-      "errorModelUnsupported": "Das KI-Modell dieser Seite wird noch nicht unterstützt. Bitten Sie einen Administrator, ein anderes Modell zu wählen.",
+      "errorModelUnsupported": "Das KI-Modell dieser Seite benötigt die OpenAI Responses API. Bitten Sie einen Administrator, sie zu aktivieren oder ein anderes Modell zu wählen.",
       "retry": "Erneut versuchen",
       "queryResult": {
         "empty": "Keine passenden Ergebnisse.",

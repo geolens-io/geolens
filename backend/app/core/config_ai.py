@@ -1,4 +1,4 @@
-"""Claude settings read from the environment.
+"""Claude and OpenAI-compatible settings read from the environment.
 
 Env-only like the API keys, so no admin-editable value can send a credential to
 another host.
@@ -53,4 +53,41 @@ class ClaudeSettings(BaseModel):
     def blank_claude_setting_to_none(cls, v: str | None) -> str | None:
         if isinstance(v, str) and v.strip() == "":
             return None
+        return v
+
+
+OpenAIAPIStyle = Literal["chat_completions", "responses"]
+
+
+class OpenAISettings(BaseModel):
+    openai_api_key: SecretStr | None = None
+    openai_model: str = "gpt-4o"
+    # Light model for SQL generation / metadata. Unset reuses openai_model, since
+    # on Azure OpenAI and gateways a hardcoded default 404s unless it names a
+    # real deployment.
+    openai_model_light: str | None = None
+    openai_base_url: str | None = None
+    openai_reasoning_effort: str | None = None
+    # Chat Completions is what other OpenAI-compatible servers speak; some
+    # OpenAI models call tools only through the Responses API.
+    openai_api_style: OpenAIAPIStyle = "chat_completions"
+
+    @field_validator(
+        "openai_api_key",
+        "openai_model_light",
+        "openai_base_url",
+        "openai_reasoning_effort",
+        mode="before",
+    )
+    @classmethod
+    def blank_openai_setting_to_none(cls, v: str | None) -> str | None:
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
+    @field_validator("openai_api_style", mode="before")
+    @classmethod
+    def blank_api_style_to_default(cls, v: object) -> object:
+        if isinstance(v, str) and v.strip() == "":
+            return "chat_completions"
         return v
