@@ -32,6 +32,8 @@ explicit submodule path is kept here for test stability across regenerations.
 from __future__ import annotations
 
 import asyncio
+import base64
+import contextlib
 import json
 import os
 import re
@@ -127,6 +129,209 @@ def _wire_asgi_transport(sdk: GeolensClient, app) -> None:
         headers=headers,
     )
     underlying.set_async_httpx_client(async_httpx_client)
+
+
+@contextlib.asynccontextmanager
+async def _serving_over_http(app):
+    """Serve ``app`` on a free 127.0.0.1 port and yield its base URL.
+
+    The sync SDK calls and the TypeScript SDK need a real socket: httpx's
+    ASGITransport has no sync counterpart.
+    """
+    import uvicorn
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app, host="127.0.0.1", port=port, log_level="error", lifespan="off"
+        )
+    )
+    serve_task = asyncio.create_task(server.serve())
+    try:
+        for _ in range(50):
+            await asyncio.sleep(0.1)
+            if server.started:
+                break
+        else:
+            pytest.fail("uvicorn server did not start within 5s")
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        try:
+            await asyncio.wait_for(serve_task, timeout=5)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            serve_task.cancel()
+
+
+def _collection(names: list[str]) -> bytes:
+    """A point FeatureCollection with one feature per name.
+
+    Compact and in the key order ``JSON.stringify`` gives the TypeScript
+    script's copy, so both SDKs' uploads compare byte for byte.
+    """
+    return json.dumps(
+        {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [i, i]},
+                    "properties": {"name": name},
+                }
+                for i, name in enumerate(names)
+            ],
+        },
+        separators=(",", ":"),
+    ).encode()
+
+
+def _png(width: int = 8, height: int = 8) -> bytes:
+    """A valid solid-colour RGBA PNG."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    rows = b"".join(b"\x00" + b"\xff\x00\x00\xff" * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
+class _InlineWorker:
+    """Runs a queued ingest or reupload task in the test process.
+
+    GDAL is replaced by a loader that reads the staged file itself, so the
+    rows that land are the rows the SDK uploaded; ``received`` keeps the bytes
+    the worker was handed.
+    """
+
+    def __init__(self, session) -> None:
+        self.session = session
+        self.received: list[bytes] = []
+
+    async def _fake_ogrinfo(self, file_path, *args, **kwargs):
+        features = json.loads(Path(file_path).read_bytes())["features"]
+        return {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "rt",
+            "feature_count": len(features),
+            "columns": [{"name": "name", "type": "String"}],
+        }
+
+    async def _fake_ogr2ogr(self, file_path, table_name, db_conn_str, *, schema, **kw):
+        from sqlalchemy import text
+
+        import app.core.db as db_module
+
+        raw = Path(file_path).read_bytes()
+        self.received.append(raw)
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    f'CREATE TABLE "{schema}"."{table_name}" '
+                    "(gid serial PRIMARY KEY, geom geometry(Point, 4326), name text)"
+                )
+            )
+            for feature in json.loads(raw)["features"]:
+                x, y = feature["geometry"]["coordinates"]
+                await session.execute(
+                    text(
+                        f'INSERT INTO "{schema}"."{table_name}" (geom, name) '
+                        "VALUES (ST_SetSRID(ST_MakePoint(:x, :y), 4326), :name)"
+                    ),
+                    {"x": x, "y": y, "name": feature["properties"]["name"]},
+                )
+            await session.commit()
+
+    async def run(self, task, job_id, **extra) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from sqlalchemy import select
+
+        from app.platform.jobs.models import IngestJob
+
+        self.session.expire_all()
+        job = (
+            await self.session.execute(select(IngestJob).where(IngestJob.id == job_id))
+        ).scalar_one()
+        with (
+            patch("app.processing.ingest.ogr.run_ogrinfo", new=self._fake_ogrinfo),
+            patch("app.processing.ingest.ogr.run_ogr2ogr", new=self._fake_ogr2ogr),
+            patch(
+                "app.processing.ingest.tasks_reupload._validate_upload_file_safety",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.processing.ingest.publish_followups.invalidate_catalog_cache",
+                new=AsyncMock(),
+            ),
+            patch("app.processing.embeddings.helpers.defer_embedding", new=AsyncMock()),
+        ):
+            await task.func(
+                job_id=str(job.id),
+                file_path=job.file_path,
+                user_id=str(job.created_by),
+                attempt_id=str(job.attempt_id),
+                **extra,
+            )
+
+
+@contextlib.contextmanager
+def _commits_stay_queued():
+    """Lets the import and reupload commit routes run without a task queue."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from app.modules.catalog.datasets.api import router_reupload
+
+    queued = MagicMock()
+    queued.defer_async = AsyncMock()
+    queued.configure.return_value.defer_async = AsyncMock()
+    port = router_reupload.get_catalog_port()
+    with (
+        patch("app.processing.ingest.router.queue_ingest_job", new=AsyncMock()),
+        patch.object(router_reupload, "get_catalog_port", return_value=port),
+        patch.object(port, "reupload_file_task", return_value=queued),
+    ):
+        yield
+
+
+@pytest.fixture
+async def ingested_datasets(client, admin_auth_header):
+    """Dataset ids a test created; each is deleted with its table afterwards."""
+    from sqlalchemy import select
+
+    from app.core.db import async_session
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+    ids: list = []
+    yield ids
+    for dataset_id in ids:
+        async with async_session() as session:
+            title = (
+                await session.execute(
+                    select(Record.title)
+                    .join(Dataset, Dataset.record_id == Record.id)
+                    .where(Dataset.id == dataset_id)
+                )
+            ).scalar_one_or_none()
+        if title is not None:
+            await client.request(
+                "DELETE",
+                f"/datasets/{dataset_id}",
+                json={"confirm_title": title},
+                headers=admin_auth_header,
+            )
 
 
 # --------------------------- Unit tests (no network) ---------------------------
@@ -1183,6 +1388,110 @@ class TestPythonRoundTrip:
         assert resp.status_code == 404, resp.content
 
     @pytest.mark.anyio
+    async def test_ingest_and_reupload_reach_a_terminal_state_with_the_rows(
+        self, client, admin_auth_header, test_db_session, ingested_datasets
+    ) -> None:
+        """Both commits run to ``complete``; the dataset holds the uploaded rows."""
+        from app.api.main import app
+        from app.processing.ingest.tasks_reupload import reupload_file
+        from app.processing.ingest.tasks_vector import ingest_file
+        from geolens.api.admin import get_job_status_jobs_job_id_get as get_job
+        from geolens.api.datasets import (
+            commit_import_ingest_commit_job_id_post as commit_import,
+        )
+        from geolens.api.datasets import (
+            get_single_dataset_datasets_dataset_id_get as get_dataset,
+        )
+        from geolens.api.datasets import upload_file_ingest_upload_post
+        from geolens.api.datasets_reupload import (
+            reupload_commit_datasets_dataset_id_reupload_job_id_commit_post as commit_reupload,
+        )
+        from geolens.api.datasets_reupload import (
+            reupload_dataset_datasets_dataset_id_reupload_post as reupload,
+        )
+        from geolens.api.features import (
+            get_features_geojson_z_endpoint_datasets_dataset_id_features_geojson_get as features,
+        )
+        from geolens.models.body_reupload_dataset_datasets_dataset_id_reupload_post import (
+            BodyReuploadDatasetDatasetsDatasetIdReuploadPost,
+        )
+        from geolens.models.body_upload_file_ingest_upload_post import (
+            BodyUploadFileIngestUploadPost,
+        )
+        from geolens.models.commit_request import CommitRequest
+        from geolens.types import File
+
+        token = admin_auth_header["Authorization"].removeprefix("Bearer ")
+        sdk = GeolensClient(base_url="http://test", bearer_token=token)
+        _wire_asgi_transport(sdk, app)
+        worker = _InlineWorker(test_db_session)
+
+        async def assert_complete_with(job_id, names: list[str], sent: bytes):
+            job = await get_job.asyncio_detailed(job_id=job_id, client=sdk.client)
+            assert job.status_code == 200, job.content
+            assert job.parsed.status == "complete", job.parsed.error_message
+            dataset_id = job.parsed.dataset_id
+            dataset = await get_dataset.asyncio_detailed(
+                dataset_id=dataset_id, client=sdk.client
+            )
+            assert dataset.parsed.feature_count == len(names)
+            rows = await features.asyncio_detailed(
+                dataset_id=dataset_id, client=sdk.client
+            )
+            assert rows.status_code == 200, rows.content
+            assert sorted(
+                f["properties"]["name"] for f in rows.parsed.to_dict()["features"]
+            ) == sorted(names)
+            assert worker.received[-1] == sent
+            return dataset_id
+
+        first = _collection(["a", "b", "c"])
+        uploaded = await upload_file_ingest_upload_post.asyncio_detailed(
+            client=sdk.client,
+            body=BodyUploadFileIngestUploadPost(
+                file=File(payload=BytesIO(first), file_name="rt.geojson")
+            ),
+        )
+        assert uploaded.status_code == 201, uploaded.content
+        with _commits_stay_queued():
+            committed = await commit_import.asyncio_detailed(
+                job_id=uploaded.parsed.job_id,
+                client=sdk.client,
+                body=CommitRequest(title=f"sdk-rt-{uuid4().hex[:8]}"),
+            )
+        assert committed.status_code == 202, committed.content
+        await worker.run(ingest_file, uploaded.parsed.job_id)
+        dataset_id = await assert_complete_with(
+            uploaded.parsed.job_id, ["a", "b", "c"], first
+        )
+        ingested_datasets.append(dataset_id)
+
+        second = _collection(["d", "e"])
+        replaced = await reupload.asyncio_detailed(
+            dataset_id=dataset_id,
+            client=sdk.client,
+            body=BodyReuploadDatasetDatasetsDatasetIdReuploadPost(
+                file=File(payload=BytesIO(second), file_name="rt2.geojson")
+            ),
+        )
+        assert replaced.status_code == 201, replaced.content
+        with _commits_stay_queued():
+            recommitted = await commit_reupload.asyncio_detailed(
+                dataset_id=dataset_id,
+                job_id=replaced.parsed.job_id,
+                client=sdk.client,
+                body=ReuploadCommitRequest(),
+            )
+        assert recommitted.status_code == 202, recommitted.content
+        await worker.run(
+            reupload_file, replaced.parsed.job_id, dataset_id=str(dataset_id)
+        )
+        assert (
+            await assert_complete_with(replaced.parsed.job_id, ["d", "e"], second)
+            == dataset_id
+        )
+
+    @pytest.mark.anyio
     async def test_icon_upload_and_png_endpoints_return_bytes(
         self, client, admin_auth_header, test_db_session
     ) -> None:
@@ -1228,6 +1537,80 @@ class TestPythonRoundTrip:
             assert served.parsed.payload.read() == served.content
 
             sheet = await sprite_png.asyncio_detailed(client=sdk.client)
+            assert sheet.status_code == 200
+            assert sheet.content.startswith(b"\x89PNG\r\n\x1a\n")
+            assert sheet.parsed.payload.read() == sheet.content
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text("DELETE FROM catalog.map_icon_assets WHERE id = :id"),
+                {"id": icon_id},
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    @pytest.mark.skipif(not _UVICORN_AVAILABLE, reason="uvicorn not installed")
+    @pytest.mark.parametrize("call", ["asyncio", "sync"])
+    async def test_png_icon_and_sprite_bytes_in_both_call_styles(
+        self, client, admin_auth_header, test_db_session, call: str
+    ) -> None:
+        """The icon asset and the sprite come back as the PNG bytes the server sent.
+
+        ``sync`` goes over a real socket: ASGITransport has no sync counterpart.
+        """
+        from sqlalchemy import text
+
+        from app.api.main import app
+        from geolens.api.maps import (
+            get_geolens_sprite_png_endpoint_maps_sprites_geolens_png_get as sprite_png,
+        )
+        from geolens.api.maps import (
+            get_map_icon_asset_endpoint_maps_icons_icon_id_asset_get as icon_asset,
+        )
+        from geolens.api.maps import upload_map_icon_endpoint_maps_icons_post
+        from geolens.models.body_upload_map_icon_endpoint_maps_icons_post import (
+            BodyUploadMapIconEndpointMapsIconsPost,
+        )
+        from geolens.types import File
+
+        token = admin_auth_header["Authorization"].removeprefix("Bearer ")
+        sdk = GeolensClient(base_url="http://test", bearer_token=token)
+        _wire_asgi_transport(sdk, app)
+
+        icon_png = _png()
+        created = await upload_map_icon_endpoint_maps_icons_post.asyncio_detailed(
+            client=sdk.client,
+            body=BodyUploadMapIconEndpointMapsIconsPost(
+                file=File(
+                    payload=BytesIO(icon_png),
+                    file_name="dot.png",
+                    mime_type="image/png",
+                )
+            ),
+        )
+        assert created.status_code == 201, created.content
+        icon_id = created.parsed.id
+        try:
+            async with _serving_over_http(app) as base_url:
+                if call == "sync":
+                    over_http = GeolensClient(base_url=base_url, bearer_token=token)
+                    served = await asyncio.to_thread(
+                        icon_asset.sync_detailed,
+                        icon_id=icon_id,
+                        client=over_http.client,
+                    )
+                    sheet = await asyncio.to_thread(
+                        sprite_png.sync_detailed, client=over_http.client
+                    )
+                else:
+                    served = await icon_asset.asyncio_detailed(
+                        icon_id=icon_id, client=sdk.client
+                    )
+                    sheet = await sprite_png.asyncio_detailed(client=sdk.client)
+
+            assert served.status_code == 200
+            assert served.content == icon_png
+            assert served.parsed.payload.read() == icon_png
             assert sheet.status_code == 200
             assert sheet.content.startswith(b"\x89PNG\r\n\x1a\n")
             assert sheet.parsed.payload.read() == sheet.content
@@ -1336,42 +1719,13 @@ async def test_typescript_round_trip(
     expressed as @pytest.mark.skipif decorators (Phase 278 TEST-09). The CI
     workflow ensures all three are present.
     """
-    # `node` resolves to the path discovered at module import; node executable
-    # location does not change during the test run.
     node = shutil.which("node")
 
-    import uvicorn
     from sqlalchemy import text
 
     from app.api.main import app
 
-    # Pick a free port (race window acceptable for a one-shot test)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-
-    config = uvicorn.Config(
-        app, host="127.0.0.1", port=port, log_level="error", lifespan="off"
-    )
-    server = uvicorn.Server(config)
-    serve_task = asyncio.create_task(server.serve())
-
-    # Wait for server-up
-    for _ in range(50):
-        await asyncio.sleep(0.1)
-        if server.started:
-            break
-    else:
-        server.should_exit = True
-        try:
-            await asyncio.wait_for(serve_task, timeout=5)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            serve_task.cancel()
-        pytest.fail("uvicorn server did not start within 5s")
-
-    try:
-        base_url = f"http://127.0.0.1:{port}"
+    async with _serving_over_http(app) as base_url:
         token = admin_auth_header["Authorization"].removeprefix("Bearer ")
         env = os.environ.copy()
         env["GEOLENS_BASE_URL"] = base_url
@@ -1418,9 +1772,111 @@ async def test_typescript_round_trip(
                 text("DELETE FROM catalog.ingest_jobs WHERE id = :id"), {"id": job_id}
             )
             await test_db_session.commit()
+
+
+# ------------------- Ingest and PNG round trips (TypeScript) -------------------
+
+
+def _needs_typescript_sdk(test):
+    for mark in (
+        pytest.mark.skipif(not _NODE_AVAILABLE, reason="node not available"),
+        pytest.mark.skipif(not _TS_SDK_BUILT, reason="TypeScript SDK not built"),
+        pytest.mark.skipif(not _UVICORN_AVAILABLE, reason="uvicorn not installed"),
+        pytest.mark.anyio,
+    ):
+        test = mark(test)
+    return test
+
+
+async def _run_ts_phase(base_url: str, token: str, *argv: str) -> str:
+    """Run one phase of ingest_round_trip.test.mjs and return its stdout."""
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            shutil.which("node"),
+            str(
+                _REPO_ROOT
+                / "sdks"
+                / "typescript"
+                / "test"
+                / "ingest_round_trip.test.mjs"
+            ),
+            *argv,
+        ],
+        env={**os.environ, "GEOLENS_BASE_URL": base_url, "GEOLENS_TOKEN": token},
+        cwd=_REPO_ROOT / "sdks" / "typescript",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"TS phase {argv} failed (exit {result.returncode}):\n"
+        f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
+    return result.stdout
+
+
+def _printed(stdout: str, key: str) -> str:
+    match = re.search(rf"^{key}=(\S+)$", stdout, re.MULTILINE)
+    assert match, f"TS phase printed no {key}:\n{stdout}"
+    return match.group(1)
+
+
+@_needs_typescript_sdk
+async def test_typescript_ingest_and_reupload_reach_a_terminal_state(
+    client, admin_auth_header, test_db_session, ingested_datasets
+) -> None:
+    from app.api.main import app
+    from app.processing.ingest.tasks_reupload import reupload_file
+    from app.processing.ingest.tasks_vector import ingest_file
+
+    token = admin_auth_header["Authorization"].removeprefix("Bearer ")
+    worker = _InlineWorker(test_db_session)
+    async with _serving_over_http(app) as base_url:
+        with _commits_stay_queued():
+            uploaded = await _run_ts_phase(base_url, token, "upload")
+        job_id = _printed(uploaded, "UPLOAD_JOB_ID")
+        await worker.run(ingest_file, job_id)
+        verified = await _run_ts_phase(base_url, token, "verify", job_id, "a,b,c")
+        dataset_id = _printed(verified, "DATASET_ID")
+        ingested_datasets.append(dataset_id)
+        assert worker.received[-1] == _collection(["a", "b", "c"])
+
+        with _commits_stay_queued():
+            replaced = await _run_ts_phase(
+                base_url, token, "reupload", dataset_id, "d,e"
+            )
+        reupload_job_id = _printed(replaced, "REUPLOAD_JOB_ID")
+        await worker.run(reupload_file, reupload_job_id, dataset_id=dataset_id)
+        await _run_ts_phase(base_url, token, "verify", reupload_job_id, "d,e")
+        assert worker.received[-1] == _collection(["d", "e"])
+
+
+@_needs_typescript_sdk
+async def test_typescript_png_icon_and_sprite_bytes(
+    client, admin_auth_header, test_db_session
+) -> None:
+    from sqlalchemy import text
+
+    from app.api.main import app
+
+    token = admin_auth_header["Authorization"].removeprefix("Bearer ")
+    icon_png = _png()
+    uploaded = await client.post(
+        "/maps/icons",
+        files={"file": ("dot.png", icon_png, "image/png")},
+        headers=admin_auth_header,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    icon_id = uploaded.json()["id"]
+    try:
+        async with _serving_over_http(app) as base_url:
+            await _run_ts_phase(
+                base_url, token, "png", icon_id, base64.b64encode(icon_png).decode()
+            )
     finally:
-        server.should_exit = True
-        try:
-            await asyncio.wait_for(serve_task, timeout=5)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            serve_task.cancel()
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text("DELETE FROM catalog.map_icon_assets WHERE id = :id"), {"id": icon_id}
+        )
+        await test_db_session.commit()

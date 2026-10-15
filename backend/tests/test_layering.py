@@ -1298,6 +1298,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/db/tenant_adoption_sql.py": 2093,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
     "backend/app/core/db/tenant_adoption.py": 1258,
+    # CQL2 parsing, feature-filter validation and record-filter literal handling share
+    # one pygeofilter walk.
+    "backend/app/standards/ogc/filtering.py": 1006,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1754,

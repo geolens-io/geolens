@@ -2,14 +2,17 @@
 column validation and clearing an optional user email."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-from app.modules.catalog.datasets.domain.models import Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.search.service_candidates import _apply_search_only_filters
+from app.modules.catalog.search.service_filters import SearchFilters
 from app.processing.ai.schemas import LLMMapSpec
+from app.standards.ogc.filtering import apply_cql2_filter, compile_feature_cql2
 from app.standards.stac.router import _apply_datetime_filter
 from tests.factories import create_dataset, get_user_id
 
@@ -37,6 +40,120 @@ async def test_stac_instant_filter_ignores_session_timezone(test_db_session):
         select(Record.id).where(Record.id == ds.record_id), "2026-03-10T00:30:00Z"
     )
     assert (await test_db_session.execute(stmt)).scalar_one_or_none() == ds.record_id
+
+
+# One zone behind UTC and one ahead: a bare date read in the session zone
+# starts the day late in the first and early in the second.
+_NON_UTC_ZONES = ["America/New_York", "Pacific/Auckland"]
+
+# created_at values around 2026-03-10 UTC; only the two "inside" rows belong to it.
+_DAY_EDGES = {
+    "before": datetime(2026, 3, 9, 23, 59, tzinfo=timezone.utc),
+    "start": datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc),
+    "end": datetime(2026, 3, 10, 23, 59, tzinfo=timezone.utc),
+    "after": datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc),
+}
+
+
+async def _records_created_at_the_day_edges(session) -> dict[uuid.UUID, str]:
+    admin_id = await get_user_id(session, "admin")
+    named: dict[uuid.UUID, str] = {}
+    for label, created_at in _DAY_EDGES.items():
+        ds = await create_dataset(
+            session, created_by=admin_id, name=f"Edge {label} {uuid.uuid4().hex[:6]}"
+        )
+        await session.execute(
+            text("UPDATE catalog.records SET created_at = :at WHERE id = :rid"),
+            {"at": created_at, "rid": ds.record_id},
+        )
+        named[ds.record_id] = label
+    await session.commit()
+    return named
+
+
+async def _labels(session, stmt, named: dict[uuid.UUID, str]) -> list[str]:
+    ids = (await session.execute(stmt.where(Record.id.in_(named)))).scalars()
+    return sorted(named[i] for i in ids)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("zone", _NON_UTC_ZONES)
+async def test_search_date_range_ignores_session_timezone(test_db_session, zone):
+    named = await _records_created_at_the_day_edges(test_db_session)
+    await test_db_session.execute(text(f"SET TIME ZONE '{zone}'"))
+    filters = SearchFilters(date_from=date(2026, 3, 10), date_to=date(2026, 3, 10))
+    stmt = _apply_search_only_filters(
+        select(Record.id).join(Dataset, Dataset.record_id == Record.id), filters
+    )
+    assert await _labels(test_db_session, stmt, named) == ["end", "start"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("zone", _NON_UTC_ZONES)
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "created >= DATE('2026-03-10') AND created < DATE('2026-03-11')",
+        "created >= TIMESTAMP('2026-03-10T00:00:00') "
+        "AND created < TIMESTAMP('2026-03-11T00:00:00')",
+        "created >= TIMESTAMP('2026-03-10T00:00:00Z') "
+        "AND created < TIMESTAMP('2026-03-11T00:00:00Z')",
+        "created T_AFTER TIMESTAMP('2026-03-09T23:59:30') "
+        "AND created T_BEFORE TIMESTAMP('2026-03-10T23:59:30')",
+        "created T_DURING INTERVAL('2026-03-09T23:59:30Z', '2026-03-10T23:59:30Z')",
+        "created BETWEEN TIMESTAMP('2026-03-10T00:00:00') "
+        "AND TIMESTAMP('2026-03-10T23:59:30')",
+        "TIMESTAMP('2026-03-10T00:00:00') <= created AND DATE('2026-03-11') > created",
+    ],
+)
+async def test_records_cql2_temporal_filter_ignores_session_timezone(
+    test_db_session, zone, expression
+):
+    named = await _records_created_at_the_day_edges(test_db_session)
+    await test_db_session.execute(text(f"SET TIME ZONE '{zone}'"))
+    stmt = apply_cql2_filter(select(Record.id), expression, "cql2-text")
+    assert await _labels(test_db_session, stmt, named) == ["end", "start"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("zone", _NON_UTC_ZONES)
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "seen_at >= DATE('2026-03-10') AND seen_at < DATE('2026-03-11')",
+        "seen_at >= TIMESTAMP('2026-03-10T00:00:00') "
+        "AND seen_at < TIMESTAMP('2026-03-11T00:00:00')",
+        "seen_at >= TIMESTAMP('2026-03-10T00:00:00Z') "
+        "AND seen_at < TIMESTAMP('2026-03-11T00:00:00Z')",
+    ],
+)
+async def test_feature_cql2_timestamptz_filter_ignores_session_timezone(
+    test_db_session, zone, expression
+):
+    table = f"tz_cql2_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{table} (label text, seen_at timestamptz)")
+    )
+    for label, seen_at in _DAY_EDGES.items():
+        await test_db_session.execute(
+            text(f"INSERT INTO data.{table} VALUES (:label, :at)"),
+            {"label": label, "at": seen_at},
+        )
+    await test_db_session.commit()
+    try:
+        await test_db_session.execute(text(f"SET TIME ZONE '{zone}'"))
+        where, binds = compile_feature_cql2(
+            expression, "cql2-text", {"seen_at": "timestamp with time zone"}
+        )
+        rows = await test_db_session.execute(
+            text(f"SELECT label FROM data.{table} WHERE {where}").bindparams(*binds)
+        )
+        assert sorted(r[0] for r in rows) == ["end", "start"]
+    finally:
+        await test_db_session.rollback()
+        await test_db_session.execute(text("RESET TIME ZONE"))
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+        await test_db_session.commit()
 
 
 def test_generated_map_spec_is_clamped_to_save_bounds():

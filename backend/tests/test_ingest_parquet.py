@@ -168,7 +168,7 @@ class TestParquetIngestBudget:
     async def test_budget_checked_before_geometry_scan(self, tmp_path, monkeypatch):
         """The gate must fire before any row data is read.
 
-        ``_geometry_has_z`` decodes the whole geometry column when the
+        ``_geometry_dimensions`` decodes the whole geometry column when the
         GeoParquet metadata declares no ``geometry_types`` — which is what this
         repo's own exporter writes. A budget check placed after it would let an
         over-limit file monopolize the worker for a full scan before being
@@ -180,11 +180,11 @@ class TestParquetIngestBudget:
 
         def _explode(*args, **kwargs):  # pragma: no cover - must never run
             raise AssertionError(
-                "_geometry_has_z scanned the geometry column before the budget "
+                "_geometry_dimensions scanned the geometry column before the budget "
                 "check rejected the file"
             )
 
-        monkeypatch.setattr(parquet_module, "_geometry_has_z", _explode)
+        monkeypatch.setattr(parquet_module, "_geometry_dimensions", _explode)
 
         p = tmp_path / "scan_first.parquet"
         pq.write_table(
@@ -538,6 +538,69 @@ class TestParquetRoundTrip:
         assert "nextval" in str(gid_default)
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("column_type", "wkt", "ndims"),
+        [
+            ("MultiPointZ", "MULTIPOINT Z ((1 2 3),(4 5 6))", 3),
+            ("LineStringZM", "LINESTRING ZM (0 0 1 10,1 1 2 20)", 4),
+        ],
+    )
+    async def test_export_then_reingest_keeps_the_dimensions(
+        self, test_db_session, ingested_table, column_type, wkt, ndims
+    ):
+        import shutil
+        from pathlib import Path
+
+        from app.processing.export.parquet import plan_parquet_export
+
+        source = f"rt_pq_dim_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{source} (gid serial PRIMARY KEY, name text, "
+                f"geom geometry({column_type}, 4326), "
+                "geom_4326 geometry(Geometry, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{source} (name, geom, geom_4326) VALUES "
+                f"('a', ST_GeomFromText('{wkt}', 4326), "
+                f"ST_Force2D(ST_GeomFromText('{wkt}', 4326)))"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            plan = await plan_parquet_export(test_db_session, source, schema="data")
+            file_path, _, _ = await export_parquet(
+                test_db_session, source, "dims", schema="data", plan=plan
+            )
+            try:
+                info = await run_ogrinfo(file_path)
+                await load_parquet_to_postgis(
+                    file_path,
+                    ingested_table,
+                    schema="data",
+                    srid=info["srid"],
+                    include_geometry=True,
+                )
+            finally:
+                shutil.rmtree(Path(file_path).parent, ignore_errors=True)
+
+            row = (
+                await test_db_session.execute(
+                    text(
+                        f"SELECT ST_NDims(_geolens_geom), ST_AsText(_geolens_geom) "
+                        f"FROM data.{ingested_table}"
+                    )
+                )
+            ).one()
+            assert tuple(row) == (ndims, wkt.replace(", ", ",").replace("),(", "),("))
+        finally:
+            await test_db_session.rollback()
+            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{source}"))
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
     async def test_srid_override_stamps_geometry(
         self, test_db_session, ingested_table, tmp_path
     ):
@@ -706,17 +769,27 @@ class TestParquetZGeometry:
         assert rows and all(r[0] == 2 for r in rows)
 
 
-def test_wkb_has_z_header_sniff():
-    """_wkb_has_z reads only the WKB header — both ISO and EWKB flavors."""
+def test_wkb_dimensions_header_sniff():
+    """_wkb_dimensions reads only the WKB header: ISO and EWKB, Z and M."""
+    import struct
+
     from shapely import to_wkb
     from shapely.geometry import Point
 
-    from app.processing.ingest.parquet import _wkb_has_z
+    from app.processing.ingest.parquet import _wkb_dimensions
 
     for flavor in ("iso", "extended"):
-        assert _wkb_has_z(to_wkb(Point(0, 0, 1), flavor=flavor)) is True
-        assert _wkb_has_z(to_wkb(Point(0, 0), flavor=flavor)) is False
-    assert _wkb_has_z(b"") is False
+        assert _wkb_dimensions(to_wkb(Point(0, 0, 1), flavor=flavor)) == (True, False)
+        assert _wkb_dimensions(to_wkb(Point(0, 0), flavor=flavor)) == (False, False)
+
+    def header(gtype: int) -> bytes:
+        return b"\x01" + struct.pack("<I", gtype) + b"\x00" * 16
+
+    assert _wkb_dimensions(header(2001)) == (False, True)  # ISO Point M
+    assert _wkb_dimensions(header(3001)) == (True, True)  # ISO Point ZM
+    assert _wkb_dimensions(header(0x40000001)) == (False, True)  # EWKB M flag
+    assert _wkb_dimensions(header(0xC0000001)) == (True, True)  # EWKB Z and M
+    assert _wkb_dimensions(b"") == (False, False)
 
 
 class TestParquetZLateRow:

@@ -144,6 +144,45 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
         )
 
 
+_TIMESTAMPTZ_PROPERTIES = frozenset({"created", "updated"})
+
+
+def _read_as_utc(value):
+    """A naive date or datetime literal (or interval of them) as UTC.
+
+    A naive value binds in the database session's TimeZone, which moves the
+    day it names on a non-UTC server.
+    """
+    from pygeofilter.values import Interval
+
+    if isinstance(value, Interval):
+        value.start, value.end = _read_as_utc(value.start), _read_as_utc(value.end)
+    elif isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    elif isinstance(value, date):
+        return datetime.combine(value, time.min, tzinfo=timezone.utc)
+    return value
+
+
+def _pin_timestamptz_literals(node: Any) -> None:
+    """Read the literals compared with created/updated as UTC, in place."""
+    from pygeofilter import ast as pgf_ast
+
+    sides = (getattr(node, "lhs", None), getattr(node, "rhs", None))
+    if any(
+        isinstance(side, pgf_ast.Attribute) and side.name in _TIMESTAMPTZ_PROPERTIES
+        for side in sides
+    ):
+        for field in ("lhs", "rhs", "low", "high"):
+            if hasattr(node, field):
+                setattr(node, field, _read_as_utc(getattr(node, field)))
+        if isinstance(node, pgf_ast.In):
+            node.sub_nodes = [_read_as_utc(sub) for sub in node.sub_nodes]
+    for child in node.get_sub_nodes():
+        if isinstance(child, pgf_ast.Node):
+            _pin_timestamptz_literals(child)
+
+
 def apply_cql2_filter(
     stmt: Any, filter_expr: str, filter_lang: str = "cql2-text"
 ) -> Any:
@@ -163,6 +202,7 @@ def apply_cql2_filter(
     from pygeofilter.backends.sqlalchemy import to_filter
 
     ast = parse_cql2_filter(filter_expr, filter_lang)
+    _pin_timestamptz_literals(ast)
     try:
         sa_filter = to_filter(ast, FIELD_MAPPING)
     except Exception as e:  # broad: to_filter errors vary by unsupported CQL2 shape
