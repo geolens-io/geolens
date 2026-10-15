@@ -425,9 +425,10 @@ jobs:
               - 'scripts/tests/test-restore-env-sourcing-safety.sh'
               - 'scripts/tests/test-env-file-compose-oracle.sh'
               - 'scripts/check_env_doc_drift.py'
-              # check_env_doc_drift.py parses the Settings class out of this
-              # file — a new Settings field must re-run the drift gate.
+              # check_env_doc_drift.py parses the Settings fields out of these
+              # files — a new Settings field must re-run the drift gate.
               - 'backend/app/core/config.py'
+              - 'backend/app/core/config_ai.py'
               - '.env.example'
               - 'UPGRADING.md'
               # fix(#950): the drift gate resolves scripts/ paths referenced by

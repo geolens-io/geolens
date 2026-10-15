@@ -15,6 +15,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.auth_settings import AuthSettings
+from app.core.config_ai import ClaudeSettings
 
 
 def reveal(secret: SecretStr | None) -> str | None:
@@ -284,7 +285,7 @@ MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
 MAX_PRESIGNED_URL_LIFETIME_SECONDS = 604800
 
 
-class Settings(AuthSettings, BaseSettings):
+class Settings(AuthSettings, ClaudeSettings, BaseSettings):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
     postgres_host: str = "localhost"
@@ -410,28 +411,6 @@ class Settings(AuthSettings, BaseSettings):
     #                                boot guard (GUARD-01) fails loud without them.
     # An invalid value raises a Pydantic ValidationError at boot.
     geolens_tenancy_mode: Literal["single_tenant", "multi_tenant"] = "single_tenant"
-
-    anthropic_api_key: SecretStr | None = None
-    llm_model: str = "claude-sonnet-5"
-    # Unset keeps claude-haiku on Anthropic's API and reuses llm_model on the
-    # cloud platforms, whose model IDs differ.
-    llm_model_light: str | None = None
-    # Where Claude runs. Env-only like the keys, so no admin-editable value can
-    # send a credential to another host.
-    anthropic_platform: Literal["anthropic", "foundry", "bedrock", "vertex"] = (
-        "anthropic"
-    )
-    anthropic_base_url: str | None = None
-    anthropic_foundry_api_key: SecretStr | None = None
-    anthropic_foundry_resource: str | None = None
-    # Not the AWS_* names: GDAL reads those for S3 storage, and the SDK treats
-    # the blank AWS_BEARER_TOKEN_BEDROCK Compose passes as a key.
-    anthropic_bedrock_api_key: SecretStr | None = None
-    anthropic_bedrock_aws_region: str | None = None
-    anthropic_bedrock_aws_access_key_id: str | None = None
-    anthropic_bedrock_aws_secret_access_key: SecretStr | None = None
-    cloud_ml_region: str | None = None
-    anthropic_vertex_project_id: str | None = None
 
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o"
@@ -663,17 +642,6 @@ class Settings(AuthSettings, BaseSettings):
     notification_admin_email: str | None = None
 
     @field_validator(
-        "anthropic_api_key",
-        "llm_model_light",
-        "anthropic_base_url",
-        "anthropic_foundry_api_key",
-        "anthropic_foundry_resource",
-        "anthropic_bedrock_api_key",
-        "anthropic_bedrock_aws_region",
-        "anthropic_bedrock_aws_access_key_id",
-        "anthropic_bedrock_aws_secret_access_key",
-        "cloud_ml_region",
-        "anthropic_vertex_project_id",
         "openai_api_key",
         "openai_model_light",
         "openai_base_url",

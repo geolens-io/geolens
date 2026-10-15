@@ -26,6 +26,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALL_SH = REPO_ROOT / "scripts" / "install.sh"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config.py"
+# Settings inherits these fields; they need documenting all the same.
+CLAUDE_SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config_ai.py"
 COMPOSE_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.prod.yml",
@@ -189,11 +191,11 @@ def keys_documented_in_example(env_example: Path) -> set[str]:
     return keys
 
 
-def settings_field_keys(settings_py: Path) -> set[str]:
-    """Return environment names represented by Settings fields."""
+def settings_field_keys(settings_py: Path, class_name: str = "Settings") -> set[str]:
+    """Return environment names represented by the fields of ``class_name``."""
     tree = ast.parse(settings_py.read_text())
     for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == "Settings":
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
             return {
                 item.target.id.upper()
                 for item in node.body
@@ -201,7 +203,7 @@ def settings_field_keys(settings_py: Path) -> set[str]:
                 and isinstance(item.target, ast.Name)
                 and item.target.id != "model_config"
             }
-    raise ValueError(f"Settings class not found in {settings_py}")
+    raise ValueError(f"{class_name} class not found in {settings_py}")
 
 
 def _without_yaml_comment(line: str) -> str:
@@ -404,7 +406,13 @@ def raw_environment_keys() -> set[str]:
 
 
 def main() -> int:
-    required_files = (INSTALL_SH, ENV_EXAMPLE, SETTINGS_PY, *COMPOSE_FILES)
+    required_files = (
+        INSTALL_SH,
+        ENV_EXAMPLE,
+        SETTINGS_PY,
+        CLAUDE_SETTINGS_PY,
+        *COMPOSE_FILES,
+    )
     missing_files = [path for path in required_files if not path.is_file()]
     if missing_files:
         for path in missing_files:
@@ -413,7 +421,9 @@ def main() -> int:
 
     written = keys_written_by_installer(INSTALL_SH)
     documented = keys_documented_in_example(ENV_EXAMPLE)
-    settings_keys = settings_field_keys(SETTINGS_PY)
+    settings_keys = settings_field_keys(SETTINGS_PY) | settings_field_keys(
+        CLAUDE_SETTINGS_PY, "ClaudeSettings"
+    )
     compose_keys = compose_host_keys(COMPOSE_FILES)
     raw_keys = raw_environment_keys()
 

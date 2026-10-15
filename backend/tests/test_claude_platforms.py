@@ -391,6 +391,37 @@ def test_unconfigured_platform_raises(monkeypatch, platform, message):
         get_anthropic_client()
 
 
+def test_settings_reads_the_claude_environment(monkeypatch):
+    from app.core.config import Settings
+
+    for name, value in {
+        "ANTHROPIC_PLATFORM": "bedrock",
+        "ANTHROPIC_BEDROCK_AWS_REGION": "eu-west-1",
+        "ANTHROPIC_BEDROCK_API_KEY": _BEDROCK_API_KEY,
+        "LLM_MODEL": "us.anthropic.claude-test",
+        # What Compose passes for an unset variable.
+        "ANTHROPIC_API_KEY": "",
+        "ANTHROPIC_BASE_URL": "",
+        "LLM_MODEL_LIGHT": " ",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    built = Settings(
+        postgres_password="testpass",
+        jwt_secret_key="testsecret-padding-to-32-chars-min",
+        geolens_admin_username="admin",
+        geolens_admin_password="adminpass",
+    )
+
+    assert built.anthropic_platform == "bedrock"
+    assert built.anthropic_bedrock_aws_region == "eu-west-1"
+    assert built.anthropic_bedrock_api_key.get_secret_value() == _BEDROCK_API_KEY
+    assert built.llm_model == "us.anthropic.claude-test"
+    assert built.anthropic_api_key is None
+    assert built.anthropic_base_url is None
+    assert built.llm_model_light is None
+
+
 # --- Credentials stay out of logs -------------------------------------------
 
 
