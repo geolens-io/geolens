@@ -85,10 +85,19 @@
   "membership": {
     "title": "添加数据集",
     "searchPlaceholder": "按名称搜索数据集...",
-    "searchButton": "搜索",
-    "addButton": "添加",
-    "addAria": "将 {{title}} 添加到集合",
-    "allAlreadyAdded": "所有匹配的数据集都已在此集合中。"
+    "listLabel": "可添加的数据集",
+    "selectAria": "选择 {{title}}",
+    "addSelected_one": "添加 {{count}} 个已选数据集",
+    "addSelected_other": "添加 {{count}} 个已选数据集",
+    "loadMore": "加载更多",
+    "loading": "正在加载数据集...",
+    "loadError": "无法加载数据集。",
+    "empty": "没有可添加的数据集。",
+    "noMatches": "没有符合搜索条件的可添加数据集。",
+    "resultCount_one": "{{count}} 个数据集可用",
+    "resultCount_other": "{{count}} 个数据集可用",
+    "added_one": "已将 {{count}} 个数据集添加到集合",
+    "added_other": "已将 {{count}} 个数据集添加到集合"
   },
   "badges": {
     "label": "集合"

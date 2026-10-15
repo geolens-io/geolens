@@ -79,10 +79,19 @@
   "membership": {
     "title": "Ajouter des jeux de données",
     "searchPlaceholder": "Rechercher des jeux de données par nom...",
-    "searchButton": "Rechercher",
-    "addButton": "Ajouter",
-    "addAria": "Ajouter {{title}} à la collection",
-    "allAlreadyAdded": "Tous les jeux de données correspondants sont déjà dans cette collection."
+    "listLabel": "Jeux de données pouvant être ajoutés",
+    "selectAria": "Sélectionner {{title}}",
+    "addSelected_one": "Ajouter {{count}} jeu de données sélectionné",
+    "addSelected_other": "Ajouter {{count}} jeux de données sélectionnés",
+    "loadMore": "Charger plus",
+    "loading": "Chargement des jeux de données...",
+    "loadError": "Impossible de charger les jeux de données.",
+    "empty": "Aucun jeu de données à ajouter.",
+    "noMatches": "Aucun jeu de données disponible ne correspond à la recherche.",
+    "resultCount_one": "{{count}} jeu de données disponible",
+    "resultCount_other": "{{count}} jeux de données disponibles",
+    "added_one": "{{count}} jeu de données ajouté à la collection",
+    "added_other": "{{count}} jeux de données ajoutés à la collection"
   },
   "badges": {
     "label": "Collections"

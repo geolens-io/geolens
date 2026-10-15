@@ -85,10 +85,19 @@
   "membership": {
     "title": "Add Datasets",
     "searchPlaceholder": "Search datasets by name...",
-    "searchButton": "Search",
-    "addButton": "Add",
-    "addAria": "Add {{title}} to collection",
-    "allAlreadyAdded": "All matching datasets are already in this collection."
+    "listLabel": "Datasets available to add",
+    "selectAria": "Select {{title}}",
+    "addSelected_one": "Add {{count}} selected dataset",
+    "addSelected_other": "Add {{count}} selected datasets",
+    "loadMore": "Load more",
+    "loading": "Loading datasets...",
+    "loadError": "Could not load datasets.",
+    "empty": "No datasets are available to add.",
+    "noMatches": "No available datasets match your search.",
+    "resultCount_one": "{{count}} dataset available",
+    "resultCount_other": "{{count}} datasets available",
+    "added_one": "{{count}} dataset added to collection",
+    "added_other": "{{count}} datasets added to collection"
   },
   "badges": {
     "label": "Collections"

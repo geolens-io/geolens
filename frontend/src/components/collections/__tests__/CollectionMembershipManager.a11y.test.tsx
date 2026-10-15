@@ -8,7 +8,6 @@
  * automated enforcement mechanism.
  */
 import { render, screen } from '@/test/test-utils';
-import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { searchDatasets } from '@/api/search';
 import { CollectionMembershipManager } from '@/components/collections/CollectionMembershipManager';
@@ -49,18 +48,18 @@ describe('GLUX-002: CollectionMembershipManager search input accessible name', (
     expect(searchInput.tagName.toLowerCase()).toBe('input');
   });
 
-  it('names each Add button after its dataset', async () => {
+  it('names each checkbox after its dataset', async () => {
     vi.mocked(searchDatasets).mockResolvedValue({
       features: [
         { id: 'a', properties: { title: 'Alpha Parcels' } },
         { id: 'b', properties: { title: 'Beta Roads' } },
       ],
+      numberMatched: 2,
     } as unknown as Awaited<ReturnType<typeof searchDatasets>>);
-    const user = userEvent.setup();
     render(<CollectionMembershipManager collectionId="col-1" />);
-    await user.type(screen.getByLabelText(/search datasets/i), 'a{Enter}');
 
-    expect(await screen.findByRole('button', { name: 'Add Alpha Parcels to collection' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add Beta Roads to collection' })).toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: 'Select Alpha Parcels' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select Beta Roads' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Datasets available to add' })).toBeInTheDocument();
   });
 });

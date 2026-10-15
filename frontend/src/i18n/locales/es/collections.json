@@ -79,10 +79,19 @@
   "membership": {
     "title": "Agregar conjuntos de datos",
     "searchPlaceholder": "Buscar conjuntos de datos por nombre...",
-    "searchButton": "Buscar",
-    "addButton": "Agregar",
-    "addAria": "Agregar {{title}} a la colección",
-    "allAlreadyAdded": "Todos los conjuntos de datos coincidentes ya están en esta colección."
+    "listLabel": "Conjuntos de datos disponibles para agregar",
+    "selectAria": "Seleccionar {{title}}",
+    "addSelected_one": "Agregar {{count}} conjunto de datos seleccionado",
+    "addSelected_other": "Agregar {{count}} conjuntos de datos seleccionados",
+    "loadMore": "Cargar más",
+    "loading": "Cargando conjuntos de datos...",
+    "loadError": "No se pudieron cargar los conjuntos de datos.",
+    "empty": "No hay conjuntos de datos disponibles para agregar.",
+    "noMatches": "Ningún conjunto de datos disponible coincide con la búsqueda.",
+    "resultCount_one": "{{count}} conjunto de datos disponible",
+    "resultCount_other": "{{count}} conjuntos de datos disponibles",
+    "added_one": "{{count}} conjunto de datos agregado a la colección",
+    "added_other": "{{count}} conjuntos de datos agregados a la colección"
   },
   "badges": {
     "label": "Colecciones"

@@ -79,10 +79,19 @@
   "membership": {
     "title": "Datensätze hinzufügen",
     "searchPlaceholder": "Datensätze nach Name suchen...",
-    "searchButton": "Suchen",
-    "addButton": "Hinzufügen",
-    "addAria": "{{title}} zur Sammlung hinzufügen",
-    "allAlreadyAdded": "Alle passenden Datensätze sind bereits in dieser Sammlung."
+    "listLabel": "Datensätze, die hinzugefügt werden können",
+    "selectAria": "{{title}} auswählen",
+    "addSelected_one": "{{count}} ausgewählten Datensatz hinzufügen",
+    "addSelected_other": "{{count}} ausgewählte Datensätze hinzufügen",
+    "loadMore": "Mehr laden",
+    "loading": "Datensätze werden geladen...",
+    "loadError": "Datensätze konnten nicht geladen werden.",
+    "empty": "Keine Datensätze zum Hinzufügen verfügbar.",
+    "noMatches": "Kein verfügbarer Datensatz entspricht der Suche.",
+    "resultCount_one": "{{count}} Datensatz verfügbar",
+    "resultCount_other": "{{count}} Datensätze verfügbar",
+    "added_one": "{{count}} Datensatz zur Sammlung hinzugefügt",
+    "added_other": "{{count}} Datensätze zur Sammlung hinzugefügt"
   },
   "badges": {
     "label": "Sammlungen"
