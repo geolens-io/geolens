@@ -25,6 +25,7 @@ from app.platform.cache.provider import CacheProvider
 from app.platform.audit import AuditEvent, audit_emit
 from app.core.ai_credentials import anthropic_configured
 from app.core.config import settings
+from app.core.config_ai import DEFAULT_LLM_MODEL
 from app.core.logging_config import apply_http_logger_levels
 from app.core.public_urls import (
     PUBLIC_URL_KEYS,
@@ -659,14 +660,15 @@ LLM_PROVIDER = PersistentConfig[str](
 def llm_model_default(provider: str, *, light: bool = False) -> str:
     """The model ``provider`` uses when no admin override is set."""
     if provider == "anthropic":
+        chat = settings.llm_model or DEFAULT_LLM_MODEL
         if not light:
-            return settings.llm_model
+            return chat
         if settings.llm_model_light:
             return settings.llm_model_light
         # Foundry deployments, Bedrock inference profiles and Vertex IDs don't
         # use Anthropic's model names, so reuse the model the operator set.
         if settings.anthropic_platform != "anthropic":
-            return settings.llm_model
+            return chat
         return "claude-haiku-5-5"
     if light:
         # Reuse OPENAI_MODEL rather than a hardcoded name, which 404s on Azure

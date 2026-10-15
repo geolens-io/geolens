@@ -10,10 +10,13 @@ from pydantic import BaseModel, SecretStr, field_validator
 
 ClaudePlatform = Literal["anthropic", "foundry", "bedrock", "vertex"]
 
+DEFAULT_LLM_MODEL = "claude-sonnet-5-5"
+
 
 class ClaudeSettings(BaseModel):
     anthropic_api_key: SecretStr | None = None
-    llm_model: str = "claude-sonnet-5-5"
+    # Unset means DEFAULT_LLM_MODEL, which Bedrock and Vertex don't serve.
+    llm_model: str | None = None
     # Unset keeps claude-haiku on Anthropic's API and reuses llm_model on the
     # cloud platforms, whose model IDs differ.
     llm_model_light: str | None = None
@@ -33,6 +36,7 @@ class ClaudeSettings(BaseModel):
     # Compose passes an unset variable as "", which means not set.
     @field_validator(
         "anthropic_api_key",
+        "llm_model",
         "llm_model_light",
         "anthropic_base_url",
         "anthropic_foundry_api_key",

@@ -18,7 +18,8 @@ from pydantic import SecretStr
 
 from app.core.ai_credentials import anthropic_configured
 from app.core.config import settings
-from app.core.persistent_config import LLM_PROVIDER
+from app.core.config_ai import DEFAULT_LLM_MODEL
+from app.core.persistent_config import LLM_PROVIDER, llm_model_default
 from app.modules.admin import router as admin_router
 from app.platform.extensions.defaults import DefaultAnthropicProvider
 from app.processing.ai import llm_loop, probe
@@ -28,6 +29,7 @@ from tests._logging_state import configured_logging
 
 _PLATFORM_FIELDS = (
     "anthropic_api_key",
+    "llm_model",
     "anthropic_base_url",
     "anthropic_foundry_api_key",
     "anthropic_foundry_resource",
@@ -71,6 +73,8 @@ def _fresh_client(monkeypatch):
 
 def _use(monkeypatch, platform: str, **values: object) -> None:
     monkeypatch.setattr(settings, "anthropic_platform", platform)
+    if platform in ("bedrock", "vertex"):
+        values = {"llm_model": f"{platform}-claude-model-id", **values}
     for name, value in values.items():
         monkeypatch.setattr(settings, name, value)
 
@@ -484,6 +488,40 @@ def test_cloud_platform_is_configured_without_an_anthropic_key(monkeypatch, conf
     status = admin_router._ai_status(True, "anthropic", model="m")
     assert status.configured is True
     assert status.provider == "anthropic"
+
+
+@pytest.mark.parametrize(
+    "configure", [_bedrock_keys, _vertex], ids=["bedrock", "vertex"]
+)
+def test_bedrock_and_vertex_need_their_own_model_id(monkeypatch, configure):
+    configure(monkeypatch)
+    monkeypatch.setattr(settings, "llm_model", None)
+
+    assert anthropic_configured() is False
+    with pytest.raises(ValueError, match="needs LLM_MODEL"):
+        get_anthropic_client()
+
+
+def test_foundry_can_use_the_default_model_name(monkeypatch):
+    # A Foundry deployment may carry the model's own name.
+    _foundry(monkeypatch)
+
+    assert anthropic_configured() is True
+    assert llm_model_default("anthropic") == DEFAULT_LLM_MODEL
+
+
+def test_blank_llm_model_means_the_default(monkeypatch):
+    from app.core.config import Settings
+
+    monkeypatch.setenv("LLM_MODEL", "")
+    built = Settings(
+        postgres_password="testpass",
+        jwt_secret_key="testsecret-padding-to-32-chars-min",
+        geolens_admin_username="admin",
+        geolens_admin_password="adminpass",
+    )
+    assert built.llm_model is None
+    assert llm_model_default("anthropic") == DEFAULT_LLM_MODEL
 
 
 def test_bedrock_default_chain_counts_as_configured(monkeypatch):
