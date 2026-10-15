@@ -174,3 +174,27 @@ async def recheck_dataset_write_access(db: AsyncSession, dataset: Any) -> None:
         Record.id == dataset.record_id,
         enforce,
     )
+
+
+RECORD_WRITE_DENIED = "Not authorized to modify this record"
+
+
+async def recheck_record_write_access(db: AsyncSession, record_id: uuid.UUID) -> None:
+    """Re-run the record write guard for the writer it admitted, against the
+    record's owner and the writer's roles as committed now. Call holding the
+    record row."""
+    from app.modules.catalog.datasets.domain.models import Record
+
+    async def enforce(user: Identity, row: Any) -> None:
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+            )
+        if not row.active or (row.created_by != user.id and "admin" not in row.roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=RECORD_WRITE_DENIED
+            )
+
+    await recheck_admitted_writer(
+        db, ("record", record_id), (Record.created_by,), Record.id == record_id, enforce
+    )

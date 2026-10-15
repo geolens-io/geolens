@@ -38,6 +38,7 @@ from app.modules.catalog.sources.origin_probe import (
     probe_service_origin,
     service_probe_target,
 )
+from app.modules.catalog.write_recheck import recheck_dataset_write_access
 from app.observability.metrics.refresh import (
     origin_probe_duration_seconds,
     origin_probe_total,
@@ -286,6 +287,10 @@ async def check_source_health(
     # ChunkedIteratorResult, which has no rowcount — and rows also separate
     # "no match" (empty) from "matched, NULL timestamp" (one row of None).
     returned_rows = outcome.all()
+    if returned_rows:
+        # The UPDATE holds the datasets row, which an ownership transfer takes
+        # before it changes the owner.
+        await recheck_dataset_write_access(db, await get_dataset(db, dataset_id))
     await db.commit()
     if not returned_rows:
         # The row was rebound (or deleted) while the probe was in flight; the

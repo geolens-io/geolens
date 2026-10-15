@@ -27,6 +27,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
     check_vrt_audiences_after_change,
+    lock_dataset_rows_for_write,
 )
 from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
 from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
@@ -213,6 +214,7 @@ async def validate_dataset(
         quality = await get_catalog_port().compute_quality_score(
             db, dataset.table_name, dataset.column_info or [], dataset
         )
+        await lock_dataset_rows_for_write(db, dataset)
         dataset.quality_detail = quality
         await db.commit()
     else:

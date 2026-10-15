@@ -19,7 +19,13 @@ from app.modules.catalog.authorization import (
     visible_derived_from,
 )
 from app.core.dependencies import get_db
+from app.modules.catalog.write_recheck import (
+    RECORD_WRITE_DENIED,
+    admit_writer,
+    recheck_record_write_access,
+)
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.catalog_locks import lock_catalog_rows
 from app.platform.extensions import get_catalog_port
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.records.schemas import (
@@ -82,11 +88,22 @@ _LANGUAGE_PATH = Path(
 
 
 async def _touch_record(db: AsyncSession, record: Record, user: Identity) -> None:
-    """Stamp the parent before child writes, in their transaction."""
+    """Take the record's catalog rows, re-check the writer, then stamp the parent
+    before child writes, in their transaction."""
+    # The parent before any child lock, as a cascading delete takes them.
+    await lock_catalog_rows(
+        db,
+        dataset_cls=Dataset,
+        record_cls=Record,
+        dataset_id=await db.scalar(
+            select(Dataset.id).where(Dataset.record_id == record.id)
+        ),
+        record_id=record.id,
+    )
+    await recheck_record_write_access(db, record.id)
     # Force an UPDATE for the same actor; the trigger supplies monotonic wall time.
     record.updated_at = func.now()
     record.updated_by = user.id
-    # Acquire the parent write lock before a child lock to match cascading delete.
     await db.flush()
 
 
@@ -230,15 +247,12 @@ async def _check_record_ownership(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    if record.created_by == user.id:
-        return record
-    user_roles = await get_user_roles(db, user)
-    if "admin" in user_roles:
-        return record
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Not authorized to modify this record",
-    )
+    if record.created_by != user.id and "admin" not in await get_user_roles(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=RECORD_WRITE_DENIED
+        )
+    admit_writer(db, ("record", record_id), user)
+    return record
 
 
 @router.get(
@@ -274,6 +288,7 @@ async def upsert_translation_endpoint(
     """Create or replace one localized title/summary variant."""
     record = await _check_record_ownership(db, record_id, user)
     normalized_language = normalize_language_tag(language)
+    await _touch_record(db, record, user)
     try:
         translation = await upsert_translation(
             db,
@@ -288,8 +303,6 @@ async def upsert_translation_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
-    record.updated_at = func.now()
-    record.updated_by = user.id
     await db.commit()
     await db.refresh(translation)
     await _propagate_record_write(
@@ -319,9 +332,8 @@ async def delete_translation_endpoint(
     """Delete one localized title/summary variant."""
     record = await _check_record_ownership(db, record_id, user)
     try:
+        await _touch_record(db, record, user)
         await delete_translation(db, record_id, normalize_language_tag(language))
-        record.updated_at = func.now()
-        record.updated_by = user.id
         await db.commit()
     except ValueError:
         raise HTTPException(

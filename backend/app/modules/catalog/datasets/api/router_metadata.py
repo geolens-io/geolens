@@ -29,6 +29,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
+    lock_dataset_rows_for_write,
 )
 from app.modules.catalog.datasets.domain.schemas import (
     AttributeMetadataListResponse,
@@ -492,6 +493,7 @@ async def create_dataset_relationship(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
+    await lock_dataset_rows_for_write(db, dataset)
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
     # fix(#315): FK columns store catalog.records.id, but the response
@@ -538,6 +540,7 @@ async def delete_dataset_relationship(
         db, target_dataset, target_dataset.id, current_user, user_roles=user_roles
     )
 
+    await lock_dataset_rows_for_write(db, source_dataset)
     try:
         await delete_relationship(db, relationship_id)
         await db.commit()
