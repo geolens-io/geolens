@@ -1121,6 +1121,33 @@ def test_read_all_item_data_scans_other_items_for_item_ids(run):
     assert _rows(report)[item]["dependencies_status"] == "parsed"
 
 
+def test_read_all_item_data_scans_array_rooted_data(run):
+    item = "7f" * 16
+    # A bytes body: a list route would be read as replies served in turn.
+    data = json.dumps([{"itemId": B1}, [{"webmap": A1}]]).encode()
+    routes = _one_item(item, "Solution", data=(200, data))
+    result, _ = run(
+        FakePortal(routes), "--scope", "org", "--read-all-item-data", "--strict"
+    )
+    assert result.exit_code == 0, result.output
+    report = _report(result)
+    assert _links(report, item) == {
+        (B1, "referenced_item", None),
+        (A1, "referenced_item", None),
+    }
+    assert _rows(report)[item]["dependencies_status"] == "parsed"
+
+
+def test_array_rooted_app_data_is_still_a_read_failure(run):
+    item = "7f" * 16
+    data = json.dumps([{"itemId": B1}]).encode()
+    routes = _one_item(item, "Dashboard", data=(200, data))
+    result, _ = run(FakePortal(routes), "--scope", "org", "--read-all-item-data")
+    report = _report(result)
+    assert _rows(report)[item]["dependencies_status"] == "error"
+    assert "did not return a JSON object" in report["errors"][0]["message"]
+
+
 def test_read_all_item_data_tolerates_files_and_missing_data(run):
     item = "7f" * 16
     routes = _one_item(item, "CSV", data=(200, b"a,b\n1,2\n"))

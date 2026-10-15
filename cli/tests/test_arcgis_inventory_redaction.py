@@ -391,3 +391,100 @@ def test_password_crossing_the_message_cut_is_redacted(invoke):
     assert result.exit_code == 3
     assert SECRET_PASSWORD[:10] not in texts
     _assert_no_secret(texts)
+
+
+RENEWED_TOKEN = "SENTINEL-renewed-token-9c1e-not-real"
+
+
+def _expiring(routes: dict, token: str, uses: int) -> dict:
+    """Routes that answer 498 to *token* once it has been sent *uses* times."""
+    sent = 0
+    lock = threading.Lock()
+
+    def guard(reply):
+        def handler(seen):
+            nonlocal sent
+            if seen.headers.get(HEADER) == f"Bearer {token}":
+                with lock:
+                    sent += 1
+                    expired = sent > uses
+                if expired:
+                    return {"error": {"code": 498, "message": "Invalid token."}}
+            return reply(seen) if callable(reply) else reply
+
+        return handler
+
+    return {
+        path: reply if path == "generateToken" else guard(reply)
+        for path, reply in routes.items()
+    }
+
+
+def _signed_in(token: str) -> dict:
+    return {**load("generate_token_ok.json"), "token": token}
+
+
+@pytest.mark.parametrize("concurrency", ["1", "4"])
+def test_expired_minted_token_is_renewed_and_the_report_is_complete(
+    invoke, tmp_path, concurrency
+):
+    """A password-minted token that expires mid-run is minted again once,
+    the failed read is retried, and the new token stays out of every output."""
+    echo = {"error": {"code": 403, "message": f"No access with {RENEWED_TOKEN}"}}
+    routes = portal_routes(
+        {
+            "generateToken": [_signed_in(MINTED_TOKEN), _signed_in(RENEWED_TOKEN)],
+            item_data_path(C1): echo,
+        }
+    )
+    portal = FakePortal(_expiring(routes, MINTED_TOKEN, uses=5))
+    result, texts = invoke(
+        portal,
+        "--username",
+        USER,
+        "--concurrency",
+        concurrency,
+        env={"ARCGIS_PASSWORD": SECRET_PASSWORD},
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads((tmp_path / "out" / "arcgis-inventory.json").read_text())
+    assert report["complete"] is True
+    assert report["abort_reason"] is None
+    assert all("498" not in e["message"] for e in report["errors"])
+    assert len(portal.requests_to("generateToken")) == 2
+    sent = [s.headers.get(HEADER) for s in portal.seen if s.path != "generateToken"]
+    assert f"Bearer {RENEWED_TOKEN}" in sent
+    assert "No access with [REDACTED]" in texts
+    assert RENEWED_TOKEN not in texts
+    _assert_no_secret(texts)
+
+
+def test_failed_renewal_stops_the_run_without_another_sign_in(invoke, tmp_path):
+    """A refused re-sign-in keeps the partial report and is never attempted again."""
+    fail = load("generate_token_fail.json")
+    fail["error"]["details"].append(f"password {SECRET_PASSWORD} rejected")
+    routes = portal_routes({"generateToken": [_signed_in(MINTED_TOKEN), fail]})
+    portal = FakePortal(_expiring(routes, MINTED_TOKEN, uses=5))
+    result, texts = invoke(
+        portal,
+        "--username",
+        USER,
+        "--concurrency",
+        "4",
+        env={"ARCGIS_PASSWORD": SECRET_PASSWORD},
+    )
+    assert result.exit_code == 3
+    report = json.loads((tmp_path / "out" / "arcgis-inventory.json").read_text())
+    assert report["complete"] is False
+    assert "498" in report["abort_reason"]
+    assert len(portal.requests_to("generateToken")) == 2
+    _assert_no_secret(texts)
+
+
+def test_supplied_token_is_not_renewed(invoke):
+    """A token the user brings has no password behind it, so a 498 still stops the run."""
+    portal = FakePortal(_expiring(portal_routes(), SECRET_TOKEN, uses=5))
+    result, texts = invoke(portal, "--token", SECRET_TOKEN)
+    assert result.exit_code == 3
+    assert portal.requests_to("generateToken") == []
+    _assert_no_secret(texts)

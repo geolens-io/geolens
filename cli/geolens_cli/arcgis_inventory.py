@@ -223,10 +223,10 @@ class Redactor:
     def add(self, secret: str | None) -> None:
         if not secret:
             return
-        for form in (secret, quote(secret, safe=""), quote_plus(secret)):
-            if form not in self._forms:
-                self._forms.append(form)
-        self._forms.sort(key=len, reverse=True)
+        forms = [*self._forms, secret, quote(secret, safe=""), quote_plus(secret)]
+        # Replaced whole, not sorted in place: a token renewed mid-run is added
+        # while other threads redact, and an in-place sort hides every form.
+        self._forms = sorted(dict.fromkeys(forms), key=len, reverse=True)
 
     def __call__(self, text: str) -> str:
         for form in self._forms:
@@ -520,30 +520,72 @@ class PortalClient:
         self._on_request = on_request
         self._form_token = False
         self._referer: str | None = None
+        self._sign_in: tuple[str, str] | None = None
         self._lock = threading.Lock()
+        self._renew_lock = threading.Lock()
         self._next_slot = 0.0
 
     def _error(self, message: str, **kwargs: Any) -> PortalError:
         return PortalError(self._redact(message), **kwargs)
 
-    def get_json(self, path: str, params: Mapping[str, Any] | None = None) -> dict:
-        """GET ``/sharing/rest/<path>`` as JSON, retrying transient failures.
+    def get_json(
+        self,
+        path: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        array_ok: bool = False,
+    ) -> Any:
+        """GET ``/sharing/rest/<path>`` as a JSON object, retrying transient
+        failures; with *array_ok* a JSON array is returned too.
 
         An error envelope in a 200 body raises ``PortalError``. A 499 "token
         required", as an envelope or an HTTP status, with the header present
         means a pre-10.5.1 server ignored it; from then on the token goes in a
-        POST form field, never the URL.
+        POST form field, never the URL. When the portal rejects a token minted
+        from a password with 498 or 499, a new one is minted and the read is
+        retried once with it.
         """
         query = {**(params or {}), "f": "json"}
         url = f"{self.root}/sharing/rest/{path}"
+        token = self.token
+        try:
+            return self._get_json_sent(path, url, query, array_ok)
+        except PortalError as exc:
+            rejected = exc.http_status in (_TOKEN_INVALID, _TOKEN_REQUIRED)
+            if not rejected or not self._renew_token(token):
+                raise
+        return self._get_json_sent(path, url, query, array_ok)
+
+    def _get_json_sent(
+        self, path: str, url: str, query: dict[str, Any], array_ok: bool
+    ) -> Any:
         sent_as_form = self._form_token
         try:
-            return self._get_json_once(path, url, query)
+            return self._get_json_once(path, url, query, array_ok)
         except PortalError as exc:
             if exc.http_status != _TOKEN_REQUIRED or not self.token or sent_as_form:
                 raise
         self._form_token = True
-        return self._get_json_once(path, url, query)
+        return self._get_json_once(path, url, query, array_ok)
+
+    def _renew_token(self, rejected: str | None) -> bool:
+        """Mint a replacement for the rejected token; False when there is none.
+
+        Reads that saw the same token share one sign-in. A failed sign-in ends
+        renewal for the run, since ArcGIS locks an account after five.
+        """
+        with self._renew_lock:
+            if self.token != rejected:
+                return True
+            if self._sign_in is None:
+                return False
+            username, password = self._sign_in
+            try:
+                self.generate_token(username, password)
+            except PortalError:
+                self._sign_in = None
+                return False
+            return True
 
     def switch_to_form_token(self) -> bool:
         """Send the token as a POST form field from now on; False if it
@@ -553,10 +595,14 @@ class PortalClient:
         self._form_token = True
         return True
 
-    def _get_json_once(self, path: str, url: str, query: dict[str, Any]) -> dict:
+    def _get_json_once(
+        self, path: str, url: str, query: dict[str, Any], array_ok: bool
+    ) -> Any:
         """One read, retrying a transient error envelope like an HTTP status."""
         for attempt in range(1, GET_ATTEMPTS + 1):
-            data = self._read(url, query)
+            data = self._read(url, query, array_ok)
+            if isinstance(data, list):
+                return data
             code = _envelope_code(data)
             if code is None:
                 return data
@@ -567,7 +613,8 @@ class PortalClient:
         raise AssertionError("unreachable")
 
     def generate_token(self, username: str, password: str) -> str:
-        """Mint a 60-minute token bound to the portal origin as its referer.
+        """Mint a 60-minute token bound to the portal origin as its referer,
+        and keep the sign-in in memory to mint its replacement.
 
         Never retried: ArcGIS locks an account after five failed sign-ins in
         fifteen minutes. Every later request sends that referer, since a
@@ -606,9 +653,10 @@ class PortalClient:
         self._redact.add(token)
         self.token = token
         self._referer = referer
+        self._sign_in = (username, password)
         return token
 
-    def _read(self, url: str, query: dict[str, Any]) -> dict:
+    def _read(self, url: str, query: dict[str, Any], array_ok: bool) -> Any:
         headers = {"Referer": self._referer} if self._referer else {}
         if self.token and self._form_token:
             return self._exchange(
@@ -617,11 +665,17 @@ class PortalClient:
                 {**query, "token": self.token},
                 headers,
                 attempts=GET_ATTEMPTS,
+                array_ok=array_ok,
             )
         if self.token:
             headers[ESRI_AUTHORIZATION_HEADER] = f"Bearer {self.token}"
         return self._exchange(
-            "GET", f"{url}?{urlencode(query)}", None, headers, attempts=GET_ATTEMPTS
+            "GET",
+            f"{url}?{urlencode(query)}",
+            None,
+            headers,
+            attempts=GET_ATTEMPTS,
+            array_ok=array_ok,
         )
 
     def _exchange(
@@ -632,7 +686,8 @@ class PortalClient:
         headers: dict[str, str],
         *,
         attempts: int,
-    ) -> dict:
+        array_ok: bool = False,
+    ) -> Any:
         body = urlencode(form).encode() if form is not None else None
         if body is not None:
             headers = {**headers, "Content-Type": "application/x-www-form-urlencoded"}
@@ -655,7 +710,7 @@ class PortalClient:
                 delay = exc.retry_after
                 self._sleep(delay if delay is not None else 0.5 * 2 ** (attempt - 1))
                 continue
-            return self._parse(raw, path)
+            return self._parse(raw, path, array_ok)
         raise AssertionError("unreachable")
 
     def _wait_turn(self) -> None:
@@ -758,16 +813,16 @@ class PortalClient:
             kind="invalid",
         )
 
-    def _parse(self, raw: bytes, path: str) -> dict:
+    def _parse(self, raw: bytes, path: str, array_ok: bool) -> Any:
         if not raw.strip():
             raise self._error(f"{path} returned an empty body", kind="empty")
         try:
             data = json.loads(raw)
         except (ValueError, RecursionError):
             raise self._error(f"{path} did not return JSON", kind="not_json") from None
-        if not isinstance(data, dict):
-            raise self._error(f"{path} did not return a JSON object", kind="invalid")
-        return data
+        if isinstance(data, dict) or (array_ok and isinstance(data, list)):
+            return data
+        raise self._error(f"{path} did not return a JSON object", kind="invalid")
 
     def _envelope_error(self, path: str, data: dict, code: int) -> PortalError:
         message = _envelope_message(data, self._redact) or "no message"
@@ -1602,7 +1657,7 @@ def _collect_dependencies(
         is_map = row["type"] in _MAP_CONFIG_TYPES
         lenient = row["id"] in best_effort
         try:
-            data = client.get_json(path)
+            data = client.get_json(path, array_ok=lenient)
         except PortalError as exc:
             _detach(exc)
             if exc.kind == "auth":

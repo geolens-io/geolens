@@ -169,7 +169,8 @@ Hub sites and pages, Web Scenes, Notebooks and the other app types), mode 0600.
 Before writing, the value under any key named like a credential (`token`,
 `password`, `apiKey`, `secret`, `clientSecret`, `credentials`,
 `customParameters`) becomes `[REDACTED]` at any depth. `--read-all-item-data`
-reads every other item's data too and records any item ids it names. Hosted
+reads every other item's data too, an object or an array, and records any
+item ids it names. Hosted
 views, hosted layers and Survey123 forms also record their source service,
 source file or results service, at one extra request each. A dependency is marked `external` when it
 belongs to another organization, such as Living Atlas content.
@@ -179,9 +180,11 @@ belongs to another organization, such as Living Atlas content.
   credentials only `--scope org` works, and it lists public items.
 - Credentials: an existing token through `ARCGIS_TOKEN`, `--token-stdin` or
   `--token`, or `--username` for a built-in account. The password comes from
-  `ARCGIS_PASSWORD`, `--password-stdin` or a prompt, and is used once to mint
-  a 60-minute token bound to the portal URL as its referer; later requests
-  send that `Referer`. A token you bring is sent without a `Referer`. SAML and
+  `ARCGIS_PASSWORD`, `--password-stdin` or a prompt, and mints a 60-minute
+  token bound to the portal URL as its referer; later requests send that
+  `Referer`. The password stays in memory for the run: when the portal
+  rejects the token as expired, the command mints a new one and retries the
+  failed read. A token you bring is sent without a `Referer`. SAML and
   OpenID Connect accounts need a token. The token travels in the
   `X-Esri-Authorization` header, never in a URL, and is never written to the
   report, the terminal or disk. Redirects are refused.
@@ -197,9 +200,9 @@ belongs to another organization, such as Living Atlas content.
 - Exit codes: 0 when the report is complete, even if some items could not be
   read (they are listed under errors; `--strict` makes that exit 1); 2 for
   usage errors or a redirecting portal; 3 when the token is rejected; 4 for
-  network errors; 5 for portal server errors. If the token expires mid-run,
-  the partial report is still written, marked `"complete": false`; rerun with
-  a fresh token.
+  network errors; 5 for portal server errors. If a token you brought expires
+  mid-run, or a new one can't be minted, the partial report is still written,
+  marked `"complete": false`; rerun with a fresh token.
 
 ### Planning the migration
 
