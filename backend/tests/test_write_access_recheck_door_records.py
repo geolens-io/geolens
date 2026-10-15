@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 import app.modules.auth.permissions as permissions
 from app.modules.catalog.datasets.api.refresh_acceptance import (
@@ -99,6 +99,11 @@ async def test_a_restore_rechecks_the_capability_its_door_recorded(
                 headers=admin_auth_header,
             )
         assert response.status_code == 202, response.text
+        committed = await session.scalar(
+            text("SELECT user_metadata FROM catalog.ingest_jobs WHERE id = :id"),
+            {"id": response.json()["job_id"]},
+        )
+        assert committed[ADMITTED_CAPABILITY_METADATA_KEY] == "edit_metadata"
 
         # The admin's role loses edit_metadata while the restore is queued.
         effective = permissions.get_effective_permissions
@@ -123,3 +128,41 @@ async def test_a_restore_rechecks_the_capability_its_door_recorded(
         assert await _names(session, dataset.table_name) == ["London", "Paris"]
     finally:
         await _cleanup(session, dataset)
+
+
+async def test_the_vrt_add_source_door_commits_upload_on_its_job(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    import app.core.db as db_module
+    from app.platform.jobs.models import IngestJob
+    from tests.test_vrt_source_authz_1172 import (
+        _create_raster_dataset,
+        _create_vrt_dataset,
+        _link_source,
+        _make_editor,
+        _patch_defer,
+    )
+
+    editor_headers, editor_id = await _make_editor(client, admin_auth_header)
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=editor_id)
+    for position in range(2):
+        source_id = await _create_raster_dataset(test_db_session, created_by=editor_id)
+        await _link_source(test_db_session, vrt_id, source_id, position)
+    added = await _create_raster_dataset(test_db_session, created_by=editor_id)
+
+    p_create, p_regen = _patch_defer()
+    with p_create, p_regen:
+        resp = await client.post(
+            f"/ingest/vrt/{vrt_id}/sources/",
+            json={"source_dataset_id": str(added)},
+            headers=editor_headers,
+        )
+    assert resp.status_code == 202, resp.text
+
+    async with db_module.async_session() as session:
+        metadata = await session.scalar(
+            select(IngestJob.user_metadata).where(
+                IngestJob.id == uuid.UUID(resp.json()["job_id"])
+            )
+        )
+    assert metadata[ADMITTED_CAPABILITY_METADATA_KEY] == "upload"
