@@ -1,4 +1,4 @@
-import { render, screen, within } from '@/test/test-utils';
+import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ImportMetadataForm } from '../ImportMetadataForm';
 
@@ -140,8 +140,8 @@ describe('ImportMetadataForm', () => {
         detectedGeometryColumns={detectedLatLng}
       />,
     );
-    expect(screen.getByLabelText('metadata.xColumn')).toHaveValue('Longitude');
-    expect(screen.getByLabelText('metadata.yColumn')).toHaveValue('Latitude');
+    expect(screen.getByLabelText('metadata.xColumn')).toHaveTextContent('Longitude');
+    expect(screen.getByLabelText('metadata.yColumn')).toHaveTextContent('Latitude');
   });
 
   it('disables dropdowns in auto mode', () => {
@@ -180,7 +180,7 @@ describe('ImportMetadataForm', () => {
         detectedGeometryColumns={detectedWkt}
       />,
     );
-    expect(screen.getByLabelText('metadata.wktColumn')).toHaveValue('wkt');
+    expect(screen.getByLabelText('metadata.wktColumn')).toHaveTextContent('wkt');
   });
 
   // ---------------------------------------------------------------------------
@@ -341,7 +341,8 @@ describe('ImportMetadataForm', () => {
     await selectGeomMode(user, 'metadata.manualOverride');
 
     // Change x column to id (numeric)
-    await user.selectOptions(screen.getByLabelText('metadata.xColumn'), 'id');
+    await user.click(screen.getByLabelText('metadata.xColumn'));
+    await user.click(await screen.findByRole('option', { name: 'id' }));
 
     await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
 
@@ -414,8 +415,8 @@ describe('ImportMetadataForm', () => {
     // Mode is 'none' because no columns were detected — switch to manual to reveal dropdowns.
     await selectGeomMode(user, 'metadata.manualOverride');
 
-    const xSelect = screen.getByLabelText('metadata.xColumn');
-    const options = within(xSelect).getAllByRole('option').map((o) => (o as HTMLOptionElement).value);
+    await user.click(screen.getByLabelText('metadata.xColumn'));
+    const options = (await screen.findAllByRole('option')).map((o) => o.textContent);
     // Numeric columns (Integer, Real) should be present
     expect(options).toContain('id');
     expect(options).toContain('Latitude');
@@ -440,10 +441,9 @@ describe('ImportMetadataForm', () => {
     // Switch to WKT type
     await user.click(screen.getByRole('radio', { name: 'metadata.wkt' }));
 
-    const wktSelect = screen.getByLabelText('metadata.wktColumn');
-    const options = within(wktSelect).getAllByRole('option');
+    await user.click(screen.getByLabelText('metadata.wktColumn'));
     // Should have: --, name, wkt (string columns + placeholder)
-    const optionValues = options.map((o) => (o as HTMLOptionElement).value);
+    const optionValues = (await screen.findAllByRole('option')).map((o) => o.textContent);
     expect(optionValues).toContain('name');
     expect(optionValues).toContain('wkt');
     expect(optionValues).not.toContain('id');
@@ -539,7 +539,7 @@ describe('ImportMetadataForm', () => {
       expect(screen.getByLabelText('metadata.nameLabel')).toHaveValue('Edited roads');
       expect(screen.getByLabelText('metadata.descriptionLabel')).toHaveValue('Survey notes');
       expect(screen.getByLabelText('metadata.crsLabel')).toHaveValue(3857);
-      expect(screen.getByLabelText('metadata.xColumn')).toHaveValue('id');
+      expect(screen.getByLabelText('metadata.xColumn')).toHaveTextContent('id');
       await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
       expect(onCommit).toHaveBeenCalledWith(attempted);
     });

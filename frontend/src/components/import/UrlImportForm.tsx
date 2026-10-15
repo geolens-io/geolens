@@ -25,6 +25,7 @@ import { JobProgress } from './JobProgress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type UrlStep =
   | 'idle'
@@ -511,19 +512,18 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
         {fp && (fp.layers?.length ?? 0) > 1 && (
           <div className="space-y-2">
             <Label htmlFor="url-import-layer">{t('urlImport.layerLabel')}</Label>
-            <select
-              id="url-import-layer"
-              value={fp.layer_name}
-              onChange={(e) => handleLayerChange(e.target.value)}
-              disabled={commitInFlight}
-              className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 text-sm disabled:opacity-60"
-            >
-              {fp.layers?.map((layer) => (
-                <option key={layer.name} value={layer.name}>
-                  {layer.name}
-                </option>
-              ))}
-            </select>
+            <Select value={fp.layer_name} onValueChange={handleLayerChange} disabled={commitInFlight}>
+              <SelectTrigger id="url-import-layer" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {fp.layers?.map((layer) => (
+                  <SelectItem key={layer.name} value={layer.name}>
+                    {layer.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}

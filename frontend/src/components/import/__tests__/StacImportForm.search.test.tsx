@@ -393,7 +393,7 @@ describe('StacImportForm while a filtered search is pending', () => {
     const applied = await startPendingApply(user);
 
     expect(screen.getByRole('button', { name: /stac.importItems/ })).toBeDisabled();
-    expect((screen.getAllByRole('checkbox')[1] as HTMLInputElement).checked).toBe(true);
+    expect(screen.getAllByRole('checkbox')[1]).toHaveAttribute('aria-checked', 'true');
     applied.resolve(page(['filtered']));
     await waitFor(() => screen.getByText('filtered'));
   });
@@ -461,9 +461,9 @@ describe('StacImportForm selection cap', () => {
     await user.click(screen.getAllByRole('checkbox')[0]);
 
     const boxes = screen.getAllByRole('checkbox').slice(1);
-    expect(boxes.filter((b) => (b as HTMLInputElement).checked)).toHaveLength(50);
-    expect((boxes[55] as HTMLInputElement).disabled).toBe(true);
-    expect((boxes[0] as HTMLInputElement).disabled).toBe(false);
+    expect(boxes.filter((b) => b.getAttribute('aria-checked') === 'true')).toHaveLength(50);
+    expect(boxes[55]).toBeDisabled();
+    expect(boxes[0]).toBeEnabled();
     expect(screen.getByTestId('stac-selection-limit')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /stac.importItems/ })).toBeEnabled();
   });
@@ -475,7 +475,7 @@ describe('StacImportForm selection cap', () => {
     await user.click(screen.getAllByRole('checkbox')[1]);
 
     const boxes = screen.getAllByRole('checkbox').slice(1);
-    expect(boxes.filter((b) => (b as HTMLInputElement).checked)).toHaveLength(49);
-    expect((boxes[55] as HTMLInputElement).disabled).toBe(false);
+    expect(boxes.filter((b) => b.getAttribute('aria-checked') === 'true')).toHaveLength(49);
+    expect(boxes[55]).toBeEnabled();
   });
 });

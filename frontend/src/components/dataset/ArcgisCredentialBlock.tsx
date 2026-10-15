@@ -5,6 +5,7 @@ import { arcgisSignIn } from '@/api/arcgis-signin';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type ArcgisAuthMethod = 'none' | 'token' | 'signin';
 
@@ -312,17 +313,16 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
         <Label htmlFor="arcgis-credential-method">
           {t('sourcePanel.refresh.credential.arcgis.methodLabel')}
         </Label>
-        <select
-          id="arcgis-credential-method"
-          value={method}
-          onChange={(event) => handleMethodChange(event.target.value)}
-          disabled={fieldsDisabled}
-          className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 text-sm disabled:opacity-60"
-        >
-          <option value="none">{t('sourcePanel.refresh.credential.arcgis.methodNone')}</option>
-          <option value="token">{t('sourcePanel.refresh.credential.arcgis.methodToken')}</option>
-          <option value="signin">{t('sourcePanel.refresh.credential.arcgis.methodSignIn')}</option>
-        </select>
+        <Select value={method} onValueChange={handleMethodChange} disabled={fieldsDisabled}>
+          <SelectTrigger id="arcgis-credential-method" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">{t('sourcePanel.refresh.credential.arcgis.methodNone')}</SelectItem>
+            <SelectItem value="token">{t('sourcePanel.refresh.credential.arcgis.methodToken')}</SelectItem>
+            <SelectItem value="signin">{t('sourcePanel.refresh.credential.arcgis.methodSignIn')}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {method === 'token' && (

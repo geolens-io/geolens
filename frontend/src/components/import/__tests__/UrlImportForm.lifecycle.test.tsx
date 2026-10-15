@@ -147,6 +147,14 @@ const RASTER_PREVIEW = {
   file_size_bytes: 1,
 };
 
+// Radix Select needs these pointer/scroll APIs, which jsdom lacks.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   clearUrlImport();
@@ -227,12 +235,13 @@ describe('URL import lifecycle', () => {
   // that never reached React.
   test('review + layer change re-previews the chosen layer', async () => {
     render(<UrlImportForm />);
-    await driveToReview(MULTI_LAYER_PREVIEW, 'job-m');
+    const user = await driveToReview(MULTI_LAYER_PREVIEW, 'job-m');
     expect(mockPreviewFile).toHaveBeenCalledTimes(1);
 
     const select = screen.getByLabelText('urlImport.layerLabel');
     expect(select).toBeEnabled();
-    fireEvent.change(select, { target: { value: 'layer_b' } });
+    await user.click(select);
+    await user.click(await screen.findByRole('option', { name: 'layer_b' }));
 
     await waitFor(() =>
       expect(mockPreviewFile).toHaveBeenLastCalledWith('job-m', 'layer_b'),
@@ -261,8 +270,9 @@ describe('URL import lifecycle', () => {
     // Belt: the control is disabled while the commit is in flight.
     expect(select).toBeDisabled();
 
-    // Braces: firing the event anyway must not re-enter preview.
-    fireEvent.change(select, { target: { value: 'layer_b' } });
+    // Braces: the disabled picker must not open, so no layer can be chosen.
+    fireEvent.keyDown(select, { key: 'ArrowDown' });
+    expect(screen.queryByRole('option', { name: 'layer_b' })).not.toBeInTheDocument();
 
     // Still committing — no re-preview, and the controls that a bounce
     // through `review` would have re-enabled are all still shut.

@@ -7,6 +7,7 @@ import {
   getRampColors,
   cvdSafeRamps,
 } from '@/lib/color-ramps';
+import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 
 interface RampEntry {
@@ -42,22 +43,20 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors, count,
       {/* Reverse + CVD-safe toggles */}
       <div className="flex items-center gap-3 px-0.5">
         <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={reversed}
-            onChange={(e) => onReversedChange?.(e.target.checked)}
-            className="h-3 w-3 rounded-sm border-border accent-primary"
+            onCheckedChange={(checked) => onReversedChange?.(checked === true)}
+            className="size-3.5 rounded-sm [&_svg]:size-2.5"
             aria-label={t('dataDriven.reverseRamp')}
             data-testid="reverse-ramp-toggle"
           />
           <span className="text-2xs text-muted-foreground">{t('dataDriven.reverseRamp')}</span>
         </label>
         <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={cvdOnly}
-            onChange={(e) => setCvdOnly(e.target.checked)}
-            className="h-3 w-3 rounded-sm border-border accent-primary"
+            onCheckedChange={(checked) => setCvdOnly(checked === true)}
+            className="size-3.5 rounded-sm [&_svg]:size-2.5"
             aria-label={t('dataDriven.cvdSafeOnly')}
             data-testid="cvd-safe-toggle"
           />

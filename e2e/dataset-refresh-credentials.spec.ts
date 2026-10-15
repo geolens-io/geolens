@@ -166,7 +166,8 @@ test.describe('Refresh-door credential prompt on service_token_required', () => 
 
     await openRefreshDialogAndSubmit(page);
 
-    await page.getByLabel('Authentication', { exact: true }).selectOption('basic');
+    await page.getByLabel('Authentication', { exact: true }).click();
+    await page.getByRole('option', { name: 'Username and password', exact: true }).click();
     await page.getByLabel('Username', { exact: true }).fill('e2e-user');
     await page.getByLabel('Password', { exact: true }).fill('e2e-password');
     await page.getByRole('button', { name: 'Start refresh' }).click();
@@ -231,7 +232,8 @@ test.describe('Refresh-door credential prompt on service_token_required', () => 
 
     await openRefreshDialogAndSubmit(page);
 
-    await page.getByLabel('Authentication method').selectOption('signin');
+    await page.getByLabel('Authentication method').click();
+    await page.getByRole('option', { name: 'Sign in with username and password' }).click();
     await page.getByLabel('Portal URL').fill('https://myorg.maps.arcgis.com');
     await page.getByLabel('Username').fill('alice');
     await page.getByLabel('Password').fill('hunter2');

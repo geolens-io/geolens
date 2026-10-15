@@ -47,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 
 // feat(#1764): the four-way choice the backend's CredentialMethod enum names.
 // A copy rather than a shared component, matching ServiceCredentialBlock's
@@ -1087,12 +1088,7 @@ export function StacImportForm() {
         >
           <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={toggleAll}
-                className="rounded-sm border-border"
-              />
+              <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
               {selectedItems.size > 0
                 ? t('stac.selectedCount', { selected: selectedItems.size, total: selectableItems.length })
                 : t('stac.itemCount', { count: items.length })}
@@ -1144,13 +1140,12 @@ export function StacImportForm() {
                   isSelected && 'bg-primary/5',
                 )}
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={isSelected}
                   disabled={!availability.importable || (atSelectionCap && !isSelected)}
                   aria-describedby={availability.importable ? undefined : reasonId}
-                  onChange={() => toggleItem(item.id)}
-                  className="rounded-sm border-border shrink-0"
+                  onCheckedChange={() => toggleItem(item.id)}
+                  className="shrink-0"
                 />
 
                 {/* Thumbnail */}

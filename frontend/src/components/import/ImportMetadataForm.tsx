@@ -38,6 +38,9 @@ interface ImportMetadataFormProps {
 
 // fix(#927/#929): no `restricted` — see RegisterForm. Visibility is now
 // private/public at import time, and the dataset Access tab owns changing it.
+// Radix Select cannot hold an empty-string value, so "no column" is a sentinel.
+const NO_COLUMN = '__none__';
+
 const VISIBILITY_OPTIONS = [
   { value: 'private', labelKey: 'metadata.visibilityPrivate' },
   { value: 'public', labelKey: 'metadata.visibilityPublic' },
@@ -348,45 +351,45 @@ export function ImportMetadataForm({
                         <Label htmlFor={fieldId('x-column')}>
                           {t('metadata.xColumn')}
                         </Label>
-                        {/* fix(#438): DS-08 exception — the X/Y/WKT column
-                            pickers stay native: they carry an empty-string
-                            placeholder option, which Radix Select cannot
-                            represent without sentinel plumbing, and they sit in a
-                            dense keyboard-driven metadata grid where the native
-                            control is defensible. */}
-                        <select
-                          id={fieldId('x-column')}
-                          value={xColumn}
-                          onChange={(e) => setXColumn(e.target.value)}
+                        <Select
+                          value={xColumn || NO_COLUMN}
+                          onValueChange={(v) => setXColumn(v === NO_COLUMN ? '' : v)}
                           disabled={geomMode === 'auto'}
-                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
                         >
-                          <option value="">--</option>
-                          {numericColumns.map((c) => (
-                            <option key={c.name} value={c.name}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger id={fieldId('x-column')} className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NO_COLUMN}>--</SelectItem>
+                            {numericColumns.map((c) => (
+                              <SelectItem key={c.name} value={c.name}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-1">
                         <Label htmlFor={fieldId('y-column')}>
                           {t('metadata.yColumn')}
                         </Label>
-                        <select
-                          id={fieldId('y-column')}
-                          value={yColumn}
-                          onChange={(e) => setYColumn(e.target.value)}
+                        <Select
+                          value={yColumn || NO_COLUMN}
+                          onValueChange={(v) => setYColumn(v === NO_COLUMN ? '' : v)}
                           disabled={geomMode === 'auto'}
-                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
                         >
-                          <option value="">--</option>
-                          {numericColumns.map((c) => (
-                            <option key={c.name} value={c.name}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger id={fieldId('y-column')} className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NO_COLUMN}>--</SelectItem>
+                            {numericColumns.map((c) => (
+                              <SelectItem key={c.name} value={c.name}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   ) : (
@@ -394,20 +397,23 @@ export function ImportMetadataForm({
                       <Label htmlFor={fieldId('wkt-column')}>
                         {t('metadata.wktColumn')}
                       </Label>
-                      <select
-                        id={fieldId('wkt-column')}
-                        value={wktColumn}
-                        onChange={(e) => setWktColumn(e.target.value)}
+                      <Select
+                        value={wktColumn || NO_COLUMN}
+                        onValueChange={(v) => setWktColumn(v === NO_COLUMN ? '' : v)}
                         disabled={geomMode === 'auto'}
-                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
                       >
-                        <option value="">--</option>
-                        {stringColumns.map((c) => (
-                          <option key={c.name} value={c.name}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger id={fieldId('wkt-column')} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NO_COLUMN}>--</SelectItem>
+                          {stringColumns.map((c) => (
+                            <SelectItem key={c.name} value={c.name}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
                 </>

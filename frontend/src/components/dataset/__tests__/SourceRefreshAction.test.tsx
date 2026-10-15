@@ -9,6 +9,23 @@ import { REFRESHABLE_ORIGINS, SourceRefreshAction } from '../SourceRefreshAction
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import type { DatasetResponse } from '@/types/api';
 
+// Radix Select needs these pointer/scroll APIs, which jsdom lacks.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
+async function chooseOption(
+  user: ReturnType<typeof userEvent.setup>,
+  trigger: HTMLElement,
+  name: string,
+) {
+  await user.click(trigger);
+  await user.click(await screen.findByRole('option', { name }));
+}
+
 // fix(#1285 codex round 4): SourceRefreshAction no longer owns run-tracking
 // (that moved to useDatasetRefreshWatch, mounted at the page level so it
 // survives a tab switch away from "sources" — see use-dataset.ts). This
@@ -153,7 +170,7 @@ describe('SourceRefreshAction', () => {
     render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
-    await user.selectOptions(screen.getByLabelText('Authentication'), 'Bearer token');
+    await chooseOption(user, screen.getByLabelText('Authentication'), 'Bearer token');
 
     const input = screen.getByLabelText('Bearer token');
     expect(input).toHaveAttribute('autocomplete', 'new-password');
@@ -212,7 +229,7 @@ describe('SourceRefreshAction', () => {
 
     await openDialog(user);
     const secretToken = 'super-secret-token-value';
-    await user.selectOptions(screen.getByLabelText('Authentication'), 'Bearer token');
+    await chooseOption(user, screen.getByLabelText('Authentication'), 'Bearer token');
     await user.type(screen.getByLabelText('Bearer token'), secretToken);
     await user.click(screen.getByRole('button', { name: 'Start refresh' }));
 
@@ -238,7 +255,7 @@ describe('SourceRefreshAction', () => {
     // hidden by the dialog closing (and by ServiceCredentialBlock's own
     // remount, since Radix unmounts DialogContent on close).
     await openDialog(user);
-    expect(screen.getByLabelText('Authentication')).toHaveValue('none');
+    expect(screen.getByLabelText('Authentication')).toHaveTextContent('No authentication');
   });
 
   it('clears a blocked-run acceptance after its retry is queued', async () => {
@@ -366,14 +383,14 @@ describe('SourceRefreshAction', () => {
     render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
-    await user.selectOptions(screen.getByLabelText('Authentication'), 'Bearer token');
+    await chooseOption(user, screen.getByLabelText('Authentication'), 'Bearer token');
     await user.type(screen.getByLabelText('Bearer token'), 'abandoned-token');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(mutateAsync).not.toHaveBeenCalled();
     expect(trackDispatchedRun).not.toHaveBeenCalled();
     await openDialog(user);
-    expect(screen.getByLabelText('Authentication')).toHaveValue('none');
+    expect(screen.getByLabelText('Authentication')).toHaveTextContent('No authentication');
   });
 
   // fix(#1834 round 1 P2): `serviceAuth` used to be cleared unconditionally
@@ -401,7 +418,7 @@ describe('SourceRefreshAction', () => {
     render(<SourceRefreshAction dataset={makeDataset({ source_format: 'wfs' })} watch={makeWatch()} />);
 
     await openDialog(user);
-    await user.selectOptions(screen.getByLabelText('Authentication'), 'Username and password');
+    await chooseOption(user, screen.getByLabelText('Authentication'), 'Username and password');
     await user.type(screen.getByLabelText('Username', { exact: true }), 'alice');
     await user.type(screen.getByLabelText('Password', { exact: true }), 'hunter2');
     await user.click(screen.getByRole('button', { name: 'Start refresh' }));
@@ -815,7 +832,7 @@ describe('SourceRefreshAction', () => {
         'This source refused the refresh outright because it needs a credential. Send it again below.',
       );
 
-      await user.selectOptions(screen.getByLabelText('Authentication'), 'Bearer token');
+      await chooseOption(user, screen.getByLabelText('Authentication'), 'Bearer token');
       await user.type(screen.getByLabelText('Bearer token'), 'fresh-bearer-token');
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
 
@@ -855,7 +872,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
 
       await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
       await user.type(screen.getByLabelText('Username'), 'alice');
@@ -899,7 +916,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       const usernameInput = screen.getByLabelText('Username');
       const signInButton = screen.getByRole('button', { name: 'Sign in' });
 
@@ -952,7 +969,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
@@ -971,7 +988,7 @@ describe('SourceRefreshAction', () => {
       });
       // Still offering the sign-in method -- not reset to the taxonomy's
       // default -- but with nothing left to submit.
-      expect(screen.getByLabelText('Authentication method')).toHaveValue('signin');
+      expect(screen.getByLabelText('Authentication method')).toHaveTextContent('Sign in with username and password');
 
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       await waitFor(() => {
@@ -993,7 +1010,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'wrong-password');
@@ -1030,7 +1047,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'wrong-password');
@@ -1083,7 +1100,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
@@ -1119,7 +1136,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       await user.type(screen.getByLabelText('Portal URL'), 'not-a-url');
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
@@ -1155,7 +1172,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
@@ -1198,7 +1215,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
@@ -1236,7 +1253,7 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       const methodSelect = await screen.findByLabelText('Authentication method');
-      await user.selectOptions(methodSelect, 'signin');
+      await chooseOption(user, methodSelect, 'Sign in with username and password');
       await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
@@ -1273,7 +1290,7 @@ describe('SourceRefreshAction', () => {
         await openDialog(user);
         await user.click(screen.getByRole('button', { name: 'Start refresh' }));
         const methodSelect = await screen.findByLabelText('Authentication method');
-        await user.selectOptions(methodSelect, 'signin');
+        await chooseOption(user, methodSelect, 'Sign in with username and password');
         await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
         await user.type(screen.getByLabelText('Username'), 'alice');
         await user.type(screen.getByLabelText('Password'), 'hunter2');
