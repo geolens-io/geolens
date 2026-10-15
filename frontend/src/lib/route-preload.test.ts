@@ -51,7 +51,13 @@ describe('preloadMatchedRoutes behind guards', () => {
             { path: 'settings', handle: preload(load) },
             {
               handle: requires('admin'),
-              children: [{ path: 'admin/users', handle: preload(load) }],
+              children: [
+                { path: 'admin/users', handle: preload(load) },
+                {
+                  handle: requires('capability'),
+                  children: [{ path: 'admin/settings', handle: preload(load) }],
+                },
+              ],
             },
           ],
         },
@@ -84,6 +90,12 @@ describe('preloadMatchedRoutes behind guards', () => {
     signIn(['viewer']);
     preloadMatchedRoutes(guarded, { pathname: '/settings' });
     expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips a capability-gated path even for an admin', () => {
+    signIn(['admin']);
+    preloadMatchedRoutes(guarded, { pathname: '/admin/settings' });
+    expect(load).not.toHaveBeenCalled();
   });
 
   it('starts an admin path for an admin', () => {

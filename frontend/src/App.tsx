@@ -172,20 +172,20 @@ export const appRoutes = (
           <Route element={<AdminRoute />} handle={requires('admin')} errorElement={<RouteErrorBoundary />}>
             <Route element={<AdminLayout />} errorElement={<RouteErrorBoundary />}>
             <Route path="admin" element={<AdminIndexRoute />} />
-            <Route element={<AdminCapabilityRoute capability="manage_users" />}>
+            <Route element={<AdminCapabilityRoute capability="manage_users" />} handle={requires('capability')}>
               <Route path="admin/overview" element={<AdminOverviewPage />} handle={preload(loadAdminOverviewPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/users" element={<AdminUsersPage />} handle={preload(loadAdminUsersPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/jobs" element={<AdminJobsPage />} handle={preload(loadAdminJobsPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/shared-maps" element={<AdminSharedMapsPage />} handle={preload(loadAdminSharedMapsPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
-            <Route element={<AdminCapabilityRoute capability="manage_settings" />}>
+            <Route element={<AdminCapabilityRoute capability="manage_settings" />} handle={requires('capability')}>
               <Route path="admin/audit" element={<AdminAuditPage />} handle={preload(loadAdminAuditPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
             {/* fix(#817): the settings and config-ops APIs flip to
                 manage_tenants in multi-tenant mode, so their routes gate
                 mode-aware — plain manage_settings admitted per-tenant admins
                 whose every settings request 403s. */}
-            <Route element={<AdminSettingsRoute />}>
+            <Route element={<AdminSettingsRoute />} handle={requires('capability')}>
               {/* Settings — each tab is its own route */}
               <Route path="admin/settings" element={<Navigate to="/admin/settings/general" replace />} />
               <Route path="admin/settings/:tab" element={<AdminSettingsPage />} handle={preload(loadAdminSettingsPage)} errorElement={<RouteErrorBoundary />} />

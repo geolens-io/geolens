@@ -1,7 +1,9 @@
 import { matchRoutes, type RouteObject } from 'react-router';
 import { useAuthStore } from '@/stores/auth-store';
 
-type Access = 'user' | 'editor' | 'admin';
+// 'capability' marks a guard that depends on server-side permissions, which
+// the persisted state cannot answer, so its subtree is never preloaded.
+type Access = 'user' | 'editor' | 'admin' | 'capability';
 
 interface PreloadHandle {
   preload?: () => Promise<unknown>;
@@ -26,7 +28,7 @@ function asHandle(handle: unknown): PreloadHandle {
 // what a reload restores before the refresh returns.
 function persistedUserHolds(access: Access): boolean {
   const { user, sessionId } = useAuthStore.getState();
-  if (!user || !sessionId) return false;
+  if (access === 'capability' || !user || !sessionId) return false;
   if (access === 'user') return true;
   if (access === 'admin') return user.roles.includes('admin');
   return user.roles.includes('admin') || user.roles.includes('editor');
