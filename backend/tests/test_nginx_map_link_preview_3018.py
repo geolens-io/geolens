@@ -142,4 +142,5 @@ def test_preview_failures_fall_back_to_the_spa_shell() -> None:
     error_page = re.search(r"error_page ([\d ]+) = /index\.html;", own)
     assert error_page is not None
     codes = set(error_page.group(1).split())
-    assert {"404", "422", "500", "502", "503", "504"} <= codes
+    # 429 comes from the api's global rate limiter, 401/403 from auth middleware.
+    assert {"401", "403", "404", "422", "429", "500", "502", "503", "504"} <= codes
