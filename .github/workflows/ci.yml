@@ -1624,6 +1624,26 @@ jobs:
             tests/test_manifest_apply_roundtrip.py \
             tests/test_layering.py
 
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        if: matrix.shard == 1
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: TypeScript SDK round trip against the in-process API
+        # The shards skip the Node-driven tests because nothing builds
+        # sdks/typescript/dist for them. Build it here, in one shard, and fail
+        # rather than skip if Node, dist or uvicorn is missing.
+        if: matrix.shard == 1
+        env:
+          GEOLENS_REQUIRE_TS_SDK: "1"
+          NPM_CONFIG_FETCH_TIMEOUT: "30000"
+          NPM_CONFIG_FETCH_RETRIES: "2"
+        run: |
+          (cd ../sdks/typescript && npm ci && npm run build)
+          uv run pytest -v tests/test_sdks_round_trip.py -k typescript
+
       - name: List this shard's tests
         # Compared with the full collection by the coverage job, so a test file
         # no shard picks up (or two shards both pick up) fails the build.

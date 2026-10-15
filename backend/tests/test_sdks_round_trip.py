@@ -1777,6 +1777,17 @@ async def test_typescript_round_trip(
 # ------------------- Ingest and PNG round trips (TypeScript) -------------------
 
 
+@pytest.mark.skipif(
+    not os.environ.get("GEOLENS_REQUIRE_TS_SDK"),
+    reason="CI sets GEOLENS_REQUIRE_TS_SDK where the TypeScript tests must run",
+)
+def test_typescript_round_trip_prerequisites_are_present() -> None:
+    """Where CI requires the TypeScript tests, a missing prerequisite fails."""
+    assert _NODE_AVAILABLE, "node is not on PATH"
+    assert _TS_SDK_BUILT, "sdks/typescript/dist/index.js is not built"
+    assert _UVICORN_AVAILABLE, "uvicorn is not installed"
+
+
 def _needs_typescript_sdk(test):
     for mark in (
         pytest.mark.skipif(not _NODE_AVAILABLE, reason="node not available"),
