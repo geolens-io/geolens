@@ -457,6 +457,8 @@ _LOGGING_MUTATED_LOGGERS = (
     "uvicorn.access",
     "httpx",
     "httpcore",
+    "httpx2",
+    "httpcore2",
 )
 
 

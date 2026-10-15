@@ -377,26 +377,29 @@ def _redact_items(items: Any, _depth: int) -> dict:
     }
 
 
-def apply_http_logger_levels(root_level: int | str) -> None:
-    """Keep httpx/httpcore at least as quiet as WARNING, never quieter than root.
+HTTP_CLIENT_LOGGERS = ("httpx", "httpcore", "httpx2", "httpcore2")
 
-    fix(#1746): httpx (and httpcore) logs the full request URL at INFO on
-    every call, including `?token=...` on the ArcGIS path. Root defaults to
-    INFO, so WARNING drops the routine per-request echo while keeping
-    connection failures visible; the `event`-string scrub in
+
+def apply_http_logger_levels(root_level: int | str) -> None:
+    """Hold the HTTP client loggers at WARNING, or at root when root is stricter.
+
+    httpx and httpx2 (and their httpcore transports) log the full request URL
+    at INFO on every call, including `?token=...` on the ArcGIS path. Root
+    defaults to INFO, so WARNING drops the routine per-request echo while
+    keeping connection failures visible; the `event`-string scrub in
     `_redact_sensitive_fields` backstops whatever still gets through.
 
-    fix(#1746): a FIXED WARNING reverses itself once root is raised
-    past it, since `Logger.isEnabledFor` uses the logger's own explicit level
-    and never re-derives from root -- `LOG_LEVEL=ERROR` left httpx sitting at
+    A FIXED WARNING would reverse itself once root is raised past it, since
+    `Logger.isEnabledFor` uses the logger's own explicit level and never
+    re-derives from root: `LOG_LEVEL=ERROR` would leave these loggers at
     WARNING, MORE verbose than asked. Deriving from whichever level is
-    stricter makes WARNING a floor: quieter than WARNING, httpx follows root;
-    noisier, httpx stays at WARNING.
+    stricter makes WARNING a floor: quieter than WARNING, they follow root;
+    noisier, they stay at WARNING.
     """
     if isinstance(root_level, str):
         root_level = logging.getLevelName(root_level.upper())
     level = max(logging.WARNING, root_level)
-    for _log in ("httpx", "httpcore"):
+    for _log in HTTP_CLIENT_LOGGERS:
         logging.getLogger(_log).setLevel(level)
 
 

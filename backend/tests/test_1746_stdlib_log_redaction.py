@@ -443,8 +443,8 @@ def test_setup_logging_derives_httpx_floor_from_root(log_level, expected_httpx_l
     root laxer than WARNING (INFO, DEBUG) leaves httpx pinned at WARNING.
     """
     with configured_logging(json_logs=False, log_level=log_level):
-        assert logging.getLogger("httpx").level == expected_httpx_level
-        assert logging.getLogger("httpcore").level == expected_httpx_level
+        for name in ("httpx", "httpcore", "httpx2", "httpcore2"):
+            assert logging.getLogger(name).level == expected_httpx_level, name
 
 
 def test_redact_token_value_repr_stays_linear_on_unterminated_input():

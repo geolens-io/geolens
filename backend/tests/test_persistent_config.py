@@ -367,13 +367,13 @@ async def test_log_level_side_effect_raises_httpx_floor_too(client: AsyncClient)
         async for db in app.dependency_overrides[get_db]():
             await LOG_LEVEL.set(db, "CRITICAL")
             assert logging.getLogger().level == logging.CRITICAL
-            assert logging.getLogger("httpx").level == logging.CRITICAL
-            assert logging.getLogger("httpcore").level == logging.CRITICAL
+            for name in ("httpx", "httpcore", "httpx2", "httpcore2"):
+                assert logging.getLogger(name).level == logging.CRITICAL, name
 
             # Dropping back below WARNING restores the WARNING floor.
             await LOG_LEVEL.set(db, "INFO")
-            assert logging.getLogger("httpx").level == logging.WARNING
-            assert logging.getLogger("httpcore").level == logging.WARNING
+            for name in ("httpx", "httpcore", "httpx2", "httpcore2"):
+                assert logging.getLogger(name).level == logging.WARNING, name
     finally:
         logging.getLogger().setLevel(original_level)
 

@@ -401,8 +401,8 @@ class _LogLevelConfig(PersistentConfig[str]):
 
     def _on_change(self, value: str) -> None:
         logging.getLogger().setLevel(value.upper())
-        # fix(#1746): keep httpx/httpcore's WARNING floor correct after a
-        # runtime log-level change too — see apply_http_logger_levels().
+        # A runtime change moves the HTTP client loggers' floor too; see
+        # apply_http_logger_levels().
         apply_http_logger_levels(value.upper())
 
 
