@@ -32,6 +32,7 @@ from app.processing.ai.llm_loop import (
     resolve_provider,
     safe_stream_error_message,
 )
+from app.processing.ai.openai_request import create_chat_completion
 from app.processing.ai.schemas import ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import AITokenUsage, record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, select_chat_tools
@@ -407,6 +408,7 @@ async def _stream_openai_chat(
     model: str,
     history: list[dict] | None = None,
     client,
+    base_url: str | None = None,
     port: "ProcessingPort",
     map_id: str | None = None,
     tools: list | None = None,
@@ -483,7 +485,9 @@ async def _stream_openai_chat(
             for t in (CHAT_TOOLS_ANTHROPIC if tools is None else tools)
         ]
         await release_connection(session)
-        response_stream = await client.chat.completions.create(
+        response_stream = await create_chat_completion(
+            client.chat.completions.create,
+            base_url=base_url,
             model=model,
             max_tokens=4096,
             temperature=0.3,

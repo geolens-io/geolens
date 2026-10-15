@@ -50,7 +50,7 @@ def _sanitized_failure(exc: Exception) -> tuple[int | None, str]:
 
 
 async def _probe_chat(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
-    """One-token completion through the SELECTED chat provider extension.
+    """Minimal completion through the SELECTED chat provider extension.
 
     Dispatches via ``get_ai_provider(name).complete(...)`` with no tools
     and ``max_rounds=1`` — the same seam sql_generator uses — so ``ok``
@@ -87,7 +87,8 @@ async def _probe_chat(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
                 # tools=[] + max_rounds=1: the loop exits before any tool call.
                 tool_executor=noop_tool_executor,
                 max_rounds=1,
-                max_tokens=1,
+                # Reasoning models answer a 1-token limit with a 400.
+                max_tokens=16,
                 temperature=0.0,
                 base_url=runtime_config.get("base_url"),
             ),

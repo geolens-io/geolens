@@ -66,6 +66,7 @@ class DefaultOpenAICompatibleProvider:
             _LLM_TIMEOUT,
             build_history_messages,
         )
+        from app.processing.ai.openai_request import create_chat_completion
         from app.processing.ai.tool_call_parser import parse_xml_tool_calls
 
         log = structlog.stdlib.get_logger(__name__)
@@ -135,15 +136,15 @@ class DefaultOpenAICompatibleProvider:
                     )
                 # OpenAI API rejects `tools=[]` similarly; omit when empty so
                 # no-tools paths work for OpenAI-compatible providers too.
-                create_kwargs: dict[str, object] = {
-                    "model": model,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "messages": messages,
-                }
-                if tools_openai:
-                    create_kwargs["tools"] = tools_openai
-                response = await client.chat.completions.create(**create_kwargs)
+                response = await create_chat_completion(
+                    client.chat.completions.create,
+                    base_url=effective_base_url,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    messages=messages,
+                    **({"tools": tools_openai} if tools_openai else {}),
+                )
 
                 choice = response.choices[0]
 
@@ -312,6 +313,7 @@ class DefaultOpenAICompatibleProvider:
             model=model,
             history=history,
             client=get_openai_client(resolved_base_url),
+            base_url=resolved_base_url,
             port=port,
             map_id=map_id,
             tools=tools,
@@ -335,6 +337,7 @@ class DefaultOpenAICompatibleProvider:
         from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import settings
         from app.processing.ai.llm_loop import get_openai_client
+        from app.processing.ai.openai_request import create_chat_completion
 
         effective_base_url = bind_openai_credential_base_url(
             base_url or settings.openai_base_url,
@@ -349,7 +352,9 @@ class DefaultOpenAICompatibleProvider:
             response_model=response_model.__name__,
         )
 
-        response = await client.beta.chat.completions.parse(
+        response = await create_chat_completion(
+            client.beta.chat.completions.parse,
+            base_url=effective_base_url,
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,

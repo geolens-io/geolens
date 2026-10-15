@@ -414,12 +414,12 @@ class Settings(AuthSettings, ClaudeSettings, BaseSettings):
 
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o"
-    # Light model for SQL generation / metadata. Unset defaults to openai_model
-    # so it always points at a model the provider actually serves -- for Azure
-    # OpenAI / gateways a hardcoded default 404s if it doesn't match a real
-    # deployment name.
+    # Light model for SQL generation / metadata. Unset reuses openai_model, since
+    # on Azure OpenAI and gateways a hardcoded default 404s unless it names a
+    # real deployment.
     openai_model_light: str | None = None
     openai_base_url: str | None = None
+    openai_reasoning_effort: str | None = None
 
     embedding_model: str = "text-embedding-3-small"
     embedding_dims: int = Field(default=1536, ge=1, le=4096)
