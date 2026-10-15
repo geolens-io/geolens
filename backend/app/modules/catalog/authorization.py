@@ -515,24 +515,30 @@ DATASET_WRITE_DENIED = "Only the dataset owner or an admin may modify this datas
 
 
 async def lock_dataset_rows_for_write(
-    db: AsyncSession, dataset: Any, *, raster_asset_cls: Any = None
+    db: AsyncSession, dataset: Any, *, raster_asset_cls: Any = None, also: Any = None
 ) -> None:
     """Take the dataset's catalog rows in the house order, then re-check the
     writer :func:`check_dataset_write_access` admitted, with its 404 or 403.
+
+    ``also`` is a second dataset whose rows the write references. Both pairs
+    are taken in dataset id order, so two writes between the same datasets
+    in opposite directions queue instead of deadlocking.
 
     The terms of :func:`~app.platform.catalog_locks.lock_catalog_rows`: call it
     before the transaction's first write to either row, after any network I/O.
     """
     from app.modules.catalog.datasets.domain.models import Dataset, Record
 
-    await lock_catalog_rows(
-        db,
-        dataset_cls=Dataset,
-        record_cls=Record,
-        dataset_id=dataset.id,
-        record_id=dataset.record_id,
-        raster_asset_cls=raster_asset_cls,
-    )
+    held = {dataset.id: dataset} | ({also.id: also} if also is not None else {})
+    for dataset_id in sorted(held):
+        await lock_catalog_rows(
+            db,
+            dataset_cls=Dataset,
+            record_cls=Record,
+            dataset_id=dataset_id,
+            record_id=held[dataset_id].record_id,
+            raster_asset_cls=raster_asset_cls if dataset_id == dataset.id else None,
+        )
     await recheck_dataset_write_access(db, dataset)
 
 

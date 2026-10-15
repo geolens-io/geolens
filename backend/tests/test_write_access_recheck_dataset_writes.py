@@ -10,6 +10,8 @@ Requirements: the docker database must be running with migrations applied.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import uuid
 
 import pytest
@@ -18,6 +20,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
+from app.modules.catalog.datasets.domain import service as dataset_service
 from app.modules.catalog.datasets.api import router_data, router_health
 from app.modules.catalog.datasets.api import router_metadata
 from app.modules.catalog.datasets.domain.models import (
@@ -314,3 +317,43 @@ async def test_record_translation_upsert_is_refused_after_a_role_downgrade(
     assert not await test_db_session.scalar(
         select(RecordTranslation.id).where(RecordTranslation.record_id == record_id)
     )
+
+
+async def test_opposing_relationship_creates_both_land(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    people: dict,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner_headers, owner_id = people["owner"]
+    first, second = await _related_pair(test_db_session, owner_id)
+    original = dataset_service.create_relationship
+    arrived = asyncio.Event()
+    waiting = 0
+
+    # Each create waits here, holding its locks, until the other arrives or a
+    # short wait runs out, so both reach the insert holding what they took.
+    async def meet_then_create(*args, **kwargs):
+        nonlocal waiting
+        waiting += 1
+        if waiting == 2:
+            arrived.set()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(arrived.wait(), timeout=0.5)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(dataset_service, "create_relationship", meet_then_create)
+    responses = await asyncio.gather(
+        client.post(
+            f"/datasets/{first.id}/relationships/",
+            json=_relationship_body(second),
+            headers=owner_headers,
+        ),
+        client.post(
+            f"/datasets/{second.id}/relationships/",
+            json=_relationship_body(first),
+            headers=owner_headers,
+        ),
+    )
+
+    assert [r.status_code for r in responses] == [201, 201], [r.text for r in responses]

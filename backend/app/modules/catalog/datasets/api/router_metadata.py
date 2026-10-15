@@ -493,7 +493,7 @@ async def create_dataset_relationship(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
-    await lock_dataset_rows_for_write(db, dataset)
+    await lock_dataset_rows_for_write(db, dataset, also=target_dataset)
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
     # fix(#315): FK columns store catalog.records.id, but the response
