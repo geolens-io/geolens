@@ -14,6 +14,27 @@ import { useAddDatasetsToCollection, useCollectionDatasets } from '@/components/
 
 const PAGE_SIZE = 20;
 const FILTER_DEBOUNCE_MS = 250;
+// CollectionAddDatasetsRequest.dataset_ids is capped at 100 per request.
+const ADD_BATCH_SIZE = 100;
+
+/** Sends ids in sequential batches; stops at the first failure and reports what was added. */
+export async function addInBatches(
+  ids: string[],
+  add: (batch: string[]) => Promise<unknown>,
+  batchSize = ADD_BATCH_SIZE,
+): Promise<{ added: string[]; failure: unknown }> {
+  const added: string[] = [];
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize);
+    try {
+      await add(batch);
+    } catch (failure) {
+      return { added, failure };
+    }
+    added.push(...batch);
+  }
+  return { added, failure: null };
+}
 
 interface CollectionMembershipManagerProps {
   collectionId: string;
@@ -34,7 +55,7 @@ export function CollectionMembershipManager({
     queryKey: ['collections', 'membership-candidates', q],
     initialPageParam: 0,
     placeholderData: keepPreviousData,
-    queryFn: ({ pageParam, signal }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const params: Record<string, string> = {
         sort_by: 'date_added',
         sort_desc: 'true',
@@ -42,11 +63,18 @@ export function CollectionMembershipManager({
         offset: String(pageParam),
       };
       if (q) params.q = q;
-      return searchDatasets(params, { signal });
+      const res = await searchDatasets(params, { signal });
+      // A text search also returns up to five matching collections on page 0.
+      return {
+        features: res.features.filter((f) => f.properties.type !== 'collection'),
+        numberMatched: res.numberMatched,
+      };
     },
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((n, p) => n + p.features.length, 0);
-      return last.features.length > 0 && loaded < last.numberMatched ? loaded : undefined;
+    // Offsets advance by the requested page size so the extra collection
+    // features never shift the next page.
+    getNextPageParam: (last, _pages, lastOffset) => {
+      const next = lastOffset + PAGE_SIZE;
+      return last.features.length === PAGE_SIZE && next < last.numberMatched ? next : undefined;
     },
   });
 
@@ -65,13 +93,16 @@ export function CollectionMembershipManager({
   }
 
   async function handleAdd() {
-    if (selectedIds.length === 0) return;
-    try {
-      await addDatasets.mutateAsync({ collectionId, datasetIds: selectedIds });
-      toast.success(t('membership.added', { count: selectedIds.length }));
-      setSelected(new Set());
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('toasts.addError'));
+    const { added, failure } = await addInBatches(selectedIds, (datasetIds) =>
+      addDatasets.mutateAsync({ collectionId, datasetIds }),
+    );
+    if (added.length > 0) {
+      const done = new Set(added);
+      toast.success(t('membership.added', { count: added.length }));
+      setSelected((prev) => new Set([...prev].filter((id) => !done.has(id))));
+    }
+    if (failure) {
+      toast.error(failure instanceof Error ? failure.message : t('toasts.addError'));
     }
   }
 

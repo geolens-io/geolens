@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { searchDatasets } from '@/api/search';
-import { CollectionMembershipManager } from '@/components/collections/CollectionMembershipManager';
+import { CollectionMembershipManager, addInBatches } from '@/components/collections/CollectionMembershipManager';
 import {
   useAddDatasetsToCollection,
   useCollectionDatasets,
@@ -94,17 +94,74 @@ describe('CollectionMembershipManager', () => {
   });
 
   it('loads the next page on request', async () => {
+    const first = Array.from({ length: 20 }, (_, i) => record(`a${i}`, `Alpha ${i}`));
     vi.mocked(searchDatasets).mockImplementation(async (params) =>
-      params.offset === '0' ? page([record('a', 'Alpha')], 2) : page([record('b', 'Beta')], 2),
+      params.offset === '0' ? page(first, 21) : page([record('b', 'Beta')], 21),
     );
     const user = userEvent.setup();
     render(<CollectionMembershipManager collectionId="col-1" />);
-    await screen.findByRole('checkbox', { name: 'Select Alpha' });
+    await screen.findByRole('checkbox', { name: 'Select Alpha 0' });
 
     await user.click(screen.getByRole('button', { name: 'Load more' }));
 
     expect(await screen.findByRole('checkbox', { name: 'Select Beta' })).toBeInTheDocument();
-    expect(vi.mocked(searchDatasets).mock.calls[1][0]).toMatchObject({ offset: '1' });
+    expect(vi.mocked(searchDatasets).mock.calls[1][0]).toMatchObject({ offset: '20' });
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  it('does not skip datasets when page 0 also returns matching collections', async () => {
+    const datasets = Array.from({ length: 20 }, (_, i) => record(`d${i}`, `Dataset ${i}`));
+    const collections = [1, 2, 3].map((i) => ({
+      id: `c${i}`,
+      properties: { title: `Collection ${i}`, type: 'collection' },
+    }));
+    vi.mocked(searchDatasets).mockImplementation(async (params) =>
+      params.offset === '0'
+        ? ({ features: [...datasets, ...collections], numberMatched: 43 } as unknown as Awaited<ReturnType<typeof searchDatasets>>)
+        : page([record('d20', 'Dataset 20')], 43),
+    );
+    const user = userEvent.setup();
+    render(<CollectionMembershipManager collectionId="col-1" />);
+    await screen.findByRole('checkbox', { name: 'Select Dataset 0' });
+
+    expect(screen.queryByRole('checkbox', { name: 'Select Collection 1' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByRole('checkbox', { name: 'Select Dataset 20' })).toBeInTheDocument();
+    expect(vi.mocked(searchDatasets).mock.calls[1][0]).toMatchObject({ offset: '20' });
+  });
+
+  it('keeps datasets selected when the add fails', async () => {
+    vi.mocked(searchDatasets).mockResolvedValue(page([record('a', 'Alpha'), record('b', 'Beta')]));
+    mutateAsync.mockRejectedValueOnce(new Error('boom'));
+    const user = userEvent.setup();
+    render(<CollectionMembershipManager collectionId="col-1" />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('button', { name: 'Add 1 selected dataset' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('button', { name: 'Add 1 selected dataset' })).toBeEnabled();
+  });
+});
+
+describe('addInBatches', () => {
+  const ids = Array.from({ length: 250 }, (_, i) => `d${i}`);
+
+  it('sends at most 100 ids per request', async () => {
+    const add = vi.fn().mockResolvedValue(undefined);
+    const { added, failure } = await addInBatches(ids, add);
+
+    expect(add.mock.calls.map(([b]) => b.length)).toEqual([100, 100, 50]);
+    expect(added).toHaveLength(250);
+    expect(failure).toBeNull();
+  });
+
+  it('stops at the first failure and reports only the ids that were added', async () => {
+    const add = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('boom'));
+    const { added, failure } = await addInBatches(ids, add);
+
+    expect(add).toHaveBeenCalledTimes(2);
+    expect(added).toEqual(ids.slice(0, 100));
+    expect(failure).toBeInstanceOf(Error);
   });
 });
