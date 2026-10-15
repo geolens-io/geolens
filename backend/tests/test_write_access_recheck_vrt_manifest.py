@@ -14,7 +14,7 @@ import uuid
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
@@ -22,10 +22,12 @@ import app.modules.catalog.authorization as authorization
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import check_dataset_write_access
 from app.modules.catalog.datasets.api import router_vrt
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest.manifest_service import _admit_refresh_run
+from app.processing.ingest.publication import WriteAccessRevoked
 from app.processing.raster.models import RasterAsset, VrtGeneration
 from tests.factories import create_dataset
 from tests.test_vrt_source_authz_1172 import (
@@ -34,6 +36,12 @@ from tests.test_vrt_source_authz_1172 import (
     _link_source,
 )
 
+from tests.test_regenerate_vrt_integration import (  # noqa: F401 - fixtures
+    local_storage,
+    quicklook_stub,
+    source_tifs,
+    vrt_db_state,
+)
 from tests.write_recheck_races import (  # noqa: F401 - people is a fixture
     _commit,
     _demote_to_viewer,
@@ -147,3 +155,63 @@ async def test_manifest_run_admission_is_refused_after_a_transfer(
     assert not await test_db_session.scalar(
         select(DatasetRefreshRun.id).where(DatasetRefreshRun.dataset_id == created.id)
     )
+
+
+async def _give_vrt_regeneration_to(state: dict, owner_id: uuid.UUID) -> None:
+    record_ids = select(Dataset.record_id).where(
+        Dataset.id.in_(
+            [uuid.UUID(state["vrt_dataset_id"]), *state["source_dataset_ids"]]
+        )
+    )
+    await _commit(
+        update(Record).where(Record.id.in_(record_ids)).values(created_by=owner_id)
+    )
+    await _commit(
+        update(IngestJob)
+        .where(IngestJob.id == uuid.UUID(state["job_id"]))
+        .values(created_by=owner_id)
+    )
+
+
+async def _regenerate(state: dict) -> tuple[str, str | None, str | None]:
+    from app.processing.ingest.tasks import regenerate_vrt
+
+    try:
+        await regenerate_vrt.func(
+            job_id=state["job_id"],
+            attempt_id=state["attempt_id"],
+            vrt_dataset_id=state["vrt_dataset_id"],
+        )
+    except WriteAccessRevoked:
+        pass
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, uuid.UUID(state["job_id"]))
+        sha256 = await session.scalar(
+            select(RasterAsset.sha256).where(RasterAsset.id == state["vrt_asset_id"])
+        )
+    return job.status, job.error_message, sha256
+
+
+@pytest.mark.parametrize("demoted", [True, False])
+async def test_a_vrt_regeneration_rechecks_its_submitter_before_it_publishes(
+    vrt_db_state: dict,  # noqa: F811
+    local_storage,  # noqa: F811
+    quicklook_stub,  # noqa: F811
+    clean_tables,
+    people: dict,  # noqa: F811
+    demoted: bool,
+) -> None:
+    _, owner_id = people["owner"]
+    await _give_vrt_regeneration_to(vrt_db_state, owner_id)
+    if demoted:
+        await _commit(_demote_to_viewer(owner_id))
+
+    status, error, sha256 = await _regenerate(vrt_db_state)
+
+    if demoted:
+        assert status == "failed"
+        assert error == str(WriteAccessRevoked())
+        assert sha256 is None
+    else:
+        assert status == "complete", error
+        assert sha256 is not None

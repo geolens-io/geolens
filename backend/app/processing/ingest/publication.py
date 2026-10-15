@@ -609,9 +609,9 @@ async def _require_submitter_can_write(
     session: AsyncSession, dataset: Any, job: IngestJob
 ) -> None:
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
-    the dataset, as committed now, and their roles still grant the capability
-    the job's door required: ``upload`` for a manifest apply, ``edit_metadata``
-    for the others.
+    the dataset, as committed now, and their roles still grant ``upload`` for
+    a manifest apply or ``edit_metadata`` for any other job, the capability a
+    dataset replacement's door requires.
 
     Call holding the catalog rows, which an ownership transfer also takes.
     """
