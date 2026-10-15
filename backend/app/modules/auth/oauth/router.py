@@ -4,10 +4,6 @@ import uuid
 from urllib.parse import urlparse
 
 import structlog
-
-# authlib 1.8 deprecated this module for httpx2. Installing httpx2 would
-# switch the client's base class while make_safe_transport() still builds an
-# httpx transport, unpinning the SSRF guard below rather than erroring (#1990).
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.integrations.starlette_client import OAuth
 from authlib.integrations.starlette_client.apps import StarletteOAuth2App
@@ -78,9 +74,9 @@ class _SSRFSafeOAuth2Client(AsyncOAuth2Client):
     """
 
     def __init__(self, *args, **kwargs):
-        from app.platform.security import make_safe_transport
+        from app.platform.security import make_safe_httpx2_transport
 
-        kwargs["transport"] = make_safe_transport()
+        kwargs["transport"] = make_safe_httpx2_transport()
         # httpx consults a per-scheme mount before ``transport`` and builds
         # one from ``proxy``; both pin the transport (an empty ``mounts``
         # doesn't clear what ``proxy`` added). Passing a transport already

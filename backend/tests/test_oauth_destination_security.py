@@ -4,7 +4,7 @@ import ssl
 import uuid
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
@@ -25,7 +25,7 @@ from app.modules.auth.oauth.service import (
 from app.platform import security
 from app.platform.config_ops.exceptions import ConfigValidationError
 from app.platform.config_ops.service import _apply_oauth_providers
-from app.platform.security import SSRFError, _SSRFGuardTransport
+from app.platform.security import SSRFError, _SSRFGuardTransportHttpx2
 
 
 async def _make_oidc_provider(db: AsyncSession, *, host: str = "idp.example.com"):
@@ -550,10 +550,10 @@ async def test_authlib_sessions_receive_fresh_safe_transports(
     provider = await _make_oidc_provider(test_db_session)
     await test_db_session.commit()
 
-    transports: list[httpx.MockTransport] = []
+    transports: list[httpx2.MockTransport] = []
 
     def make_transport():
-        transport = httpx.MockTransport(lambda _request: httpx.Response(200))
+        transport = httpx2.MockTransport(lambda _request: httpx2.Response(200))
         transports.append(transport)
         return transport
 
@@ -563,7 +563,7 @@ async def test_authlib_sessions_receive_fresh_safe_transports(
             new=AsyncMock(),
         ),
         patch(
-            "app.platform.security.make_safe_transport",
+            "app.platform.security.make_safe_httpx2_transport",
             side_effect=make_transport,
         ),
     ):
@@ -581,17 +581,16 @@ async def test_authlib_sessions_receive_fresh_safe_transports(
     assert len(set(id(transport) for transport in transports)) == 4
 
 
-def test_authlib_oauth_client_is_httpx_backed() -> None:
-    """The SSRF transport pin holds only while authlib builds on httpx.
+def test_authlib_oauth_client_is_httpx2_backed() -> None:
+    """The guard transport and authlib's client come from the same library.
 
-    fix(#1990): authlib 1.8 deprecated its httpx integration in favour
-    of httpx2 and will drop the fallback. ``_SSRFSafeOAuth2Client`` hands
-    ``make_safe_transport()``'s httpx transport to that client, so the switch
-    would leave the pin type-mismatched instead of failing loudly.
+    A transport only works inside a client of its own library, and authlib
+    picks httpx2 or httpx by what is installed. A change of library must fail
+    here rather than leave the OAuth client with a transport it can't drive.
     """
     from app.modules.auth.oauth.router import _SSRFSafeOAuth2Client
 
-    assert issubclass(_SSRFSafeOAuth2Client, httpx.AsyncClient)
+    assert issubclass(_SSRFSafeOAuth2Client, httpx2.AsyncClient)
 
 
 async def _client_for(db: AsyncSession, provider) -> tuple:
@@ -628,21 +627,21 @@ async def _make_discovery_provider(db: AsyncSession):
 def authlib_transport(monkeypatch):
     """Answer every authlib request from a mock transport the factory returns.
 
-    Patching ``make_safe_transport`` rather than reaching into the client keeps
+    Patching ``make_safe_httpx2_transport`` rather than reaching into the client keeps
     the client under test the one the router actually builds: a hook that
     stopped calling the factory would get a real transport, nothing here would
     answer it, and the test would fail rather than pass quietly.
     """
 
-    def install(handler) -> list[httpx.Request]:
-        recorded: list[httpx.Request] = []
+    def install(handler) -> list[httpx2.Request]:
+        recorded: list[httpx2.Request] = []
 
-        def handle(request: httpx.Request) -> httpx.Response:
+        def handle(request: httpx2.Request) -> httpx2.Response:
             recorded.append(request)
             return handler(request)
 
         monkeypatch.setattr(
-            security, "make_safe_transport", lambda: httpx.MockTransport(handle)
+            security, "make_safe_httpx2_transport", lambda: httpx2.MockTransport(handle)
         )
         return recorded
 
@@ -707,7 +706,7 @@ async def test_every_discovered_endpoint_is_ssrf_validated(
     """
     provider = await _make_discovery_provider(test_db_session)
     await test_db_session.commit()
-    authlib_transport(lambda _request: httpx.Response(200, json=DISCOVERY_DOCUMENT))
+    authlib_transport(lambda _request: httpx2.Response(200, json=DISCOVERY_DOCUMENT))
     client, _ = await _client_for(test_db_session, provider)
 
     with patch(
@@ -738,7 +737,7 @@ async def _discovery_refusal(
     provider = await _make_discovery_provider(db)
     await db.commit()
     recorded = authlib_transport(
-        lambda _request: httpx.Response(
+        lambda _request: httpx2.Response(
             200, json={"issuer": ISSUER, "token_endpoint": token_endpoint}
         )
     )
@@ -828,7 +827,7 @@ async def test_a_discovery_document_cannot_weaken_the_client(
         verify=False,
         follow_redirects=True,
         max_redirects=20,
-        mounts={"all://": httpx.MockTransport(lambda _r: httpx.Response(200))},
+        mounts={"all://": httpx2.MockTransport(lambda _r: httpx2.Response(200))},
         proxy="http://elsewhere.example.net:3128",
     )
     try:
@@ -836,9 +835,9 @@ async def test_a_discovery_document_cannot_weaken_the_client(
         # client that gets dialled, not about what was passed to it. A mount
         # and a proxy both take precedence over ``transport``, so the question
         # is which transport the token endpoint resolves to.
-        assert isinstance(built._transport, _SSRFGuardTransport)
+        assert isinstance(built._transport, _SSRFGuardTransportHttpx2)
         assert built._mounts == {}
-        assert built._transport_for_url(httpx.URL(TOKEN_URL)) is built._transport
+        assert built._transport_for_url(httpx2.URL(TOKEN_URL)) is built._transport
         assert built.follow_redirects is False
         assert built._transport._pool._ssl_context.verify_mode == ssl.CERT_REQUIRED
         assert built._transport._pool._ssl_context.check_hostname is True
@@ -865,7 +864,7 @@ async def test_the_token_exchange_client_does_not_follow_a_redirect(
     provider = await _make_oidc_provider(test_db_session)
     await test_db_session.commit()
     recorded = authlib_transport(
-        lambda _request: httpx.Response(302, headers={"Location": ELSEWHERE_TOKEN_URL})
+        lambda _request: httpx2.Response(302, headers={"Location": ELSEWHERE_TOKEN_URL})
     )
     client, _ = await _client_for(test_db_session, provider)
 
@@ -894,10 +893,10 @@ async def test_a_normal_exchange_still_succeeds_through_the_safe_client(
     await test_db_session.commit()
     issued = uuid.uuid4().hex
 
-    def handle(request: httpx.Request) -> httpx.Response:
+    def handle(request: httpx2.Request) -> httpx2.Response:
         if request.url.path.endswith("openid-configuration"):
-            return httpx.Response(200, json=DISCOVERY_DOCUMENT)
-        return httpx.Response(
+            return httpx2.Response(200, json=DISCOVERY_DOCUMENT)
+        return httpx2.Response(
             200,
             json={"access_token": issued, "token_type": "Bearer", "expires_in": 3600},
         )

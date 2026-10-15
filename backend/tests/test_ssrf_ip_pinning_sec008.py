@@ -8,15 +8,25 @@ uses _SSRFGuardTransport, which re-resolves + re-validates + pins the validated
 IP at the moment of connection.
 
 These tests drive the transport directly with a mocked socket.getaddrinfo, so no
-real network is touched.
+real network is touched. Each runs against the httpx guard and the httpx2 guard
+that authlib's OAuth client dials through.
 """
 
 import socket
 
 import httpx
+import httpx2
 import pytest
 
 from app.platform import security as sec
+
+_GUARDS = pytest.mark.parametrize(
+    ("guard", "http"),
+    [
+        pytest.param(sec._SSRFGuardTransport, httpx, id="httpx"),
+        pytest.param(sec._SSRFGuardTransportHttpx2, httpx2, id="httpx2"),
+    ],
+)
 
 
 def _addrinfo(ip: str, port: int | None):
@@ -25,21 +35,23 @@ def _addrinfo(ip: str, port: int | None):
 
 
 @pytest.mark.anyio
-async def test_transport_blocks_private_resolved_ip(monkeypatch):
+@_GUARDS
+async def test_transport_blocks_private_resolved_ip(monkeypatch, guard, http):
     """A host that resolves to a private IP at connect time is blocked by the
     transport (the connection is never made). Fails on main — make_safe_client
     had no transport guard, so the client would connect to the private IP."""
     monkeypatch.setattr(
         socket, "getaddrinfo", lambda h, p, *a, **k: _addrinfo("169.254.169.254", p)
     )
-    transport = sec._SSRFGuardTransport()
-    req = httpx.Request("GET", "http://rebind.attacker.test/data")
+    transport = guard()
+    req = http.Request("GET", "http://rebind.attacker.test/data")
     with pytest.raises(sec.SSRFError):
         await transport.handle_async_request(req)
 
 
 @pytest.mark.anyio
-async def test_transport_pins_validated_public_ip(monkeypatch):
+@_GUARDS
+async def test_transport_pins_validated_public_ip(monkeypatch, guard, http):
     """A valid public host is pinned: the connection target becomes the resolved
     IP while the Host header and TLS SNI keep the original hostname."""
     captured: dict = {}
@@ -48,15 +60,15 @@ async def test_transport_pins_validated_public_ip(monkeypatch):
         captured["host"] = request.url.host
         captured["sni"] = request.extensions.get("sni_hostname")
         captured["host_header"] = request.headers.get("host")
-        return httpx.Response(200)
+        return http.Response(200)
 
-    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _fake_super)
+    monkeypatch.setattr(http.AsyncHTTPTransport, "handle_async_request", _fake_super)
     monkeypatch.setattr(
         socket, "getaddrinfo", lambda h, p, *a, **k: _addrinfo("93.184.216.34", p)
     )
 
-    transport = sec._SSRFGuardTransport()
-    req = httpx.Request("GET", "https://example.com/x")
+    transport = guard()
+    req = http.Request("GET", "https://example.com/x")
     resp = await transport.handle_async_request(req)
 
     assert resp.status_code == 200
@@ -68,7 +80,8 @@ async def test_transport_pins_validated_public_ip(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_dns_rebinding_blocked_at_connect(monkeypatch):
+@_GUARDS
+async def test_dns_rebinding_blocked_at_connect(monkeypatch, guard, http):
     """End-to-end TOCTOU: validation resolves a public IP and passes, but the
     connect-time resolution returns a private IP — the transport blocks it.
     Fails on main (no connect-time re-validation)."""
@@ -85,8 +98,33 @@ async def test_dns_rebinding_blocked_at_connect(monkeypatch):
     # Submission-time validation sees the public answer and passes.
     await sec.validate_url_for_ssrf(url)
     # Connect-time resolution returns the rebind target -> transport blocks.
-    transport = sec._SSRFGuardTransport()
-    req = httpx.Request("GET", url)
+    transport = guard()
+    req = http.Request("GET", url)
     with pytest.raises(sec.SSRFError):
         await transport.handle_async_request(req)
     assert calls["n"] == 2, "expected one validation lookup + one connect-time lookup"
+
+
+@pytest.mark.anyio
+async def test_the_oauth_client_dials_the_pinned_ip(monkeypatch):
+    """The OAuth login client connects through the guard, not around it."""
+    from app.modules.auth.oauth.router import _SSRFSafeOAuth2Client
+
+    connected: list[tuple[str, str | None]] = []
+
+    async def _fake_super(self, request):
+        connected.append((request.url.host, request.extensions.get("sni_hostname")))
+        return httpx2.Response(200, json={})
+
+    monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", _fake_super)
+    monkeypatch.setattr(
+        socket, "getaddrinfo", lambda h, p, *a, **k: _addrinfo("93.184.216.34", p)
+    )
+
+    async with _SSRFSafeOAuth2Client(client_id="client") as client:
+        response = await client.request(
+            "GET", "https://idp.example.com/userinfo", withhold_token=True
+        )
+
+    assert connected == [("93.184.216.34", "idp.example.com")]
+    assert response.url.host == "idp.example.com"

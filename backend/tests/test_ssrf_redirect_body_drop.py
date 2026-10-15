@@ -6,9 +6,10 @@ puts on the response it wants. The guard transport closes a redirect's
 upstream stream unread and hands back an empty body, which covers every
 client built on it.
 
-These tests run the real ``_SSRFGuardTransport``, with only DNS and the httpx
-transport underneath it replaced, so the pinning, the per-hop validation hook
-and httpx's own redirect handling are all the production code.
+These tests run the real guard transports, with only DNS and the httpx or
+httpx2 transport underneath them replaced, so the pinning, the per-hop
+validation hook and the client's own redirect handling are all the production
+code.
 """
 
 import gzip
@@ -16,6 +17,7 @@ import json
 import socket
 
 import httpx
+import httpx2
 import pytest
 
 from app.platform.security import SSRFError, make_safe_client, make_safe_transport
@@ -43,20 +45,20 @@ class _Body:
 
 
 def _redirect(
-    status: int, location: str, body: _Body | None = None, **headers: str
+    status: int, location: str, body: _Body | None = None, http=httpx, **headers: str
 ) -> httpx.Response:
-    return httpx.Response(
+    return http.Response(
         status,
         headers={"Location": location, **headers},
         content=body() if body else None,
     )
 
 
-def _final(**headers: str) -> httpx.Response:
+def _final(http=httpx, **headers: str) -> httpx.Response:
     async def chunks():
         yield json.dumps(FINAL).encode()
 
-    return httpx.Response(200, headers=headers, content=chunks())
+    return http.Response(200, headers=headers, content=chunks())
 
 
 class _Upstream:
@@ -91,6 +93,7 @@ def upstream(monkeypatch) -> _Upstream:
 
     monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", handle)
+    monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", handle)
     return state
 
 
@@ -104,11 +107,11 @@ _BODIES = [
 ]
 
 
-def _redirect_then_final(upstream, redirect_body, headers) -> None:
+def _redirect_then_final(upstream, redirect_body, headers, http=httpx) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/start":
-            return _redirect(307, "/final", redirect_body, **headers)
-        return _final()
+            return _redirect(307, "/final", redirect_body, http, **headers)
+        return _final(http)
 
     upstream.serve(handler)
 
@@ -160,7 +163,7 @@ async def test_the_oauth_client_sees_the_redirect_itself_with_no_body(upstream):
     from app.modules.auth.oauth.router import _SSRFSafeOAuth2Client
 
     body = _Body([b"a" * 65536] * 8)
-    _redirect_then_final(upstream, body, {})
+    _redirect_then_final(upstream, body, {}, httpx2)
 
     async with _SSRFSafeOAuth2Client(client_id="client") as client:
         response = await client.request(

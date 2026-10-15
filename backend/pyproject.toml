@@ -47,6 +47,7 @@ dependencies = [
     "authlib>=1.7.1",  # CVE-2026-44681 (GHSA-r95x-qfjj-fjj2) — OIDC Implicit/Hybrid open redirect, fixed in 1.6.12 / 1.7.1
     "python-multipart>=0.0.27",
     "httpx>=0.27",
+    "httpx2>=2.13.1",
     "sse-starlette>=3.4.8",
     "sqlglot>=30.17.0",
     "itsdangerous>=2.2.0",

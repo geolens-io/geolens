@@ -3,9 +3,11 @@
 import asyncio
 import ipaddress
 import socket
+from types import ModuleType
 from urllib.parse import urlparse
 
 import httpx
+import httpx2
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 
@@ -239,14 +241,15 @@ _REDIRECT_BODY_HEADERS = frozenset(
 )
 
 
-async def _without_redirect_body(response: httpx.Response) -> httpx.Response:
+async def _without_redirect_body(response, http: ModuleType):
     """The same redirect with its body discarded unread, or *response* as is.
 
     With ``follow_redirects`` on, httpx reads each redirect's body in full,
     decompressed, before it follows the Location, ahead of any size limit the
     caller applies to the response it actually wants. Nothing reads a redirect
     body usefully, so the upstream stream is closed here and the caller gets
-    an empty one under the same status and headers.
+    an empty one under the same status and headers. *http* is the library
+    (httpx or httpx2) that *response* belongs to.
     """
     if (
         response.status_code not in _FOLLOWED_REDIRECT_STATUSES
@@ -254,14 +257,14 @@ async def _without_redirect_body(response: httpx.Response) -> httpx.Response:
     ):
         return response
     await response.aclose()
-    return httpx.Response(
+    return http.Response(
         response.status_code,
         headers=[
             (name, value)
             for name, value in response.headers.raw
             if name.lower() not in _REDIRECT_BODY_HEADERS
         ],
-        stream=httpx.ByteStream(b""),
+        stream=http.ByteStream(b""),
         extensions={
             key: value
             for key, value in response.extensions.items()
@@ -270,7 +273,7 @@ async def _without_redirect_body(response: httpx.Response) -> httpx.Response:
     )
 
 
-class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
+class _SSRFGuard:
     """Transport that re-resolves, re-validates, and PINS the IP at connect time.
 
     SEC-008: `validate_url_for_ssrf` resolves DNS once at submission time,
@@ -282,7 +285,9 @@ class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
     builds a fresh request per redirect hop, so every hop is re-pinned.
     """
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    _http: ModuleType
+
+    async def handle_async_request(self, request):
         original_url = request.url
         host = original_url.host
         validated_ip = await _resolve_and_validate(host, original_url.port)
@@ -291,7 +296,7 @@ class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
         request.extensions["sni_hostname"] = host
         try:
             return await _without_redirect_body(
-                await super().handle_async_request(request)
+                await super().handle_async_request(request), self._http
             )
         finally:
             # fix(#1271): restore the hostname after connect — leaving the
@@ -301,14 +306,34 @@ class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
             request.url = original_url
 
 
+class _SSRFGuardTransport(_SSRFGuard, httpx.AsyncHTTPTransport):
+    """The guard for clients built on httpx."""
+
+    _http = httpx
+
+
+class _SSRFGuardTransportHttpx2(_SSRFGuard, httpx2.AsyncHTTPTransport):
+    """The guard for clients built on httpx2."""
+
+    _http = httpx2
+
+
 def make_safe_transport() -> httpx.AsyncBaseTransport:
     """Return an HTTP transport that blocks SSRF and DNS rebinding.
 
     Transport-level counterpart to :func:`make_safe_client`, for libraries
-    (e.g. Authlib) that build their own ``httpx`` client but accept a
-    transport via kwargs.
+    that build their own ``httpx`` client but accept a transport via kwargs.
     """
     return _SSRFGuardTransport()
+
+
+def make_safe_httpx2_transport() -> httpx2.AsyncBaseTransport:
+    """:func:`make_safe_transport` for a client built on ``httpx2``.
+
+    Authlib's OAuth client is one: authlib builds on httpx2 whenever it is
+    installed, and a transport only works inside a client of its own library.
+    """
+    return _SSRFGuardTransportHttpx2()
 
 
 def make_safe_client(
