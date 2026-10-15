@@ -12,7 +12,7 @@ import { LazyLoadErrorBoundary, RouteErrorBoundary } from '@/components/error';
 import { SessionExpiredDialog } from '@/components/auth/SessionExpiredDialog';
 import { SessionRestoreNotice } from '@/components/auth/SessionRestoreNotice';
 import { AnalysisJobWatcher } from '@/components/analysis/AnalysisJobWatcher';
-import { preload } from '@/lib/route-preload';
+import { preload, requires } from '@/lib/route-preload';
 
 // Lazy page imports — each produces a separate Vite chunk
 const loadLoginPage = () =>
@@ -164,12 +164,12 @@ export const appRoutes = (
       <Route path="maps/:id" element={<MapViewerGate />} handle={preload(loadMapViewerGate)} errorElement={<RouteErrorBoundary />} />
 
       {/* Protected routes — auth required */}
-      <Route element={<ProtectedRoute />} errorElement={<RouteErrorBoundary />}>
+      <Route element={<ProtectedRoute />} handle={requires('user')} errorElement={<RouteErrorBoundary />}>
         <Route path="settings" element={<SettingsPage />} handle={preload(loadSettingsPage)} errorElement={<RouteErrorBoundary />} />
-        <Route element={<EditorRoute />} errorElement={<RouteErrorBoundary />}>
+        <Route element={<EditorRoute />} handle={requires('editor')} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} handle={preload(loadImportPage)} errorElement={<RouteErrorBoundary />} />
         </Route>
-          <Route element={<AdminRoute />} errorElement={<RouteErrorBoundary />}>
+          <Route element={<AdminRoute />} handle={requires('admin')} errorElement={<RouteErrorBoundary />}>
             <Route element={<AdminLayout />} errorElement={<RouteErrorBoundary />}>
             <Route path="admin" element={<AdminIndexRoute />} />
             <Route element={<AdminCapabilityRoute capability="manage_users" />}>
