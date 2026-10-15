@@ -1,0 +1,125 @@
+"""A replacement door records the capability it admitted its job under, and
+that record is what the job's publish re-checks.
+
+Requirements: the docker database must be running with migrations applied.
+"""
+
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import text
+
+import app.modules.auth.permissions as permissions
+from app.modules.catalog.datasets.api.refresh_acceptance import (
+    _accepted_upload_metadata,
+)
+from app.modules.catalog.datasets.api.router_reupload import _new_reupload_metadata
+from app.platform.jobs.models import ADMITTED_CAPABILITY_METADATA_KEY
+from app.processing.ingest.manifest_service import apply_manifest
+from app.processing.ingest.publication import WriteAccessRevoked
+from tests.test_manifest_run_admission import (
+    _admin,
+    _applied_dataset,
+    _http_request,
+    _newest_job,
+    _reupload_task,
+    _stage_fixture,
+    _update,
+)
+from tests.test_previous_version_2590 import (
+    _cleanup,
+    _job_status,
+    _names,
+    _replace,
+    _seed,
+)
+
+pytestmark = pytest.mark.anyio
+
+
+def test_the_reupload_doors_record_edit_metadata() -> None:
+    dataset = SimpleNamespace(data_revision=1)
+    metadata = _new_reupload_metadata(uuid.uuid4(), dataset)
+    assert metadata[ADMITTED_CAPABILITY_METADATA_KEY] == "edit_metadata"
+
+
+def test_an_accepted_upload_records_edit_metadata() -> None:
+    metadata = _accepted_upload_metadata(
+        SimpleNamespace(id=uuid.uuid4(), user_metadata={"manifest_key": "k"}),
+        dataset_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        fingerprint="fp",
+        held_version=None,
+    )
+    assert metadata[ADMITTED_CAPABILITY_METADATA_KEY] == "edit_metadata"
+
+
+async def test_a_manifest_update_records_upload(test_db_session, clean_tables) -> None:
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    await _applied_dataset(test_db_session, user, "records-upload")
+
+    with _reupload_task():
+        response = await apply_manifest(
+            test_db_session, _update("records-upload"), user, _http_request()
+        )
+
+    assert response.results[0].action == "update"
+    job = await _newest_job(test_db_session, "records-upload")
+    assert job.user_metadata[ADMITTED_CAPABILITY_METADATA_KEY] == "upload"
+
+
+async def test_a_restore_rechecks_the_capability_its_door_recorded(
+    client: AsyncClient,
+    test_db_session,
+    admin_auth_header,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The record survives from the door to the publish the worker runs."""
+    from app.processing.ingest.tasks import restore_previous_version
+
+    session = test_db_session
+    admin_id, dataset = await _seed(session)
+    try:
+        await _replace(session, dataset, admin_id, ["paris", "london"])
+        deferred = AsyncMock()
+        with patch(
+            "app.modules.catalog.datasets.api.router_previous_version."
+            "defer_async_with_tenant",
+            deferred,
+        ):
+            response = await client.post(
+                f"/api/datasets/{dataset.id}/previous-version/restore",
+                json={"expected_version_number": 1},
+                headers=admin_auth_header,
+            )
+        assert response.status_code == 202, response.text
+
+        # The admin's role loses edit_metadata while the restore is queued.
+        effective = permissions.get_effective_permissions
+
+        async def admins_without_edit_metadata(db):
+            matrix = await effective(db)
+            matrix["admin"]["edit_metadata"] = False
+            return matrix
+
+        monkeypatch.setattr(
+            permissions, "get_effective_permissions", admins_without_edit_metadata
+        )
+        await restore_previous_version(**deferred.await_args.kwargs)
+
+        job_id = response.json()["job_id"]
+        assert await _job_status(session, job_id) == "failed"
+        error = await session.scalar(
+            text("SELECT error_message FROM catalog.ingest_jobs WHERE id = :id"),
+            {"id": job_id},
+        )
+        assert error == str(WriteAccessRevoked())
+        assert await _names(session, dataset.table_name) == ["London", "Paris"]
+    finally:
+        await _cleanup(session, dataset)

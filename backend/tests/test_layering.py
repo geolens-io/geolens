@@ -1279,7 +1279,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow, including the settlement of a contended or refused admission.
-    "backend/app/processing/ingest/manifest_service.py": 1258,
+    "backend/app/processing/ingest/manifest_service.py": 1264,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1360,
@@ -1332,8 +1332,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_reupload.py": 1592,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
-    # by the door it came through.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1365,
+    # by the door it came through, which records the capability it admitted under.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1369,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
@@ -1353,8 +1353,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
     # Reupload preview, compatibility, the file and service review, and staged
-    # commit share an endpoint lifecycle.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1654,
+    # commit share an endpoint lifecycle and the capability its jobs record.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1657,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.

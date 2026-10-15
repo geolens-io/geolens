@@ -19,6 +19,7 @@ from fastapi import (
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import EDIT_METADATA
 from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.upload_errors import (
@@ -59,7 +60,7 @@ from app.platform.jobs.defer_guard import (
 from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.jobs import ledger
 from app.platform.jobs.ledger import hold
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ADMITTED_CAPABILITY_METADATA_KEY, IngestJob
 from app.platform.refresh.credentials import (
     CredentialStoreUnavailable,
     credential_store_refusal,
@@ -237,6 +238,7 @@ def _new_reupload_metadata(dataset_id: uuid.UUID, dataset) -> dict:
         "reupload": True,
         "dataset_id": str(dataset_id),
         _START_DATA_REVISION: dataset.data_revision,
+        ADMITTED_CAPABILITY_METADATA_KEY: EDIT_METADATA,
     }
 
 
@@ -652,6 +654,7 @@ async def reupload_service_preview(
             "source_type": "service_url",
             "object_id_field": request.object_id_field,
             _START_DATA_REVISION: start_data_revision,
+            ADMITTED_CAPABILITY_METADATA_KEY: EDIT_METADATA,
         },
     )
     await db.flush()

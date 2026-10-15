@@ -23,7 +23,7 @@ from app.core.identity import IdentityProtocol
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.catalog.datasets.domain.models import Record
 from app.platform.extensions import get_processing_port
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ADMITTED_CAPABILITY_METADATA_KEY, IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
 from app.processing.ingest.publication import WriteAccessRevoked
@@ -170,11 +170,36 @@ async def test_a_replacement_whose_admin_submitter_was_demoted_is_not_published(
     assert state["live"] == "before"
 
 
+async def _record_admission(seeded, capability: str | None) -> None:
+    """What the door that queued the seeded job records about its admission."""
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, seeded.job_id)
+        metadata = dict(job.user_metadata or {})
+        metadata.pop(ADMITTED_CAPABILITY_METADATA_KEY, None)
+        if capability is not None:
+            metadata[ADMITTED_CAPABILITY_METADATA_KEY] = capability
+        job.user_metadata = metadata
+        await session.commit()
+
+
+def _matrix_without(monkeypatch: pytest.MonkeyPatch, capability: str) -> None:
+    """Editors lose ``capability`` and keep the rest."""
+    effective = permissions.get_effective_permissions
+
+    async def narrowed(db):
+        matrix = await effective(db)
+        matrix["editor"][capability] = False
+        return matrix
+
+    monkeypatch.setattr(permissions, "get_effective_permissions", narrowed)
+
+
 async def test_a_replacement_whose_submitter_was_moved_to_viewer_is_not_published(
     submitted_by_editor, editor
 ) -> None:
     seeded = submitted_by_editor
     _, editor_id = editor
+    await _record_admission(seeded, "edit_metadata")
     viewer = select(Role.id).where(Role.name == "viewer").scalar_subquery()
 
     async def demote() -> None:
@@ -189,35 +214,39 @@ async def test_a_replacement_whose_submitter_was_moved_to_viewer_is_not_publishe
     assert state["live"] == "before"
 
 
-@pytest.mark.parametrize("manifest", [True, False])
-async def test_a_replacement_rechecks_the_capability_its_door_required(
-    submitted_by_editor, monkeypatch: pytest.MonkeyPatch, manifest: bool
+@pytest.mark.parametrize(
+    ("recorded", "removed", "published"),
+    [
+        # A manifest apply admitted under upload, an editor without upload.
+        ("upload", "upload", False),
+        # A door that required only upload, an editor without edit_metadata.
+        ("upload", "edit_metadata", True),
+        # A re-upload, refresh or restore, an editor without edit_metadata.
+        ("edit_metadata", "edit_metadata", False),
+        # A door that required no capability, such as an overlay's sync door.
+        (None, "edit_metadata", True),
+    ],
+)
+async def test_a_replacement_rechecks_the_capability_its_door_recorded(
+    submitted_by_editor,
+    monkeypatch: pytest.MonkeyPatch,
+    recorded: str | None,
+    removed: str,
+    published: bool,
 ) -> None:
     seeded = submitted_by_editor
-    if manifest:
-        async with db_module.async_session() as session:
-            job = await session.get(IngestJob, seeded.job_id)
-            job.user_metadata = {**(job.user_metadata or {}), "manifest_key": "k"}
-            await session.commit()
-    effective = permissions.get_effective_permissions
+    await _record_admission(seeded, recorded)
+    _matrix_without(monkeypatch, removed)
 
-    async def editors_without_upload(db):
-        matrix = await effective(db)
-        matrix["editor"]["upload"] = False
-        return matrix
-
-    monkeypatch.setattr(
-        permissions, "get_effective_permissions", editors_without_upload
-    )
     await _settle(_Fake(seeded))
 
     state = await _state(seeded)
-    if manifest:
-        assert state["run"] == ("failed", "write_access_revoked")
-        assert state["live"] == "before"
-    else:
+    if published:
         assert state["job"] == "complete"
         assert state["live"] == "after"
+    else:
+        assert state["run"] == ("failed", "write_access_revoked")
+        assert state["live"] == "before"
 
 
 async def test_a_replacement_whose_submitter_still_owns_the_dataset_publishes(

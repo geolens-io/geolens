@@ -14,6 +14,7 @@ import structlog
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import EDIT_METADATA
 from app.core.record_types import capabilities
 from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
 from app.modules.catalog.datasets.domain.schemas import PreviousVersionResponse
@@ -23,7 +24,11 @@ from app.platform.jobs.heartbeat import (
     previous_version_name_claimed,
     previous_version_table,
 )
-from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY, IngestJob
+from app.platform.jobs.models import (
+    ADMITTED_CAPABILITY_METADATA_KEY,
+    EXPECTED_PREVIOUS_VERSION_KEY,
+    IngestJob,
+)
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
     ACTIVE_RUN_STATUSES,
@@ -117,6 +122,7 @@ async def admit_restore(
             "dataset_id": str(dataset.id),
             "origin_kind": "restore",
             EXPECTED_PREVIOUS_VERSION_KEY: expected,
+            ADMITTED_CAPABILITY_METADATA_KEY: EDIT_METADATA,
         },
     )
     await db.flush()

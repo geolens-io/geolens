@@ -24,7 +24,6 @@ from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.failure_reason import FixedReason
-from app.core.permissions import EDIT_METADATA, UPLOAD
 from app.platform.catalog_locks import (
     CatalogLockConflict,
     bump_tile_cache_version_on,
@@ -43,7 +42,11 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
 )
 from app.platform.jobs.ledger import hold
-from app.platform.jobs.models import ACTIVE_STATUSES, IngestJob
+from app.platform.jobs.models import (
+    ACTIVE_STATUSES,
+    ADMITTED_CAPABILITY_METADATA_KEY,
+    IngestJob,
+)
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -540,7 +543,10 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
         await require_submitter_can_write(
-            session, dataset, job, capability=_replacement_capability(job)
+            session,
+            dataset,
+            job,
+            capability=(job.user_metadata or {}).get(ADMITTED_CAPABILITY_METADATA_KEY),
         )
         published = await strategy.write(session, dataset)
         if published.tiles_changed:
@@ -605,12 +611,6 @@ _SUBMITTER = text(
     "JOIN catalog.roles r ON r.id = ur.role_id WHERE ur.user_id = u.id) AS roles "
     "FROM catalog.users u WHERE u.id = :uid"
 )
-
-
-def _replacement_capability(job: IngestJob) -> str:
-    """The capability a replacement's door requires: ``upload`` for a manifest
-    apply, ``edit_metadata`` for a re-upload, refresh or restore."""
-    return UPLOAD if (job.user_metadata or {}).get("manifest_key") else EDIT_METADATA
 
 
 async def require_submitter_can_write(

@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import EDIT_METADATA
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.core.identity import Identity
@@ -69,7 +70,7 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs import ledger
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ADMITTED_CAPABILITY_METADATA_KEY, IngestJob
 from app.platform.refresh.credentials import (
     CredentialStoreUnavailable,
     credential_store_available,
@@ -492,6 +493,7 @@ async def _dispatch_postgis_refresh(
             "refresh": True,
             "dataset_id": str(dataset_id),
             "origin_kind": "postgis",
+            ADMITTED_CAPABILITY_METADATA_KEY: EDIT_METADATA,
         },
     )
     await db.flush()
@@ -770,6 +772,7 @@ async def _dispatch_stac_refresh(
             "refresh": True,
             "dataset_id": str(dataset_id),
             "origin_kind": "stac",
+            ADMITTED_CAPABILITY_METADATA_KEY: EDIT_METADATA,
         },
     )
     await db.flush()
@@ -1266,6 +1269,7 @@ async def refresh_dataset(
     job.user_metadata = {
         "reupload": True,
         "dataset_id": str(dataset_id),
+        ADMITTED_CAPABILITY_METADATA_KEY: EDIT_METADATA,
         "service_type": origin.service_label,
         "layer_id": origin.layer_id,
         "source_type": "service_url",

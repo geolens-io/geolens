@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import joinedload
 
+from app.core.permissions import UPLOAD
 from app.core.async_io import (
     run_in_thread_draining,
     run_in_thread_draining_capture_cancel,
@@ -39,7 +40,11 @@ from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 
 from app.platform.jobs import ledger
-from app.platform.jobs.models import MANIFEST_FINGERPRINT_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    ADMITTED_CAPABILITY_METADATA_KEY,
+    MANIFEST_FINGERPRINT_METADATA_KEY,
+    IngestJob,
+)
 from app.processing.ingest.manifest_reservation import (
     RESERVATION_LOST_MESSAGE,
     bind_reservation_to_staged_source,
@@ -784,6 +789,7 @@ async def _reserve_entry(
     if dataset_id is not None:
         metadata["reupload"] = True
         metadata["dataset_id"] = str(dataset_id)
+        metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
 
     # fix(#1814): `running`, not `pending`. A pending row with no
     # file_path and no queue task is reapable by four actors while its source
