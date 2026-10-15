@@ -342,7 +342,7 @@ class TestAddSource:
 
         async def _check():
             from app.processing.ingest.router import add_vrt_source
-            import app.processing.ingest.router as ingest_router
+            import app.processing.ingest.vrt_admission as vrt_admission
 
             source_id = uuid.uuid4()
             mock_request = MagicMock()
@@ -356,7 +356,7 @@ class TestAddSource:
                 _build_mock_db_success_add(mock_asset, dataset_id)
             )
             monkeypatch.setattr(
-                ingest_router, "create_ingest_job", mock_create_ingest_job
+                vrt_admission, "create_ingest_job", mock_create_ingest_job
             )
 
             with (
@@ -388,7 +388,7 @@ class TestAddSource:
 
         async def _check():
             from app.processing.ingest.router import add_vrt_source
-            import app.processing.ingest.router as ingest_router
+            import app.processing.ingest.vrt_admission as vrt_admission
 
             source_id = uuid.uuid4()
             mock_request = MagicMock()
@@ -402,7 +402,7 @@ class TestAddSource:
                 _build_mock_db_success_add(mock_asset, dataset_id)
             )
             monkeypatch.setattr(
-                ingest_router, "create_ingest_job", mock_create_ingest_job
+                vrt_admission, "create_ingest_job", mock_create_ingest_job
             )
 
             with (
@@ -544,7 +544,7 @@ class TestRemoveSource:
 
         async def _check():
             from app.processing.ingest.router import remove_vrt_source
-            import app.processing.ingest.router as ingest_router
+            import app.processing.ingest.vrt_admission as vrt_admission
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -561,7 +561,7 @@ class TestRemoveSource:
                 )
             )
             monkeypatch.setattr(
-                ingest_router, "create_ingest_job", mock_create_ingest_job
+                vrt_admission, "create_ingest_job", mock_create_ingest_job
             )
 
             with patch(
@@ -587,7 +587,7 @@ class TestRemoveSource:
 
         async def _check():
             from app.processing.ingest.router import remove_vrt_source
-            import app.processing.ingest.router as ingest_router
+            import app.processing.ingest.vrt_admission as vrt_admission
 
             dataset_id = uuid.uuid4()
             source_dataset_id = uuid.uuid4()
@@ -604,7 +604,7 @@ class TestRemoveSource:
                 )
             )
             monkeypatch.setattr(
-                ingest_router, "create_ingest_job", mock_create_ingest_job
+                vrt_admission, "create_ingest_job", mock_create_ingest_job
             )
 
             with patch(
@@ -684,7 +684,7 @@ class TestMutationSerialization:
 
         async def _check():
             from app.processing.ingest.router import add_vrt_source
-            import app.processing.ingest.router as ingest_router
+            import app.processing.ingest.vrt_admission as vrt_admission
 
             mock_request = MagicMock()
             mock_request.source_dataset_id = uuid.uuid4()
@@ -697,7 +697,7 @@ class TestMutationSerialization:
                 mock_asset, dataset_id
             )
             monkeypatch.setattr(
-                ingest_router, "create_ingest_job", mock_create_ingest_job
+                vrt_admission, "create_ingest_job", mock_create_ingest_job
             )
 
             with (

@@ -18,8 +18,9 @@ from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
+import app.modules.auth.permissions as permissions
 from app.core.identity import IdentityProtocol
-from app.modules.auth.models import User, UserRole
+from app.modules.auth.models import Role, User, UserRole
 from app.modules.catalog.datasets.domain.models import Record
 from app.platform.extensions import get_processing_port
 from app.platform.jobs.models import IngestJob
@@ -167,6 +168,56 @@ async def test_a_replacement_whose_admin_submitter_was_demoted_is_not_published(
     state = await _state(seed)
     assert state["run"] == ("failed", "write_access_revoked")
     assert state["live"] == "before"
+
+
+async def test_a_replacement_whose_submitter_was_moved_to_viewer_is_not_published(
+    submitted_by_editor, editor
+) -> None:
+    seeded = submitted_by_editor
+    _, editor_id = editor
+    viewer = select(Role.id).where(Role.name == "viewer").scalar_subquery()
+
+    async def demote() -> None:
+        await _commit(
+            update(UserRole).where(UserRole.user_id == editor_id).values(role_id=viewer)
+        )
+
+    await _settle(_Fake(seeded, during={"install": demote}))
+
+    state = await _state(seeded)
+    assert state["run"] == ("failed", "write_access_revoked")
+    assert state["live"] == "before"
+
+
+@pytest.mark.parametrize("manifest", [True, False])
+async def test_a_replacement_rechecks_the_capability_its_door_required(
+    submitted_by_editor, monkeypatch: pytest.MonkeyPatch, manifest: bool
+) -> None:
+    seeded = submitted_by_editor
+    if manifest:
+        async with db_module.async_session() as session:
+            job = await session.get(IngestJob, seeded.job_id)
+            job.user_metadata = {**(job.user_metadata or {}), "manifest_key": "k"}
+            await session.commit()
+    effective = permissions.get_effective_permissions
+
+    async def editors_without_upload(db):
+        matrix = await effective(db)
+        matrix["editor"]["upload"] = False
+        return matrix
+
+    monkeypatch.setattr(
+        permissions, "get_effective_permissions", editors_without_upload
+    )
+    await _settle(_Fake(seeded))
+
+    state = await _state(seeded)
+    if manifest:
+        assert state["run"] == ("failed", "write_access_revoked")
+        assert state["live"] == "before"
+    else:
+        assert state["job"] == "complete"
+        assert state["live"] == "after"
 
 
 async def test_a_replacement_whose_submitter_still_owns_the_dataset_publishes(

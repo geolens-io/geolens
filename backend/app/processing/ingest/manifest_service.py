@@ -658,18 +658,18 @@ async def _admit_refresh_run(
 ) -> None:
     """Take the dataset's one active-run slot for this update.
 
-    Raises ``DatasetBusyError`` while another refresh or re-upload of the
-    dataset is active. ``trigger`` is ``api``, as the refresh endpoints record.
+    Raises ``DatasetBusyError`` while the dataset has another active run, or
+    the write guard's 404 or 403. ``trigger`` is ``api``, as refresh endpoints record.
     """
-    Dataset = get_processing_port().get_dataset_orm_class()
-    dataset = (
-        await db.execute(select(Dataset.feature_count).where(Dataset.id == dataset_id))
-    ).one_or_none()
+    from app.modules.catalog.authorization import lock_dataset_rows_for_write
+
+    dataset = await get_processing_port().get_dataset(db, dataset_id)
     if dataset is None:
         raise ManifestSourceError(
             "The dataset this entry updates was deleted while its source was "
             "being staged."
         )
+    await lock_dataset_rows_for_write(db, dataset)
     await create_pending_run(
         db,
         dataset_id=dataset_id,

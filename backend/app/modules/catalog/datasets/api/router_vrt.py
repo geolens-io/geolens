@@ -23,6 +23,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_write_access,
     check_vrt_members,
+    lock_dataset_rows_for_write,
 )
 from app.modules.catalog.datasets.domain.schemas import (
     VrtActiveGeneration,
@@ -459,6 +460,7 @@ async def regenerate_vrt_endpoint(
     )
     src_count = count_result.scalar() or 0
 
+    await lock_dataset_rows_for_write(db, dataset, raster_asset_cls=RasterAsset)
     generation = VrtGeneration(
         vrt_dataset_id=dataset_id,
         status="pending",

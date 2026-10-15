@@ -24,6 +24,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.failure_reason import FixedReason
+from app.core.permissions import EDIT_METADATA, UPLOAD
 from app.platform.catalog_locks import (
     CatalogLockConflict,
     bump_tile_cache_version_on,
@@ -538,7 +539,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
 
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
-        await _require_submitter_can_write(session, dataset, job.created_by)
+        await _require_submitter_can_write(session, dataset, job)
         published = await strategy.write(session, dataset)
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
@@ -605,20 +606,22 @@ _SUBMITTER = text(
 
 
 async def _require_submitter_can_write(
-    session: AsyncSession, dataset: Any, submitter_id: uuid.UUID | None
+    session: AsyncSession, dataset: Any, job: IngestJob
 ) -> None:
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
-    the dataset, as committed now.
+    the dataset, as committed now, and their roles still grant the capability
+    the job's door required: ``upload`` for a manifest apply, ``edit_metadata``
+    for the others.
 
     Call holding the catalog rows, which an ownership transfer also takes.
     """
     from fastapi import HTTPException
 
-    from app.platform.extensions import get_processing_port
+    from app.platform.extensions import get_permission_extension, get_processing_port
 
     row = None
-    if submitter_id is not None:
-        row = (await session.execute(_SUBMITTER, {"uid": submitter_id})).first()
+    if job.created_by is not None:
+        row = (await session.execute(_SUBMITTER, {"uid": job.created_by})).first()
     if row is None or not row.is_active:
         raise WriteAccessRevoked
     submitter = _Submitter(
@@ -642,6 +645,13 @@ async def _require_submitter_can_write(
         )
     except HTTPException:
         raise WriteAccessRevoked from None
+    capability = (
+        UPLOAD if (job.user_metadata or {}).get("manifest_key") else EDIT_METADATA
+    )
+    if not await get_permission_extension().check_permission(
+        session, submitter, capability, user_roles=set(row.roles)
+    ):
+        raise WriteAccessRevoked
 
 
 async def _take_catalog_rows(

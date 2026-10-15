@@ -1587,6 +1587,7 @@ class TestEveryJobWriterLeadsWithTheJobRow:
     _ROW_LOCKS = (
         "lock_catalog_rows",
         "lock_catalog_rows_for_write",
+        "lock_dataset_rows_for_write",
         "_take_catalog_rows",
     )
 
@@ -2749,7 +2750,12 @@ def _acquires_raster_first(fn) -> bool:
         for n in ast.walk(fn)
         if isinstance(n, ast.Call)
         and isinstance(n.func, ast.Name)
-        and n.func.id in ("lock_catalog_rows", "lock_catalog_rows_for_write")
+        and n.func.id
+        in (
+            "lock_catalog_rows",
+            "lock_catalog_rows_for_write",
+            "lock_dataset_rows_for_write",
+        )
     ]
     if not calls:
         return False

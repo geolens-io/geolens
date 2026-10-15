@@ -25,7 +25,7 @@ from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from app.platform.jobs.models import IngestJob
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import unknown_srid_refusal
@@ -126,6 +126,7 @@ from app.processing.ingest.pointcloud import (
     staged_pointcloud_metadata,
 )
 from app.processing.ingest.tasks import regenerate_vrt_staged
+from app.processing.ingest.vrt_admission import stage_vrt_regeneration
 from app.processing.ingest.tileset import (
     TILESET_UNPACKED_BYTES_FIELD,
     preview_staged_tileset,
@@ -1405,8 +1406,7 @@ async def add_vrt_source(
     # that publishes the artifact. Comment, not docstring — the docstring is
     # published OpenAPI text, so editing it would churn openapi.json and SDKs.
     from app.platform.extensions import get_processing_port
-    from app.processing.raster.models import RasterAsset, VrtGeneration
-    from sqlalchemy import text
+    from app.processing.raster.models import RasterAsset
 
     _port = get_processing_port()
     Dataset = _port.get_dataset_orm_class()
@@ -1448,6 +1448,7 @@ async def add_vrt_source(
         check_dataset_write_access,
         check_vrt_members,
         get_user_roles,
+        lock_dataset_rows_for_write,
     )
     from app.modules.catalog.datasets.domain.service import get_dataset
 
@@ -1532,21 +1533,10 @@ async def add_vrt_source(
         str(request.source_dataset_id)
     ]
 
-    generation = VrtGeneration(
-        vrt_dataset_id=dataset_id,
-        status="pending",
-        started_at=datetime.now(timezone.utc),
-        source_count=len(staged_source_ids),
-        staged_source_ids=staged_source_ids,
-        triggered_by=str(user.id),
+    await lock_dataset_rows_for_write(db, vrt_dataset, raster_asset_cls=RasterAsset)
+    job, generation = await stage_vrt_regeneration(
+        db, vrt_asset, dataset_id, staged_source_ids, user
     )
-    db.add(generation)
-    await db.flush()
-    vrt_asset.status = "regenerating"
-    vrt_asset.current_generation_id = generation.id
-
-    job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
-    job.dataset_id = dataset_id
 
     # A queue outage fails the job below and releases the VRT with it before
     # the 503; otherwise the asset sits 'regenerating', 409-ing every mutation
@@ -1605,8 +1595,7 @@ async def remove_vrt_source(
     # transaction that publishes the artifact without the removed member. Kept
     # out of the docstring — see the note on add_vrt_source.
     from app.platform.extensions import get_processing_port
-    from app.processing.raster.models import RasterAsset, VrtGeneration
-    from sqlalchemy import text
+    from app.processing.raster.models import RasterAsset
 
     _port = get_processing_port()
     Dataset = _port.get_dataset_orm_class()
@@ -1627,7 +1616,10 @@ async def remove_vrt_source(
 
     # Owner-or-admin: removing a source mutates the VRT composition. The
     # `upload` capability alone is not ownership.
-    from app.modules.catalog.authorization import check_dataset_write_access
+    from app.modules.catalog.authorization import (
+        check_dataset_write_access,
+        lock_dataset_rows_for_write,
+    )
     from app.modules.catalog.datasets.domain.service import get_dataset
 
     vrt_dataset = await get_dataset(db, dataset_id)
@@ -1681,21 +1673,10 @@ async def remove_vrt_source(
         str(sid) for sid in existing_source_ids if sid != source_dataset_id
     ]
 
-    generation = VrtGeneration(
-        vrt_dataset_id=dataset_id,
-        status="pending",
-        started_at=datetime.now(timezone.utc),
-        source_count=len(staged_source_ids),
-        staged_source_ids=staged_source_ids,
-        triggered_by=str(user.id),
+    await lock_dataset_rows_for_write(db, vrt_dataset, raster_asset_cls=RasterAsset)
+    job, generation = await stage_vrt_regeneration(
+        db, vrt_asset, dataset_id, staged_source_ids, user
     )
-    db.add(generation)
-    await db.flush()
-    vrt_asset.status = "regenerating"
-    vrt_asset.current_generation_id = generation.id
-
-    job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
-    job.dataset_id = dataset_id
 
     # Commit + dispatch with orphan guard (Theme H) — a Procrastinate outage
     # would otherwise leave the VRT 'regenerating' until sweep_stale_vrt_assets
