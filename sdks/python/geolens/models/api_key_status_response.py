@@ -23,8 +23,8 @@ class ApiKeyStatusResponse:
     """Response for GET /settings/api-key-status/.
 
     Attributes:
-        anthropic_configured (bool): Whether Claude is configured on the selected platform: ANTHROPIC_API_KEY on
-            Anthropic's API, or that platform's settings on Foundry, Bedrock or Vertex.
+        anthropic_configured (bool): Whether Claude's credentials are set for the selected platform: ANTHROPIC_API_KEY
+            on Anthropic's API, or that platform's settings on Foundry, Bedrock or Vertex. The model is checked separately.
         anthropic_platform (ApiKeyStatusResponseAnthropicPlatform): Where Claude requests go, from ANTHROPIC_PLATFORM.
         openai_configured (bool): Whether OPENAI_API_KEY is set in the environment.
     """

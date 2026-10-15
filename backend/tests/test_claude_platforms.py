@@ -490,16 +490,48 @@ def test_cloud_platform_is_configured_without_an_anthropic_key(monkeypatch, conf
     assert status.provider == "anthropic"
 
 
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "configure", [_bedrock_keys, _vertex], ids=["bedrock", "vertex"]
 )
-def test_bedrock_and_vertex_need_their_own_model_id(monkeypatch, configure):
+async def test_bedrock_and_vertex_need_a_model_from_env_or_admin(
+    monkeypatch, configure
+):
+    from app.core import persistent_config
+
     configure(monkeypatch)
     monkeypatch.setattr(settings, "llm_model", None)
+    _patch_runtime(monkeypatch, "anthropic")
+    overrides = {"chat": "", "light": ""}
+    monkeypatch.setattr(
+        persistent_config.LLM_MODEL,
+        "override",
+        AsyncMock(side_effect=lambda db: overrides["chat"]),
+    )
+    monkeypatch.setattr(
+        persistent_config.LLM_MODEL_LIGHT,
+        "override",
+        AsyncMock(side_effect=lambda db: overrides["light"]),
+    )
+    db = MagicMock()
 
-    assert anthropic_configured() is False
-    with pytest.raises(ValueError, match="needs LLM_MODEL"):
-        get_anthropic_client()
+    # Neither platform serves Anthropic's model names, so there's no default.
+    assert llm_model_default("anthropic") == ""
+    assert await ai_router._ai_availability(db) is False
+    with pytest.raises(HTTPException) as exc_info:
+        await ai_router._check_ai_available(db)
+    assert exc_info.value.status_code == 503
+    assert admin_router._ai_status(True, "anthropic", model="").configured is False
+
+    # A model an admin set counts, and the light model follows it.
+    overrides["chat"] = "admin-set-claude-model-id"
+
+    assert await ai_router._ai_availability(db) is True
+    await ai_router._check_ai_available(db)
+    assert (
+        await persistent_config.LLM_MODEL_LIGHT.for_provider(db, "anthropic")
+        == "admin-set-claude-model-id"
+    )
 
 
 def test_foundry_can_use_the_default_model_name(monkeypatch):
@@ -630,6 +662,10 @@ async def test_probe_treats_a_configured_platform_as_configured(monkeypatch):
     assert not calls
 
     _foundry(monkeypatch)
+    probe_resolution = llm_loop.resolve_provider.return_value
+    llm_loop.resolve_provider.return_value = ("anthropic", "", {"base_url": None})
+    assert (await probe._probe_chat(MagicMock())).configured is False
+    llm_loop.resolve_provider.return_value = probe_resolution
     result = await probe._probe_chat(MagicMock())
 
     assert result.configured is True

@@ -658,9 +658,15 @@ LLM_PROVIDER = PersistentConfig[str](
 
 
 def llm_model_default(provider: str, *, light: bool = False) -> str:
-    """The model ``provider`` uses when no admin override is set."""
+    """The model ``provider`` uses when no admin override is set, or ``""``."""
     if provider == "anthropic":
-        chat = settings.llm_model or DEFAULT_LLM_MODEL
+        # Bedrock and Vertex don't serve Anthropic's model names, so they have
+        # no default; Foundry deployments may carry them.
+        chat = settings.llm_model or (
+            ""
+            if settings.anthropic_platform in ("bedrock", "vertex")
+            else DEFAULT_LLM_MODEL
+        )
         if not light:
             return chat
         if settings.llm_model_light:
@@ -775,7 +781,11 @@ class _ProviderModelConfig(PersistentConfig[str]):
             model = config.get("default_model")
             if isinstance(model, str) and model.strip():
                 return model
-        return llm_model_default(provider, light=self.light)
+        default = llm_model_default(provider, light=self.light)
+        if not default and self.light:
+            # No platform default: follow the chat model an admin set.
+            return await LLM_MODEL.for_provider(db, provider, runtime_config)
+        return default
 
     async def resolved_default(
         self, db: AsyncSession, settings: Mapping[str, object] | None = None
@@ -841,6 +851,14 @@ class _ProviderModelConfig(PersistentConfig[str]):
 
 
 LLM_MODEL = _ProviderModelConfig("llm_model", light=False, label="LLM Model")
+
+
+async def llm_model_unset(db: AsyncSession, provider: str) -> bool:
+    """Whether ``provider`` has neither an admin model nor a default one."""
+    if llm_model_default(provider):
+        return False
+    return not await LLM_MODEL.for_provider(db, provider)
+
 
 OPENAI_BASE_URL = PersistentConfig[str](
     key="openai_base_url",

@@ -200,13 +200,7 @@ def anthropic_unconfigured_reason() -> str | None:
                 and settings.anthropic_vertex_project_id,
             }.get(platform)
         )
-    if not ready:
-        return f"Claude on {platform} not configured"
-    # Foundry deployments may be named after Anthropic's models; Bedrock and
-    # Vertex model IDs never are.
-    if platform != "foundry" and not settings.llm_model:
-        return f"Claude on {platform} needs LLM_MODEL set to that platform's model ID"
-    return None
+    return None if ready else f"Claude on {platform} not configured"
 
 
 def anthropic_configured() -> bool:

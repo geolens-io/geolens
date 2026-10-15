@@ -903,7 +903,7 @@ export type ApiKeyStatusResponse = {
     /**
      * Anthropic Configured
      *
-     * Whether Claude is configured on the selected platform: ANTHROPIC_API_KEY on Anthropic's API, or that platform's settings on Foundry, Bedrock or Vertex.
+     * Whether Claude's credentials are set for the selected platform: ANTHROPIC_API_KEY on Anthropic's API, or that platform's settings on Foundry, Bedrock or Vertex. The model is checked separately.
      */
     anthropic_configured: boolean;
     /**

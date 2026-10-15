@@ -282,9 +282,9 @@ class ApiKeyStatusResponse(BaseModel):
 
     anthropic_configured: bool = Field(
         description=(
-            "Whether Claude is configured on the selected platform: "
+            "Whether Claude's credentials are set for the selected platform: "
             "ANTHROPIC_API_KEY on Anthropic's API, or that platform's settings on "
-            "Foundry, Bedrock or Vertex."
+            "Foundry, Bedrock or Vertex. The model is checked separately."
         )
     )
     anthropic_platform: ClaudePlatform = Field(

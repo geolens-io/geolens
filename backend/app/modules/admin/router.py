@@ -948,7 +948,8 @@ def _ai_status(
     display_names = {"anthropic": "anthropic", "openai_compatible": "openai"}
 
     selected_key = keys.get(provider)
-    configured = bool(selected_key)
+    # "" means the provider has no default model (Bedrock, Vertex) and no override.
+    configured = bool(selected_key) and model != ""
     return AIStatusResponse(
         provider=display_names.get(provider) if configured else None,
         model=model if configured else None,

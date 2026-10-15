@@ -68,6 +68,7 @@ from app.core.persistent_config import (
     AI_ENABLED,
     LLM_PROVIDER,
     MAX_AI_TOKENS_PER_USER_PER_DAY,
+    llm_model_unset,
 )
 from app.processing.ai.token_usage import AITokenUsage
 from app.platform.ratelimit import limiter
@@ -193,7 +194,7 @@ async def _ai_availability(db: AsyncSession) -> bool:
         "anthropic": anthropic_configured(),
         "openai_compatible": settings.openai_api_key,
     }
-    return bool(keys.get(provider))
+    return bool(keys.get(provider)) and not await llm_model_unset(db, provider)
 
 
 async def _check_ai_available(db: AsyncSession) -> None:
@@ -217,6 +218,11 @@ async def _check_ai_available(db: AsyncSession) -> None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Selected LLM provider API key not configured",
+        )
+    if await llm_model_unset(db, provider):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Selected LLM provider has no model configured",
         )
 
 
