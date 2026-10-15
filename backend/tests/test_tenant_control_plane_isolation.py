@@ -66,7 +66,8 @@ async def test_mode_permission_selects_fleet_capability(
     await checker(
         request=request,
         current_user=SimpleNamespace(id=uuid.uuid4()),
-        db=MagicMock(),
+        # A session's info dict, where require_permission records what it admitted.
+        db=MagicMock(info={}),
     )
 
     assert observed == [expected]

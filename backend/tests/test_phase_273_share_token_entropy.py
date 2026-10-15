@@ -40,6 +40,8 @@ async def _create_map(session, *, created_by: uuid.UUID) -> Map:
         name=f"SEC-10 Test Map {uuid.uuid4().hex[:6]}",
         description="share-token entropy test",
         created_by=created_by,
+        # Only a public map can be shared.
+        visibility="public",
     )
     session.add(map_obj)
     await session.flush()

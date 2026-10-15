@@ -178,6 +178,11 @@ async def test_service_allows_clearing_expiration_in_community(
     class _Session:
         execute = staticmethod(_no_token)
 
+    # The map row lock is a database step this stub session can't take.
+    async def _no_lock(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(service_public, "lock_map_layers", _no_lock)
     assert (
         await service_public.update_share_token(_Session(), uuid.uuid4(), None) is None
     )

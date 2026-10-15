@@ -97,7 +97,7 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
                 sa.text(
                     "GRANT UPDATE ON catalog.api_keys, "
                     "catalog.email_verification_tokens, catalog.refresh_tokens, "
-                    "catalog.users TO geolens_reader"
+                    "catalog.users, catalog.maps TO geolens_reader"
                 )
             )
 
@@ -106,7 +106,7 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
                 sa.text(
                     "INSERT INTO catalog.maps "
                     "(id, name, visibility, created_by, tenant_id, created_at, "
-                    " updated_at) VALUES (:id, 'Tenant token probe', 'private', "
+                    " updated_at) VALUES (:id, 'Tenant token probe', 'public', "
                     " :user_id, :tenant_id, now(), now())"
                 ),
                 {
@@ -237,7 +237,7 @@ async def test_opaque_child_tokens_follow_their_rls_visible_parent(
                 sa.text(
                     "REVOKE UPDATE ON catalog.api_keys, "
                     "catalog.email_verification_tokens, catalog.refresh_tokens, "
-                    "catalog.users FROM geolens_reader"
+                    "catalog.users, catalog.maps FROM geolens_reader"
                 )
             )
             for table in child_tables:
