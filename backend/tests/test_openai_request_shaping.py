@@ -239,12 +239,14 @@ async def test_model_rejecting_none_needs_the_responses_api():
     assert len(server.calls) == 4
 
 
-async def test_rejected_none_without_tools_is_not_retried(monkeypatch):
+@pytest.mark.parametrize("tools", [None, _TOOLS])
+async def test_configured_none_the_model_rejects_is_dropped(monkeypatch, tools):
     monkeypatch.setattr(settings, "openai_reasoning_effort", "none")
     server = _Server(_rejects_none)
-    with pytest.raises(openai.BadRequestError):
-        await _call(server)
-    assert len(server.calls) == 1
+    await _call(server, **({"tools": tools} if tools else {}))
+    assert server.calls[0]["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in server.calls[-1]
+    assert len(server.calls) == 2
 
 
 async def test_learned_shape_skips_the_rejected_attempts_on_the_next_call():

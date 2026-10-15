@@ -119,7 +119,12 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
           navigate(`/maps/${result.map_id}`);
           return;
         } else if (event === 'error') {
-          setGenerateError((data as { message?: string }).message ?? t('mapCreate.generateFailed'));
+          const failure = data as { message?: string; code?: string };
+          setGenerateError(
+            failure.code === 'model_requires_responses_api'
+              ? t('chat.errorModelUnsupported')
+              : (failure.message ?? t('mapCreate.generateFailed')),
+          );
           return;
         }
       }

@@ -100,7 +100,7 @@ def _adjust(exc: BadRequestError, shape: _Shape) -> tuple[str, _Shape] | None:
         return "temperature", replace(shape, temperature=False)
     if shape.reasoning_effort is not None and (
         "Unrecognized request argument supplied: reasoning_effort" in message
-        or _rejects(exc, "reasoning_effort", value=False)
+        or _unsupported(exc, "reasoning_effort")
     ):
         return "reasoning_effort", replace(shape, reasoning_effort=None)
     if shape.reasoning_effort != "none" and message.startswith(
@@ -123,9 +123,9 @@ async def create_chat_completion(
     parameter is adjusted at most once per call and only ``create()`` is
     retried. The working shape is remembered per ``(base_url, model)`` and
     whether tools are sent.
-    Raises :class:`ResponsesAPIRequiredError` when the model rejects
-    ``reasoning_effort="none"`` for a request with tools, and re-raises any
-    other rejection unchanged.
+    Raises :class:`ResponsesAPIRequiredError` when the model asks for
+    ``reasoning_effort="none"`` to call tools and then rejects that value,
+    and re-raises any other rejection unchanged.
     """
     from openai import BadRequestError
 
@@ -140,8 +140,10 @@ async def create_chat_completion(
         try:
             response = await create(**kwargs)
         except BadRequestError as exc:
+            # Only a "none" this call sent for tools proves the Responses API
+            # is needed; a configured "none" is dropped like any other value.
             if (
-                kwargs.get("tools")
+                "reasoning_effort" in adjusted
                 and kwargs.get("reasoning_effort") == "none"
                 and _rejects(exc, "reasoning_effort", value=True)
             ):

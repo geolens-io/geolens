@@ -70,6 +70,25 @@ describe('DatasetChatPanel', () => {
     expect(mockStream).toHaveBeenCalledWith('ds-1', 'how many parks?', expect.any(String), [], expect.any(AbortSignal));
   });
 
+  it('explains a model that needs the Responses API', async () => {
+    setAvailable(true);
+    mockStream.mockImplementation(async function* () {
+      yield {
+        event: 'error',
+        data: { message: 'English server text', code: 'model_requires_responses_api' },
+      };
+    });
+
+    renderPanel();
+    await userEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    await userEvent.type(screen.getByPlaceholderText('Ask about this data...'), 'how many parks?');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await screen.findByText(
+      "The AI model this site uses isn't supported yet. Ask an administrator to choose a different model.",
+    );
+  });
+
   it('renders a show_query_result table with an open-in-builder action', async () => {
     setAvailable(true);
     mockStream.mockImplementation(async function* () {

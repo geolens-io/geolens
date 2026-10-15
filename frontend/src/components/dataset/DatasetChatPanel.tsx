@@ -150,6 +150,7 @@ export function DatasetChatPanel({
     let streamed = '';
     let queryResult: QueryResult | undefined;
     let spatialResult: ChatResultHandoff | undefined;
+    let modelUnsupported = false;
     try {
       for await (const { event, data } of streamDatasetChatMessage(datasetId, userMsg, i18n.language, history, controller.signal)) {
         if (event === 'token') {
@@ -190,6 +191,7 @@ export function DatasetChatPanel({
           if (typeof data.status === 'number') {
             throw new ApiError(typeof data.message === 'string' ? data.message : '', data.status);
           }
+          if (data.code === 'model_requires_responses_api') modelUnsupported = true;
           throw new Error(typeof data.message === 'string' ? data.message : '');
         }
       }
@@ -202,7 +204,12 @@ export function DatasetChatPanel({
       } else {
         setMessages((prev) => [
           ...prev,
-          { id: randomId(), role: 'error', content: t('common:viewer.ai.error'), retryMessage: userMsg },
+          {
+            id: randomId(),
+            role: 'error',
+            content: t(modelUnsupported ? 'common:viewer.ai.errorModelUnsupported' : 'common:viewer.ai.error'),
+            retryMessage: userMsg,
+          },
         ]);
       }
     } finally {
