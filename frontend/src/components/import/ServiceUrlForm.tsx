@@ -69,13 +69,17 @@ type ArcgisAuthMethod = 'none' | 'token' | 'signin';
 type ServiceCredentialMethod = 'none' | 'bearer' | 'basic' | 'header';
 
 // codex review #1757 round 4 P2: the ONE margin shared by the proactive
-// timer (scheduleExpiryTimer) and the synchronous fallback (isPast,
+// timer (scheduleExpiryTimer) and the synchronous fallback (msUntilExpiry,
 // checked by expireStaleTokenIfPast/isTokenExpiredOrPast). The timer
 // used to retire a token 30 seconds early while the synchronous check
 // compared against the raw expires_at, so a tab resuming inside that
 // 30-second window could still forward a token the component had
 // already decided to retire.
 const EXPIRY_MARGIN_MS = 30_000;
+
+function msUntilExpiry(isoTime: string): number {
+  return new Date(isoTime).getTime() - EXPIRY_MARGIN_MS - Date.now();
+}
 
 export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const { t } = useTranslation('import');
@@ -165,17 +169,13 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     setTokenExpired(false);
   }, [clearExpiryTimer]);
 
-  function isPast(isoTime: string): boolean {
-    return new Date(isoTime).getTime() - EXPIRY_MARGIN_MS <= Date.now();
-  }
-
   // codex review #1757 round 2: the timer above is the normal path; this
   // is the fallback for a throttled background tab whose setTimeout fired
   // late (or never, before the user comes back and tries to submit).
   // Called at the top of every place that would otherwise forward `token`
   // to the backend. Returns true when it just refused a stale submission.
   function expireStaleTokenIfPast(): boolean {
-    if (token && tokenExpiresAt && isPast(tokenExpiresAt)) {
+    if (token && tokenExpiresAt && msUntilExpiry(tokenExpiresAt) <= 0) {
       signinGenerationRef.current += 1;
       clearExpiryTimer();
       setToken('');
@@ -208,7 +208,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   // cleared everything and this is a no-op.
   function scheduleExpiryTimer(expiresAt: string, generation: number): void {
     clearExpiryTimer();
-    const delay = new Date(expiresAt).getTime() - EXPIRY_MARGIN_MS - Date.now();
+    const delay = msUntilExpiry(expiresAt);
     const expire = () => {
       expiryTimerRef.current = null;
       if (signinGenerationRef.current !== generation) return;
@@ -640,7 +640,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
       // fix(#1835): a restored token with no expiry check reads as
       // never-expiring — re-check and reschedule instead of trusting it.
       if (session.token && session.tokenExpiresAt) {
-        if (isPast(session.tokenExpiresAt)) {
+        if (msUntilExpiry(session.tokenExpiresAt) <= 0) {
           setToken('');
           setTokenExpiresAt(null);
           setTokenExpired(true);

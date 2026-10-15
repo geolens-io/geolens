@@ -373,48 +373,6 @@ export function useBuilderLayers(
     }
   }, [apiLayers, hasUnsavedChanges, mapData]);
 
-  // Adds the entry intent's dataset once. Depends on mapData so the effect
-  // re-evaluates once initializedRef is set.
-  useEffect(() => {
-    if (!initializedRef.current || addDatasetProcessedRef.current) return;
-    const datasetId = addDatasetId;
-    if (!datasetId) return;
-    addDatasetProcessedRef.current = true;
-    // A fresh map has no saved view of its own (center_lng/
-    // center_lat are null — mirrors BuilderMap's hasSavedView check) and
-    // opens at the world-view default, so the just-added dataset can land
-    // off-screen. Record the new layer id for the one-time auto-zoom effect
-    // below; a map with its own saved view is left alone (that framing was
-    // chosen on purpose). Don't call handleZoomToLayer directly from this
-    // callback — layersRef is only synced via the useLayoutEffect mirror on
-    // commit,
-    // so it would still be missing the layer just created.
-    // "Fresh" means no prior layers too, not just no saved
-    // center — a centerless map with existing layers keeps BuilderMap's
-    // own combined-bounds auto-fit; this single-layer zoom would race it.
-    const hasSavedView = hasSavedMapCamera(mapData);
-    const isFreshMap = !hasSavedView && (mapData?.layers?.length ?? 0) === 0;
-    handleAddDataset(
-      datasetId,
-      hasSavedView
-        ? undefined
-        : (newLayerId) => {
-            if (isFreshMap) {
-              pendingAutoZoomLayerIdRef.current = newLayerId;
-              return;
-            }
-            // BuilderMap seeds its auto-fit baseline from its
-            // first render, so a cold mount (mapInstanceRef still null) never
-            // sees this addition as a change — take charge only then.
-            if (!mapInstanceRef.current) {
-              pendingAutoZoomLayerIdRef.current = newLayerId;
-              pendingCombinedFitRef.current = true;
-            }
-          },
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to intent/map changes only; the applier is stable
-  }, [addDatasetId, mapData]);
-
   // Compute initial view state only once
   const initialViewState = useMemo(() => {
     if (!mapData) return undefined;
@@ -863,6 +821,48 @@ export function useBuilderLayers(
     },
     [mapId, addLayerMutation, t, saveBaselineSyncRef],
   );
+  // Adds the entry intent's dataset once. Depends on mapData so the effect
+  // re-evaluates once initializedRef is set.
+  useEffect(() => {
+    if (!initializedRef.current || addDatasetProcessedRef.current) return;
+    const datasetId = addDatasetId;
+    if (!datasetId) return;
+    addDatasetProcessedRef.current = true;
+    // A fresh map has no saved view of its own (center_lng/
+    // center_lat are null — mirrors BuilderMap's hasSavedView check) and
+    // opens at the world-view default, so the just-added dataset can land
+    // off-screen. Record the new layer id for the one-time auto-zoom effect
+    // below; a map with its own saved view is left alone (that framing was
+    // chosen on purpose). Don't call handleZoomToLayer directly from this
+    // callback — layersRef is only synced via the useLayoutEffect mirror on
+    // commit,
+    // so it would still be missing the layer just created.
+    // "Fresh" means no prior layers too, not just no saved
+    // center — a centerless map with existing layers keeps BuilderMap's
+    // own combined-bounds auto-fit; this single-layer zoom would race it.
+    const hasSavedView = hasSavedMapCamera(mapData);
+    const isFreshMap = !hasSavedView && (mapData?.layers?.length ?? 0) === 0;
+    handleAddDataset(
+      datasetId,
+      hasSavedView
+        ? undefined
+        : (newLayerId) => {
+            if (isFreshMap) {
+              pendingAutoZoomLayerIdRef.current = newLayerId;
+              return;
+            }
+            // BuilderMap seeds its auto-fit baseline from its
+            // first render, so a cold mount (mapInstanceRef still null) never
+            // sees this addition as a change — take charge only then.
+            if (!mapInstanceRef.current) {
+              pendingAutoZoomLayerIdRef.current = newLayerId;
+              pendingCombinedFitRef.current = true;
+            }
+          },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to intent/map changes only; the applier is stable
+  }, [addDatasetId, mapData]);
+
 
   // AI-specific remove: removes locally (persisted on Save).
   //

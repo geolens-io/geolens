@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { Component, memo, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import { HeatmapLegend, LegendClassesList } from '@/components/map/LegendEntries';
@@ -136,80 +136,113 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   );
 }
 
-/** Per-layer legend entry. Memoized and wrapped in try/catch for resilience. */
-const LegendLayerEntry = memo(function LegendLayerEntry({
-  layer,
-  idx,
-  isLast,
-}: {
+/** Per-layer legend entry. Memoized; a render failure degrades to a placeholder row. */
+const LegendLayerEntry = memo(function LegendLayerEntry(props: {
   layer: MapLayerResponse;
   idx: number;
   isLast: boolean;
 }) {
+  const entryName = legendFacts(props.layer)?.name ?? '';
+  return (
+    <LegendEntryBoundary entryName={entryName} isLast={props.isLast}>
+      <LegendLayerBody {...props} entryName={entryName} />
+    </LegendEntryBoundary>
+  );
+});
+
+class LegendEntryBoundary extends Component<
+  { entryName: string; isLast: boolean; children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(err: Error) {
+    if (import.meta.env.DEV) console.error(`[LegendPlugin] Failed to render layer "${this.props.entryName}":`, err);
+  }
+
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return <LegendUnavailableRow entryName={this.props.entryName} isLast={this.props.isLast} />;
+  }
+}
+
+function LegendUnavailableRow({ entryName, isLast }: { entryName: string; isLast: boolean }) {
+  const { t } = useTranslation('builder');
+  return (
+    <div>
+      <div className="p-1 text-xs">
+        <span className="font-medium text-foreground truncate">
+          {entryName}
+        </span>
+        <span className="text-muted-foreground italic ms-1">
+          {t('plugins.legend.unavailable', { defaultValue: '(legend unavailable)' })}
+        </span>
+      </div>
+      {!isLast && <div className="border-b" />}
+    </div>
+  );
+}
+
+function LegendLayerBody({
+  layer,
+  idx,
+  isLast,
+  entryName,
+}: {
+  layer: MapLayerResponse;
+  idx: number;
+  isLast: boolean;
+  entryName: string;
+}) {
   const { t } = useTranslation('builder');
   const facts = legendFacts(layer);
-  const entryName = facts?.name ?? '';
+  const opacity = layer.opacity ?? 1;
+  const effectiveGeom = inferGeometryType(layer.paint, layer.dataset_geometry_type);
+  const swatch = facts?.swatch ?? null;
+  const weight = facts?.weight ?? null;
 
-  try {
-    const opacity = layer.opacity ?? 1;
-    const effectiveGeom = inferGeometryType(layer.paint, layer.dataset_geometry_type);
-    const swatch = facts?.swatch ?? null;
-    const weight = facts?.weight ?? null;
-
-    return (
-      <div>
-        <div className="p-1 text-xs">
-          {facts?.ramp ? (
-            <HeatmapLegend
-              name={entryName}
-              ramp={facts.ramp}
-              weightColumn={weight?.column}
-              opacity={opacity}
-              lowLabel={t('plugins.legend.low')}
-              highLabel={t('plugins.legend.high')}
-              weightedByLabel={weight
-                ? t(weight.scaled ? 'plugins.legend.weightedByScaled' : 'plugins.legend.weightedBy', { column: weight.column })
-                : undefined}
-            />
-          ) : facts?.classes ? (
-            <>
-              <div className="font-medium text-foreground mb-1 truncate">
-                {entryName}
-              </div>
-              <LegendClassesList classes={facts.classes} geometryType={effectiveGeom} style={swatch} />
-            </>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              {/* fix(#452): one shared icon component with the layer stack —
-                  raster/DEM rows get the same glyph chip (▦/⛰/◬) the stack
-                  shows instead of a divergent lucide icon. */}
-              <LayerTypeIcon
-                layer={{ ...layer, dataset_geometry_type: effectiveGeom }}
-                iconId={`legend-plugin-${idx}`}
-              />
-              <span className="font-medium text-foreground truncate">
-                {entryName}
-              </span>
+  return (
+    <div>
+      <div className="p-1 text-xs">
+        {facts?.ramp ? (
+          <HeatmapLegend
+            name={entryName}
+            ramp={facts.ramp}
+            weightColumn={weight?.column}
+            opacity={opacity}
+            lowLabel={t('plugins.legend.low')}
+            highLabel={t('plugins.legend.high')}
+            weightedByLabel={weight
+              ? t(weight.scaled ? 'plugins.legend.weightedByScaled' : 'plugins.legend.weightedBy', { column: weight.column })
+              : undefined}
+          />
+        ) : facts?.classes ? (
+          <>
+            <div className="font-medium text-foreground mb-1 truncate">
+              {entryName}
             </div>
-          )}
-        </div>
-        {!isLast && <div className="border-b" />}
+            <LegendClassesList classes={facts.classes} geometryType={effectiveGeom} style={swatch} />
+          </>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            {/* fix(#452): one shared icon component with the layer stack —
+                raster/DEM rows get the same glyph chip (▦/⛰/◬) the stack
+                shows instead of a divergent lucide icon. */}
+            <LayerTypeIcon
+              layer={{ ...layer, dataset_geometry_type: effectiveGeom }}
+              iconId={`legend-plugin-${idx}`}
+            />
+            <span className="font-medium text-foreground truncate">
+              {entryName}
+            </span>
+          </div>
+        )}
       </div>
-    );
-  } catch (err) {
-    if (import.meta.env.DEV) console.error(`[LegendPlugin] Failed to render layer "${entryName}":`, err);
-    return (
-      <div>
-        <div className="p-1 text-xs">
-          <span className="font-medium text-foreground truncate">
-            {entryName}
-          </span>
-          <span className="text-muted-foreground italic ms-1">
-            {t('plugins.legend.unavailable', { defaultValue: '(legend unavailable)' })}
-          </span>
-        </div>
-        {!isLast && <div className="border-b" />}
-      </div>
-    );
-  }
-});
+      {!isLast && <div className="border-b" />}
+    </div>
+  );
+}

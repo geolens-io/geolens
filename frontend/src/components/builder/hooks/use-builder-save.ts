@@ -1110,6 +1110,7 @@ export function useBuilderSave(state: SaveState) {
     return SAVE_SNAPSHOT_FIELDS.some((field) => sent[field] !== latest[field]);
   }
 
+  const { saveBaselineSyncRef } = state;
   useEffect(() => {
     // fix(#392): let layer-create paths register the server-created layer into the
     // Save-diff baseline. Marking the map dirty in the same update that inserts a
@@ -1117,7 +1118,7 @@ export function useBuilderSave(state: SaveState) {
     // baseline unaware of the new server id, so buildLayerDiff reports it as
     // diff.added and the PATCH endpoint creates a duplicate. Register the PURE
     // server layer (no local grouping/reorder) so grouping/order still diff normally.
-    state.saveBaselineSyncRef.current = {
+    saveBaselineSyncRef.current = {
       add: (layer: MapLayerResponse) => {
         if (!baselineLayersRef.current.some((l) => l.id === layer.id)) {
           baselineLayersRef.current = [...baselineLayersRef.current, { ...layer }];
