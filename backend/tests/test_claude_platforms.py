@@ -1,7 +1,7 @@
 """Claude through Anthropic's API, a gateway, Foundry, Bedrock and Vertex.
 
 No live cloud account is used: the client factory is checked for the class,
-endpoint and credentials it builds, and requests go to an httpx mock.
+endpoint and credentials it builds, and requests go to an httpx2 mock.
 """
 
 import json
@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import anthropic
-import httpx
+import httpx2
 import pytest
 from fastapi import HTTPException
 from pydantic import SecretStr
@@ -24,7 +24,7 @@ from app.modules.admin import router as admin_router
 from app.platform.extensions.defaults import DefaultAnthropicProvider
 from app.processing.ai import llm_loop, probe
 from app.processing.ai import router as ai_router
-from app.processing.ai.llm_loop import _LLM_TIMEOUT, get_anthropic_client
+from app.processing.ai.llm_loop import get_anthropic_client
 from tests._logging_state import configured_logging
 
 _PLATFORM_FIELDS = (
@@ -116,8 +116,8 @@ class _ListHandler(logging.Handler):
         self.lines.append(self.format(record))
 
 
-def _message_response(request: httpx.Request) -> httpx.Response:
-    return httpx.Response(
+def _message_response(request: httpx2.Request) -> httpx2.Response:
+    return httpx2.Response(
         200,
         json={
             "id": "msg_test",
@@ -132,13 +132,13 @@ def _message_response(request: httpx.Request) -> httpx.Response:
     )
 
 
-def _with_mock_transport(client, requests: list[httpx.Request]):
-    def handler(request: httpx.Request) -> httpx.Response:
+def _with_mock_transport(client, requests: list[httpx2.Request]):
+    def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
         return _message_response(request)
 
     return client.with_options(
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
     )
 
 
@@ -155,7 +155,7 @@ def test_anthropic_default_client_is_unchanged(monkeypatch):
     assert type(client) is anthropic.AsyncAnthropic
     assert client.api_key == _ANTHROPIC_KEY
     assert str(client.base_url) == "https://api.anthropic.com"
-    assert client.timeout is _LLM_TIMEOUT
+    assert (client.timeout.read, client.timeout.connect) == (120.0, 10.0)
     assert client.max_retries == 2
     assert get_anthropic_client() is client
 
@@ -278,7 +278,7 @@ async def test_bedrock_signs_with_its_own_keys_not_the_storage_keys(monkeypatch)
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", _STORAGE_KEY_ID)
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "fake-storage-secret-for-tests")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "ap-south-1")
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     DefaultAnthropicProvider._client = _with_mock_transport(
         get_anthropic_client(), requests
     )
@@ -350,14 +350,14 @@ async def test_gateway_redirect_does_not_carry_the_key_elsewhere(monkeypatch):
     monkeypatch.setattr(settings, "anthropic_base_url", "https://llm-gw.internal")
     hosts: list[str] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         hosts.append(request.url.host)
-        return httpx.Response(
+        return httpx2.Response(
             307, headers={"location": "https://elsewhere.example/v1/messages"}
         )
 
     client = get_anthropic_client().with_options(max_retries=0)
-    client._client._transport = httpx.MockTransport(handler)
+    client._client._transport = httpx2.MockTransport(handler)
 
     with pytest.raises(anthropic.APIStatusError):
         await client.messages.create(
@@ -447,7 +447,7 @@ def test_settings_reads_the_claude_environment(monkeypatch):
 )
 async def test_credentials_are_never_logged(monkeypatch, configure):
     configure(monkeypatch)
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
     # The SDK logs request options, headers included, at DEBUG; the Foundry
     # key travels in an `api-key` header there.

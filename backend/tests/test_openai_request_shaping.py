@@ -6,7 +6,7 @@ shape.
 
 from types import SimpleNamespace
 
-import httpx
+import httpx2
 import openai
 import pytest
 from pydantic import SecretStr
@@ -69,7 +69,7 @@ _TOOLS = [{"type": "function", "function": {"name": "query_data"}}]
 
 
 def _rejection(body: dict, status: int = 400) -> openai.APIStatusError:
-    response = httpx.Response(status, request=httpx.Request("POST", _URL))
+    response = httpx2.Response(status, request=httpx2.Request("POST", _URL))
     error = openai.BadRequestError if status == 400 else openai.InternalServerError
     return error(f"Error code: {status} - {body}", response=response, body=body)
 

@@ -22,7 +22,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import httpx
 import structlog
 
 from app.core.config import reveal, settings
@@ -35,8 +34,10 @@ if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
     from openai import AsyncOpenAI
 
-# Timeout for individual LLM API calls (prevents indefinite hangs)
-_LLM_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+# Timeout for individual LLM API calls (prevents indefinite hangs). Callers
+# build the SDK's own Timeout from these: the SDKs reject an httpx.Timeout.
+_LLM_TIMEOUT_SECONDS = 120.0
+_LLM_CONNECT_TIMEOUT_SECONDS = 10.0
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -60,7 +61,7 @@ def get_anthropic_client() -> AsyncAnthropic:
         raise ValueError(reason)
 
     # Deferred import: DefaultAnthropicProvider would be a module-import cycle
-    # (llm_loop -> defaults -> imports _LLM_TIMEOUT etc. from llm_loop).
+    # (llm_loop -> defaults -> imports _LLM_TIMEOUT_SECONDS etc. from llm_loop).
     from app.platform.extensions.defaults import DefaultAnthropicProvider
 
     if DefaultAnthropicProvider._client is None:
@@ -80,7 +81,9 @@ def _build_anthropic_client() -> AsyncAnthropic:
     # otherwise carry the credential header to another origin. Operators may
     # point a gateway at a private host, so the SSRF-guarded client won't do.
     common: dict[str, Any] = {
-        "timeout": _LLM_TIMEOUT,
+        "timeout": anthropic.Timeout(
+            _LLM_TIMEOUT_SECONDS, connect=_LLM_CONNECT_TIMEOUT_SECONDS
+        ),
         "max_retries": 2,
         "http_client": anthropic.DefaultAsyncHttpxClient(follow_redirects=False),
     }
@@ -132,14 +135,14 @@ def get_openai_client(base_url: str) -> AsyncOpenAI:
     base_url = bind_openai_credential_base_url(base_url, purpose="chat")
 
     # Deferred imports — see get_anthropic_client() rationale.
-    from openai import AsyncOpenAI
+    from openai import AsyncOpenAI, Timeout
     from app.platform.extensions.defaults import DefaultOpenAICompatibleProvider
 
     if base_url not in DefaultOpenAICompatibleProvider._clients:
         DefaultOpenAICompatibleProvider._clients[base_url] = AsyncOpenAI(
             api_key=reveal(settings.openai_api_key),
             base_url=base_url,
-            timeout=_LLM_TIMEOUT,
+            timeout=Timeout(_LLM_TIMEOUT_SECONDS, connect=_LLM_CONNECT_TIMEOUT_SECONDS),
             max_retries=2,
         )
     return DefaultOpenAICompatibleProvider._clients[base_url]

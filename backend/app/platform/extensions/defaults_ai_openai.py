@@ -50,7 +50,7 @@ class DefaultOpenAICompatibleProvider:
         import time
 
         import structlog
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, Timeout
 
         from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import reveal, settings
@@ -63,7 +63,8 @@ class DefaultOpenAICompatibleProvider:
             ToolLoopExhaustedError,
             attach_token_usage,
             ToolLoopResult,
-            _LLM_TIMEOUT,
+            _LLM_CONNECT_TIMEOUT_SECONDS,
+            _LLM_TIMEOUT_SECONDS,
             build_history_messages,
         )
         from app.processing.ai.openai_request import create_chat_completion
@@ -101,7 +102,9 @@ class DefaultOpenAICompatibleProvider:
             DefaultOpenAICompatibleProvider._clients[effective_base_url] = AsyncOpenAI(
                 api_key=reveal(settings.openai_api_key),
                 base_url=effective_base_url,
-                timeout=_LLM_TIMEOUT,
+                timeout=Timeout(
+                    _LLM_TIMEOUT_SECONDS, connect=_LLM_CONNECT_TIMEOUT_SECONDS
+                ),
                 max_retries=2,
             )
         client = DefaultOpenAICompatibleProvider._clients[effective_base_url]
@@ -426,9 +429,8 @@ class DefaultOpenAIEmbeddingProvider:
         import asyncio
         import random
 
-        import httpx
         import structlog
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, Timeout
 
         from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import reveal, settings
@@ -451,7 +453,7 @@ class DefaultOpenAIEmbeddingProvider:
             DefaultOpenAIEmbeddingProvider._clients[effective_base_url] = AsyncOpenAI(
                 api_key=reveal(settings.openai_api_key),
                 base_url=effective_base_url,
-                timeout=httpx.Timeout(60.0, connect=10.0),
+                timeout=Timeout(60.0, connect=10.0),
                 max_retries=2,
             )
         client = DefaultOpenAIEmbeddingProvider._clients[effective_base_url]
