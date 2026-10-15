@@ -715,6 +715,7 @@
     "errorSessionExpired": "Session expirée. Veuillez vous reconnecter.",
     "errorForbidden": "Vous n'avez pas la permission d'utiliser le chat IA.",
     "errorAiUnavailable": "Le service IA est temporairement indisponible.",
+    "errorModelUnsupported": "Le modèle d'IA utilisé par ce site n'est pas encore pris en charge. Demandez à un administrateur de choisir un autre modèle.",
     "retry": "Réessayer",
     "undo": "Annuler",
     "undoApplied": "Modifications annulées",

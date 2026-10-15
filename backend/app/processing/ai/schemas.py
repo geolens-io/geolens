@@ -570,6 +570,14 @@ class SSEErrorEvent(BaseModel):
             "model errors raised inside the stream may omit it."
         ),
     )
+    code: Literal["model_requires_responses_api"] | None = Field(
+        default=None,
+        description=(
+            "Stable identifier for a failure the client can explain in its own "
+            "language. model_requires_responses_api: the configured model "
+            "calls tools only through the OpenAI Responses API."
+        ),
+    )
 
 
 class ChatResponse(BaseModel):

@@ -200,8 +200,11 @@ class UserFacingAIError(ValueError):
     gets generic text and keeps its detail in the log.
 
     Subclasses ``ValueError`` so existing ``except ValueError`` handlers
-    keep working unchanged.
+    keep working unchanged. ``code``, when set, is a stable identifier the
+    client localizes instead of showing the English message.
     """
+
+    code: str | None = None
 
 
 def safe_stream_error_message(exc: BaseException) -> str:
@@ -209,6 +212,14 @@ def safe_stream_error_message(exc: BaseException) -> str:
     if isinstance(exc, UserFacingAIError):
         return str(exc)
     return "An unexpected error occurred. Please try again."
+
+
+def stream_error_event(exc: BaseException) -> dict[str, str]:
+    """The SSE ``error`` frame for an exception raised inside a stream."""
+    event = {"type": "error", "message": safe_stream_error_message(exc)}
+    if isinstance(exc, UserFacingAIError) and exc.code:
+        event["code"] = exc.code
+    return event
 
 
 def attach_token_usage(

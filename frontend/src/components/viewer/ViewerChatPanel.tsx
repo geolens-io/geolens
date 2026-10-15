@@ -217,6 +217,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
     abortRef.current = controller;
     let streamed = '';
     let queryResult: QueryResult | undefined;
+    let modelUnsupported = false;
     try {
       for await (const { event, data } of streamChatMessage(mapId, userMsg, layers, i18n.language, history, controller.signal)) {
         if (event === 'token') {
@@ -245,6 +246,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           if (typeof data.status === 'number') {
             throw new ApiError(typeof data.message === 'string' ? data.message : '', data.status);
           }
+          if (data.code === 'model_requires_responses_api') modelUnsupported = true;
           throw new Error(typeof data.message === 'string' ? data.message : '');
         }
       }
@@ -257,7 +259,12 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       } else {
         setMessages((prev) => [
           ...prev,
-          { id: randomId(), role: 'error', content: t('viewer.ai.error'), retryMessage: userMsg },
+          {
+            id: randomId(),
+            role: 'error',
+            content: t(modelUnsupported ? 'viewer.ai.errorModelUnsupported' : 'viewer.ai.error'),
+            retryMessage: userMsg,
+          },
         ]);
       }
     } finally {

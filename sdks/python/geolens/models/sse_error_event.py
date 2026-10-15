@@ -27,11 +27,15 @@ class SSEErrorEvent:
         message (list[Any] | SSEErrorEventMessageType1 | str):
         status (int | None | Unset): HTTP-equivalent status for router-level failures; provider and model errors raised
             inside the stream may omit it.
+        code (Literal['model_requires_responses_api'] | None | Unset): Stable identifier for a failure the client can
+            explain in its own language. model_requires_responses_api: the configured model calls tools only through the
+            OpenAI Responses API.
     """
 
     type_: Literal["error"]
     message: list[Any] | SSEErrorEventMessageType1 | str
     status: int | None | Unset = UNSET
+    code: Literal["model_requires_responses_api"] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,6 +58,12 @@ class SSEErrorEvent:
         else:
             status = self.status
 
+        code: Literal["model_requires_responses_api"] | None | Unset
+        if isinstance(self.code, Unset):
+            code = UNSET
+        else:
+            code = self.code
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -64,6 +74,8 @@ class SSEErrorEvent:
         )
         if status is not UNSET:
             field_dict["status"] = status
+        if code is not UNSET:
+            field_dict["code"] = code
 
         return field_dict
 
@@ -106,10 +118,28 @@ class SSEErrorEvent:
 
         status = _parse_status(d.pop("status", UNSET))
 
+        def _parse_code(
+            data: object,
+        ) -> Literal["model_requires_responses_api"] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            code_type_0 = cast(Literal["model_requires_responses_api"], data)
+            if code_type_0 != "model_requires_responses_api":
+                raise ValueError(
+                    f"code_type_0 must match const 'model_requires_responses_api', got '{code_type_0}'"
+                )
+            return code_type_0
+            return cast(Literal["model_requires_responses_api"] | None | Unset, data)
+
+        code = _parse_code(d.pop("code", UNSET))
+
         sse_error_event = cls(
             type_=type_,
             message=message,
             status=status,
+            code=code,
         )
 
         sse_error_event.additional_properties = d

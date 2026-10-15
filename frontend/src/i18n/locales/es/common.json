@@ -484,6 +484,7 @@
       "emptyHint": "Haz una pregunta sobre los datos de este mapa.",
       "readOnlyNote": "Las respuestas son de solo lectura: explora los datos sin modificar el mapa.",
       "error": "Algo salió mal. Inténtalo de nuevo.",
+      "errorModelUnsupported": "El modelo de IA que usa este sitio aún no es compatible. Pide a un administrador que elija otro modelo.",
       "retry": "Reintentar",
       "queryResult": {
         "empty": "No hay resultados coincidentes.",

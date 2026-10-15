@@ -484,6 +484,7 @@
       "emptyHint": "Posez une question sur les données de cette carte.",
       "readOnlyNote": "Les réponses sont en lecture seule — explorez les données sans modifier la carte.",
       "error": "Une erreur s'est produite. Veuillez réessayer.",
+      "errorModelUnsupported": "Le modèle d'IA utilisé par ce site n'est pas encore pris en charge. Demandez à un administrateur de choisir un autre modèle.",
       "retry": "Réessayer",
       "queryResult": {
         "empty": "Aucun résultat correspondant.",

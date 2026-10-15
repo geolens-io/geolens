@@ -32,9 +32,12 @@ const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: r
  * and still take the legitimate non-streaming fallback.
  */
 class StreamModelError extends Error {
-  constructor(message: string) {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
     super(message);
     this.name = 'StreamModelError';
+    this.code = code;
   }
 }
 
@@ -507,6 +510,9 @@ export function ChatPanel({
       if (err.status === 429) return t('chat.errorRateLimited');
       if (err.status === 502 || err.status === 503) return t('chat.errorAiUnavailable');
     }
+    if (err instanceof StreamModelError && err.code === 'model_requires_responses_api') {
+      return t('chat.errorModelUnsupported');
+    }
     return t('chat.errorFriendly');
   }
 
@@ -936,7 +942,10 @@ export function ChatPanel({
           if (typeof data.status === 'number') {
             throw new ApiError(typeof data.message === 'string' ? data.message : '', data.status);
           }
-          throw new StreamModelError(typeof data.message === 'string' ? data.message : '');
+          throw new StreamModelError(
+            typeof data.message === 'string' ? data.message : '',
+            typeof data.code === 'string' ? data.code : undefined,
+          );
       }
     }
   }

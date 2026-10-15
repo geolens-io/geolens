@@ -278,6 +278,48 @@ async def test_learned_shape_is_per_base_url_and_model():
     assert "max_tokens" in other_url.calls[0]
 
 
+async def test_tool_only_reasoning_shape_stays_off_requests_without_tools(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "low")
+    rules = (_tools_need_no_reasoning,)
+    await _call(_Server(*rules), model="eval-gpt-6-luna", tools=_TOOLS)
+
+    without_tools = _Server(*rules)
+    await _call(without_tools, model="eval-gpt-6-luna")
+    assert without_tools.calls[0]["reasoning_effort"] == "low"
+
+
+async def test_unsupported_reasoning_parameter_is_dropped_even_with_tools(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "none")
+    body = {
+        "code": "unsupported_parameter",
+        "param": "reasoning_effort",
+        "message": "Unsupported parameter: 'reasoning_effort' is not supported "
+        "with this model.",
+    }
+    server = _Server(lambda kwargs: body if "reasoning_effort" in kwargs else None)
+    await _call(server, tools=_TOOLS)
+    assert len(server.calls) == 2
+    assert "reasoning_effort" not in server.calls[-1]
+
+
+def test_stream_error_event_carries_a_code_only_for_coded_errors():
+    from app.processing.ai.llm_loop import stream_error_event
+
+    assert stream_error_event(ResponsesAPIRequiredError()) == {
+        "type": "error",
+        "message": str(ResponsesAPIRequiredError()),
+        "code": "model_requires_responses_api",
+    }
+    assert stream_error_event(ValueError("http://llm.internal names the host")) == {
+        "type": "error",
+        "message": "An unexpected error occurred. Please try again.",
+    }
+
+
 async def test_unrecognized_rejection_is_not_retried():
     server = _Server(lambda _kwargs: CONTEXT_TOO_LONG)
     with pytest.raises(openai.BadRequestError) as caught:

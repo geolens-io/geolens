@@ -30,7 +30,7 @@ from app.processing.ai.llm_loop import (
     add_tool_cache_control,
     build_history_messages,
     resolve_provider,
-    safe_stream_error_message,
+    stream_error_event,
 )
 from app.processing.ai.openai_request import create_chat_completion
 from app.processing.ai.schemas import ChatHistoryMessage, history_to_dicts
@@ -794,7 +794,7 @@ async def stream_chat_edit(
         # internal dict key, and OpenAICredentialDestinationError is a
         # ValueError naming the configured provider endpoint.
         logger.exception("Chat streaming error")
-        yield {"type": "error", "message": safe_stream_error_message(e)}
+        yield stream_error_event(e)
     finally:
         # Guarantee cleanup even if the consumer cancels mid-stream. The
         # caller owns the db session (we don't close it), but we flush any

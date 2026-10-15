@@ -12517,6 +12517,12 @@ export interface components {
              * @default null
              */
             status: number | null;
+            /**
+             * Code
+             * @description Stable identifier for a failure the client can explain in its own language. model_requires_responses_api: the configured model calls tools only through the OpenAI Responses API.
+             * @default null
+             */
+            code: "model_requires_responses_api" | null;
         };
         /**
          * SSEMapDoneEvent

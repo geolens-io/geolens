@@ -24,7 +24,7 @@ from app.platform.extensions import get_ai_provider
 from app.processing.ai.llm_loop import (
     ToolLoopExhaustedError,
     UserFacingAIError,
-    safe_stream_error_message,
+    stream_error_event,
     noop_tool_executor,
     resolve_provider,
 )
@@ -997,4 +997,4 @@ async def stream_generate_map(
         # that class is open, and a ValueError naming the endpoint belongs to
         # it too.
         logger.exception("Streaming map generation failed")
-        yield {"type": "error", "message": safe_stream_error_message(e)}
+        yield stream_error_event(e)

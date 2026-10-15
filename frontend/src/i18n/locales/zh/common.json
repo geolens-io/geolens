@@ -225,6 +225,7 @@
       "emptyHint": "就这张地图的数据提出问题。",
       "readOnlyNote": "AI 仅以只读方式回答——可在不更改地图的情况下探索数据。",
       "error": "出现问题。请重试。",
+      "errorModelUnsupported": "本站使用的 AI 模型暂不受支持。请联系管理员选择其他模型。",
       "retry": "重试",
       "queryResult": {
         "empty": "没有匹配的结果。",

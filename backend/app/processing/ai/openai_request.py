@@ -31,6 +31,8 @@ _T = TypeVar("_T")
 class ResponsesAPIRequiredError(UserFacingAIError):
     """The model calls function tools only through the Responses API."""
 
+    code = "model_requires_responses_api"
+
     def __init__(self) -> None:
         super().__init__(
             "The configured AI model only calls tools through the OpenAI "
@@ -47,8 +49,9 @@ class _Shape:
 
 
 # Process-local: a restart re-learns each shape with at most one rejected
-# request per parameter.
-_shapes: dict[tuple[str | None, str], _Shape] = {}
+# request per parameter. Keyed by whether tools are sent, since a model can
+# need reasoning_effort "none" for tools only.
+_shapes: dict[tuple[str | None, str, bool], _Shape] = {}
 
 
 def _apply(request: dict[str, Any], shape: _Shape) -> dict[str, Any]:
@@ -67,15 +70,20 @@ def _message(exc: BadRequestError) -> str:
     return str(body.get("message") or "")
 
 
-def _unsupported(exc: BadRequestError, param: str) -> bool:
-    message = _message(exc)
-    return (
-        exc.param == param
-        and exc.code in ("unsupported_parameter", "unsupported_value")
-    ) or (
-        f"Unsupported parameter: '{param}'" in message
-        or f"Unsupported value: '{param}'" in message
+def _rejects(exc: BadRequestError, param: str, *, value: bool) -> bool:
+    """True when ``exc`` rejects ``param`` (or, with ``value``, the value sent)."""
+    code, prefix = (
+        ("unsupported_value", "Unsupported value")
+        if value
+        else ("unsupported_parameter", "Unsupported parameter")
     )
+    return (exc.param == param and exc.code == code) or (
+        f"{prefix}: '{param}'" in _message(exc)
+    )
+
+
+def _unsupported(exc: BadRequestError, param: str) -> bool:
+    return _rejects(exc, param, value=False) or _rejects(exc, param, value=True)
 
 
 def _adjust(exc: BadRequestError, shape: _Shape) -> tuple[str, _Shape] | None:
@@ -90,9 +98,9 @@ def _adjust(exc: BadRequestError, shape: _Shape) -> tuple[str, _Shape] | None:
         return "tokens", replace(shape, token_param=other)
     if shape.temperature and _unsupported(exc, "temperature"):
         return "temperature", replace(shape, temperature=False)
-    if (
-        shape.reasoning_effort is not None
-        and "Unrecognized request argument supplied: reasoning_effort" in message
+    if shape.reasoning_effort is not None and (
+        "Unrecognized request argument supplied: reasoning_effort" in message
+        or _rejects(exc, "reasoning_effort", value=False)
     ):
         return "reasoning_effort", replace(shape, reasoning_effort=None)
     if shape.reasoning_effort != "none" and message.startswith(
@@ -113,14 +121,15 @@ async def create_chat_completion(
     ``request`` carries ``model``, ``max_tokens`` and optionally
     ``temperature``; ``OPENAI_REASONING_EFFORT`` is added when set. Each
     parameter is adjusted at most once per call and only ``create()`` is
-    retried. The working shape is remembered per ``(base_url, model)``.
+    retried. The working shape is remembered per ``(base_url, model)`` and
+    whether tools are sent.
     Raises :class:`ResponsesAPIRequiredError` when the model rejects
     ``reasoning_effort="none"`` for a request with tools, and re-raises any
     other rejection unchanged.
     """
     from openai import BadRequestError
 
-    key = (base_url, request["model"])
+    key = (base_url, request["model"], bool(request.get("tools")))
     # Compose passes an unset variable through as "".
     shape = _shapes.get(key) or _Shape(
         reasoning_effort=settings.openai_reasoning_effort or None
@@ -134,7 +143,7 @@ async def create_chat_completion(
             if (
                 kwargs.get("tools")
                 and kwargs.get("reasoning_effort") == "none"
-                and _unsupported(exc, "reasoning_effort")
+                and _rejects(exc, "reasoning_effort", value=True)
             ):
                 raise ResponsesAPIRequiredError() from exc
             adjustment = _adjust(exc, shape)

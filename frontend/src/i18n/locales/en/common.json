@@ -225,6 +225,7 @@
       "emptyHint": "Ask a question about this map's data.",
       "readOnlyNote": "Answers are read-only — explore the data without changing the map.",
       "error": "Something went wrong. Please try again.",
+      "errorModelUnsupported": "The AI model this site uses isn't supported yet. Ask an administrator to choose a different model.",
       "retry": "Retry",
       "queryResult": {
         "empty": "No matching results.",

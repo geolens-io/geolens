@@ -613,6 +613,27 @@ describe('ChatPanel', () => {
     expect(mockSendChat).not.toHaveBeenCalled();
   });
 
+  it('a streamed model_requires_responses_api error explains that the model is unsupported', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'error',
+        data: { message: 'English server text', code: 'model_requires_responses_api' },
+      };
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'filter the parks');
+
+    expect(
+      await screen.findByText(
+        "The AI model this site uses isn't supported yet. Ask an administrator to choose a different model.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('English server text')).not.toBeInTheDocument();
+    expect(mockSendChat).not.toHaveBeenCalled();
+  });
+
   it('a streamed error event WITH an HTTP status classifies by status (403 → forbidden banner), not a generic retry', async () => {
     // A pre-flight HTTPException from the SSE endpoint carries a numeric `status`
     // (the SSE body is always a 200 stream). It must classify like the

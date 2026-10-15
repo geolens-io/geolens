@@ -9201,6 +9201,12 @@ export type SseErrorEvent = {
      * HTTP-equivalent status for router-level failures; provider and model errors raised inside the stream may omit it.
      */
     status?: number | null;
+    /**
+     * Code
+     *
+     * Stable identifier for a failure the client can explain in its own language. model_requires_responses_api: the configured model calls tools only through the OpenAI Responses API.
+     */
+    code?: 'model_requires_responses_api' | null;
 };
 
 /**

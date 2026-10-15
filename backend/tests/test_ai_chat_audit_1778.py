@@ -707,7 +707,7 @@ class TestStreamGenerateMapErrorText:
         import app.processing.ai.streaming as streaming
 
         source = inspect.getsource(streaming)
-        assert "safe_stream_error_message(e)" in source
+        assert "stream_error_event(e)" in source
         assert "isinstance(e, (ValueError, KeyError))" not in source
 
     def test_the_allowlist_helper_is_the_only_policy(self):
