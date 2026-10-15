@@ -46,7 +46,7 @@ from app.processing.raster.vrt_members import note_vrt_members
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
-from app.processing.ingest.publication import _require_submitter_can_write
+from app.processing.ingest.publication import require_submitter_can_write
 from app.processing.ingest.publish_followups import (
     note_publish_followups,
     owed_followups,
@@ -1468,7 +1468,7 @@ async def regenerate_vrt(
                         {"value": pre_wait_lock_timeout},
                     )
                     if job.created_by is not None:
-                        await _require_submitter_can_write(
+                        await require_submitter_can_write(
                             session,
                             vrt_dataset,
                             job,

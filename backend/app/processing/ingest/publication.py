@@ -539,7 +539,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
 
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
-        await _require_submitter_can_write(
+        await require_submitter_can_write(
             session, dataset, job, capability=_replacement_capability(job)
         )
         published = await strategy.write(session, dataset)
@@ -613,7 +613,7 @@ def _replacement_capability(job: IngestJob) -> str:
     return UPLOAD if (job.user_metadata or {}).get("manifest_key") else EDIT_METADATA
 
 
-async def _require_submitter_can_write(
+async def require_submitter_can_write(
     session: AsyncSession, dataset: Any, job: IngestJob, *, capability: str | None
 ) -> None:
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write

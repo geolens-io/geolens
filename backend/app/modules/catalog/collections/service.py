@@ -6,7 +6,6 @@ so multiple calls can batch into one transaction.
 """
 
 import uuid
-
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -16,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
-
 from app.core.geo import rollup_bbox, rollup_bbox_columns
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
