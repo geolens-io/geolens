@@ -76,7 +76,14 @@ def _build_anthropic_client() -> AsyncAnthropic:
 
     from app.core.ai_credentials import bedrock_credentials
 
-    common: dict[str, Any] = {"timeout": _LLM_TIMEOUT, "max_retries": 2}
+    # No redirects: an endpoint that answers a Messages call with a 3xx could
+    # otherwise carry the credential header to another origin. Operators may
+    # point a gateway at a private host, so the SSRF-guarded client won't do.
+    common: dict[str, Any] = {
+        "timeout": _LLM_TIMEOUT,
+        "max_retries": 2,
+        "http_client": anthropic.DefaultAsyncHttpxClient(follow_redirects=False),
+    }
     platform = settings.anthropic_platform
     if platform == "foundry":
         return anthropic.AsyncAnthropicFoundry(

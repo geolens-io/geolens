@@ -324,6 +324,46 @@ def test_blank_adc_path_from_compose_leaves_keyless_vertex_auth_alone(monkeypatc
     assert _default._get_explicit_environ_credentials() == (None, None)
 
 
+@pytest.mark.parametrize(
+    "configure",
+    [
+        lambda mp: mp.setattr(settings, "anthropic_api_key", SecretStr(_ANTHROPIC_KEY)),
+        _foundry,
+        _bedrock_keys,
+        _vertex,
+    ],
+    ids=["anthropic", "foundry", "bedrock", "vertex"],
+)
+def test_clients_do_not_follow_redirects(monkeypatch, configure):
+    configure(monkeypatch)
+
+    assert get_anthropic_client()._client.follow_redirects is False
+
+
+@pytest.mark.anyio
+async def test_gateway_redirect_does_not_carry_the_key_elsewhere(monkeypatch):
+    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr(_ANTHROPIC_KEY))
+    monkeypatch.setattr(settings, "anthropic_base_url", "https://llm-gw.internal")
+    hosts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        return httpx.Response(
+            307, headers={"location": "https://elsewhere.example/v1/messages"}
+        )
+
+    client = get_anthropic_client().with_options(max_retries=0)
+    client._client._transport = httpx.MockTransport(handler)
+
+    with pytest.raises(anthropic.APIStatusError):
+        await client.messages.create(
+            model="test-model",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+    assert hosts == ["llm-gw.internal"]
+
+
 def test_llm_loop_is_the_only_claude_client_construction_site():
     app_dir = Path(__file__).resolve().parents[1] / "app"
     construction = re.compile(r"\bAsyncAnthropic\w*\(")
