@@ -74,7 +74,7 @@ export type AiStatusResponse = {
     /**
      * Model
      *
-     * Active model name (e.g. 'claude-sonnet-4-20250514').
+     * Active model name (e.g. 'claude-sonnet-5-5').
      */
     model: string | null;
     /**
@@ -903,9 +903,15 @@ export type ApiKeyStatusResponse = {
     /**
      * Anthropic Configured
      *
-     * Whether ANTHROPIC_API_KEY is set in the environment.
+     * Whether Claude is configured on the selected platform: ANTHROPIC_API_KEY on Anthropic's API, or that platform's settings on Foundry, Bedrock or Vertex.
      */
     anthropic_configured: boolean;
+    /**
+     * Anthropic Platform
+     *
+     * Where Claude requests go, from ANTHROPIC_PLATFORM.
+     */
+    anthropic_platform: 'anthropic' | 'foundry' | 'bedrock' | 'vertex';
     /**
      * Openai Configured
      *

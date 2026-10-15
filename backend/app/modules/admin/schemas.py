@@ -334,7 +334,7 @@ class AIStatusResponse(BaseModel):
         description="Active AI provider name (e.g. 'anthropic', 'openai')."
     )
     model: str | None = Field(
-        description="Active model name (e.g. 'claude-sonnet-4-20250514')."
+        description="Active model name (e.g. 'claude-sonnet-5-5')."
     )
     enabled: bool = Field(
         description="Whether AI features are enabled for this instance."

@@ -99,8 +99,11 @@ export async function getConfigMode(): Promise<ConfigModeResponse> {
   return apiFetch<ConfigModeResponse>('/settings/config-mode/');
 }
 
+export type ClaudePlatform = 'anthropic' | 'foundry' | 'bedrock' | 'vertex';
+
 export interface ApiKeyStatusResponse {
   anthropic_configured: boolean;
+  anthropic_platform: ClaudePlatform;
   openai_configured: boolean;
 }
 

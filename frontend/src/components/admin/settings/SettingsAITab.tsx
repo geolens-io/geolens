@@ -35,7 +35,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAIStatusReader } from '@/hooks/use-ai-status-reader';
 import { useEdition } from '@/hooks/use-edition';
 import { detectEmbeddingDims } from '@/api/settings';
-import type { SettingItem } from '@/api/settings';
+import type { ClaudePlatform, SettingItem } from '@/api/settings';
 import { probeAIStatus } from '@/api/admin';
 import type { AIProbeCheck, AIProbeReport } from '@/types/api';
 
@@ -49,6 +49,13 @@ interface TabProps {
   saveFailed?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }
+
+// Product names, so they stay untranslated.
+const CLAUDE_CLOUD_PLATFORM_NAMES: Record<Exclude<ClaudePlatform, 'anthropic'>, string> = {
+  foundry: 'Microsoft Foundry',
+  bedrock: 'Amazon Bedrock',
+  vertex: 'Google Vertex AI',
+};
 
 const AI_FIELDS = [
   { key: 'ai_enabled', defaultValue: true },
@@ -387,7 +394,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
           onChange={(e) => setters.llm_model(e.target.value)}
           disabled={envOnly}
           className="max-w-sm"
-          placeholder={llmProvider === 'anthropic' ? 'claude-sonnet-4-20250514' : 'gpt-4o'}
+          placeholder={llmProvider === 'anthropic' ? 'claude-sonnet-5-5' : 'gpt-4o'}
         />
         <p className="text-sm text-muted-foreground">{t('ai.modelDescription')}</p>
       </div>
@@ -677,7 +684,17 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                 <XCircle className="h-4 w-4 text-muted-foreground" />
               )}
               <span className={keyStatus.anthropic_configured ? '' : 'text-muted-foreground'}>
-                ANTHROPIC_API_KEY {keyStatus.anthropic_configured ? t('ai.keyConfigured') : t('ai.keyNotSet')}
+                {keyStatus.anthropic_platform === 'anthropic' ? (
+                  <>ANTHROPIC_API_KEY {keyStatus.anthropic_configured ? t('ai.keyConfigured') : t('ai.keyNotSet')}</>
+                ) : keyStatus.anthropic_configured ? (
+                  t('ai.claudePlatformConfigured', {
+                    platform: CLAUDE_CLOUD_PLATFORM_NAMES[keyStatus.anthropic_platform],
+                  })
+                ) : (
+                  t('ai.claudePlatformNotConfigured', {
+                    platform: CLAUDE_CLOUD_PLATFORM_NAMES[keyStatus.anthropic_platform],
+                  })
+                )}
               </span>
               {anthropicBadgeLabel && (
                 <Badge variant="secondary" className="text-xs">{anthropicBadgeLabel}</Badge>

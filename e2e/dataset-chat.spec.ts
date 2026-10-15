@@ -24,7 +24,7 @@ async function mockAIAvailable(page: Page, available: boolean) {
     route.fulfill({
       json: {
         provider: available ? 'anthropic' : null,
-        model: available ? 'claude-sonnet-5' : null,
+        model: available ? 'claude-sonnet-5-5' : null,
         enabled: available,
         configured: available,
         semantic_search_enabled: false,

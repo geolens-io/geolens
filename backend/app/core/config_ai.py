@@ -8,16 +8,16 @@ from typing import Literal
 
 from pydantic import BaseModel, SecretStr, field_validator
 
+ClaudePlatform = Literal["anthropic", "foundry", "bedrock", "vertex"]
+
 
 class ClaudeSettings(BaseModel):
     anthropic_api_key: SecretStr | None = None
-    llm_model: str = "claude-sonnet-5"
+    llm_model: str = "claude-sonnet-5-5"
     # Unset keeps claude-haiku on Anthropic's API and reuses llm_model on the
     # cloud platforms, whose model IDs differ.
     llm_model_light: str | None = None
-    anthropic_platform: Literal["anthropic", "foundry", "bedrock", "vertex"] = (
-        "anthropic"
-    )
+    anthropic_platform: ClaudePlatform = "anthropic"
     anthropic_base_url: str | None = None
     anthropic_foundry_api_key: SecretStr | None = None
     anthropic_foundry_resource: str | None = None

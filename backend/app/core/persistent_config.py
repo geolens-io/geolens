@@ -667,7 +667,7 @@ def llm_model_default(provider: str, *, light: bool = False) -> str:
         # use Anthropic's model names, so reuse the model the operator set.
         if settings.anthropic_platform != "anthropic":
             return settings.llm_model
-        return "claude-haiku-4-5-20251001"
+        return "claude-haiku-5-5"
     if light:
         # Reuse OPENAI_MODEL rather than a hardcoded name, which 404s on Azure
         # OpenAI, gateways and Ollama, where it must match a real deployment.

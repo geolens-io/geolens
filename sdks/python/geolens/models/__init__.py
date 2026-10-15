@@ -57,6 +57,9 @@ from .api_key_create_response import ApiKeyCreateResponse
 from .api_key_list_item import ApiKeyListItem
 from .api_key_list_response import ApiKeyListResponse
 from .api_key_status_response import ApiKeyStatusResponse
+from .api_key_status_response_anthropic_platform import (
+    ApiKeyStatusResponseAnthropicPlatform,
+)
 from .approve_request import ApproveRequest
 from .arc_gis_sign_in_request import ArcGISSignInRequest
 from .arc_gis_sign_in_response import ArcGISSignInResponse
@@ -907,6 +910,7 @@ __all__ = (
     "ApiKeyListItem",
     "ApiKeyListResponse",
     "ApiKeyStatusResponse",
+    "ApiKeyStatusResponseAnthropicPlatform",
     "ApproveRequest",
     "ArcGISSignInRequest",
     "ArcGISSignInResponse",

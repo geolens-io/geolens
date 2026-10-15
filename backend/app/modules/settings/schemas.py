@@ -6,6 +6,7 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import validate_privacy_url_shape
+from app.core.config_ai import ClaudePlatform
 from app.core.public_urls import (
     canonical_host_error,
     is_api_base_path,
@@ -280,7 +281,14 @@ class ApiKeyStatusResponse(BaseModel):
     """Response for GET /settings/api-key-status/."""
 
     anthropic_configured: bool = Field(
-        description="Whether ANTHROPIC_API_KEY is set in the environment."
+        description=(
+            "Whether Claude is configured on the selected platform: "
+            "ANTHROPIC_API_KEY on Anthropic's API, or that platform's settings on "
+            "Foundry, Bedrock or Vertex."
+        )
+    )
+    anthropic_platform: ClaudePlatform = Field(
+        description="Where Claude requests go, from ANTHROPIC_PLATFORM."
     )
     openai_configured: bool = Field(
         description="Whether OPENAI_API_KEY is set in the environment."

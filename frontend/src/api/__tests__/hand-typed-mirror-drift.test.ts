@@ -72,7 +72,7 @@ const MIRRORS: MirrorShape[] = [
   {
     schema: 'ApiKeyStatusResponse',
     source: 'settings.ts ApiKeyStatusResponse',
-    required: ['anthropic_configured', 'openai_configured'],
+    required: ['anthropic_configured', 'anthropic_platform', 'openai_configured'],
     optional: [],
   },
   {

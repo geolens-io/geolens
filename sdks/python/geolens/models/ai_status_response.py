@@ -22,7 +22,7 @@ class AIStatusResponse:
     """
     Attributes:
         provider (None | str): Active AI provider name (e.g. 'anthropic', 'openai').
-        model (None | str): Active model name (e.g. 'claude-sonnet-4-20250514').
+        model (None | str): Active model name (e.g. 'claude-sonnet-5-5').
         enabled (bool): Whether AI features are enabled for this instance.
         configured (bool): Whether an API key is configured. AI features require both 'enabled' and 'configured'.
         semantic_search_enabled (bool | Unset): Whether pgvector-backed semantic search is enabled. Default: False.

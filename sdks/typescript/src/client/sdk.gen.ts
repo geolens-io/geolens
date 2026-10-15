@@ -5451,7 +5451,7 @@ export const getAllSettingsSettingsAllGet = <ThrowOnError extends boolean = fals
 /**
  * Get Api Key Status
  *
- * Return which LLM API keys are configured (without exposing values).
+ * Return which LLM providers are configured (without exposing values).
  */
 export const getApiKeyStatusSettingsApiKeyStatusGet = <ThrowOnError extends boolean = false>(options?: Options<GetApiKeyStatusSettingsApiKeyStatusGetData, ThrowOnError>): RequestResult<GetApiKeyStatusSettingsApiKeyStatusGetResponses, GetApiKeyStatusSettingsApiKeyStatusGetErrors, ThrowOnError> => (options?.client ?? client).get<GetApiKeyStatusSettingsApiKeyStatusGetResponses, GetApiKeyStatusSettingsApiKeyStatusGetErrors, ThrowOnError>({
     security: [

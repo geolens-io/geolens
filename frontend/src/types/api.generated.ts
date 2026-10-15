@@ -4888,7 +4888,7 @@ export interface paths {
         };
         /**
          * Get Api Key Status
-         * @description Return which LLM API keys are configured (without exposing values).
+         * @description Return which LLM providers are configured (without exposing values).
          */
         get: operations["get_api_key_status_settings_api_key_status__get"];
         put?: never;
@@ -5719,7 +5719,7 @@ export interface components {
             provider: string | null;
             /**
              * Model
-             * @description Active model name (e.g. 'claude-sonnet-4-20250514').
+             * @description Active model name (e.g. 'claude-sonnet-5-5').
              */
             model: string | null;
             /**
@@ -6371,9 +6371,15 @@ export interface components {
         ApiKeyStatusResponse: {
             /**
              * Anthropic Configured
-             * @description Whether ANTHROPIC_API_KEY is set in the environment.
+             * @description Whether Claude is configured on the selected platform: ANTHROPIC_API_KEY on Anthropic's API, or that platform's settings on Foundry, Bedrock or Vertex.
              */
             anthropic_configured: boolean;
+            /**
+             * Anthropic Platform
+             * @description Where Claude requests go, from ANTHROPIC_PLATFORM.
+             * @enum {string}
+             */
+            anthropic_platform: "anthropic" | "foundry" | "bedrock" | "vertex";
             /**
              * Openai Configured
              * @description Whether OPENAI_API_KEY is set in the environment.

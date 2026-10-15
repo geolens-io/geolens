@@ -1079,7 +1079,7 @@ async def test_model_defaults_follow_the_selected_provider(
         json={"settings": {"llm_provider": "anthropic"}},
         headers=admin_auth_header,
     )
-    assert await models() == ("anthropic-chat-env", "claude-haiku-4-5-20251001")
+    assert await models() == ("anthropic-chat-env", "claude-haiku-5-5")
 
     await client.put(
         "/settings/",

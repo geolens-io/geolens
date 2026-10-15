@@ -29,7 +29,7 @@ def _restore_settings():
 
 
 def test_anthropic_provider_uses_haiku(_restore_settings):
-    assert llm_model_default("anthropic", light=True) == "claude-haiku-4-5-20251001"
+    assert llm_model_default("anthropic", light=True) == "claude-haiku-5-5"
 
 
 def test_openai_provider_falls_back_to_openai_model(_restore_settings):
@@ -69,4 +69,4 @@ def test_explicit_claude_light_model_wins(monkeypatch, platform):
 def test_anthropic_platform_keeps_haiku_without_override(monkeypatch):
     monkeypatch.setattr(settings, "anthropic_platform", "anthropic")
     monkeypatch.setattr(settings, "llm_model_light", None)
-    assert llm_model_default("anthropic", light=True) == "claude-haiku-4-5-20251001"
+    assert llm_model_default("anthropic", light=True) == "claude-haiku-5-5"

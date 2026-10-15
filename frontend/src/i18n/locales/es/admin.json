@@ -348,6 +348,8 @@
     "openaiKeyRequired": "OPENAI_API_KEY no está configurado. La generación de embeddings requiere una clave API compatible con OpenAI, incluso cuando se usa Anthropic para inferencia.",
     "keyConfigured": "configurada",
     "keyNotSet": "no configurada",
+    "claudePlatformConfigured": "Claude en {{platform}}: configurado",
+    "claudePlatformNotConfigured": "Claude en {{platform}}: sin configurar",
     "testConnection": "Probar conexión",
     "testing": "Probando…",
     "testConnectionDescription": "Realiza una llamada real a cada proveedor configurado para verificar las claves y la conectividad. Consume una pequeña cantidad de tokens del proveedor.",

@@ -372,6 +372,8 @@
     "openaiKeyRequired": "未设置 OPENAI_API_KEY。即使推理使用 Anthropic，嵌入生成也需要 OpenAI 兼容的 API 密钥。",
     "keyConfigured": "已配置",
     "keyNotSet": "未设置",
+    "claudePlatformConfigured": "{{platform}} 上的 Claude：已配置",
+    "claudePlatformNotConfigured": "{{platform}} 上的 Claude：未配置",
     "testConnection": "测试连接",
     "testing": "测试中…",
     "testConnectionDescription": "对每个已配置的提供商发起一次真实调用，以验证密钥和连通性。会消耗少量模型 token（词元）。",

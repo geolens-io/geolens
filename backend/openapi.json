@@ -106,7 +106,7 @@
                 "type": "null"
               }
             ],
-            "description": "Active model name (e.g. 'claude-sonnet-4-20250514').",
+            "description": "Active model name (e.g. 'claude-sonnet-5-5').",
             "title": "Model"
           },
           "enabled": {
@@ -1485,9 +1485,20 @@
         "description": "Response for GET /settings/api-key-status/.",
         "properties": {
           "anthropic_configured": {
-            "description": "Whether ANTHROPIC_API_KEY is set in the environment.",
+            "description": "Whether Claude is configured on the selected platform: ANTHROPIC_API_KEY on Anthropic's API, or that platform's settings on Foundry, Bedrock or Vertex.",
             "title": "Anthropic Configured",
             "type": "boolean"
+          },
+          "anthropic_platform": {
+            "description": "Where Claude requests go, from ANTHROPIC_PLATFORM.",
+            "enum": [
+              "anthropic",
+              "foundry",
+              "bedrock",
+              "vertex"
+            ],
+            "title": "Anthropic Platform",
+            "type": "string"
           },
           "openai_configured": {
             "description": "Whether OPENAI_API_KEY is set in the environment.",
@@ -1497,6 +1508,7 @@
         },
         "required": [
           "anthropic_configured",
+          "anthropic_platform",
           "openai_configured"
         ],
         "title": "ApiKeyStatusResponse",
@@ -58555,7 +58567,7 @@
     },
     "/settings/api-key-status/": {
       "get": {
-        "description": "Return which LLM API keys are configured (without exposing values).",
+        "description": "Return which LLM providers are configured (without exposing values).",
         "operationId": "get_api_key_status_settings_api_key_status__get",
         "responses": {
           "200": {

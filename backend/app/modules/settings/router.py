@@ -20,6 +20,7 @@ from app.modules.auth.oauth.schemas import (
     OAuthProviderResponse,
     OAuthProviderUpdate,
 )
+from app.core.ai_credentials import anthropic_configured
 from app.core.config import settings as app_settings
 from app.core.dependencies import get_client_ip, get_db
 from app.core.edition import is_enterprise
@@ -776,9 +777,10 @@ async def reset_settings(
 async def get_api_key_status(
     _user: Identity = Depends(require_settings_admin),
 ) -> ApiKeyStatusResponse:
-    """Return which LLM API keys are configured (without exposing values)."""
+    """Return which LLM providers are configured (without exposing values)."""
     return ApiKeyStatusResponse(
-        anthropic_configured=bool(app_settings.anthropic_api_key),
+        anthropic_configured=anthropic_configured(),
+        anthropic_platform=app_settings.anthropic_platform,
         openai_configured=bool(app_settings.openai_api_key),
     )
 

@@ -524,6 +524,29 @@ def test_incomplete_platform_is_not_configured(monkeypatch, platform, values):
     assert admin_router._ai_status(True, "anthropic").configured is False
 
 
+@pytest.mark.anyio
+async def test_settings_key_status_reports_the_platform(monkeypatch):
+    from app.modules.settings import router as settings_router
+
+    _bedrock_keys(monkeypatch)
+
+    status = await settings_router.get_api_key_status(_user=MagicMock())
+
+    assert status.anthropic_configured is True
+    assert status.anthropic_platform == "bedrock"
+    assert _BEDROCK_SECRET not in status.model_dump_json()
+
+    monkeypatch.setattr(settings, "storage_provider", "s3")
+    monkeypatch.setattr(settings, "s3_access_key_id", _STORAGE_KEY_ID)
+    monkeypatch.setattr(settings, "anthropic_bedrock_aws_access_key_id", None)
+    monkeypatch.setattr(settings, "anthropic_bedrock_aws_secret_access_key", None)
+
+    status = await settings_router.get_api_key_status(_user=MagicMock())
+
+    assert status.anthropic_configured is False
+    assert status.anthropic_platform == "bedrock"
+
+
 def _patch_runtime(monkeypatch, provider: str) -> None:
     enabled = MagicMock()
     enabled.get = AsyncMock(return_value=True)
