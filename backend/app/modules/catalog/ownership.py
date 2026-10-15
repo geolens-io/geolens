@@ -25,6 +25,7 @@ from app.modules.catalog.authorization import (
 from app.modules.catalog.maps.service import (
     filter_layer_rows_by_dataset_visibility,
     get_map_with_layers,
+    lock_map_layers,
     terrain_dataset_ids_visible_to,
 )
 from app.platform.catalog_locks import bump_publication_version_on
@@ -134,9 +135,11 @@ async def transfer_dataset_owner(
     current owner changes nothing, vets nothing and writes no row. Raises 422
     for a target that is unknown, inactive or lacks ``upload``, or one that
     would leave a VRT reaching past one of its members, and 409 while
-    a refresh, re-upload or VRT regeneration is pending or running. Does not
-    commit.
+    a refresh, re-upload or VRT regeneration is pending or running. Raises
+    403 unless the actor is still an admin, read as committed under the lock.
+    Does not commit.
     """
+    require_transfer_admin(await get_user_roles(db, actor), owner_id)
     record = dataset.record
     previous = await _locked_owner(db, record)
     if previous == owner_id:
@@ -227,9 +230,12 @@ async def transfer_map_owner(
 
     A transfer to the current owner changes nothing, vets nothing and writes
     no row. Raises 422 for a target that is unknown, inactive, lacks
-    ``edit_metadata`` or cannot read every dataset the map uses. Does not
-    commit.
+    ``edit_metadata`` or cannot read every dataset the map uses. Takes the
+    map row, which re-checks the actor, and raises 403 unless the actor is
+    still an admin as committed. Does not commit.
     """
+    await lock_map_layers(db, map_obj.id)
+    require_transfer_admin(await get_user_roles(db, actor), owner_id)
     previous = await _locked_owner(db, map_obj)
     if previous == owner_id:
         return
