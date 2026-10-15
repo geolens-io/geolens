@@ -45,3 +45,28 @@ def test_explicit_light_model_overrides_main(_restore_settings):
     settings.openai_model = "gpt-4o"
     settings.openai_model_light = "gpt-4o-mini"
     assert llm_model_default("openai_compatible", light=True) == "gpt-4o-mini"
+
+
+@pytest.mark.parametrize("platform", ["foundry", "bedrock", "vertex"])
+def test_cloud_platform_light_model_falls_back_to_llm_model(monkeypatch, platform):
+    # Their model IDs aren't Anthropic's names, so claude-haiku would 404.
+    monkeypatch.setattr(settings, "anthropic_platform", platform)
+    monkeypatch.setattr(settings, "llm_model", "us.anthropic.claude-sonnet-test")
+    monkeypatch.setattr(settings, "llm_model_light", None)
+    assert (
+        llm_model_default("anthropic", light=True) == "us.anthropic.claude-sonnet-test"
+    )
+    assert llm_model_default("anthropic") == "us.anthropic.claude-sonnet-test"
+
+
+@pytest.mark.parametrize("platform", ["anthropic", "bedrock"])
+def test_explicit_claude_light_model_wins(monkeypatch, platform):
+    monkeypatch.setattr(settings, "anthropic_platform", platform)
+    monkeypatch.setattr(settings, "llm_model_light", "claude-light-deployment")
+    assert llm_model_default("anthropic", light=True) == "claude-light-deployment"
+
+
+def test_anthropic_platform_keeps_haiku_without_override(monkeypatch):
+    monkeypatch.setattr(settings, "anthropic_platform", "anthropic")
+    monkeypatch.setattr(settings, "llm_model_light", None)
+    assert llm_model_default("anthropic", light=True) == "claude-haiku-4-5-20251001"

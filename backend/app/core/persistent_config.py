@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.platform.cache import get_cache
 from app.platform.cache.provider import CacheProvider
 from app.platform.audit import AuditEvent, audit_emit
+from app.core.ai_credentials import anthropic_configured
 from app.core.config import settings
 from app.core.logging_config import apply_http_logger_levels
 from app.core.public_urls import (
@@ -647,7 +648,7 @@ LLM_PROVIDER = PersistentConfig[str](
     key="llm_provider",
     type_=str,
     env_default_factory=lambda: (
-        "anthropic" if settings.anthropic_api_key else "openai_compatible"
+        "anthropic" if anthropic_configured() else "openai_compatible"
     ),
     tab="ai",
     label="LLM Provider",
@@ -658,7 +659,15 @@ LLM_PROVIDER = PersistentConfig[str](
 def llm_model_default(provider: str, *, light: bool = False) -> str:
     """The model ``provider`` uses when no admin override is set."""
     if provider == "anthropic":
-        return "claude-haiku-4-5-20251001" if light else settings.llm_model
+        if not light:
+            return settings.llm_model
+        if settings.llm_model_light:
+            return settings.llm_model_light
+        # Foundry deployments, Bedrock inference profiles and Vertex IDs don't
+        # use Anthropic's model names, so reuse the model the operator set.
+        if settings.anthropic_platform != "anthropic":
+            return settings.llm_model
+        return "claude-haiku-4-5-20251001"
     if light:
         # Reuse OPENAI_MODEL rather than a hardcoded name, which 404s on Azure
         # OpenAI, gateways and Ollama, where it must match a real deployment.

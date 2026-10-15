@@ -5,6 +5,8 @@ loaded from ``app_settings`` therefore must not be allowed to redirect that
 credential: only the operator-controlled environment may choose its network
 destination.  This module keeps the invariant in the lowest shared layer so
 both settings validation and every SDK client boundary can enforce it.
+
+Claude's platform settings are environment-only for the same reason.
 """
 
 from __future__ import annotations
@@ -142,3 +144,28 @@ def validate_persistent_openai_base_url(
     if not stripped:
         return ""
     return canonicalize_openai_base_url(stripped)
+
+
+def anthropic_configured() -> bool:
+    """Whether the selected Claude platform has the settings its client needs.
+
+    Bedrock without a bearer token or key pair falls back to the AWS default
+    credential chain, which only a network call could check, so its region
+    stands in for it.
+    """
+    platform = settings.anthropic_platform
+    if platform == "foundry":
+        return bool(
+            settings.anthropic_foundry_api_key and settings.anthropic_foundry_resource
+        )
+    if platform == "bedrock":
+        key_pair = (
+            settings.anthropic_bedrock_aws_access_key_id,
+            settings.anthropic_bedrock_aws_secret_access_key,
+        )
+        return bool(settings.anthropic_bedrock_aws_region) and (
+            any(key_pair) == all(key_pair)
+        )
+    if platform == "vertex":
+        return bool(settings.cloud_ml_region and settings.anthropic_vertex_project_id)
+    return bool(settings.anthropic_api_key)

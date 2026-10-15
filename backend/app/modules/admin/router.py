@@ -53,6 +53,7 @@ from app.platform.ratelimit import limiter  # HARDEN-01: shared rate-limiter ins
 from app.modules.auth.models import User
 from app.modules.auth.schemas import RoleName, UserResponse
 from app.processing.export.service import safe_content_disposition
+from app.core.ai_credentials import anthropic_configured
 from app.core.config import settings as app_settings
 from app.core.permissions import MANAGE_TENANTS
 from app.core.db.tenant_session import (
@@ -941,7 +942,7 @@ def _ai_status(
     metadata only and never flips ``configured``/``provider`` (#338).
     """
     keys = {
-        "anthropic": app_settings.anthropic_api_key,
+        "anthropic": anthropic_configured(),
         "openai_compatible": app_settings.openai_api_key,
     }
     display_names = {"anthropic": "anthropic", "openai_compatible": "openai"}

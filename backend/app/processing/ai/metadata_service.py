@@ -19,7 +19,7 @@ from app.processing.ai.metadata_schemas import (
     QualityStatementDraftResponse,
     SummaryDraftResponse,
 )
-from app.core.config import settings
+from app.core.ai_credentials import anthropic_configured
 from app.core.db import release_connection
 from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
@@ -289,7 +289,7 @@ async def _generate_structured(
     provider = (
         await LLM_PROVIDER.get(db)
         if db is not None
-        else ("anthropic" if settings.anthropic_api_key else "openai_compatible")
+        else ("anthropic" if anthropic_configured() else "openai_compatible")
     )
     provider_ext = get_ai_provider(provider)
     runtime_config = (

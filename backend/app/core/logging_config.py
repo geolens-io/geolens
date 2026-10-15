@@ -82,6 +82,7 @@ _SENSITIVE_FIELDS: frozenset[str] = frozenset(
         "password",
         "password_hash",
         "api_key",
+        "api-key",  # Microsoft Foundry's key header, in Claude SDK debug logs
         "apikey",
         "x_api_key",  # normalized form of X-Api-Key
         "x-api-key",

@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING
 from app.core.identity import Identity
 from app.platform.extensions import get_processing_port
 from app.modules.auth.dependencies import require_permission
+from app.core.ai_credentials import anthropic_configured
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.persistent_config import (
@@ -180,15 +181,16 @@ async def _ai_availability(db: AsyncSession) -> bool:
     """Return whether builder chat is usable WITHOUT raising or leaking detail.
 
     Same readiness predicate as ``_check_ai_available`` (AI enabled at runtime
-    AND the admin-selected LLM provider has a key), but collapsed to a boolean
-    so a permitted editor gets a graceful disabled state instead of a 403/503.
+    AND the admin-selected LLM provider has its credentials), but collapsed to a
+    boolean so a permitted editor gets a graceful disabled state instead of a
+    403/503.
     Provider/key specifics are never surfaced here.
     """
     if not await AI_ENABLED.get(db):
         return False
     provider = await LLM_PROVIDER.get(db)
     keys = {
-        "anthropic": settings.anthropic_api_key,
+        "anthropic": anthropic_configured(),
         "openai_compatible": settings.openai_api_key,
     }
     return bool(keys.get(provider))
@@ -197,9 +199,9 @@ async def _ai_availability(db: AsyncSession) -> bool:
 async def _check_ai_available(db: AsyncSession) -> None:
     """Raise if AI is not configured or has been disabled at runtime.
 
-    Validates that the admin-selected LLM provider has an API key configured.
+    Validates that the admin-selected LLM provider has its credentials configured.
     Returns 403 when admin has disabled the feature (policy decision),
-    503 when the service is unavailable (missing API key).
+    503 when the service is unavailable (missing credentials).
     """
     if not await AI_ENABLED.get(db):
         raise HTTPException(
@@ -208,7 +210,7 @@ async def _check_ai_available(db: AsyncSession) -> None:
         )
     provider = await LLM_PROVIDER.get(db)
     keys = {
-        "anthropic": settings.anthropic_api_key,
+        "anthropic": anthropic_configured(),
         "openai_compatible": settings.openai_api_key,
     }
     if not keys.get(provider):

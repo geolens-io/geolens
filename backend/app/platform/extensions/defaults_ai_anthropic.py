@@ -86,9 +86,7 @@ class DefaultAnthropicProvider:
         import time
 
         import structlog
-        from anthropic import AsyncAnthropic
 
-        from app.core.config import reveal, settings
         from app.processing.ai.constants import (
             MAX_REQUEST_TOKEN_BUDGET,
             MAX_STREAMING_WALL_CLOCK_SECONDS,
@@ -98,9 +96,9 @@ class DefaultAnthropicProvider:
             ToolLoopExhaustedError,
             attach_token_usage,
             ToolLoopResult,
-            _LLM_TIMEOUT,
             add_tool_cache_control,
             build_history_messages,
+            get_anthropic_client,
         )
 
         log = structlog.stdlib.get_logger(__name__)
@@ -108,17 +106,7 @@ class DefaultAnthropicProvider:
         if max_rounds is None:
             max_rounds = MAX_TOOL_ROUNDS
 
-        if not settings.anthropic_api_key:
-            raise ValueError("Anthropic API key not configured")
-
-        # Lazy class-level client cache
-        if DefaultAnthropicProvider._client is None:
-            DefaultAnthropicProvider._client = AsyncAnthropic(
-                api_key=reveal(settings.anthropic_api_key),
-                timeout=_LLM_TIMEOUT,
-                max_retries=2,
-            )
-        client = DefaultAnthropicProvider._client
+        client = get_anthropic_client()
 
         messages = build_history_messages(history)
         messages.append({"role": "user", "content": user_message})
