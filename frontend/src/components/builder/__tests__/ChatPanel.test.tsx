@@ -1312,6 +1312,30 @@ describe('ChatPanel', () => {
     expect(await screen.findByText(/interrupted/i)).toBeInTheDocument();
   });
 
+  it.each([
+    { name: 'a 503 error event', event: { message: 'AI unavailable', status: 503 } },
+    { name: 'a model error event', event: { message: 'Tool loop exhausted' } },
+    { name: 'a network failure', event: null },
+  ])('makes no second request after a stream applied actions and then ended with $name', async ({ event }) => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'set_style', layer_id: 'layer-1', paint: { 'fill-color': 'red' } }] },
+      };
+      if (!event) throw new TypeError('network error');
+      yield { event: 'error', data: event };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'style it red');
+
+    expect(await screen.findByText(/interrupted/i)).toBeInTheDocument();
+    expect(props.onPaintChange).toHaveBeenCalledTimes(1);
+    expect(mockSendChat).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('shows specific error when stream returns ApiError without fallback', async () => {
     // Stream fails with a 403 ApiError — should show permission error directly
     // eslint-disable-next-line require-yield

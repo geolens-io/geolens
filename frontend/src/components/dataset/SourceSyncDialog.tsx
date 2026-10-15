@@ -179,7 +179,7 @@ export function SourceSyncDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid-cols-[minmax(0,1fr)]">
+      <DialogContent className="grid-cols-[minmax(0,1fr)] max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{automation ? t('sourcePanel.sync.editTitle') : t('sourcePanel.sync.setupTitle')}</DialogTitle>
           <DialogDescription>{t('sourcePanel.sync.dialogDescription')}</DialogDescription>
