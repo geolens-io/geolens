@@ -164,23 +164,29 @@ def _read_as_utc(value):
     return value
 
 
-def _pin_timestamptz_literals(node: Any) -> None:
-    """Read the literals compared with created/updated as UTC, in place."""
+def _pin_timestamptz_literals(root: Any) -> None:
+    """Read the literals compared with created/updated as UTC, in place.
+
+    Iterative: a filter near the length cap nests deeper than the stack allows.
+    """
     from pygeofilter import ast as pgf_ast
 
-    sides = (getattr(node, "lhs", None), getattr(node, "rhs", None))
-    if any(
-        isinstance(side, pgf_ast.Attribute) and side.name in _TIMESTAMPTZ_PROPERTIES
-        for side in sides
-    ):
-        for field in ("lhs", "rhs", "low", "high"):
-            if hasattr(node, field):
-                setattr(node, field, _read_as_utc(getattr(node, field)))
-        if isinstance(node, pgf_ast.In):
-            node.sub_nodes = [_read_as_utc(sub) for sub in node.sub_nodes]
-    for child in node.get_sub_nodes():
-        if isinstance(child, pgf_ast.Node):
-            _pin_timestamptz_literals(child)
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        sides = (getattr(node, "lhs", None), getattr(node, "rhs", None))
+        if any(
+            isinstance(side, pgf_ast.Attribute) and side.name in _TIMESTAMPTZ_PROPERTIES
+            for side in sides
+        ):
+            for field in ("lhs", "rhs", "low", "high"):
+                if hasattr(node, field):
+                    setattr(node, field, _read_as_utc(getattr(node, field)))
+            if isinstance(node, pgf_ast.In):
+                node.sub_nodes = [_read_as_utc(sub) for sub in node.sub_nodes]
+        pending.extend(
+            child for child in node.get_sub_nodes() if isinstance(child, pgf_ast.Node)
+        )
 
 
 def apply_cql2_filter(

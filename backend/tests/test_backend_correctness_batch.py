@@ -115,6 +115,15 @@ async def test_records_cql2_temporal_filter_ignores_session_timezone(
     assert await _labels(test_db_session, stmt, named) == ["end", "start"]
 
 
+def test_records_cql2_filter_nested_to_the_length_cap_is_a_400_not_a_crash():
+    from fastapi import HTTPException
+
+    expression = " OR ".join(["srid = 1"] * 999)
+    with pytest.raises(HTTPException) as refused:
+        apply_cql2_filter(select(Record.id), expression, "cql2-text")
+    assert refused.value.status_code == 400
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("zone", _NON_UTC_ZONES)
 @pytest.mark.parametrize(
