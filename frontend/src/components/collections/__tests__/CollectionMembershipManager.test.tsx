@@ -23,8 +23,9 @@ function record(id: string, title: string) {
   return { id, properties: { title } };
 }
 
-function page(features: ReturnType<typeof record>[], numberMatched = features.length) {
-  return { features, numberMatched } as unknown as Awaited<ReturnType<typeof searchDatasets>>;
+function page(features: ReturnType<typeof record>[], hasNext = false) {
+  const links = hasNext ? [{ rel: 'next', href: '/next' }] : [];
+  return { features, numberMatched: features.length, links } as unknown as Awaited<ReturnType<typeof searchDatasets>>;
 }
 
 function setMembers(ids: string[]) {
@@ -96,7 +97,7 @@ describe('CollectionMembershipManager', () => {
   it('loads the next page on request', async () => {
     const first = Array.from({ length: 20 }, (_, i) => record(`a${i}`, `Alpha ${i}`));
     vi.mocked(searchDatasets).mockImplementation(async (params) =>
-      params.offset === '0' ? page(first, 21) : page([record('b', 'Beta')], 21),
+      params.offset === '0' ? page(first, true) : page([record('b', 'Beta')]),
     );
     const user = userEvent.setup();
     render(<CollectionMembershipManager collectionId="col-1" />);
@@ -117,8 +118,8 @@ describe('CollectionMembershipManager', () => {
     }));
     vi.mocked(searchDatasets).mockImplementation(async (params) =>
       params.offset === '0'
-        ? ({ features: [...datasets, ...collections], numberMatched: 43 } as unknown as Awaited<ReturnType<typeof searchDatasets>>)
-        : page([record('d20', 'Dataset 20')], 43),
+        ? ({ features: [...datasets, ...collections], numberMatched: 43, links: [{ rel: 'next', href: '/next' }] } as unknown as Awaited<ReturnType<typeof searchDatasets>>)
+        : page([record('d20', 'Dataset 20')]),
     );
     const user = userEvent.setup();
     render(<CollectionMembershipManager collectionId="col-1" />);
@@ -129,6 +130,20 @@ describe('CollectionMembershipManager', () => {
 
     expect(await screen.findByRole('checkbox', { name: 'Select Dataset 20' })).toBeInTheDocument();
     expect(vi.mocked(searchDatasets).mock.calls[1][0]).toMatchObject({ offset: '20' });
+  });
+
+  it('offers no Load more when the next link is absent, even if collections inflate the count', async () => {
+    const datasets = Array.from({ length: 20 }, (_, i) => record(`d${i}`, `Dataset ${i}`));
+    const collection = { id: 'c1', properties: { title: 'Collection 1', type: 'collection' } };
+    vi.mocked(searchDatasets).mockResolvedValue({
+      features: [...datasets, collection],
+      numberMatched: 21,
+      links: [],
+    } as unknown as Awaited<ReturnType<typeof searchDatasets>>);
+    render(<CollectionMembershipManager collectionId="col-1" />);
+    await screen.findByRole('checkbox', { name: 'Select Dataset 0' });
+
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
   });
 
   it('submits selections made under a previous filter', async () => {

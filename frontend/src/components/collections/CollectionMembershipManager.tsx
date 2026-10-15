@@ -67,15 +67,12 @@ export function CollectionMembershipManager({
       // A text search also returns up to five matching collections on page 0.
       return {
         features: res.features.filter((f) => f.properties.type !== 'collection'),
-        numberMatched: res.numberMatched,
+        hasNext: res.links?.some((l) => l.rel === 'next') ?? false,
       };
     },
-    // Offsets advance by the requested page size so the extra collection
-    // features never shift the next page.
-    getNextPageParam: (last, _pages, lastOffset) => {
-      const next = lastOffset + PAGE_SIZE;
-      return last.features.length === PAGE_SIZE && next < last.numberMatched ? next : undefined;
-    },
+    // numberMatched also counts matching collections, so the dataset-only
+    // `next` link decides whether another page exists.
+    getNextPageParam: (last, _pages, lastOffset) => (last.hasNext ? lastOffset + PAGE_SIZE : undefined),
   });
 
   const available = (candidates.data?.pages.flatMap((p) => p.features) ?? []).filter(
