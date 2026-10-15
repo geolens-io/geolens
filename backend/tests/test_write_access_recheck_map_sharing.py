@@ -14,13 +14,13 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
 from app.modules.catalog.maps import router as maps_router
 from app.modules.catalog.maps import router_sharing
-from app.modules.catalog.maps.models import MapLayer, MapShareToken
+from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
 from app.modules.embed_tokens import router as embed_router
 from app.modules.embed_tokens.models import EmbedToken
 from app.platform.cache import tenant_cache_key
@@ -205,3 +205,32 @@ async def test_layer_removal_is_refused_after_a_transfer(
     assert await test_db_session.scalar(
         select(MapLayer.id).where(MapLayer.id == layer_id)
     )
+
+
+async def test_share_create_is_refused_once_the_map_went_private(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    people: dict,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner_headers, owner_id = people["owner"]
+    map_id, _ = await _map_with_layer(test_db_session, owner_id, visibility="public")
+
+    monkeypatch.setattr(
+        router_sharing,
+        "check_map_ownership",
+        _then(
+            router_sharing.check_map_ownership,
+            update(Map).where(Map.id == map_id).values(visibility="private"),
+        ),
+    )
+    resp = await client.post(f"/maps/{map_id}/share/", headers=owner_headers)
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == "Map must be public before sharing"
+    shares = await test_db_session.scalar(
+        select(func.count())
+        .select_from(MapShareToken)
+        .where(MapShareToken.map_id == map_id)
+    )
+    assert shares == 0
