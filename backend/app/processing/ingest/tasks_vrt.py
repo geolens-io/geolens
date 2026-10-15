@@ -46,7 +46,10 @@ from app.processing.raster.vrt_members import note_vrt_members
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
-from app.processing.ingest.publication import require_submitter_can_write
+from app.processing.ingest.publication import (
+    WriteAccessRevoked,
+    require_submitter_can_write,
+)
 from app.processing.ingest.publish_followups import (
     note_publish_followups,
     owed_followups,
@@ -1467,15 +1470,14 @@ async def regenerate_vrt(
                         text("SELECT set_config('lock_timeout', :value, true)"),
                         {"value": pre_wait_lock_timeout},
                     )
-                    if job.created_by is not None:
-                        await require_submitter_can_write(
-                            session,
-                            vrt_dataset,
-                            job,
-                            capability=(job.user_metadata or {}).get(
-                                ADMITTED_CAPABILITY_METADATA_KEY
-                            ),
-                        )
+                    await require_submitter_can_write(
+                        session,
+                        vrt_dataset,
+                        job,
+                        capability=(job.user_metadata or {}).get(
+                            ADMITTED_CAPABILITY_METADATA_KEY
+                        ),
+                    )
                     # feat(#1267) / ADR-002 Decision 5a: project the
                     # generation's completion instant into last_refreshed_at,
                     # in the SAME transaction as the generation swap, so
@@ -1595,11 +1597,18 @@ async def regenerate_vrt(
                 exc_info=True,
             )
             return
-        structlog.get_logger().exception(
-            "Ingest task failed",
-            job_id=job_id,
-            task="regenerate_vrt",
-        )
+        # A refused submitter is an outcome, recorded as a replacement's is.
+        refused = isinstance(exc, WriteAccessRevoked)
+        if refused:
+            structlog.get_logger().warning(
+                "vrt_publish_write_access_revoked", job_id=job_id
+            )
+        else:
+            structlog.get_logger().exception(
+                "Ingest task failed",
+                job_id=job_id,
+                task="regenerate_vrt",
+            )
         # fix(#1962): the asset settles first and alone. `sweep_stale_vrt_assets`
         # fences its asset UPDATE on the generations it just failed, so an asset
         # still pointing at a terminal one is the state it can never reach.
@@ -1644,7 +1653,8 @@ async def regenerate_vrt(
             log_job_error_write_failure(
                 write_failure, job_id=job_id, task="regenerate_vrt"
             )
-        raise
+        if not refused:
+            raise
     finally:
         async with cleanup_step("regenerate_vrt generation heartbeat", job_id=job_id):
             await stop_ingest_job_heartbeat(generation_heartbeat_task)

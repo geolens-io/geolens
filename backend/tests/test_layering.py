@@ -1356,8 +1356,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # commit share an endpoint lifecycle.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1654,
     # VRT creation and regeneration share publication, member and submitter
-    # re-authorization, owed-object records and superseded-object cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1694,
+    # re-authorization and its refusal, owed-object records and superseded-object
+    # cleanup.
+    "backend/app/processing/ingest/tasks_vrt.py": 1704,
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 614,
     # File and remote-source imports own publication fencing, heartbeat phases

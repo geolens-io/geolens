@@ -22,6 +22,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+from tests.factories import get_user_id
 import rasterio
 from sqlalchemy import select, text
 
@@ -255,9 +257,11 @@ async def vrt_db_state(
     )
 
     # --- IngestJob (x1) ---
+    # The admin submits it: a VRT publish re-checks its submitter.
     job = IngestJob(
         status="pending",
         source_filename="regenerate-vrt-integration-test.vrt",
+        created_by=await get_user_id(session, "admin"),
     )
     session.add(job)
     await session.flush()

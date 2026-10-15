@@ -206,10 +206,8 @@ async def _regenerate(state: dict, *, staged: bool) -> tuple[str, str | None, An
             await session.commit()
         kwargs["generation_id"] = str(generation_id)
         task = regenerate_vrt_staged
-    try:
-        await task.func(**kwargs)
-    except WriteAccessRevoked:
-        pass
+    # A refusal is an outcome the task records and returns from.
+    await task.func(**kwargs)
     async with db_module.async_session() as session:
         job = await session.get(IngestJob, uuid.UUID(state["job_id"]))
         sha256 = await session.scalar(
@@ -242,6 +240,8 @@ def _without_edit_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
         # A plain regenerate needs ownership and an active account only.
         (False, "viewer", True),
         (False, "transfer", False),
+        # The submitter's account was deleted, which clears the job's creator.
+        (False, "deleted", False),
         (False, None, True),
     ],
 )
@@ -265,6 +265,12 @@ async def test_a_vrt_regeneration_rechecks_its_submitter_before_it_publishes(
     elif change == "transfer":
         # The members go too, so the VRT's audience check still passes.
         await _hand_vrt_records_to(vrt_db_state, people["target"])
+    elif change == "deleted":
+        await _commit(
+            update(IngestJob)
+            .where(IngestJob.id == uuid.UUID(vrt_db_state["job_id"]))
+            .values(created_by=None)
+        )
     elif change == "upload_only":
         _without_edit_metadata(monkeypatch)
 
