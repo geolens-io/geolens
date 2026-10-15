@@ -324,6 +324,30 @@ describe('ImportMetadataForm', () => {
     expect(call).not.toHaveProperty('geom_column');
   });
 
+  it.each(['__none__', 'col:x', 'none'])(
+    'lets a source column named %s be picked as the X column',
+    async (columnName) => {
+      const onCommit = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <ImportMetadataForm
+          {...defaultProps}
+          onCommit={onCommit}
+          previewColumns={[...sampleColumns, { name: columnName, type: 'Real' }]}
+          detectedGeometryColumns={detectedLatLng}
+        />,
+      );
+      await selectGeomMode(user, 'metadata.manualOverride');
+      await user.click(screen.getByLabelText('metadata.xColumn'));
+      await user.click(await screen.findByRole('option', { name: columnName }));
+      await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
+
+      expect(onCommit).toHaveBeenCalledWith(
+        expect.objectContaining({ x_column: columnName }),
+      );
+    },
+  );
+
   it('submits with manual column selection override', async () => {
     const onCommit = vi.fn();
     const user = userEvent.setup();

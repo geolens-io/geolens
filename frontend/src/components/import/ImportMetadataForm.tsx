@@ -38,8 +38,11 @@ interface ImportMetadataFormProps {
 
 // fix(#927/#929): no `restricted` — see RegisterForm. Visibility is now
 // private/public at import time, and the dataset Access tab owns changing it.
-// Radix Select cannot hold an empty-string value, so "no column" is a sentinel.
-const NO_COLUMN = '__none__';
+// Radix Select cannot hold an empty-string value. Real columns are prefixed so
+// no source field name can equal the "no column" placeholder.
+const NO_COLUMN = 'none';
+const encodeColumn = (name: string) => (name ? `col:${name}` : NO_COLUMN);
+const decodeColumn = (value: string) => (value.startsWith('col:') ? value.slice(4) : '');
 
 const VISIBILITY_OPTIONS = [
   { value: 'private', labelKey: 'metadata.visibilityPrivate' },
@@ -352,8 +355,8 @@ export function ImportMetadataForm({
                           {t('metadata.xColumn')}
                         </Label>
                         <Select
-                          value={xColumn || NO_COLUMN}
-                          onValueChange={(v) => setXColumn(v === NO_COLUMN ? '' : v)}
+                          value={encodeColumn(xColumn)}
+                          onValueChange={(v) => setXColumn(decodeColumn(v))}
                           disabled={geomMode === 'auto'}
                         >
                           <SelectTrigger id={fieldId('x-column')} className="w-full">
@@ -362,7 +365,7 @@ export function ImportMetadataForm({
                           <SelectContent>
                             <SelectItem value={NO_COLUMN}>--</SelectItem>
                             {numericColumns.map((c) => (
-                              <SelectItem key={c.name} value={c.name}>
+                              <SelectItem key={c.name} value={encodeColumn(c.name)}>
                                 {c.name}
                               </SelectItem>
                             ))}
@@ -374,8 +377,8 @@ export function ImportMetadataForm({
                           {t('metadata.yColumn')}
                         </Label>
                         <Select
-                          value={yColumn || NO_COLUMN}
-                          onValueChange={(v) => setYColumn(v === NO_COLUMN ? '' : v)}
+                          value={encodeColumn(yColumn)}
+                          onValueChange={(v) => setYColumn(decodeColumn(v))}
                           disabled={geomMode === 'auto'}
                         >
                           <SelectTrigger id={fieldId('y-column')} className="w-full">
@@ -384,7 +387,7 @@ export function ImportMetadataForm({
                           <SelectContent>
                             <SelectItem value={NO_COLUMN}>--</SelectItem>
                             {numericColumns.map((c) => (
-                              <SelectItem key={c.name} value={c.name}>
+                              <SelectItem key={c.name} value={encodeColumn(c.name)}>
                                 {c.name}
                               </SelectItem>
                             ))}
@@ -398,8 +401,8 @@ export function ImportMetadataForm({
                         {t('metadata.wktColumn')}
                       </Label>
                       <Select
-                        value={wktColumn || NO_COLUMN}
-                        onValueChange={(v) => setWktColumn(v === NO_COLUMN ? '' : v)}
+                        value={encodeColumn(wktColumn)}
+                        onValueChange={(v) => setWktColumn(decodeColumn(v))}
                         disabled={geomMode === 'auto'}
                       >
                         <SelectTrigger id={fieldId('wkt-column')} className="w-full">
@@ -408,7 +411,7 @@ export function ImportMetadataForm({
                         <SelectContent>
                           <SelectItem value={NO_COLUMN}>--</SelectItem>
                           {stringColumns.map((c) => (
-                            <SelectItem key={c.name} value={c.name}>
+                            <SelectItem key={c.name} value={encodeColumn(c.name)}>
                               {c.name}
                             </SelectItem>
                           ))}
