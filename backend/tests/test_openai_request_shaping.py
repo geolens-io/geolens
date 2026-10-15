@@ -249,6 +249,16 @@ async def test_configured_none_the_model_rejects_is_dropped(monkeypatch, tools):
     assert len(server.calls) == 2
 
 
+async def test_configured_none_on_a_responses_only_model_needs_the_responses_api(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "openai_reasoning_effort", "none")
+    server = _Server(_tools_need_no_reasoning, _rejects_none)
+    with pytest.raises(ResponsesAPIRequiredError):
+        await _call(server, tools=_TOOLS)
+    assert [c.get("reasoning_effort") for c in server.calls] == ["none", None]
+
+
 async def test_learned_shape_skips_the_rejected_attempts_on_the_next_call():
     rules = (_rejects_max_tokens, _rejects_temperature, _tools_need_no_reasoning)
     first = _Server(*rules)

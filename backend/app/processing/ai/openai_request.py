@@ -86,6 +86,12 @@ def _unsupported(exc: BadRequestError, param: str) -> bool:
     return _rejects(exc, param, value=False) or _rejects(exc, param, value=True)
 
 
+def _tools_need_none(exc: BadRequestError) -> bool:
+    return _message(exc).startswith(
+        "Function tools with reasoning_effort are not supported"
+    )
+
+
 def _adjust(exc: BadRequestError, shape: _Shape) -> tuple[str, _Shape] | None:
     """The parameter a rejection names and the shape that avoids it."""
     message = _message(exc)
@@ -103,9 +109,7 @@ def _adjust(exc: BadRequestError, shape: _Shape) -> tuple[str, _Shape] | None:
         or _unsupported(exc, "reasoning_effort")
     ):
         return "reasoning_effort", replace(shape, reasoning_effort=None)
-    if shape.reasoning_effort != "none" and message.startswith(
-        "Function tools with reasoning_effort are not supported"
-    ):
+    if shape.reasoning_effort != "none" and _tools_need_none(exc):
         return "reasoning_effort", replace(shape, reasoning_effort="none")
     return None
 
@@ -123,9 +127,9 @@ async def create_chat_completion(
     parameter is adjusted at most once per call and only ``create()`` is
     retried. The working shape is remembered per ``(base_url, model)`` and
     whether tools are sent.
-    Raises :class:`ResponsesAPIRequiredError` when the model asks for
-    ``reasoning_effort="none"`` to call tools and then rejects that value,
-    and re-raises any other rejection unchanged.
+    Raises :class:`ResponsesAPIRequiredError` when, within one call, the
+    model both requires ``reasoning_effort="none"`` for tools and rejects
+    that value, in either order; re-raises any other rejection unchanged.
     """
     from openai import BadRequestError
 
@@ -135,18 +139,18 @@ async def create_chat_completion(
         reasoning_effort=settings.openai_reasoning_effort or None
     )
     adjusted: set[str] = set()
+    none_rejected = none_required = False
     while True:
         kwargs = _apply(request, shape)
         try:
             response = await create(**kwargs)
         except BadRequestError as exc:
-            # Only a "none" this call sent for tools proves the Responses API
-            # is needed; a configured "none" is dropped like any other value.
-            if (
-                "reasoning_effort" in adjusted
-                and kwargs.get("reasoning_effort") == "none"
+            none_rejected = none_rejected or (
+                kwargs.get("reasoning_effort") == "none"
                 and _rejects(exc, "reasoning_effort", value=True)
-            ):
+            )
+            none_required = none_required or _tools_need_none(exc)
+            if none_rejected and none_required:
                 raise ResponsesAPIRequiredError() from exc
             adjustment = _adjust(exc, shape)
             if adjustment is None or adjustment[0] in adjusted:
