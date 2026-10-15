@@ -832,7 +832,7 @@ export function useBuilderLayers(
     // center_lat are null — mirrors BuilderMap's hasSavedView check) and
     // opens at the world-view default, so the just-added dataset can land
     // off-screen. Record the new layer id for the one-time auto-zoom effect
-    // below; a map with its own saved view is left alone (that framing was
+    // above; a map with its own saved view is left alone (that framing was
     // chosen on purpose). Don't call handleZoomToLayer directly from this
     // callback — layersRef is only synced via the useLayoutEffect mirror on
     // commit,
