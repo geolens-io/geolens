@@ -81,7 +81,8 @@ export function CollectionMembershipManager({
   const available = (candidates.data?.pages.flatMap((p) => p.features) ?? []).filter(
     (r) => !memberIds.has(r.id),
   );
-  const selectedIds = available.filter((r) => selected.has(r.id)).map((r) => r.id);
+  // Checks persist across filter changes, so submit every selection, visible or not.
+  const selectedIds = [...selected].filter((id) => !memberIds.has(id));
 
   function toggle(id: string, checked: boolean) {
     setSelected((prev) => {

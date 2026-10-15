@@ -131,6 +131,24 @@ describe('CollectionMembershipManager', () => {
     expect(vi.mocked(searchDatasets).mock.calls[1][0]).toMatchObject({ offset: '20' });
   });
 
+  it('submits selections made under a previous filter', async () => {
+    vi.mocked(searchDatasets).mockImplementation(async (params) =>
+      params.q === 'beta' ? page([record('b', 'Beta')]) : page([record('a', 'Alpha'), record('b', 'Beta')]),
+    );
+    const user = userEvent.setup();
+    render(<CollectionMembershipManager collectionId="col-1" />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Alpha' }));
+
+    await user.type(screen.getByLabelText(/search datasets/i), 'beta');
+    await waitFor(() =>
+      expect(screen.queryByRole('checkbox', { name: 'Select Alpha' })).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Add 2 selected datasets' }));
+
+    expect(mutateAsync).toHaveBeenCalledWith({ collectionId: 'col-1', datasetIds: ['a', 'b'] });
+  });
+
   it('keeps datasets selected when the add fails', async () => {
     vi.mocked(searchDatasets).mockResolvedValue(page([record('a', 'Alpha'), record('b', 'Beta')]));
     mutateAsync.mockRejectedValueOnce(new Error('boom'));
