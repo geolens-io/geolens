@@ -95,6 +95,10 @@ MANIFEST_STAGE_METADATA_KEY = "manifest_stage"
 # entry it has already imported or is importing.
 MANIFEST_FINGERPRINT_METADATA_KEY = "manifest_fingerprint"
 
+# The capability the door that queued a VRT regeneration required, which the
+# publish checks again. Absent for a door that required none.
+ADMITTED_CAPABILITY_METADATA_KEY = "admitted_capability"
+
 # The unpacked total the tileset upload door measured, which the commit door
 # checks against the quota again.
 TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"

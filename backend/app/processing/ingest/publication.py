@@ -540,7 +540,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         await strategy.install(session, dataset)
         await _take_catalog_rows(session, strategy, dataset)
         await _require_submitter_can_write(
-            session, dataset, job, _replacement_capability(job)
+            session, dataset, job, capability=_replacement_capability(job)
         )
         published = await strategy.write(session, dataset)
         if published.tiles_changed:
@@ -614,11 +614,12 @@ def _replacement_capability(job: IngestJob) -> str:
 
 
 async def _require_submitter_can_write(
-    session: AsyncSession, dataset: Any, job: IngestJob, capability: str | None
+    session: AsyncSession, dataset: Any, job: IngestJob, *, capability: str | None
 ) -> None:
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
-    the dataset, as committed now, and their roles still grant ``capability``
-    when one is given: the capability the job's door admitted it under.
+    the dataset, as committed now, and their roles still grant ``capability``,
+    the one the job's door admitted it under. With None, only the account and
+    owner-or-admin are checked.
 
     Call holding the catalog rows, which an ownership transfer also takes.
     """

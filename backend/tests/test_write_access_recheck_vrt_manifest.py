@@ -26,10 +26,11 @@ from app.modules.catalog.authorization import check_dataset_write_access
 from app.modules.catalog.datasets.api import router_vrt
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.service import get_dataset
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ADMITTED_CAPABILITY_METADATA_KEY, IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest.manifest_service import _admit_refresh_run
 from app.processing.ingest.publication import WriteAccessRevoked
+from app.processing.ingest.vrt_admission import stage_vrt_regeneration
 from app.processing.raster.models import RasterAsset, VrtGeneration
 from tests.factories import create_dataset
 from tests.test_vrt_source_authz_1172 import (
@@ -198,6 +199,13 @@ async def _regenerate(state: dict, *, staged: bool) -> tuple[str, str | None, An
             generation_id = await _stage_generation(
                 session, state, state["source_dataset_ids"]
             )
+            # What a source door records on the job it queues.
+            await session.execute(
+                update(IngestJob)
+                .where(IngestJob.id == uuid.UUID(state["job_id"]))
+                .values(user_metadata={ADMITTED_CAPABILITY_METADATA_KEY: "upload"})
+            )
+            await session.commit()
         kwargs["generation_id"] = str(generation_id)
         task = regenerate_vrt_staged
     try:
@@ -271,3 +279,20 @@ async def test_a_vrt_regeneration_rechecks_its_submitter_before_it_publishes(
         assert status == "failed"
         assert error == str(WriteAccessRevoked())
         assert sha256 is None
+
+
+async def test_a_source_door_records_the_capability_it_admitted_under(
+    test_db_session: AsyncSession,
+    people: dict,  # noqa: F811
+) -> None:
+    _, owner_id = people["owner"]
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=owner_id)
+    asset = await test_db_session.scalar(
+        select(RasterAsset).where(RasterAsset.dataset_id == vrt_id)
+    )
+    owner = await test_db_session.get(User, owner_id)
+
+    job, _ = await stage_vrt_regeneration(test_db_session, asset, vrt_id, [], owner)
+
+    assert job.user_metadata == {ADMITTED_CAPABILITY_METADATA_KEY: "upload"}
+    await test_db_session.rollback()

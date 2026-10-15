@@ -9,6 +9,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.permissions import UPLOAD
+from app.platform.jobs.models import ADMITTED_CAPABILITY_METADATA_KEY
 from app.processing.ingest.service import create_ingest_job
 
 
@@ -20,8 +22,9 @@ async def stage_vrt_regeneration(
     user: Identity,
 ) -> tuple[Any, Any]:
     """Stage ``staged_source_ids`` on a pending generation, mark the VRT
-    regenerating and create the job that rebuilds it. Returns ``(job,
-    generation)``.
+    regenerating and create the job that rebuilds it, recording that it was
+    admitted under ``upload``, which both source doors require. Returns
+    ``(job, generation)``.
 
     Call holding the VRT's catalog rows. Does not commit.
     """
@@ -42,4 +45,5 @@ async def stage_vrt_regeneration(
 
     job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
     job.dataset_id = dataset_id
+    job.user_metadata = {ADMITTED_CAPABILITY_METADATA_KEY: UPLOAD}
     return job, generation
