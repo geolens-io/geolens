@@ -54,6 +54,12 @@ class StreamDelta:
 _UNPARSEABLE_ARGUMENTS = {"error": "Tool arguments were not valid JSON; nothing ran."}
 
 
+# Reasoning text some servers stream beside the answer and expect back with
+# the tool calls. OpenRouter's structured reasoning_details arrives in parts
+# with no documented merge rule, so a streamed round does not replay it.
+_STREAMED_REASONING_FIELDS = ("reasoning_content", "reasoning")
+
+
 def _answers(
     round_: Round, results: list[tuple[ToolCall, dict]]
 ) -> list[tuple[ToolCall, dict]]:
@@ -205,6 +211,8 @@ class ChatCompletionsConversation:
         self._messages: list[Any] = [{"role": "system", "content": system_prompt}]
         self._messages.extend(build_history_messages(history))
         self._messages.append({"role": "user", "content": user_message})
+        # The SDK message from complete(), or the dict stream() rebuilt.
+        self._assistant_message: Any = {}
 
     async def complete(self) -> Round:
         response = await create_chat_completion(
@@ -215,6 +223,9 @@ class ChatCompletionsConversation:
         )
         choice = response.choices[0]
         usage = response.usage
+        # Replayed as returned: some servers (DeepSeek, OpenRouter) reject a tool
+        # follow-up that drops their reasoning fields.
+        self._assistant_message = choice.message
         return Round(
             # A safety refusal arrives in `refusal`, with no content.
             text=choice.message.content
@@ -242,6 +253,7 @@ class ChatCompletionsConversation:
         )
         result = Round()
         text_parts: list[str] = []
+        reasoning: dict[str, list[str]] = {}
         calls: dict[int, dict[str, str]] = {}
         async for chunk in response_stream:
             usage = getattr(chunk, "usage", None)
@@ -259,6 +271,10 @@ class ChatCompletionsConversation:
             if text:
                 text_parts.append(text)
                 yield StreamDelta(text=text)
+            for key in _STREAMED_REASONING_FIELDS:
+                value = getattr(delta, key, None) if delta else None
+                if isinstance(value, str) and value:
+                    reasoning.setdefault(key, []).append(value)
             for tc in (delta.tool_calls if delta else None) or []:
                 entry = calls.setdefault(tc.index, {"id": "", "name": "", "args": ""})
                 announced = bool(entry["name"])
@@ -276,25 +292,30 @@ class ChatCompletionsConversation:
         result.tool_calls = [
             ToolCall(c["id"], c["name"], c["args"]) for _, c in sorted(calls.items())
         ]
+        self._assistant_message = {
+            "role": "assistant",
+            "content": result.text or None,
+            "tool_calls": [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments},
+                }
+                for call in result.tool_calls
+            ],
+            **{key: "".join(parts) for key, parts in reasoning.items()},
+        }
         yield result
 
     def add_tool_results(
         self, round_: Round, results: list[tuple[ToolCall, dict]]
     ) -> None:
         """Append the model's tool calls and the results that answer them."""
+        message = self._assistant_message
         self._messages.append(
-            {
-                "role": "assistant",
-                "content": round_.text or None,
-                "tool_calls": [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {"name": call.name, "arguments": call.arguments},
-                    }
-                    for call in round_.tool_calls
-                ],
-            }
+            message
+            if isinstance(message, dict)
+            else message.model_dump(exclude_none=True)
         )
         for call, result in _answers(round_, results):
             self._messages.append(
@@ -341,6 +362,9 @@ class ResponsesConversation:
                     "name": t["name"],
                     "description": t["description"],
                     "parameters": t["input_schema"],
+                    # Responses makes every property required unless this is
+                    # false, and these tools take optional arguments.
+                    "strict": False,
                 }
                 for t in tools
             ]

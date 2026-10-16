@@ -194,6 +194,7 @@ async def test_tool_loop_runs_function_calls_through_the_responses_api(monkeypat
             "name": "query_data",
             "description": "Run SQL",
             "parameters": _TOOLS[0]["input_schema"],
+            "strict": False,
         }
     ]
     assert first["max_output_tokens"] == 4096
@@ -456,47 +457,9 @@ async def test_a_malformed_chat_completions_call_still_gets_a_tool_message(
 ):
     monkeypatch.setattr(settings, "openai_api_style", "chat_completions")
 
-    def _choice(finish_reason, content=None, tool_calls=None):
-        return SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    finish_reason=finish_reason,
-                    message=SimpleNamespace(content=content, tool_calls=tool_calls),
-                )
-            ],
-            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
-        )
-
-    def _tc(call_id, args):
-        return SimpleNamespace(
-            id=call_id, function=SimpleNamespace(name="query_data", arguments=args)
-        )
-
-    replies = [
-        _choice(
-            "tool_calls", tool_calls=[_tc("a", '{"sql": "SELECT 1"}'), _tc("b", "{")]
-        ),
-        _choice("stop", content="done"),
-    ]
-    sent = []
-
-    async def create(**kwargs):
-        sent.append(list(kwargs["messages"]))
-        return replies.pop(0)
-
-    _install(
+    sent, result = await _chat_completions_tool_round(
         monkeypatch,
-        SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
-        ),
-    )
-    executed: list = []
-    result = await DefaultOpenAICompatibleProvider().complete(
-        model="gpt-4.1-mini",
-        system_prompt="sys",
-        user_message="hi",
-        tools=_TOOLS,
-        tool_executor=await _executing(executed),
+        _cc_reply("tool_calls", tool_calls=[_cc_call("a"), _cc_call("b", args="{")]),
     )
 
     assert result.text == "done"
@@ -786,3 +749,173 @@ async def test_a_billed_metadata_reply_that_does_not_parse_still_counts(
         await metadata_service._generate_structured("sys", "describe", _Answer)
 
     assert recorded == [(5, 4)]
+
+
+def _cc_call(call_id: str, args: str = '{"sql": "SELECT 1"}') -> dict:
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": "query_data", "arguments": args},
+    }
+
+
+def _cc_reply(finish_reason, content=None, tool_calls=None, **extra):
+    from openai.types.chat import ChatCompletionMessage
+
+    message = ChatCompletionMessage.model_validate(
+        {"role": "assistant", "content": content, "tool_calls": tool_calls, **extra}
+    )
+    return SimpleNamespace(
+        choices=[SimpleNamespace(finish_reason=finish_reason, message=message)],
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+    )
+
+
+async def _chat_completions_tool_round(monkeypatch, first_reply):
+    """Run a tool round then a final answer over Chat Completions."""
+    monkeypatch.setattr(settings, "openai_api_style", "chat_completions")
+    replies = [first_reply, _cc_reply("stop", content="done")]
+    sent: list[list] = []
+
+    async def create(**kwargs):
+        sent.append(list(kwargs["messages"]))
+        return replies.pop(0)
+
+    _install(
+        monkeypatch,
+        SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        ),
+    )
+    result = await DefaultOpenAICompatibleProvider().complete(
+        model="deepseek-reasoner",
+        system_prompt="sys",
+        user_message="hi",
+        tools=_TOOLS,
+        tool_executor=await _executing([]),
+    )
+    return sent, result
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("reasoning_content", "First count the parks."),
+        ("reasoning", "First count the parks."),
+        ("reasoning_details", [{"type": "reasoning.text", "text": "Count."}]),
+        ("provider_specific_state", {"opaque": 1}),
+    ],
+)
+async def test_a_chat_completions_tool_follow_up_replays_provider_fields(
+    monkeypatch, field, value
+):
+    sent, result = await _chat_completions_tool_round(
+        monkeypatch,
+        _cc_reply("tool_calls", tool_calls=[_cc_call("a")], **{field: value}),
+    )
+
+    assert result.text == "done"
+    assistant = next(m for m in sent[1] if m.get("role") == "assistant")
+    assert assistant[field] == value
+    assert assistant["tool_calls"][0]["id"] == "a"
+    tool = next(m for m in sent[1] if m.get("role") == "tool")
+    assert tool["content"] != json.dumps({"count": 42})
+
+
+async def test_a_streamed_tool_follow_up_keeps_streamed_reasoning(monkeypatch):
+    from app.processing.ai.openai_conversation import (
+        ChatCompletionsConversation,
+        Round,
+    )
+
+    def _chunk(finish_reason=None, **delta):
+        fields = {"content": None, "tool_calls": None, **delta}
+        return SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(**fields), finish_reason=finish_reason
+                )
+            ],
+        )
+
+    tool_call = SimpleNamespace(
+        index=0,
+        id="a",
+        function=SimpleNamespace(name="query_data", arguments='{"sql": "SELECT 1"}'),
+    )
+    chunks = [
+        _chunk(reasoning_content="First "),
+        _chunk(reasoning_content="count."),
+        _chunk(tool_calls=[tool_call]),
+        _chunk(finish_reason="tool_calls"),
+    ]
+
+    async def create(**kwargs):
+        return _Events(chunks)
+
+    conversation = ChatCompletionsConversation(
+        SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        ),
+        base_url=_URL,
+        model="deepseek-reasoner",
+        system_prompt="sys",
+        history=None,
+        user_message="hi",
+        tools=_TOOLS,
+        max_tokens=64,
+        temperature=0.3,
+    )
+    round_ = [d async for d in conversation.stream() if isinstance(d, Round)][0]
+    conversation.add_tool_results(round_, [(round_.tool_calls[0], {"count": 42})])
+
+    assistant = conversation._messages[-2]
+    assert assistant["reasoning_content"] == "First count."
+    assert assistant["tool_calls"][0]["id"] == "a"
+
+
+async def test_responses_tools_are_sent_non_strict(monkeypatch):
+    from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
+
+    server = _Server(_response([_message_item("ok")]))
+    _install(
+        monkeypatch, SimpleNamespace(responses=SimpleNamespace(create=server.create))
+    )
+
+    await DefaultOpenAICompatibleProvider().complete(
+        model="eval-gpt-6.1-sol",
+        system_prompt="sys",
+        user_message="hi",
+        tools=CHAT_TOOLS_ANTHROPIC,
+        tool_executor=await _executing([]),
+        max_rounds=1,
+    )
+
+    sent = server.calls[0]["tools"]
+    assert len(sent) == len(CHAT_TOOLS_ANTHROPIC)
+    assert all(tool["strict"] is False for tool in sent)
+    # The schemas go out unchanged, optional properties still optional.
+    assert [tool["parameters"] for tool in sent] == [
+        tool["input_schema"] for tool in CHAT_TOOLS_ANTHROPIC
+    ]
+
+
+async def test_an_optional_argument_search_reaches_the_executor_unchanged(
+    monkeypatch,
+):
+    args = '{"query": "parks"}'
+    call = ResponseFunctionToolCall(
+        type="function_call",
+        id="fc_1",
+        call_id="call_1",
+        name="search_datasets",
+        arguments=args,
+        status="completed",
+    )
+    server = _Server(_response([call]), _response([_message_item("Found it.")]))
+    executed: list = []
+
+    await _complete(monkeypatch, server, executed)
+
+    assert executed == [("search_datasets", {"query": "parks"})]
