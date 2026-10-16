@@ -58,9 +58,9 @@ async def test_two_urls_on_one_handler_share_one_bucket(client: AsyncClient):
     budget per dataset id, and a second one for the alias.
 
     The dataset ids are random and resolve to nothing. That is deliberate: the
-    limit is evaluated in ``SlowAPIMiddleware`` before the handler runs, so a
-    404 consumes the bucket exactly as a 200 does, and the test needs no
-    fixture data to make its point.
+    limit is evaluated in ``GlobalRateLimitMiddleware`` before the handler
+    runs, so a 404 consumes the bucket exactly as a 200 does, and the test
+    needs no fixture data to make its point.
     """
     original_enabled = limiter.enabled
     original_limits = limiter._default_limits

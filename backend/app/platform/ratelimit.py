@@ -23,14 +23,21 @@ pre-#2018 behaviour, rather than to no limit or a 500 per request.
 
 from __future__ import annotations
 
+import inspect
+import itertools
+from collections.abc import Callable
 from functools import cache
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
 from fastapi import Request
+from limits.aio.strategies import STRATEGIES as ASYNC_STRATEGIES
+from limits.storage import storage_from_string
 from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from slowapi.wrappers import Limit
 
 from app.core.config import settings
 from app.core.persistent_config import get_cached_global_rate_limit
@@ -61,8 +68,10 @@ def emit_startup_notices() -> None:
 # outside this set cannot be a working deployment's value anyway.
 _SHARED_STORAGE_SCHEMES = frozenset({"redis", "rediss"})
 
-# fix(#2018): limits' sync storage blocks the event loop for its round trip,
-# so a hung store has to fail into the in-memory fallback fast.
+# The per-route decorators reach the store through limits' sync storage, which
+# blocks the event loop for the round trip, and the global check holds each
+# request until the async client answers. Either way a hung store has to fail
+# into the in-memory fallback fast.
 STORAGE_SOCKET_TIMEOUT_SECONDS = 0.25
 
 # fix(#2018): every URL parameter that can widen how long ONE call holds the
@@ -133,10 +142,49 @@ def _global_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_global_rate_limit()}/second"
 
 
+def _with_explicit_port(url: str) -> str:
+    """Return *url* with redis-py's default port spelled out.
+
+    limits' asyncio storage refuses a location without a port, which redis-py
+    and the sync storage both default to 6379.
+    """
+    parts = urlsplit(url)
+    if not parts.hostname or parts.port is not None:
+        return url
+    return urlunsplit(parts._replace(netloc=f"{parts.netloc}:6379"))
+
+
+def _endpoint_name(endpoint: Callable[..., Any]) -> str:
+    return f"{endpoint.__module__}.{endpoint.__name__}"
+
+
 class _FallbackAnnouncingLimiter(Limiter):
-    """A Limiter that announces losing and regaining its shared store."""
+    """A Limiter that announces losing and regaining its shared store, and
+    checks the default limits without blocking the event loop.
+
+    slowapi's own middleware checks the default limits through limits' sync
+    storage, a blocking Redis round trip on the event loop for every request.
+    ``check_default_limits`` applies the same limits, keys and fallback
+    through limits' asyncio storage on the same store; the per-route
+    decorators keep slowapi's sync path.
+    """
 
     _storage_dead_state = False
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Only a shared store does I/O. Without one the default limits count in
+        # the sync in-memory storage the decorators share, which never blocks.
+        self._async_limiter = None
+        uri = self._storage_uri
+        if uri and urlsplit(uri).scheme.lower() in _SHARED_STORAGE_SCHEMES:
+            async_storage = storage_from_string(
+                f"async+{_with_explicit_port(uri)}",
+                implementation="redispy",
+                **self._storage_options,
+            )
+            strategy = ASYNC_STRATEGIES[self._strategy or "fixed-window"]
+            self._async_limiter = strategy(async_storage)
 
     @property
     def _storage_dead(self) -> bool:
@@ -157,6 +205,113 @@ class _FallbackAnnouncingLimiter(Limiter):
             )
         else:
             logger.info("rate_limit_storage_recovered")
+
+    def is_exempt_from_default_limits(
+        self, endpoint: Callable[..., Any] | None
+    ) -> bool:
+        """Whether SlowAPIMiddleware would skip *endpoint* outright."""
+        if not self.enabled or not self._auto_check or endpoint is None:
+            return True
+        name = _endpoint_name(endpoint)
+        return name in self._exempt_routes or name in self._route_limits
+
+    async def check_default_limits(
+        self, request: Request, endpoint: Callable[..., Any]
+    ) -> None:
+        """Hit the default limits for *endpoint*; raise RateLimitExceeded.
+
+        Mirrors slowapi's ``_check_request_limit`` for its middleware: the
+        same limit list, keys, fallback to the in-memory store on a store
+        error, and recovery probe on slowapi's own backoff.
+        """
+        name = _endpoint_name(endpoint)
+        if (
+            not self.enabled
+            or name in self._exempt_routes
+            or any(fn() for fn in self._request_filters)
+        ):
+            return
+        # A route with a callable @limiter.limit still reaches here and pays
+        # the default limits too; slowapi leaves the store probe to its
+        # decorator.
+        if (
+            self._storage_dead
+            and self._fallback_limiter is not None
+            and name not in self._dynamic_route_limits
+            and self._Limiter__should_check_backend()
+            and await self._store_alive()
+        ):
+            self._storage_dead = False
+            self._Limiter__check_backend_count = 0
+        limits = list(itertools.chain(*self._application_limits, *self._default_limits))
+        endpoint_key = (request["path"] or "") if self._key_style == "url" else name
+        try:
+            await self._evaluate_default_limits(request, endpoint_key, limits)
+        except RateLimitExceeded:
+            raise
+        except Exception:  # broad: any store failure degrades to per-process counting
+            if self._in_memory_fallback_enabled and not self._storage_dead:
+                self._storage_dead = True
+                await self._evaluate_default_limits(request, endpoint_key, limits)
+            elif self._swallow_errors:
+                self.logger.exception("Failed to rate limit. Swallowing error")
+            else:
+                raise
+
+    async def _store_alive(self) -> bool:
+        if self._async_limiter is None:
+            return self._storage.check()
+        return await self._async_limiter.storage.check()
+
+    async def _hit(self, limit: Limit, *identifiers: str, cost: int) -> bool:
+        if self._storage_dead and self._in_memory_fallback_enabled:
+            return self._fallback_limiter.hit(limit.limit, *identifiers, cost=cost)
+        if self._async_limiter is None:
+            return self.limiter.hit(limit.limit, *identifiers, cost=cost)
+        return await self._async_limiter.hit(limit.limit, *identifiers, cost=cost)
+
+    async def _evaluate_default_limits(
+        self, request: Request, endpoint_key: str, limits: list[Limit]
+    ) -> None:
+        """slowapi's ``__evaluate_limits``, with the storage hit awaited."""
+        failed_limit = None
+        limit_for_header = None
+        for lim in limits:
+            if lim.is_exempt(request if lim._exempt_when_takes_request else None):
+                continue
+            if lim.methods is not None and request.method.lower() not in lim.methods:
+                continue
+            limit_scope = lim.scope or endpoint_key
+            if lim.per_method:
+                limit_scope += f":{request.method}"
+            if "request" in inspect.signature(lim.key_func).parameters:
+                limit_key = lim.key_func(request)
+            else:
+                limit_key = lim.key_func()
+            args = [limit_key, limit_scope]
+            if not all(args):
+                self.logger.error(
+                    "Skipping limit: %s. Empty value found in parameters.", lim.limit
+                )
+                continue
+            if self._key_prefix:
+                args = [self._key_prefix, *args]
+            if not limit_for_header or lim.limit < limit_for_header[0]:
+                limit_for_header = (lim.limit, args)
+            cost = lim.cost(request) if callable(lim.cost) else lim.cost
+            if not await self._hit(lim, *args, cost=cost):
+                self.logger.warning(
+                    "ratelimit %s (%s) exceeded at endpoint: %s",
+                    lim.limit,
+                    limit_key,
+                    limit_scope,
+                )
+                failed_limit = lim
+                limit_for_header = (lim.limit, args)
+                break
+        request.state.view_rate_limit = limit_for_header
+        if failed_limit is not None:
+            raise RateLimitExceeded(failed_limit)
 
 
 limiter = _FallbackAnnouncingLimiter(

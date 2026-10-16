@@ -115,7 +115,8 @@ def test_lazy_route_handler_resolution_strips_root_path():
     prefix in scope['path']; the lazy-include fallback must strip root_path
     the way starlette's matcher does, or nested routes resolve to no handler
     and the global default rate limit silently stops applying to them."""
-    from app.api.main import _find_route_handler_with_lazy_includes, app
+    from app.api.main import app
+    from app.api.middleware.rate_limit import find_route_handler
 
     plain = {
         "type": "http",
@@ -131,10 +132,10 @@ def test_lazy_route_handler_resolution_strips_root_path():
         "root_path": "/api",
         "headers": [],
     }
-    assert _find_route_handler_with_lazy_includes(app.routes, plain) is not None
-    assert _find_route_handler_with_lazy_includes(
-        app.routes, prefixed
-    ) is _find_route_handler_with_lazy_includes(app.routes, plain)
+    assert find_route_handler(app.routes, plain) is not None
+    assert find_route_handler(app.routes, prefixed) is find_route_handler(
+        app.routes, plain
+    )
 
 
 @pytest.mark.anyio

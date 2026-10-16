@@ -57,14 +57,13 @@ from app.api.middleware.body_limit import RequestBodyLimitMiddleware
 from app.api.middleware.cors import DynamicCORSMiddleware
 from app.api.middleware.credential_scrub import CredentialScrubASGIMiddleware
 from app.api.middleware.logging import RequestLoggingMiddleware, safe_access_log_path
+from app.api.middleware.rate_limit import GlobalRateLimitMiddleware
 from app.api.middleware.security import SecurityHeadersMiddleware
 from app.api.middleware.tenant_context import TenantContextMiddleware
 from app.processing.tiles.pool import close_tile_pool, init_tile_pool
 from app.processing.tiles.router import _titiler_client
 from app.standards.ogc.utils import standards_api_path
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
-import slowapi.middleware as slowapi_middleware_module
 
 # Configure structured logging before app creation so lifespan logs are structured
 setup_logging(
@@ -810,12 +809,6 @@ app.state.limiter = limiter
 
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     # fix(#315): advertise the retry window (exc.limit.limit.get_expiry()).
-    # fix(#1778): must stay a plain def, not a coroutine — slowapi's
-    # SlowAPIMiddleware runs inside a sync BaseHTTPMiddleware dispatch and
-    # silently swaps a coroutine handler for its own handler, which returns
-    # a bare {"error": ...} with no Retry-After (unparseable by SDK/CLI/
-    # apiFetch). Only @limiter.limit-decorated routes take this path;
-    # nothing here awaits, so one sync def serves both.
     headers = {}
     try:
         headers["Retry-After"] = str(int(exc.limit.limit.get_expiry()))
@@ -981,47 +974,7 @@ app.add_middleware(RequestLoggingMiddleware)
 # the tenant_id is available to all route handlers.  In single_tenant mode
 # (default) this is a strict no-op (single boolean check, no state mutation).
 app.add_middleware(TenantContextMiddleware)
-
-
-def _find_route_handler_with_lazy_includes(routes, scope):
-    """slowapi <= 0.1.10 scans ``app.routes`` for a matching route with an
-    ``endpoint``; fastapi 0.140 keeps included-router routes nested, so the
-    scan finds nothing and GLOBAL rate limiting silently stops enforcing
-    (per-route ``@limiter.limit`` is unaffected). Resolve misses through the
-    flattened route contexts instead. Guarded by
-    tests/test_middleware.py::test_rate_limiting."""
-    handler = _slowapi_find_route_handler(routes, scope)
-    if handler is not None:
-        return handler
-    from fastapi.routing import iter_route_contexts
-
-    # Route regexes never include the ASGI root_path; starlette's own
-    # matching strips it too (starlette._utils.get_route_path — mirrored
-    # here to avoid the private import). Without this, ROOT_PATH
-    # deployments would silently lose the global rate limit again (#747).
-    path = scope.get("path", "")
-    root_path = scope.get("root_path", "")
-    if root_path and path.startswith(root_path):
-        stripped = path[len(root_path) :]
-        if not stripped or stripped.startswith("/"):
-            path = stripped
-    method = scope.get("method", "")
-    for ctx in iter_route_contexts(list(routes)):
-        path_regex = getattr(ctx, "path_regex", None)
-        if path_regex is None or not path_regex.match(path):
-            continue
-        # Registration order matches starlette routing order, so the first
-        # method-compatible hit is the route that would handle the request.
-        if ctx.methods and method not in ctx.methods:
-            continue
-        if ctx.endpoint is not None:
-            return ctx.endpoint
-    return None
-
-
-_slowapi_find_route_handler = slowapi_middleware_module._find_route_handler
-slowapi_middleware_module._find_route_handler = _find_route_handler_with_lazy_includes
-app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(GlobalRateLimitMiddleware)
 app.add_middleware(
     RequestBodyLimitMiddleware,
     max_bytes=settings.upload_max_size_mb * 1024 * 1024,

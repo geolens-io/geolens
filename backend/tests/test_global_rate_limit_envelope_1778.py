@@ -1,13 +1,12 @@
 """fix(#1778): the GLOBAL default rate limit must answer with the app envelope.
 
-slowapi enforces the default limit inside `SlowAPIMiddleware.dispatch`, a
-synchronous BaseHTTPMiddleware. Its `sync_check_limits` refuses to run a
-coroutine exception handler there and silently substitutes slowapi's own,
-which returns a bare `{"error": ...}` in application/json with no Retry-After
-(the Limiter is not built with `headers_enabled`). Routes carrying an explicit
-`@limiter.limit` decorator are exempted from the middleware and take the
-exception-handler path instead, so every existing test of the 429 contract
-drives a decorated route and passes. This one drives an undecorated one.
+The default limit is enforced by `GlobalRateLimitMiddleware`, before routing.
+Routes carrying an explicit `@limiter.limit` decorator are exempted from it and
+take the exception-handler path instead, so every test of the 429 contract that
+drives a decorated route passes regardless of this layer. This one drives an
+undecorated one. slowapi's own `SlowAPIMiddleware` used to sit here and
+silently swapped a coroutine exception handler for slowapi's bare
+`{"error": ...}` body with no Retry-After.
 """
 
 from __future__ import annotations
@@ -15,15 +14,16 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
+
+from app.api.middleware.rate_limit import GlobalRateLimitMiddleware
+from app.platform.ratelimit import _FallbackAnnouncingLimiter
 
 
 def _app_with(handler) -> FastAPI:
     """A one-route app whose only limit is the global default."""
-    limiter = Limiter(
+    limiter = _FallbackAnnouncingLimiter(
         key_func=get_remote_address,
         default_limits=["1/minute"],
         key_style="endpoint",
@@ -31,7 +31,7 @@ def _app_with(handler) -> FastAPI:
     app = FastAPI()
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, handler)
-    app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(GlobalRateLimitMiddleware)
 
     @app.get("/undecorated")
     async def undecorated() -> dict[str, bool]:  # pragma: no cover - trivial
@@ -67,12 +67,10 @@ async def test_global_limit_429_carries_retry_after_and_problem_detail():
 
 
 @pytest.mark.anyio
-async def test_a_coroutine_handler_is_discarded_by_the_middleware():
-    """The positive control: this is what the app used to send.
+async def test_a_coroutine_handler_is_awaited_not_replaced():
+    """slowapi's middleware dropped a coroutine handler for its own bare body.
 
-    Keeps the failure mode legible if slowapi ever changes -- if the
-    substitution stops happening, this test fails and the fix above becomes
-    unnecessary rather than wrong.
+    This layer awaits it, so an async handler keeps the same contract.
     """
     from app.api.main import _rate_limit_handler
 
@@ -82,6 +80,6 @@ async def test_a_coroutine_handler_is_discarded_by_the_middleware():
     resp = await _second_call(_app_with(_async_handler))
 
     assert resp.status_code == 429
-    assert "retry-after" not in resp.headers
-    assert resp.headers["content-type"].startswith("application/json")
-    assert set(resp.json()) == {"error"}
+    assert int(resp.headers["retry-after"]) > 0
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    assert resp.json()["status"] == 429

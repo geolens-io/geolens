@@ -481,11 +481,11 @@ def _finalize_semantic_search_claim(request: Request) -> None:
     "/facets", response_model=FacetCountResponse, include_in_schema=False
 )
 @search_router.get("/facets/", response_model=FacetCountResponse)
-# fix(#1855): facets embed the query, so both routes draw on ONE SEC-S11
-# bucket. fix(#1903): no override_defaults -- this limit_value is callable,
-# so SlowAPIMiddleware already charges the global default unconditionally
-# for it (test_semantic_search_rate_limit_1778.py); adding it here would
-# only double that charge.
+# Facets embed the query, so both routes draw on ONE semantic-search bucket. No
+# override_defaults: this limit_value is callable, so the global rate-limit
+# middleware already charges the global default unconditionally for it
+# (test_global_rate_limit_async_2936.py); adding it here would only double
+# that charge.
 @limiter.shared_limit(
     _semantic_search_rate_limit,
     scope="semantic_search",
