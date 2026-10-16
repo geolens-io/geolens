@@ -70,3 +70,63 @@ def test_restores_baked_dependencies_without_npm(tmp_path):
     assert not (app / "node_modules" / "stale-pkg").exists()
     _run(app, tmp_path, baked)
     assert _calls(app) == []
+
+
+def _dev_readiness(url):
+    script = repo_root(__file__) / "frontend/scripts/dev-readiness.mjs"
+    return subprocess.run(
+        ["node", str(script)],
+        env={**os.environ, "READINESS_URL": url},
+        capture_output=True,
+    )
+
+
+def test_dev_frontend_healthcheck_runs_the_readiness_script():
+    import yaml
+
+    compose = yaml.safe_load((repo_root(__file__) / "docker-compose.yml").read_text())
+    test = compose["services"]["frontend"]["healthcheck"]["test"]
+    assert test == ["CMD", "node", "/app/scripts/dev-readiness.mjs"]
+    assert (repo_root(__file__) / "frontend/scripts/dev-readiness.mjs").exists()
+    assert (
+        repo_root(__file__) / "frontend/src/components/builder/BuilderMap.tsx"
+    ).exists()
+
+
+def test_dev_readiness_fails_when_a_builder_dependency_is_stale():
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                body = b"<html>"
+            elif self.path.startswith("/src/"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript")
+                body = (
+                    b'import "/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=1"'
+                )
+            else:
+                self.send_response(504)
+                body = b"Outdated Optimize Dep"
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        result = _dev_readiness(f"http://127.0.0.1:{server.server_port}")
+    finally:
+        server.shutdown()
+    assert result.returncode == 1
+    assert b"504" in result.stderr
+
+
+def test_dev_readiness_fails_when_the_server_is_down():
+    assert _dev_readiness("http://127.0.0.1:1").returncode == 1

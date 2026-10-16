@@ -760,9 +760,10 @@ services:
       # Cloudflare tunnel). Empty by default → Vite's localhost/LAN allowlist.
       FRONTEND_ALLOWED_HOSTS: ${FRONTEND_ALLOWED_HOSTS:-}
     healthcheck:
-      # Vite dev server inside the container; HTTP GET / returns 200 once ready.
-      # Cold start can take 10-15s while Vite resolves the import graph.
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:5173/ || exit 1"]
+      # Serves the shell and resolves the map builder's modules, so a stale
+      # node_modules or missing maplibre-gl fails health. Cold start can take
+      # 10-15s while Vite resolves the import graph.
+      test: ["CMD", "node", "/app/scripts/dev-readiness.mjs"]
       interval: 30s
       timeout: 10s
       retries: 3
