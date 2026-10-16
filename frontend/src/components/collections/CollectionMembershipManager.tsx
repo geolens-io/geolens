@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { searchDatasets } from '@/api/search';
+import { useAuthStore } from '@/stores/auth-store';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { useAddDatasetsToCollection, useCollectionDatasets } from '@/components/collections/hooks/use-collections';
 
@@ -18,17 +19,20 @@ const FILTER_DEBOUNCE_MS = 250;
 const ADD_BATCH_SIZE = 100;
 
 /**
- * Sends ids in sequential batches and stops at the first failure. `ids` are the
+ * Sends ids in sequential batches and stops at the first failure or when
+ * `shouldContinue` turns false. `ids` are the
  * ids of the batches that succeeded; `count` is the total the server reports adding.
  */
 export async function addInBatches(
   ids: string[],
   add: (batch: string[]) => Promise<unknown>,
   batchSize = ADD_BATCH_SIZE,
+  shouldContinue: () => boolean = () => true,
 ): Promise<{ ids: string[]; count: number; failure: unknown }> {
   const done: string[] = [];
   let count = 0;
   for (let i = 0; i < ids.length; i += batchSize) {
+    if (!shouldContinue()) break;
     const batch = ids.slice(i, i + batchSize);
     try {
       const res = (await add(batch)) as { added?: number } | undefined;
@@ -64,7 +68,11 @@ function MembershipPanel({ collectionId }: CollectionMembershipManagerProps) {
   const adding = useRef(false);
   // Hide rows just added until a membership refetch lands after the add; after
   // that the member list is authoritative, so a later removal shows them again.
-  const hiddenIds = (dataUpdatedAt ?? 0) > justAdded.at ? new Set<string>() : justAdded.ids;
+  // A truncated member list never is, so those rows stay hidden.
+  const memberListTruncated =
+    !!datasetsData && datasetsData.total > datasetsData.datasets.length;
+  const hiddenIds =
+    !memberListTruncated && (dataUpdatedAt ?? 0) > justAdded.at ? new Set<string>() : justAdded.ids;
   const memberIds = new Set(datasetsData?.datasets.map((d) => d.id) ?? []);
   const q = useDebouncedValue(query.trim(), FILTER_DEBOUNCE_MS);
 
@@ -110,10 +118,17 @@ function MembershipPanel({ collectionId }: CollectionMembershipManagerProps) {
   async function handleAdd() {
     if (adding.current || selectedIds.length === 0) return;
     adding.current = true;
+    // A different account signing in mid-run must not receive later batches.
+    const epoch = useAuthStore.getState().sessionEpoch;
+    const sameSession = () => useAuthStore.getState().sessionEpoch === epoch;
     try {
-      const { ids, count, failure } = await addInBatches(selectedIds, (datasetIds) =>
-        addDatasets.mutateAsync({ collectionId, datasetIds }),
+      const { ids, count, failure } = await addInBatches(
+        selectedIds,
+        (datasetIds) => addDatasets.mutateAsync({ collectionId, datasetIds }),
+        ADD_BATCH_SIZE,
+        sameSession,
       );
+      if (!sameSession()) return;
       if (ids.length > 0) {
         const done = new Set(ids);
         setJustAdded((prev) => ({ ids: new Set([...prev.ids, ...ids]), at: Date.now() }));
@@ -196,18 +211,30 @@ function MembershipPanel({ collectionId }: CollectionMembershipManagerProps) {
       />
 
       <div className="flex items-center justify-between gap-2">
-        <Button
-          type="button"
-          onClick={handleAdd}
-          disabled={selectedIds.length === 0 || addDatasets.isPending}
-        >
-          {addDatasets.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4 me-1" />
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            onClick={handleAdd}
+            disabled={selectedIds.length === 0 || addDatasets.isPending}
+          >
+            {addDatasets.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4 me-1" />
+            )}
+            {t('membership.addSelected', { count: selectedIds.length })}
+          </Button>
+          {selectedIds.length > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setSelected(new Set())}
+              disabled={addDatasets.isPending}
+            >
+              {t('membership.clearSelection')}
+            </Button>
           )}
-          {t('membership.addSelected', { count: selectedIds.length })}
-        </Button>
+        </div>
         {candidates.hasNextPage && (
           <Button
             type="button"

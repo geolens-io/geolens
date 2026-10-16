@@ -97,7 +97,8 @@
     "resultCount_one": "{{count}} 个数据集可用",
     "resultCount_other": "{{count}} 个数据集可用",
     "added_one": "已将 {{count}} 个数据集添加到集合",
-    "added_other": "已将 {{count}} 个数据集添加到集合"
+    "added_other": "已将 {{count}} 个数据集添加到集合",
+    "clearSelection": "清除选择"
   },
   "badges": {
     "label": "集合"

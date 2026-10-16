@@ -245,16 +245,13 @@ test.describe.serial('Collections', () => {
     const dataset = await createCollectionDataset();
 
     await page.getByPlaceholder('Search datasets by name...').fill(dataset.title);
-    await page.getByRole('button', { name: 'Search' }).click();
 
-    const addButton = page.getByRole('button', { name: 'Add' }).first();
-    await expect(addButton).toBeVisible({
+    await page.getByRole('checkbox', { name: `Select ${dataset.title}` }).check({
       timeout: 15_000,
     });
+    await page.getByRole('button', { name: 'Add 1 selected dataset' }).click();
 
-    await addButton.click();
-
-    await expect(page.getByText('Dataset added to collection')).toBeVisible({
+    await expect(page.getByText('1 dataset added to collection')).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByText('No datasets in this collection', { exact: true })).toHaveCount(0);

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { searchDatasets } from '@/api/search';
 import { toast } from 'sonner';
+import { useAuthStore } from '@/stores/auth-store';
 import { CollectionMembershipManager, addInBatches } from '@/components/collections/CollectionMembershipManager';
 import {
   useAddDatasetsToCollection,
@@ -206,6 +207,7 @@ describe('CollectionMembershipManager', () => {
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
     expect(mutateAsync).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(vi.mocked(toast.success)).toHaveBeenCalled());
   });
 
   it('shows a dataset again once it is removed from the collection', async () => {
@@ -229,6 +231,83 @@ describe('CollectionMembershipManager', () => {
     expect(await screen.findByRole('checkbox', { name: 'Select Alpha' })).toBeInTheDocument();
   });
 
+  it('ignores the result of an add that outlived the signed-in session', async () => {
+    vi.mocked(searchDatasets).mockResolvedValue(page([record('a', 'Alpha')]));
+    let finish: (v: unknown) => void = () => {};
+    mutateAsync.mockImplementation(() => new Promise((r) => { finish = r; }));
+    const user = userEvent.setup();
+    render(<CollectionMembershipManager collectionId="col-1" />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('button', { name: 'Add 1 selected dataset' }));
+
+    useAuthStore.setState((st) => ({ sessionEpoch: st.sessionEpoch + 1 }));
+    finish({ added: 1 });
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+    expect(screen.getByRole('checkbox', { name: 'Select Alpha' })).toBeInTheDocument();
+  });
+
+  it('clears a selection that is no longer visible', async () => {
+    vi.mocked(searchDatasets).mockImplementation(async (params) =>
+      params.q === 'beta' ? page([record('b', 'Beta')]) : page([record('a', 'Alpha'), record('b', 'Beta')]),
+    );
+    const user = userEvent.setup();
+    render(<CollectionMembershipManager collectionId="col-1" />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Alpha' }));
+    await user.type(screen.getByLabelText(/search datasets/i), 'beta');
+    await waitFor(() =>
+      expect(screen.queryByRole('checkbox', { name: 'Select Alpha' })).not.toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Add 1 selected dataset' }));
+
+    expect(mutateAsync).toHaveBeenCalledWith({ collectionId: 'col-1', datasetIds: ['b'] });
+  });
+
+  it('lets the user clear a failed selection and retry with another dataset', async () => {
+    vi.mocked(searchDatasets).mockResolvedValue(page([record('a', 'Alpha'), record('b', 'Beta')]));
+    mutateAsync.mockRejectedValueOnce(new Error('404'));
+    const user = userEvent.setup();
+    render(<CollectionMembershipManager collectionId="col-1" />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('button', { name: 'Add 1 selected dataset' }));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+
+    await user.click(await screen.findByRole('button', { name: 'Clear selection' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
+    await user.click(screen.getByRole('button', { name: 'Add 1 selected dataset' }));
+
+    expect(mutateAsync).toHaveBeenLastCalledWith({ collectionId: 'col-1', datasetIds: ['b'] });
+  });
+
+  it('keeps added rows hidden when the member list is truncated', async () => {
+    vi.mocked(searchDatasets).mockResolvedValue(page([record('a', 'Alpha')]));
+    mutateAsync.mockResolvedValue({ added: 1 });
+    vi.mocked(useCollectionDatasets).mockReturnValue({
+      data: { datasets: [{ id: 'm1' }], total: 250 },
+      dataUpdatedAt: 0,
+    } as unknown as ReturnType<typeof useCollectionDatasets>);
+    const user = userEvent.setup();
+    const { rerender } = render(<CollectionMembershipManager collectionId="col-1" />);
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Alpha' }));
+    await user.click(screen.getByRole('button', { name: 'Add 1 selected dataset' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('checkbox', { name: 'Select Alpha' })).not.toBeInTheDocument(),
+    );
+
+    vi.mocked(useCollectionDatasets).mockReturnValue({
+      data: { datasets: [{ id: 'm1' }], total: 250 },
+      dataUpdatedAt: Date.now() + 1000,
+    } as unknown as ReturnType<typeof useCollectionDatasets>);
+    rerender(<CollectionMembershipManager collectionId="col-1" />);
+
+    expect(screen.queryByRole('checkbox', { name: 'Select Alpha' })).not.toBeInTheDocument();
+  });
+
   it('keeps datasets selected when the add fails', async () => {
     vi.mocked(searchDatasets).mockResolvedValue(page([record('a', 'Alpha'), record('b', 'Beta')]));
     mutateAsync.mockRejectedValueOnce(new Error('boom'));
@@ -244,6 +323,14 @@ describe('CollectionMembershipManager', () => {
 
 describe('addInBatches', () => {
   const ids = Array.from({ length: 250 }, (_, i) => `d${i}`);
+
+  it('stops sending once shouldContinue turns false', async () => {
+    const add = vi.fn().mockResolvedValue(undefined);
+    let calls = 0;
+    await addInBatches(ids, add, 100, () => calls++ < 1);
+
+    expect(add).toHaveBeenCalledTimes(1);
+  });
 
   it('sends at most 100 ids per request', async () => {
     const add = vi.fn().mockResolvedValue(undefined);

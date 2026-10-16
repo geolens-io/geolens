@@ -97,7 +97,8 @@
     "resultCount_one": "{{count}} dataset available",
     "resultCount_other": "{{count}} datasets available",
     "added_one": "{{count}} dataset added to collection",
-    "added_other": "{{count}} datasets added to collection"
+    "added_other": "{{count}} datasets added to collection",
+    "clearSelection": "Clear selection"
   },
   "badges": {
     "label": "Collections"

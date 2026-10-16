@@ -91,7 +91,8 @@
     "resultCount_one": "{{count}} jeu de données disponible",
     "resultCount_other": "{{count}} jeux de données disponibles",
     "added_one": "{{count}} jeu de données ajouté à la collection",
-    "added_other": "{{count}} jeux de données ajoutés à la collection"
+    "added_other": "{{count}} jeux de données ajoutés à la collection",
+    "clearSelection": "Effacer la sélection"
   },
   "badges": {
     "label": "Collections"

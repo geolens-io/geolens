@@ -91,7 +91,8 @@
     "resultCount_one": "{{count}} conjunto de datos disponible",
     "resultCount_other": "{{count}} conjuntos de datos disponibles",
     "added_one": "{{count}} conjunto de datos agregado a la colección",
-    "added_other": "{{count}} conjuntos de datos agregados a la colección"
+    "added_other": "{{count}} conjuntos de datos agregados a la colección",
+    "clearSelection": "Borrar selección"
   },
   "badges": {
     "label": "Colecciones"
