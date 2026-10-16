@@ -262,8 +262,8 @@ async def test_access_is_decided_on_the_live_row_not_the_cached_snapshot(
 @pytest.mark.parametrize(
     ("record_status", "expected"),
     [
-        ("published", {"stranger": 200, "owner": 200, "anonymous": 403}),
-        ("draft", {"stranger": 404, "owner": 200, "anonymous": 403}),
+        ("published", {"stranger": 200, "owner": 200, "anonymous": 404}),
+        ("draft", {"stranger": 404, "owner": 200, "anonymous": 404}),
     ],
 )
 async def test_internal_tiles_open_to_any_signed_in_key_once_published(
@@ -544,5 +544,5 @@ async def test_capability_arms_keep_their_order(
     assert stale_sig.status_code == expired_sig.status_code == 200, stale_sig.text
     _assert_private(stale_sig)
     assert bad_embed.status_code == 403
-    assert anonymous.status_code == 403
-    assert "Signature required" in anonymous.json()["detail"]
+    assert anonymous.status_code == 404
+    assert anonymous.json()["detail"] == "Dataset not found"

@@ -8,7 +8,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Literal, NamedTuple, TypeVar
+from typing import Any, Literal, NamedTuple, NoReturn, TypeVar
 from urllib.parse import parse_qs, quote, urlencode
 
 import httpx
@@ -1974,6 +1974,28 @@ async def _resolve_dataset_meta(
     )
 
 
+def _embed_token_refused() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Invalid or expired embed token, or dataset not in scope",
+    )
+
+
+def _refuse_unseen_vector_tile(request: Request) -> NoReturn:
+    """Refuse an anonymous caller a dataset it cannot see, as for an unknown table.
+
+    A non-public dataset, an unpublished one and a missing table all answer
+    alike, so a refusal never confirms that a table name exists. Signature
+    parameters that did not authorize get 403, the status map clients re-mint
+    a template on once it ages out; a request without them gets 404.
+    """
+    if all(request.query_params.get(k) for k in ("sig", "exp", "scope")):
+        code, detail = status.HTTP_403_FORBIDDEN, "Invalid or expired signature"
+    else:
+        code, detail = status.HTTP_404_NOT_FOUND, "Dataset not found"
+    capability_declined(request, None, HTTPException(status_code=code, detail=detail))
+
+
 async def _resolve_dataset_meta_for_serving(
     request: Request,
     table_name: str,
@@ -1990,12 +2012,20 @@ async def _resolve_dataset_meta_for_serving(
 
     No capability can be skipped here: an embed token authorizes dataset
     IDs, and this exit is exactly the case where there is no id to authorize.
+    A missing table is refused as ``_authorize_vector_tile_request`` refuses
+    a dataset the same caller cannot see.
     """
     try:
         return await _resolve_dataset_meta(
             table_name, db, request.query_params.get(_CLIENT_STATE_PARAM)
         )
     except HTTPException as exc:
+        if exc.status_code != status.HTTP_404_NOT_FOUND:
+            capability_declined(request, user, exc)
+        if request.headers.get("X-Embed-Token"):
+            capability_declined(request, user, _embed_token_refused())
+        if user is None:
+            _refuse_unseen_vector_tile(request)
         capability_declined(request, user, exc)
 
 
@@ -2116,14 +2146,7 @@ async def _authorize_vector_tile_request(
             embed_token_header, meta.dataset_id, db, request
         )
         if not is_valid:
-            capability_declined(
-                request,
-                user,
-                HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Invalid or expired embed token, or dataset not in scope",
-                ),
-            )
+            capability_declined(request, user, _embed_token_refused())
         return "private"
 
     # The expected scope mirrors `_build_tile_token_for_dataset` through the
@@ -2132,16 +2155,11 @@ async def _authorize_vector_tile_request(
     # retires outstanding signatures.
     from app.core.tile_scope import tile_signature_scope
 
-    _expected_scope = (
-        tile_signature_scope(meta.table_name, meta.publication_version)
-        if sig and exp and scope
-        else None
-    )
     if (
         sig
         and exp
         and scope
-        and scope == _expected_scope
+        and scope == tile_signature_scope(meta.table_name, meta.publication_version)
         and verify_tile_signature(scope, exp, sig)
     ):
         # fix(#1928): ahead of the visibility split, as on the raster route.
@@ -2166,31 +2184,7 @@ async def _authorize_vector_tile_request(
                 )
             await port.check_dataset_access(db, dataset, meta.dataset_id, user)
             return "private"
-        if not sig or not exp or not scope:
-            capability_declined(
-                request,
-                user,
-                HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Signature required for non-public tiles",
-                ),
-            )
-        if scope != _expected_scope:
-            capability_declined(
-                request,
-                user,
-                HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
-                ),
-            )
-        capability_declined(
-            request,
-            user,
-            HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid or expired signature",
-            ),
-        )
+        _refuse_unseen_vector_tile(request)
 
     # fix(#1518): CAPABILITY obligation. Both capability arms above have
     # declined, so everything from here is decided by WHO is asking and a
@@ -2200,9 +2194,7 @@ async def _authorize_vector_tile_request(
     # Public dataset: still block non-published for unauthenticated users
     if meta.record_status != "published":
         if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-            )
+            _refuse_unseen_vector_tile(request)
         # Authenticated non-owners cannot see unpublished
         port = get_processing_port()
         user_roles = await port.get_user_roles(db, user)
@@ -2401,11 +2393,12 @@ async def cluster_tile_endpoint(
     dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
     embed token scoped to it, or an API key (``X-Api-Key`` header or
     ``api_key`` query parameter) or bearer token for a caller with access to
-    it. It answers 403 to a request carrying none of these and 404 to a caller
-    without access. A public dataset that is not yet published is readable by
-    its owner, by an admin, with an embed token, or with valid signature
-    parameters, and answers 404 to other callers, so a refusal keeps its
-    existence undisclosed. An unknown table is 404 too.
+    it. A public dataset that is not yet published is readable by its owner,
+    by an admin, with an embed token, or with valid signature parameters. A
+    caller who cannot see the dataset gets the answer an unknown table gets,
+    so a refusal never discloses that the table exists: 403 when an embed
+    token, or an anonymous request's signature parameters, did not authorize
+    it, and 404 otherwise.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -2597,15 +2590,15 @@ async def tile_endpoint(
     dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
     embed token scoped to it, or an API key (``X-Api-Key`` header or
     ``api_key`` query parameter) or bearer token for a caller with access to
-    it. It answers 403 to a request carrying none of these and 404 to a caller
-    without access. A tile served on the caller's credentials is marked
-    private, so no shared cache stores it, and a tile requested with
-    ``api_key`` in the query is never marked public. A public dataset that is
-    not yet published is readable by its owner, by an admin, with an embed
-    token, or with valid signature parameters, and answers 404 to other
-    callers, so a refusal keeps its existence undisclosed. An unknown table is
-    404 too, and so is a dataset without vector tiles, such as a raster, once
-    the caller is authorized to see it.
+    it. A tile served on the caller's credentials is marked private, so no
+    shared cache stores it, and a tile requested with ``api_key`` in the query
+    is never marked public. A public dataset that is not yet published is
+    readable by its owner, by an admin, with an embed token, or with valid
+    signature parameters. A caller who cannot see the dataset gets the answer
+    an unknown table gets, so a refusal never discloses that the table exists:
+    403 when an embed token, or an anonymous request's signature parameters,
+    did not authorize it, and 404 otherwise. A dataset without vector tiles,
+    such as a raster, is 404 once the caller is authorized to see it.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous

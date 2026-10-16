@@ -757,7 +757,7 @@ class TestTileEmbedTokenAccess:
     async def test_tile_access_no_embed_token_falls_through(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Without X-Embed-Token, non-public tiles require HMAC sig (EMBED-04)."""
+        """Without X-Embed-Token or a signature, a non-public tile reads as missing (EMBED-04)."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_fall_{uuid.uuid4().hex[:8]}"
         await _create_private_dataset(
@@ -768,8 +768,8 @@ class TestTileEmbedTokenAccess:
         try:
             # Request without X-Embed-Token and without HMAC sig
             tile_resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
-            assert tile_resp.status_code == 403
-            assert "Signature required" in tile_resp.json()["detail"]
+            assert tile_resp.status_code == 404
+            assert tile_resp.json()["detail"] == "Dataset not found"
         finally:
             await _cleanup_data_table(test_db_session, table_name)
 

@@ -104,7 +104,7 @@ async def test_public_published_tile_stays_public_scope():
 
 @pytest.mark.anyio
 async def test_non_public_without_signature_is_rejected(monkeypatch):
-    """GUARD: a non-public dataset with no signature is still 403 (not cached)."""
+    """GUARD: a non-public dataset with no signature is refused, never served."""
     from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc:
@@ -117,7 +117,7 @@ async def test_non_public_without_signature_is_rejected(monkeypatch):
             scope=None,
             user=None,
         )
-    assert exc.value.status_code == 403
+    assert exc.value.status_code == 404
 
 
 # ---------------------------------------------------------------------------

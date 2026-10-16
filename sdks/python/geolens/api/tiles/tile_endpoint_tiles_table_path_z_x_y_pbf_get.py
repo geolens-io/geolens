@@ -154,15 +154,15 @@ def sync_detailed(
     dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
     embed token scoped to it, or an API key (``X-Api-Key`` header or
     ``api_key`` query parameter) or bearer token for a caller with access to
-    it. It answers 403 to a request carrying none of these and 404 to a caller
-    without access. A tile served on the caller's credentials is marked
-    private, so no shared cache stores it, and a tile requested with
-    ``api_key`` in the query is never marked public. A public dataset that is
-    not yet published is readable by its owner, by an admin, with an embed
-    token, or with valid signature parameters, and answers 404 to other
-    callers, so a refusal keeps its existence undisclosed. An unknown table is
-    404 too, and so is a dataset without vector tiles, such as a raster, once
-    the caller is authorized to see it.
+    it. A tile served on the caller's credentials is marked private, so no
+    shared cache stores it, and a tile requested with ``api_key`` in the query
+    is never marked public. A public dataset that is not yet published is
+    readable by its owner, by an admin, with an embed token, or with valid
+    signature parameters. A caller who cannot see the dataset gets the answer
+    an unknown table gets, so a refusal never discloses that the table exists:
+    403 when an embed token, or an anonymous request's signature parameters,
+    did not authorize it, and 404 otherwise. A dataset without vector tiles,
+    such as a raster, is 404 once the caller is authorized to see it.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -245,15 +245,15 @@ def sync(
     dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
     embed token scoped to it, or an API key (``X-Api-Key`` header or
     ``api_key`` query parameter) or bearer token for a caller with access to
-    it. It answers 403 to a request carrying none of these and 404 to a caller
-    without access. A tile served on the caller's credentials is marked
-    private, so no shared cache stores it, and a tile requested with
-    ``api_key`` in the query is never marked public. A public dataset that is
-    not yet published is readable by its owner, by an admin, with an embed
-    token, or with valid signature parameters, and answers 404 to other
-    callers, so a refusal keeps its existence undisclosed. An unknown table is
-    404 too, and so is a dataset without vector tiles, such as a raster, once
-    the caller is authorized to see it.
+    it. A tile served on the caller's credentials is marked private, so no
+    shared cache stores it, and a tile requested with ``api_key`` in the query
+    is never marked public. A public dataset that is not yet published is
+    readable by its owner, by an admin, with an embed token, or with valid
+    signature parameters. A caller who cannot see the dataset gets the answer
+    an unknown table gets, so a refusal never discloses that the table exists:
+    403 when an embed token, or an anonymous request's signature parameters,
+    did not authorize it, and 404 otherwise. A dataset without vector tiles,
+    such as a raster, is 404 once the caller is authorized to see it.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -331,15 +331,15 @@ async def asyncio_detailed(
     dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
     embed token scoped to it, or an API key (``X-Api-Key`` header or
     ``api_key`` query parameter) or bearer token for a caller with access to
-    it. It answers 403 to a request carrying none of these and 404 to a caller
-    without access. A tile served on the caller's credentials is marked
-    private, so no shared cache stores it, and a tile requested with
-    ``api_key`` in the query is never marked public. A public dataset that is
-    not yet published is readable by its owner, by an admin, with an embed
-    token, or with valid signature parameters, and answers 404 to other
-    callers, so a refusal keeps its existence undisclosed. An unknown table is
-    404 too, and so is a dataset without vector tiles, such as a raster, once
-    the caller is authorized to see it.
+    it. A tile served on the caller's credentials is marked private, so no
+    shared cache stores it, and a tile requested with ``api_key`` in the query
+    is never marked public. A public dataset that is not yet published is
+    readable by its owner, by an admin, with an embed token, or with valid
+    signature parameters. A caller who cannot see the dataset gets the answer
+    an unknown table gets, so a refusal never discloses that the table exists:
+    403 when an embed token, or an anonymous request's signature parameters,
+    did not authorize it, and 404 otherwise. A dataset without vector tiles,
+    such as a raster, is 404 once the caller is authorized to see it.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -420,15 +420,15 @@ async def asyncio(
     dataset needs valid signature parameters (``sig``, ``exp``, ``scope``), an
     embed token scoped to it, or an API key (``X-Api-Key`` header or
     ``api_key`` query parameter) or bearer token for a caller with access to
-    it. It answers 403 to a request carrying none of these and 404 to a caller
-    without access. A tile served on the caller's credentials is marked
-    private, so no shared cache stores it, and a tile requested with
-    ``api_key`` in the query is never marked public. A public dataset that is
-    not yet published is readable by its owner, by an admin, with an embed
-    token, or with valid signature parameters, and answers 404 to other
-    callers, so a refusal keeps its existence undisclosed. An unknown table is
-    404 too, and so is a dataset without vector tiles, such as a raster, once
-    the caller is authorized to see it.
+    it. A tile served on the caller's credentials is marked private, so no
+    shared cache stores it, and a tile requested with ``api_key`` in the query
+    is never marked public. A public dataset that is not yet published is
+    readable by its owner, by an admin, with an embed token, or with valid
+    signature parameters. A caller who cannot see the dataset gets the answer
+    an unknown table gets, so a refusal never discloses that the table exists:
+    403 when an embed token, or an anonymous request's signature parameters,
+    did not authorize it, and 404 otherwise. A dataset without vector tiles,
+    such as a raster, is 404 once the caller is authorized to see it.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous

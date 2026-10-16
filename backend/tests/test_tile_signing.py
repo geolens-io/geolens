@@ -408,7 +408,7 @@ class TestTileSignatureValidation:
     async def test_private_tile_requires_signature(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Private dataset tiles return 403 without sig/exp/scope params."""
+        """Private dataset tiles return 404 without sig/exp/scope params."""
         table_name = f"sigval_priv_{uuid.uuid4().hex[:8]}"
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
@@ -421,7 +421,7 @@ class TestTileSignatureValidation:
 
         try:
             resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
-            assert resp.status_code == 403
+            assert resp.status_code == 404
         finally:
             await _cleanup_data_table(test_db_session, table_name)
 

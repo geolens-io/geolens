@@ -243,7 +243,7 @@ class TestSignedDraftParity:
     async def test_an_expired_signature_still_falls_through(
         self, client: AsyncClient, test_db_session
     ):
-        """An unusable signature is not a refusal: the draft answers 404 to anon."""
+        """An unusable signature does not authorize: anon gets the unknown-table 403."""
         from app.core.tile_scope import tile_signature_scope
         from app.processing.tiles.signing import generate_tile_signature
 
@@ -264,6 +264,7 @@ class TestSignedDraftParity:
                 },
             )
 
-            assert resp.status_code == 404, resp.text
+            assert resp.status_code == 403, resp.text
+            assert resp.json()["detail"] == "Invalid or expired signature"
         finally:
             await _drop_table(test_db_session, dataset.table_name)

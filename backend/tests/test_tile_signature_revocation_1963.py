@@ -168,7 +168,8 @@ class TestUnpublishRetiresOutstandingSignatures:
                 f"/tiles/data.{dataset.table_name}/0/0/0.pbf", params=params
             )
 
-            assert resp.status_code == 404, resp.text
+            assert resp.status_code == 403, resp.text
+            assert resp.json()["detail"] == "Invalid or expired signature"
         finally:
             await _drop_table(test_db_session, dataset.table_name)
 
@@ -187,7 +188,8 @@ class TestUnpublishRetiresOutstandingSignatures:
                 f"/tiles/clusters/data.{dataset.table_name}/0/0/0.pbf", params=params
             )
 
-            assert resp.status_code == 404, resp.text
+            assert resp.status_code == 403, resp.text
+            assert resp.json()["detail"] == "Invalid or expired signature"
         finally:
             await _drop_table(test_db_session, dataset.table_name)
 
@@ -228,7 +230,8 @@ class TestUnpublishRetiresOutstandingSignatures:
                 f"/tiles/data.{dataset.table_name}/0/0/0.pbf", params=params
             )
 
-            assert resp.status_code == 404, resp.text
+            assert resp.status_code == 403, resp.text
+            assert resp.json()["detail"] == "Invalid or expired signature"
         finally:
             await _drop_table(test_db_session, dataset.table_name)
 
@@ -317,7 +320,7 @@ class TestGoingPrivateRetiresOutstandingSignatures:
             )
 
             assert resp.status_code == 403, resp.text
-            assert "Scope mismatch" in resp.json()["detail"]
+            assert resp.json()["detail"] == "Invalid or expired signature"
         finally:
             await _drop_table(test_db_session, dataset.table_name)
 
@@ -416,7 +419,7 @@ class TestRepublishDoesNotResurrect:
             )
 
             assert after.status_code == 403, after.text
-            assert "Scope mismatch" in after.json()["detail"]
+            assert after.json()["detail"] == "Invalid or expired signature"
             assert reminted.status_code == 200, reminted.text
         finally:
             await _drop_table(test_db_session, dataset.table_name)
@@ -448,7 +451,7 @@ class TestRepublishDoesNotResurrect:
             )
 
             assert after.status_code == 403, after.text
-            assert "Scope mismatch" in after.json()["detail"]
+            assert after.json()["detail"] == "Invalid or expired signature"
             assert reminted.status_code == 200, reminted.text
         finally:
             await _drop_table(test_db_session, dataset.table_name)
@@ -631,7 +634,7 @@ class TestASharedCacheIsNotACapabilityChannel:
         [
             ("public", "published", "public", 200),
             ("public", "internal", "private", 404),
-            ("private", "published", "private", 403),
+            ("private", "published", "private", 404),
         ],
     )
     async def test_public_cache_scope_implies_anonymous_readability(

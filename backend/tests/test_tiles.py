@@ -445,7 +445,7 @@ class TestVectorTileAuth:
     HMAC signature (sig/exp/scope query params).
     """
 
-    async def test_private_tile_unsigned_returns_403(
+    async def test_private_tile_unsigned_returns_404(
         self, client: AsyncClient, test_db_session
     ):
         """Private dataset tile request without signature returns 403."""
@@ -474,7 +474,7 @@ class TestVectorTileAuth:
         await _create_data_table(test_db_session, table_name)
         try:
             resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
-            assert resp.status_code == 403
+            assert resp.status_code == 404
         finally:
             await _cleanup_data_table(test_db_session, table_name)
 
@@ -517,7 +517,7 @@ class TestVectorTileAuth:
     async def test_private_cluster_tile_requires_signature(
         self, client: AsyncClient, test_db_session
     ):
-        """Private cluster tile requests reuse vector tile HMAC auth rules."""
+        """An unsigned private cluster tile is refused as an unknown table is."""
         table_name = f"cluster_priv_{uuid.uuid4().hex[:8]}"
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         record = Record(
@@ -542,8 +542,8 @@ class TestVectorTileAuth:
 
         resp = await client.get(f"/tiles/clusters/data.{table_name}/0/0/0.pbf")
 
-        assert resp.status_code == 403
-        assert "Signature required" in resp.json()["detail"]
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Dataset not found"
 
     async def test_private_cluster_tile_with_valid_signature(
         self, client: AsyncClient, test_db_session
