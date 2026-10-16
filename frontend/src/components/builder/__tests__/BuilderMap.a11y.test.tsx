@@ -345,6 +345,18 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
       expect(screen.queryByRole('status')).toBeNull();
     });
 
+    it('shows the basemap banner for an unreachable request with no source', async () => {
+      await renderLoaded();
+
+      mapState.fakeMap.emit('error', {
+        error: { status: 0, message: 'Failed to fetch', url: 'https://tiles.example.test/style.json' },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('status')).toHaveTextContent('Basemap connection issue');
+      });
+    });
+
     it('shows the basemap banner for a status-less failure of a basemap source', async () => {
       await renderLoaded();
 

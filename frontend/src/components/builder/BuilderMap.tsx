@@ -759,12 +759,12 @@ export const BuilderMap = memo(function BuilderMap({
           const failingLayer = failingSourceId
             ? layersRef.current.find((l) => getSourceIdForLayer(l) === failingSourceId)
             : undefined;
-          // Only the basemap style's own sources, or a status error with no
-          // source (sprite, glyphs), are a basemap outage. Data layers, terrain
-          // and a rejected style expression are not.
+          // Only the basemap style's own sources, or a request error with no
+          // source (style, sprite, glyphs; status 0 when unreachable), are a
+          // basemap outage. Data layers, terrain and a rejected expression are not.
           const basemapFailed = failingSourceId
             ? basemapSourceIdsRef.current?.has(failingSourceId) ?? !failingLayer
-            : Boolean(status);
+            : typeof status === 'number';
           if (basemapFailed) {
             sawTileErrorSinceLoadingRef.current = true;
             setBasemapNotice('tiles');
