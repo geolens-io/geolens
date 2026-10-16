@@ -4,7 +4,8 @@ Replaces slowapi's ``SlowAPIMiddleware``, a ``BaseHTTPMiddleware`` that checks
 the default limit through limits' sync storage, a blocking Redis round trip on
 the event loop for every request. The limit itself is evaluated by
 ``limiter.check_default_limits`` (``app/platform/ratelimit.py``); this layer
-resolves the route, applies slowapi's exemptions and answers the 429.
+resolves the route, applies slowapi's exemptions, answers the 429 and adds
+the configured rate-limit headers to a response that passed.
 """
 
 from __future__ import annotations
@@ -16,9 +17,10 @@ from typing import Any
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import _find_route_handler as _slowapi_find_route_handler
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.routing import BaseRoute
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
 def find_route_handler(
@@ -89,4 +91,13 @@ class GlobalRateLimitMiddleware:
                 response = await response
             await response(scope, receive, send)
             return
-        await self.app(scope, receive, send)
+        if not limiter.injects_rate_limit_headers:
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_rate_limit_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                await limiter.rate_limit_headers(request, MutableHeaders(scope=message))
+            await send(message)
+
+        await self.app(scope, receive, send_with_rate_limit_headers)

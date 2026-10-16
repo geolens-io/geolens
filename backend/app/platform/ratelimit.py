@@ -25,19 +25,25 @@ from __future__ import annotations
 
 import inspect
 import itertools
+import time
 from collections.abc import Callable
+from email.utils import formatdate
 from functools import cache
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import structlog
 from fastapi import Request
+from limits import RateLimitItem
 from limits.aio.strategies import STRATEGIES as ASYNC_STRATEGIES
 from limits.storage import storage_from_string
+from limits.strategies import STRATEGIES as SYNC_STRATEGIES
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
+from slowapi.extension import HEADERS, C
 from slowapi.util import get_remote_address
 from slowapi.wrappers import Limit
+from starlette.datastructures import MutableHeaders
 
 from app.core.config import settings
 from app.core.persistent_config import get_cached_global_rate_limit
@@ -142,9 +148,7 @@ def _global_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_global_rate_limit()}/second"
 
 
-def _async_shared_limiter(
-    uri: str, strategy: str | None, options: dict[str, Any]
-) -> Any:
+def _async_shared_limiter(uri: str, strategy: str, options: dict[str, Any]) -> Any:
     """The async twin of the sync shared store, on the same parsed config.
 
     redis-py parses *uri* into the async pool exactly as it does for the sync
@@ -166,7 +170,7 @@ def _async_shared_limiter(
             f"REDIS_URL ({scheme}://...) works for the sync rate-limit store but "
             f"could not configure its async client: {type(exc).__name__}"
         ) from None
-    return ASYNC_STRATEGIES[strategy or "fixed-window"](storage)
+    return ASYNC_STRATEGIES[strategy](storage)
 
 
 def _endpoint_name(endpoint: Callable[..., Any]) -> str:
@@ -191,10 +195,17 @@ class _FallbackAnnouncingLimiter(Limiter):
         # Only a shared store does I/O. Without one the default limits count in
         # the sync in-memory storage the decorators share, which never blocks.
         self._async_limiter = None
-        uri = self._storage_uri
+        # The superclass may have taken the store URL and the strategy from
+        # slowapi's RATELIMIT_* config rather than from its arguments.
+        uri = self._storage_uri or self.get_app_config(C.STORAGE_URL, None)
         if uri and urlsplit(uri).scheme.lower() in _SHARED_STORAGE_SCHEMES:
+            strategy = next(
+                name
+                for name, cls in SYNC_STRATEGIES.items()
+                if type(self._limiter) is cls
+            )
             self._async_limiter = _async_shared_limiter(
-                uri, self._strategy, self._storage_options
+                uri, strategy, self._storage_options
             )
 
     @property
@@ -216,6 +227,11 @@ class _FallbackAnnouncingLimiter(Limiter):
             )
         else:
             logger.info("rate_limit_storage_recovered")
+
+    @property
+    def injects_rate_limit_headers(self) -> bool:
+        """Whether a passing response gets slowapi's X-RateLimit-* headers."""
+        return self.enabled and self._headers_enabled
 
     def is_exempt_from_default_limits(
         self, endpoint: Callable[..., Any] | None
@@ -242,36 +258,96 @@ class _FallbackAnnouncingLimiter(Limiter):
             or any(fn() for fn in self._request_filters)
         ):
             return
-        # A route with a callable @limiter.limit still reaches here and pays
-        # the default limits too; slowapi leaves the store probe to its
-        # decorator.
+        endpoint_key = (request["path"] or "") if self._key_style == "url" else name
+        await self._check_limits_once(request, name, endpoint_key, after_failure=False)
+
+    async def _check_limits_once(
+        self, request: Request, name: str, endpoint_key: str, *, after_failure: bool
+    ) -> None:
+        limits: list[Limit] = []
+        # A route with a callable @limiter.limit still pays the default limits
+        # here; slowapi leaves its store probe to the decorator.
         if (
             self._storage_dead
             and self._fallback_limiter is not None
             and name not in self._dynamic_route_limits
-            and self._Limiter__should_check_backend()
-            and await self._store_alive()
         ):
-            self._storage_dead = False
-            self._Limiter__check_backend_count = 0
-        limits = list(itertools.chain(*self._application_limits, *self._default_limits))
-        endpoint_key = (request["path"] or "") if self._key_style == "url" else name
+            if self._Limiter__should_check_backend() and await self._store_alive():
+                self._storage_dead = False
+                self._Limiter__check_backend_count = 0
+            else:
+                limits = list(itertools.chain(*self._in_memory_fallback))
+        if not limits:
+            limits = list(
+                itertools.chain(*self._application_limits, *self._default_limits)
+            )
         try:
-            await self._evaluate_default_limits(request, endpoint_key, limits)
+            await self._evaluate_default_limits(
+                request, endpoint_key, limits, fallback=after_failure
+            )
         except RateLimitExceeded:
             raise
         except Exception:  # broad: any store failure degrades to per-process counting
-            if self._in_memory_fallback_enabled:
-                # Concurrent checks fail together; each one counts in the
+            if self._in_memory_fallback_enabled and not after_failure:
+                # Concurrent checks fail together; each one retries against the
                 # fallback, while the setter announces the outage only once.
                 self._storage_dead = True
-                await self._evaluate_default_limits(
-                    request, endpoint_key, limits, fallback=True
+                await self._check_limits_once(
+                    request, name, endpoint_key, after_failure=True
                 )
             elif self._swallow_errors:
                 self.logger.exception("Failed to rate limit. Swallowing error")
             else:
                 raise
+
+    async def rate_limit_headers(
+        self, request: Request, headers: MutableHeaders
+    ) -> None:
+        """Add slowapi's rate-limit headers for the limit this request reported.
+
+        Mirrors ``Limiter._inject_headers``, reading the window from the
+        async store. A store failure here falls back to the in-memory window
+        rather than turning the already-handled response into a 500.
+        """
+        current_limit = getattr(request.state, "view_rate_limit", None)
+        if not (self.enabled and self._headers_enabled and current_limit):
+            return
+        item, identifiers = current_limit
+        try:
+            reset_at, remaining = await self._window_stats(item, identifiers)
+        except Exception:  # broad: a failing store degrades as in the check
+            if not self._in_memory_fallback_enabled:
+                if self._swallow_errors:
+                    self.logger.exception(
+                        "Failed to update rate limit headers. Swallowing error"
+                    )
+                    return
+                raise
+            self._storage_dead = True
+            reset_at, remaining = self._fallback_limiter.get_window_stats(
+                item, *identifiers
+            )
+        reset_in = 1 + reset_at
+        headers.append(self._header_mapping[HEADERS.LIMIT], str(item.amount))
+        headers.append(self._header_mapping[HEADERS.REMAINING], str(remaining))
+        headers.append(self._header_mapping[HEADERS.RESET], str(reset_in))
+        existing_retry_after = headers.get("Retry-After")
+        if existing_retry_after is not None:
+            reset_in = max(self._determine_retry_time(existing_retry_after), reset_in)
+        headers[self._header_mapping[HEADERS.RETRY_AFTER]] = (
+            formatdate(reset_in)
+            if self._retry_after == "http-date"
+            else str(int(reset_in - time.time()))
+        )
+
+    async def _window_stats(
+        self, item: RateLimitItem, identifiers: list[str]
+    ) -> tuple[float, int]:
+        if self._storage_dead and self._in_memory_fallback_enabled:
+            return self._fallback_limiter.get_window_stats(item, *identifiers)
+        if self._async_limiter is None:
+            return self.limiter.get_window_stats(item, *identifiers)
+        return await self._async_limiter.get_window_stats(item, *identifiers)
 
     async def _store_alive(self) -> bool:
         if self._async_limiter is None:
