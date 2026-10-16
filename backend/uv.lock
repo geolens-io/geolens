@@ -935,7 +935,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.19.1" },
     { name = "anthropic", extras = ["vertex"], specifier = ">=1.15.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
-    { name = "authlib", specifier = ">=1.7.1" },
+    { name = "authlib", specifier = ">=1.8.0" },
     { name = "azure-storage-blob", specifier = ">=12.24.0" },
     { name = "boto3", specifier = ">=1.43.71" },
     { name = "cachetools", specifier = ">=7.1.7" },
