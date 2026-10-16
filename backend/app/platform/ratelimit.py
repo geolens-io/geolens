@@ -142,16 +142,31 @@ def _global_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_global_rate_limit()}/second"
 
 
-def _with_explicit_port(url: str) -> str:
-    """Return *url* with redis-py's default port spelled out.
+def _async_shared_limiter(
+    uri: str, strategy: str | None, options: dict[str, Any]
+) -> Any:
+    """The async twin of the sync shared store, on the same parsed config.
 
-    limits' asyncio storage refuses a location without a port, which redis-py
-    and the sync storage both default to 6379.
+    redis-py parses *uri* into the async pool exactly as it does for the sync
+    client (host and port defaults, auth, db, query options, TLS), and limits
+    gets the pool rather than the URL, whose stricter parser refuses some
+    spellings redis-py accepts. Raises RuntimeError naming only the scheme,
+    since the URL can carry a password.
     """
-    parts = urlsplit(url)
-    if not parts.hostname or parts.port is not None:
-        return url
-    return urlunsplit(parts._replace(netloc=f"{parts.netloc}:6379"))
+    import redis.asyncio
+
+    try:
+        pool = redis.asyncio.ConnectionPool.from_url(uri, **options)
+        storage = storage_from_string(
+            "async+redis://", implementation="redispy", connection_pool=pool
+        )
+    except Exception as exc:  # broad: refuse boot with a message that names no secret
+        scheme = urlsplit(uri).scheme
+        raise RuntimeError(
+            f"REDIS_URL ({scheme}://...) works for the sync rate-limit store but "
+            f"could not configure its async client: {type(exc).__name__}"
+        ) from None
+    return ASYNC_STRATEGIES[strategy or "fixed-window"](storage)
 
 
 def _endpoint_name(endpoint: Callable[..., Any]) -> str:
@@ -178,13 +193,9 @@ class _FallbackAnnouncingLimiter(Limiter):
         self._async_limiter = None
         uri = self._storage_uri
         if uri and urlsplit(uri).scheme.lower() in _SHARED_STORAGE_SCHEMES:
-            async_storage = storage_from_string(
-                f"async+{_with_explicit_port(uri)}",
-                implementation="redispy",
-                **self._storage_options,
+            self._async_limiter = _async_shared_limiter(
+                uri, self._strategy, self._storage_options
             )
-            strategy = ASYNC_STRATEGIES[self._strategy or "fixed-window"]
-            self._async_limiter = strategy(async_storage)
 
     @property
     def _storage_dead(self) -> bool:

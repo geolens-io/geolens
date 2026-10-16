@@ -16,6 +16,7 @@ import time
 from collections.abc import Iterator
 
 import pytest
+import redis
 import structlog
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
@@ -28,7 +29,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
-from app.api.middleware.rate_limit import GlobalRateLimitMiddleware
+from app.api.middleware.rate_limit import GlobalRateLimitMiddleware, find_route_handler
 from app.platform import ratelimit
 from app.platform.ratelimit import _FallbackAnnouncingLimiter
 
@@ -120,6 +121,63 @@ def test_a_redis_store_gets_an_async_twin_on_the_same_url():
         connection["socket_connect_timeout"] == ratelimit.STORAGE_SOCKET_TIMEOUT_SECONDS
     )
     assert connection["protocol"] == ratelimit.REDIS_PROTOCOL
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://valkey/0",
+        "redis://valkey:6380/2",
+        "redis://valkey:/0",
+        "redis://[::1]:/0",
+        "redis://[::1]:6380/1",
+        "redis://:6379/0",
+        "redis://:secret-pw@valkey:/0",
+        "redis://user:secret-pw@:6379/0",
+        "redis://valkey/0?client_name=geolens&health_check_interval=5",
+        "rediss://",
+        "rediss://valkey",
+        "rediss://user:secret-pw@valkey:6380/1?ssl_cert_reqs=required",
+    ],
+)
+def test_the_async_client_connects_exactly_where_the_sync_client_does(url: str):
+    """Both clients come from redis-py's own parse of one URL.
+
+    Host and port defaults, auth, db, query options and TLS must match, or a
+    URL that works for the decorators either fails at import or points the
+    global limit somewhere else, possibly without TLS.
+    """
+    limiter = _limiter(url)
+    sync_pool = limiter._storage.storage.connection_pool
+    async_pool = limiter._async_limiter.storage.bridge.storage.connection_pool
+
+    assert async_pool.connection_class.__name__ == sync_pool.connection_class.__name__
+    # A per-pool registry object, never equal across two pools.
+    per_pool = {"himport_registry"}
+
+    def _settings(pool) -> dict:
+        return {k: v for k, v in pool.connection_kwargs.items() if k not in per_pool}
+
+    assert _settings(async_pool) == _settings(sync_pool)
+    if url.startswith("rediss://"):
+        assert async_pool.connection_class.__name__ == "SSLConnection"
+
+
+def test_an_unusable_async_config_refuses_boot_without_the_secret(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import redis.asyncio
+
+    def _refuse(url, **_options):
+        raise ValueError(f"cannot use {url}")
+
+    monkeypatch.setattr(redis.asyncio.ConnectionPool, "from_url", _refuse)
+
+    with pytest.raises(RuntimeError, match="async client: ValueError") as raised:
+        _limiter("redis://user:secret-pw@valkey:6379/0")
+
+    assert "secret-pw" not in str(raised.value)
+    assert raised.value.__cause__ is None
 
 
 def test_without_a_shared_store_there_is_no_async_client():
@@ -252,14 +310,25 @@ async def _concurrent_statuses(app: FastAPI, path: str, count: int) -> list[int]
     return [r.status_code for r in responses]
 
 
+@pytest.mark.parametrize("path", ["/plain", "/dynamic"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ConnectionError("rate-limit store unreachable"),
+        redis.exceptions.TimeoutError("Timeout reading from socket"),
+    ],
+    ids=["connection-error", "timeout"],
+)
 async def test_concurrent_checks_all_fall_back_when_the_store_fails_mid_flight(
-    shared_limiter,
+    shared_limiter, path: str, failure: Exception
 ):
     """Every check awaiting the store when it fails is counted in the fallback.
 
     Only the first failure flips the store dead; the others land after it and
-    must still answer from the fallback rather than re-raise into a 500.
+    must still answer from the fallback rather than re-raise into a 500. A
+    callable-limited route pays the default limit on the same path.
     """
+    shared_limiter._limiter = FixedWindowRateLimiter(MemoryStorage())
     release = asyncio.Event()
     waiting = 0
 
@@ -269,7 +338,7 @@ async def test_concurrent_checks_all_fall_back_when_the_store_fails_mid_flight(
             self.hits += 1
             waiting += 1
             await release.wait()
-            raise ConnectionError("rate-limit store unreachable")
+            raise failure
 
     shared_limiter._async_limiter = _FailsTogether()
     app = _app(shared_limiter)
@@ -281,7 +350,7 @@ async def test_concurrent_checks_all_fall_back_when_the_store_fails_mid_flight(
 
     with structlog.testing.capture_logs() as captured:
         statuses, _ = await asyncio.gather(
-            _concurrent_statuses(app, "/plain", 6), _release_when_all_wait()
+            _concurrent_statuses(app, path, 6), _release_when_all_wait()
         )
 
     assert shared_limiter._async_limiter.hits == 6, "all six were in flight"
@@ -375,3 +444,61 @@ async def test_a_hung_store_is_bounded_and_never_blocks_the_loop(unanswering_sto
     assert elapsed >= ratelimit.STORAGE_SOCKET_TIMEOUT_SECONDS
     assert elapsed < 1.5, f"the store wait was not bounded: {elapsed:.2f}s"
     assert max(gaps) < 0.1, f"the event loop stalled for {max(gaps):.3f}s"
+
+
+async def test_concurrent_checks_on_a_hung_store_all_get_normal_enforcement(
+    unanswering_store,
+):
+    """Requests that time out together all answer from the fallback."""
+    limiter = _limiter(f"redis://127.0.0.1:{unanswering_store}/0", limit="2/minute")
+    app = _app(limiter)
+
+    with structlog.testing.capture_logs() as captured:
+        statuses = await _concurrent_statuses(app, "/plain", 4)
+
+    assert sorted(statuses) == [200, 200, 429, 429], statuses
+    assert limiter._storage_dead is True
+    assert [e["event"] for e in captured if e["event"].startswith("rate_limit_")] == [
+        "rate_limit_storage_unreachable"
+    ]
+
+
+def test_every_alias_of_a_callable_limited_route_reaches_the_global_check(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The concurrent-failure fallback above covers these routes too.
+
+    A callable ``@limiter.limit`` does not exempt a route from the default
+    limits, so each method and path alias must resolve to its handler here.
+    """
+    import re
+    import uuid
+
+    from app.api.main import _iter_api_routes, app
+
+    monkeypatch.setattr(ratelimit.limiter, "enabled", True)
+    callable_limited = set(ratelimit.limiter._dynamic_route_limits)
+    reached: dict[str, set[tuple[str, str]]] = {}
+    for ctx in _iter_api_routes(app):
+        endpoint = ctx.route.endpoint
+        name = f"{endpoint.__module__}.{endpoint.__name__}"
+        if name not in callable_limited:
+            continue
+        path = re.sub(r"\{[^}]+\}", str(uuid.uuid4()), ctx.path_format)
+        for method in ctx.route.methods:
+            scope = {"type": "http", "method": method, "path": path, "root_path": ""}
+            resolved = find_route_handler(app.routes, scope)
+            assert resolved is endpoint, (method, path)
+            assert not ratelimit.limiter.is_exempt_from_default_limits(resolved)
+            reached.setdefault(endpoint.__name__, set()).add((method, ctx.path_format))
+
+    assert set(reached) == {
+        "arcgis_signin",
+        "get_basemaps",
+        "list_related_datasets",
+        "login",
+        "sandbox_query_endpoint",
+        "search_datasets_endpoint",
+        "search_facets_endpoint",
+    }
+    assert all(len(aliases) == 2 for aliases in reached.values()), reached
