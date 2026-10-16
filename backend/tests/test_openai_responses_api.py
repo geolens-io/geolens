@@ -392,3 +392,208 @@ async def test_a_failed_or_truncated_responses_stream_raises(monkeypatch, events
         await _stream_chat(
             SimpleNamespace(responses=SimpleNamespace(create=server.create))
         )
+
+
+def _refusal_item(text: str):
+    return ResponseOutputMessage.model_validate(
+        {
+            "type": "message",
+            "id": "msg_1",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "refusal", "refusal": text}],
+        }
+    )
+
+
+async def _executing(executed):
+    async def tool_executor(name, args):
+        executed.append((name, args))
+        return {"count": 42}
+
+    return tool_executor
+
+
+async def test_a_malformed_function_call_still_gets_an_output(monkeypatch):
+    server = _Server(
+        _response([_call_item("call_1"), _call_item("call_2", args="{not json")]),
+        _response([_message_item("There are 42 parks.")]),
+    )
+    _install(
+        monkeypatch, SimpleNamespace(responses=SimpleNamespace(create=server.create))
+    )
+    executed: list = []
+
+    result = await DefaultOpenAICompatibleProvider().complete(
+        model="eval-gpt-6.1-sol",
+        system_prompt="sys",
+        user_message="How many parks?",
+        tools=_TOOLS,
+        tool_executor=await _executing(executed),
+    )
+
+    assert result.text == "There are 42 parks."
+    assert executed == [("query_data", {"sql": "SELECT 1"})]
+    outputs = {
+        item["call_id"]: item["output"]
+        for item in server.calls[1]["input"]
+        if item.get("type") == "function_call_output"
+    }
+    assert set(outputs) == {"call_1", "call_2"}
+    assert "42" in outputs["call_1"]
+    assert "not valid JSON" in outputs["call_2"]
+
+
+async def test_a_malformed_chat_completions_call_still_gets_a_tool_message(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "openai_api_style", "chat_completions")
+
+    def _choice(finish_reason, content=None, tool_calls=None):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason=finish_reason,
+                    message=SimpleNamespace(content=content, tool_calls=tool_calls),
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+
+    def _tc(call_id, args):
+        return SimpleNamespace(
+            id=call_id, function=SimpleNamespace(name="query_data", arguments=args)
+        )
+
+    replies = [
+        _choice(
+            "tool_calls", tool_calls=[_tc("a", '{"sql": "SELECT 1"}'), _tc("b", "{")]
+        ),
+        _choice("stop", content="done"),
+    ]
+    sent = []
+
+    async def create(**kwargs):
+        sent.append(list(kwargs["messages"]))
+        return replies.pop(0)
+
+    _install(
+        monkeypatch,
+        SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        ),
+    )
+    executed: list = []
+    result = await DefaultOpenAICompatibleProvider().complete(
+        model="gpt-4.1-mini",
+        system_prompt="sys",
+        user_message="hi",
+        tools=_TOOLS,
+        tool_executor=await _executing(executed),
+    )
+
+    assert result.text == "done"
+    tool_messages = [m for m in sent[1] if m.get("role") == "tool"]
+    assert [m["tool_call_id"] for m in tool_messages] == ["a", "b"]
+    assert "not valid JSON" in tool_messages[1]["content"]
+
+
+async def test_a_completed_refusal_is_the_answer(monkeypatch):
+    server = _Server(_response([_refusal_item("I can't help with that.")]))
+    _install(
+        monkeypatch, SimpleNamespace(responses=SimpleNamespace(create=server.create))
+    )
+
+    result = await DefaultOpenAICompatibleProvider().complete(
+        model="eval-gpt-6.1-sol",
+        system_prompt="sys",
+        user_message="hi",
+        tools=[],
+        tool_executor=await _executing([]),
+        max_rounds=1,
+    )
+
+    assert result.text == "I can't help with that."
+
+
+async def test_a_chat_completions_refusal_is_the_answer(monkeypatch):
+    monkeypatch.setattr(settings, "openai_api_style", "chat_completions")
+
+    async def create(**kwargs):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(
+                        content=None, refusal="I can't help with that.", tool_calls=None
+                    ),
+                )
+            ],
+            usage=None,
+        )
+
+    _install(
+        monkeypatch,
+        SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        ),
+    )
+    result = await DefaultOpenAICompatibleProvider().complete(
+        model="gpt-4.1-mini",
+        system_prompt="sys",
+        user_message="hi",
+        tools=[],
+        tool_executor=await _executing([]),
+        max_rounds=1,
+    )
+
+    assert result.text == "I can't help with that."
+
+
+async def test_a_streamed_refusal_reaches_the_user(monkeypatch):
+    _patch_stream_io(monkeypatch, [])
+    refusal = _refusal_item("I can't help with that.")
+    server = _Server(
+        _Events(
+            [
+                _event("response.refusal.delta", delta="I can't "),
+                _event("response.refusal.delta", delta="help with that."),
+                _event("response.completed", response=_response([refusal])),
+            ]
+        )
+    )
+
+    events = await _stream_chat(
+        SimpleNamespace(responses=SimpleNamespace(create=server.create))
+    )
+
+    tokens = [e["text"] for e in events if e["type"] == "token"]
+    assert "".join(tokens) == "I can't help with that."
+    assert events[-1] == {"type": "done", "explanation": "I can't help with that."}
+
+
+async def test_a_streamed_chat_completions_refusal_reaches_the_user(monkeypatch):
+    monkeypatch.setattr(settings, "openai_api_style", "chat_completions")
+    _patch_stream_io(monkeypatch, [])
+
+    def _chunk(**delta):
+        return SimpleNamespace(
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(content=None, tool_calls=None, **delta),
+                    finish_reason="stop" if not delta else None,
+                )
+            ],
+        )
+
+    async def create(**kwargs):
+        return _Events([_chunk(refusal="I can't help with that."), _chunk()])
+
+    events = await _stream_chat(
+        SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
+    )
+
+    assert events[-1] == {"type": "done", "explanation": "I can't help with that."}

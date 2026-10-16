@@ -49,6 +49,21 @@ class StreamDelta:
     usage: tuple[int, int] | None = None
 
 
+# A call whose arguments were not valid JSON never ran, but both APIs reject a
+# request that leaves any tool call unanswered.
+_UNPARSEABLE_ARGUMENTS = {"error": "Tool arguments were not valid JSON; nothing ran."}
+
+
+def _answers(
+    round_: Round, results: list[tuple[ToolCall, dict]]
+) -> list[tuple[ToolCall, dict]]:
+    """One result per tool call in the round, in the round's order."""
+    by_id = {call.id: result for call, result in results}
+    return [
+        (call, by_id.get(call.id, _UNPARSEABLE_ARGUMENTS)) for call in round_.tool_calls
+    ]
+
+
 class ResponsesStreamError(RuntimeError):
     """The Responses stream failed or ended without a final response."""
 
@@ -186,7 +201,10 @@ class ChatCompletionsConversation:
         choice = response.choices[0]
         usage = response.usage
         return Round(
-            text=choice.message.content or "",
+            # A safety refusal arrives in `refusal`, with no content.
+            text=choice.message.content
+            or getattr(choice.message, "refusal", None)
+            or "",
             tool_calls=[
                 ToolCall(tc.id, tc.function.name, tc.function.arguments)
                 for tc in choice.message.tool_calls or []
@@ -222,9 +240,10 @@ class ChatCompletionsConversation:
             if not choice:
                 continue
             delta = choice.delta
-            if delta and delta.content:
-                text_parts.append(delta.content)
-                yield StreamDelta(text=delta.content)
+            text = (delta.content or getattr(delta, "refusal", None)) if delta else None
+            if text:
+                text_parts.append(text)
+                yield StreamDelta(text=text)
             for tc in (delta.tool_calls if delta else None) or []:
                 entry = calls.setdefault(tc.index, {"id": "", "name": "", "args": ""})
                 announced = bool(entry["name"])
@@ -262,7 +281,7 @@ class ChatCompletionsConversation:
                 ],
             }
         )
-        for call, result in results:
+        for call, result in _answers(round_, results):
             self._messages.append(
                 {
                     "role": "tool",
@@ -322,11 +341,11 @@ class ResponsesConversation:
             if item.type == "function_call"
         ]
         text = "".join(
-            part.text
+            part.text if part.type == "output_text" else part.refusal
             for item in response.output
             if item.type == "message"
             for part in item.content
-            if part.type == "output_text"
+            if part.type in ("output_text", "refusal")
         )
         if calls:
             finish_reason = "tool_calls"
@@ -364,7 +383,7 @@ class ResponsesConversation:
         )
         final = None
         async for event in events:
-            if event.type == "response.output_text.delta":
+            if event.type in ("response.output_text.delta", "response.refusal.delta"):
                 yield StreamDelta(text=event.delta)
             elif (
                 event.type == "response.output_item.added"
@@ -400,5 +419,5 @@ class ResponsesConversation:
                 # Fenced, not bare JSON: results carry dataset content.
                 "output": tool_result_content(result),
             }
-            for call, result in results
+            for call, result in _answers(round_, results)
         )
