@@ -7,6 +7,440 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-10-16
+
+### Added
+
+- `OPENAI_API_STYLE` picks the API the OpenAI-compatible provider uses:
+  `chat_completions` (the default, which most compatible servers and
+  gateways speak) or `responses`. Some OpenAI models, such as gpt-6.1-sol on
+  Azure OpenAI, call function tools only through the Responses API. With
+  `responses`, the tool loop, streamed chat and AI metadata drafts all run on
+  `/v1/responses`, with nothing stored server side (`store` is false) and
+  reasoning carried between rounds as encrypted content. Nothing runs from a
+  reply that stopped early on either API: a truncated reply no longer applies
+  a half-finished tool call, map spec or SQL statement, and map generation
+  refuses it instead. A model that needs the Responses API but is configured
+  for Chat Completions now fails with a message that names this setting, and
+  the chat panels and the AI map dialog show a translated "ask an
+  administrator to choose a different model" notice in all five locales.
+  (#3077, #3057)
+- `OPENAI_REASONING_EFFORT` sets the reasoning effort sent with OpenAI chat
+  requests. A model that doesn't recognise it gets the request without it.
+  (#3057)
+- Claude can run on Microsoft Foundry, Amazon Bedrock and Google Vertex AI,
+  or through a gateway. `ANTHROPIC_PLATFORM` takes `anthropic` (the default),
+  `foundry`, `bedrock` or `vertex`; `ANTHROPIC_BASE_URL` points the default
+  platform at a gateway that speaks the Messages API. Foundry reads
+  `ANTHROPIC_FOUNDRY_API_KEY` and `ANTHROPIC_FOUNDRY_RESOURCE`. Bedrock reads
+  `ANTHROPIC_BEDROCK_AWS_REGION` and then `ANTHROPIC_BEDROCK_API_KEY`, an
+  `ANTHROPIC_BEDROCK_AWS_ACCESS_KEY_ID` and `_SECRET_ACCESS_KEY` pair, or the
+  AWS default credential chain. Bedrock does not use the plain `AWS_*` names,
+  because the S3 storage settings export those for GDAL; the default chain is
+  refused while storage uses a static `S3_ACCESS_KEY_ID`. Vertex reads
+  `CLOUD_ML_REGION`, `ANTHROPIC_VERTEX_PROJECT_ID` and Application Default
+  Credentials (`GOOGLE_APPLICATION_CREDENTIALS`). A cloud platform with its
+  settings counts as configured without `ANTHROPIC_API_KEY`. `LLM_MODEL` must
+  then be the platform's own model ID, and the light model falls back to it;
+  `LLM_MODEL_LIGHT` overrides the light model on any platform. Claude clients
+  no longer follow redirects, so a gateway can't bounce the API key to
+  another origin. `GET /admin/ai/api-key-status` gains the required
+  `anthropic_platform` field, and `anthropic_configured` follows the selected
+  platform. The new destinations are listed in `EGRESS.md`. (#3058)
+- Dataset views are written to the audit log once per user and dataset every
+  15 minutes instead of on every page load. This applies before any audit
+  sink runs, so a SIEM sink receives the collapsed stream too. The new
+  `audit_retention_days` setting (Settings > General) deletes audit rows
+  older than that many days; the minimum is 90 and the field warns below 365.
+  It is unset by default, which keeps every row. The worker prunes at start
+  and then every six hours in batches of 5,000, under each tenant's context
+  when a deployment hosts several tenants, and each batch writes an
+  `audit.prune` event with its count and cutoff. Pruning doesn't archive, so
+  export first if you need the rows. (#2981)
+- Password sign-in is limited per account as well as per address. After 10
+  failed sign-ins within an hour, `POST /auth/login` answers 429 with
+  `Retry-After` and `detail.code` `login_throttled` for clients the account
+  doesn't know, even with the right password. A browser that has signed in to
+  the account before carries an HttpOnly `geolens_device_*` cookie (180 days,
+  at most five per browser, cookie auth mode only) and keeps its own budget.
+  Existing and unknown usernames get the same count, status and timing, and
+  bearer tokens, API keys and refresh keep working. Each throttle writes one
+  `user.login.throttled` audit row per window. To let an admin back in from a
+  new browser, run `docker compose exec api /app/.venv/bin/python -m
+  scripts.trust_login_device <username>` (with `--tenant <tenant id>` when
+  the deployment hosts several tenants), which prints a single-use link, valid
+  for 10 minutes, to a `/login/trust` confirmation page. Migration
+  `0082_login_throttle` adds the two small tables behind it. (#2987)
+- `POST /auth/change-password/` allows 10 failed current-password checks per
+  account per hour and then answers 429 with `Retry-After` and
+  `detail.code` `password_change_throttled`, even for a correct password. The
+  budget is separate from sign-in, so failed sign-ins can't block a password
+  change or the reverse. (#2990)
+- `VALKEY_PASSWORD` protects the bundled Valkey in `docker-compose.prod.yml`.
+  When it is set, Valkey requires it, the healthcheck authenticates, and the
+  password stays off the process list. Put the same value in `REDIS_URL`
+  (`redis://:<password>@valkey:6379/0`) and recreate valkey, api and worker
+  together. The password may use letters, digits and `. _ ~ -` only, and
+  Valkey refuses to start on anything else. Unset, nothing changes. (#3015)
+- `CSP_SCRIPT_SRC_EXTRA` adds script sources to the frontend's
+  Content-Security-Policy (see Changed). The entrypoint refuses to start if
+  the value contains characters outside a source list. (#2979)
+- Links to a public map shared in Slack, Teams, Discord, social posts and
+  other chat tools show that map's own title, description and image instead
+  of the generic site card. nginx sends known link-preview crawlers on
+  `/maps/<id>` to `GET /maps/{id}/link-preview`, which is not in the OpenAPI
+  schema. Crawlers are anonymous, so private, internal and missing maps all
+  get the normal site card. Absolute URLs need `PUBLIC_APP_URL`. (#3053)
+- The Add datasets panel on a collection lists the datasets you can add as
+  soon as it opens, newest first, 20 at a time with Load more. The search box
+  filters the list, each row has a labelled checkbox, and one button adds
+  every checked dataset in batches of 100, keeping any that fail selected.
+  The old 10-result cap is gone. (#3069)
+- The viewer legend explains a server cluster layer's circles with a "Points
+  per cluster" row that lists each colour and its range. (#3034)
+- The nginx access log ends with `rt=` (request time) and `urt=` (upstream
+  response time), so slow requests can be found at the edge. `/robots.txt` is
+  a real file (`User-agent: *`, `Allow: /`) instead of the app shell. (#3022)
+- The Python SDK's `GeolensClient` passes keyword options through to the
+  generated client, such as `timeout=httpx.Timeout(30)`, `verify_ssl`,
+  `headers` and `httpx_args`, and keeps them when `set_bearer_token` or
+  `set_api_key` swaps the credential. Requests still have no timeout unless
+  you set one. Both SDK READMEs gain install and error-handling sections; the
+  TypeScript package is ESM only. (#3088)
+- The frontend runs knip in CI as an unused-exports gate, and the exports it
+  found are removed. Run `npm run knip` from `frontend/`. (#3079, #2943)
+
+### Changed
+
+- `OPENAI_MODEL` can now name current OpenAI models. Chat, SQL generation,
+  metadata drafts and the admin probe used to fail with a 400 on models that
+  reject `max_tokens`, reject any temperature but the default, or accept
+  function tools only with `reasoning_effort: "none"`. A 400 that names one
+  of those parameters now makes one adjusted retry per parameter, and the
+  working shape is remembered in memory per base URL and model. The admin
+  probe asks for 16 tokens instead of 1, because several current models
+  reject a 1-token limit and were flagged as broken. `SSEErrorEvent` gains an
+  optional `code`. (#3057)
+- The default Claude models are now `claude-sonnet-5-5` for `LLM_MODEL`
+  (was `claude-sonnet-5`) and `claude-haiku-5-5` for the light model (was
+  `claude-haiku-4-5-20251001`). An install that sets `LLM_MODEL` keeps its
+  value. (#3058)
+- AI metadata drafts only state what the metadata supports. The summary
+  prompt asks for what the features are, their attributes and the geographic
+  scope from the extent, and gives a time period only when date fields or
+  sample values show one. It names no publisher or audience the metadata
+  doesn't state, and a single sentence on likely uses must end with
+  "(inferred)". The keyword prompt follows the same rule and no longer
+  invents a year. Claude metadata requests use structured outputs, falling
+  back to the previous request on models and platforms that reject them.
+  Sonnet 5.5, Opus 5.5 and Fable 5.1 reject the forced tool choice the old
+  request used, so every draft on those models failed with a 400. (#3080)
+- The frontend `Content-Security-Policy` no longer allows
+  `https://static.cloudflareinsights.com`. `script-src` is `'self'
+  'wasm-unsafe-eval'` unless `CSP_SCRIPT_SRC_EXTRA` adds more, and the CSP
+  gains `form-action 'self'`. A Cloudflare-proxied install that uses Web
+  Analytics sets `CSP_SCRIPT_SRC_EXTRA=https://static.cloudflareinsights.com/beacon.min.js`.
+  `/env-config.js` and the raster tile location send the frame, content-type
+  and referrer headers again, and proxied `/api/` responses no longer carry
+  `X-Content-Type-Options` and `Referrer-Policy` twice. (#2979, #2933, #3041)
+- A dataset owner can narrow their dataset's visibility while other users'
+  public or internal maps use it. The refusal now covers only shared maps the
+  owner created. Another user's map loses the layer, and nobody's map or
+  token is rewritten. Public map thumbnails and social images are served with
+  `public, no-cache` and an ETag, so a narrowing takes effect on the next
+  request, and a matching `If-None-Match` gets a 304. (#2985)
+- Backup retention counts days and weeks, not run counts.
+  `BACKUP_RETENTION_DAILY` keeps the newest dump of each of that many most
+  recent days that have a backup, and `BACKUP_RETENTION_WEEKLY` keeps the
+  newest weekly dump of each of that many ISO weeks. Restarting the backup
+  container no longer pushes whole days out of the window. A weekly entry is
+  a hard link to the daily dump, so it takes no extra space, with a copy as
+  the fallback when the filesystem refuses links. The backup healthcheck also
+  checks `/backups/.last-offsite-success` when that file exists. (#3024)
+- A re-upload or refresh replaces the dataset only if the person who started
+  it can still write the dataset when it publishes. Otherwise the job ends
+  `failed` with `write_access_revoked`, and the live data and the previous
+  version stay as they were. The re-upload commit can answer 403 or 404 after
+  the run is reserved, with nothing queued. (#3043)
+- Dataset and map writes check the caller again after taking the row lock,
+  so a caller who lost write access during the request no longer gets the
+  write through. This covers metadata edits, feature and layer writes,
+  deletes, ownership transfers, role changes and deactivation, share and
+  embed token create, update and revoke, relationship create and delete,
+  source-health updates, forced validation refresh, VRT regeneration and
+  source changes, and manifest admission. Those writes can now answer 403 or
+  404 from the lock step, and 409 when the map, collection or catalog rows
+  stay held past the 2 second bound. Two relationship creates in opposite
+  directions queue instead of deadlocking. (#3038, #3068)
+- An uncached vector or cluster tile render waits up to 2 seconds for a free
+  slot before answering 429 (with `Retry-After: 2`), where it used to answer
+  at once. At most `2 * TILE_POOL_MAX_SIZE` requests wait; more are rejected
+  immediately. A cold map with many layers no longer sheds its own tiles.
+  (#3023)
+- The global rate limit checks Valkey or Redis asynchronously, in a plain
+  ASGI layer that replaces slowapi's middleware, instead of a blocking round
+  trip on the event loop for every request. Limits, keys, exemptions, the
+  in-memory fallback and the outage log lines are unchanged, and the old and
+  new paths increment the same key, so a rolling deploy shares one bucket. A
+  coroutine 429 handler is now awaited. Three more middlewares run as plain
+  ASGI. (#3081)
+- Search facets select their candidate datasets once instead of five times.
+  Migration `0083_list_order_indexes` adds `ix_ingest_jobs_created_at_id`
+  (`created_at DESC, id`) for the admin job list and widens
+  `idx_records_created_at_desc` to `(created_at DESC, id DESC)` for the
+  dataset list and DCAT feed. On 200,000 seeded jobs the admin job list drops
+  from about 100 to 3 ms. The index build locks writes to those two tables
+  while it runs. (#3075)
+- The DCAT, DCAT-US and GeoDCAT-AP feeds build off the event loop, anonymous
+  feed responses and the STAC landing page and collection list are cached for
+  30 seconds, and export conversions (ogr2ogr and GeoParquet) are limited to
+  four per process, answering 429 with `Retry-After` when full. A new public
+  dataset appears in the feeds within 30 seconds. (#2946)
+- Requests hold fewer pooled database connections. Search enrichment runs its
+  two lookups one after the other on the request's session, so one search no
+  longer takes three connections, and a failure there now returns an error
+  instead of a silently emptier result. Map generation, chats, SQL
+  generation, metadata drafts and semantic search release the connection
+  while they wait on an AI or embedding provider. When a deployment hosts
+  several tenants, a successful Host lookup is cached for 30 seconds. (#2948)
+- Writing a single feature no longer scans the whole Redis keyspace to purge
+  tiles. The tile cache key carries the dataset's tile cache version, which
+  each write bumps. The in-memory tile cache (no `REDIS_URL`) is bounded to
+  256 MB and the general in-memory cache to 64 MB, where both were bounded by
+  entry count. (#2944)
+- The map builder keeps tile tokens while the layer set changes, so removing
+  a layer syncs at once. Dataset sync status polls every 10 seconds only
+  while a run is going and every 60 seconds otherwise, and the first page
+  load downloads the route's code while the session refresh runs. (#2941,
+  #3071)
+- The admin overview "Storage Used" adds raster, point cloud, 3D Tiles and
+  other stored asset bytes to the vector table sizes, so an instance with
+  gigabytes of COGs no longer reports a few megabytes. The description of
+  `total_storage_bytes` changes with it. (#3017)
+- `PATCH /datasets/{id}/target-status/` and `PATCH /datasets/{id}/status/`
+  enforce the "Require metadata before publishing" setting when a dataset
+  enters `published`, answering 422 `Cannot publish: <field>: <message>` as
+  the metadata PATCH does. They set `published_at`, which datasets published
+  this way never had. Datasets that are already published are not revalidated.
+  (#2992)
+- A rate-limited VRT dataset search says to try again shortly instead of
+  "No matching datasets", and a map that is missing or not readable shows
+  "Map not found" at once, without a retry. (#2978, #3016)
+- Docker images and operations: the api and worker healthchecks run Python
+  with `-B`, and the dev frontend healthcheck fails when the builder modules
+  don't load (see Fixed). Compose files write `no-new-privileges=true`, and
+  `db/postgresql.conf` turns on `log_lock_waits` and `track_io_timing`. The
+  bundled Valkey image moves from 8.1.10 to 9.1.2, Titiler from 2.2.1 to
+  2.4.0 (GDAL 3.12.4) and Azurite to 3.37.0. A dev `valkey_data` volume
+  written by 8.1 loads under 9.1, but going back may not read a 9.x
+  snapshot; it holds cache data only. (#3019, #3082, #3021, #3011, #3008)
+- `scripts/upgrade.sh`, `scripts/lib/common.sh` and
+  `scripts/check-demo-config.sh` accept a colon-separated `COMPOSE_FILE`, such
+  as `docker-compose.prod.yml:backup-offsite-override.yml`. An install with
+  overrides listed after the prod file is now treated as prebuilt, and the
+  rollback hints carry every `-f`. (#3020)
+- Dependencies: `anthropic` 1.15.0 (with the `vertex` extra), `openai` 3.29.0
+  and `httpx2` 2.13.1 become direct requirements, and the `authlib` floor is
+  1.8.0, which runs the OAuth client on httpx2 and is past CVE-2026-44681.
+  httpx2 verifies TLS against the operating system trust store, where httpx
+  used the certifi bundle. A private CA that was added only to certifi, for a
+  self-hosted OpenAI-compatible endpoint or an identity provider, needs to be
+  in the system store or `SSL_CERT_FILE`. The OAuth login client keeps its
+  SSRF destination checks on httpx2. `structlog` 26, `python-slugify` 9,
+  `redis` 8.1 and `pyarrow` majors come with this release. Every Redis client
+  still speaks RESP2, so stores without `HELLO` keep working; add
+  `?protocol=3` to `REDIS_URL` to opt into RESP3. The async Valkey clients now
+  stop after a 5 s connect timeout instead of waiting on the OS.
+  `geolens-mcp` requires `mcp>=2.3.0,<3`; its tool names, argument schemas
+  and error messages are unchanged. (#3014,
+  #3013, #3012)
+- Settings > Permissions says what the export permission covers. (#2980)
+- `RUNBOOK.md` creates the runtime database role without putting its password
+  on the command line. (#3042)
+
+### Fixed
+
+- A float32 or float64 raster that is left on the default stretch already
+  stretched over its data range. Signed integer rasters (`int8`, `int16`,
+  `int32`) now do too, instead of rescaling from 0 to the type's maximum,
+  which clipped negative values to black. Unsigned, multi-band and DEM
+  rasters are unchanged. The first tile of a large raster waits on the
+  statistics lookup. Percentile and stddev stretch bounds are percent-encoded
+  at full precision, so a bound such as `1e+20` no longer reaches Titiler as
+  `1e 20` and a narrow range no longer collapses to `0,0`. (#3028, #2926)
+- Saving a map changes only what the caller can see. A full-replacement
+  `PUT /maps/{id}` keeps stored layers whose dataset the caller can't read
+  and a terrain binding to a DEM they can't read, and a layer reorder keeps
+  hidden layers in place. Kept layers count toward the layer limit. `PUT` and
+  `PATCH /maps/{id}/layers` responses leave unreadable layers and the hidden
+  DEM's id out, as `GET` does. (#3045, #3036)
+- Making a map public, or adding a layer to a public map, counts only the
+  non-public datasets the caller can read. A layer on a dataset its owner can
+  no longer read used to block publishing with a 400 that named the dataset.
+  (#3051)
+- Popups on a shared map that exposes a private dataset through an embed
+  token or API key show attribute titles instead of humanized column names.
+  `GET /maps/shared/{token}` adds an optional `title` to `column_info`
+  entries that have one. (#3061)
+- Datasets made by buffer, clip, intersect, dissolve and the other analysis
+  operations get a quicklook, so their catalog card has a thumbnail and
+  `GET /datasets/{id}/quicklook` no longer answers 404. The job watcher
+  refreshes search once the thumbnail lands. (#3031)
+- The re-upload service preview refuses ArcGIS group, raster and annotation
+  layers with the 422 `unsupported_layer_type` the import preview gives,
+  instead of going on to a GDAL preview. (#3030)
+- A VRT's source count, which counts only members the viewer can read, is
+  left out of the search card, dataset overview and stats bar when it is 0,
+  instead of showing "0 sources" for a mosaic that renders. (#3027)
+- Admin tables no longer jump back to page one when a search box's debounce
+  settles untouched after you page forward. (#3048)
+- The scheduled sync dialog stays inside the viewport and scrolls at 200%
+  zoom. (#3062)
+- `geolens arcgis inventory` renews a password-minted token when the portal
+  rejects it with 498 or 499, so a large organization no longer stops partway
+  with a partial report after an hour, and `--read-all-item-data` scans item
+  data that is a JSON array. The scrubber masks only the secret in a URL
+  parameter such as `?api-key=...&layer=2`, and no longer masks prose that
+  starts with `Basic`, `Token` or `Digest`. (#3060, #3026)
+- GeoParquet import keeps M values: ZM files land in a `GeometryZM` column
+  instead of losing M. Record CQL2 `created` and `updated` literals such as
+  `DATE('2026-03-10')` read as UTC, so the day no longer moves on a server
+  with a non-UTC session time zone. (#3064)
+- The api and worker containers' memory working set no longer climbs by
+  about 10 MB an hour. The healthcheck was trying to write bytecode on a
+  read-only filesystem every 10 seconds. (#3019)
+- The dev frontend healthcheck fails when the builder modules don't load,
+  such as stale `node_modules` or a missing `maplibre-gl`, where it used to
+  pass on Vite's HTML shell. `frontend/scripts/dev-readiness.mjs` runs it.
+  (#3082)
+- The showcase seed carries the summaries, attribution and layer names that
+  were corrected by hand on the demo, so a forced reseed no longer rebuilds
+  them in their old state. (#3032)
+- The restore round-trip CI job waits for the real Postgres server, not the
+  init server that is about to shut down. (#3010)
+- The AI chat can color points by a boolean column. It used to report the
+  change while MapLibre rejected the paint ("Branch labels must be numbers or
+  strings") and the layer kept its color; a boolean column is now matched on
+  its "true" and "false" text. The layer style editor offers boolean columns
+  for categorical styling the same way, and opening it no longer resets such
+  a style to flat gray. (#3083)
+- The builder shows "Basemap connection issue" only when a basemap source
+  fails. A rejected style expression, a failing data layer or a terrain
+  source used to raise it. (#3085)
+- Map history reads "Changed visibility to public" instead of "Changed
+  visibility to MapVisibility.public". (#3084)
+- Import progress says "Importing 1 file" for a single file, in all five
+  locales. (#3086)
+- "Add AI metadata" on the import completion card opens the dataset's
+  Metadata tab, where the AI drafting buttons are, instead of the dataset
+  overview. (#3086)
+- The copy button in the API key dialog has an accessible name, and the
+  dialog says "will not be shown again" once. (#3086)
+- Map popups keep a dark card in dark mode. They showed light text on a white
+  card. (thanks @tofunori, #3066)
+
+### Security
+
+- Anonymous vector and cluster tile requests can no longer tell a private
+  table from one that doesn't exist. Without signature parameters both answer
+  404; with signature parameters that don't authorize, both answer 403
+  "Invalid or expired signature". The "Signature required for non-public
+  tiles" and "Scope mismatch" details are gone. Expired signatures still
+  answer 403, so maps re-mint their tile URLs as before. (#3087)
+- Table registration needs an administrator. `GET /ingest/discover/`,
+  `POST /ingest/register/` and `POST /ingest/register/bulk/` require the
+  `manage_settings` capability (`manage_tenants` when the deployment hosts
+  several tenants)
+  and answer 403 to anyone else, where `upload` was enough. The Register
+  Table tab shows only to those users. Bulk registration takes at most 100
+  tables per request (422 above that) and registers four at a time.
+  (#2947)
+- Bounded and validated inputs: the ArcGIS probe counts features for at most
+  the first 100 layers under one shared deadline, and a malformed service
+  document no longer fails the probe with a 500. Service previews refuse a
+  layer name that starts with `-` (422). SVG icon uploads drop elements and
+  attributes outside the SVG namespaces and refuse a root that isn't an SVG
+  element. Presigned uploads answer 422 `filename_control_characters` for
+  control characters in a filename. (#2947)
+- An embed token serves a dataset only while the token's creator can read it,
+  checked on every request: tiles, `features.geojson`, terrain, tile tokens
+  (403 for the dataset) and the shared-map view (the layer is left out). It
+  used to check once, when the token was minted. (#2988)
+- VRT mosaics stay within their members' visibility. Create and add-source
+  answer 422 when the VRT would reach people who can't read a member someone
+  else owns, a visibility or publication change that widens it answers 422,
+  and regeneration and both build tasks check the members again. Members the
+  VRT's owner also owns are exempt, so existing public mosaics over their
+  owner's private sources keep serving. Narrowing a VRT is always allowed.
+  (#2950)
+- Saving a map refuses a terrain DEM the caller can't read. `POST /maps/` and
+  `PUT /maps/{id}` answer 403 "Cannot access the terrain dataset" before
+  anything is written, and `POST /maps/import` drops that binding and imports
+  the rest. A missing DEM is treated the same way. (#3052)
+- `GET /maps/{id}` returns `notes` only to the map's owner or an admin;
+  everyone else, including anonymous visitors to a public map, gets `null`,
+  and a fork copies the notes only for the source's owner. Registration takes
+  the same time whether or not a name is taken. `POST /auth/api-keys/` and
+  `POST /admin/api-keys/` need a signed-in session and answer 403 to a
+  request that presents an API key. A user-bound download token stops
+  working after sign out everywhere or a password change. A saved search's
+  `params` is capped at 64 KiB (422) and each user keeps at most 100 saved
+  searches (409 for a new name past the cap). (#2949)
+- The share viewer ignores `?api_key=` in the page URL, and
+  `/maps/<id>?add_dataset=` no longer adds a layer when opened directly
+  ("Add to map" and "Open in builder" pass the dataset in router state), API
+  helpers percent-encode ids
+  in request paths, and the login page checks its return path as the other
+  sign-in paths do. (#2942)
+- The per-account sign-in and current-password throttles described under
+  Added also close online guessing against a single account from many
+  addresses. (#2987, #2990)
+
+### Upgrade notes
+
+- Migrations 0082 (two login throttle tables) and 0083 run on upgrade. 0083
+  builds one index and widens another on `ingest_jobs` and `records`, and
+  writes to those tables wait while it runs. (#2987, #3075)
+- `BACKUP_RETENTION_DAILY` and `BACKUP_RETENTION_WEEKLY` now count days and
+  ISO weeks, not dumps. Check both values. (#3024)
+- The default CSP no longer allows `https://static.cloudflareinsights.com`.
+  Cloudflare Web Analytics users set
+  `CSP_SCRIPT_SRC_EXTRA=https://static.cloudflareinsights.com/beacon.min.js`.
+  (#2979)
+- Outbound TLS from the AI providers and the OAuth client checks the
+  operating system trust store instead of certifi. Add a private CA to the
+  system store or point `SSL_CERT_FILE` at it. (#3014)
+- Only administrators can discover and register database tables. Accounts
+  with only `upload` now get 403. (#2947)
+- After 10 failed sign-ins in an hour an account answers 429 to browsers it
+  doesn't know. Shared service accounts should use API keys.
+  `python -m scripts.trust_login_device <username>` lets an admin back in from
+  a new browser. (#2987)
+- Installs that don't set `LLM_MODEL` move to `claude-sonnet-5-5` and
+  `claude-haiku-5-5`. (#3058)
+- If you set `VALKEY_PASSWORD`, put the same password in `REDIS_URL` and
+  recreate valkey, api and worker together. (#3015)
+- Set `PUBLIC_APP_URL` for per-map link previews. (#3053)
+- Unsigned anonymous requests for a non-public vector tile answer 404 instead
+  of 403. (#3087)
+
+### Internal
+
+- `AGENTS.md` records the product commitments and the review rules, CI skips
+  the push re-run of a commit the merge queue already tested, workflows set
+  `persist-credentials: false` and job timeouts, and Dependabot gains
+  security, minor and patch groups and coverage for `mcp/`. (#2996, #2995,
+  #2994)
+- Dependency refreshes without a changed requirement: backend lockfile pins,
+  frontend runtime and tooling packages, GitHub Actions and the Node base
+  image. (#2983, #3006, #2984, #3007, #3046, #2982)
+- Test-only and cleanup changes: the publish manifest v2 contract schema and
+  examples under `backend/tests/fixtures/`, SDK round-trip, PNG and
+  timezone tests with a TypeScript SDK CI step, frontend alias-to-generated
+  type refactors, dead code removal and flake fixes. (#3029, #3064, #3062,
+  #3078, #3076, #3074, #3072, #3070, #3073, #2927, #3049, #3005, #2989, #2993,
+  #2952, #3033, #2945, #2943)
+
 ## [1.24.0] - 2026-10-11
 
 ### Added
@@ -5297,7 +5731,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.24.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.25.0...HEAD
+[1.25.0]: https://github.com/geolens-io/geolens/compare/v1.24.0...v1.25.0
 [1.24.0]: https://github.com/geolens-io/geolens/compare/v1.23.1...v1.24.0
 [1.23.1]: https://github.com/geolens-io/geolens/compare/v1.23.0...v1.23.1
 [1.23.0]: https://github.com/geolens-io/geolens/compare/v1.22.0...v1.23.0
