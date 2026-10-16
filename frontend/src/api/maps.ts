@@ -32,7 +32,7 @@ import i18n from '@/i18n/i18n';
 import { normalizeLayerStyleState } from '@/lib/normalize-style-config';
 import { normalizeSavedMap } from '@/lib/normalize-saved-map';
 
-export type ShareExpirationPresetDays = 1 | 7 | 30 | 90;
+type ShareExpirationPresetDays = 1 | 7 | 30 | 90;
 
 export interface ShareExpirationInput {
   expiresAt?: string | null;

@@ -33,7 +33,7 @@ import type {
  * Not persisted: a page reload needs a server-side lookup of unfinished
  * imports, which does not exist.
  */
-export type UploadSessionEntryStatus =
+type UploadSessionEntryStatus =
   | 'uploading'
   | 'upload-failed'
   | 'previewing'
@@ -43,7 +43,7 @@ export type UploadSessionEntryStatus =
   | 'commit-failed';
 
 /** What a committed job is tracked as. */
-export interface UploadSubmission {
+interface UploadSubmission {
   title: string;
   visibility: string;
   kind: DataKind;

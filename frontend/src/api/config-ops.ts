@@ -16,7 +16,7 @@ export interface ConfigImportRequest {
   oauth_providers?: Record<string, unknown>[] | null;
 }
 
-export interface SettingChange {
+interface SettingChange {
   key: string;
   current: unknown;
   imported: unknown;
@@ -25,7 +25,7 @@ export interface SettingChange {
   reason_code?: string | null;
 }
 
-export interface OAuthProviderChange {
+interface OAuthProviderChange {
   slug: string;
   action: 'create' | 'update' | 'no_change' | 'delete' | 'replace';
   changed_fields?: string[] | null;

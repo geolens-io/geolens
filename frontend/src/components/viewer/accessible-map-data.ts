@@ -6,7 +6,7 @@ const EXCLUDED_PROPERTY_KEYS = new Set(['geom', 'geometry']);
 
 const ACCESSIBLE_FEATURE_LIMIT = 100;
 
-export interface AccessibleMapFeature {
+interface AccessibleMapFeature {
   key: string;
   layerName: string;
   title: string | null;

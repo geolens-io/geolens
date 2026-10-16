@@ -36,7 +36,7 @@ export const MAP_STACK_GROUP_ORDER = [
   'interactions',
 ] as const;
 
-export type MapStackGroupId = typeof MAP_STACK_GROUP_ORDER[number];
+type MapStackGroupId = typeof MAP_STACK_GROUP_ORDER[number];
 
 type MapStackRole =
   | 'surface-background'

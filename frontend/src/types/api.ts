@@ -161,11 +161,11 @@ export type ValidationIssue = components['schemas']['ValidationIssue'];
 
 export type ValidationResultResponse = components['schemas']['ValidationResultResponse'];
 
-export type IngestReservedRenameWarning = components['schemas']['ReservedRenameWarning'];
+type IngestReservedRenameWarning = components['schemas']['ReservedRenameWarning'];
 
-export type IngestDbfTruncationWarning = components['schemas']['DbfTruncationCollisionWarning'];
+type IngestDbfTruncationWarning = components['schemas']['DbfTruncationCollisionWarning'];
 
-export type IngestMercatorClipWarning = components['schemas']['MercatorClipWarning'];
+type IngestMercatorClipWarning = components['schemas']['MercatorClipWarning'];
 
 export type IngestJobWarning =
   | IngestReservedRenameWarning
@@ -173,6 +173,7 @@ export type IngestJobWarning =
   | IngestMercatorClipWarning;
 
 // The API declares these as plain strings or open dicts; the frontend narrows them to the shapes it reads.
+/** @public Mirrored by the backend drift checker (backend/scripts/check_fe_type_drift.py). */
 export type OGCRecordProperties = Omit<
   components['schemas']['OGCRecordProperties'],
   'record_type' | 'source_freshness' | 'source_health' | 'quality_detail' | 'contacts'
@@ -207,7 +208,7 @@ export type SearchResponse = Omit<components['schemas']['OGCFeatureCollectionRes
   features: OGCRecordResponse[];
 };
 
-export interface CatalogSummary {
+interface CatalogSummary {
   geometry_type?: GeometryTypeName[];
   srid?: number[];
   keywords?: string[];
@@ -345,9 +346,9 @@ export type DatasetRefreshRunListResponse = components['schemas']['DatasetRefres
 // Labels
 export type ZoomExpressionKind = 'step' | 'interpolate';
 
-export type ZoomStepExpression = ['step', ['zoom'], number, ...number[]];
+type ZoomStepExpression = ['step', ['zoom'], number, ...number[]];
 
-export type ZoomInterpolateExpression = ['interpolate', ['linear'], ['zoom'], ...number[]];
+type ZoomInterpolateExpression = ['interpolate', ['linear'], ['zoom'], ...number[]];
 
 export type ZoomExpression = ZoomStepExpression | ZoomInterpolateExpression;
 

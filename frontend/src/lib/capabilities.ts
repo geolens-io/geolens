@@ -15,6 +15,8 @@
  * with each role's known mapping and would catch most drift; the static-
  * analysis test at `backend/tests/test_capability_drift.py` reads this file
  * directly and asserts byte-for-byte alignment with the backend list.
+ *
+ * @public Read as text by that test, so it stays exported.
  */
 export const ALL_CAPABILITIES = [
   'upload',

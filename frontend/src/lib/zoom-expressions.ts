@@ -2,7 +2,7 @@ import type { ZoomExpression, ZoomExpressionKind } from '@/types/api';
 
 export type { ZoomExpression, ZoomExpressionKind } from '@/types/api';
 
-export interface ZoomStop {
+interface ZoomStop {
   zoom: number;
   value: number;
 }

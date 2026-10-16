@@ -6,7 +6,7 @@ import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 export type PluginAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
 /** Placement configuration -- fixed at registration time */
-export type PluginPlacement =
+type PluginPlacement =
   | { mode: 'floating'; anchor: PluginAnchor }
   | { mode: 'sidebar' };  // sidebar plugins render in the builder's left sidebar
 

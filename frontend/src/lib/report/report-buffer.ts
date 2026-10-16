@@ -15,7 +15,7 @@ import { useSyncExternalStore } from 'react';
 import { redact } from './redact';
 
 export type ReportSeverity = 'error' | 'warning' | 'info';
-export type ReportSource = 'console' | 'network' | 'maplibre' | 'react' | 'runtime';
+type ReportSource = 'console' | 'network' | 'maplibre' | 'react' | 'runtime';
 
 export interface ReportEntry {
   id: string;
