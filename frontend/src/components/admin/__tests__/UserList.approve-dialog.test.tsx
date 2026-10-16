@@ -28,6 +28,7 @@ const pendingUser: UserResponse = {
   is_active: false,
   status: 'pending',
   last_login_at: null,
+  can_reset_password: true,
   created_at: '2026-08-01T00:00:00Z',
   roles: [],
 };

@@ -60,8 +60,9 @@ const adminUser = {
   email: 'admin@x',
   roles: ['admin'],
   is_active: true,
-  status: 'active',
+  status: 'active' as const,
   last_login_at: null,
+  can_reset_password: true,
   created_at: '',
 };
 
@@ -196,6 +197,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
         is_active: true,
         status: 'active',
         last_login_at: null,
+        can_reset_password: true,
         created_at: '',
       },
     });
@@ -228,6 +230,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
         is_active: true,
         status: 'active',
         last_login_at: null,
+        can_reset_password: true,
         created_at: '',
       },
     });
@@ -257,6 +260,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
         is_active: true,
         status: 'active',
         last_login_at: null,
+        can_reset_password: true,
         created_at: '',
       },
     });
@@ -284,6 +288,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
         is_active: true,
         status: 'active',
         last_login_at: null,
+        can_reset_password: true,
         created_at: '',
       },
     });
@@ -528,6 +533,7 @@ describe('useAIAvailability — mode-aware status gate (fix #815)', () => {
         is_active: true,
         status: 'active',
         last_login_at: null,
+        can_reset_password: true,
         created_at: '',
       },
     });
@@ -559,6 +565,7 @@ describe('useAIAvailability — mode-aware status gate (fix #815)', () => {
         is_active: true,
         status: 'active',
         last_login_at: null,
+        can_reset_password: true,
         created_at: '',
       },
     });

@@ -82,6 +82,7 @@ describe('RegisterPage — authenticated user redirect (ROUTE-03)', () => {
         is_active: true,
         status: 'active',
         last_login_at: null,
+        can_reset_password: true,
         created_at: new Date().toISOString(),
       },
     });
@@ -136,6 +137,7 @@ describe('RegisterPage — authenticated user redirect (ROUTE-03)', () => {
         is_active: true,
         status: 'active',
         last_login_at: null,
+        can_reset_password: true,
         created_at: new Date().toISOString(),
       },
     });

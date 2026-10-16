@@ -42,6 +42,7 @@ const EDITOR_USER: UserResponse = {
   is_active: true,
   status: 'active',
   last_login_at: null,
+  can_reset_password: true,
   created_at: '2026-03-01T00:00:00Z',
   roles: ['editor'],
 };

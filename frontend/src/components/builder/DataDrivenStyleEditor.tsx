@@ -514,7 +514,7 @@ export function DataDrivenStyleEditor({
 
   // Effect 2: Graduated color styling
   useEffect(() => {
-    if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles)) return;
+    if (!column || mode !== 'graduated' || !statsData || statsData.min == null || statsData.max == null || !Array.isArray(statsData.quantiles)) return;
     if (target !== 'color' && target) return;
 
     const { breaks, effectiveClassCount, invalid } = computeBreaks(
@@ -581,7 +581,7 @@ export function DataDrivenStyleEditor({
 
   // Effect 3: Graduated size styling (radius or width)
   useEffect(() => {
-    if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles)) return;
+    if (!column || mode !== 'graduated' || !statsData || statsData.min == null || statsData.max == null || !Array.isArray(statsData.quantiles)) return;
     if (target === 'color' || !target) return;
 
     const { breaks, effectiveClassCount, invalid } = computeBreaks(
@@ -805,7 +805,7 @@ export function DataDrivenStyleEditor({
   const graduatedStatsUnavailable =
     mode === 'graduated' &&
     Boolean(column) &&
-    (!statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles));
+    (!statsData || statsData.min == null || statsData.max == null || !Array.isArray(statsData.quantiles));
 
   const showTargetSelector = availableTargets.length > 1 && mode === 'graduated';
   const isSizeTarget = target !== 'color' && mode === 'graduated';

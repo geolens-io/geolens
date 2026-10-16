@@ -4,8 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatBbox } from '@/lib/format';
 
 function formatSrid(
-  srid: number | null,
-  originalSrid: number | null,
+  srid: number | null | undefined,
+  originalSrid: number | null | undefined,
   unknownLabel: string,
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
@@ -20,9 +20,9 @@ function formatSrid(
 }
 
 interface SpatialExtentCardProps {
-  extentBbox: number[] | null;
-  srid: number | null;
-  originalSrid: number | null;
+  extentBbox?: number[] | null;
+  srid?: number | null;
+  originalSrid?: number | null;
 }
 
 export function SpatialExtentCard({ extentBbox, srid, originalSrid }: SpatialExtentCardProps) {

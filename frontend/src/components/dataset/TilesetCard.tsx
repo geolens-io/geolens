@@ -6,7 +6,7 @@ import type { TilesetMetadata } from '@/types/api';
 
 interface TilesetCardProps {
   tileset: TilesetMetadata;
-  extentBbox: number[] | null;
+  extentBbox?: number[] | null;
 }
 
 /** A 3D Tiles dataset's tileset: its version, detail, volume, size, extent and contents. */

@@ -69,6 +69,7 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
     id: 'dataset-1',
     record_id: 'record-1',
     table_name: 'roads',
+    has_generic_geometry: false,
     title: 'Roads',
     summary: null,
     srid: 4326,

@@ -63,7 +63,7 @@ export function findElevationColumn(columnInfo: { name: string; type?: string }[
 /**
  * Map a geometry type string to a Lucide icon component.
  */
-export function geometryIcon(geomType: string | null): LucideIcon | null {
+export function geometryIcon(geomType: string | null | undefined): LucideIcon | null {
   if (!geomType) return null;
   const upper = geomType.toUpperCase();
   if (upper === 'POINT' || upper === 'MULTIPOINT') return MapPin;

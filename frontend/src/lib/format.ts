@@ -82,7 +82,7 @@ export function formatBbox(bbox: number[] | null | undefined, fallback: string):
   return `(${bbox[0].toFixed(4)}, ${bbox[1].toFixed(4)}) to (${bbox[2].toFixed(4)}, ${bbox[3].toFixed(4)})`;
 }
 
-export function formatBytes(bytes: number | null): string {
+export function formatBytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return i18n.t('common:notAvailable');
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];

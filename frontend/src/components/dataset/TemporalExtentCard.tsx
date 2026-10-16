@@ -10,8 +10,8 @@ import { formatDate } from '@/lib/format';
 
 interface TemporalExtentCardProps {
   datasetId: string;
-  dataVintageStart: string | null;
-  dataVintageEnd: string | null;
+  dataVintageStart?: string | null;
+  dataVintageEnd?: string | null;
   capabilities: DatasetEditCapabilities;
 }
 

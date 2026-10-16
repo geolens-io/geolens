@@ -11,8 +11,9 @@ function mockUser(roles: string[] = ['viewer']): UserResponse {
     username: 'testuser',
     email: 'test@example.com',
     is_active: true,
-    status: 'approved',
+    status: 'active',
     last_login_at: null,
+    can_reset_password: true,
     created_at: '2025-01-01T00:00:00Z',
     roles,
   };

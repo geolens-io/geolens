@@ -29,7 +29,7 @@ const fullSource = 'National Oceanic and Atmospheric Administration Office for C
 
 function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
   return {
-    id: 'ds-1', record_id: 'rec-1', table_name: 'public_parks', title: 'Parks', summary: null,
+    id: 'ds-1', record_id: 'rec-1', table_name: 'public_parks', has_generic_geometry: false, source_health: 'unknown', schema_drift_status: 'unknown', source_freshness: 'unknown', title: 'Parks', summary: null,
     srid: 4326, geometry_type: 'Polygon', feature_count: 100, extent_bbox: null, column_info: null,
     license: fullLicense, attribution: null, source_organization: fullSource,
     data_vintage_start: null, data_vintage_end: null, source_format: 'geojson', source_filename: null,

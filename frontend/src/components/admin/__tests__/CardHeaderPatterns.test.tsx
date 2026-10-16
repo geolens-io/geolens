@@ -239,7 +239,7 @@ describe('admin card header patterns', () => {
       username: 'admin',
       email: 'admin@example.com',
       is_active: true,
-      status: 'active',
+      status: 'active' as const,
       last_login_at: null,
       created_at: '2026-01-01T00:00:00Z',
       roles: ['admin'],

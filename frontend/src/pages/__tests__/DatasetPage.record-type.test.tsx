@@ -192,6 +192,7 @@ const OWNER: UserResponse = {
   is_active: true,
   status: 'active',
   last_login_at: null,
+  can_reset_password: true,
   created_at: '2026-03-01T00:00:00Z',
   roles: ['editor'],
 };
@@ -201,6 +202,10 @@ function makeDataset(recordType: string): DatasetResponse {
     id: 'dataset-1',
     record_id: 'record-1',
     table_name: 'world_countries',
+    source_health: 'unknown',
+    schema_drift_status: 'unknown',
+    source_freshness: 'unknown',
+    has_generic_geometry: false,
     title: 'World Countries',
     summary: 'Country boundaries',
     srid: 4326,

@@ -664,7 +664,7 @@ export function DatasetPage() {
                   key={`${dataset.id}:${isRasterOrVrt ? `${mapKey}:${dataset.raster?.is_dem ? `dem:${bbox?.join(',')}` : 'img'}` : tileKind ?? 'no-tiles'}`}
                   bbox={bbox}
                   tableName={dataset.table_name}
-                  geometryType={dataset.geometry_type}
+                  geometryType={dataset.geometry_type ?? null}
                   hasGenericGeometry={dataset.has_generic_geometry}
                   datasetId={id}
                   columnInfo={dataset.column_info}

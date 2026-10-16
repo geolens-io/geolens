@@ -360,8 +360,9 @@ function draftUser(id: string): UserResponse {
     username: id,
     email: `${id}@example.com`,
     is_active: true,
-    status: 'approved',
+    status: 'active',
     last_login_at: null,
+    can_reset_password: true,
     created_at: '2026-01-01T00:00:00Z',
     roles: ['editor'],
   };

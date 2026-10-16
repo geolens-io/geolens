@@ -69,40 +69,13 @@ export interface MapBasemapConfig {
   sublayer_overrides?: Record<string, MapSublayerOverride> | null;
 }
 
-export interface TokenResponse {
-  access_token: string;
-  /** fix(#1302): null when the caller opted into the browser cookie flow. */
-  refresh_token: string | null;
-  token_type: string;
-  expires_in: number;
-}
+export type TokenResponse = components['schemas']['TokenResponse'];
 
-export interface UserQuotaUsage {
-  bytes_used: number;
-  dataset_count: number;
-  storage_cap: number;
-  count_cap: number;
-}
+export type UserQuotaUsage = components['schemas']['UserQuotaUsage'];
 
-export interface UserResponse {
-  id: string;
-  username: string;
-  email: string | null;
-  is_active: boolean;
-  status: string;
-  last_login_at: string | null;
-  created_at: string;
-  roles: string[];
-  can_reset_password?: boolean;
-  quota_usage?: UserQuotaUsage | null;
-}
+export type UserResponse = components['schemas']['UserResponse'];
 
-export interface RasterBandInfo {
-  index: number;
-  dtype: string;
-  nodata: string | null;
-  color_interp: string | null;
-}
+export type RasterBandInfo = components['schemas']['RasterBandInfo'];
 
 export interface RasterConnect {
   download_url: string | null;
@@ -110,63 +83,13 @@ export interface RasterConnect {
   s3_uri: string | null;
 }
 
-export interface StacAsset {
-  href: string;
-  type?: string;
-  title?: string;
-  description?: string;
-  roles?: string[];
-  size_bytes?: number;
-}
+export type StacAsset = components['schemas']['StacAsset'];
 
-/** A COPC point cloud's published file. */
-export interface PointCloudMetadata {
-  /** URL path of the COPC file on the app origin; a replaced file gets a new URL. */
-  url: string | null;
-  size_bytes: number | null;
-  point_count: number | null;
-  /** LAS point data record format: 6, 7 (RGB) or 8 (RGB and near infrared). */
-  point_format: number | null;
-  vertical_crs: string | null;
-}
+export type PointCloudMetadata = components['schemas']['PointCloudMetadata'];
 
-/** A 3D Tiles dataset's published tileset. */
-export interface TilesetMetadata {
-  /** URL path of the tileset's tileset.json on the app origin, e.g. /api/datasets/{id}/tiles3d/tileset.json. */
-  url: string;
-  size_bytes: number | null;
-  version: string | null;
-  geometric_error: number | null;
-  bounding_volume: 'region' | 'box' | 'sphere' | null;
-  /** Tile formats in the tileset, sorted; null for a tileset published before they were recorded. */
-  content_types?: string[] | null;
-  /** Extensions a client must support to load it, sorted; null before they were recorded. */
-  extensions_required?: string[] | null;
-}
+export type TilesetMetadata = components['schemas']['TilesetMetadata'];
 
-export interface RasterMetadata {
-  epsg: number | null;
-  /** True when the CRS is geographic (res_x/res_y are degrees, not meters). */
-  crs_is_geographic?: boolean | null;
-  res_x: number | null;
-  res_y: number | null;
-  band_count: number | null;
-  /** Whether the raster is stored as elevation, so its tiles are terrain-RGB. */
-  is_dem?: boolean | null;
-  nodata: string | null;
-  compression: string | null;
-  width: number | null;
-  height: number | null;
-  size_bytes: number | null;
-  tile_url: string | null;
-  bands: RasterBandInfo[];
-  connect: RasterConnect | null;
-  // VRT fields
-  status: string | null;
-  vrt_type: string | null;
-  source_count: number | null;
-  resolution_strategy: string | null;
-}
+export type RasterMetadata = components['schemas']['RasterMetadata'];
 
 /** What a staged 3D Tiles tileset archive holds, read without unpacking it. */
 export type TilesetPreviewResponse = components['schemas']['TilesetPreviewResponse'];
@@ -272,124 +195,24 @@ export interface DerivedFrom {
   created_at: string;
 }
 
-export interface DatasetResponse {
-  id: string;
-  record_id: string;
-  table_name: string;
-  title: string;
-  summary: string | null;
-  srid: number | null;
-  geometry_type: GeometryTypeName | null;
-  /** fix(#430 codex r18): true when the column is generic GEOMETRY (created
-   * sketch datasets) — the dataset accepts any subtype on write regardless of
-   * the display geometry_type. Detail endpoint only; lists report false. */
-  has_generic_geometry?: boolean;
-  feature_count: number | null;
-  extent_bbox: number[] | null;
-  column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
-  license: string | null;
-  /** feat(#1472): credit line the source's terms require to be displayed
-   * wherever the data is rendered. Shown verbatim in the viewer's attribution
-   * control — distinct from `license` (the terms) and `source_organization`
-   * (a search facet). */
-  attribution: string | null;
-  source_organization: string | null;
-  data_vintage_start: string | null;
-  data_vintage_end: string | null;
-  source_format: string | null;
-  source_filename: string | null;
-  tile_columns: string[] | null;
-  original_srid: number | null;
+// The API declares these as plain strings; the frontend narrows them to the vocabularies it switches on.
+export type DatasetResponse = Omit<
+  components['schemas']['DatasetResponse'],
+  'visibility' | 'record_type' | 'origin' | 'source_health' | 'schema_drift_status' | 'source_freshness'
+> & {
   visibility: DatasetVisibility;
-  created_by: string | null;
-  created_by_display: string;
-  created_at: string;
-  updated_at: string;
-  last_edited_by_display: string | null;
-  last_edited_at: string | null;
-  record_status: RecordStatus;
-  lineage_summary: string | null;
-  /** fix(#765): provenance for an analysis output — which dataset it came from
-   * and which operation produced it. Null when the dataset was not derived, and
-   * also when the requester cannot see the source (visible_derived_from gates
-   * both this dataset_id and params.mask_dataset_id). */
-  derived_from?: DerivedFrom | null;
-  update_frequency: string | null;
-  usage_constraints: string | null;
-  access_constraints: string | null;
-  sensitivity_classification: string | null;
-  theme_category: string[] | null;
-  owner_org: string | null;
-  published_at: string | null;
-  updated_by: string | null;
-  current_version: number;
-  source_url: string | null;
-  /** feat(#1218): read-only source-origin & refresh state. All system-managed —
-   * none of these is accepted by PATCH /datasets/{id}/metadata, unlike the
-   * editable `source_url` above.
-   *
-   * `origin` is computed server-side from source_format and record_type. It is
-   * the same rule `datasetOrigin()` in OriginBadge.tsx implements locally; that
-   * local copy is the fallback for endpoints that do not serve this field yet.
-   * Null for collections and VRTs, which have no origin of their own. */
-  origin?: DatasetOrigin | null;
-  /** Machine-readable pointer back to the origin. Null for uploads and created
-   * datasets, which have no remote origin. Distinct from `source_url`. */
-  origin_uri?: string | null;
-  /** Typed per-origin payload, discriminated by `kind`. Never holds credentials. */
-  origin_ref?: Record<string, unknown> | null;
-  /** Last committed successful refresh — not the last attempt. */
-  last_refreshed_at?: string | null;
-  /** Last contact with the origin at all, whether it succeeded or failed. */
-  last_checked_at?: string | null;
-  /** 'unknown' means never probed, or an origin kind with nothing to probe. */
-  source_health?: SourceHealth;
-  /** Short redacted reason for a non-healthy state. */
-  source_health_detail?: string | null;
-  /** 'unknown' until a refresh has run. */
-  schema_drift_status?: SchemaDriftStatus;
-  /** feat(#1224): computed from `last_refreshed_at` against the
-   * `update_frequency` below, gated on `origin`. Read-only, like the block
-   * above. */
-  source_freshness?: SourceFreshness;
-  quality_statement: string | null;
-  collections: Array<{ id: string; name: string }> | null;
-  quality_detail?: {
-    overall: number;
-    metadata_completeness: number;
-    geometry_validity: number | null;
-    attribute_completeness: number | null;
-    crs_defined: number | null;
-    computed_at: string | null;
-  } | null;
   record_type: RecordType;
-  raster: RasterMetadata | null;
-  tileset?: TilesetMetadata | null;
-  pointcloud?: PointCloudMetadata | null;
-  stac_assets?: Record<string, StacAsset> | null;
-  stac_extensions?: string[];
-  language?: string;
-  is_3d?: boolean | null;
-  n_dims?: number | null;
-  z_min?: number | null;
-  z_max?: number | null;
-  /** feat(#1070): advisory warnings a metadata PATCH can attach — e.g. a
-   * visibility/status change exposing keywords inherited from an analysis
-   * source the new audience cannot open. PATCH responses only. */
-  metadata_warnings?: string[] | null;
-  /** The data the last replacement or restore replaced, restorable through
-   * POST /datasets/{id}/previous-version/restore. Detail endpoint only. */
-  previous_version?: PreviousVersion | null;
-}
+  origin?: DatasetOrigin | null;
+  source_health: SourceHealth;
+  schema_drift_status: SchemaDriftStatus;
+  source_freshness: SourceFreshness;
+};
 
 export type PreviousVersion = components['schemas']['PreviousVersionResponse'];
 export type RestorePreviousVersionResponse =
   components['schemas']['RestorePreviousVersionResponse'];
 
-export interface DatasetListResponse {
-  datasets: DatasetResponse[];
-  total: number;
-}
+export type DatasetListResponse = components['schemas']['DatasetListResponse'];
 
 export interface CreateDatasetRequest {
   title: string;
@@ -420,6 +243,7 @@ export interface DatasetUpdateRequest {
 }
 
 // Record sub-resource types
+// Request body: the generated type marks defaulted fields (`sort_order`) required, but the API accepts omitting them.
 export interface ContactCreate {
   role: string;
   name?: string | null;
@@ -430,68 +254,24 @@ export interface ContactCreate {
   sort_order?: number;
 }
 
-export interface ContactResponse {
-  id: string;
-  record_id: string;
-  role: string;
-  name: string | null;
-  email: string | null;
-  organization: string | null;
-  phone: string | null;
-  sort_order: number;
-  extra_json?: Record<string, unknown> | null;
-}
+export type ContactResponse = components['schemas']['ContactResponse'];
 
-export interface ContactListResponse {
-  contacts: ContactResponse[];
-  total: number;
-}
+export type ContactListResponse = components['schemas']['ContactListResponse'];
 
+// Request body: the generated type marks defaulted fields (`keyword_type`) required, but the API accepts omitting them.
 export interface KeywordCreate {
   keyword: string;
   vocabulary_uri?: string | null;
   keyword_type?: string;
 }
 
-export interface KeywordResponse {
-  id: string;
-  record_id: string;
-  keyword: string;
-  vocabulary_uri: string | null;
-  keyword_type: string;
-  /** feat(#1070): true when the keyword also exists on the dataset this record
-   * was derived from. Only ever true for a requester who can access that
-   * source; everyone else sees false, matching the derived_from redaction. */
-  inherited?: boolean;
-}
+export type KeywordResponse = components['schemas']['KeywordResponse'];
 
-export interface KeywordListResponse {
-  keywords: KeywordResponse[];
-  total: number;
-  /** feat(#1070): true when at least one keyword is inherited AND the record's
-   * audience — stored, or at the counterfactual audience_* query params —
-   * includes someone who cannot open the source dataset. */
-  inherited_audience_gap?: boolean;
-}
+export type KeywordListResponse = components['schemas']['KeywordListResponse'];
 
-export interface DistributionResponse {
-  id: string;
-  record_id: string;
-  distribution_type: DistributionType;
-  format: string | null;
-  url: string;
-  title: string | null;
-  description: string | null;
-  protocol: string | null;
-  media_type: string | null;
-  is_primary: boolean;
-  auto_generated: boolean;
-}
+export type DistributionResponse = components['schemas']['DistributionResponse'];
 
-export interface DistributionListResponse {
-  distributions: DistributionResponse[];
-  total: number;
-}
+export type DistributionListResponse = components['schemas']['DistributionListResponse'];
 
 /** feat(#1395): the only field the set-primary control writes. The backend
  * `DistributionUpdate` schema accepts the full row (title/url/etc.), but this
@@ -500,48 +280,15 @@ export interface DistributionUpdate {
   is_primary?: boolean;
 }
 
-export interface AttributeMetadataResponse {
-  id: string;
-  dataset_id: string;
-  field_name: string;
-  title: string | null;
-  description: string | null;
-  data_type: string | null;
-  units: string | null;
-  domain_type: string | null;
-  semantic_role: string | null;
-  example_values: unknown[] | null;
-  ordinal_position: number | null;
-  is_nullable: boolean | null;
-  is_current: boolean;
-  user_modified_fields: string[];
-}
+export type AttributeMetadataResponse = components['schemas']['AttributeMetadataResponse'];
 
-export interface AttributeMetadataUpdate {
-  title?: string | null;
-  description?: string | null;
-  units?: string | null;
-  semantic_role?: string | null;
-  domain_type?: string | null;
-}
+export type AttributeMetadataUpdate = components['schemas']['AttributeMetadataUpdate'];
 
-export interface AttributeMetadataListResponse {
-  attributes: AttributeMetadataResponse[];
-  total: number;
-}
+export type AttributeMetadataListResponse = components['schemas']['AttributeMetadataListResponse'];
 
-export interface ValidationIssue {
-  field: string;
-  message: string;
-  severity: 'error' | 'warning';
-}
+export type ValidationIssue = components['schemas']['ValidationIssue'];
 
-export interface ValidationResultResponse {
-  is_valid: boolean;
-  errors: ValidationIssue[];
-  warnings: ValidationIssue[];
-  quality_score: Record<string, unknown> | null;
-}
+export type ValidationResultResponse = components['schemas']['ValidationResultResponse'];
 
 /**
  * Structured warnings attached to IngestJob.user_metadata.warnings[] by
@@ -581,27 +328,14 @@ export type IngestJobWarning =
   | IngestDbfTruncationWarning
   | IngestMercatorClipWarning;
 
-export interface OGCRecordProperties {
-  type: string;
-  title: string;
-  description: string | null;
-  keywords: string[] | null;
-  created: string | null;
-  updated: string | null;
-  updated_by_display: string | null;
-  never_edited: boolean;
-  crs: string | null;
-  geometry_type: GeometryTypeName | null;
-  feature_count: number | null;
-  row_count?: number | null;
-  column_count?: number | null;
-  contacts?: Array<{ name?: string; organization?: string; roles?: string[]; email?: string; phone?: string }> | null;
-  license: string | null;
-  externalIds?: string[];
-  source_organization: string | null;
-  /** Ingest source format ('geojson', 'wfs', 'stac', 'created', ...).
-   * Null for registered PostGIS tables and composed VRTs. */
-  source_format?: string | null;
+// The API declares these as plain strings or open dicts; the frontend narrows them to the shapes it reads.
+export type OGCRecordProperties = Omit<
+  components['schemas']['OGCRecordProperties'],
+  'record_type' | 'source_freshness' | 'source_health' | 'quality_detail' | 'contacts'
+> & {
+  record_type: RecordType;
+  source_freshness: SourceFreshness;
+  source_health: SourceHealth;
   quality_detail?: {
     overall: number;
     metadata_completeness: number;
@@ -610,83 +344,20 @@ export interface OGCRecordProperties {
     crs_defined: number | null;
     computed_at: string | null;
   } | null;
-  record_status?: string | null;
-  record_type?: RecordType;
-  /** feat(#1224): the same computed value `DatasetResponse.source_freshness`
-   * carries, so a catalog card and a dataset page cannot disagree about how
-   * late a dataset is. Served alongside `update_frequency` below. */
-  source_freshness?: SourceFreshness;
-  /** feat(#1281): catalog projection of the persisted detail state. */
-  source_health?: SourceHealth;
-  /** Last contact with the origin, whether it succeeded or failed. */
-  last_checked_at?: string | null;
-  /** Last committed successful refresh, not the last attempt. */
-  last_refreshed_at?: string | null;
-  update_frequency?: string | null;
-  has_quicklook?: boolean;
-  quicklook_version?: string | null;
-  band_count?: number | null;
-  dataset_count?: number;
-  vrt_type?: string | null;
-  source_count?: number | null;
-  gsd?: number | null;
-  /**
-   * fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
-   * two sources with different per-axis resolution can share one gsd, so a
-   * client-side grid-alignment check built on gsd alone cannot replicate
-   * the backend's _check_grid_alignment, which compares res_x/res_y
-   * independently. These are real fields now (unlike the res_x/res_y this
-   * interface used to declare and removed in #1778 -- those were never
-   * returned by the API; these are, from service_records.py).
-   */
-  res_x?: number | null;
-  res_y?: number | null;
-  /** True when the raster CRS is geographic (gsd is degrees, not meters). */
-  crs_is_geographic?: boolean | null;
-  /**
-   * fix(#1778): the flat epsg/res_x/res_y/width/height/dtype/nodata fields
-   * this interface used to declare were never returned by the API — the
-   * serializer (service_records.py) emits STAC names instead. Read those.
-   * fix(#1805 review round 3 P2): now declared on the backend's
-   * OGCRecordProperties too (schemas.py), matching this hand-typed mirror --
-   * /search/datasets validates through that model and was silently
-   * stripping these three when they were declared here but not there.
-   */
-  'proj:code'?: string | null;
-  /** [height, width] in pixels. */
-  'proj:shape'?: [number, number] | null;
-  'raster:bands'?: Array<{
-    name?: string;
-    data_type?: string;
-    /**
-     * band_info is a raw JSONB column not schema-constrained at the DB
-     * layer; a band's nodata sentinel can be a number as easily as a
-     * string, unlike the top-level RasterAsset.nodata column (always Text).
-     */
-    nodata?: string | number | null;
-    /** Per-band statistics (e.g. min/max/mean); shape not yet fixed. */
-    statistics?: Record<string, unknown> | null;
-    description?: string;
-  }> | null;
-}
+  contacts: Array<{ name?: string; organization?: string; roles?: string[]; email?: string; phone?: string }>;
+};
 
-export interface OGCRecordLink {
-  rel: string;
-  href: string;
-  type: string;
-}
+export type OGCRecordLink = components['schemas']['OGCRecordLink'];
 
-export interface OGCRecordResponse {
-  type: "Feature";
-  id: string;
+// GeoJSON Feature narrowing: the API declares `type` as a string and `geometry` as an open dict.
+export type OGCRecordResponse = Omit<
+  components['schemas']['OGCRecordResponse'],
+  'type' | 'geometry' | 'properties'
+> & {
+  type: 'Feature';
   geometry: Geometry | null;
   properties: OGCRecordProperties;
-  links: OGCRecordLink[];
-  conformsTo?: string[] | null;
-  time?: Record<string, unknown> | null;
-  assets?: Record<string, { href: string; type?: string; title?: string; roles?: string[] }> | null;
-  bbox?: number[] | null;
-}
+};
 
 export interface SearchResponse {
   type: "FeatureCollection";
@@ -724,27 +395,11 @@ export interface FacetResponse {
   collections?: Array<{ id: string; name: string; dataset_count: number }>;
 }
 
-export interface DatasetRowsResponse {
-  rows: Record<string, unknown>[];
-  approximate_total: number;
-  next_cursor: number | null;
-  columns: { name: string; type: string }[];
-}
+export type DatasetRowsResponse = components['schemas']['DatasetRowsResponse'];
 
-export interface CatalogStatsResponse {
-  total_datasets: number;
-  recent_additions: number;
-  total_storage_bytes: number | null;
-  datasets_by_geometry_type: Record<string, number>;
-  datasets_by_visibility: Record<string, number>;
-  users_by_status: Record<string, number>;
-  total_users: number;
-}
+export type CatalogStatsResponse = components['schemas']['CatalogStatsResponse'];
 
-export interface UserListResponse {
-  users: UserResponse[];
-  total: number;
-}
+export type UserListResponse = components['schemas']['UserListResponse'];
 
 export interface AuditLogResponse {
   id: string;
@@ -796,11 +451,7 @@ export interface UploadResponse {
   message: string;
 }
 
-export interface RegisterResponse {
-  dataset_id: string;
-  title: string;
-  table_name: string;
-}
+export type RegisterResponse = components['schemas']['RegisterResponse'];
 
 export interface JobStatusResponse {
   id: string;
@@ -877,15 +528,7 @@ export interface ApiKeyResponse {
   last_used_at: string | null;
 }
 
-export interface ApiKeyCreateResponse {
-  id: string;
-  key: string;
-  fingerprint: string;
-  name: string;
-  expires_at: string | null;
-  scope: ApiKeyScope;
-  created_at: string;
-}
+export type ApiKeyCreateResponse = components['schemas']['ApiKeyCreateResponse'];
 
 export interface MyApiKeyResponse {
   id: string;
@@ -1090,26 +733,9 @@ export interface ReuploadCommitRequest {
   review_fingerprint?: string | null;
 }
 
-export interface DatasetVersionResponse {
-  id: string;
-  dataset_id: string;
-  version_number: number;
-  source_filename: string | null;
-  source_format: string | null;
-  feature_count: number | null;
-  srid: number | null;
-  geometry_type: GeometryTypeName | null;
-  file_hash: string | null;
-  uploaded_by: string | null;
-  uploaded_at: string;
-  /** The version a restore published again as this one. */
-  restored_from_version?: number | null;
-}
+export type DatasetVersionResponse = components['schemas']['DatasetVersionResponse'];
 
-export interface DatasetVersionListResponse {
-  versions: DatasetVersionResponse[];
-  total: number;
-}
+export type DatasetVersionListResponse = components['schemas']['DatasetVersionListResponse'];
 
 // feat(#1285): the refresh door (#1277/#1313) and its run history
 // (GET /datasets/{id}/refresh-runs). Hand-mirrored like the version types
@@ -1370,28 +996,7 @@ export interface StyleConfig {
 
 export type ColumnValuesResponse = components['schemas']['ColumnValuesResponse'];
 
-export interface ColumnStatsResponse {
-  min: number | null;
-  max: number | null;
-  count: number;
-  mean: number | null;
-  quantiles: number[];
-  /**
-   * Population standard deviation. OPTIONAL: the current column-stats endpoint
-   * does not return it, so the std-dev classification method gates on its
-   * presence rather than fabricating σ (see DataDrivenStyleEditor). Present
-   * here so the std-dev branch is correctly enabled once the backend ships it.
-   */
-  stddev?: number | null;
-  /**
-   * 'categorical' when the column is non-numeric (text/varchar/etc.); null for
-   * numeric columns. Lets callers skip graduated styling on text columns
-   * instead of treating an all-null numeric response as an error.
-   */
-  data_type?: string | null;
-  /** Distinct non-null value count; populated only for categorical columns. */
-  distinct_count?: number | null;
-}
+export type ColumnStatsResponse = components['schemas']['ColumnStatsResponse'];
 
 // Maps
 export type MapVisibility = 'private' | 'internal' | 'public';

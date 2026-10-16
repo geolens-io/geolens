@@ -14,6 +14,7 @@ function makeFeature(
   return {
     type: 'Feature',
     id: 'dataset-1',
+    time: {},
     geometry: {
       type: 'Polygon',
       coordinates: [[
@@ -33,11 +34,17 @@ function makeFeature(
       updated: '2026-03-02T00:00:00Z',
       updated_by_display: 'editor-user',
       never_edited: false,
+      record_type: 'vector_dataset',
+      themes: [],
+      time: {},
+      source_freshness: 'unknown',
+      source_health: 'unknown',
+      has_quicklook: false,
       crs: 'EPSG:4326',
       geometry_type: 'Polygon',
       feature_count: 195,
-      contacts: null,
-      license: null,
+      contacts: [],
+      license: 'proprietary',
       source_organization: 'Natural Earth',
       quality_detail: null,
       ...propertyOverrides,
@@ -157,10 +164,10 @@ describe('SearchResultCard', () => {
             {
               type: 'collection',
               title: 'Collection',
-              description: null,
+              description: '',
               record_type: 'collection',
               dataset_count: 1,
-              keywords: null,
+              keywords: [],
               geometry_type: null,
               feature_count: null,
               crs: null,
@@ -249,7 +256,7 @@ describe('SearchResultCard', () => {
     it.each([5, 1])('shows a source count of %i', (count) => {
       render(
         <SearchResultCard
-          feature={makeFeature({ record_type: 'vrt_dataset', description: null, geometry_type: null, vrt_type: 'mosaic', source_count: count })}
+          feature={makeFeature({ record_type: 'vrt_dataset', description: '', geometry_type: null, vrt_type: 'mosaic', source_count: count })}
         />,
       );
 
@@ -260,7 +267,7 @@ describe('SearchResultCard', () => {
     it.each([0, null])('leaves the count out when source_count is %s', (count) => {
       render(
         <SearchResultCard
-          feature={makeFeature({ record_type: 'vrt_dataset', description: null, geometry_type: null, vrt_type: 'mosaic', source_count: count })}
+          feature={makeFeature({ record_type: 'vrt_dataset', description: '', geometry_type: null, vrt_type: 'mosaic', source_count: count })}
         />,
       );
 
@@ -297,7 +304,7 @@ describe('SearchResultCard', () => {
               description: 'A set of datasets',
               record_type: 'collection',
               dataset_count: 7,
-              keywords: null,
+              keywords: [],
               geometry_type: null,
               feature_count: null,
               crs: null,
@@ -323,10 +330,10 @@ describe('SearchResultCard', () => {
             {
               type: 'collection',
               title: 'My Collection',
-              description: null,
+              description: '',
               record_type: 'collection',
               dataset_count: 5,
-              keywords: null,
+              keywords: [],
               geometry_type: null,
               feature_count: null,
               crs: null,
@@ -354,7 +361,7 @@ describe('SearchResultCard', () => {
               description: 'This is a detailed description',
               record_type: 'collection',
               dataset_count: 3,
-              keywords: null,
+              keywords: [],
               geometry_type: null,
               feature_count: null,
               crs: null,
@@ -561,7 +568,7 @@ describe('SearchResultCard', () => {
     });
 
     it('renders auto-description when description is null', () => {
-      render(<SearchResultCard feature={makeFeature({ description: null })} />);
+      render(<SearchResultCard feature={makeFeature({ description: '' })} />);
 
       const desc = screen.getByTestId('dataset-card-description');
       expect(desc).toBeInTheDocument();
@@ -575,7 +582,7 @@ describe('SearchResultCard', () => {
       render(
         <SearchResultCard
           feature={makeFeature({
-            description: null,
+            description: '',
             record_type: 'raster_dataset',
             band_count: 4,
             gsd: 10,
@@ -594,7 +601,7 @@ describe('SearchResultCard', () => {
       render(
         <SearchResultCard
           feature={makeFeature({
-            description: null,
+            description: '',
             record_type: 'tiles3d_dataset',
             geometry_type: null,
             feature_count: null,
@@ -613,10 +620,10 @@ describe('SearchResultCard', () => {
             {
               type: 'collection',
               title: 'My Collection',
-              description: null,
+              description: '',
               record_type: 'collection',
               dataset_count: 5,
-              keywords: null,
+              keywords: [],
               geometry_type: null,
               feature_count: null,
               crs: null,
@@ -646,7 +653,7 @@ describe('SearchResultCard', () => {
               description: 'A collection',
               record_type: 'collection',
               dataset_count: 10,
-              keywords: null,
+              keywords: [],
               geometry_type: null,
               feature_count: null,
               crs: null,
@@ -670,7 +677,7 @@ describe('SearchResultCard', () => {
             {
               type: 'collection',
               title: 'Tagged Collection',
-              description: null,
+              description: '',
               record_type: 'collection',
               dataset_count: 3,
               keywords: ['should', 'not', 'appear'],
@@ -699,10 +706,10 @@ describe('SearchResultCard', () => {
             {
               type: 'collection',
               title: 'Org Collection',
-              description: null,
+              description: '',
               record_type: 'collection',
               dataset_count: 1,
-              keywords: null,
+              keywords: [],
               geometry_type: null,
               feature_count: null,
               crs: null,
@@ -779,11 +786,11 @@ describe('SearchResultCard', () => {
             {
               type: 'collection',
               title: 'Collection',
-              description: null,
+              description: '',
               record_type: 'collection',
               record_status: 'draft',
               dataset_count: 1,
-              keywords: null,
+              keywords: [],
               geometry_type: null,
               feature_count: null,
               crs: null,
