@@ -128,10 +128,16 @@ async def structured_completion(
     max_tokens: int,
     temperature: float,
 ) -> tuple[Any, int, int]:
-    """Parse one reply into ``response_model``; returns it with token counts."""
-    if settings.openai_api_style == "responses":
-        response = await create_response(
-            client.responses.parse,
+    """Parse one reply into ``response_model``; returns it with token counts.
+
+    Any failure to parse a reply the provider billed (truncated or malformed
+    JSON, a schema mismatch, a stopped or failed response) carries that
+    reply's usage, so ``usage_accounting`` can record it.
+    """
+    responses = settings.openai_api_style == "responses"
+    if responses:
+        raw = await create_response(
+            client.responses.with_raw_response.parse,
             base_url=base_url,
             model=model,
             instructions=system_prompt,
@@ -141,17 +147,9 @@ async def structured_completion(
             temperature=temperature,
             store=False,
         )
-        usage = response.usage
-        if response.status not in ("completed", "incomplete"):
-            raise ResponsesError(
-                f"OpenAI Responses request {response.status}", usage=usage
-            )
-        parsed = response.output_parsed
-        input_tokens = usage.input_tokens if usage else 0
-        output_tokens = usage.output_tokens if usage else 0
     else:
-        response = await create_chat_completion(
-            client.beta.chat.completions.parse,
+        raw = await create_chat_completion(
+            client.beta.chat.completions.with_raw_response.parse,
             base_url=base_url,
             model=model,
             max_tokens=max_tokens,
@@ -162,15 +160,29 @@ async def structured_completion(
             ],
             response_format=response_model,
         )
-        parsed = response.choices[0].message.parsed
-        usage = response.usage
-        input_tokens = usage.prompt_tokens if usage else 0
-        output_tokens = usage.completion_tokens if usage else 0
-    if parsed is None:
-        error = ValueError("OpenAI returned no parsed response")
-        # The provider billed the reply even though nothing parsed.
-        attach_token_usage(error, input_tokens, output_tokens)
-        raise error
+    # Read before parsing: the SDK's parser can raise on a reply it billed.
+    usage = raw.http_response.json().get("usage") or {}
+    input_tokens = usage.get("input_tokens" if responses else "prompt_tokens") or 0
+    output_tokens = (
+        usage.get("output_tokens" if responses else "completion_tokens") or 0
+    )
+    try:
+        response = raw.parse()
+        if responses:
+            # An incomplete reply is partial, as Chat Completions' SDK treats
+            # finish_reason "length".
+            if response.status != "completed":
+                raise ResponsesError(f"OpenAI Responses request {response.status}")
+            parsed = response.output_parsed
+        else:
+            parsed = response.choices[0].message.parsed
+        if parsed is None:
+            raise ValueError("OpenAI returned no parsed response")
+    except (
+        Exception
+    ) as exc:  # broad: any parse or status failure still billed the reply
+        attach_token_usage(exc, input_tokens, output_tokens)
+        raise
     return parsed, input_tokens, output_tokens
 
 

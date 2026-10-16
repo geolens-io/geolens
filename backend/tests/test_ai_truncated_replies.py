@@ -9,7 +9,12 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from openai.types.responses import Response, ResponseOutputMessage, ResponseUsage
+from openai.types.responses import (
+    Response,
+    ResponseFunctionToolCall,
+    ResponseOutputMessage,
+    ResponseUsage,
+)
 from pydantic import SecretStr
 
 import app.processing.ai.openai_request as openai_request
@@ -24,10 +29,18 @@ from app.processing.ai.llm_loop import ToolLoopResult, UserFacingAIError
 pytestmark = pytest.mark.anyio
 
 _URL = "http://llm.internal:11434/v1"
-_XML_CALL = (
-    "Let me query that. <tool_call><function=query_data>"
-    "<parameter=question>how many parks</parameter></function></tool_call>"
+_FUNCTION = (
+    "<function=query_data><parameter=question>how many parks</parameter></function>"
 )
+_XML_CALL = f"Let me query that. <tool_call>{_FUNCTION}</tool_call>"
+# Every wrapper the parser accepts, including an unclosed one.
+_XML_SPELLINGS = [
+    _FUNCTION,
+    f"<tool_call>{_FUNCTION}</tool_call>",
+    f"<tool-call>{_FUNCTION}</tool-call>",
+    f"<|tool_call|>{_FUNCTION}<|/tool_call|>",
+    f"<tool_call>{_FUNCTION}",
+]
 _TOOLS = [
     {
         "name": "query_data",
@@ -77,7 +90,7 @@ def _chat_chunks(text, finish_reason):
     ]
 
 
-def _responses_events(text, status, reason=None):
+def _responses_events(text, status, reason=None, call_status=None):
     message = ResponseOutputMessage.model_validate(
         {
             "type": "message",
@@ -87,8 +100,20 @@ def _responses_events(text, status, reason=None):
             "content": [{"type": "output_text", "text": text, "annotations": []}],
         }
     )
+    output = [message]
+    if call_status is not None:
+        output.append(
+            ResponseFunctionToolCall(
+                type="function_call",
+                id="fc_1",
+                call_id="call_1",
+                name="query_data",
+                arguments='{"question": "how many parks"}',
+                status=call_status,
+            )
+        )
     response = Response.model_construct(
-        output=[message],
+        output=output,
         status=status,
         incomplete_details=SimpleNamespace(reason=reason) if reason else None,
         usage=ResponseUsage.model_construct(input_tokens=5, output_tokens=5),
@@ -145,35 +170,78 @@ async def _stream(monkeypatch, style, events):
     return executed, out
 
 
-@pytest.mark.parametrize(
-    ("style", "events"),
-    [
-        ("chat_completions", _chat_chunks(_XML_CALL, "length")),
-        ("chat_completions", _chat_chunks(_XML_CALL, "content_filter")),
-        ("responses", _responses_events(_XML_CALL, "incomplete", "max_output_tokens")),
-        ("responses", _responses_events(_XML_CALL, "incomplete", "content_filter")),
-    ],
-)
+_TRUNCATED_ROUNDS = {
+    "chat-length": ("chat_completions", lambda text: _chat_chunks(text, "length")),
+    "chat-content_filter": (
+        "chat_completions",
+        lambda text: _chat_chunks(text, "content_filter"),
+    ),
+    "responses-max_output_tokens": (
+        "responses",
+        lambda text: _responses_events(text, "incomplete", "max_output_tokens"),
+    ),
+    "responses-content_filter": (
+        "responses",
+        lambda text: _responses_events(text, "incomplete", "content_filter"),
+    ),
+    "responses-incomplete-no-details": (
+        "responses",
+        lambda text: _responses_events(text, "incomplete"),
+    ),
+    "responses-completed-call-in_progress": (
+        "responses",
+        lambda text: _responses_events(text, "completed", call_status="in_progress"),
+    ),
+    "responses-completed-call-incomplete": (
+        "responses",
+        lambda text: _responses_events(text, "completed", call_status="incomplete"),
+    ),
+}
+
+
+@pytest.mark.parametrize("spelling", _XML_SPELLINGS)
+@pytest.mark.parametrize("round_kind", list(_TRUNCATED_ROUNDS))
 async def test_a_streamed_xml_call_in_a_truncated_round_never_runs(
-    monkeypatch, style, events
+    monkeypatch, round_kind, spelling
 ):
-    executed, out = await _stream(monkeypatch, style, events)
+    style, events = _TRUNCATED_ROUNDS[round_kind]
+    executed, out = await _stream(monkeypatch, style, events(f"Querying. {spelling}"))
 
     assert executed == []
     assert out[-1]["type"] == "done"
 
 
 @pytest.mark.parametrize(
+    ("status", "call_status"),
+    [
+        ("completed", "in_progress"),
+        ("completed", "incomplete"),
+        ("incomplete", "completed"),
+    ],
+)
+async def test_a_streamed_native_call_in_a_truncated_round_never_runs(
+    monkeypatch, status, call_status
+):
+    events = _responses_events("", status, "max_output_tokens", call_status)
+
+    executed, out = await _stream(monkeypatch, "responses", events)
+
+    assert executed == []
+    assert out[-1]["type"] == "done"
+
+
+@pytest.mark.parametrize("spelling", _XML_SPELLINGS)
+@pytest.mark.parametrize(
     ("style", "events"),
     [
-        ("chat_completions", _chat_chunks(_XML_CALL, "stop")),
-        ("responses", _responses_events(_XML_CALL, "completed")),
+        ("chat_completions", lambda text: _chat_chunks(text, "stop")),
+        ("responses", lambda text: _responses_events(text, "completed")),
     ],
 )
 async def test_a_streamed_xml_call_in_a_finished_round_still_runs(
-    monkeypatch, style, events
+    monkeypatch, style, events, spelling
 ):
-    executed, _ = await _stream(monkeypatch, style, events)
+    executed, _ = await _stream(monkeypatch, style, events(spelling))
 
     assert executed == [("query_data", {"question": "how many parks"})]
 
@@ -294,6 +362,124 @@ async def test_sql_generation_refuses_a_truncated_query(monkeypatch):
     provider = SimpleNamespace(
         resolve_runtime_config=lambda _db: _async_return({}), complete=complete
     )
+    monkeypatch.setattr(sql_generator, "LLM_PROVIDER", _Setting())
+    monkeypatch.setattr(sql_generator, "LLM_MODEL_LIGHT", _Setting())
+    monkeypatch.setattr(sql_generator, "get_ai_provider", lambda _p: provider)
+    monkeypatch.setattr(sql_generator, "release_connection", nothing)
+
+    sql = await sql_generator.generate_sql(SimpleNamespace(), "how many?", "-- ddl")
+
+    assert sql.startswith("-- ERROR:")
+
+
+def _claude_client(text, stop_reason):
+    """A real Anthropic SDK client answering every request with one message."""
+    import httpx2
+    from anthropic import AsyncAnthropic
+
+    body = {
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-test",
+        "content": [{"type": "text", "text": text}],
+        "stop_reason": stop_reason,
+        "stop_sequence": None,
+        "usage": {"input_tokens": 5, "output_tokens": 7},
+    }
+    return AsyncAnthropic(
+        api_key="synthetic-test-key",
+        max_retries=0,
+        http_client=httpx2.AsyncClient(
+            transport=httpx2.MockTransport(
+                lambda request: httpx2.Response(200, json=body)
+            )
+        ),
+    )
+
+
+@pytest.fixture
+def _claude(monkeypatch):
+    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("synthetic-test-key"))
+
+    def install(text, stop_reason):
+        client = _claude_client(text, stop_reason)
+        monkeypatch.setattr(
+            "app.processing.ai.llm_loop.get_anthropic_client", lambda: client
+        )
+
+    return install
+
+
+@pytest.mark.parametrize(
+    ("stop_reason", "truncated"),
+    [
+        ("max_tokens", True),
+        ("refusal", True),
+        ("model_context_window_exceeded", True),
+        ("stop_sequence", False),
+        ("pause_turn", False),
+        ("end_turn", False),
+    ],
+)
+async def test_a_claude_reply_is_flagged_truncated_only_when_cut_off(
+    _claude, stop_reason, truncated
+):
+    from app.platform.extensions.defaults import DefaultAnthropicProvider
+
+    _claude("partial", stop_reason)
+
+    async def tool_executor(name, args):
+        return {}
+
+    result = await DefaultAnthropicProvider().complete(
+        model="claude-test",
+        system_prompt="sys",
+        user_message="hi",
+        tools=[],
+        tool_executor=tool_executor,
+        max_rounds=1,
+    )
+
+    assert result.truncated is truncated
+
+
+async def test_map_generation_refuses_a_truncated_claude_spec(
+    _claude, _map_generation, monkeypatch
+):
+    from app.platform.extensions.defaults import DefaultAnthropicProvider
+
+    _claude(_SPEC + " Then", "max_tokens")
+    monkeypatch.setattr(
+        ai_service, "get_ai_provider", lambda _p: DefaultAnthropicProvider()
+    )
+
+    with pytest.raises(UserFacingAIError, match="cut off"):
+        await ai_service.generate_map_from_prompt(
+            SimpleNamespace(), _user(), set(), "parks", port=SimpleNamespace()
+        )
+    assert _map_generation == []
+
+
+async def test_sql_generation_refuses_a_truncated_claude_query(_claude, monkeypatch):
+    from app.platform.extensions.defaults import DefaultAnthropicProvider
+
+    class _Setting:
+        async def get(self, _db):
+            return "anthropic"
+
+        async def for_provider(self, *_a):
+            return "claude-test"
+
+    async def nothing(*_a, **_k):
+        return None
+
+    async def runtime_config(_db):
+        return {}
+
+    _claude("SELECT * FROM parks LIMIT 1", "max_tokens")
+    provider = DefaultAnthropicProvider()
+    monkeypatch.setattr(provider, "resolve_runtime_config", runtime_config)
     monkeypatch.setattr(sql_generator, "LLM_PROVIDER", _Setting())
     monkeypatch.setattr(sql_generator, "LLM_MODEL_LIGHT", _Setting())
     monkeypatch.setattr(sql_generator, "get_ai_provider", lambda _p: provider)

@@ -244,22 +244,80 @@ async def test_rejected_responses_parameters_are_left_out(monkeypatch):
     assert not {"temperature", "reasoning", "include", "tools"} & set(final)
 
 
+def _sdk_client(handler):
+    """A real SDK client whose HTTP calls ``handler`` answers."""
+    import httpx2
+    from openai import AsyncOpenAI
+
+    return AsyncOpenAI(
+        api_key="synthetic-test-key",
+        base_url=_URL,
+        max_retries=0,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+    )
+
+
+def _responses_body(text, *, status="completed", reason=None):
+    return {
+        "id": "resp_1",
+        "object": "response",
+        "created_at": 0,
+        "model": "m",
+        "status": status,
+        "incomplete_details": {"reason": reason} if reason else None,
+        "error": None,
+        "output": [
+            {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": text, "annotations": []}],
+            }
+        ],
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+            "input_tokens": 50,
+            "output_tokens": 1024,
+            "total_tokens": 1074,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens_details": {"reasoning_tokens": 0},
+        },
+    }
+
+
+def _chat_body(content, *, finish_reason="stop"):
+    return {
+        "id": "c",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "m",
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": finish_reason,
+                "message": {"role": "assistant", "content": content},
+            }
+        ],
+        "usage": {"prompt_tokens": 50, "completion_tokens": 1024, "total_tokens": 1074},
+    }
+
+
 async def test_structured_metadata_uses_responses_parse(monkeypatch):
+    import httpx2
+
     class _Answer(BaseModel):
         title: str
 
-    parsed = _Answer(title="Parks")
-    calls = []
+    sent: list[dict] = []
 
-    async def parse(**kwargs):
-        calls.append(kwargs)
-        return SimpleNamespace(
-            status="completed",
-            output_parsed=parsed,
-            usage=SimpleNamespace(input_tokens=5, output_tokens=4),
-        )
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx2.Response(200, json=_responses_body('{"title": "Parks"}'))
 
-    client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    client = _sdk_client(handler)
     monkeypatch.setattr(
         "app.processing.ai.llm_loop.get_openai_client", lambda _url: client
     )
@@ -271,11 +329,11 @@ async def test_structured_metadata_uses_responses_parse(monkeypatch):
         response_model=_Answer,
     )
 
-    assert result == (parsed, 5, 4)
-    assert calls[0]["text_format"] is _Answer
-    assert calls[0]["instructions"] == "sys"
-    assert calls[0]["max_output_tokens"] == 1024
-    assert calls[0]["store"] is False
+    assert result == (_Answer(title="Parks"), 50, 1024)
+    assert sent[0]["instructions"] == "sys"
+    assert sent[0]["max_output_tokens"] == 1024
+    assert sent[0]["store"] is False
+    assert sent[0]["text"]["format"]["type"] == "json_schema"
 
 
 class _Events:
@@ -709,10 +767,31 @@ async def test_a_failed_round_counts_toward_the_daily_quota(monkeypatch):
     assert recorded == [(130, 27)]
 
 
-@pytest.mark.parametrize("style", ["responses", "chat_completions"])
+@pytest.mark.parametrize(
+    ("style", "body"),
+    [
+        # Truncated JSON in a reply the server marked completed.
+        ("responses", _responses_body('{"title": "Par')),
+        (
+            "responses",
+            _responses_body(
+                '{"title": "Par', status="incomplete", reason="max_output_tokens"
+            ),
+        ),
+        ("responses", _responses_body("", status="failed")),
+        # Valid JSON that does not match the schema.
+        ("responses", _responses_body('{"name": "Parks"}')),
+        ("chat_completions", _chat_body('{"title": "Par', finish_reason="length")),
+        ("chat_completions", _chat_body("", finish_reason="content_filter")),
+        ("chat_completions", _chat_body('{"title": "Par')),
+        ("chat_completions", _chat_body('{"name": "Parks"}')),
+    ],
+)
 async def test_a_billed_metadata_reply_that_does_not_parse_still_counts(
-    monkeypatch, style
+    monkeypatch, style, body
 ):
+    import httpx2
+
     import app.processing.ai.metadata_service as metadata_service
 
     class _Answer(BaseModel):
@@ -721,34 +800,16 @@ async def test_a_billed_metadata_reply_that_does_not_parse_still_counts(
     monkeypatch.setattr(settings, "openai_api_style", style)
     monkeypatch.setattr(metadata_service, "anthropic_configured", lambda: False)
     recorded = _capture_error_usage(monkeypatch)
-
-    async def responses_parse(**kwargs):
-        return SimpleNamespace(
-            status="failed",
-            output_parsed=None,
-            usage=SimpleNamespace(input_tokens=5, output_tokens=4),
-        )
-
-    async def chat_parse(**kwargs):
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(parsed=None))],
-            usage=SimpleNamespace(prompt_tokens=5, completion_tokens=4),
-        )
-
-    client = SimpleNamespace(
-        responses=SimpleNamespace(parse=responses_parse),
-        beta=SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(parse=chat_parse))
-        ),
-    )
+    client = _sdk_client(lambda request: httpx2.Response(200, json=body))
     monkeypatch.setattr(
         "app.processing.ai.llm_loop.get_openai_client", lambda _url: client
     )
 
-    with pytest.raises((ResponsesError, ValueError)):
+    # The SDK's own parser raises a different error for each case.
+    with pytest.raises(Exception):
         await metadata_service._generate_structured("sys", "describe", _Answer)
 
-    assert recorded == [(5, 4)]
+    assert recorded == [(50, 1024)]
 
 
 def _cc_call(call_id: str, args: str = '{"sql": "SELECT 1"}') -> dict:

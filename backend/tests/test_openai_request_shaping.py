@@ -443,6 +443,10 @@ async def test_admin_probe_passes_on_a_reasoning_model(monkeypatch):
 
 
 async def test_structured_metadata_request_is_adapted(monkeypatch):
+    import json
+
+    import httpx2
+    from openai import AsyncOpenAI
     from pydantic import BaseModel
 
     from app.platform.extensions.defaults import DefaultOpenAICompatibleProvider
@@ -452,19 +456,45 @@ async def test_structured_metadata_request_is_adapted(monkeypatch):
 
     monkeypatch.setattr(settings, "openai_api_key", SecretStr("synthetic-test-key"))
     monkeypatch.setattr(settings, "openai_base_url", _URL)
-    parsed = _Answer(title="Parks")
-    server = _Server(
-        _rejects_max_tokens,
-        _rejects_temperature,
-        result=SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(parsed=parsed))],
-            usage=SimpleNamespace(prompt_tokens=5, completion_tokens=4),
-        ),
-    )
-    client = SimpleNamespace(
-        beta=SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(parse=server.create))
+    sent: list[dict] = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        sent.append(body)
+        for rule in (_rejects_max_tokens, _rejects_temperature):
+            error = rule(body)
+            if error is not None:
+                return httpx2.Response(400, json={"error": error})
+        return httpx2.Response(
+            200,
+            json={
+                "id": "c",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "m",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {
+                            "role": "assistant",
+                            "content": '{"title": "Parks"}',
+                        },
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 4,
+                    "total_tokens": 9,
+                },
+            },
         )
+
+    client = AsyncOpenAI(
+        api_key="synthetic-test-key",
+        base_url=_URL,
+        max_retries=0,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
     )
     monkeypatch.setattr(
         "app.processing.ai.llm_loop.get_openai_client", lambda _url: client
@@ -477,11 +507,11 @@ async def test_structured_metadata_request_is_adapted(monkeypatch):
         response_model=_Answer,
     )
 
-    assert result == (parsed, 5, 4)
-    assert len(server.calls) == 3
-    assert server.calls[-1]["max_completion_tokens"] == 1024
-    assert "temperature" not in server.calls[-1]
-    assert server.calls[-1]["response_format"] is _Answer
+    assert result == (_Answer(title="Parks"), 5, 4)
+    assert len(sent) == 3
+    assert sent[-1]["max_completion_tokens"] == 1024
+    assert "temperature" not in sent[-1]
+    assert sent[-1]["response_format"]["type"] == "json_schema"
 
 
 class _Stream:

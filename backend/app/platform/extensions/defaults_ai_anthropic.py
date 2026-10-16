@@ -48,6 +48,13 @@ async def _run_tool_use_blocks(
     return tool_results
 
 
+# Stop reasons whose text is partial. A stop_sequence reply is finished, and
+# pause_turn comes only from server tools, which these requests never send.
+_TRUNCATED_STOP_REASONS = frozenset(
+    {"max_tokens", "refusal", "model_context_window_exceeded"}
+)
+
+
 class DefaultAnthropicProvider:
     """Community-edition default: Anthropic native tool-calling loop.
 
@@ -207,6 +214,7 @@ class DefaultAnthropicProvider:
                     actions=collected_actions,
                     input_tokens=total_input,
                     output_tokens=total_output,
+                    truncated=response.stop_reason in _TRUNCATED_STOP_REASONS,
                 )
 
             raise ToolLoopExhaustedError(
