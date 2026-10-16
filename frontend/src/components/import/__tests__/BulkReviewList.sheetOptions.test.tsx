@@ -42,10 +42,10 @@ describe('BulkReviewList sheet options', () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it('shows zero counts for a layer whose preview omits them', async () => {
+  it('shows counts the preview omits as unavailable, not zero', async () => {
     render(
       <BulkReviewList
-        entries={[entryWithLayers([{ name: 'Sheet1' }, { name: 'Sheet2', feature_count: 7, field_count: 2 }])]}
+        entries={[entryWithLayers([{ name: 'Sheet1', feature_count: null }, { name: 'Sheet2', feature_count: 7, field_count: 2 }])]}
         onCommitSingle={() => {}}
         onCommitAll={() => {}}
         onRemove={() => {}}
@@ -55,7 +55,7 @@ describe('BulkReviewList sheet options', () => {
 
     await userEvent.click(screen.getByRole('combobox', { name: /sheet|layer/i }));
 
-    expect(await screen.findByRole('option', { name: /Sheet1.*0 rows.*0 columns/ })).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: /Sheet1.*N\/A rows.*N\/A columns/ })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /Sheet2.*7 rows.*2 columns/ })).toBeInTheDocument();
   });
 });
