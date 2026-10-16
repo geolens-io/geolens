@@ -881,8 +881,10 @@ class TestToolResultSerializationSites:
     property structurally, over the AST.
 
     The rule: any dict literal carrying a provider tool-result id
-    (``tool_use_id`` for Anthropic, ``tool_call_id`` for OpenAI) alongside a
-    ``content`` key must set that content to ``tool_result_content(...)``.
+    (``tool_use_id`` for Anthropic, ``tool_call_id`` for OpenAI Chat
+    Completions) alongside a ``content`` key, or a Responses API ``call_id``
+    alongside an ``output`` key, must set that value to
+    ``tool_result_content(...)``.
 
     fix(#1778 round 2): that used to read ``json.dumps(model_safe_tool_result
     (...), ...)``, spelled out at each site. The sites now share one helper,
@@ -903,21 +905,25 @@ class TestToolResultSerializationSites:
     and pass for the wrong reason.
     """
 
-    # fix(#699 codex P2): counted PER MODULE, not merely present. streaming.py
-    # builds two of these messages (the Anthropic tool_result block and the
-    # OpenAI tool message), and a set of module names collapses them — so if
-    # one changed its key spelling and stopped matching, the other would keep
-    # this anchor satisfied while the unmatched site quietly serialized an
-    # untrimmed payload.
+    # Counted per module, not merely present: openai_conversation.py builds
+    # two of these messages (the Chat Completions tool message and the
+    # Responses function_call_output item), and a set of module names would
+    # collapse them, so one could stop matching while the other kept this
+    # anchor satisfied.
     KNOWN_SITE_COUNTS = {
-        "processing/ai/streaming.py": 2,
+        "processing/ai/streaming.py": 1,
+        "processing/ai/openai_conversation.py": 2,
         "platform/extensions/defaults_ai_anthropic.py": 1,
-        "platform/extensions/defaults_ai_openai.py": 1,
     }
 
-    # The two ids that mark a message as carrying a tool RESULT rather than
-    # anything else a provider payload contains.
-    RESULT_ID_KEYS = ("tool_use_id", "tool_call_id")
+    # The ids that mark a message as carrying a tool RESULT rather than
+    # anything else a provider payload contains, each with the key that
+    # holds the result.
+    RESULT_KEYS = {
+        "tool_use_id": "content",
+        "tool_call_id": "content",
+        "call_id": "output",
+    }
 
     @classmethod
     def _content_value(cls, node: ast.AST) -> ast.expr | None:
@@ -944,9 +950,10 @@ class TestToolResultSerializationSites:
             named = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
         else:
             return None
-        if not set(named) & set(cls.RESULT_ID_KEYS):
-            return None
-        return named.get("content")
+        for id_key, value_key in cls.RESULT_KEYS.items():
+            if id_key in named:
+                return named.get(value_key)
+        return None
 
     @staticmethod
     def _is_trimmed_dumps(value: ast.expr) -> bool:
