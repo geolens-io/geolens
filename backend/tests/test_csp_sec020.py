@@ -115,14 +115,17 @@ def _render_script_src(extra):
     )
     if result.returncode != 0:
         return result, None
-    rendered = subprocess.run(
-        ["envsubst", "$CSP_SCRIPT_SRC_EXTRA"],
-        input=NGINX_CONF.read_text(),
-        env={**env, "CSP_SCRIPT_SRC_EXTRA": result.stdout},
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    # A file on stdin always reaches EOF; a pipe stalled envsubst under xdist.
+    with NGINX_CONF.open() as template:
+        rendered = subprocess.run(
+            ["envsubst", "$CSP_SCRIPT_SRC_EXTRA"],
+            stdin=template,
+            env={**env, "CSP_SCRIPT_SRC_EXTRA": result.stdout},
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        ).stdout
     return result, rendered
 
 
