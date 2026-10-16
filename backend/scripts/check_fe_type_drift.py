@@ -1,12 +1,24 @@
 """OCG-03: FE/SDK type-drift guard.
 
-Checks that ``frontend/src/types/api.ts`` (hand-written TypeScript interfaces)
-is a structural subset of ``backend/openapi.json`` (the canonical backend schema).
+Checks that the backend-boundary types in ``frontend/src/types/api.ts`` are a
+structural subset of ``backend/openapi.json`` (the canonical backend schema).
+``api.ts`` declares each type in one of three forms:
+
+- a hand-written ``export interface X { ... }``, compared property by property;
+- ``export type X = components['schemas']['X']``, an alias of the generated
+  type. It mirrors backend schema X by construction (``npm run types:check``
+  keeps ``api.generated.ts`` in sync with ``openapi.json``), so it is drift-free
+  for X. An alias of a differently named schema is not a mirror of X and is
+  reported as drift;
+- ``export type X = Omit<components['schemas']['X'], 'a' | 'b'> & { ... }``, the
+  generated type with some fields narrowed. Its fields are the generated ones
+  minus the omitted names plus the properties the intersection declares, so an
+  omitted field the intersection does not re-declare is missing.
 
 Design choices
 --------------
 - **JSON/property-name level comparison** (not openapi-typescript codegen): reads
-  ``components.schemas[*].properties`` from ``openapi.json`` and parses FE interface
+  ``components.schemas[*].properties`` from ``openapi.json`` and parses FE type
   property names via a lightweight regex scan.  This avoids shelling out to
   ``npx openapi-typescript`` on every PR (no unpinned npx supply-chain pull, no
   Node.js runtime requirement in backend CI).  A ``--use-openapi-typescript`` flag
@@ -97,14 +109,13 @@ MAINTAINED_MODELS: list[str] = TENANT_BOUND_MODELS + [
     "OGCRecordProperties",
     "RasterBandInfo",
     "RasterMetadata",
-    "RegisterResponse",
     "UserResponse",
 ]
 
 # ---------------------------------------------------------------------------
 # Known drift: pre-existing backend-property-missing-in-FE cases.
 # These are NOT regressions — they reflect intentional FE omissions or
-# backend additions not yet propagated to the hand-written FE mirror.
+# backend additions not yet propagated to a hand-written FE mirror.
 # TODO: resolve each by either adding the FE field or annotating intent.
 # ---------------------------------------------------------------------------
 
@@ -113,38 +124,6 @@ KNOWN_DRIFT: dict[str, list[str]] = {
     # FE builder always sends a full diff; fallback path not needed in FE yet.
     # TODO: add to FE if incremental diff optimization ships.
     "MapLayerDiffRequest": ["fallback_full_replace"],
-    # OGCRecordProperties: many metadata fields added server-side for OGC
-    # record API but not mirrored in FE (FE uses its own record shaping).
-    # TODO: review and add missing fields when FE record detail is extended.
-    "OGCRecordProperties": [
-        "constraints",
-        "distributions",
-        "formats",
-        "language",
-        "lineage",
-        "quality_statement",
-        "rights",
-        "themes",
-        "time",
-        # fix(#1805 review round 4): proj:code, proj:shape, and raster:bands
-        # ARE declared in frontend/src/types/api.ts (added alongside the
-        # backend schema in #1805) -- they show as drift only because this
-        # checker's FE parser regex (`^\s+(\w+)\??:`) requires a bare
-        # identifier property name and cannot match a quoted, colon-
-        # containing key like 'proj:code'?:. Not a real omission; remove
-        # once the parser learns to match quoted keys too.
-        "proj:code",
-        "proj:shape",
-        "raster:bands",
-    ],
-    # RegisterResponse name collision: the backend AUTH RegisterResponse
-    # ({message, next_step}) shares a name with the FE `RegisterResponse`
-    # interface, which actually mirrors the UNRELATED dataset-ingest register
-    # response ({dataset_id, title, table_name}). The auth response's real FE
-    # mirror is the `SignupResponse` interface, which DOES carry both fields.
-    # So message/next_step "missing" here is expected, not real drift.
-    # TODO: dedupe by renaming one of the two backend RegisterResponse models.
-    "RegisterResponse": ["message", "next_step"],
     # EmbedTokenCreatedResponse / AdminEmbedTokenResponse: FE uses 'extends'
     # inheritance — parent properties are inherited and NOT re-declared.
     # The checker resolves inheritance chains and these have no real drift.
@@ -158,19 +137,61 @@ KNOWN_DRIFT: dict[str, list[str]] = {
 # ---------------------------------------------------------------------------
 
 
-def _parse_fe_interfaces(fe_content: str) -> dict[str, dict]:
-    """Parse all ``export interface`` declarations from a .ts file.
+_GENERATED_ALIAS = re.compile(
+    r"export type (\w+) = components\['schemas'\]\['(\w+)'\];",
+)
+_GENERATED_OMIT = re.compile(
+    r"export type (\w+) = Omit<\s*components\['schemas'\]\['(\w+)'\],"
+    r"\s*((?:'[^']+'\s*\|?\s*)+)>\s*&\s*\{",
+)
 
-    Returns a dict mapping interface_name → {
-        'props': set[str],     # property names declared directly
-        'extends': str | None, # parent interface name (single inheritance only)
+
+def _brace_body(content: str, start: int) -> str:
+    """Return the text between a ``{`` just before ``start`` and its closing ``}``."""
+    depth = 1
+    pos = start
+    while pos < len(content) and depth > 0:
+        ch = content[pos]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        pos += 1
+    return content[start : pos - 1]
+
+
+def _top_level_props(body: str) -> set[str]:
+    """Property names declared at brace depth 0 of an object type body."""
+    props: set[str] = set()
+    depth = 0
+    for line in body.splitlines():
+        if depth == 0:
+            m = re.match(r"^\s*(\w+)\??:", line)
+            if m:
+                props.add(m.group(1))
+        depth += line.count("{") - line.count("}")
+    return props
+
+
+def _parse_fe_interfaces(fe_content: str) -> dict[str, dict]:
+    """Parse the exported API types from a .ts file.
+
+    Returns a dict mapping type name → {
+        'props': set[str],      # property names declared directly
+        'extends': str | None,  # parent interface name (single inheritance only)
+        'generated': str | None,  # generated schema name, for the alias forms
+        'omitted': set[str],    # fields dropped from the generated schema
     }.
+
+    Interfaces fill ``props``/``extends``. The ``components['schemas']['Y']``
+    alias fills ``generated`` only. The ``Omit<...> & { ... }`` form fills
+    ``generated``, ``omitted`` and the ``props`` the intersection re-declares.
 
     Limitations:
     - Handles single-level ``extends`` (the codebase uses single inheritance).
     - Does not resolve generic type parameters.
-    - Property scan uses a regex matching ``indent + name + '?'? + ':'`` for all camelCase/snake_case
-      direct property declarations (optional and required).
+    - The interface property scan uses a regex matching ``indent + name + '?'? + ':'`` for all
+      camelCase/snake_case direct property declarations (optional and required).
     """
     result: dict[str, dict] = {}
 
@@ -183,37 +204,61 @@ def _parse_fe_interfaces(fe_content: str) -> dict[str, dict]:
         iface_name = m.group(1)
         parent_name = m.group(2)  # None if no extends
 
-        # Extract the interface body using brace depth tracking
-        start = m.end()
-        depth = 1
-        pos = start
-        while pos < len(fe_content) and depth > 0:
-            ch = fe_content[pos]
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-            pos += 1
-        body = fe_content[start : pos - 1]
+        body = _brace_body(fe_content, m.end())
 
         # Extract property names (ignores comment lines starting with //)
         prop_pattern = re.compile(r"^\s+(\w+)\??:", re.MULTILINE)
         props = set(prop_pattern.findall(body))
 
-        result[iface_name] = {"props": props, "extends": parent_name}
+        result[iface_name] = {
+            "props": props,
+            "extends": parent_name,
+            "generated": None,
+            "omitted": set(),
+        }
+
+    for m in _GENERATED_ALIAS.finditer(fe_content):
+        result[m.group(1)] = {
+            "props": set(),
+            "extends": None,
+            "generated": m.group(2),
+            "omitted": set(),
+        }
+
+    for m in _GENERATED_OMIT.finditer(fe_content):
+        result[m.group(1)] = {
+            "props": _top_level_props(_brace_body(fe_content, m.end())),
+            "extends": None,
+            "generated": m.group(2),
+            "omitted": set(re.findall(r"'([^']+)'", m.group(3))),
+        }
 
     return result
 
 
-def _resolve_fe_props(interfaces: dict[str, dict], iface_name: str) -> set[str] | None:
-    """Return the full property set for an interface including inherited props."""
+def _resolve_fe_props(
+    interfaces: dict[str, dict],
+    iface_name: str,
+    be_schemas: dict[str, set[str]],
+) -> set[str] | None:
+    """Return the full property set for a type including inherited props.
+
+    A generated alias contributes the backend schema's properties minus the
+    omitted ones. Returns None when the type is absent, or when it aliases a
+    schema other than ``iface_name`` (it is then no mirror of that name).
+    """
     entry = interfaces.get(iface_name)
     if entry is None:
         return None
     props = set(entry["props"])
+    generated = entry.get("generated")
+    if generated is not None:
+        if generated != iface_name or generated not in be_schemas:
+            return None
+        props |= be_schemas[generated] - entry["omitted"]
     parent = entry.get("extends")
     if parent:
-        parent_props = _resolve_fe_props(interfaces, parent)
+        parent_props = _resolve_fe_props(interfaces, parent, be_schemas)
         if parent_props:
             props |= parent_props
     return props
@@ -292,7 +337,12 @@ def check_drift(
             report.skipped.append(f"{name}: not in openapi.json schemas")
             continue
 
-        fe_props = _resolve_fe_props(fe_interfaces, name)
+        generated = fe_interfaces.get(name, {}).get("generated")
+        if generated is not None and generated != name:
+            report.new_drift.append((name, [f"aliases schema {generated}"]))
+            continue
+
+        fe_props = _resolve_fe_props(fe_interfaces, name, be_schemas)
         if fe_props is None:
             report.skipped.append(f"{name}: not found in frontend/src/types/api.ts")
             continue

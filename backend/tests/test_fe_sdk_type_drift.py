@@ -27,8 +27,6 @@ References: OCG-03, T-1206-08
 
 from __future__ import annotations
 
-import json
-import re
 
 import pytest
 
@@ -43,51 +41,30 @@ _OPENAPI_JSON = _REPO_ROOT / "backend" / "openapi.json"
 _FE_TYPES = _REPO_ROOT / "frontend" / "src" / "types" / "api.ts"
 
 
+def _load_checker_module():
+    import importlib.util
+
+    checker_path = _REPO_ROOT / "backend" / "scripts" / "check_fe_type_drift.py"
+    spec = importlib.util.spec_from_file_location("check_fe_type_drift", checker_path)
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
 def _load_fe_interfaces() -> dict[str, dict]:
-    """Parse all export interface declarations from the FE types file."""
-    content = _FE_TYPES.read_text()
-    result: dict[str, dict] = {}
-    decl_pattern = re.compile(r"export interface (\w+)(?:\s+extends\s+(\w+))?\s*\{")
-    for m in decl_pattern.finditer(content):
-        iface_name = m.group(1)
-        parent_name = m.group(2)
-        start = m.end()
-        depth = 1
-        pos = start
-        while pos < len(content) and depth > 0:
-            ch = content[pos]
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-            pos += 1
-        body = content[start : pos - 1]
-        prop_pattern = re.compile(r"^\s+(\w+)\??:", re.MULTILINE)
-        props = set(prop_pattern.findall(body))
-        result[iface_name] = {"props": props, "extends": parent_name}
-    return result
+    """Parse the exported API types (interfaces and generated aliases)."""
+    return _load_checker_module()._parse_fe_interfaces(_FE_TYPES.read_text())
+
+
+def _load_be_schemas() -> dict[str, set[str]]:
+    return _load_checker_module()._load_openapi_schemas(_OPENAPI_JSON)
 
 
 def _resolve_fe_props(interfaces: dict[str, dict], iface_name: str) -> set[str] | None:
-    """Return full property set including inherited props."""
-    entry = interfaces.get(iface_name)
-    if entry is None:
-        return None
-    props = set(entry["props"])
-    parent = entry.get("extends")
-    if parent:
-        parent_props = _resolve_fe_props(interfaces, parent)
-        if parent_props:
-            props |= parent_props
-    return props
-
-
-def _load_be_schema_props(name: str) -> set[str]:
-    """Return property names for a backend schema from openapi.json."""
-    with _OPENAPI_JSON.open() as f:
-        spec = json.load(f)
-    schemas = spec.get("components", {}).get("schemas", {})
-    return set(schemas.get(name, {}).get("properties", {}).keys())
+    """Return full property set including inherited and generated props."""
+    return _load_checker_module()._resolve_fe_props(
+        interfaces, iface_name, _load_be_schemas()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -109,13 +86,7 @@ def test_drift_checker_passes():
 
     References: OCG-03, T-1206-08
     """
-    # Import via sys.path manipulation (not a package, just a script)
-    import importlib.util
-
-    checker_path = _REPO_ROOT / "backend" / "scripts" / "check_fe_type_drift.py"
-    spec = importlib.util.spec_from_file_location("check_fe_type_drift", checker_path)
-    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    module = _load_checker_module()
 
     exit_code = module.main([])
     assert exit_code == 0, (
@@ -125,16 +96,6 @@ def test_drift_checker_passes():
         "Run `PYTHONPATH=. uv run python scripts/check_fe_type_drift.py` "
         "for the full diff. References: OCG-03, T-1206-08"
     )
-
-
-def _load_checker_module():
-    import importlib.util
-
-    checker_path = _REPO_ROOT / "backend" / "scripts" / "check_fe_type_drift.py"
-    spec = importlib.util.spec_from_file_location("check_fe_type_drift", checker_path)
-    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
-    return module
 
 
 class TestResolvedKnownDriftIsReportedEvenAtZeroDrift:
@@ -222,6 +183,89 @@ class TestSkippedMaintainedModelFailsTheBuild:
 
         assert report.skipped == ["GhostModel: not in openapi.json schemas"]
         assert report.should_fail() is True
+
+
+class TestGeneratedTypeForms:
+    """api.ts declares most response types as aliases of the generated schema
+    types, so the checker reads those forms as well as hand-written
+    interfaces."""
+
+    def test_an_alias_of_the_same_schema_is_a_drift_free_mirror(self) -> None:
+        module = _load_checker_module()
+        fe = module._parse_fe_interfaces(
+            "export type Widget = components['schemas']['Widget'];\n"
+        )
+
+        report = module.check_drift(["Widget"], {"Widget": {"a", "b"}}, fe)
+
+        assert report.new_drift == []
+        assert report.skipped == []
+        assert report.should_fail() is False
+
+    def test_an_omit_that_redeclares_every_omitted_field_is_a_mirror(self) -> None:
+        module = _load_checker_module()
+        fe = module._parse_fe_interfaces(
+            "export type Widget = Omit<\n"
+            "  components['schemas']['Widget'],\n"
+            "  'a' | 'b'\n"
+            "> & {\n"
+            "  a: 'x' | 'y';\n"
+            "  b?: { nested: string } | null;\n"
+            "};\n"
+        )
+
+        report = module.check_drift(["Widget"], {"Widget": {"a", "b", "c"}}, fe)
+
+        assert report.should_fail() is False
+
+    def test_an_omitted_field_that_is_not_redeclared_is_drift(self) -> None:
+        module = _load_checker_module()
+        fe = module._parse_fe_interfaces(
+            "export type Widget = Omit<\n"
+            "  components['schemas']['Widget'],\n"
+            "  'a' | 'b'\n"
+            "> & {\n"
+            "  a: string;\n"
+            "};\n"
+        )
+
+        report = module.check_drift(["Widget"], {"Widget": {"a", "b", "c"}}, fe)
+
+        assert report.new_drift == [("Widget", ["b"])]
+        assert report.should_fail() is True
+
+    def test_a_nested_key_does_not_redeclare_an_omitted_field(self) -> None:
+        module = _load_checker_module()
+        fe = module._parse_fe_interfaces(
+            "export type Widget = Omit<components['schemas']['Widget'], 'a' | 'b'> & {\n"
+            "  a: { b: string };\n"
+            "};\n"
+        )
+
+        report = module.check_drift(["Widget"], {"Widget": {"a", "b"}}, fe)
+
+        assert report.new_drift == [("Widget", ["b"])]
+
+    def test_an_alias_of_a_differently_named_schema_is_drift(self) -> None:
+        module = _load_checker_module()
+        fe = module._parse_fe_interfaces(
+            "export type Widget = components['schemas']['Gadget'];\n"
+        )
+
+        report = module.check_drift(["Widget"], {"Widget": {"a"}, "Gadget": {"a"}}, fe)
+
+        assert report.new_drift == [("Widget", ["aliases schema Gadget"])]
+        assert report.should_fail() is True
+
+    def test_a_mismatched_alias_is_no_mirror_for_the_tenant_audit(self) -> None:
+        module = _load_checker_module()
+        fe = module._parse_fe_interfaces(
+            "export type Widget = components['schemas']['Gadget'];\n"
+        )
+
+        props = module._resolve_fe_props(fe, "Widget", {"Gadget": {"a"}})
+
+        assert props is None
 
 
 # ---------------------------------------------------------------------------
