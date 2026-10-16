@@ -64,8 +64,8 @@ def _answers(
     ]
 
 
-class ResponsesStreamError(RuntimeError):
-    """The Responses stream failed or ended without a final response."""
+class ResponsesError(RuntimeError):
+    """A Responses request failed, or ended without a final response."""
 
 
 def open_conversation(
@@ -334,12 +334,30 @@ class ResponsesConversation:
         self._output: list[dict] = []
 
     def _round(self, response: Any) -> Round:
+        """The round a final response holds.
+
+        Raises :class:`ResponsesError` unless the response completed or
+        stopped early. A response that stopped early, or that holds a
+        function call the model did not finish, runs no tools and returns its
+        partial text, as Chat Completions does for ``finish_reason="length"``.
+        """
+        if response.status not in ("completed", "incomplete"):
+            raise ResponsesError(f"OpenAI Responses request {response.status}")
         self._output = [item.model_dump(exclude_none=True) for item in response.output]
-        calls = [
-            ToolCall(item.call_id, item.name, item.arguments)
-            for item in response.output
-            if item.type == "function_call"
+        function_calls = [
+            item for item in response.output if item.type == "function_call"
         ]
+        complete = response.status == "completed" and all(
+            item.status in (None, "completed") for item in function_calls
+        )
+        calls = (
+            [
+                ToolCall(item.call_id, item.name, item.arguments)
+                for item in function_calls
+            ]
+            if complete
+            else []
+        )
         text = "".join(
             part.text if part.type == "output_text" else part.refusal
             for item in response.output
@@ -349,11 +367,11 @@ class ResponsesConversation:
         )
         if calls:
             finish_reason = "tool_calls"
-        elif response.status == "completed":
+        elif complete:
             finish_reason = "stop"
         else:
             details = getattr(response, "incomplete_details", None)
-            finish_reason = getattr(details, "reason", None) or response.status
+            finish_reason = getattr(details, "reason", None) or "incomplete"
         usage = response.usage
         return Round(
             text=text,
@@ -400,11 +418,11 @@ class ResponsesConversation:
                 if usage is not None:
                     yield StreamDelta(usage=(usage.input_tokens, usage.output_tokens))
                 if event.type == "response.failed":
-                    raise ResponsesStreamError("OpenAI Responses stream failed")
+                    raise ResponsesError("OpenAI Responses stream failed")
             elif event.type == "error":
-                raise ResponsesStreamError("OpenAI Responses stream failed")
+                raise ResponsesError("OpenAI Responses stream failed")
         if final is None:
-            raise ResponsesStreamError("OpenAI Responses stream ended early")
+            raise ResponsesError("OpenAI Responses stream ended early")
         yield self._round(final)
 
     def add_tool_results(

@@ -24,7 +24,7 @@ from app.core.ai_credentials import bind_openai_credential_base_url
 from app.core.config import settings
 from app.core.config_ai import OpenAISettings
 from app.platform.extensions.defaults import DefaultOpenAICompatibleProvider
-from app.processing.ai.openai_conversation import ResponsesStreamError
+from app.processing.ai.openai_conversation import ResponsesError
 from app.processing.ai.openai_request import ResponsesAPIRequiredError
 
 pytestmark = pytest.mark.anyio
@@ -64,14 +64,18 @@ def _rejection(body: dict) -> openai.BadRequestError:
     )
 
 
-def _call_item(call_id: str = "call_1", args: str = '{"sql": "SELECT 1"}'):
+def _call_item(
+    call_id: str = "call_1",
+    args: str = '{"sql": "SELECT 1"}',
+    status: str = "completed",
+):
     return ResponseFunctionToolCall(
         type="function_call",
         id="fc_1",
         call_id=call_id,
         name="query_data",
         arguments=args,
-        status="completed",
+        status=status,
     )
 
 
@@ -87,11 +91,13 @@ def _message_item(text: str):
     )
 
 
-def _response(output, *, input_tokens=10, output_tokens=5, status="completed"):
+def _response(
+    output, *, input_tokens=10, output_tokens=5, status="completed", reason=None
+):
     return Response.model_construct(
         output=output,
         status=status,
-        incomplete_details=None,
+        incomplete_details=SimpleNamespace(reason=reason) if reason else None,
         usage=ResponseUsage.model_construct(
             input_tokens=input_tokens, output_tokens=output_tokens
         ),
@@ -388,7 +394,7 @@ async def test_a_failed_or_truncated_responses_stream_raises(monkeypatch, events
     _patch_stream_io(monkeypatch, recorded)
     server = _Server(_Events(events))
 
-    with pytest.raises(ResponsesStreamError):
+    with pytest.raises(ResponsesError):
         await _stream_chat(
             SimpleNamespace(responses=SimpleNamespace(create=server.create))
         )
@@ -597,3 +603,115 @@ async def test_a_streamed_chat_completions_refusal_reaches_the_user(monkeypatch)
     )
 
     assert events[-1] == {"type": "done", "explanation": "I can't help with that."}
+
+
+async def _complete(monkeypatch, server, executed):
+    _install(
+        monkeypatch, SimpleNamespace(responses=SimpleNamespace(create=server.create))
+    )
+    return await DefaultOpenAICompatibleProvider().complete(
+        model="eval-gpt-6.1-sol",
+        system_prompt="sys",
+        user_message="How many parks?",
+        tools=_TOOLS,
+        tool_executor=await _executing(executed),
+    )
+
+
+@pytest.mark.parametrize("reason", ["max_output_tokens", "content_filter"])
+async def test_a_response_that_stopped_early_returns_its_partial_text(
+    monkeypatch, reason
+):
+    server = _Server(
+        _response([_message_item("There are")], status="incomplete", reason=reason)
+    )
+    executed: list = []
+
+    result = await _complete(monkeypatch, server, executed)
+
+    assert result.text == "There are"
+    assert len(server.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("response_status", "item_status"),
+    [
+        ("incomplete", "incomplete"),
+        ("incomplete", "completed"),
+        ("completed", "in_progress"),
+    ],
+)
+async def test_an_unfinished_function_call_or_response_runs_no_tool(
+    monkeypatch, response_status, item_status
+):
+    # Truncated arguments can still parse as JSON.
+    call = _call_item(args='{"sql": "DELETE"}', status=item_status)
+    server = _Server(
+        _response([call], status=response_status, reason="max_output_tokens")
+    )
+    executed: list = []
+
+    result = await _complete(monkeypatch, server, executed)
+
+    assert executed == []
+    assert result.text == ""
+    assert len(server.calls) == 1
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "in_progress", "queued"])
+async def test_a_response_without_a_final_answer_raises(monkeypatch, status):
+    server = _Server(_response([_message_item("partial")], status=status))
+
+    with pytest.raises(ResponsesError):
+        await _complete(monkeypatch, server, [])
+
+
+async def test_a_streamed_response_that_stopped_early_returns_its_partial_text(
+    monkeypatch,
+):
+    _patch_stream_io(monkeypatch, [])
+    call = _call_item(args='{"sql": "DELETE"}', status="incomplete")
+    partial = _message_item("There are")
+    server = _Server(
+        _Events(
+            [
+                _event("response.output_text.delta", delta="There are"),
+                _event("response.output_item.added", item=call),
+                _event(
+                    "response.incomplete",
+                    response=_response(
+                        [partial, call], status="incomplete", reason="max_output_tokens"
+                    ),
+                ),
+            ]
+        )
+    )
+    executed: list = []
+
+    async def execute_and_yield_tools(calls, *args, **kwargs):
+        executed.extend(calls)
+        yield {"type": "tool_result"}
+
+    monkeypatch.setattr(streaming, "_execute_and_yield_tools", execute_and_yield_tools)
+
+    events = await _stream_chat(
+        SimpleNamespace(responses=SimpleNamespace(create=server.create))
+    )
+
+    assert executed == []
+    assert len(server.calls) == 1
+    assert events[-1] == {"type": "done", "explanation": "There are"}
+
+
+async def test_a_streamed_completed_event_without_a_final_answer_raises(monkeypatch):
+    _patch_stream_io(monkeypatch, [])
+    server = _Server(
+        _Events(
+            [_event("response.completed", response=_response([], status="cancelled"))]
+        )
+    )
+
+    with pytest.raises(ResponsesError):
+        await _stream_chat(
+            SimpleNamespace(responses=SimpleNamespace(create=server.create))
+        )
