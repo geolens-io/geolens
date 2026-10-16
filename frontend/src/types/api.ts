@@ -451,7 +451,7 @@ export interface UploadResponse {
   message: string;
 }
 
-export type RegisterResponse = components['schemas']['RegisterResponse'];
+export type TableRegisterResponse = components['schemas']['TableRegisterResponse'];
 
 export interface JobStatusResponse {
   id: string;
@@ -579,8 +579,7 @@ export interface MessageResponse {
   message: string;
 }
 
-/** Auth register endpoint response. (NB: the `RegisterResponse` interface above
- *  is the unrelated dataset-ingest register type.) */
+/** Auth register endpoint response (`RegisterResponse` in the OpenAPI schema). */
 export interface SignupResponse {
   message: string;
   /** M1 follow-up (Phase 1234): authoritative post-registration step —
