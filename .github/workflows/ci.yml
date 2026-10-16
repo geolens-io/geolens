@@ -1932,6 +1932,10 @@ jobs:
         # type gate is `tsc -b --noEmit`, which walks the project references.
         run: npm run typecheck
 
+      - name: Unused exports and files
+        # Test files count as consumers, so this is knip's default mode; see knip.jsonc.
+        run: npm run knip
+
   frontend-test:
     name: Frontend Tests
     needs: changes
