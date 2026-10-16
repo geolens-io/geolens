@@ -453,6 +453,33 @@ describe('DataDrivenStyleEditor', () => {
       expect(Array.isArray((newPaint as Record<string, unknown>)['fill-color'])).toBe(true);
     });
 
+    it('writes no style when the column stats omit min and max', async () => {
+      const settled: StyleConfig = {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'YlOrRd',
+        method: 'equal_interval',
+        classCount: 5,
+        target: 'color',
+        breaks: equalIntervalBreaks(0, 100, 5),
+        colors: getRampColors('YlOrRd', 5),
+      };
+      mockUseColumnStats.mockReturnValue(
+        hookData({ count: 0, quantiles: [] }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: settled, paint: { 'fill-color': '#3b82f6' } })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(onStyleConfigChange).not.toHaveBeenCalled();
+    });
+
     it('resolves custom ramp to YlOrRd when regenerating graduated colors', async () => {
       const customConfig: StyleConfig = {
         mode: 'graduated',
