@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     and_,
     cast,
+    desc,
     func,
     literal,
     or_,
@@ -246,6 +247,8 @@ class IngestJob(Base):
             postgresql_where=text("status IN ('running', 'pending')"),
         ),
         Index("ix_catalog_ingest_jobs_tenant_id", "tenant_id"),
+        # The admin job list's default order, id tiebreak ascending included.
+        Index("ix_ingest_jobs_created_at_id", desc("created_at"), "id"),
         # fix(#1542): DB-enforced (not check-then-insert, which can't stop
         # two concurrent force runs). NULLS NOT DISTINCT is load-bearing in
         # single-tenant mode, where every tenant_id is NULL. Migration 0050 = DDL.

@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    desc,
     event,
     func,
     text,
@@ -75,7 +76,12 @@ class Record(Base):
             "spatial_extent",
             postgresql_using="gist",
         ),
-        Index("idx_records_created_at_desc", "created_at", postgresql_using="btree"),
+        Index(
+            "idx_records_created_at_desc",
+            desc("created_at"),
+            desc("id"),
+            postgresql_using="btree",
+        ),
         Index(
             "idx_records_source_organization",
             "source_organization",
