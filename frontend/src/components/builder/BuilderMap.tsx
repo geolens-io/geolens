@@ -299,6 +299,13 @@ export const BuilderMap = memo(function BuilderMap({
       setBasemapNotice('style');
     }, []),
   });
+  // Null for a style URL that MapLibre loads itself.
+  const basemapSourceIds = useMemo(
+    () => (typeof mapStyle === 'string' ? null : new Set(Object.keys(mapStyle.sources))),
+    [mapStyle],
+  );
+  const basemapSourceIdsRef = useRef(basemapSourceIds);
+  basemapSourceIdsRef.current = basemapSourceIds;
 
   // Fetch tile tokens for all layers
   // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
@@ -752,10 +759,13 @@ export const BuilderMap = memo(function BuilderMap({
           const failingLayer = failingSourceId
             ? layersRef.current.find((l) => getSourceIdForLayer(l) === failingSourceId)
             : undefined;
-          // The basemap banner is for the basemap's own sources. A data layer's
-          // failure is named in the toast, and a status-less error with no
-          // source (a rejected style expression) is not a connection problem.
-          if (!failingLayer && (status || failingSourceId)) {
+          // Only the basemap style's own sources, or a status error with no
+          // source (sprite, glyphs), are a basemap outage. Data layers, terrain
+          // and a rejected style expression are not.
+          const basemapFailed = failingSourceId
+            ? basemapSourceIdsRef.current?.has(failingSourceId) ?? !failingLayer
+            : Boolean(status);
+          if (basemapFailed) {
             sawTileErrorSinceLoadingRef.current = true;
             setBasemapNotice('tiles');
           }

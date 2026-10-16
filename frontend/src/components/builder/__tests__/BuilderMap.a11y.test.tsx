@@ -279,18 +279,31 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
   });
 
   describe('errors that are not a basemap outage', () => {
-    async function renderPending(layers: MapLayerResponse[] = []) {
-      globalThis.fetch = vi.fn(() => new Promise(() => {
-        // Style fetch pending: the post-load suppression window never applies
-      })) as typeof fetch;
+    let nowSpy: { mockRestore(): void } | undefined;
+    afterEach(() => nowSpy?.mockRestore());
+
+    // Loads a basemap style with one source, then moves the clock past the
+    // post-load suppression window so every error reaches the banner decision.
+    async function renderLoaded(layers: MapLayerResponse[] = []) {
+      const style = {
+        version: 8,
+        sources: { openmaptiles: { type: 'vector', url: 'https://tiles.example.test/planet' } },
+        layers: [],
+      };
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(style) } as Response),
+      ) as typeof fetch;
       render(<BuilderMap layers={layers} basemapStyle="openfreemap-positron" />);
       await waitFor(() => {
         expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
       });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const later = Date.now() + 10_000;
+      nowSpy = vi.spyOn(Date, 'now').mockReturnValue(later);
     }
 
     it('keeps the basemap banner off for a style validation error', async () => {
-      await renderPending();
+      await renderLoaded();
 
       mapState.fakeMap.emit('error', {
         error: { message: 'layers.x.paint.fill-color: Branch labels must be numbers or strings' },
@@ -309,7 +322,7 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
         layer_type: 'vector_geolens',
         visible: true,
       } as MapLayerResponse;
-      await renderPending([layer]);
+      await renderLoaded([layer]);
 
       mapState.fakeMap.emit('error', {
         error: { status: 503, message: 'Service Unavailable' },
@@ -320,8 +333,20 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
       expect(screen.queryByRole('status')).toBeNull();
     });
 
+    it('keeps the basemap banner off for a terrain source failure', async () => {
+      await renderLoaded();
+
+      mapState.fakeMap.emit('error', {
+        error: { message: 'Failed to fetch' },
+        sourceId: TERRAIN_SOURCE_ID,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
     it('shows the basemap banner for a status-less failure of a basemap source', async () => {
-      await renderPending();
+      await renderLoaded();
 
       mapState.fakeMap.emit('error', {
         error: { message: 'Failed to fetch' },
