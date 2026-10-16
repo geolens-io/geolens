@@ -28,6 +28,7 @@ function makeFillLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerRespo
     display_name: 'Fill Layer',
     sort_order: 0,
     visible: true,
+    show_in_legend: true,
     opacity: 1,
     paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.8, '_outline-color': '#1d4ed8' },
     layout: {},

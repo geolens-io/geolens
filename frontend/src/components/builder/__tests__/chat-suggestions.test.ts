@@ -25,6 +25,7 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
     display_name: null,
     sort_order: 0,
     visible: true,
+    show_in_legend: true,
     opacity: 1,
     paint: {},
     layout: {},

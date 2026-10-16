@@ -14,6 +14,7 @@ const LAYER = {
   column_info: null,
   sort_order: 0,
   visible: true,
+  show_in_legend: true,
   opacity: 1,
   paint: { 'circle-color': '#0077cc' },
   layout: {},

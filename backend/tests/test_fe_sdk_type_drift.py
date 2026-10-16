@@ -218,6 +218,24 @@ class TestGeneratedTypeForms:
 
         assert report.should_fail() is False
 
+    def test_an_omit_list_with_a_leading_pipe_is_parsed(self) -> None:
+        module = _load_checker_module()
+        fe = module._parse_fe_interfaces(
+            "export type Widget = Omit<\n"
+            "  components['schemas']['Widget'],\n"
+            "  | 'a'\n"
+            "  | 'b'\n"
+            "> & {\n"
+            "  a: string;\n"
+            "  b?: string;\n"
+            "};\n"
+        )
+
+        assert fe["Widget"]["omitted"] == {"a", "b"}
+        assert (
+            module.check_drift(["Widget"], {"Widget": {"a", "b"}}, fe).new_drift == []
+        )
+
     def test_an_omitted_field_that_is_not_redeclared_is_drift(self) -> None:
         module = _load_checker_module()
         fe = module._parse_fe_interfaces(

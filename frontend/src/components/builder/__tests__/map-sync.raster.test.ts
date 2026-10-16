@@ -48,6 +48,7 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
     dataset_geometry_type: 'Polygon',
     dataset_table_name: 'test_table',
     visible: true,
+    show_in_legend: true,
     opacity: 1,
     paint: {},
     layout: {},

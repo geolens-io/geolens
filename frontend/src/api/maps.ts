@@ -476,7 +476,7 @@ function toChatLayers(layers: MapLayerResponse[]): ChatMapLayer[] {
     dataset_table_name: l.dataset_table_name,
     geometry_type: l.dataset_geometry_type,
     layer_type: l.layer_type ?? null,
-    column_info: l.dataset_column_info,
+    column_info: l.dataset_column_info ?? null,
     visible: l.visible,
     filter: l.filter ?? null,
     label_config: l.label_config ?? null,

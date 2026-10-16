@@ -102,6 +102,7 @@ const LAYER: SharedLayerResponse = {
   column_info: null,
   sort_order: 0,
   visible: true,
+  show_in_legend: true,
   opacity: 1,
   paint: { 'circle-color': '#2255aa', 'circle-radius': 6 },
   layout: { visibility: 'visible', _minzoom: 4, _maxzoom: 16 },

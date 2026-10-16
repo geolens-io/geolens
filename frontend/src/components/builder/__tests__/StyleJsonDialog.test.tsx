@@ -131,4 +131,26 @@ describe('StyleJsonDialog', () => {
     await waitFor(() => expect(screen.getByText('Imported 2 layers')).toBeInTheDocument());
     expect(screen.queryByText(/omitted/)).not.toBeInTheDocument();
   });
+
+  it('renders the summary when the response omits the warnings list', async () => {
+    importMutateAsync.mockResolvedValueOnce({
+      map: { id: 'new-map' },
+      summary: {
+        sources_matched: 1,
+        sources_unsupported: 0,
+        layers_imported: 2,
+        layers_skipped: 0,
+      },
+    });
+
+    render(<StyleJsonDialog mapId="map-1" mapName="Transit Map" open onOpenChange={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Import' }));
+    fireEvent.change(screen.getByTestId('style-json-input'), {
+      target: { value: '{"version":8,"sources":{},"layers":[]}' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /import json/i }));
+
+    await waitFor(() => expect(screen.getByText('Imported 2 layers')).toBeInTheDocument());
+  });
 });

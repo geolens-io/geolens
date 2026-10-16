@@ -96,6 +96,7 @@ function layer(
     column_info: null,
     sort_order: sortOrder,
     visible: true,
+    show_in_legend: true,
     opacity: 1,
     paint: {},
     layout: {},

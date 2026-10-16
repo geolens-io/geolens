@@ -14,6 +14,7 @@ function layer(id: string, renderMode?: 'heatmap'): SharedLayerResponse {
     column_info: null,
     sort_order: 0,
     visible: true,
+    show_in_legend: true,
     opacity: 1,
     paint: {},
     layout: {},

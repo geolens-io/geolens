@@ -53,6 +53,7 @@ function createMap() {
 
 function layer(overrides: Partial<SharedLayerResponse>): SharedLayerResponse {
   return {
+    id: overrides.id ?? 'layer-1',
     dataset_id: overrides.dataset_id ?? 'dem-1',
     dataset_name: overrides.dataset_name ?? 'Elevation',
     display_name: overrides.display_name ?? null,

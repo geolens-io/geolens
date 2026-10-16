@@ -205,7 +205,7 @@ export interface SyncLayerInput {
   visible: boolean;
   paint: Record<string, unknown>;
   layout: Record<string, unknown>;
-  filter: FilterSpecification | null;
+  filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
   /** Popup config — its visible_fields / title-template columns must be opted
@@ -259,7 +259,7 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     visible: layer.visible,
     paint: layer.paint ?? {},
     layout: layer.layout ?? {},
-    filter: layer.filter,
+    filter: layer.filter ?? null,
     label_config: layer.label_config ?? null,
     style_config: layer.style_config ?? null,
     popup_config: layer.popup_config ?? null,

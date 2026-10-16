@@ -17,6 +17,7 @@ function layer(overrides: Partial<SharedLayerResponse> = {}): SharedLayerRespons
     column_info: null,
     sort_order: 0,
     visible: true,
+    show_in_legend: true,
     opacity: 0.85,
     paint: {
       'circle-radius': [

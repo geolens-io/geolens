@@ -42,6 +42,7 @@ function downloadJson(filename: string, data: Record<string, unknown>) {
 
 function ImportSummary({ summary }: { summary: MapStyleImportSummary }) {
   const { t } = useTranslation('builder');
+  const warnings = summary.warnings ?? [];
   return (
     <div className="space-y-2 rounded-sm border bg-muted/30 p-3 text-xs">
       <div className="flex items-center gap-2 font-medium">
@@ -52,9 +53,9 @@ function ImportSummary({ summary }: { summary: MapStyleImportSummary }) {
         {t('styleJson.summary.matched', { count: summary.sources_matched })};
         {' '}{t('styleJson.summary.skipped', { count: summary.layers_skipped })}
       </div>
-      {summary.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <div className="space-y-1">
-          {summary.warnings.map((warning, index) => (
+          {warnings.map((warning, index) => (
             <div key={`${warning.code}-${index}`} className="flex items-start gap-1.5 text-warning">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{warning.message}</span>

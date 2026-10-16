@@ -120,10 +120,6 @@ MAINTAINED_MODELS: list[str] = TENANT_BOUND_MODELS + [
 # ---------------------------------------------------------------------------
 
 KNOWN_DRIFT: dict[str, list[str]] = {
-    # MapLayerDiffRequest.fallback_full_replace: backend field for diff fallback.
-    # FE builder always sends a full diff; fallback path not needed in FE yet.
-    # TODO: add to FE if incremental diff optimization ships.
-    "MapLayerDiffRequest": ["fallback_full_replace"],
     # EmbedTokenCreatedResponse / AdminEmbedTokenResponse: FE uses 'extends'
     # inheritance — parent properties are inherited and NOT re-declared.
     # The checker resolves inheritance chains and these have no real drift.
@@ -142,7 +138,7 @@ _GENERATED_ALIAS = re.compile(
 )
 _GENERATED_OMIT = re.compile(
     r"export type (\w+) = Omit<\s*components\['schemas'\]\['(\w+)'\],"
-    r"\s*('[^']+'(?:\s*\|\s*'[^']+')*)\s*>\s*&\s*\{",
+    r"\s*(?:\|\s*)?('[^']+'(?:\s*\|\s*'[^']+')*)\s*>\s*&\s*\{",
 )
 
 

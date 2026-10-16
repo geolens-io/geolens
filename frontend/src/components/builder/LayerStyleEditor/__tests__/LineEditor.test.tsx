@@ -28,6 +28,7 @@ function makeLineLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerRespo
     display_name: 'Line Layer',
     sort_order: 0,
     visible: true,
+    show_in_legend: true,
     opacity: 1,
     paint: { 'line-color': '#ff0000', 'line-width': 2 },
     layout: {},

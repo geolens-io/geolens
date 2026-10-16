@@ -633,23 +633,9 @@ export interface CommitImportResponse {
   message: string;
 }
 
-export interface CollectionResponse {
-  id: string;
-  name: string;
-  description: string | null;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-  dataset_count: number;
-  extent_bbox: number[] | null;
-  temporal_start: string | null;
-  temporal_end: string | null;
-}
+export type CollectionResponse = components['schemas']['CollectionResponse'];
 
-export interface CollectionListResponse {
-  collections: CollectionResponse[];
-  total: number;
-}
+export type CollectionListResponse = components['schemas']['CollectionListResponse'];
 
 export interface CollectionCreateRequest {
   name: string;
@@ -851,11 +837,7 @@ export interface LabelConfig {
 }
 
 // Popups
-export interface PopupConfig {
-  enabled: boolean;
-  expression: string | null;
-  visible_fields: string[] | null;
-}
+export type PopupConfig = components['schemas']['PopupConfig'];
 
 // Data-driven styling
 export interface BuilderStyleConfig {
@@ -998,126 +980,52 @@ export type ColumnValuesResponse = components['schemas']['ColumnValuesResponse']
 export type ColumnStatsResponse = components['schemas']['ColumnStatsResponse'];
 
 // Maps
-export type MapVisibility = 'private' | 'internal' | 'public';
+export type MapVisibility = components['schemas']['MapVisibility'];
 
-export interface MapLayerResponse {
-  id: string;
-  dataset_id: string;
-  dataset_name: string;
-  dataset_geometry_type: GeometryTypeName | null;
-  dataset_table_name: string;
-  dataset_extent_bbox: number[] | null;
-  dataset_column_info: { name: string; type: string }[] | null;
-  dataset_feature_count: number | null;
-  dataset_sample_values: Record<string, unknown[]> | null;
-  display_name: string | null;
-  sort_order: number;
-  visible: boolean;
-  opacity: number;
-  paint: Record<string, unknown>;
-  layout: Record<string, unknown>;
-  filter: FilterSpecification | null;
+// The API declares these as open dicts or strings; the frontend narrows them to the shapes it reads.
+export type MapLayerResponse = Omit<
+  components['schemas']['MapLayerResponse'],
+  | 'dataset_column_info'
+  | 'dataset_sample_values'
+  | 'filter'
+  | 'label_config'
+  | 'style_config'
+  | 'layer_type'
+  | 'dataset_record_type'
+> & {
+  dataset_column_info?: { name: string; type: string }[] | null;
+  dataset_sample_values?: Record<string, unknown[]> | null;
+  filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;
-  popup_config?: PopupConfig | null;
   style_config?: StyleConfig | null;
+  // Layers the builder synthesizes carry no layer type.
   layer_type?: MapLayerType | null;
   dataset_record_type?: RecordType | null;
-  /** fix(#430 V-17): dataset's own visibility, for computing audience-hidden layers. */
-  dataset_visibility?: string | null;
-  /** fix(#430 V-17): dataset's own publish status, for computing audience-hidden layers. */
-  dataset_status?: string | null;
-  show_in_legend?: boolean;
-  is_3d?: boolean | null;
-  is_dem?: boolean | null;
-  dem_vertical_units?: string | null;
-  band_count?: number | null;
-  /** fix(#394) VT-02: dataset content version — `_v=` tile-URL cache-buster. */
-  tile_version?: number | null;
-  /** fix(#1963): the counter the signed tile scope binds, so the saved-map style
-   * document signs at the version the tile route verifies. */
-  publication_version?: number | null;
-  /** feat(#1472): the backing dataset's required credit line, for the viewer's
-   * MapLibre attribution control. */
-  dataset_attribution?: string | null;
-}
+};
 
-export interface MapResponse {
-  id: string;
-  name: string;
-  description: string | null;
-  notes: string | null;
-  center_lng: number | null;
-  center_lat: number | null;
-  zoom: number | null;
-  bearing: number;
-  pitch: number;
-  basemap_style: string;
-  show_basemap_labels: boolean;
-  basemap_config: MapBasemapConfig | null;
-  terrain_config: MapTerrainConfig | null;
-  visibility: MapVisibility;
-  thumbnail_url: string | null;
-  /** fix(#394) CV-01: social-card image URL — was missing from this hand-typed mirror. */
-  og_image_url?: string | null;
-  created_by: string | null;
-  created_by_username: string | null;
-  created_at: string;
-  updated_at: string;
+// The basemap and terrain configs and the layers carry the frontend's narrowed shapes.
+export type MapResponse = Omit<components['schemas']['MapResponse'], 'basemap_config' | 'terrain_config' | 'layers'> & {
+  basemap_config?: MapBasemapConfig | null;
+  terrain_config?: MapTerrainConfig | null;
   layers: MapLayerResponse[];
-  layer_count: number;
-  plugins?: string[] | null;
-  /** Custom map-level legend title (ENH-06). Null = no custom title. */
-  legend_title?: string | null;
-  forked_from_id: string | null;
-  forked_from_name: string | null;
-}
+};
 
-export interface DuplicateMapResponse extends MapResponse {
-  excluded_layer_count: number;
-}
+export type DuplicateMapResponse = Omit<
+  components['schemas']['DuplicateMapResponse'],
+  'basemap_config' | 'terrain_config' | 'layers'
+> & {
+  basemap_config?: MapBasemapConfig | null;
+  terrain_config?: MapTerrainConfig | null;
+  layers: MapLayerResponse[];
+};
 
-export interface MapSummaryResponse {
-  id: string;
-  created_by?: string | null;
-  name: string;
-  description: string | null;
-  visibility: MapVisibility;
-  thumbnail_url: string | null;
-  /** fix(#1005): the thumbnail's cache version, separate from the map's edit
-   * timestamp. Null for maps whose thumbnail predates the column — fall back to
-   * `updated_at` so the card keeps a stable version either way. */
-  thumbnail_updated_at: string | null;
-  layer_count: number;
-  created_by_username: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type MapSummaryResponse = components['schemas']['MapSummaryResponse'];
 
-export interface MapListResponse {
-  maps: MapSummaryResponse[];
-  total: number;
-}
+export type MapListResponse = components['schemas']['MapListResponse'];
 
-export interface MapHistoryEntryResponse {
-  id: string;
-  map_id: string;
-  actor_id: string | null;
-  actor_username: string | null;
-  target_type: string;
-  target_id: string | null;
-  target_name: string | null;
-  action: string;
-  summary: string;
-  details: Record<string, unknown>;
-  created_at: string;
-}
+export type MapHistoryEntryResponse = components['schemas']['MapHistoryEventResponse'];
 
-export interface MapHistoryListResponse {
-  events: MapHistoryEntryResponse[];
-  total: number;
-  skip: number;
-  limit: number;
-}
+export type MapHistoryListResponse = components['schemas']['MapHistoryListResponse'];
 
 export interface MapBrowseParams {
   skip?: number;
@@ -1156,158 +1064,83 @@ export interface MapUpdateRequest {
   legend_title?: string | null;
 }
 
-export interface MapLayerInput {
-  /** fix(#430 codex): existing layer id — lets a full PUT update rows in place (V-14). */
-  id?: string;
-  dataset_id: string;
+// Request body: the generated type marks defaulted fields required, but the API accepts omitting them.
+export type MapLayerInput = Omit<
+  components['schemas']['MapLayerInput'],
+  'sort_order' | 'visible' | 'opacity' | 'show_in_legend' | 'filter' | 'label_config' | 'style_config' | 'layer_type'
+> & {
   sort_order?: number;
   visible?: boolean;
   opacity?: number;
-  paint?: Record<string, unknown> | null;
-  layout?: Record<string, unknown> | null;
-  display_name?: string | null;
+  show_in_legend?: boolean;
   filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;
-  popup_config?: PopupConfig | null;
   style_config?: StyleConfig | null;
   layer_type?: MapLayerType | null;
-  show_in_legend?: boolean;
-}
+};
 
-export interface MapLayerPatch {
-  id: string;
-  sort_order?: number;
-  visible?: boolean;
-  opacity?: number;
-  paint?: Record<string, unknown> | null;
-  layout?: Record<string, unknown> | null;
-  display_name?: string | null;
+export type MapLayerPatch = Omit<
+  components['schemas']['MapLayerPatch'],
+  'filter' | 'label_config' | 'style_config' | 'layer_type'
+> & {
   filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;
-  popup_config?: PopupConfig | null;
   style_config?: StyleConfig | null;
   layer_type?: MapLayerType | null;
-  show_in_legend?: boolean;
-}
+};
 
-export interface MapLayerDiffRequest {
+// Request body: `fallback_full_replace` has a server default, so it may be omitted.
+export type MapLayerDiffRequest = Omit<
+  components['schemas']['MapLayerDiffRequest'],
+  'added' | 'updated' | 'fallback_full_replace'
+> & {
   added?: MapLayerInput[];
   updated?: MapLayerPatch[];
-  removed?: string[];
-  order?: string[] | null;
-}
+  fallback_full_replace?: boolean;
+};
 
-export interface MapStyleImportWarning {
-  code: string;
-  message: string;
-  source_id?: string | null;
-  layer_id?: string | null;
-}
+export type MapStyleImportWarning = components['schemas']['MapStyleImportWarning'];
 
-export interface MapStyleImportSummary {
-  sources_matched: number;
-  sources_unsupported: number;
-  layers_imported: number;
-  layers_skipped: number;
-  warnings: MapStyleImportWarning[];
-  /** fix(#1778): warnings produced beyond the reported list. The backend caps
-   *  `warnings` at 100 because a document with unbounded sources produces one
-   *  warning per unmatched source; this is how many it stopped listing.
-   *  Optional so a response from an older backend still types. */
-  warnings_truncated?: number;
-}
+export type MapStyleImportSummary = components['schemas']['MapStyleImportSummary'];
 
-export interface MapStyleImportResponse {
-  map: MapResponse;
-  summary: MapStyleImportSummary;
-}
+export type MapStyleImportResponse = Omit<components['schemas']['MapStyleImportResponse'], 'map'> & { map: MapResponse };
 
-export interface MapIconResponse {
-  id: string;
-  name: string;
-  slug: string;
-  media_type: string;
-  url: string;
-  sprite_id: string;
-  size_bytes?: number | null;
-  builtin: boolean;
-}
+export type MapIconResponse = components['schemas']['MapIconResponse'];
 
-export interface MapIconListResponse {
-  icons: MapIconResponse[];
-}
+export type MapIconListResponse = components['schemas']['MapIconListResponse'];
 
-export interface VisibilityCheckResponse {
-  non_public_datasets: string[];
-  has_non_public: boolean;
-}
+export type VisibilityCheckResponse = components['schemas']['VisibilityCheckResponse'];
 
 // Shared / Public Maps
-export interface SharedLayerResponse {
-  id?: string;
-  dataset_id: string;
-  dataset_name: string;
-  display_name: string | null;
-  table_name: string;
-  geometry_type: GeometryTypeName | null;
-  column_info:
+export type SharedLayerResponse = Omit<
+  components['schemas']['SharedLayerResponse'],
+  'column_info' | 'filter' | 'label_config' | 'style_config' | 'layer_type' | 'dataset_record_type'
+> & {
+  column_info?:
     | { name: string; type: string; title?: string; semantic_role?: string | null; domain_type?: string | null }[]
     | null;
-  sort_order: number;
-  visible: boolean;
-  opacity: number;
-  paint: Record<string, unknown>;
-  layout: Record<string, unknown>;
-  filter: FilterSpecification | null;
-  label_config: LabelConfig | null;
-  popup_config: PopupConfig | null;
-  style_config: StyleConfig | null;
-  show_in_legend?: boolean;
+  filter?: FilterSpecification | null;
+  label_config?: LabelConfig | null;
+  style_config?: StyleConfig | null;
+  // The public viewer adapts MapLayerResponse layers, which may lack a layer type.
   layer_type?: MapLayerType;
-  dataset_record_type?: RecordType;
-  is_dem?: boolean;
-  dem_vertical_units?: string | null;
-  is_3d?: boolean | null;
-  tile_url: string;
-  feature_count?: number | null;
-  /** fix(#394) VT-02: dataset content version — `_v=` tile-URL cache-buster. */
-  tile_version?: number | null;
-  /** feat(#1472): the backing dataset's required credit line (viewer parity
-   * with MapLayerResponse.dataset_attribution). */
-  dataset_attribution?: string | null;
-  /** Viewer parity with MapLayerResponse.dataset_extent_bbox. */
-  dataset_extent_bbox?: number[] | null;
-}
+  dataset_record_type?: RecordType | null;
+};
 
-export interface SharedMapResponse {
-  name: string;
-  description: string | null;
-  center_lng: number;
-  center_lat: number;
-  zoom: number;
-  bearing: number;
-  pitch: number;
-  basemap_style: string;
+// Payloads from older servers omit `show_basemap_labels`; normalizeSavedMap defaults it.
+export type SharedMapResponse = Omit<
+  components['schemas']['SharedMapResponse'],
+  'show_basemap_labels' | 'basemap_config' | 'terrain_config' | 'layers'
+> & {
   show_basemap_labels?: boolean;
   basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
-  has_non_public_layers: boolean;
-  /** Custom map-level legend title (ENH-06). Null = no custom title. */
-  legend_title?: string | null;
   layers: SharedLayerResponse[];
-}
+};
 
-export interface ShareTokenResponse {
-  token: string;
-  share_url: string | null;
-  expires_at: string | null;
-  is_active: boolean;
-}
+export type ShareTokenResponse = components['schemas']['ShareTokenResponse'];
 
-export interface MapAccessResponse {
-  can_view: boolean;
-  can_edit: boolean;
-}
+export type MapAccessResponse = components['schemas']['MapAccessResponse'];
 
 // AI Status
 export interface AIProbeCheck {
@@ -1394,10 +1227,7 @@ export interface BackfillResponse {
 }
 
 // AI Map Generation
-export interface MapGenerateRequest {
-  prompt: string;
-  language?: string;
-}
+export type MapGenerateRequest = components['schemas']['MapGenerateRequest'];
 
 // AI Chat (natural language map editing)
 export interface ChatMapLayer {
@@ -1625,58 +1455,21 @@ export interface BulkRegisterResponse {
 }
 
 // Admin share tokens
-export interface AdminShareTokenResponse {
-  // #347 (ADM-01): the admin "Published Maps" listing includes public maps with no
-  // share link, so the token-specific fields are nullable.
-  id: string | null;
-  map_id: string;
-  map_name: string;
-  token: string | null;
-  is_active: boolean | null;
-  expires_at: string | null;
-  created_at: string;
-  created_by: string | null;
-  embed_token_count: number;
-}
+export type AdminShareTokenResponse = components['schemas']['AdminShareTokenResponse'];
 
-export interface AdminShareTokenListResponse {
-  tokens: AdminShareTokenResponse[];
-  total: number;
-}
+export type AdminShareTokenListResponse = components['schemas']['AdminShareTokenListResponse'];
 
 // Embed tokens
-export interface EmbedTokenResponse {
-  id: string;
-  map_id: string;
-  name?: string | null;
-  scoped_dataset_ids?: string[];
-  token_hint: string;
-  allowed_origins: string[] | null;
-  expires_at: string;
-  is_active: boolean;
-  use_count: number;
-  last_used_at: string | null;
-  created_at: string;
-}
+export type EmbedTokenResponse = components['schemas']['EmbedTokenResponse'];
 
-export interface EmbedTokenCreatedResponse extends EmbedTokenResponse {
-  raw_token: string;
-}
+export type EmbedTokenCreatedResponse = components['schemas']['EmbedTokenCreatedResponse'];
 
 // Admin embed tokens
-export interface AdminEmbedTokenResponse extends EmbedTokenResponse {
-  map_name: string | null;
-  creator_username: string | null;
-}
+export type AdminEmbedTokenResponse = components['schemas']['AdminEmbedTokenResponse'];
 
-export interface AdminEmbedTokenListResponse {
-  tokens: AdminEmbedTokenResponse[];
-  total: number;
-}
+export type AdminEmbedTokenListResponse = components['schemas']['AdminEmbedTokenListResponse'];
 
-export interface BulkRevokeResponse {
-  revoked_count: number;
-}
+export type BulkRevokeResponse = components['schemas']['BulkRevokeResponse'];
 
 // Infrastructure
 export interface ProviderHealth {
