@@ -399,6 +399,92 @@ async def test_a_public_replacement_rechecks_that_its_admin_still_is_one(
         assert state["live"] == "before"
 
 
+async def test_a_public_manifest_update_keeps_the_admission_its_gate_made(
+    submitted_by_editor,
+    editor,
+    test_db_session,
+    clean_tables,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The restriction is on at a manifest update's gate, off by the time its
+    job is reserved, and on again at publish, after its admin is demoted."""
+    import app.core.persistent_config as persistent_config
+    from app.modules.catalog import authorization
+    from app.processing.ingest.manifest_service import apply_manifest
+    from tests.test_manifest_run_admission import (
+        _admin,
+        _applied_dataset,
+        _entry,
+        _http_request,
+        _newest_job,
+        _request,
+        _reupload_task,
+        _stage_fixture,
+    )
+
+    restricted = True
+
+    class _Restriction:
+        async def get(self, _db):
+            return restricted
+
+    gate = authorization.check_public_visibility_allowed
+
+    async def gate_then_lift(db, user, visibility, **kwargs):
+        nonlocal restricted
+        roles = await gate(db, user, visibility, **kwargs)
+        restricted = False
+        return roles
+
+    monkeypatch.setattr(persistent_config, "RESTRICT_PUBLIC_VISIBILITY", _Restriction())
+    monkeypatch.setattr(
+        authorization, "check_public_visibility_allowed", gate_then_lift
+    )
+    _stage_fixture()
+    caller = await _admin(test_db_session)
+    await _applied_dataset(test_db_session, caller, "gate-lifted")
+    entry = _entry("gate-lifted", title="Published roads")
+    entry["publication"] = {"intent": "published"}
+    with _reupload_task():
+        response = await apply_manifest(
+            test_db_session, _request(entry), caller, _http_request()
+        )
+    assert response.results[0].action == "update", response.results[0]
+    queued = await _newest_job(test_db_session, "gate-lifted")
+
+    # The seeded replacement publishes under the admission the manifest recorded.
+    seeded = submitted_by_editor
+    _, owner_id = editor
+    admin = select(Role.id).where(Role.name == "admin").scalar_subquery()
+    await _commit(
+        update(UserRole).where(UserRole.user_id == owner_id).values(role_id=admin)
+    )
+    recorded = {
+        key: value
+        for key, value in queued.user_metadata.items()
+        if key == ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY
+    }
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, seeded.job_id)
+        job.user_metadata = {**(job.user_metadata or {}), **recorded}
+        await session.commit()
+    restricted = True
+    editor_role = select(Role.id).where(Role.name == "editor").scalar_subquery()
+
+    async def demote() -> None:
+        await _commit(
+            update(UserRole)
+            .where(UserRole.user_id == owner_id)
+            .values(role_id=editor_role)
+        )
+
+    await _settle(_Fake(seeded, during={"install": demote}))
+
+    state = await _state(seeded)
+    assert state["run"] == ("failed", "write_access_revoked")
+    assert state["live"] == "before"
+
+
 @pytest.mark.parametrize(("demoted", "published"), [(True, False), (False, True)])
 async def test_a_raw_source_replacement_rechecks_that_its_admin_still_is_one(
     submitted_by_editor, editor, demoted: bool, published: bool

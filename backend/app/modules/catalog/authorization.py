@@ -37,6 +37,7 @@ from app.modules.catalog.write_recheck import (
     PUBLIC_VISIBILITY_DENIED,
     admit_public_visibility,
     admit_writer,
+    admitted_public_visibility as admitted_public_visibility,
     forget_public_visibility,
     recheck_dataset_write_access,
 )

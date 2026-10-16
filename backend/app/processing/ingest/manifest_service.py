@@ -7,7 +7,6 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import structlog
 from fastapi import HTTPException, Request
@@ -759,14 +758,6 @@ def _validate_existing_dataset_update(
         )
 
 
-async def _admitted_as_admin_to_publish(db: AsyncSession, visibility: Any) -> bool:
-    """A public intent the restricted-public gate let through, which it does
-    for an admin only."""
-    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
-
-    return visibility == "public" and bool(await RESTRICT_PUBLIC_VISIBILITY.get(db))
-
-
 async def _reserve_entry(
     db: AsyncSession,
     dataset: ManifestDataset,
@@ -799,7 +790,10 @@ async def _reserve_entry(
         metadata["reupload"] = True
         metadata["dataset_id"] = str(dataset_id)
         metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
-        if await _admitted_as_admin_to_publish(db, metadata.get("visibility")):
+        from app.modules.catalog.authorization import admitted_public_visibility
+
+        # What this entry's restricted-public gate decided, not a later read.
+        if admitted_public_visibility(db, user.id):
             metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] = True
         if prepared.kind != "http":
             metadata[ADMITTED_RAW_SOURCE_METADATA_KEY] = True
