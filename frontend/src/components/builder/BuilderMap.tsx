@@ -301,7 +301,7 @@ export const BuilderMap = memo(function BuilderMap({
   });
   // Null for a style URL that MapLibre loads itself.
   const basemapSourceIds = useMemo(
-    () => (typeof mapStyle === 'string' ? null : new Set(Object.keys(mapStyle.sources))),
+    () => (typeof mapStyle === 'string' ? null : new Set(Object.keys(mapStyle.sources ?? {}))),
     [mapStyle],
   );
   const basemapSourceIdsRef = useRef(basemapSourceIds);
@@ -763,7 +763,8 @@ export const BuilderMap = memo(function BuilderMap({
           // source (style, sprite, glyphs; status 0 when unreachable), are a
           // basemap outage. Data layers, terrain and a rejected expression are not.
           const basemapFailed = failingSourceId
-            ? basemapSourceIdsRef.current?.has(failingSourceId) ?? !failingLayer
+            ? basemapSourceIdsRef.current?.has(failingSourceId)
+              ?? (!failingLayer && failingSourceId !== TERRAIN_SOURCE_ID)
             : typeof status === 'number';
           if (basemapFailed) {
             sawTileErrorSinceLoadingRef.current = true;

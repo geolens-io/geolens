@@ -20,6 +20,12 @@ vi.mock('@/hooks/use-settings', () => ({
         url: 'https://tiles.example.com/styles/bright',
         enabled: true,
       },
+      {
+        id: 'direct-json',
+        label: 'Direct',
+        url: 'https://tiles.example.com/style.json',
+        enabled: true,
+      },
     ],
   }),
   useMapDefaults: () => ({ data: { center_lng: 0, center_lat: 0, zoom: 2 } }),
@@ -343,6 +349,44 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
 
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('renders when a fetched basemap style has no sources', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ version: 8, layers: [] }),
+        } as Response),
+      ) as typeof fetch;
+      render(<BuilderMap layers={[]} basemapStyle="openfreemap-positron" />);
+      await waitFor(() => {
+        expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.getByTestId('mapgl')).toBeInTheDocument();
+    });
+
+    it('keeps the banner off for terrain on a style URL that MapLibre loads itself', async () => {
+      render(<BuilderMap layers={[]} basemapStyle="direct-json" />);
+      await waitFor(() => {
+        expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+      });
+
+      mapState.fakeMap.emit('error', {
+        error: { message: 'Failed to fetch' },
+        sourceId: TERRAIN_SOURCE_ID,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.queryByRole('status')).toBeNull();
+
+      mapState.fakeMap.emit('error', {
+        error: { message: 'Failed to fetch' },
+        sourceId: 'openmaptiles',
+      });
+      await waitFor(() => {
+        expect(screen.getByRole('status')).toHaveTextContent('Basemap connection issue');
+      });
     });
 
     it('shows the basemap banner for an unreachable request with no source', async () => {
