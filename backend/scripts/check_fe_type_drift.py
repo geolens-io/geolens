@@ -142,7 +142,7 @@ _GENERATED_ALIAS = re.compile(
 )
 _GENERATED_OMIT = re.compile(
     r"export type (\w+) = Omit<\s*components\['schemas'\]\['(\w+)'\],"
-    r"\s*((?:'[^']+'\s*\|?\s*)+)>\s*&\s*\{",
+    r"\s*('[^']+'(?:\s*\|\s*'[^']+')*)\s*>\s*&\s*\{",
 )
 
 
