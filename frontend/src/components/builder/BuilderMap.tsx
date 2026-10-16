@@ -743,8 +743,6 @@ export const BuilderMap = memo(function BuilderMap({
           // masking ongoing outages.
           const loadedAt = basemapLoadedAtRef.current;
           if (loadedAt !== null && Date.now() - loadedAt < 3000) return;
-          sawTileErrorSinceLoadingRef.current = true;
-          setBasemapNotice('tiles');
           // Name the failing layer when the error carries a sourceId.
           // MapLibre attaches the source id to tile/source errors as they
           // bubble up; style/glyph errors have no sourceId, so fall back to
@@ -754,6 +752,13 @@ export const BuilderMap = memo(function BuilderMap({
           const failingLayer = failingSourceId
             ? layersRef.current.find((l) => getSourceIdForLayer(l) === failingSourceId)
             : undefined;
+          // The basemap banner is for the basemap's own sources. A data layer's
+          // failure is named in the toast, and a status-less error with no
+          // source (a rejected style expression) is not a connection problem.
+          if (!failingLayer && (status || failingSourceId)) {
+            sawTileErrorSinceLoadingRef.current = true;
+            setBasemapNotice('tiles');
+          }
           const failingName = failingLayer?.display_name || failingLayer?.dataset_name;
           toast.error(
             failingName

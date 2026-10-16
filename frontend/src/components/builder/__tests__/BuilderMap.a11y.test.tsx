@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { act, render, screen, waitFor } from '@/test/test-utils';
 import { toast } from 'sonner';
 import { BuilderMap } from '../BuilderMap';
-import { ensureRasterDemTerrainSource, TERRAIN_SOURCE_ID } from '../map-sync';
+import { ensureRasterDemTerrainSource, getSourceIdForLayer, TERRAIN_SOURCE_ID } from '../map-sync';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
 vi.mock('@/hooks/use-settings', () => ({
@@ -276,6 +276,62 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
       ([, options]) => (options as { id?: string } | undefined)?.id === 'builder-map-error',
     );
     expect(mapErrorCalls.length).toBeGreaterThan(0);
+  });
+
+  describe('errors that are not a basemap outage', () => {
+    async function renderPending(layers: MapLayerResponse[] = []) {
+      globalThis.fetch = vi.fn(() => new Promise(() => {
+        // Style fetch pending: the post-load suppression window never applies
+      })) as typeof fetch;
+      render(<BuilderMap layers={layers} basemapStyle="openfreemap-positron" />);
+      await waitFor(() => {
+        expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+      });
+    }
+
+    it('keeps the basemap banner off for a style validation error', async () => {
+      await renderPending();
+
+      mapState.fakeMap.emit('error', {
+        error: { message: 'layers.x.paint.fill-color: Branch labels must be numbers or strings' },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('keeps the basemap banner off for a failing data layer source', async () => {
+      const layer = {
+        id: 'layer-1',
+        dataset_id: 'ds-1',
+        dataset_name: 'Parcels',
+        display_name: 'Parcels',
+        layer_type: 'vector_geolens',
+        visible: true,
+      } as MapLayerResponse;
+      await renderPending([layer]);
+
+      mapState.fakeMap.emit('error', {
+        error: { status: 503, message: 'Service Unavailable' },
+        sourceId: getSourceIdForLayer(layer),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('shows the basemap banner for a status-less failure of a basemap source', async () => {
+      await renderPending();
+
+      mapState.fakeMap.emit('error', {
+        error: { message: 'Failed to fetch' },
+        sourceId: 'openmaptiles',
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('status')).toHaveTextContent('Basemap connection issue');
+      });
+    });
   });
 
   // WR-02 (Phase 1050-rev): the latch must NOT permanently suppress 5xx
