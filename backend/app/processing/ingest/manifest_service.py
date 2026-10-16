@@ -26,7 +26,7 @@ from app.core.config import settings
 from app.core.failure_reason import prefixed_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.db.tenant_session import defer_async_with_tenant
-from app.core.identity import Identity
+from app.core.identity import Identity, IdentitySnapshot
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.platform.extensions import get_catalog_port, get_processing_port
 from app.platform.extensions.entitlement import enforce_limit
@@ -57,7 +57,7 @@ from app.processing.ingest.manifest_reservation import (
     release_manifest_reservation,
     staged_source_is_referenced,
 )
-from app.processing.ingest.publication import IdentitySnapshot, WriteAccessRevoked
+from app.processing.ingest.publication import WriteAccessRevoked
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
     ManifestApplyRequest,

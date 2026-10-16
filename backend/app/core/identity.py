@@ -15,6 +15,7 @@ entry-point group with key ``"identity"``.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, Sequence, runtime_checkable
 
@@ -55,6 +56,35 @@ class IdentityProtocol(Protocol):
 # Shorter alias for caller annotations (Phase 214 D-05); ``IdentityProtocol``
 # is preferred in conformance assertions / runtime ``isinstance`` checks.
 Identity = IdentityProtocol
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityRole:
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class IdentitySnapshot:
+    """An account as a full ``Identity`` held in plain values, which no
+    rollback can expire."""
+
+    id: uuid.UUID
+    username: str
+    email: str | None
+    is_active: bool
+    roles: tuple[IdentityRole, ...]
+    created_at: datetime
+
+    @classmethod
+    def of(cls, user: IdentityProtocol) -> IdentitySnapshot:
+        return cls(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            is_active=user.is_active,
+            roles=tuple(IdentityRole(role.name) for role in user.roles),
+            created_at=user.created_at,
+        )
 
 
 @runtime_checkable

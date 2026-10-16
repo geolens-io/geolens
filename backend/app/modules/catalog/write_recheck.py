@@ -17,11 +17,10 @@ from typing import Any
 from weakref import ReferenceType, WeakKeyDictionary, ref
 
 from fastapi import HTTPException, status
-from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.identity import Identity, IdentityProtocol
+from app.core.identity import Identity, IdentityRole, IdentitySnapshot
 from app.modules.auth.permissions import admitted_capabilities, user_standing_columns
 from app.platform.extensions import get_permission_extension
 
@@ -67,15 +66,15 @@ async def recheck_admitted_writer(
     """Re-check the writer a guard admitted to ``key``. Call holding the row lock.
 
     One query reads ``columns`` of the row ``where`` names, the writer's role
-    names as ``roles`` and whether the account is active as ``active``, all as
-    committed now. ``enforce(user, row)`` raises to refuse; ``row`` is None
-    when the row is gone. Then each capability ``require_permission`` admitted
-    the writer under must still be granted to those roles, and a writer
-    admitted to make something public under ``restrict_public_visibility``
-    must still be an admin, or 403. Runs once
-    per transaction or savepoint, since the lock holds the row until that
-    ends, and does nothing when no guard admitted a writer to ``key`` in this
-    session.
+    names as ``roles``, whether the account is active as ``active`` and the
+    rest of its identity, all as committed now. ``enforce(user, row)`` gets
+    that identity and raises to refuse; ``row`` is None when the row is gone.
+    Then each capability ``require_permission`` admitted the writer under must
+    still be granted to those roles, and a writer admitted to make something
+    public under ``restrict_public_visibility`` must still be an admin, or
+    403. Runs once per transaction or savepoint, since the lock holds the row
+    until that ends, and does nothing when no guard admitted a writer to
+    ``key`` in this session.
     """
     sync_session = db.sync_session
     admitted = _ADMITTED.get(sync_session, {}).get(key)
@@ -91,8 +90,8 @@ async def recheck_admitted_writer(
     # A flush here would write ahead of the caller's lock order.
     with db.no_autoflush:
         row = (await db.execute(statement)).one_or_none()
-        if row is not None and row.active:
-            admitted.user = await _complete_identity(db, admitted)
+    # Not the caller object: its loaded roles predate any change since the guard.
+    admitted.user = _committed_identity(admitted.user_id, row)
     await enforce(admitted.user, row)
     await _recheck_capabilities(db, admitted, set(row.roles))
     if not await public_visibility_still_allowed(
@@ -104,25 +103,15 @@ async def recheck_admitted_writer(
     admitted.rechecked_in = ref(transaction)
 
 
-async def _complete_identity(db: AsyncSession, admitted: _AdmittedWriter) -> Identity:
-    """The admitted writer as a full ``Identity`` that reads without IO.
-
-    The guards and permission extensions it is handed to read the whole
-    contract. An ORM caller a rollback expired is refreshed; a stand-in that
-    carries part of it, or an instance of another session, is replaced by the
-    account as committed now.
-    """
-    from app.modules.auth.service import get_user_identity
-
-    user = admitted.user
-    state = sa_inspect(user, raiseerr=False)
-    if state is not None and state.session is db.sync_session:
-        if state.expired_attributes:
-            await db.refresh(user)
-        return user
-    if state is None and isinstance(user, IdentityProtocol):
-        return user
-    return await get_user_identity(db, admitted.user_id) or user
+def _committed_identity(user_id: uuid.UUID, row: Any) -> IdentitySnapshot:
+    return IdentitySnapshot(
+        id=user_id,
+        username=getattr(row, "username", None),
+        email=getattr(row, "email", None),
+        is_active=bool(getattr(row, "active", False)),
+        roles=tuple(IdentityRole(name) for name in getattr(row, "roles", ())),
+        created_at=getattr(row, "created_at", None),
+    )
 
 
 async def _recheck_capabilities(

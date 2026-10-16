@@ -133,16 +133,22 @@ def _role_names(user_id: Any) -> Select[tuple[str]]:
     )
 
 
-def user_standing_columns(user_id: Any) -> tuple[ColumnElement, ColumnElement]:
-    """``user_id``'s role names (``roles``, an array) and whether the account
-    is active (``active``, NULL for no account), as columns for another
-    statement to select."""
+def user_standing_columns(user_id: Any) -> tuple[ColumnElement, ...]:
+    """``user_id``'s role names (``roles``, an array), whether the account is
+    active (``active``, NULL for no account), and its ``username``, ``email``
+    and ``created_at``, as columns for another statement to select."""
+
+    def column(attribute: Any, label: str) -> ColumnElement:
+        return (
+            select(attribute).where(User.id == user_id).scalar_subquery().label(label)
+        )
+
     return (
         func.array(_role_names(user_id).scalar_subquery()).label("roles"),
-        select(User.is_active)
-        .where(User.id == user_id)
-        .scalar_subquery()
-        .label("active"),
+        column(User.is_active, "active"),
+        column(User.username, "username"),
+        column(User.email, "email"),
+        column(User.created_at, "created_at"),
     )
 
 

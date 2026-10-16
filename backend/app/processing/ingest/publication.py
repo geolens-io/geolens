@@ -24,6 +24,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.failure_reason import FixedReason
+from app.core.identity import IdentityRole, IdentitySnapshot
 from app.platform.catalog_locks import (
     CatalogLockConflict,
     bump_tile_cache_version_on,
@@ -586,35 +587,6 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
             session, job_id=job_id, attempt_id=attempt_id, task=strategy.task
         )
     return False
-
-
-@dataclass(frozen=True, slots=True)
-class IdentityRole:
-    name: str
-
-
-@dataclass(frozen=True, slots=True)
-class IdentitySnapshot:
-    """An account as a full ``Identity`` held in plain values, which no
-    rollback can expire."""
-
-    id: uuid.UUID
-    username: str
-    email: str | None
-    is_active: bool
-    roles: tuple[IdentityRole, ...]
-    created_at: datetime
-
-    @classmethod
-    def of(cls, user: Any) -> IdentitySnapshot:
-        return cls(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            is_active=user.is_active,
-            roles=tuple(IdentityRole(role.name) for role in user.roles),
-            created_at=user.created_at,
-        )
 
 
 # In SQL, since processing may not import the auth models.
