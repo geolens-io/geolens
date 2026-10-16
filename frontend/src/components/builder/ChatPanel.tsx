@@ -565,7 +565,7 @@ export function ChatPanel({
       // budget after it, so a 300-row answer can arrive as 50 features with
       // truncated=false. chatOverlayCompleteness compares what we hold against
       // row_count and calls that clipped too — see its docstring.
-      const preview = geojson as GeoJSON.FeatureCollection;
+      const preview = geojson;
       const truncation = chatOverlayCompleteness(action, overlayFeatureCount(preview));
       // feat(#675): a run_analysis action carries its reconstruction params so
       // the preview surface can offer "Save as dataset" (prefilled Analysis
@@ -713,7 +713,7 @@ export function ChatPanel({
       case 'set_label':
         if (layerId) {
           if (isRecord(action.label_config)) {
-            const lc = action.label_config as LabelConfig;
+            const lc = action.label_config;
             // fix(#394) CH-02: validate the column against the layer schema —
             // a hallucinated column produced a label layer whose text-field
             // renders empty everywhere. Backend chat_actions mirrors this and

@@ -891,7 +891,7 @@ export const ViewerMap = memo(function ViewerMap({
       syncOptions: {
         idPrefix: VIEWER_PREFIX,
         showBasemapLabels: sbl,
-        basemapPosition: bc?.basemap_position,
+        basemapPosition: bc?.basemap_position ?? undefined,
         mvtSourceLayerPrefix: tc?.mvt_source_layer_prefix,
       },
       basemapConfig: bc,

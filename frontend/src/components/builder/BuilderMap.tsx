@@ -831,7 +831,7 @@ export const BuilderMap = memo(function BuilderMap({
       geojsonDataMap: clusterGeoJsonDataRef.current,
       syncOptions: {
         showBasemapLabels: sbl,
-        basemapPosition: bc?.basemap_position,
+        basemapPosition: bc?.basemap_position ?? undefined,
         mvtSourceLayerPrefix: tc?.mvt_source_layer_prefix,
       },
       basemapConfig: bc,

@@ -129,7 +129,7 @@ function compositionSyncOptions(
   return {
     ...options,
     showBasemapLabels,
-    basemapPosition: options?.basemapPosition ?? basemapConfig?.basemap_position,
+    basemapPosition: options?.basemapPosition ?? basemapConfig?.basemap_position ?? undefined,
   };
 }
 
@@ -205,7 +205,7 @@ export function applyMapBasemapAppearance({
   if (reorderDataLayerIds) {
     reorderDataLayers(map, reorderDataLayerIds, idPrefix);
   }
-  reorderBasemapAboveData(map, basemapConfig?.basemap_position, sourcePrefix);
+  reorderBasemapAboveData(map, basemapConfig?.basemap_position ?? undefined, sourcePrefix);
 }
 
 export interface SyncMapCompositionOptions {

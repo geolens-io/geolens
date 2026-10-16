@@ -184,7 +184,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         // builder needs it for the save guard; this surface needs it for the
         // same reason it needed #674: the badge must not call a clipped
         // overlay complete.
-        const preview = geojson as GeoJSON.FeatureCollection;
+        const preview = geojson;
         handleQueryResult(
           preview,
           [minX, minY, maxX, maxY],

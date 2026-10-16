@@ -346,7 +346,7 @@ export function StacImportForm() {
         ...(auth ? { auth } : {}),
       });
       if (gen !== searchGenRef.current) return;
-      setSearchResult({ items: result.items, matched: result.matched });
+      setSearchResult({ items: result.items, matched: result.matched ?? null });
       setNextPage(result.next_page ?? null);
       setSelectedItems(new Set());
       setStep('items');
@@ -419,7 +419,7 @@ export function StacImportForm() {
         ...(auth ? { auth } : {}),
       });
       if (!mountedRef.current || gen !== searchGenRef.current) return;
-      setSearchResult({ items: result.items, matched: result.matched });
+      setSearchResult({ items: result.items, matched: result.matched ?? null });
       setNextPage(result.next_page ?? null);
       setAppliedFilters(built.filters);
       setSelectedItems(new Set());
@@ -714,7 +714,7 @@ export function StacImportForm() {
           ...Object.fromEntries(
             // Entries come back in request order; ids can repeat.
             res.sizes.flatMap((s, n) =>
-              missing[n] ? [[missing[n].data_asset_href!, s.size_bytes]] : [],
+              missing[n] ? [[missing[n].data_asset_href!, s.size_bytes ?? null]] : [],
             ),
           ),
         }));

@@ -22,6 +22,12 @@ describe('BackfillRunStatus', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('renders nothing when the stats omit the run history', () => {
+    const { recent_runs: _omitted, ...withoutRuns } = base;
+    const { container } = render(<BackfillRunStatus stats={withoutRuns} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('shows the running job as records processed over total', () => {
     render(
       <BackfillRunStatus

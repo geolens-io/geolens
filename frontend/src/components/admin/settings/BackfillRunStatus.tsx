@@ -13,10 +13,11 @@ export function BackfillRunStatus({ stats }: { stats: EmbeddingStatsResponse }) 
   const { t } = useTranslation('admin');
   const run = stats.current_run;
   const total = run?.records_total ?? null;
+  const recentRuns = stats.recent_runs ?? [];
   const percent =
     run && total ? Math.min(100, Math.round((run.records_processed / total) * 100)) : 0;
 
-  if (!run && !stats.estimate && stats.recent_runs.length === 0) return null;
+  if (!run && !stats.estimate && recentRuns.length === 0) return null;
 
   return (
     <div className="space-y-3 border-t pt-3">
@@ -75,11 +76,11 @@ export function BackfillRunStatus({ stats }: { stats: EmbeddingStatsResponse }) 
         </div>
       )}
 
-      {stats.recent_runs.length > 0 && (
+      {recentRuns.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs font-medium">{t('ai.recentRuns')}</p>
           <ul className="space-y-0.5 text-xs text-muted-foreground">
-            {stats.recent_runs.map((entry) => (
+            {recentRuns.map((entry) => (
               <li key={entry.job_id} className="flex items-baseline justify-between gap-2">
                 <span className="truncate">
                   {outcomeLabel(t, entry.status)}
@@ -91,7 +92,7 @@ export function BackfillRunStatus({ stats }: { stats: EmbeddingStatsResponse }) 
                     : ''}
                 </span>
                 <span className="tabular-nums whitespace-nowrap">
-                  {formatDateTimeSmart(entry.finished_at)}
+                  {formatDateTimeSmart(entry.finished_at ?? null)}
                 </span>
               </li>
             ))}

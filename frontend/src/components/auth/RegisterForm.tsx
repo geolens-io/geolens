@@ -41,7 +41,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
 
     try {
       const result = await registerUser({ username, email, password });
-      onSuccess(email, result.next_step);
+      onSuccess(email, result.next_step ?? undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('registrationFailed'));
     } finally {
