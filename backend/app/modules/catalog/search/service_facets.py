@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import String as SAString, func, select
+from collections import defaultdict
+
+from sqlalchemy import Row, String as SAString, func, literal, null, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -29,8 +31,6 @@ async def get_facet_counts(
     (fix(#1855)), minus the result-only filters: record_type is never applied,
     so the type counts cover every type.
     """
-    # One CTE of candidate (dataset_id, record_id) pairs; every facet query
-    # below joins it instead of re-evaluating the filter stack.
     candidates = await select_candidates(
         session,
         select(Dataset.id.label("dataset_id"), Record.id.label("record_id"))
@@ -43,39 +43,38 @@ async def get_facet_counts(
         # Facets need no ranks; depth 1 is the probe that decides the mode.
         depth=1,
     )
-    filtered_cte = candidates.stmt.cte("filtered_ids")
+    # MATERIALIZED: the five groups read one evaluation of the candidate
+    # selection rather than each re-running its filters.
+    filtered_cte = candidates.stmt.cte("filtered_ids").prefix_with("MATERIALIZED")
 
+    # No "collection" record_type value: collections live in their own table,
+    # so it would always filter to 0. The collections group covers them.
     type_stmt = (
-        select(Record.record_type, func.count().label("count"))
+        select(
+            literal("record_type").label("facet"),
+            Record.record_type.label("value"),
+            null().label("name"),
+            func.count().label("count"),
+        )
         .select_from(filtered_cte)
         .join(Record, Record.id == filtered_cte.c.record_id)
         .group_by(Record.record_type)
     )
-    result = await session.execute(type_stmt)
-    counts = {row.record_type: row.count for row in result.all()}
-
-    # fix(#315): do NOT inject a "collection" record_type facet —
-    # Collections live in the separate Collection table, not as record_type
-    # rows, so it would advertise a value that always filters to 0. Collections
-    # are surfaced via the dedicated "collections" facet below instead.
-
-    # Sequential: SQLAlchemy AsyncSession is not safe for concurrent execute()
-    # on a shared connection. Each query joins the CTE below.
     kw_stmt = (
-        select(RecordKeyword.keyword, func.count().label("count"))
+        select(literal("keywords"), RecordKeyword.keyword, null(), func.count())
         .select_from(filtered_cte)
         .join(RecordKeyword, RecordKeyword.record_id == filtered_cte.c.record_id)
         .group_by(RecordKeyword.keyword)
         .order_by(func.count().desc())
         .limit(20)
     )
-    kw_result = await session.execute(kw_stmt)
-    keyword_facets = [
-        {"value": row.keyword, "count": row.count} for row in kw_result.all()
-    ]
-
     org_stmt = (
-        select(Record.source_organization, func.count().label("count"))
+        select(
+            literal("source_organization"),
+            Record.source_organization,
+            null(),
+            func.count(),
+        )
         .select_from(filtered_cte)
         .join(Record, Record.id == filtered_cte.c.record_id)
         .where(Record.source_organization.isnot(None), Record.source_organization != "")
@@ -83,17 +82,8 @@ async def get_facet_counts(
         .order_by(func.count().desc())
         .limit(50)
     )
-    org_result = await session.execute(org_stmt)
-    org_facets = [
-        {"value": row.source_organization, "count": row.count}
-        for row in org_result.all()
-    ]
-
     srid_stmt = (
-        select(
-            func.cast(Dataset.srid, SAString).label("srid_str"),
-            func.count().label("count"),
-        )
+        select(literal("srid"), func.cast(Dataset.srid, SAString), null(), func.count())
         .select_from(filtered_cte)
         .join(Dataset, Dataset.id == filtered_cte.c.dataset_id)
         .where(Dataset.srid.isnot(None))
@@ -101,33 +91,38 @@ async def get_facet_counts(
         .order_by(func.count().desc())
         .limit(50)
     )
-    srid_result = await session.execute(srid_stmt)
-    srid_facets = [
-        {"value": row.srid_str, "count": row.count} for row in srid_result.all()
-    ]
-
     coll_facet_stmt = (
         select(
-            Collection.id,
+            literal("collections"),
+            func.cast(Collection.id, SAString),
             Collection.name,
-            func.count(CollectionDataset.dataset_id).label("dataset_count"),
+            func.count(CollectionDataset.dataset_id),
         )
         .select_from(Collection)
         .join(CollectionDataset, CollectionDataset.collection_id == Collection.id)
         .join(filtered_cte, filtered_cte.c.dataset_id == CollectionDataset.dataset_id)
         .group_by(Collection.id, Collection.name)
-        .order_by(func.count(CollectionDataset.dataset_id).desc())
     )
-    coll_facet_result = await session.execute(coll_facet_stmt)
-    collections_facet = [
-        {"id": str(row.id), "name": row.name, "dataset_count": row.dataset_count}
-        for row in coll_facet_result.all()
-    ]
+    result = await session.execute(
+        union_all(type_stmt, kw_stmt, org_stmt, srid_stmt, coll_facet_stmt)
+    )
+    groups: dict[str, list[Row]] = defaultdict(list)
+    # A UNION ALL keeps no order across or within its branches.
+    for row in sorted(result.all(), key=lambda row: row.count, reverse=True):
+        groups[row.facet].append(row)
 
     return {
-        "record_type": counts,
-        "keywords": keyword_facets,
-        "source_organization": org_facets,
-        "srid": srid_facets,
-        "collections": collections_facet,
+        "record_type": {row.value: row.count for row in groups["record_type"]},
+        "keywords": [
+            {"value": row.value, "count": row.count} for row in groups["keywords"]
+        ],
+        "source_organization": [
+            {"value": row.value, "count": row.count}
+            for row in groups["source_organization"]
+        ],
+        "srid": [{"value": row.value, "count": row.count} for row in groups["srid"]],
+        "collections": [
+            {"id": row.value, "name": row.name, "dataset_count": row.count}
+            for row in groups["collections"]
+        ],
     }
