@@ -70,7 +70,9 @@ async def recheck_admitted_writer(
     names as ``roles`` and whether the account is active as ``active``, all as
     committed now. ``enforce(user, row)`` raises to refuse; ``row`` is None
     when the row is gone. Then each capability ``require_permission`` admitted
-    the writer under must still be granted to those roles, or 403. Runs once
+    the writer under must still be granted to those roles, and a writer
+    admitted to make something public under ``restrict_public_visibility``
+    must still be an admin, or 403. Runs once
     per transaction or savepoint, since the lock holds the row until that
     ends, and does nothing when no guard admitted a writer to ``key`` in this
     session.
@@ -93,6 +95,12 @@ async def recheck_admitted_writer(
             admitted.user = await _complete_identity(db, admitted)
     await enforce(admitted.user, row)
     await _recheck_capabilities(db, admitted, set(row.roles))
+    if not await public_visibility_still_allowed(
+        db, admitted_public_visibility(db, admitted.user_id), set(row.roles)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=PUBLIC_VISIBILITY_DENIED
+        )
     admitted.rechecked_in = ref(transaction)
 
 
@@ -131,6 +139,43 @@ async def _recheck_capabilities(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Missing permission: {capability}",
             )
+
+
+PUBLIC_VISIBILITY_DENIED = (
+    "Public visibility is restricted to administrators on this instance. "
+    "Choose a narrower visibility or ask an admin to make this content public."
+)
+
+_ADMITTED_PUBLIC_VISIBILITY = "admitted_public_visibility"
+
+
+def admit_public_visibility(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Record that the restricted-public gate let ``user_id`` make something
+    public in this session, as an admin."""
+    db.info.setdefault(_ADMITTED_PUBLIC_VISIBILITY, set()).add(user_id)
+
+
+def admitted_public_visibility(db: AsyncSession, user_id: uuid.UUID) -> bool:
+    return user_id in db.info.get(_ADMITTED_PUBLIC_VISIBILITY, set())
+
+
+def forget_public_visibility(db: AsyncSession, user_id: uuid.UUID) -> None:
+    db.info.get(_ADMITTED_PUBLIC_VISIBILITY, set()).discard(user_id)
+
+
+async def public_visibility_still_allowed(
+    db: AsyncSession, admitted: bool, roles: set[str]
+) -> bool:
+    """Whether a write admitted to make something public may still do so.
+
+    Only a write the restricted-public gate admitted is re-checked, and only
+    while the restriction is still on: such a writer must still be an admin.
+    """
+    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
+
+    if not admitted or "admin" in roles:
+        return True
+    return not await RESTRICT_PUBLIC_VISIBILITY.get(db)
 
 
 class _Committed:

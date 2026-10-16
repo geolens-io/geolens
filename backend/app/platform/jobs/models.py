@@ -99,6 +99,10 @@ MANIFEST_FINGERPRINT_METADATA_KEY = "manifest_fingerprint"
 # publish checks again. Absent for a door that required none.
 ADMITTED_CAPABILITY_METADATA_KEY = "admitted_capability"
 
+# Set when an admin's request under restrict_public_visibility made the data
+# public, which the publish checks they still are.
+ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY = "admitted_public_visibility"
+
 # The unpacked total the tileset upload door measured, which the commit door
 # checks against the quota again.
 TILESET_UNPACKED_BYTES_FIELD = "tileset_unpacked_bytes"

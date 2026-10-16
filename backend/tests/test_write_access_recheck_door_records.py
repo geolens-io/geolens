@@ -166,3 +166,77 @@ async def test_the_vrt_add_source_door_commits_upload_on_its_job(
             )
         )
     assert metadata[ADMITTED_CAPABILITY_METADATA_KEY] == "upload"
+
+
+async def test_a_public_manifest_update_records_its_admin_admission(
+    test_db_session, clean_tables, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.core.persistent_config as persistent_config
+    from app.platform.jobs.models import ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY
+    from tests.test_manifest_run_admission import _entry, _request
+
+    class _Restricted:
+        async def get(self, _db):
+            return True
+
+    monkeypatch.setattr(persistent_config, "RESTRICT_PUBLIC_VISIBILITY", _Restricted())
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    await _applied_dataset(test_db_session, user, "records-public")
+    entry = _entry("records-public", title="Published roads")
+    entry["publication"] = {"intent": "published"}
+
+    with _reupload_task():
+        response = await apply_manifest(
+            test_db_session, _request(entry), user, _http_request()
+        )
+
+    assert response.results[0].action == "update", response.results[0]
+    job = await _newest_job(test_db_session, "records-public")
+    assert job.user_metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] is True
+
+
+def test_an_accepted_upload_carries_the_admin_admission() -> None:
+    from app.platform.jobs.models import ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY
+
+    blocked = {"manifest_key": "k", ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY: True}
+    metadata = _accepted_upload_metadata(
+        SimpleNamespace(id=uuid.uuid4(), user_metadata=blocked),
+        dataset_id=uuid.uuid4(),
+        run_id=uuid.uuid4(),
+        fingerprint="fp",
+        held_version=None,
+    )
+    assert metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] is True
+
+
+async def test_a_manifest_update_over_http_hands_an_overlay_a_full_identity(
+    client: AsyncClient,
+    test_db_session,
+    admin_auth_header,
+    clean_tables,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The authorized caller, unchanged, through the real endpoint, with an
+    extension that reads the identity contract."""
+    from app.platform import extensions
+    from tests.test_manifest_run_admission import _ContractReadingExtension
+
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    await _applied_dataset(test_db_session, user, "http-identity")
+    monkeypatch.setitem(
+        extensions._extensions, "permission", _ContractReadingExtension()
+    )
+
+    with _reupload_task() as task:
+        resp = await client.post(
+            "/ingest/manifest/apply",
+            json=_update("http-identity").model_dump(mode="json"),
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 200, resp.text
+    [result] = resp.json()["results"]
+    assert result["action"] == "update", result
+    task.defer_async.assert_awaited_once()

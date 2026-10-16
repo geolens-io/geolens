@@ -34,7 +34,10 @@ from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
 from app.modules.auth.permissions import get_user_roles as _get_user_roles
 from app.modules.catalog.write_recheck import (
+    PUBLIC_VISIBILITY_DENIED,
+    admit_public_visibility,
     admit_writer,
+    forget_public_visibility,
     recheck_dataset_write_access,
 )
 from app.platform.catalog_locks import lock_catalog_rows
@@ -579,7 +582,10 @@ async def check_public_visibility_allowed(
 
     Pass ``user_roles`` when already resolved to skip a lookup. Returns the
     resolved (or caller-provided) roles, or ``None`` when no lookup happened.
+    An admin it lets through is recorded, and the write's lock checks again
+    that they are still one. The record follows the caller's latest check.
     """
+    forget_public_visibility(db, user.id)
     if visibility != "public":
         return user_roles
 
@@ -593,15 +599,11 @@ async def check_public_visibility_allowed(
     if user_roles is None:
         user_roles = await get_user_roles(db, user)
     if "admin" in user_roles:
+        admit_public_visibility(db, user.id)
         return user_roles
 
     raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail=(
-            "Public visibility is restricted to administrators on this "
-            "instance. Choose a narrower visibility or ask an admin to "
-            "make this content public."
-        ),
+        status_code=status.HTTP_403_FORBIDDEN, detail=PUBLIC_VISIBILITY_DENIED
     )
 
 

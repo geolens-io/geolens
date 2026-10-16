@@ -24,7 +24,11 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
-from app.platform.jobs.models import ADMITTED_CAPABILITY_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    ADMITTED_CAPABILITY_METADATA_KEY,
+    ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+    IngestJob,
+)
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.verification import (
     REVIEW_SUPERSEDED,
@@ -202,7 +206,7 @@ def _accepted_upload_metadata(
     carried = {
         key: value
         for key, value in blocked.items()
-        if key == "srid_override"
+        if key in ("srid_override", ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY)
         or key.startswith("manifest_")
         or ("manifest_key" in blocked and key in _MANIFEST_RECORD_KEYS)
     }

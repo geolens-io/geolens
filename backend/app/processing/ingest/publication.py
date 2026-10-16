@@ -45,6 +45,7 @@ from app.platform.jobs.ledger import hold
 from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ADMITTED_CAPABILITY_METADATA_KEY,
+    ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
     IngestJob,
 )
 from app.platform.refresh.service import (
@@ -631,7 +632,8 @@ async def require_submitter_can_write(
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
     the dataset, as committed now, and their roles still grant ``capability``,
     the one the job's door admitted it under. With None, only the account and
-    owner-or-admin are checked.
+    owner-or-admin are checked. A job an admin queued to make data public
+    under ``restrict_public_visibility`` also needs them to still be an admin.
 
     Call holding the catalog rows, which an ownership transfer also takes.
     """
@@ -669,6 +671,22 @@ async def require_submitter_can_write(
         session, submitter, capability, user_roles=set(row.roles)
     ):
         raise WriteAccessRevoked
+    if await _no_longer_admin_to_publish(session, job, set(row.roles)):
+        raise WriteAccessRevoked
+
+
+async def _no_longer_admin_to_publish(
+    session: AsyncSession, job: IngestJob, roles: set[str]
+) -> bool:
+    """A job an admin queued to make data public under the restricted-public
+    setting, whose submitter is no longer one while the setting is still on."""
+    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
+
+    if "admin" in roles:
+        return False
+    if not (job.user_metadata or {}).get(ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY):
+        return False
+    return bool(await RESTRICT_PUBLIC_VISIBILITY.get(session))
 
 
 async def _take_catalog_rows(

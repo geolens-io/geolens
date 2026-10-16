@@ -23,7 +23,11 @@ from app.core.identity import IdentityProtocol
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.catalog.datasets.domain.models import Record
 from app.platform.extensions import get_processing_port
-from app.platform.jobs.models import ADMITTED_CAPABILITY_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    ADMITTED_CAPABILITY_METADATA_KEY,
+    ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+    IngestJob,
+)
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
 from app.processing.ingest.publication import WriteAccessRevoked
@@ -337,3 +341,59 @@ async def test_the_write_guard_is_handed_a_complete_identity(
 
     assert identities == [True]
     assert (await _state(submitted_by_editor))["job"] == "complete"
+
+
+@pytest.mark.parametrize(
+    ("restricted", "demoted", "published"),
+    [(True, True, False), (True, False, True), (False, True, True)],
+)
+async def test_a_public_replacement_rechecks_that_its_admin_still_is_one(
+    submitted_by_editor,
+    editor,
+    monkeypatch: pytest.MonkeyPatch,
+    restricted: bool,
+    demoted: bool,
+    published: bool,
+) -> None:
+    """An admin owner queued a replacement that makes the data public while
+    public visibility was restricted to admins."""
+    import app.core.persistent_config as persistent_config
+
+    seeded = submitted_by_editor
+    _, owner_id = editor
+    admin = select(Role.id).where(Role.name == "admin").scalar_subquery()
+    await _commit(
+        update(UserRole).where(UserRole.user_id == owner_id).values(role_id=admin)
+    )
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, seeded.job_id)
+        job.user_metadata = {
+            **(job.user_metadata or {}),
+            ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY: True,
+        }
+        await session.commit()
+
+    class _Restriction:
+        async def get(self, _db):
+            return restricted
+
+    monkeypatch.setattr(persistent_config, "RESTRICT_PUBLIC_VISIBILITY", _Restriction())
+    editor_role = select(Role.id).where(Role.name == "editor").scalar_subquery()
+
+    async def demote() -> None:
+        if demoted:
+            await _commit(
+                update(UserRole)
+                .where(UserRole.user_id == owner_id)
+                .values(role_id=editor_role)
+            )
+
+    await _settle(_Fake(seeded, during={"install": demote}))
+
+    state = await _state(seeded)
+    if published:
+        assert state["job"] == "complete"
+        assert state["live"] == "after"
+    else:
+        assert state["run"] == ("failed", "write_access_revoked")
+        assert state["live"] == "before"

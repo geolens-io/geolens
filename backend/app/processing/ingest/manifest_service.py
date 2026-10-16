@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import structlog
 from fastapi import HTTPException, Request
@@ -41,6 +42,7 @@ from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
     ADMITTED_CAPABILITY_METADATA_KEY,
+    ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
     MANIFEST_FINGERPRINT_METADATA_KEY,
     IngestJob,
 )
@@ -750,6 +752,14 @@ def _validate_existing_dataset_update(
         )
 
 
+async def _admitted_as_admin_to_publish(db: AsyncSession, visibility: Any) -> bool:
+    """A public intent the restricted-public gate let through, which it does
+    for an admin only."""
+    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
+
+    return visibility == "public" and bool(await RESTRICT_PUBLIC_VISIBILITY.get(db))
+
+
 async def _reserve_entry(
     db: AsyncSession,
     dataset: ManifestDataset,
@@ -782,6 +792,8 @@ async def _reserve_entry(
         metadata["reupload"] = True
         metadata["dataset_id"] = str(dataset_id)
         metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
+        if await _admitted_as_admin_to_publish(db, metadata.get("visibility")):
+            metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] = True
 
     # fix(#1814): `running`, not `pending`. A pending row with no
     # file_path and no queue task is reapable by four actors while its source
