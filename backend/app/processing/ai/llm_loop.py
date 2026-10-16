@@ -289,6 +289,9 @@ class ToolLoopResult:
     actions: list[dict] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
+    # The final reply stopped early (token limit or content filter), so its
+    # text is partial and nothing in it should be acted on.
+    truncated: bool = False
 
 
 async def resolve_provider(db) -> tuple[str, str, dict[str, object]]:

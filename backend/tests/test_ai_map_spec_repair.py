@@ -6,13 +6,13 @@ live on the demo: 'Field required' for name/layers).
 """
 
 import uuid
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
 
 from app.processing.ai import service as ai_service
+from app.processing.ai.llm_loop import ToolLoopResult
 from app.processing.ai.schemas import LLMMapSpec
 
 pytestmark = pytest.mark.anyio
@@ -38,7 +38,7 @@ class _FakeProvider:
 
     async def complete(self, **kwargs):
         self.prompts.append(kwargs["user_message"])
-        return SimpleNamespace(text=self.text, input_tokens=7, output_tokens=11)
+        return ToolLoopResult(text=self.text, input_tokens=7, output_tokens=11)
 
 
 @pytest.fixture

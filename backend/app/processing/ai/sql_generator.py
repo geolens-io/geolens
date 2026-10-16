@@ -472,6 +472,9 @@ async def generate_sql(
             base_url=base_url,
         )
     sql = result.text
+    if result.truncated:
+        # A reply cut off early can still parse as a shorter, different query.
+        sql = "-- ERROR: The generated query was cut off. Try a simpler question."
 
     # Attribute SQL generation cost separately from the parent chat loop
     # (which records "chat" / "chat_stream"). Best-effort — failures are

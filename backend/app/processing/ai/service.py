@@ -23,6 +23,7 @@ from app.processing.ai.constants import tool_label
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.llm_loop import (
     ToolLoopExhaustedError,
+    ToolLoopResult,
     UserFacingAIError,
     stream_error_event,
     noop_tool_executor,
@@ -372,6 +373,13 @@ async def _execute_get_dataset_details(
     }
 
 
+def _finished_text(result: ToolLoopResult) -> str:
+    """The reply's text, refusing a reply that stopped before it finished."""
+    if result.truncated:
+        raise UserFacingAIError("The AI's reply was cut off. Try a shorter prompt.")
+    return result.text
+
+
 def _parse_map_spec(text: str) -> dict:
     """Extract JSON from <map_spec> tags in LLM response."""
     match = re.search(r"<map_spec>\s*(.*?)\s*</map_spec>", text, re.DOTALL)
@@ -430,7 +438,7 @@ async def _retry_parse_map_spec(
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
     )
-    retry_text = result.text
+    retry_text = _finished_text(result)
 
     return _parse_map_spec(retry_text)
 
@@ -493,7 +501,7 @@ async def _repair_map_spec(
         output_tokens=result.output_tokens,
     )
     try:
-        return LLMMapSpec(**_parse_map_spec(result.text))
+        return LLMMapSpec(**_parse_map_spec(_finished_text(result)))
     except (ValueError, ValidationError) as e:
         raise UserFacingAIError(
             "The AI couldn't produce a valid map for this prompt — try rephrasing it."
@@ -801,12 +809,13 @@ async def generate_map_from_prompt(
     )
 
     # Parse the map spec from LLM output, with one lightweight retry
+    text = _finished_text(result)
     try:
-        spec_dict = _parse_map_spec(result.text)
+        spec_dict = _parse_map_spec(text)
     except ValueError:
         logger.warning("Map spec parse failed, retrying extraction only")
         spec_dict = await _retry_parse_map_spec(
-            result.text,
+            text,
             provider,
             model,
             runtime_config,
@@ -937,12 +946,13 @@ async def stream_generate_map(
         # Build the map
         yield {"type": "tool_start", "tool": "create_map", "label": "Building map..."}
 
+        text = _finished_text(result)
         try:
-            spec_dict = _parse_map_spec(result.text)
+            spec_dict = _parse_map_spec(text)
         except ValueError:
             logger.warning("Map spec parse failed, retrying extraction only")
             spec_dict = await _retry_parse_map_spec(
-                result.text,
+                text,
                 provider,
                 model,
                 runtime_config,

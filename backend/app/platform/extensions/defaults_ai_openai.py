@@ -213,6 +213,7 @@ class DefaultOpenAICompatibleProvider:
                 # Unexpected finish reason
                 return ToolLoopResult(
                     text=round_.text,
+                    truncated=True,
                     actions=collected_actions,
                     input_tokens=total_input,
                     output_tokens=total_output,

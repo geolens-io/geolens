@@ -583,9 +583,14 @@ async def _stream_openai_chat(
             )
             continue
 
-        # finish_reason == "stop" or anything else — check for XML tool calls first
+        # A round that stopped early can still hold a complete-looking XML
+        # call; only a finished round runs one.
         full_text = "".join(content_parts)
-        parsed_calls, cleaned_text = parse_xml_tool_calls(full_text)
+        parsed_calls, cleaned_text = (
+            parse_xml_tool_calls(full_text)
+            if finish_reason == "stop"
+            else ([], full_text)
+        )
 
         if parsed_calls:
             # Execute parsed XML tool calls through existing pipeline
