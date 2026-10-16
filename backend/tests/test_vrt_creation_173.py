@@ -583,7 +583,7 @@ class TestCreateVrtJob:
                 title="Router Delegation Test",
             )
             mock_user = MagicMock()
-            mock_db = AsyncMock()
+            mock_db = AsyncMock(info={})
 
             fake_job = MagicMock()
             fake_job.id = uuid.uuid4()

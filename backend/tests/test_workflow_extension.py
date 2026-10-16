@@ -102,6 +102,7 @@ class _FakeDB:
         self.committed = False
         self.flushed = False
         self.refreshed = None
+        self.info = {}
 
     async def execute(self, stmt):
         self.statement = stmt
