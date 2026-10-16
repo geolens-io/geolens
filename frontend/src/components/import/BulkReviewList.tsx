@@ -326,14 +326,16 @@ export function BulkReviewList({
     });
   }
 
-  function formatLayerOption(layer: { name: string; feature_count: number; field_count: number }) {
+  function formatLayerOption(layer: { name: string; feature_count?: number | null; field_count?: number | null }) {
+    const featureCount = layer.feature_count ?? 0;
+    const fieldCount = layer.field_count ?? 0;
     const rows = t('bulk.rowCount', {
-      count: layer.feature_count,
-      value: formatNumber(layer.feature_count),
+      count: featureCount,
+      value: formatNumber(featureCount),
     });
     const columns = t('bulk.columnCount', {
-      count: layer.field_count,
-      value: formatNumber(layer.field_count),
+      count: fieldCount,
+      value: formatNumber(fieldCount),
     });
 
     return t('bulk.sheetOption', { name: layer.name, rows, columns });

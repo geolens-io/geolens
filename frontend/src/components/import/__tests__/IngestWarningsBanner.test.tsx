@@ -16,7 +16,7 @@ describe('IngestWarningsBanner', () => {
     const user = userEvent.setup();
     render(<IngestWarningsBanner compact job={job([{
       kind: 'mercator_clip',
-      details: { dropped_features: 12, clipped_features: 3 },
+      details: { dropped_features: 12, clipped_features: 3, clip_skipped: false },
     }])} />);
 
     const toggle = screen.getByRole('button', { name: /Some data may have changed/ });
@@ -44,7 +44,7 @@ describe('IngestWarningsBanner', () => {
         job={job([
           {
             kind: 'mercator_clip',
-            details: { dropped_features: 12, clipped_features: 3 },
+            details: { dropped_features: 12, clipped_features: 3, clip_skipped: false },
           },
         ])}
       />,
@@ -72,7 +72,7 @@ describe('IngestWarningsBanner', () => {
         job={job([
           {
             kind: 'mercator_clip',
-            details: { dropped_features: 1, clipped_features: 0 },
+            details: { dropped_features: 1, clipped_features: 0, clip_skipped: false },
           },
         ])}
       />,

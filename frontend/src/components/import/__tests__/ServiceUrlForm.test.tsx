@@ -86,6 +86,7 @@ const DUPLICATE_NAME_PROBE: ProbeResponse = {
       layer_type: 'Feature Layer',
       layer_id: 15,
       object_id_field: 'OBJECTID',
+      importable: true,
       kind: 'vector',
     },
     {
@@ -96,6 +97,7 @@ const DUPLICATE_NAME_PROBE: ProbeResponse = {
       layer_type: 'Feature Layer',
       layer_id: 17,
       object_id_field: 'OBJECTID',
+      importable: true,
       kind: 'vector',
     },
   ],

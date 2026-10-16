@@ -77,11 +77,7 @@ export type UserResponse = components['schemas']['UserResponse'];
 
 export type RasterBandInfo = components['schemas']['RasterBandInfo'];
 
-export interface RasterConnect {
-  download_url: string | null;
-  tile_url: string;
-  s3_uri: string | null;
-}
+export type RasterConnect = components['schemas']['RasterConnect'];
 
 export type StacAsset = components['schemas']['StacAsset'];
 
@@ -99,24 +95,7 @@ export type PointCloudPreviewResponse = components['schemas']['PointCloudPreview
 export type UploadKind = NonNullable<components['schemas']['PresignedUploadRequest']['kind']>;
 export type UrlUploadKind = NonNullable<components['schemas']['UrlUploadRequest']['kind']>;
 
-export interface RasterPreviewResponse {
-  job_id: string;
-  source_filename: string | null;
-  crs_epsg: number | null;
-  crs_wkt: string | null;
-  band_count: number;
-  width: number;
-  height: number;
-  dtype: string;
-  nodata: number | string | null;
-  res_x: number;
-  res_y: number;
-  compression: string | null;
-  file_size_bytes: number | null;
-  is_cog_compliant: boolean;
-  compliance_reason: string;
-  temporal_start: string | null;
-}
+export type RasterPreviewResponse = components['schemas']['RasterPreviewResponse'];
 
 // Mirrors backend chk_records_record_type CHECK constraint
 // (catalog/datasets/domain/models.py). Keep in sync if values change.
@@ -290,38 +269,11 @@ export type ValidationIssue = components['schemas']['ValidationIssue'];
 
 export type ValidationResultResponse = components['schemas']['ValidationResultResponse'];
 
-/**
- * Structured warnings attached to IngestJob.user_metadata.warnings[] by
- * the backend during ingest. Emitted when the pipeline silently rewrites
- * or drops something so the UI can surface it without surprising users.
- *
- * Source: backend/app/ingest/tasks.py `_append_job_warning`
- */
-export interface IngestReservedRenameWarning {
-  kind: 'reserved_rename';
-  details: Array<{ original: string; renamed: string }>;
-}
+export type IngestReservedRenameWarning = components['schemas']['ReservedRenameWarning'];
 
-export interface IngestDbfTruncationWarning {
-  kind: 'dbf_truncation_collision';
-  details: Array<{ truncated: string; originals: string[] }>;
-}
+export type IngestDbfTruncationWarning = components['schemas']['DbfTruncationCollisionWarning'];
 
-/**
- * fix(#888): the Web Mercator clamp (±85.06° lat) used to destroy geometry in
- * silence. `dropped_features` lost their geometry entirely, `clipped_features`
- * survived in reduced form.
- */
-export interface IngestMercatorClipWarning {
-  kind: 'mercator_clip';
-  details: {
-    dropped_features: number;
-    clipped_features: number;
-    // fix(#906): the clip was skipped because the Mercator safe envelope
-    // degenerates in the source CRS; counts are 0/0 and nothing was removed.
-    clip_skipped?: boolean;
-  };
-}
+export type IngestMercatorClipWarning = components['schemas']['MercatorClipWarning'];
 
 export type IngestJobWarning =
   | IngestReservedRenameWarning
@@ -401,117 +353,24 @@ export type CatalogStatsResponse = components['schemas']['CatalogStatsResponse']
 
 export type UserListResponse = components['schemas']['UserListResponse'];
 
-export interface AuditLogResponse {
-  id: string;
-  user_id: string;
-  username: string | null;
-  action: string;
-  resource_type: string | null;
-  resource_id: string | null;
-  resource_name: string | null;
-  details: Record<string, unknown> | null;
-  ip_address: string | null;
-  created_at: string;
-}
+export type AuditLogResponse = components['schemas']['AuditLogResponse'];
 
-export interface AuditLogListResponse {
-  logs: AuditLogResponse[];
-  total: number;
-}
+export type AuditLogListResponse = components['schemas']['AuditLogListResponse'];
 
-export interface AdminJobResponse {
-  id: string;
-  status: string;
-  source_filename: string | null;
-  dataset_id: string | null;
-  error_message: string | null;
-  error_code?: string | null;
-  can_retry: boolean;
-  retry_reason: string | null;
-  source_url?: string | null;
-  restart_source?: 'url' | 'service' | null;
-  /** Set on a replacement held for review rather than failed. */
-  review_state?: 'awaiting' | 'resolved' | null;
-  user_metadata: Record<string, unknown> | null;
-  created_by: string | null;
-  username: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-  created_at: string;
-}
+export type AdminJobResponse = components['schemas']['AdminJobResponse'];
 
-export interface AdminJobListResponse {
-  jobs: AdminJobResponse[];
-  total: number;
-}
+export type AdminJobListResponse = components['schemas']['AdminJobListResponse'];
 
-export interface UploadResponse {
-  job_id: string;
-  status: string;
-  message: string;
-}
+export type UploadResponse = components['schemas']['UploadResponse'];
 
 export type TableRegisterResponse = components['schemas']['TableRegisterResponse'];
 
-export interface JobStatusResponse {
-  id: string;
-  status: string;
-  dataset_id: string | null;
-  source_filename: string | null;
-  error_message: string | null;
-  error_code?: string | null;
-  can_retry: boolean;
-  retry_reason: string | null;
-  warning_message: string | null;
-  /**
-   * S3: structured warnings surfaced from IngestJob.user_metadata so the
-   * frontend can render a banner on the upload success screen / dataset
-   * detail page. Empty array when the ingest had no warnings.
-   */
-  warnings: IngestJobWarning[];
-  /**
-   * Progress fields stamped by the ingest worker at step boundaries so the UI
-   * can render a determinate bar during multi-minute ingests. All three are
-   * null for pending jobs and for service ingests that never wrote them.
-   */
-  progress?: number | null;
-  current_step?:
-    // ux(#698): stamped at creation, before any worker picks the job up.
-    | 'queued'
-    | 'validating'
-    | 'ogr2ogr'
-    | 'finalize'
-    | 'complete'
-    | 'cog_convert'
-    | 'quicklook'
-    | 'analyzing'
-    | 'registering'
-    | null;
-  rows_processed?: number | null;
-  // fix(#1550): rows processed but not completed. The embedding backfill sets
-  // it from its rejected-record count so a partly-failed run is not reported
-  // as a clean success.
-  rows_failed?: number | null;
-  archive_failed: boolean;
-  /** True until the dataset's quicklook has been redrawn after publication. */
-  quicklook_pending?: boolean;
-  temporal_parse_errors: Partial<
-    Record<'temporal_start' | 'temporal_end', string>
-  >;
-  started_at: string | null;
-  completed_at: string | null;
-  created_at: string;
-}
+export type JobStatusResponse = components['schemas']['JobStatusResponse'];
 
 // feat(#1677): POST /jobs/{id}/cancel. `run_id` is the refresh run the
 // cancel finalized when the job had one bound (refreshes/reuploads do;
 // plain imports don't); `already` marks the idempotent repeat.
-export interface JobCancelResponse {
-  id: string;
-  status: 'cancelled';
-  run_id: string | null;
-  already: boolean;
-}
+export type JobCancelResponse = components['schemas']['JobCancelResponse'];
 
 /** fix(#875): 'read_only' keys authenticate GET/HEAD/OPTIONS only. */
 export type ApiKeyScope = 'full' | 'read_only';
@@ -589,22 +448,14 @@ export interface SignupResponse {
   next_step?: 'verify_email' | 'await_approval';
 }
 
-export interface FilePreviewResponse {
-  job_id: string;
-  source_filename: string | null;
-  columns: { name: string; type: string }[];
-  crs: number | null;
-  geometry_type: GeometryTypeName | null;
-  feature_count: number | null;
-  sample_rows: Record<string, unknown>[];
-  layer_name: string;
-  layers?: { name: string; feature_count: number; field_count: number }[] | null;
+// The API declares detected geometry columns as an open dict; the import form reads these three.
+export type FilePreviewResponse = Omit<components['schemas']['PreviewResponse'], 'detected_geometry_columns'> & {
   detected_geometry_columns?: {
     x_column: string | null;
     y_column: string | null;
     wkt_column: string | null;
   } | null;
-}
+};
 
 export interface CommitImportRequest {
   title: string;
@@ -647,24 +498,13 @@ export interface CollectionUpdateRequest {
   description?: string | null;
 }
 
-export interface SchemaDiff {
-  columns_added: Array<{ name: string; type: string }>;
-  columns_removed: Array<{ name: string; type: string }>;
-  type_changes: Array<{ name: string; old_type: string; new_type: string }>;
-  row_count_old: number | null;
-  row_count_new: number | null;
-  row_count_delta: number | null;
-}
+export type SchemaDiff = components['schemas']['SchemaDiff'];
 
-export interface ReuploadResponse {
-  job_id: string;
-  status: string;
-  message: string;
-}
+export type ReuploadResponse = components['schemas']['ReuploadResponse'];
 
 export type ReuploadSourceType = 'file' | 'service_url';
 
-export type ReuploadServicePreviewRequest = ServicePreviewRequest;
+export type ReuploadServicePreviewRequest = components['schemas']['ReuploadServicePreviewRequest'];
 
 export type ReviewReason =
   | 'source_count_unavailable'
@@ -677,46 +517,14 @@ export type ReviewReason =
   | 'arcgis_source_membership_changed'
   | 'live_data_changed';
 
-export interface ReuploadPreviewResponse {
-  job_id: string;
-  source_filename: string | null;
-  columns: Array<{ name: string; type: string }>;
-  crs: number | null;
-  geometry_type: GeometryTypeName | null;
-  feature_count: number | null;
-  sample_rows: Record<string, unknown>[];
-  layer_name: string;
-  schema_diff: SchemaDiff;
-  // GPKG-01 Phase 1058: multi-layer support fields
+// The API declares `all_layers` entries as open dicts; GeoPackage previews list these fields.
+export type ReuploadPreviewResponse = Omit<components['schemas']['ReuploadPreviewResponse'], 'all_layers'> & {
   all_layers?: Array<{ name: string; feature_count: number; field_count: number }> | null;
-  previous_source_layer?: string | null;
-  /** Changes that hold this replacement for review. */
-  review_reasons?: ReviewReason[];
-  /** Sent back on the commit once a person has seen `review_reasons`. */
-  review_fingerprint?: string | null;
-}
+};
 
-export interface ReuploadCommitResponse {
-  job_id: string;
-  status: string;
-  message: string;
-}
+export type ReuploadCommitResponse = components['schemas']['ReuploadCommitResponse'];
 
-export interface ReuploadCommitRequest {
-  srid_override?: number | null;
-  token?: string;
-  // GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
-  layer_name?: string;
-  /** fix(#1768): the dataset origin the client saw when it staged this
-   *  replacement. The commit door compares it against the dataset's current
-   *  origin and refuses with 409 `origin_changed` when they differ, so a
-   *  service, STAC or registered-table binding established during the
-   *  upload/preview/confirm window is not silently rebound to an upload.
-   *  Optional — omitting it is the pre-#1768 contract. */
-  expected_origin_kind?: DatasetOrigin | null;
-  /** The preview's `review_fingerprint`, once a person has seen its changes. */
-  review_fingerprint?: string | null;
-}
+export type ReuploadCommitRequest = components['schemas']['ReuploadCommitRequest'];
 
 export type DatasetVersionResponse = components['schemas']['DatasetVersionResponse'];
 
@@ -726,91 +534,16 @@ export type DatasetVersionListResponse = components['schemas']['DatasetVersionLi
 // (GET /datasets/{id}/refresh-runs). Hand-mirrored like the version types
 // above rather than aliased from api.generated's `components`, matching this
 // file's existing convention for the datasets domain.
-export interface DatasetRefreshRequest {
-  /** Transient credential for a protected service; never persisted. */
-  token?: string | null;
-  /** Preserves a blocked run's stronger verification transport on review retry. */
-  verification_policy?: 'standard' | 'arcgis_id_set_v1';
-  accept_blocked_run_id?: string | null;
-  // feat(#1746 B4): structured credential, mutually exclusive with `token`
-  // above — see `ServiceAuthRequest`.
-  auth?: ServiceAuthRequest | null;
-}
+// Request body: the generated type marks `verification_policy`, which has a server default, required.
+export type DatasetRefreshRequest = Omit<components['schemas']['DatasetRefreshRequest'], 'verification_policy'> & {
+  verification_policy?: components['schemas']['DatasetRefreshRequest']['verification_policy'];
+};
 
-export interface DatasetRefreshResponse {
-  run_id: string;
-  job_id: string;
-  dataset_id: string;
-  origin_kind: string;
-  trigger: string;
-  status: string;
-  message: string;
-}
+export type DatasetRefreshResponse = components['schemas']['DatasetRefreshResponse'];
 
-export interface DatasetRefreshRunResponse {
-  id: string;
-  dataset_id: string;
-  dataset_version_id: string | null;
-  ingest_job_id: string | null;
-  /** fix(#1325): the run's execution door, not the dataset's origin (compare
-   *  DatasetResponse.origin) — the two can visibly disagree while work is in
-   *  flight; see refresh/models.py's CHECK constraint comment for a
-   *  concrete case. 'raster' is reserved for a future distinct
-   *  raster-replace door label; today's raster-replace runs are recorded
-   *  'upload'. 'restore' republishes the dataset's previous version. */
-  origin_kind: string;
-  trigger: string;
-  /** UTC occurrence time for scheduler-dispatched runs; absent on manual history. */
-  scheduled_for?: string | null;
-  /** Safe scheduler admission cutoff; no execution or credential reference. */
-  claim_deadline?: string | null;
-  /** "pending" | "running" | "succeeded" | "failed" | "cancelled" | "blocked", kept as a
-   *  plain string so an unrecognized future value degrades to its raw text
-   *  instead of a type error. */
-  status: string;
-  /** Redacted to null for a reader who is neither the owner nor an admin. */
-  triggered_by: string | null;
-  triggered_by_username: string | null;
-  started_at: string;
-  claimed_at: string | null;
-  finished_at: string | null;
-  feature_count_before: number | null;
-  feature_count_after: number | null;
-  /** Redacted to null for a reader who is neither the owner nor an admin. */
-  schema_diff: SchemaDiff | null;
-  /** Redacted to null for a reader who is neither the owner nor an admin. */
-  verification?: {
-    decision: 'allowed' | 'blocked' | 'rejected';
-    /** Policy captured when this run fetched and verified the source. */
-    verification_policy?: 'standard' | 'arcgis_id_set_v1';
-    source_binding: Record<string, unknown>;
-    source_count: number | null;
-    fetched_count: number | null;
-    count_status: 'matched' | 'mismatched' | 'unavailable';
-    identity_check: 'unavailable' | 'content_digest' | 'arcgis_id_set';
-    content_digest?: string | null;
-    arcgis_id_coverage?: Record<string, unknown> | null;
-    staged_geometry_type?: string | null;
-    staged_srid?: number | null;
-    staged_coordinate_dimension?: number | null;
-    geometry_contract?: Record<string, unknown> | null;
-    review_reasons: ReviewReason[];
-    review_fingerprint: string | null;
-    /** Why a file replacement with review reasons published. */
-    review_acknowledged_by?: 'preview' | 'accepted_run' | null;
-    accepted_blocked_run_id: string | null;
-    acceptance_consumed_by_run_id?: string | null;
-  } | null;
-  /** Redacted to null for a reader who is neither the owner nor an admin. */
-  error_code: string | null;
-  /** Redacted to null for a reader who is neither the owner nor an admin. */
-  error_message: string | null;
-}
+export type DatasetRefreshRunResponse = components['schemas']['DatasetRefreshRunResponse'];
 
-export interface DatasetRefreshRunListResponse {
-  runs: DatasetRefreshRunResponse[];
-  total: number;
-}
+export type DatasetRefreshRunListResponse = components['schemas']['DatasetRefreshRunListResponse'];
 
 // Labels
 export type ZoomExpressionKind = 'step' | 'interpolate';
@@ -1313,59 +1046,16 @@ export interface ChatResponse {
 }
 
 // Service URL import types
-export interface LayerInfo {
-  name: string;
-  title: string | null;
-  geometry_type: GeometryTypeName | null;
-  feature_count: number | null;
-  layer_type: string;
-  layer_id: number | string | null;
-  object_id_field: string | null;
-  source_layer_type?: string | null;
-  parent_layer_id?: number | null;
-  /** False for ArcGIS group, raster and annotation layers, which hold no features. */
-  importable?: boolean;
-  /**
-   * Backend-classified layer kind. Phase 1057 CLASS-07 D-09 / D-10.
-   * Backend (schemas.py LayerInfo) always emits this field with default 'vector'.
-   * Classification rule: 'raster' if adapter=STAC, geometry_type contains 'raster',
-   * or collection has coverage_format/bands/image/* mediaType. Everything else
-   * (including geometry_type=null after D-05 ogrinfo drop) → 'vector'.
-   * Consume this field directly instead of re-deriving from geometry_type string.
-   */
-  kind: 'vector' | 'raster';
-}
+export type LayerInfo = components['schemas']['LayerInfo'];
 
-export interface ProbeResponse {
-  service_type: string;
-  url: string;
-  layers: LayerInfo[];
-  selected_layer_id: number | string | null;
-}
+export type ProbeResponse = components['schemas']['ProbeResponse'];
 
-export interface ServicePreviewRequest {
-  url: string;
-  service_type: string;
-  layer_name: string;
-  layer_title: string | null;
-  layer_id: number | string | null;
-  token?: string;
-  object_id_field?: string | null;
-  // feat(#1746 B4): structured credential, mutually exclusive with `token`
-  // above — see `ServiceAuthRequest`.
-  auth?: ServiceAuthRequest | null;
-}
+export type ServicePreviewRequest = components['schemas']['ServicePreviewRequest'];
 
-export interface ServicePreviewResponse {
-  job_id: string;
-  source_filename: string | null;
-  columns: { name: string; type: string }[];
-  crs: number | null;
-  geometry_type: GeometryTypeName | null;
-  feature_count: number | null;
-  sample_rows: Record<string, unknown>[];
-  layer_name: string;
-}
+// The API declares preview columns as open dicts; they carry a name and a type.
+export type ServicePreviewResponse = Omit<components['schemas']['ServicePreviewResponse'], 'columns'> & {
+  columns: Array<{ name: string; type: string }>;
+};
 
 // fix(service-auth wave, lane A2): hand-typed ahead of the SDK regen. The
 // ArcGIS sign-in endpoint (lane A1, POST /services/arcgis/signin/) isn't in
@@ -1418,41 +1108,17 @@ export interface FileEntry {
 export type DataKind = 'vector' | 'raster' | 'table' | 'vrt' | 'tiles3d' | 'pointcloud';
 
 // Table discovery types
-export interface DiscoveredTable {
-  table_name: string;
-  geometry_type: GeometryTypeName | null;
-  srid: number | null;
-  estimated_rows: number | null;
-  /** A GeoLens code for why registration would refuse this table; null when discovery finds none. */
-  refusal_reason?: string | null;
-}
+export type DiscoveredTable = components['schemas']['DiscoveredTable'];
 
-export interface DiscoverResponse {
-  tables: DiscoveredTable[];
-}
+export type DiscoverResponse = components['schemas']['DiscoverResponse'];
 
-export interface BulkRegisterItem {
-  table_name: string;
-  title: string;
-  summary?: string | null;
-  visibility?: string;
-}
+export type BulkRegisterItem = components['schemas']['BulkRegisterItem'];
 
-export interface BulkRegisterRequest {
-  tables: BulkRegisterItem[];
-}
+export type BulkRegisterRequest = components['schemas']['BulkRegisterRequest'];
 
-export interface BulkRegisterResult {
-  table_name: string;
-  status: 'success' | 'error';
-  dataset_id?: string | null;
-  title?: string | null;
-  error?: string | null;
-}
+export type BulkRegisterResult = components['schemas']['BulkRegisterResult'];
 
-export interface BulkRegisterResponse {
-  results: BulkRegisterResult[];
-}
+export type BulkRegisterResponse = components['schemas']['BulkRegisterResponse'];
 
 // Admin share tokens
 export type AdminShareTokenResponse = components['schemas']['AdminShareTokenResponse'];
@@ -1507,86 +1173,28 @@ export interface UploadConfig {
 
 export type PresignedUploadRequest = components['schemas']['PresignedUploadRequest'];
 
-export interface PresignedUploadResponse {
-  job_id: string;
-  urls: string[];
-  s3_key: string;
-  upload_id?: string | null;
-  part_size?: number | null;
-}
+export type PresignedUploadResponse = components['schemas']['PresignedUploadResponse'];
 
-export interface VrtCreateRequest {
-  source_dataset_ids: string[];
-  vrt_type: 'mosaic' | 'band_stack';
-  resolution_strategy: 'finest' | 'coarsest' | 'average';
-  title: string;
-  summary?: string | null;
-  visibility?: string;
-}
+// Request body: the generated type marks `visibility`, which has a server default, required.
+export type VrtCreateRequest = Omit<components['schemas']['VrtCreateRequest'], 'visibility'> & {
+  visibility?: components['schemas']['VrtCreateRequest']['visibility'];
+};
 
-export interface VrtCreateResponse {
-  job_id: string;
-  status: string;
-  message: string;
-}
+export type VrtCreateResponse = components['schemas']['VrtCreateResponse'];
 
-export interface VrtSourceItem {
-  dataset_id: string;
-  title: string;
-  position: number;
-  band_count: number | null;
-  resolution_x: number | null;
-  resolution_y: number | null;
-  crs_epsg: number | null;
-  extent_bbox: number[] | null;
-}
+export type VrtSourceItem = components['schemas']['VrtSourceItem'];
 
-export interface VrtSourceListResponse {
-  sources: VrtSourceItem[];
-}
+export type VrtSourceListResponse = components['schemas']['VrtSourceListResponse'];
 
-export interface VrtSourceHealth {
-  dataset_id: string;
-  title: string;
-  /**
-   * fix(#1290 review): `stale` means the member's own raster was replaced after
-   * the parent VRT was last built — the member is fine, the PARENT needs
-   * regenerating. This is the hand-maintained mirror, which SourcePanel imports
-   * instead of the generated types, so it has to be updated alongside the
-   * backend Literal or the UI cannot branch on the new state.
-   */
-  status: 'healthy' | 'missing' | 'inaccessible' | 'stale';
-}
+export type VrtSourceHealth = components['schemas']['VrtSourceHealth'];
 
-export interface VrtActiveGeneration {
-  generation_id: string;
-  started_at: string;
-  elapsed_seconds: number;
-}
+export type VrtActiveGeneration = components['schemas']['VrtActiveGeneration'];
 
-export interface VrtStatusResponse {
-  status: 'ready' | 'regenerating' | 'failed';
-  last_generation_at: string | null;
-  source_count: number;
-  active_generation: VrtActiveGeneration | null;
-  source_health: VrtSourceHealth[];
-}
+export type VrtStatusResponse = components['schemas']['VrtStatusResponse'];
 
-export interface VrtGenerationItem {
-  id: string;
-  status: string;
-  started_at: string | null;
-  completed_at: string | null;
-  duration_seconds: number | null;
-  error_message: string | null;
-  source_count: number | null;
-  triggered_by: string | null;
-}
+export type VrtGenerationItem = components['schemas']['VrtGenerationItem'];
 
-export interface VrtGenerationListResponse {
-  generations: VrtGenerationItem[];
-  total: number;
-}
+export type VrtGenerationListResponse = components['schemas']['VrtGenerationListResponse'];
 
 // STAC import types
 export interface StacConnectResponse {

@@ -567,9 +567,7 @@ function RefreshRunHistory({
                           const sourcePolicy = run.verification?.source_binding.verification_policy;
                           const verificationPolicy = sourcePolicy === 'arcgis_id_set_v1'
                             ? sourcePolicy
-                            : run.verification?.verification_policy === 'arcgis_id_set_v1'
-                              ? run.verification.verification_policy
-                              : undefined;
+                            : undefined;
                           onAcceptBlockedRun(run.origin_kind === 'upload'
                             ? { id: run.id, upload: true }
                             : { id: run.id, verificationPolicy });
@@ -733,7 +731,7 @@ function VrtSection({ dataset, isAuthenticated }: { dataset: DatasetResponse; is
                       })}
                     </Badge>
                   </TableCell>
-                  <TableCell>{formatDateTimeSmart(generation.started_at)}</TableCell>
+                  <TableCell>{formatDateTimeSmart(generation.started_at ?? null)}</TableCell>
                   <TableCell>
                     {generation.duration_seconds != null
                       ? `${generation.duration_seconds.toLocaleString(i18n.language, { maximumFractionDigits: 1 })}s`

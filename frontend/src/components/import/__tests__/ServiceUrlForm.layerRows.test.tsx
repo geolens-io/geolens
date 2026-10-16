@@ -26,6 +26,7 @@ describe('ServiceUrlForm layer rows', () => {
       layer_type: 'Feature Layer',
       layer_id: 3,
       object_id_field: 'OBJECTID',
+      importable: true,
       kind: 'vector' as const,
       ...overrides,
     };

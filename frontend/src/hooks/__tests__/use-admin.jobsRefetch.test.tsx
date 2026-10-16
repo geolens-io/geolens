@@ -12,7 +12,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
   return { ...actual, listAdminJobs: (...args: unknown[]) => mockListAdminJobs(...args) };
 });
 
-function makeJob(status: string): AdminJobListResponse['jobs'][number] {
+function makeJob(status: 'pending' | 'running' | 'complete' | 'failed'): AdminJobListResponse['jobs'][number] {
   return {
     id: 'job-1',
     status,

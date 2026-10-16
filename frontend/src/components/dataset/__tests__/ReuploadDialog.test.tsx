@@ -161,6 +161,7 @@ function makeProbeResponse(): ProbeResponse {
         layer_type: 'vector',
         layer_id: 1,
         object_id_field: null,
+        importable: true,
         kind: 'vector' as const,
       },
       {
@@ -171,6 +172,7 @@ function makeProbeResponse(): ProbeResponse {
         layer_type: 'vector',
         layer_id: 2,
         object_id_field: null,
+        importable: true,
         kind: 'vector' as const,
       },
     ],

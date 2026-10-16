@@ -37,6 +37,7 @@ function makeLayer(name: string, layerId: number): LayerInfo {
     layer_type: 'Feature Layer',
     layer_id: layerId,
     object_id_field: null,
+    importable: true,
     kind: 'vector',
   };
 }
