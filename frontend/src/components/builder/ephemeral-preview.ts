@@ -28,7 +28,7 @@ export interface EphemeralCountInput {
 export type PreviewSaveDisabledReason = 'truncated';
 
 /** What "Save as dataset…" does for the preview currently on screen. */
-export type PreviewSaveMode =
+type PreviewSaveMode =
   /** feat(#675): hand off to the Analysis panel, which re-runs the operation
    *  server-side. */
   | 'analysis'
@@ -39,7 +39,7 @@ export type PreviewSaveMode =
   /** Nothing to offer. */
   | 'none';
 
-export interface PreviewSaveInput {
+interface PreviewSaveInput {
   /** feat(#675): set when an Analysis operation is behind this preview. */
   analysis?: unknown;
   /** Whether the server capped the result. */

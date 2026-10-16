@@ -71,5 +71,3 @@ export function CircleEditor({
     </>
   );
 }
-
-export default CircleEditor;

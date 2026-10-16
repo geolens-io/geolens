@@ -38,7 +38,7 @@ export interface DatasetDetailHeaderAction {
   tooltip?: string;
 }
 
-export interface DatasetDetailHeaderBreadcrumb {
+interface DatasetDetailHeaderBreadcrumb {
   label: string;
   to: string;
 }
@@ -54,8 +54,8 @@ interface DatasetDetailHeaderProps {
   className?: string;
 }
 
-export const DESKTOP_PRIMARY_ACTION_LIMIT = 1;
-export const MOBILE_PRIMARY_ACTION_LIMIT = 0;
+const DESKTOP_PRIMARY_ACTION_LIMIT = 1;
+const MOBILE_PRIMARY_ACTION_LIMIT = 0;
 
 export function partitionActions(actions: DatasetDetailHeaderAction[], isMobile: boolean) {
   const visibleActions = actions

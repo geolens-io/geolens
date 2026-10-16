@@ -35,7 +35,7 @@ import i18n from '@/i18n/i18n';
 import { useAnalysisAddedStore } from '@/stores/analysis-job-store';
 import { ApiError } from '@/api/client';
 
-export type { MapBrowseParams };
+
 
 function invalidateMapHistory(qc: QueryClient, mapId: string | undefined) {
   qc.invalidateQueries({ queryKey: queryKeys.maps.historyPrefix(mapId) });

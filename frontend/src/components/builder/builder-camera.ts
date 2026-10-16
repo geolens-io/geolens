@@ -19,7 +19,7 @@ export interface BuilderCamera {
 }
 
 /** A map row's stored view, as the save payload and the API response carry it. */
-export interface SavedCameraFields {
+interface SavedCameraFields {
   center_lng?: number | null;
   center_lat?: number | null;
   zoom?: number | null;

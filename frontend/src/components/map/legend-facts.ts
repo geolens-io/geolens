@@ -24,7 +24,7 @@ import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import type { StyleConfig } from '@/types/api';
 
 /** The saved-layer fields legend facts read. MapLayerResponse and SharedLayerResponse both satisfy it. */
-export interface LegendLayer {
+interface LegendLayer {
   display_name?: string | null;
   dataset_name?: string | null;
   layer_type?: string | null;

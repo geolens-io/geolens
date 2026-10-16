@@ -87,5 +87,3 @@ export function FillPatternPicker({ value, onChange, t, clearOnly = false }: Fil
     </div>
   );
 }
-
-export default FillPatternPicker;

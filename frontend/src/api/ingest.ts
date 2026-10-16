@@ -32,7 +32,7 @@ import type {
 } from '@/types/api';
 
 /** Byte-transfer progress callback (0–1). */
-export type UploadProgress = (fraction: number) => void;
+type UploadProgress = (fraction: number) => void;
 
 /** No upload progress within this window means a stalled connection while bytes are still being sent. */
 const UPLOAD_INACTIVITY_TIMEOUT_MS = 120_000;
@@ -438,7 +438,7 @@ export async function requestPresignedUpload(
   }
 }
 
-export async function completePresignedUpload(
+async function completePresignedUpload(
   jobId: string,
   parts?: { etag: string; part_number: number }[],
 ): Promise<UploadResponse> {

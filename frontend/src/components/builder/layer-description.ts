@@ -85,7 +85,7 @@ export function isDemTerrainVisualSuppressed(layer: {
 }
 
 /** Raster datasets and DEMs draw from raster tiles. */
-export function isRasterLikeLayer(
+function isRasterLikeLayer(
   layer: Pick<SyncLayerInput, 'is_dem' | 'layer_type' | 'dataset_record_type'>,
 ) {
   return layer.is_dem === true
@@ -95,7 +95,7 @@ export function isRasterLikeLayer(
 }
 
 /** The fields `getSourceIdForLayer` reads. SyncLayerInput and MapLayerResponse both satisfy it. */
-export interface SourceIdLayer {
+interface SourceIdLayer {
   id: string;
   dataset_table_name?: string | null;
   dataset_geometry_type?: string | null;

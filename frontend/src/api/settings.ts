@@ -12,7 +12,7 @@ export interface BasemapEntry {
   api_key?: string | null;
 }
 
-export interface MapDefaults {
+interface MapDefaults {
   center_lat: number;
   center_lng: number;
   zoom: number;
@@ -37,12 +37,12 @@ export interface SettingItem {
   default_value?: unknown;
 }
 
-export interface AllSettingsResponse {
+interface AllSettingsResponse {
   env_only: boolean;
   tabs: Record<string, SettingItem[]>;
 }
 
-export interface ConfigModeResponse {
+interface ConfigModeResponse {
   env_only: boolean;
 }
 
@@ -64,7 +64,7 @@ export async function getEnabledPlugins(): Promise<string[] | null> {
   return apiFetch<string[] | null>('/settings/enabled-plugins/');
 }
 
-export interface FeatureFlags {
+interface FeatureFlags {
   enable_dataset_editing: boolean;
   require_metadata_for_publish: boolean;
   // feat(#1691): when true, only admins may set `visibility: public`.
@@ -114,7 +114,7 @@ export async function getApiKeyStatus(): Promise<ApiKeyStatusResponse> {
 // --- Notification status + test-send (Phase 1229 Plan 03 / NOTIF-05 / NOTIF-06) ---
 
 /** GET /settings/notifications/status/ — booleans only, no secrets (NOTIF-05). */
-export interface NotificationStatus {
+interface NotificationStatus {
   notifications_enabled: boolean;
   smtp_configured: boolean;
   webhook_configured: boolean;
@@ -129,7 +129,7 @@ export interface NotificationTestChannelResult {
 }
 
 /** POST /settings/notifications/test/ response — always 200, even on channel failure (NOTIF-06). */
-export interface NotificationTestResponse {
+interface NotificationTestResponse {
   sent: boolean;
   channels: NotificationTestChannelResult[];
   message: string;
@@ -147,7 +147,7 @@ export async function sendTestNotification(): Promise<NotificationTestResponse> 
 
 // --- Enterprise-tabs registry (Phase 279 ADMIN-03 / M-03) ---
 
-export interface EnterpriseTabsResponse {
+interface EnterpriseTabsResponse {
   tabs: string[];
 }
 
@@ -161,7 +161,7 @@ export async function getEnterpriseOnlyTabs(): Promise<EnterpriseTabsResponse> {
 
 // --- Embedding dimension detection ---
 
-export interface DetectEmbeddingDimsResponse {
+interface DetectEmbeddingDimsResponse {
   dimensions: number;
 }
 
@@ -173,7 +173,7 @@ export async function detectEmbeddingDims(): Promise<DetectEmbeddingDimsResponse
 
 // --- Branding endpoints ---
 
-export interface BrandingConfig {
+interface BrandingConfig {
   show_badge: boolean;
   /** PRIV-1: operator-configured privacy-policy URL, or null/absent when unset. */
   privacy_url?: string | null;

@@ -9,7 +9,7 @@ import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, 
 const LOGIN_TIMEOUT_MS = 30_000;
 
 /** A session as issued, numbered in cookie-write order by takeSignInOrder. */
-export type OrderedTokens = TokenResponse & { order: number };
+type OrderedTokens = TokenResponse & { order: number };
 
 export async function login(
   username: string,

@@ -16,8 +16,8 @@ import { readStorage, writeStorage } from '@/lib/storage';
  * handed a credential the browser would never send back.
  */
 export const AUTH_MODE_HEADER = 'X-GeoLens-Auth-Mode';
-export const CSRF_HEADER = 'X-CSRF-Token';
-export const CSRF_COOKIE_NAME = 'geolens_csrf';
+const CSRF_HEADER = 'X-CSRF-Token';
+const CSRF_COOKIE_NAME = 'geolens_csrf';
 
 /**
  * Mount point the refresh cookie is scoped under. The backend derives its

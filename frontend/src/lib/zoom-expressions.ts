@@ -13,7 +13,7 @@ export interface ZoomExpressionDraft {
   stops: ZoomStop[];
 }
 
-export interface ZoomExpressionValidationResult {
+interface ZoomExpressionValidationResult {
   ok: boolean;
   errors: string[];
 }
@@ -37,7 +37,7 @@ export function isFiniteNumber(value: unknown): value is number {
  * all stops). This keeps the three walkers in sync without flattening their
  * deliberately-different domain semantics.
  */
-export interface ExpressionPair {
+interface ExpressionPair {
   first: unknown;
   second: unknown;
   hasSecond: boolean;

@@ -21,7 +21,7 @@ export const CUSTOM_PAINT_PROPS = new Set([
 
 /** Canonical geometry family. `other` covers null/empty and tokens that are
  *  neither point/line/polygon (e.g. GEOMETRYCOLLECTION). */
-export type GeometryFamily = 'point' | 'line' | 'polygon' | 'other';
+type GeometryFamily = 'point' | 'line' | 'polygon' | 'other';
 
 /**
  * builder-audit #338 ADAPT-02/DRY-05: single canonical geometry classifier.
@@ -56,7 +56,7 @@ export function getLayerType(geometryType: string | null): 'circle' | 'line' | '
 }
 
 /** Raster bounds as a fixed [west, south, east, north] tuple. */
-export type RasterBounds = [number, number, number, number];
+type RasterBounds = [number, number, number, number];
 
 /**
  * builder-audit #338 ADAPT-01: single raster-bounds guard hoisted from the verbatim
@@ -353,44 +353,6 @@ export function setDynamicLayoutProperty(
   );
 }
 
-/** Read half of `setDynamicPaintProperty` — the key is an arbitrary paint-JSON key. */
-function getDynamicPaintProperty(map: MaplibreMap, layerId: string, property: string): unknown {
-  return map.getPaintProperty(layerId, property as PaintPropertyName);
-}
-
-/** Replay expression-based paint properties via setPaintProperty (avoids addLayer failures). */
-function replayExpressions(
-  map: MaplibreMap,
-  layerId: string,
-  rawPaint: Record<string, unknown>,
-  geomType: 'fill' | 'line' | 'circle',
-) {
-  for (const [prop, val] of Object.entries(rawPaint)) {
-    if (Array.isArray(val) && isPaintPropertyForLayerType(prop, geomType)) {
-      try { setDynamicPaintProperty(map, layerId, prop, val); }
-      catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
-    }
-  }
-}
-
-/** Apply expression replay, compound opacity, and filter after addLayer. */
-export function finalizeLayer(
-  map: MaplibreMap,
-  layerId: string,
-  rawPaint: Record<string, unknown>,
-  geomType: 'fill' | 'line' | 'circle',
-  masterOpacity: number,
-  filter: import('maplibre-gl').FilterSpecification | null,
-  hasExpressions: boolean,
-) {
-  if (!map.getLayer(layerId)) return;
-  if (hasExpressions) replayExpressions(map, layerId, rawPaint, geomType);
-  applyMasterOpacity(map, layerId, rawPaint, geomType, masterOpacity);
-  if (filter && Array.isArray(filter) && filter.length > 0) {
-    map.setFilter(layerId, filter);
-  }
-}
-
 /**
  * Set a paint or layout property on a MapLibre layer, swallowing any errors
  * that arise from attempting to set an unsupported property (e.g. calling
@@ -494,14 +456,6 @@ export function resolveAdapterType(
   return inferTypeFromPaint(paint) ?? getLayerType(geometryType);
 }
 
-/** Sync visibility for a single layer (used by circle, line, heatmap adapters). */
-export function syncSingleLayerVisibility(map: MaplibreMap, layerId: string, visible: boolean): void {
-  const vis = visible ? 'visible' : 'none';
-  if (map.getLayer(layerId)) {
-    map.setLayoutProperty(layerId, 'visibility', vis);
-  }
-}
-
 /** Check if two paint values differ. Uses strict equality for scalars, JSON.stringify for arrays/objects. */
 export function paintValueChanged(current: unknown, incoming: unknown): boolean {
   if (current === incoming) return false;
@@ -517,13 +471,13 @@ type VectorGeomType = 'fill' | 'line' | 'circle';
 // makes a typo'd or non-existent property name a compile error at the tuple — the
 // failure mode that hid `circle-stroke-blur` in CIRCLE_OWNED_PAINT_PROPERTIES until
 // #338 SPEC-06, because setPaintProperty's try/catch swallowed it silently.
-export interface OwnedPaintSyncOptions {
+interface OwnedPaintSyncOptions {
   ownedProperties: readonly PaintPropertyName[];
   geomType?: VectorGeomType;
   clearMissing?: boolean;
 }
 
-export interface OwnedLayoutSyncOptions {
+interface OwnedLayoutSyncOptions {
   ownedProperties: readonly LayoutPropertyName[];
   clearMissing?: boolean;
 }
@@ -632,26 +586,6 @@ export function syncOwnedLayoutProperties(
       setDynamicLayoutProperty(map, layerId, prop, desired);
     } catch (e) {
       debugPropertySyncFailure(layerId, prop, 'layout', 'set', e);
-    }
-  }
-}
-
-/** Sync paint properties for a vector layer, skipping custom and cross-geometry props. */
-export function syncVectorPaint(
-  map: MaplibreMap,
-  layerId: string,
-  rawPaint: Record<string, unknown>,
-  geomType?: 'fill' | 'line' | 'circle',
-) {
-  const paint = geomType ? filterPaintForLayerType(rawPaint, geomType) : stripCustomProps(rawPaint);
-  for (const [prop, val] of Object.entries(paint)) {
-    try {
-      const current = getDynamicPaintProperty(map, layerId, prop);
-      if (paintValueChanged(current, val)) {
-        setDynamicPaintProperty(map, layerId, prop, val);
-      }
-    } catch (e) {
-      if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e);
     }
   }
 }

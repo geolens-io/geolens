@@ -2,7 +2,7 @@ import i18n from '@/i18n/i18n';
 
 type TranslationValues = Record<string, string | number>;
 
-export interface ApiErrorDescriptor {
+interface ApiErrorDescriptor {
   key: `errors.${string}`;
   values?: TranslationValues;
 }

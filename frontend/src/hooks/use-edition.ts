@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { fetchEdition } from '@/api/edition';
-import type { EditionInfo } from '@/api/edition';
 
 const EMPTY_FEATURES: string[] = [];
 
@@ -33,5 +32,3 @@ export function useEdition() {
     isResolved: data !== undefined,
   };
 }
-
-export type { EditionInfo };

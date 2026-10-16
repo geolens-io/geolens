@@ -13,7 +13,7 @@ import { reportNetworkError } from '@/lib/report';
  * on V4-signed URLs), so no auth header is ever attached here.
  */
 
-export interface UploadChunksOptions {
+interface UploadChunksOptions {
   /**
    * fix(#438): DATA-02 — cancel a runaway multi-GB upload. Aborting rejects the
    * in-flight part's XHR; the loop then throws the AbortError without starting

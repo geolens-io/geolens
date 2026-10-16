@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
  *
  * `type` is owned by the toggle and intentionally not forwarded.
  */
-export type PasswordInputProps = Omit<React.ComponentProps<typeof Input>, 'type'>;
+type PasswordInputProps = Omit<React.ComponentProps<typeof Input>, 'type'>;
 
 export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
   ({ className, ...props }, ref) => {

@@ -1,7 +1,7 @@
 import { defaultNS, detectionOptions, fallbackLng, namespaces, supportedLngs } from './config';
 import { resources } from './resources';
 
-export function getBaseI18nOptions() {
+function getBaseI18nOptions() {
   return {
     defaultNS,
     fallbackLng,

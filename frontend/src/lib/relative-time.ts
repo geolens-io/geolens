@@ -8,7 +8,7 @@ const DAY_MS = 24 * HOUR_MS;
 const MONTH_MS = 30 * DAY_MS;
 const YEAR_MS = 365 * DAY_MS;
 
-export interface RelativeTimeFormatOptions {
+interface RelativeTimeFormatOptions {
   /** Cap the largest unit rendered. `'hour'` reproduces the problem-report
    *  list behavior (a session-scoped surface where "49 hours ago" beats
    *  switching to days). Default: no cap (up to years). */

@@ -50,7 +50,7 @@ export function isThirdPartyTileUrl(
   }
 }
 
-export interface TileTransformRequestOptions {
+interface TileTransformRequestOptions {
   /** Viewer embed surface: attach `X-Embed-Token` to first-party requests. */
   embedToken?: string;
   /** Read the CURRENT tile config at request time (pass a ref-reader so a
@@ -256,7 +256,7 @@ export function refreshRasterTileSources(map: MaplibreMapLike | null | undefined
 }
 
 /** The structural subset of the MapLibre map that `refreshRasterTileSources` uses. */
-export interface MaplibreMapLike {
+interface MaplibreMapLike {
   getStyle?: () => { sources?: Record<string, unknown> } | undefined;
   refreshTiles?: (sourceId: string) => void;
 }

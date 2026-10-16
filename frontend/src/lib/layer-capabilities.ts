@@ -1,7 +1,7 @@
 import type { MapLayerResponse } from '@/types/api';
 import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
 
-export type LayerKind = 'vector' | 'raster' | 'vrt';
+type LayerKind = 'vector' | 'raster' | 'vrt';
 
 /**
  * Returns true when a layer represents a folder group (layer_type starts with
@@ -18,7 +18,7 @@ export function isFolderGroupLayer(
   return ((layer.layer_type as string | null | undefined) ?? '').startsWith('group:folder');
 }
 
-export interface LayerCapabilities {
+interface LayerCapabilities {
   kind: LayerKind;
   supportsStyleEditor: boolean;
   supportsFilterEditor: boolean;

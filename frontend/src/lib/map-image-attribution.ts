@@ -52,7 +52,7 @@ const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 /** Only the two methods this module needs, so tests can pass a plain object
  *  and so a partial map mock (the shape the builder suites already use) is a
  *  valid argument rather than a cast. */
-export interface AttributionMapLike {
+interface AttributionMapLike {
   getContainer?: () => HTMLElement | null | undefined;
   getStyle?: () => unknown;
   /** Live source objects. Their `attribution` is the RESOLVED value; the
@@ -847,14 +847,14 @@ function wrapWords(
   return lines;
 }
 
-export interface FitAttributionOptions {
+interface FitAttributionOptions {
   maxWidth: number;
   fontPx: number;
   /** feat(#1553): stop once the result is known to exceed this many lines. */
   maxLines?: number;
 }
 
-export interface FittedAttribution {
+interface FittedAttribution {
   lines: string[];
   fontPx: number;
 }
@@ -890,7 +890,7 @@ export function fitAttributionText(
 
 /* ── Overlay: the two fixed-size crops ─────────────────────────────────── */
 
-export interface AttributionOverlaySpec {
+interface AttributionOverlaySpec {
   fontPx: number;
   /** Baseline-to-baseline step for a wrapped credit. */
   lineHeight: number;
@@ -1198,7 +1198,7 @@ export function attributionBandLineCapacity(maxHeight: number, dpr: number): num
   return Math.max(0, Math.floor(usable / (BAND_LINE_HEIGHT * scale)));
 }
 
-export interface MeasuredAttributionBand {
+interface MeasuredAttributionBand {
   lines: string[];
   /** Already dpr-scaled: the caller draws with it directly. */
   fontPx: number;

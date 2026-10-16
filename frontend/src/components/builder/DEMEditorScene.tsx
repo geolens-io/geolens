@@ -26,9 +26,9 @@ import { formatNumber } from '@/lib/format';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 /** DEM render mode union. Assignable to StyleConfig['render_mode'] without cast. */
-export type DemRenderMode = 'hillshade' | 'terrain';
+type DemRenderMode = 'hillshade' | 'terrain';
 
-export interface DEMEditorSceneProps {
+interface DEMEditorSceneProps {
   layer: MapLayerResponse;
   // Render mode is derived from layer.style_config.render_mode by the component.
   // Missing/legacy image DEM modes are treated as hillshade because raw DEM

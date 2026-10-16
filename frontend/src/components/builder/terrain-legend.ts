@@ -18,7 +18,7 @@ export { isDemTerrainVisualSuppressed };
  * i18n label KEY, never literal text, so each surface resolves it in its own
  * namespace (builder: `plugins.legend.terrain3d`; viewer: `viewer.legend.terrain3d`).
  */
-export interface TerrainLegendEntry {
+interface TerrainLegendEntry {
   /** Mirrors the stack synthetic row id for visual agreement. */
   id: 'relief:terrain';
   /** Mirrors the stack synthetic row role. */
@@ -34,7 +34,7 @@ export interface TerrainLegendEntry {
   sourceName: string | null;
 }
 
-export interface DeriveTerrainLegendEntryOptions {
+interface DeriveTerrainLegendEntryOptions {
   /** i18n key for the synthetic entry label, resolved by the calling surface. */
   labelKey: string;
 }

@@ -17,7 +17,7 @@ interface StyleColorPickerProps {
 
 // builder-audit #338 DRY-02: single source for the 6-digit hex validation regex.
 // Previously copied inline in DataDrivenStyleEditor (two sites).
-export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
+const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
 // Map symbol preset colors — not UI chrome. Reuse the centralized map palette
 // so a newly created layer always has a selected preset swatch.

@@ -12,7 +12,7 @@ export interface BoundedGeoJsonResponse {
 
 const GEOJSON_TIMEOUT_MS = 30_000;
 
-export interface GeoJsonFetchOptions {
+interface GeoJsonFetchOptions {
   embedToken?: string;
   signal?: AbortSignal;
 }

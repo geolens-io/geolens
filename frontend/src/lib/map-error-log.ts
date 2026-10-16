@@ -16,7 +16,7 @@ import { isSessionRenewalPending } from '@/hooks/use-tile-auth-recovery';
 /** Structural subset of MapLibre's ErrorEvent that this module inspects.
  * MapLibre attaches `status`/`url` to AJAXError instances raised by tile
  * fetches; plain style/runtime errors carry neither. */
-export interface MapLibreErrorLike {
+interface MapLibreErrorLike {
   error?: { message?: string; status?: number; url?: string };
 }
 

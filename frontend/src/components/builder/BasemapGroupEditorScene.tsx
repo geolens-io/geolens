@@ -20,7 +20,7 @@ interface BasemapSublayer {
   kind: 'vector' | 'raster';
 }
 
-export interface BasemapGroupEditorSceneProps {
+interface BasemapGroupEditorSceneProps {
   activePresetId: string;
   presets: BasemapPreset[];
   sublayers: BasemapSublayer[];
@@ -37,7 +37,7 @@ export interface BasemapGroupEditorSceneProps {
   onMasterOpacityChange: (opacity: number) => void;
 }
 
-export interface BasemapGroupEditorFooterProps {
+interface BasemapGroupEditorFooterProps {
   onResetAppearance: () => void;
   onRemoveBasemap: () => void;
 }

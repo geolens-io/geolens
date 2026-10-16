@@ -4,13 +4,13 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 
 export type BuilderEditorScene = 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer' | 'settings' | 'group';
 
-export interface BuilderEditorBasemapGroup {
+interface BuilderEditorBasemapGroup {
   id: string;
   presetName: string;
   sublayers: Array<{ id: string; name: string }>;
 }
 
-export interface BuilderEditorSyntheticLabels {
+interface BuilderEditorSyntheticLabels {
   settingsName: string;
   sublayerFallback: string;
   untitledFallback: string;

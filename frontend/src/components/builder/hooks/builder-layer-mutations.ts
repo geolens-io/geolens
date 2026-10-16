@@ -109,7 +109,7 @@ export function removePerLayerCompanions(
   }
 }
 
-export interface DuplicateRenderingLabels {
+interface DuplicateRenderingLabels {
   layerFallback: string;
   duplicateName: (baseName: string) => string;
 }

@@ -18,5 +18,3 @@ export function HeatmapEditor({
     />
   );
 }
-
-export default HeatmapEditor;

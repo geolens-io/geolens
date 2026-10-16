@@ -36,7 +36,7 @@ export function hasOpenSignupRisk(
   );
 }
 
-export interface SignUpState {
+interface SignUpState {
   registration_enabled: boolean;
   password_login_enabled: boolean;
   email_verification_required: boolean;

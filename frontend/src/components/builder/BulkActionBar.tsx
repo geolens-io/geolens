@@ -20,7 +20,7 @@ import type { MapLayerResponse } from '@/types/api';
 // Props
 // ---------------------------------------------------------------------------
 
-export interface BulkActionBarProps {
+interface BulkActionBarProps {
   selectedIds: Set<string>;
   layers: MapLayerResponse[];
   // onClearSelection removed — selection clearing is the caller's responsibility

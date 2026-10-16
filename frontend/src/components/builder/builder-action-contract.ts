@@ -1,7 +1,7 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import type { LabelConfig, MapLayerResponse, PopupConfig, StyleConfig } from '@/types/api';
 
-export type BuilderActionSource = 'manual' | 'ai' | 'system';
+type BuilderActionSource = 'manual' | 'ai' | 'system';
 
 interface BuilderActionBase {
   source?: BuilderActionSource;
@@ -24,17 +24,6 @@ export type BuilderLayerAction =
   | (BuilderActionBase & { type: 'bind_dem_terrain'; layerId: string })
   | (BuilderActionBase & { type: 'unbind_dem_terrain'; layerId: string })
   | (BuilderActionBase & { type: 'set_dem_terrain_exaggeration'; layerId: string; exaggeration: number });
-
-export type BuilderBasemapAction =
-  | (BuilderActionBase & { type: 'set_basemap_labels'; visible: boolean })
-  | (BuilderActionBase & { type: 'set_basemap_background'; color: string | null })
-  | (BuilderActionBase & { type: 'set_basemap_position'; position: 'top' | 'bottom' });
-
-export type BuilderSettingsAction =
-  | (BuilderActionBase & { type: 'toggle_plugin'; pluginId: string })
-  | (BuilderActionBase & { type: 'set_projection'; projection: 'mercator' | 'globe' });
-
-export type BuilderMapAction = BuilderLayerAction | BuilderBasemapAction | BuilderSettingsAction;
 
 export interface BuilderLayerActionHandlers {
   setFilter: (layerId: string, expression: FilterSpecification | null) => void;

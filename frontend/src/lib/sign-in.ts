@@ -3,7 +3,7 @@ import { abortInflightRefresh, isCredentialRejected } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { TokenResponse } from '@/types/api';
 
-export type IssuedSession = Pick<TokenResponse, 'access_token' | 'refresh_token' | 'expires_in'> & {
+type IssuedSession = Pick<TokenResponse, 'access_token' | 'refresh_token' | 'expires_in'> & {
   /** The cookie write's number from takeSignInOrder. */
   order?: number;
 };

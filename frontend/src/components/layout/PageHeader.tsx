@@ -12,7 +12,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 
-export type BreadcrumbEntry = { label: string; to: string };
+type BreadcrumbEntry = { label: string; to: string };
 
 interface PageHeaderProps {
   title: string;

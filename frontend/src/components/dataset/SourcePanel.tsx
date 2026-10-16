@@ -46,7 +46,7 @@ import type {
   VrtSourceHealth,
 } from '@/types/api';
 
-export interface SourcePanelProps {
+interface SourcePanelProps {
   dataset: DatasetResponse;
   /** Injected by the caller (DetailPanel wires the #1285 "Refresh from
    *  source" action here, gated on canEdit and a resolvable origin). The

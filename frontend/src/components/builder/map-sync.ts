@@ -54,17 +54,14 @@ export {
   getLayerType,
   resolveAdapterType,
   simplifyPaint,
-  applyMasterOpacity,
   getExpressionSafeOpacity,
   stripCustomProps,
-  filterPaintForLayerType,
 } from './layer-adapters/shared';
 export {
   getDataDrivenColumnsForLayer,
   getDataDrivenColumnsForSource,
   getSourceIdForLayer,
   isDemTerrainVisualSuppressed,
-  type SourceIdLayer,
 } from './layer-description';
 
 export const TERRAIN_SOURCE_ID = 'terrain-dem';

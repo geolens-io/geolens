@@ -47,7 +47,7 @@ function normalizeApiBasePath(value: string): string {
 // fix(#1867): exported so callers can compare an absolute distribution url
 // against THIS instance's own API origin — the same resolution api/client.ts
 // uses to build its own fetch targets from `API_BASE`.
-export function getRuntimeApiBaseUrl(): string | null {
+function getRuntimeApiBaseUrl(): string | null {
   const configuredApiBase = API_BASE.trim();
 
   if (configuredApiBase) {
@@ -159,7 +159,7 @@ function resolveByType(
 // external tile service someone registered as a distribution.
 const GEOLENS_VECTOR_TILE_RE = /\/tiles\/data\.[^/?#]+\/\{z\}\/\{x\}\/\{y\}\.pbf/;
 
-export function isGeoLensVectorTileUrl(url: string, publicApiBaseUrl: string | null | undefined): boolean {
+function isGeoLensVectorTileUrl(url: string, publicApiBaseUrl: string | null | undefined): boolean {
   if (!GEOLENS_VECTOR_TILE_RE.test(url)) return false;
   if (!isAbsoluteUrl(url) || isSameOriginAbsoluteUrl(url)) return true;
   return !!publicApiBaseUrl && url.startsWith(`${stripTrailingSlashes(publicApiBaseUrl)}/`);

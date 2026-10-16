@@ -91,7 +91,7 @@ export interface CanonicalFilterCondition {
   toNumber?: true;
 }
 
-export type CanonicalFilter =
+type CanonicalFilter =
   | { kind: 'editable'; combinator: 'all' | 'any'; conditions: CanonicalFilterCondition[] }
   | { kind: 'opaque'; raw: FilterSpecification };
 
@@ -380,7 +380,7 @@ const CQL2_COMPARISON: Record<string, string> = {
 };
 
 /** A dataset column as the catalog lists it, typed by its information_schema name. */
-export interface FilterColumn {
+interface FilterColumn {
   name: string;
   type?: string | null;
 }

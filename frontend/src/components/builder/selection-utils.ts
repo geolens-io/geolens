@@ -20,7 +20,7 @@ import { getParentGroupId } from '@/components/builder/folder-groups';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import type { MapLayerResponse } from '@/types/api';
 
-export interface ClickModifiers {
+interface ClickModifiers {
   shiftKey: boolean;
   metaKey: boolean;
   ctrlKey: boolean;
@@ -30,7 +30,7 @@ export interface ClickModifiers {
  *  dataset_name. An empty (or whitespace-only) query always matches.
  *  Single source of truth shared by UnifiedStackPanel's row rendering and
  *  computeSelectableRowIds below — the two must never disagree. */
-export function layerMatchesSearch(layer: MapLayerResponse, query: string): boolean {
+function layerMatchesSearch(layer: MapLayerResponse, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (q === '') return true;
   return (layer.display_name ?? layer.dataset_name ?? '').toLowerCase().includes(q);
@@ -89,7 +89,7 @@ export function computeSelectableRowIds(
   return ids;
 }
 
-export interface NextSelection {
+interface NextSelection {
   selection: Set<string>;
   anchor: string | null;
 }

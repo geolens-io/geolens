@@ -1,6 +1,6 @@
 import { apiFetch } from './client';
 
-export interface SavedSearch {
+interface SavedSearch {
   id: string;
   name: string;
   params: Record<string, string>;

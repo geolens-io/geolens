@@ -31,7 +31,7 @@ export type RenderAsId =
   | 'image'
   | 'hillshade';
 
-export type RenderAsSource =
+type RenderAsSource =
   | 'vector-point'
   | 'vector-line'
   | 'vector-polygon'
@@ -39,7 +39,7 @@ export type RenderAsSource =
   | 'raster-dem'
   | 'unsupported';
 
-export interface RenderAsOption {
+interface RenderAsOption {
   id: RenderAsId;
   label: string;
   source: RenderAsSource;
@@ -51,7 +51,7 @@ export interface RenderAsOption {
 // consumer outside this module and its tests (every row was backend:'maplibre',
 // enabled:true). GUARD-05: 'deckgl-future' was already removed; with the single
 // backend gone there is no multi-backend abstraction left to model.
-export interface RendererCapability {
+interface RendererCapability {
   id: RenderAsId;
   label: string;
   source: Exclude<RenderAsSource, 'unsupported'>;
@@ -70,14 +70,14 @@ const defaultBuilderTranslator: BuilderTranslator = (key, options) =>
 
 export type RenderAsAdapterType = 'circle' | 'symbol' | 'heatmap' | 'line' | 'fill' | 'raster' | 'hillshade';
 
-export interface RenderAsPatch {
+interface RenderAsPatch {
   layer_type?: MapLayerType | null;
   style_config?: StyleConfig | null;
   paint?: Record<string, unknown> | null;
   layout?: Record<string, unknown> | null;
 }
 
-export interface RenderAsMutation {
+interface RenderAsMutation {
   patch: RenderAsPatch;
   adapterType: RenderAsAdapterType;
 }

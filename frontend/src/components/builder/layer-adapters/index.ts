@@ -1,5 +1,5 @@
-export type { AdapterLayerInput, LayerAdapter } from './types';
-export { simplifyPaint, applyMasterOpacity, stripCustomProps, filterPaintForLayerType, resolveAdapterType } from './shared';
+
+export { resolveAdapterType } from './shared';
 export { getAdapter } from './registry';
 export { fillAdapter } from './fill-adapter';
 export { lineAdapter } from './line-adapter';
@@ -8,4 +8,4 @@ export { symbolAdapter } from './symbol-adapter';
 export { rasterAdapter } from './raster-adapter';
 export { hillshadeAdapter } from './hillshade-adapter';
 export { heatmapAdapter } from './heatmap-adapter';
-export { clusterAdapter, clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './cluster-adapter';
+export { clusterAdapter } from './cluster-adapter';

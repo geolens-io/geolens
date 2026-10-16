@@ -197,13 +197,6 @@ describe('LineEditor', () => {
     expect(screen.queryByText('Solid color')).not.toBeInTheDocument();
   });
 
-  it('is a named export and a default export from LineEditor.tsx', async () => {
-    const { LineEditor: named } = await import('../LineEditor');
-    const defaultExport = (await import('../LineEditor')).default;
-    expect(named).toBeDefined();
-    expect(defaultExport).toBeDefined();
-    expect(named).toBe(defaultExport);
-  });
 
   // Phase 1136-02: line-cap / line-join Selects (EDITOR-LINE-01, EDITOR-LINE-02)
   it('renders a "Line ends" section heading after the dash pattern row', () => {

@@ -392,21 +392,21 @@ function matchesAny(layer: StyleLayer, patterns: string[]) {
   return patterns.some((pattern) => tokens.includes(pattern));
 }
 
-export function isTextLabelLayer(layer: StyleLayer) {
+function isTextLabelLayer(layer: StyleLayer) {
   if (layer.type !== 'symbol') return false;
   const layout = layer.layout ?? {};
   return layout['text-field'] != null || layerTokens(layer).includes('label');
 }
 
-export function isRoadLayer(layer: StyleLayer) {
+function isRoadLayer(layer: StyleLayer) {
   return (layer.type === 'line' || layer.type === 'symbol') && matchesAny(layer, ROAD_PATTERNS);
 }
 
-export function isBoundaryLayer(layer: StyleLayer) {
+function isBoundaryLayer(layer: StyleLayer) {
   return (layer.type === 'line' || layer.type === 'symbol') && matchesAny(layer, BOUNDARY_PATTERNS);
 }
 
-export function isBuildingLayer(layer: StyleLayer) {
+function isBuildingLayer(layer: StyleLayer) {
   return layer.type === 'fill-extrusion' || matchesAny(layer, BUILDING_PATTERNS);
 }
 

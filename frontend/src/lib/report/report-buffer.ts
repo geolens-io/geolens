@@ -32,7 +32,7 @@ export interface ReportEntry {
   count: number;
 }
 
-export interface ReportEntryInput {
+interface ReportEntryInput {
   severity: ReportSeverity;
   source: ReportSource;
   message: string;

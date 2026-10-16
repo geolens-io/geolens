@@ -208,7 +208,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
   );
 }
 
-export interface AdvancedJsonEditorProps {
+interface AdvancedJsonEditorProps {
   paint: Record<string, unknown>;
   layout: Record<string, unknown>;
   onPaintChange: (paint: Record<string, unknown>) => void;

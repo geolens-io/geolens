@@ -4,7 +4,7 @@ import { apiFetchBlob, ApiError } from '@/api/client';
 import { isQuicklookKnownMissing, markQuicklookMissing } from '@/lib/quicklook-cache';
 import { registerBlobUrlRevocation } from '@/lib/blob-url-cache';
 
-export interface UseQuicklookResult {
+interface UseQuicklookResult {
   url: string | null;
   status: 'idle' | 'loading' | 'ready' | 'missing' | 'error';
 }

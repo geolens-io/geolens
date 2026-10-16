@@ -29,7 +29,7 @@ export const ISSUE_AREAS = [
   'API / OGC',
   'Other',
 ] as const;
-export type IssueArea = (typeof ISSUE_AREAS)[number];
+type IssueArea = (typeof ISSUE_AREAS)[number];
 
 /** Keep the deep link well under GitHub's ~8KB ceiling. */
 const MAX_URL_LENGTH = 7000;
@@ -85,7 +85,7 @@ function entriesDetailBlock(entries: ReportEntry[], limit = 30): string {
     .join('\n\n');
 }
 
-export interface ReportContextOptions {
+interface ReportContextOptions {
   entries: ReportEntry[];
   includeErrors: boolean;
   includeEnv: boolean;
@@ -122,7 +122,7 @@ export function buildContext(options: ReportContextOptions): string {
   return parts.join('\n\n');
 }
 
-export interface BuildIssueParams {
+interface BuildIssueParams {
   title: string;
   description: string;
   steps: string;
@@ -190,7 +190,7 @@ export function buildTechnicalClipboard(params: { version: string; context: stri
   return parts.join('\n\n');
 }
 
-export interface ClipboardReportParams {
+interface ClipboardReportParams {
   title: string;
   description: string;
   steps: string;

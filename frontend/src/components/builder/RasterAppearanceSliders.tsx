@@ -31,7 +31,7 @@ function formatRasterValue(value: number, format: RasterValueFormat): string {
   }
 }
 
-export interface RasterSliderRowProps {
+interface RasterSliderRowProps {
   label: string;
   value: number;
   min: number;
@@ -73,7 +73,7 @@ export function RasterSliderRow({
   );
 }
 
-export interface RasterAppearanceSlidersProps {
+interface RasterAppearanceSlidersProps {
   paint: Record<string, unknown>;
   /** Patch a single raster paint key. */
   onPaintProp: (key: string, value: number | string) => void;

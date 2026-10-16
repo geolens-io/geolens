@@ -145,6 +145,6 @@ export async function changeAppLanguage(lng: string) {
   }
 }
 
-export { defaultNS, fallbackLng, namespaces, normalizeLanguage, resources, supportedLngs };
-export type { Namespace, SupportedLng } from './config';
+export { fallbackLng, normalizeLanguage };
+
 export default i18n;

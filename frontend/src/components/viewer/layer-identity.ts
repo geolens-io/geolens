@@ -18,7 +18,7 @@ function legacyLayerKey(layer: ViewerLayerIdentityInput, index: number): string 
   return `legacy-${layer.sort_order}-${layer.dataset_id}-${tableName}-${index}`;
 }
 
-export function getViewerLayerKey(
+function getViewerLayerKey(
   layer: ViewerLayerIdentityInput,
   index: number,
 ): string {

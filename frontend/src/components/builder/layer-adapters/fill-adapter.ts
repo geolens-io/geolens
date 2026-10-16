@@ -137,7 +137,7 @@ export function resolveFillPaint(paint: Record<string, unknown>): Record<string,
     : { 'fill-color': MAP_COLORS.default.fill, 'fill-opacity': MAP_COLORS.default.fillOpacity };
 }
 
-export interface PolygonStroke {
+interface PolygonStroke {
   disabled: boolean;
   /** The outline colour the style sets, if any. */
   authoredColor: string | undefined;

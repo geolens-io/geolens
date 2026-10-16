@@ -6,7 +6,7 @@ import { getJobStatus } from '@/api/ingest';
 import { clearServiceImport, peekServiceImport } from '@/api/service-url-session';
 import { clearUrlImport, peekUrlImport } from '@/api/url-import-session';
 
-export type StartAgainSource = 'url' | 'service';
+type StartAgainSource = 'url' | 'service';
 
 /**
  * Import-page link that restarts a failed import. The prefilled URL never

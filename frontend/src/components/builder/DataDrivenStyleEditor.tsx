@@ -190,7 +190,7 @@ function effectiveSizeRangeOf(cfg: StyleConfig | null | undefined): [number, num
  * what the effect would write, so the effect can skip the write. Behavior is
  * preserved exactly — each branch is the original guard verbatim.
  */
-export interface StyleGuardParams {
+interface StyleGuardParams {
   existing: StyleConfig | null | undefined;
   mode: 'categorical' | 'graduated';
   target: 'color' | 'radius' | 'width';

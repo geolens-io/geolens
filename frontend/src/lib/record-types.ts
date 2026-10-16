@@ -1,7 +1,7 @@
 import type { RecordType } from '@/types/api';
 
 /** What the catalog serves for a dataset of one record type. */
-export interface RecordTypeCapabilities {
+interface RecordTypeCapabilities {
   /** A PostGIS table backs feature reads and writes, OGC items, export, rows and column changes. */
   featureTable: boolean;
   /** How the dataset renders as a map layer; null when it cannot be one. */

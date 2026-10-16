@@ -11,15 +11,15 @@
  * functions that can be tested in isolation.
  */
 
-export type UrlKind = 'image' | 'video' | 'youtube' | 'other';
+type UrlKind = 'image' | 'video' | 'youtube' | 'other';
 
-export interface UrlClassification {
+interface UrlClassification {
   kind: UrlKind;
   /** Canonical URL to use as the media src (embed URL for YouTube; original for others). */
   srcUrl: string;
 }
 
-export type RichSegment = { kind: 'text'; value: string } | { kind: 'url'; value: string };
+type RichSegment = { kind: 'text'; value: string } | { kind: 'url'; value: string };
 
 // XSS gate: ONLY match http:// and https:// — javascript:/data:/vbscript: never match.
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;

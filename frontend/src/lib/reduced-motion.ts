@@ -4,7 +4,7 @@
  * already respects for CSS transitions. Callers pass the result of this to a
  * `duration` so the move is instant when the user has asked for reduced motion.
  */
-export function prefersReducedMotion(): boolean {
+function prefersReducedMotion(): boolean {
   return (
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&

@@ -1,10 +1,10 @@
-export type DatasetTabValue =
+type DatasetTabValue =
   | 'overview'
   | 'metadata'
   | 'data'
   | 'structure';
 
-export interface ValidationNavigationAction {
+interface ValidationNavigationAction {
   anchor: string;
   defaultLabel: string;
   field: string;

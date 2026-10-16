@@ -23,7 +23,7 @@ export const LABEL_FONT_STACK = [
 export const DEFAULT_POINT_LABEL_OFFSET: [number, number] = [0, -1.5];
 
 /** Phase 20260526-builder-audit #338 BLD-20260526-11: resolve symbol-placement, enforcing point-only for fill geometries. */
-export function resolvePlacement(
+function resolvePlacement(
   lc: Pick<LabelConfig, 'placement'>,
   geomType: string,
 ): 'point' | 'line' | 'line-center' {
@@ -169,7 +169,7 @@ const LABEL_OWNED_PAINT_PROPERTIES = [
  * neither calls `withLabelCompanion`. The zoom range comes from the label
  * config through the writer's minzoom/maxzoom.
  */
-export function labelSpec(input: AdapterLayerInput): LayerSpec | null {
+function labelSpec(input: AdapterLayerInput): LayerSpec | null {
   const lc = input.label_config;
   if (!lc?.column) return null;
   const geomType = getLayerType(input.dataset_geometry_type);

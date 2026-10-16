@@ -25,13 +25,13 @@ import { ARCGIS_SIGNIN_TIMEOUT_MS } from './ingest';
  * either, since ArcGIS locks an account after five failed sign-ins in
  * fifteen minutes and a retry here would spend the user's own attempts.
  */
-export interface ArcgisSignInRequest {
+interface ArcgisSignInRequest {
   portal_url: string;
   username: string;
   password: string;
 }
 
-export interface ArcgisSignInResponse {
+interface ArcgisSignInResponse {
   token: string;
   expires_at: string;
 }

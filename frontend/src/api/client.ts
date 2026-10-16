@@ -114,7 +114,7 @@ export function notifySessionExpired(deadSessionKey: string): void {
 
 /** fix(#2038): only a REJECTED refresh credential (401/403) means the session
  * is over; a 429, a 5xx or a dropped connection leaves it alive. */
-export type RefreshOutcome = 'refreshed' | 'rejected' | 'transient';
+type RefreshOutcome = 'refreshed' | 'rejected' | 'transient';
 
 /** True when this attempt stored a new access token. */
 export async function tryRefresh(): Promise<boolean> {
@@ -258,7 +258,7 @@ export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): P
 }
 
 /** A response, and how its 401 was handled (null when nothing was refreshed). */
-export interface SessionResponse<R> {
+interface SessionResponse<R> {
   response: R;
   refresh: RefreshOutcome | null;
 }

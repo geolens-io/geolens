@@ -7,7 +7,7 @@ import type { DatasetOrigin } from '@/types/api';
 // feat(#1218): the union moved to types/api.ts, where the backend now serves it
 // as the computed `origin` field. Re-exported here so existing importers keep
 // working and the vocabulary keeps one definition.
-export type { DatasetOrigin };
+
 
 const SERVICE_FORMATS = new Set(['wfs', 'arcgis_featureserver', 'ogcapi_features']);
 

@@ -1,11 +1,6 @@
 import { vi } from 'vitest';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type {
-  MapBasemapConfig,
-  MapLayerResponse,
-  MapResponse,
-  MapTerrainConfig,
-} from '@/types/api';
+import type { MapLayerResponse, MapResponse } from '@/types/api';
 
 type BuilderMapOverrides = Omit<Partial<MapResponse>, 'layers'> & {
   layers?: MapLayerResponse[];
@@ -73,31 +68,6 @@ export function makeBuilderMap(
     forked_from_name: null,
     ...overrides,
   } as MapResponse;
-}
-
-export function makeBasemapConfig(overrides: Partial<MapBasemapConfig> = {}): MapBasemapConfig {
-  return {
-    label_mode: 'full',
-    road_visibility: 'full',
-    boundary_visibility: 'full',
-    building_visibility: true,
-    land_water_tone: 'default',
-    relief_contrast: 'standard',
-    opacity: 1,
-    background_color: null,
-    basemap_position: 'bottom',
-    sublayer_overrides: {},
-    ...overrides,
-  };
-}
-
-export function makeTerrainConfig(overrides: Partial<MapTerrainConfig> = {}): MapTerrainConfig {
-  return {
-    enabled: true,
-    source_dataset_id: 'dem-ds-1',
-    exaggeration: 1.5,
-    ...overrides,
-  };
 }
 
 export function makeMapLibreMock(

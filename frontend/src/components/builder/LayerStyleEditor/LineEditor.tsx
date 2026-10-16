@@ -172,5 +172,3 @@ export function LineEditor({
     </>
   );
 }
-
-export default LineEditor;

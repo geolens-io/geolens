@@ -31,7 +31,7 @@ import { formatNumber } from '@/lib/format';
 // applySublayerOverrides (Plan 1059-02). All 6 new callback props are optional
 // for back-compat with callers that haven't wired through yet.
 
-export interface BasemapSublayerEditorSceneProps {
+interface BasemapSublayerEditorSceneProps {
   sublayerId: string;
   sublayerName: string;
   // Existing live props (KEEP unchanged):
@@ -53,7 +53,7 @@ export interface BasemapSublayerEditorSceneProps {
   onMaxZoomChange?: (zoom: number) => void;
 }
 
-export interface BasemapSublayerEditorFooterProps {
+interface BasemapSublayerEditorFooterProps {
   onBackToBasemap: () => void;
 }
 

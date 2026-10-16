@@ -174,7 +174,7 @@ function getChatActions(value: unknown): ChatAction[] {
   });
 }
 
-export function buildChatActionPaint(
+function buildChatActionPaint(
   currentPaint: Record<string, unknown> | null | undefined,
   action: Pick<ChatAction, 'paint' | 'clear_paint' | 'replace_paint'>,
 ): Record<string, unknown> {

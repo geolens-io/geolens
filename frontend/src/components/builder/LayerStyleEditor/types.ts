@@ -1,7 +1,5 @@
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 
-export type PointRenderMode = 'points' | 'heatmap' | 'symbol' | 'cluster';
-
 /**
  * Shared props passed to every per-render-mode editor sub-component.
  * All editors receive the same interface so RenderModeSwitch can pass

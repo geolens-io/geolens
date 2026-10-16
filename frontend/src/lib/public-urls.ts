@@ -64,7 +64,7 @@ function isLoopbackHostname(hostname: string): boolean {
  * the backend at runtime instead (`embed_token_domain_lock_denied`), and a
  * share link built from it fails loudly rather than silently.
  */
-export type PublicAppUrlState =
+type PublicAppUrlState =
   | { kind: 'trusted'; baseUrl: string }
   | { kind: 'unset' }
   | { kind: 'malformed'; value: string }

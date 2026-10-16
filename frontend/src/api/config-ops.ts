@@ -2,7 +2,7 @@ import { apiFetch } from './client';
 
 // --- Types matching backend config_ops schemas ---
 
-export interface ConfigExport {
+interface ConfigExport {
   version: string;
   exported_at: string;
   settings: Record<string, unknown>;

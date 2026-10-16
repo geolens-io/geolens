@@ -133,7 +133,7 @@ function compositionSyncOptions(
   };
 }
 
-export interface ApplyMapBasemapAppearanceOptions {
+interface ApplyMapBasemapAppearanceOptions {
   map: MaplibreMap;
   basemapConfig?: MapBasemapConfig | null;
   showBasemapLabels?: boolean;
@@ -208,7 +208,7 @@ export function applyMapBasemapAppearance({
   reorderBasemapAboveData(map, basemapConfig?.basemap_position ?? undefined, sourcePrefix);
 }
 
-export interface SyncMapCompositionOptions {
+interface SyncMapCompositionOptions {
   map: MaplibreMap;
   layers: SyncLayerInput[];
   tokenMap: Map<string, TileToken>;

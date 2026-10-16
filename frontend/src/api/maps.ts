@@ -24,6 +24,7 @@ import type {
   MapIconListResponse,
   MapIconResponse,
   MapAccessResponse,
+  MapLayerBulkDeleteResponse,
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -192,7 +193,7 @@ export async function removeLayerFromMapApi(
 export async function bulkDeleteLayersApi(
   mapId: string,
   layerIds: string[],
-): Promise<import('@/types/api').MapLayerBulkDeleteResponse> {
+): Promise<MapLayerBulkDeleteResponse> {
   return apiFetch(`/maps/${encodeURIComponent(mapId)}/layers/bulk-delete`, {
     method: 'POST',
     body: JSON.stringify({ layer_ids: layerIds }),
@@ -497,7 +498,7 @@ function toChatLayers(layers: MapLayerResponse[]): ChatMapLayer[] {
  * without leaking provider/key detail. Returns `available=false` (not a 503)
  * when provider keys are missing. A viewer without `use_ai_chat` gets 403.
  */
-export interface AIAvailabilityResponse {
+interface AIAvailabilityResponse {
   available: boolean;
 }
 

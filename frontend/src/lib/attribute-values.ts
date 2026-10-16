@@ -2,7 +2,7 @@
  * feature attribute editors (drawing AttributeForm + dataset AttributeTable).
  */
 
-export type AttributeInputType =
+type AttributeInputType =
   | 'number-int'
   | 'number-float'
   | 'checkbox'

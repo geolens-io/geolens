@@ -5,20 +5,20 @@ import { formatRelativeTime } from './relative-time';
 // here so existing importers (e.g. quality-freshness) keep their contract.
 export { formatRelativeTime } from './relative-time';
 
-export interface ProvenanceIdentityLabels {
+interface ProvenanceIdentityLabels {
   unknown: string;
   restricted: string;
   system: string;
 }
 
-export interface ProvenanceTimeOptions {
+interface ProvenanceTimeOptions {
   fallbackRelative: string;
   fallbackAbsolute: string;
   locale?: string;
   now?: Date;
 }
 
-export interface ProvenanceTimeResult {
+interface ProvenanceTimeResult {
   relative: string;
   absolute: string;
   hasTimestamp: boolean;

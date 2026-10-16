@@ -16,7 +16,7 @@ import { REFRESHABLE_ORIGINS, SourceRefreshAction } from '../SourceRefreshAction
 import { datasetOrigin } from '../OriginBadge';
 import { AccessTab } from '../tabs/AccessTab';
 
-export interface DetailPanelProps {
+interface DetailPanelProps {
   dataset: DatasetResponse;
   canEdit: boolean;
   /** Gates geometry/attribute cell editing (feature-flagged separately from metadata editing). */

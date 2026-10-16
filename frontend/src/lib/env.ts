@@ -1,4 +1,4 @@
-export interface EnvConfig {
+interface EnvConfig {
   API_BASE_URL: string;
   TILE_BASE_URL: string;
 }

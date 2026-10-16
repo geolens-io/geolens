@@ -1,23 +1,23 @@
 import { apiFetch } from './client';
 
-export interface SummaryDraftResponse {
+interface SummaryDraftResponse {
   draft: string;
 }
 
-export interface KeywordSuggestion {
+interface KeywordSuggestion {
   keyword: string;
   keyword_type: string; // 'theme' | 'place' | 'temporal'
 }
 
-export interface KeywordSuggestionsResponse {
+interface KeywordSuggestionsResponse {
   keywords: KeywordSuggestion[];
 }
 
-export interface LineageDraftResponse {
+interface LineageDraftResponse {
   draft: string;
 }
 
-export interface QualityStatementDraftResponse {
+interface QualityStatementDraftResponse {
   draft: string;
 }
 

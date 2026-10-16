@@ -11,7 +11,7 @@ import type { ZoomRange } from './layer-description';
 import type { ImageSpec, LayerDrawing, LayerSpec } from './layer-adapters/types';
 
 /** The map calls a write makes. A MapLibre map provides them, and so does the recording fake in the tests. */
-export type LayerWriteTarget = Pick<
+type LayerWriteTarget = Pick<
   MaplibreMap,
   | 'removeLayer'
   | 'getLayer'
@@ -90,7 +90,7 @@ function addSpec(map: LayerWriteTarget, spec: LayerSpec, beforeId: string | unde
 }
 
 /** MapLibre's maximum zoom for a layer that sets none. */
-export const DEFAULT_LAYER_MAXZOOM = 24;
+const DEFAULT_LAYER_MAXZOOM = 24;
 
 function updateSpec(map: LayerWriteTarget, spec: LayerSpec): void {
   const { id, layout, filter, minzoom, maxzoom } = spec.layer;

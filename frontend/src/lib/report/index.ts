@@ -10,24 +10,15 @@ export {
 } from './report-buffer';
 export type {
   ReportEntry,
-  ReportEntryInput,
   ReportSeverity,
-  ReportSource,
 } from './report-buffer';
 export { initReportCapture } from './capture';
 export { useReportDialog } from './use-report-dialog';
 export {
   ISSUE_AREAS,
   mapAreaFromPath,
-  summarizeEntries,
   buildContext,
   buildIssueUrl,
   buildClipboardReport,
   buildTechnicalClipboard,
-} from './build-issue';
-export type {
-  IssueArea,
-  ReportContextOptions,
-  BuildIssueParams,
-  ClipboardReportParams,
 } from './build-issue';

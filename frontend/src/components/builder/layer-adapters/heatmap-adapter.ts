@@ -50,7 +50,7 @@ export const DEFAULT_HEATMAP_PAINT: Record<string, unknown> = {
   'heatmap-color': buildHeatmapColorExpression(DEFAULT_RAMP),
 };
 
-export interface HeatmapColor {
+interface HeatmapColor {
   /** The heatmap-color expression the layer draws. */
   expression: unknown;
   /** The named ramp the expression is built from; null for a stored expression. */

@@ -1,7 +1,7 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
 /** A layer as the fake map holds it. */
-export interface RecordedLayer {
+interface RecordedLayer {
   id: string;
   type: string;
   source?: string;

@@ -175,14 +175,6 @@ describe('FillEditor', () => {
     expect(screen.getByText('Height column')).toBeInTheDocument();
   });
 
-  it('is a named export and a default export from FillEditor.tsx', async () => {
-    // Verify both export forms resolve to the same component
-    const { FillEditor: named } = await import('../FillEditor');
-    const defaultExport = (await import('../FillEditor')).default;
-    expect(named).toBeDefined();
-    expect(defaultExport).toBeDefined();
-    expect(named).toBe(defaultExport);
-  });
 
   // --- 3D extrusion range hint tests ---
 

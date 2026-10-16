@@ -26,7 +26,7 @@ export interface GeoJSONFeature {
  * dataset instead of serving that worker's own cached snapshot. Absent
  * from a server that predates this field.
  */
-export interface GeoJSONFeatureWrite extends GeoJSONFeature {
+interface GeoJSONFeatureWrite extends GeoJSONFeature {
   tile_cache_version?: number | null;
 }
 
@@ -35,7 +35,7 @@ export interface GeoJSONFeatureWrite extends GeoJSONFeature {
  * the same name. The delete endpoint stays 204 (compatibility with existing
  * callers), so this rides a response header rather than a JSON body.
  */
-export interface FeatureDeleteResult {
+interface FeatureDeleteResult {
   tile_cache_version?: number | null;
 }
 

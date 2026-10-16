@@ -173,7 +173,7 @@ function createTerraDrawModes() {
  * Mapping from PostGIS/dataset geometry type to compatible Terra Draw modes.
  * Used by DrawingToolbar to filter visible mode buttons.
  */
-export const GEOMETRY_TYPE_TO_MODES: Record<string, string[]> = {
+const GEOMETRY_TYPE_TO_MODES: Record<string, string[]> = {
   POINT: ['point'],
   MULTIPOINT: ['point'],
   LINESTRING: ['linestring'],

@@ -7,7 +7,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import { SUGGESTED_DATASETS, type SuggestedDataset } from './suggested-datasets';
 
-export interface EmptyStackStateProps {
+interface EmptyStackStateProps {
   onOpenAddData: (initialQuery?: string) => void;
   onAddDataset: (datasetId: string) => void;
 }

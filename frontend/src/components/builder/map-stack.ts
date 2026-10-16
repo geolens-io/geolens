@@ -38,7 +38,7 @@ export const MAP_STACK_GROUP_ORDER = [
 
 export type MapStackGroupId = typeof MAP_STACK_GROUP_ORDER[number];
 
-export type MapStackRole =
+type MapStackRole =
   | 'surface-background'
   | 'surface-terrain'
   | 'relief-hillshade'
@@ -50,21 +50,21 @@ export type MapStackRole =
   | 'interaction-popups'
   | 'interaction-plugins';
 
-export type MapStackBadgeTone = 'neutral' | 'muted' | 'info' | 'success' | 'warning' | 'danger';
+type MapStackBadgeTone = 'neutral' | 'muted' | 'info' | 'success' | 'warning' | 'danger';
 
-export interface MapStackBadge {
+interface MapStackBadge {
   label: string;
   tone: MapStackBadgeTone;
 }
 
-export type MapStackTerrainSourceStatus =
+type MapStackTerrainSourceStatus =
   | 'active'
   | 'available'
   | 'disabled'
   | 'fallback'
   | 'missing';
 
-export interface MapStackDuplicateMetadata {
+interface MapStackDuplicateMetadata {
   datasetKey: string;
   datasetOccurrence: number;
   datasetCount: number;
@@ -73,7 +73,7 @@ export interface MapStackDuplicateMetadata {
   disambiguationLabel: string | null;
 }
 
-export interface MapStackEntryMetadata {
+interface MapStackEntryMetadata {
   drawOrder: number;
   source: 'derived' | 'map-layer' | 'basemap' | 'terrain';
   sourceLayerId?: string;
@@ -361,7 +361,7 @@ function stableDatasetKey(layer: MapLayerResponse) {
  * Output is intentionally identical to the previous inline `duplicateIndex` body;
  * `map-stack.test.ts` guards that contract.
  */
-export function computeDisambiguationMetadata(
+function computeDisambiguationMetadata(
   layers: MapLayerResponse[],
   t: BuilderTranslator = defaultBuilderTranslator,
 ): Map<string, MapStackDuplicateMetadata> {

@@ -4,7 +4,7 @@
  * positioned divs. Presentational only — the parent owns the azimuth state and the
  * accessible label.
  */
-export interface SunCompassProps {
+interface SunCompassProps {
   /** Illumination direction in degrees (0–360); drives the needle rotation. */
   azimuth: number;
   /** Accessible label, e.g. "Sun azimuth: 135°". */

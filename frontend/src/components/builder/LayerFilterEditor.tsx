@@ -49,7 +49,7 @@ interface OperatorDef {
 // maplibre-filter-utils (the single canonical copy) instead of re-declared here.
 
 // Discriminated union returned by parseFilterExpression
-export type ParseResult =
+type ParseResult =
   | { kind: 'editable'; combinator: 'all' | 'any'; conditions: FilterCondition[] }
   | { kind: 'opaque'; raw: FilterSpecification };
 

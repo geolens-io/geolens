@@ -6,7 +6,7 @@
  * access token from the shared refresh cookie. Where `BroadcastChannel` is
  * unavailable, tabs do not sync and each one finds out on its next refresh.
  */
-export interface AuthMessage {
+interface AuthMessage {
   type: 'login' | 'logout';
   sessionId: string;
   /** From takeSignInOrder, on a login whose cookie write it numbered. */

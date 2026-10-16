@@ -176,5 +176,3 @@ export function FillEditor({
     </>
   );
 }
-
-export default FillEditor;

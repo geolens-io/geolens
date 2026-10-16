@@ -171,5 +171,3 @@ export function SymbolEditor({
     </div>
   );
 }
-
-export default SymbolEditor;

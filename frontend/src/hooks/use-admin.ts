@@ -358,7 +358,7 @@ export function useBulkRevokeEmbedTokens() {
 // API Key hooks
 // Fetch each page under its own cache key so create and revoke invalidations
 // refresh the flattened result without local append or dedupe state.
-export const API_KEYS_PAGE_SIZE = 50;
+const API_KEYS_PAGE_SIZE = 50;
 
 export function useApiKeys(userId: string, pageCount: number = 1) {
   const queries = useQueries({
@@ -441,7 +441,7 @@ export function useEmbeddingStats(options?: { enabled?: boolean }) {
 
 // Backfill embeddings. allTenants also queues a run for every other tenant in a
 // multi-tenant deployment; a single-tenant one ignores it.
-export interface BackfillOptions {
+interface BackfillOptions {
   force?: boolean;
   allTenants?: boolean;
 }

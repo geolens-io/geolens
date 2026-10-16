@@ -92,5 +92,3 @@ export async function loadAllResources(): Promise<I18nResources> {
 
   return Object.freeze(Object.fromEntries(entries) as I18nResources);
 }
-
-export type { I18nResources, LocaleResources, ResourceMessages };

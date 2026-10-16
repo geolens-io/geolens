@@ -19,13 +19,13 @@ type BuilderTranslator = (key: string, options?: Record<string, unknown>) => str
 const defaultBuilderTranslator: BuilderTranslator = (key, options) =>
   i18n.t(key, { ns: 'builder', ...options }) as string;
 
-export type BuilderBasemapSublayerId =
+type BuilderBasemapSublayerId =
   | 'basemap:roads'
   | 'basemap:labels'
   | 'basemap:buildings'
   | 'basemap:boundaries';
 
-export interface BuilderBasemapSublayer {
+interface BuilderBasemapSublayer {
   id: BuilderBasemapSublayerId;
   name: string;
   visible: boolean;
@@ -33,14 +33,14 @@ export interface BuilderBasemapSublayer {
   kind: 'vector';
 }
 
-export interface BuilderBasemapStateInput {
+interface BuilderBasemapStateInput {
   basemapStyle: string | null | undefined;
   showBasemapLabels: boolean | null | undefined;
   basemapConfig: MapBasemapConfig | null | undefined;
   terrainConfig: MapTerrainConfig | null | undefined;
 }
 
-export interface BuilderBasemapState {
+interface BuilderBasemapState {
   basemapStyle: string;
   showBasemapLabels: boolean;
   hasVisibleBasemap: boolean;

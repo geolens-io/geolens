@@ -1,6 +1,6 @@
 import type { MapLayerType, RecordType, StyleConfig } from '@/types/api';
 
-export const CLUSTER_GEOJSON_FEATURE_LIMIT = 5000;
+const CLUSTER_GEOJSON_FEATURE_LIMIT = 5000;
 
 export type ClusterSourceStatus =
   | 'eligible'
@@ -11,7 +11,7 @@ export type ClusterSourceStatus =
   | 'too-many-features'
   | 'unsupported-record-type';
 
-export interface ClusterSourceEligibility {
+interface ClusterSourceEligibility {
   eligible: boolean;
   status: ClusterSourceStatus;
   featureCount: number | null;
@@ -20,14 +20,14 @@ export interface ClusterSourceEligibility {
 
 export type ClusterSourceStrategyKind = 'bounded-geojson' | 'server-tile' | 'fallback';
 
-export interface ClusterSourceStrategy {
+interface ClusterSourceStrategy {
   kind: ClusterSourceStrategyKind;
   status: ClusterSourceStatus;
   featureCount: number | null;
   limit: number;
 }
 
-export interface ClusterSourceLayer {
+interface ClusterSourceLayer {
   dataset_geometry_type?: string | null;
   geometry_type?: string | null;
   dataset_record_type?: RecordType | string | null;

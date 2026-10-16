@@ -58,7 +58,7 @@ export function parseStepOrInterpolate(expr: unknown): { values: unknown[]; brea
   return null;
 }
 
-export interface NormalizedLayerStyleState {
+interface NormalizedLayerStyleState {
   style_config: StyleConfig | null;
   paint: Record<string, unknown>;
 }

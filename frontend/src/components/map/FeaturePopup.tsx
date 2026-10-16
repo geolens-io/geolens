@@ -33,7 +33,7 @@ export interface FeatureInfo {
  *  server strips attribute columns unless opted in via `cols=`. */
 const ATTRIBUTE_BUDGET_MINZOOM = 10;
 
-export interface FeaturePopupProps {
+interface FeaturePopupProps {
   longitude: number;
   latitude: number;
   features: FeatureInfo[];

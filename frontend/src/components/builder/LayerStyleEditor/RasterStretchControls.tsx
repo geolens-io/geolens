@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
  * Not shown for DEM layers — stretch corrupts terrainrgb encoding and the backend
  * short-circuits stretch for is_dem rasters.
  */
-export interface RasterStretchControlsProps {
+interface RasterStretchControlsProps {
   /** Numeric band count from the resolved layer; section hides when absent/<1. */
   bandCount: number | null | undefined;
   /** Merged builder paint dict (reads the builder-private `_*` keys). */

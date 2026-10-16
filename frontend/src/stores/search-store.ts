@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 
 /** Valid keys for setFilter — excludes methods and non-filter state fields. */
-export type SearchFilterKey =
+type SearchFilterKey =
   | 'q'
   | 'bbox'
   | 'keywords'

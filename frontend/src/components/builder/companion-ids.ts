@@ -21,7 +21,7 @@ import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-ad
 export const COLOR_RELIEF_SUFFIX = '-colorrelief';
 
 /** The full set of MapLibre source/layer ids derived from one logical layer. */
-export interface CompanionLayerIds {
+interface CompanionLayerIds {
   /** Per-layer source id (`source-${id}`). Note: deduped vector layers resolve a
    *  DIFFERENT shared source via `getSourceIdForLayer`; this is only the
    *  per-layer key used by the teardown helpers. */

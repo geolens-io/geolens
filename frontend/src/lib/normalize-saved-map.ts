@@ -55,7 +55,7 @@ export type NormalizedSavedMap<TLayer = MapLayerResponse | SharedLayerResponse> 
  * - `SharedMapResponse` (shared-token + embed viewer fetch)
  * - Partial `MapStackMapInput`-like objects (for test fixtures and defensive callers)
  */
-export type SavedMapInput<TLayer = MapLayerResponse | SharedLayerResponse> =
+type SavedMapInput<TLayer = MapLayerResponse | SharedLayerResponse> =
   | MapResponse
   | SharedMapResponse
   | (Partial<{

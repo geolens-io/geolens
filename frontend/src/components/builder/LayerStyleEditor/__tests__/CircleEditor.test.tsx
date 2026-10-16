@@ -208,11 +208,4 @@ describe('CircleEditor', () => {
     expect(screen.getByText('Styled by: value')).toBeInTheDocument();
   });
 
-  it('is a named export and a default export from CircleEditor.tsx', async () => {
-    const { CircleEditor: named } = await import('../CircleEditor');
-    const defaultExport = (await import('../CircleEditor')).default;
-    expect(named).toBeDefined();
-    expect(defaultExport).toBeDefined();
-    expect(named).toBe(defaultExport);
-  });
 });

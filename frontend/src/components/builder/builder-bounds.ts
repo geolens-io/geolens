@@ -5,7 +5,7 @@ import type { MapLayerResponse } from '@/types/api';
 // import from it defeats MapBuilderPage's `lazy(() => import(BuilderMap))`
 // code-split boundary.
 
-export type VisibleLayerBounds = [[number, number], [number, number]];
+type VisibleLayerBounds = [[number, number], [number, number]];
 
 /** Merges every visible layer's bbox into one box, unwrapping an
  * antimeridian crossing (west > east) rather than dropping it (fix #903). */

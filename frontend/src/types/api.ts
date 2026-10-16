@@ -30,11 +30,6 @@ export type MapProjection = components['schemas']['BasemapProjection'];
  *  Color fields MUST be #RRGGBB hex when non-null (validated server-side via regex). */
 export type MapSublayerOverride = components['schemas']['SublayerOverride'];
 
-/** Known sublayer IDs the editor exposes. Key set is OPEN (D-01 forward-compat) —
- *  consumers should not exhaustively switch on this union; new IDs may appear from
- *  future basemap providers. */
-export type KnownSublayerId = 'road' | 'boundary' | 'building' | 'label';
-
 // `opacity` has a server default, so a config saved before it existed omits it.
 export type MapBasemapConfig = Omit<components['schemas']['BasemapConfig'], 'opacity'> & { opacity?: number };
 
@@ -44,13 +39,8 @@ export type UserQuotaUsage = components['schemas']['UserQuotaUsage'];
 
 export type UserResponse = components['schemas']['UserResponse'];
 
+/** @public Mirrored by the backend drift checker (backend/scripts/check_fe_type_drift.py). */
 export type RasterBandInfo = components['schemas']['RasterBandInfo'];
-
-export type RasterConnect = components['schemas']['RasterConnect'];
-
-export type StacAsset = components['schemas']['StacAsset'];
-
-export type PointCloudMetadata = components['schemas']['PointCloudMetadata'];
 
 export type TilesetMetadata = components['schemas']['TilesetMetadata'];
 
@@ -81,15 +71,6 @@ export type RecordType =
 // Mirrors backend chk_records_visibility CHECK constraint
 // (catalog/datasets/domain/models.py:35). Keep in sync if values change.
 export type DatasetVisibility = components['schemas']['CommitRequest']['visibility'];
-/** fix(#1183): deliberately NOT a union. Unlike `visibility`, `record_status`
- *  has no CHECK constraint backing it — the values come from the workflow
- *  extension's `status_order()`, so an overlay may define its own. This was
- *  typed `'draft' | 'published'`, which made the two community statuses it
- *  omitted (`ready`, `internal`) a compile error to handle. Community default
- *  order: draft, ready, internal, published. */
-export type RecordStatus = string;
-export type DistributionType = 'download' | 'ogc_features' | 'vector_tiles';
-
 /** feat(#1218): how the data entered the catalog. Distinct from `record_type`
  *  (what the data is): a vector dataset can be an uploaded file, a registered
  *  PostGIS table, or a copy pulled from a remote service. The backend computes
@@ -127,8 +108,6 @@ export type StatusUpdateResponse = components['schemas']['StatusUpdateResponse']
 // snapshot (unlike ArcgisSigninRequest below, which predates its regen).
 export type ServiceAuthRequest = components['schemas']['ServiceAuthRequest'];
 
-export type DerivedFrom = components['schemas']['DerivedFromResponse'];
-
 // The API declares these as plain strings; the frontend narrows them to the vocabularies it switches on.
 export type DatasetResponse = Omit<
   components['schemas']['DatasetResponse'],
@@ -142,7 +121,6 @@ export type DatasetResponse = Omit<
   source_freshness: SourceFreshness;
 };
 
-export type PreviousVersion = components['schemas']['PreviousVersionResponse'];
 export type RestorePreviousVersionResponse =
   components['schemas']['RestorePreviousVersionResponse'];
 
@@ -213,8 +191,6 @@ export type OGCRecordProperties = Omit<
   contacts: Array<{ name?: string; organization?: string; roles?: string[]; email?: string; phone?: string }>;
 };
 
-export type OGCRecordLink = components['schemas']['OGCRecordLink'];
-
 // GeoJSON Feature narrowing: the API declares `type` as a string and `geometry` as an open dict.
 export type OGCRecordResponse = Omit<
   components['schemas']['OGCRecordResponse'],
@@ -262,8 +238,6 @@ export type AdminJobResponse = components['schemas']['AdminJobResponse'];
 export type AdminJobListResponse = components['schemas']['AdminJobListResponse'];
 
 export type UploadResponse = components['schemas']['UploadResponse'];
-
-export type TableRegisterResponse = components['schemas']['TableRegisterResponse'];
 
 export type JobStatusResponse = components['schemas']['JobStatusResponse'];
 
@@ -339,8 +313,6 @@ export type ReuploadResponse = components['schemas']['ReuploadResponse'];
 export type ReuploadSourceType = 'file' | 'service_url';
 
 export type ReuploadServicePreviewRequest = components['schemas']['ReuploadServicePreviewRequest'];
-
-export type ReviewReason = NonNullable<components['schemas']['ReuploadPreviewResponse']['review_reasons']>[number];
 
 // The API declares `all_layers` entries as open dicts; GeoPackage previews list these fields.
 export type ReuploadPreviewResponse = Omit<components['schemas']['ReuploadPreviewResponse'], 'all_layers'> & {
@@ -639,8 +611,6 @@ export type MapLayerDiffRequest = Omit<
   fallback_full_replace?: boolean;
 };
 
-export type MapStyleImportWarning = components['schemas']['MapStyleImportWarning'];
-
 export type MapStyleImportSummary = components['schemas']['MapStyleImportSummary'];
 
 export type MapStyleImportResponse = Omit<components['schemas']['MapStyleImportResponse'], 'map'> & { map: MapResponse };
@@ -689,22 +659,7 @@ export type AIProbeReport = components['schemas']['AIProbeReport'];
 
 export type AIStatusResponse = components['schemas']['AIStatusResponse'];
 
-// fix(#2025): the backfill run in flight, as the admin panel's progress bar
-// reads it. records_total is null until the run has selected its records.
-export type BackfillRunProgress = components['schemas']['BackfillRunProgress'];
-
-export type BackfillRunSummary = components['schemas']['BackfillRunSummary'];
-
-// Seconds each action should take at the last completed run's measured rate.
-export type BackfillEstimate = components['schemas']['BackfillEstimate'];
-
 export type EmbeddingStatsResponse = components['schemas']['EmbeddingStatsResponse'];
-
-// fix(#1542): the backfill runs on the job queue, so this is an
-// acknowledgement, not a result. A full regenerate takes minutes and used to
-// hold the request open past the 600s edge timeout. Poll /jobs/{job_id} for
-// the run's outcome.
-export type BackfillTenantRun = components['schemas']['BackfillTenantRun'];
 
 export type BackfillResponse = components['schemas']['BackfillResponse'];
 
@@ -804,8 +759,6 @@ export type DiscoveredTable = components['schemas']['DiscoveredTable'];
 
 export type DiscoverResponse = components['schemas']['DiscoverResponse'];
 
-export type BulkRegisterItem = components['schemas']['BulkRegisterItem'];
-
 export type BulkRegisterRequest = components['schemas']['BulkRegisterRequest'];
 
 export type BulkRegisterResult = components['schemas']['BulkRegisterResult'];
@@ -832,15 +785,11 @@ export type BulkRevokeResponse = components['schemas']['BulkRevokeResponse'];
 // Infrastructure
 export type ProviderHealth = components['schemas']['ProviderHealth'];
 
-export type InfrastructureConfig = components['schemas']['InfrastructureConfig'];
-
 export type InfrastructureResponse = components['schemas']['InfrastructureResponse'];
 
 // --- Presigned upload types ---
 
 export type UploadConfig = components['schemas']['UploadConfigResponse'];
-
-export type PresignedUploadRequest = components['schemas']['PresignedUploadRequest'];
 
 export type PresignedUploadResponse = components['schemas']['PresignedUploadResponse'];
 
@@ -851,17 +800,11 @@ export type VrtCreateRequest = Omit<components['schemas']['VrtCreateRequest'], '
 
 export type VrtCreateResponse = components['schemas']['VrtCreateResponse'];
 
-export type VrtSourceItem = components['schemas']['VrtSourceItem'];
-
 export type VrtSourceListResponse = components['schemas']['VrtSourceListResponse'];
 
 export type VrtSourceHealth = components['schemas']['VrtSourceHealth'];
 
-export type VrtActiveGeneration = components['schemas']['VrtActiveGeneration'];
-
 export type VrtStatusResponse = components['schemas']['VrtStatusResponse'];
-
-export type VrtGenerationItem = components['schemas']['VrtGenerationItem'];
 
 export type VrtGenerationListResponse = components['schemas']['VrtGenerationListResponse'];
 
@@ -892,8 +835,6 @@ export type StacImportResponse = components['schemas']['StacImportResponse'];
 export type DatasetRelationship = components['schemas']['DatasetRelationshipResponse'];
 
 export type DatasetRelationshipListResponse = components['schemas']['DatasetRelationshipListResponse'];
-
-export type MapLayerBulkDeleteFailure = components['schemas']['BulkDeleteLayersFailure'];
 
 export type MapLayerBulkDeleteResponse = components['schemas']['BulkDeleteLayersResponse'];
 

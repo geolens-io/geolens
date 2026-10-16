@@ -8,7 +8,7 @@ import { legendFacts, rampGradient } from './legend-facts';
 import type { LegendFacts, LegendRamp, LegendSwatch } from './legend-facts';
 
 /** Shape hints for the icon glyph. Its stroke, fill opacity and pattern come from the layer's legend swatch. */
-export interface StyleHints {
+interface StyleHints {
   dashPattern?: number[];    // line-dasharray (e.g., [4,2])
   opacity?: number;          // layer opacity (0-1)
   strokeWidth?: number;      // line-width raw value — map to SVG strokeWidth

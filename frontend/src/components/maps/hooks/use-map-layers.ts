@@ -41,7 +41,7 @@ export function previewSourceId(tableName: string) {
 }
 
 /** What the preview knows about its dataset. */
-export interface PreviewDataset {
+interface PreviewDataset {
   datasetId?: string;
   tableName: string;
   geometryType: string;
@@ -51,7 +51,7 @@ export interface PreviewDataset {
 }
 
 /** The one layer the preview draws: the whole dataset in the default style. */
-export function toPreviewSyncInput(dataset: PreviewDataset): SyncLayerInput {
+function toPreviewSyncInput(dataset: PreviewDataset): SyncLayerInput {
   return {
     id: PREVIEW_LAYER_KEY,
     dataset_id: dataset.datasetId ?? '',

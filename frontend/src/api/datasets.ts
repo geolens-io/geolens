@@ -31,6 +31,8 @@ import type {
   UploadResponse,
   StatusUpdateResponse,
   ServiceAuthRequest,
+  DatasetRelationship,
+  DatasetRelationshipListResponse,
 } from '@/types/api';
 
 export async function createDataset(data: CreateDatasetRequest): Promise<DatasetResponse> {
@@ -60,7 +62,7 @@ export async function getDatasetRows(
   return apiFetch<DatasetRowsResponse>(`/datasets/${encodeURIComponent(id)}/rows/${qs ? `?${qs}` : ''}`);
 }
 
-export function getExportUrl(
+function getExportUrl(
   id: string,
   format: string,
   options: { target_crs?: string; bbox?: string; where?: string } = {},
@@ -121,7 +123,7 @@ export async function downloadExport(
  * This helper calls POST /auth/download-token/{id} to obtain the correct token.
  * apiFetch automatically injects the session JWT in the Authorization header.
  */
-export async function mintDownloadToken(id: string): Promise<string> {
+async function mintDownloadToken(id: string): Promise<string> {
   const data = await apiFetch<{ token: string; expires_in: number }>(
     `/auth/download-token/${encodeURIComponent(id)}`,
     { method: 'POST' }
@@ -405,7 +407,7 @@ export async function requestPresignedReupload(
   }
 }
 
-export async function completePresignedReupload(
+async function completePresignedReupload(
   datasetId: string,
   jobId: string,
   parts?: { etag: string; part_number: number }[],
@@ -426,7 +428,7 @@ export async function completePresignedReupload(
  */
 // --- Related datasets ---
 
-export interface RelatedDatasetItem {
+interface RelatedDatasetItem {
   id: string;
   name: string;
   geometry_type: string | null;
@@ -436,7 +438,7 @@ export interface RelatedDatasetItem {
   band_count: number | null;
 }
 
-export interface RelatedDatasetsResponse {
+interface RelatedDatasetsResponse {
   items: RelatedDatasetItem[];
   total: number;
 }
@@ -487,10 +489,10 @@ export async function reuploadPresigned(
 // Dataset FK relationships
 // ---------------------------------------------------------------------------
 
-export async function listRelationships(datasetId: string): Promise<import('@/types/api').DatasetRelationship[]> {
+export async function listRelationships(datasetId: string): Promise<DatasetRelationship[]> {
   // GAP-033: the endpoint now returns the standard list envelope
   // ({ relationships, total }); unwrap to keep this helper's array contract.
-  const res = await apiFetch<import('@/types/api').DatasetRelationshipListResponse>(
+  const res = await apiFetch<DatasetRelationshipListResponse>(
     `/datasets/${encodeURIComponent(datasetId)}/relationships/`,
   );
   return res.relationships;
@@ -516,7 +518,7 @@ export async function getRelatedRecords(
 // ---------------------------------------------------------------------------
 
 /** Per-layer outcome from POST /ingest/commit-fan-out/{job_id}. */
-export interface FanOutLayerResult {
+interface FanOutLayerResult {
   layer_name: string;
   new_job_id: string | null;
   dataset_id: string | null;
@@ -525,7 +527,7 @@ export interface FanOutLayerResult {
 }
 
 /** Response from POST /ingest/commit-fan-out/{job_id}. */
-export interface FanOutCommitResponse {
+interface FanOutCommitResponse {
   fan_out_id: string;
   results: FanOutLayerResult[];
 }

@@ -9,18 +9,14 @@ export const FILL_PATTERN_IDS = [
   'geolens-fill-grid',
 ] as const;
 
-/** Narrowed string type for programmatic pattern-id validation. Consumers may use this
- *  with `includes`-style guards: `FILL_PATTERN_IDS.includes(value as FillPatternId)`. */
-export type FillPatternId = typeof FILL_PATTERN_IDS[number];
-
 /** Shared tile size for all built-in patterns (16×16, seamlessly tileable). */
 const TILE = 16;
 
-export type Rgb = readonly [number, number, number];
+type Rgb = readonly [number, number, number];
 type PatternImage = { width: number; height: number; data: Uint8ClampedArray };
 
 /** The pre-#914 fixed pattern colour, still used when no tint is resolvable. */
-export const DEFAULT_PATTERN_RGB: Rgb = [80, 80, 80];
+const DEFAULT_PATTERN_RGB: Rgb = [80, 80, 80];
 
 /** RGBA pixel writer helper: sets a pixel at (x, y) in a TILE×TILE data array. */
 function setPixel(data: Uint8ClampedArray, x: number, y: number, r: number, g: number, b: number, a: number) {

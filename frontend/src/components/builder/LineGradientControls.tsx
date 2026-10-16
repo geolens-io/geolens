@@ -104,7 +104,7 @@ type ExpressionValidationResult =
   | { ok: true; value: unknown[] }
   | { ok: false; error: 'parseError' | 'structureError' };
 
-export function validateLineGradientExpressionInput(text: string): ExpressionValidationResult {
+function validateLineGradientExpressionInput(text: string): ExpressionValidationResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);

@@ -53,12 +53,12 @@ import type { ChatAction } from '@/types/api';
  * confirmation. The staging module accepts any ChatAction shape; production
  * callers (Plan 02) only push destructive actions via isDestructiveAction gate.
  */
-export type PendingAction = ChatAction;
+type PendingAction = ChatAction;
 
 /**
  * ChatActionStaging — the shape returned by useChatActionStaging.
  */
-export interface ChatActionStaging {
+interface ChatActionStaging {
   /** Current staged actions awaiting user confirmation. Immutable reference. */
   pendingActions: ReadonlyArray<PendingAction>;
   /** Append an action to the buffer. */

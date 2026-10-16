@@ -105,7 +105,7 @@ export const BLANK_CHANNEL_STDDEV = 4;
  *  1.88 spans roughly ±3 — while a real point feature deviates by 100+ across
  *  its whole footprint. 8 pixels is far above stray readback noise and far
  *  below any visible feature's footprint. */
-export const SPARSE_CHANNEL_DELTA = 25;
+const SPARSE_CHANNEL_DELTA = 25;
 export const SPARSE_PIXEL_COUNT = 8;
 
 /** Max per-channel standard deviation over RGBA data, scanning every pixel
@@ -889,12 +889,12 @@ function mergeOrderWithServerSequence(
   return merged;
 }
 
-export interface LayerDiffResult {
+interface LayerDiffResult {
   diff: MapLayerDiffRequest;
   unsupported: boolean;
 }
 
-export type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
+type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 
 /** Bridge between the layer-mutation hooks and useBuilderSave's diff baseline.
  *  fix(#392) added `add`; fix(#1778) added the symmetric `remove`. */

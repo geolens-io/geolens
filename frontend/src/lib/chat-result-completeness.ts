@@ -19,7 +19,7 @@
  */
 
 /** The truncation pair every preview surface consumes (see ephemeral-preview). */
-export interface ChatOverlayCompleteness {
+interface ChatOverlayCompleteness {
   truncated?: true;
   totalCount?: number;
 }

@@ -1,16 +1,16 @@
 import { formatRelativeTime } from './provenance-attribution';
 
-export type QualityCadence = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annually' | 'unknown';
-export type QualityFreshnessState = 'fresh' | 'stale' | 'missing';
+type QualityCadence = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annually' | 'unknown';
+type QualityFreshnessState = 'fresh' | 'stale' | 'missing';
 
-export interface DeriveQualityFreshnessOptions {
+interface DeriveQualityFreshnessOptions {
   computedAt?: string | null;
   updateFrequency?: string | null;
   now?: Date;
   locale?: string;
 }
 
-export interface QualityFreshnessResult {
+interface QualityFreshnessResult {
   state: QualityFreshnessState;
   cadence: QualityCadence;
   absoluteTimestamp: string | null;

@@ -16,7 +16,7 @@ import type { BuilderStyleConfig } from '@/types/api';
  *
  * Adding a builder-private style field = one row here.
  */
-export interface BuilderPaintField {
+interface BuilderPaintField {
   /** Canonical (camelCase) builder key, e.g. `outlineColor`. */
   builderKey: keyof BuilderStyleConfig;
   /** Builder-private `_`-prefixed paint key, e.g. `_outline-color`. */

@@ -13,7 +13,7 @@ export interface SyncSource {
   source_binding_fingerprint?: string;
 }
 
-export interface SyncCredentialMetadata {
+interface SyncCredentialMetadata {
   id: string;
   connector_name: 'arcgis_feature_server';
   allowed_origin: string;
@@ -63,7 +63,7 @@ export interface UpdateSyncAutomationRequest {
   cadence?: SyncCadence;
 }
 
-export interface SyncRunResponse {
+interface SyncRunResponse {
   occurrence_id: string;
   run_id: string;
   job_id: string;
@@ -163,8 +163,4 @@ export async function replaceSyncCredential(
     method: 'PUT',
     body: JSON.stringify(request),
   });
-}
-
-export async function deleteSyncCredential(credentialId: string): Promise<void> {
-  await apiFetch(`/sync/credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' });
 }

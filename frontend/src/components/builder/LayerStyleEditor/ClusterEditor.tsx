@@ -190,5 +190,3 @@ export function ClusterEditor({
     </div>
   );
 }
-
-export default ClusterEditor;
