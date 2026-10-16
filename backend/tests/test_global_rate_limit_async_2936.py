@@ -245,6 +245,90 @@ async def test_a_dead_store_falls_back_to_the_same_limits_then_recovers(
     assert healthy.hits == 1
 
 
+async def _concurrent_statuses(app: FastAPI, path: str, count: int) -> list[int]:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        responses = await asyncio.gather(*(http.get(path) for _ in range(count)))
+    return [r.status_code for r in responses]
+
+
+async def test_concurrent_checks_all_fall_back_when_the_store_fails_mid_flight(
+    shared_limiter,
+):
+    """Every check awaiting the store when it fails is counted in the fallback.
+
+    Only the first failure flips the store dead; the others land after it and
+    must still answer from the fallback rather than re-raise into a 500.
+    """
+    release = asyncio.Event()
+    waiting = 0
+
+    class _FailsTogether(_CountingAsyncLimiter):
+        async def hit(self, *args, **kwargs) -> bool:
+            nonlocal waiting
+            self.hits += 1
+            waiting += 1
+            await release.wait()
+            raise ConnectionError("rate-limit store unreachable")
+
+    shared_limiter._async_limiter = _FailsTogether()
+    app = _app(shared_limiter)
+
+    async def _release_when_all_wait() -> None:
+        while waiting < 6:
+            await asyncio.sleep(0)
+        release.set()
+
+    with structlog.testing.capture_logs() as captured:
+        statuses, _ = await asyncio.gather(
+            _concurrent_statuses(app, "/plain", 6), _release_when_all_wait()
+        )
+
+    assert shared_limiter._async_limiter.hits == 6, "all six were in flight"
+    assert sorted(statuses) == [200, 200, 429, 429, 429, 429], statuses
+    assert [e["event"] for e in captured if e["event"].startswith("rate_limit_")] == [
+        "rate_limit_storage_unreachable"
+    ]
+
+
+async def test_concurrent_checks_recover_the_store_once(shared_limiter):
+    """One check probes the recovered store; the rest keep the fallback."""
+    healthy = shared_limiter._async_limiter
+    release = asyncio.Event()
+    probes = 0
+
+    async def _slow_check() -> bool:
+        nonlocal probes
+        probes += 1
+        await release.wait()
+        return True
+
+    healthy.storage.check = _slow_check
+    shared_limiter._storage_dead = True
+    shared_limiter._Limiter__last_check_backend = 0.0
+    app = _app(shared_limiter)
+
+    async def _release_when_probed() -> None:
+        while probes == 0:
+            await asyncio.sleep(0)
+        for _ in range(50):
+            await asyncio.sleep(0)
+        release.set()
+
+    with structlog.testing.capture_logs() as captured:
+        statuses, _ = await asyncio.gather(
+            _concurrent_statuses(app, "/plain", 4), _release_when_probed()
+        )
+
+    assert probes == 1
+    assert set(statuses) <= {200, 429} and 200 in statuses, statuses
+    assert shared_limiter._storage_dead is False
+    assert healthy.hits == 1, "only the probing request counted in the store"
+    assert [e["event"] for e in captured if e["event"].startswith("rate_limit_")] == [
+        "rate_limit_storage_recovered"
+    ]
+
+
 @pytest.fixture
 def unanswering_store() -> Iterator[int]:
     """A TCP port that accepts connections and never replies."""

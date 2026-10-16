@@ -250,9 +250,13 @@ class _FallbackAnnouncingLimiter(Limiter):
         except RateLimitExceeded:
             raise
         except Exception:  # broad: any store failure degrades to per-process counting
-            if self._in_memory_fallback_enabled and not self._storage_dead:
+            if self._in_memory_fallback_enabled:
+                # Concurrent checks fail together; each one counts in the
+                # fallback, while the setter announces the outage only once.
                 self._storage_dead = True
-                await self._evaluate_default_limits(request, endpoint_key, limits)
+                await self._evaluate_default_limits(
+                    request, endpoint_key, limits, fallback=True
+                )
             elif self._swallow_errors:
                 self.logger.exception("Failed to rate limit. Swallowing error")
             else:
@@ -263,15 +267,22 @@ class _FallbackAnnouncingLimiter(Limiter):
             return self._storage.check()
         return await self._async_limiter.storage.check()
 
-    async def _hit(self, limit: Limit, *identifiers: str, cost: int) -> bool:
-        if self._storage_dead and self._in_memory_fallback_enabled:
+    async def _hit(
+        self, limit: Limit, *identifiers: str, cost: int, fallback: bool
+    ) -> bool:
+        if fallback or (self._storage_dead and self._in_memory_fallback_enabled):
             return self._fallback_limiter.hit(limit.limit, *identifiers, cost=cost)
         if self._async_limiter is None:
             return self.limiter.hit(limit.limit, *identifiers, cost=cost)
         return await self._async_limiter.hit(limit.limit, *identifiers, cost=cost)
 
     async def _evaluate_default_limits(
-        self, request: Request, endpoint_key: str, limits: list[Limit]
+        self,
+        request: Request,
+        endpoint_key: str,
+        limits: list[Limit],
+        *,
+        fallback: bool = False,
     ) -> None:
         """slowapi's ``__evaluate_limits``, with the storage hit awaited."""
         failed_limit = None
@@ -299,7 +310,7 @@ class _FallbackAnnouncingLimiter(Limiter):
             if not limit_for_header or lim.limit < limit_for_header[0]:
                 limit_for_header = (lim.limit, args)
             cost = lim.cost(request) if callable(lim.cost) else lim.cost
-            if not await self._hit(lim, *args, cost=cost):
+            if not await self._hit(lim, *args, cost=cost, fallback=fallback):
                 self.logger.warning(
                     "ratelimit %s (%s) exceeded at endpoint: %s",
                     lim.limit,
