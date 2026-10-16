@@ -518,3 +518,9 @@ class TestStyle06HistoryEvents:
         assert expected.issubset(actions), (
             f"STYLE-06: missing history events {expected - actions}"
         )
+        visibility_event = next(
+            e
+            for e in history.json()["events"]
+            if e["action"] == "map.visibility_update"
+        )
+        assert visibility_event["summary"] == "Changed visibility to public"

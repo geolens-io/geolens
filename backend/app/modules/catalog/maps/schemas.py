@@ -2,7 +2,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Annotated, Any, TypedDict
 
 from pydantic import (
@@ -297,7 +297,7 @@ class PopupConfig(BaseModel):
         return v
 
 
-class MapVisibility(str, Enum):
+class MapVisibility(StrEnum):
     # Note: 'restricted' is intentionally omitted — maps don't support
     # restricted visibility; only datasets do.
     private = "private"

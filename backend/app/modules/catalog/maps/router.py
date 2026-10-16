@@ -593,11 +593,11 @@ async def update_map_endpoint(
             and kwargs["visibility"] is not None
             and new_visibility != previous_values["visibility"],
             "map.visibility_update",
-            f"Changed visibility to {map_obj.visibility}",
+            f"Changed visibility to {new_visibility}",
             {
                 "field": "visibility",
                 "previous": previous_values["visibility"],
-                "current": map_obj.visibility,
+                "current": new_visibility,
             },
         ),
         (
