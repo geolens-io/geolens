@@ -93,25 +93,39 @@ def test_dev_frontend_healthcheck_runs_the_readiness_script():
     ).exists()
 
 
-def test_dev_readiness_fails_when_a_builder_dependency_is_stale():
+def _serve_dev_server(stale_dep=None):
+    """A stub of Vite's dev server where each optimized dep has its own ?v= hash."""
     import http.server
     import threading
 
+    deps = {
+        "/node_modules/.vite/deps/@vis__gl_react-maplibre.js": (
+            "aaaa1111",
+            "maplibre-gl",
+        ),
+        "/node_modules/.vite/deps/maplibre-gl.js": ("bbbb2222", None),
+    }
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/":
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                body = b"<html>"
-            elif self.path.startswith("/src/"):
-                self.send_response(200)
-                self.send_header("Content-Type", "text/javascript")
-                body = (
-                    b'import "/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=1"'
-                )
+            path, _, query = self.path.partition("?")
+            content_type, status, body = "text/javascript", 200, b"export {}"
+            if path == "/":
+                content_type, body = "text/html", b"<html>"
+            elif path.startswith("/src/"):
+                body = b'import "/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=aaaa1111"'
+            elif path in deps:
+                version, imports = deps[path]
+                if query != f"v={version}" or path == stale_dep:
+                    status, body = 504, b"Outdated Optimize Dep"
+                elif imports:
+                    body = (
+                        b'import("/node_modules/.vite/deps/maplibre-gl.js?v=bbbb2222")'
+                    )
             else:
-                self.send_response(504)
-                body = b"Outdated Optimize Dep"
+                status, body = 404, b""
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
             self.end_headers()
             self.wfile.write(body)
 
@@ -120,6 +134,20 @@ def test_dev_readiness_fails_when_a_builder_dependency_is_stale():
 
     server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_dev_readiness_passes_when_each_dep_has_its_own_hash():
+    server = _serve_dev_server()
+    try:
+        result = _dev_readiness(f"http://127.0.0.1:{server.server_port}")
+    finally:
+        server.shutdown()
+    assert result.returncode == 0, result.stderr
+
+
+def test_dev_readiness_fails_when_a_builder_dependency_is_stale():
+    server = _serve_dev_server(stale_dep="/node_modules/.vite/deps/maplibre-gl.js")
     try:
         result = _dev_readiness(f"http://127.0.0.1:{server.server_port}")
     finally:

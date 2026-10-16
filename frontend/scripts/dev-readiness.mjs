@@ -15,15 +15,21 @@ async function get(path, type) {
   return res.text()
 }
 
+function findDep(source, from, name) {
+  const match = new RegExp(`["'](/node_modules/\\.vite/deps/${name}\\.js(?:\\?[^"']*)?)["']`).exec(source)
+  if (!match) throw new Error(`${from}: ${name} was not resolved`)
+  return match[1]
+}
+
 try {
   await get('/', 'text/html')
   const source = await get(builderModule, 'javascript')
   // Importing an optimized dep makes Vite resolve it; a stale one answers 504.
-  const dep = /["'](\/node_modules\/\.vite\/deps\/@vis__gl_react-maplibre\.js)(\?[^"']*)?["']/.exec(source)
-  if (!dep) throw new Error(`${builderModule}: react-maplibre was not resolved`)
-  const query = dep[2] ?? ''
-  await get(dep[1] + query, 'javascript')
-  await get('/node_modules/.vite/deps/maplibre-gl.js' + query, 'javascript')
+  // Each optimized dep carries its own ?v= hash, so every URL comes from the
+  // module that imports it.
+  const reactMaplibre = findDep(source, 'builder module', '@vis__gl_react-maplibre')
+  const reactMaplibreSource = await get(reactMaplibre, 'javascript')
+  await get(findDep(reactMaplibreSource, 'react-maplibre', 'maplibre-gl'), 'javascript')
 } catch (err) {
   console.error(`frontend not ready: ${err.message}`)
   process.exit(1)
