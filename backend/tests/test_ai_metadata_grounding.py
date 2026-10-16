@@ -71,24 +71,78 @@ class _Draft(BaseModel):
     draft: str
 
 
-def _claude(monkeypatch, text, stop_reason="end_turn"):
+def _message(content, stop_reason):
+    return {
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": content,
+        "stop_reason": stop_reason,
+        "stop_sequence": None,
+        "usage": {"input_tokens": 50, "output_tokens": 20},
+    }
+
+
+def _text_reply(text, stop_reason="end_turn"):
+    return httpx2.Response(
+        200, json=_message([{"type": "text", "text": text}], stop_reason)
+    )
+
+
+def _tool_reply(arguments, stop_reason="tool_use"):
+    block = {"type": "tool_use", "id": "toolu_1", "name": "output", "input": arguments}
+    return httpx2.Response(200, json=_message([block], stop_reason))
+
+
+def _rejection(body):
+    return httpx2.Response(400, json=body)
+
+
+STRUCTURED_REJECTED = {
+    "type": "error",
+    "error": {
+        "type": "invalid_request_error",
+        "message": "output_config.format: structured outputs are not supported "
+        "for this model.",
+    },
+}
+# Bedrock's InvokeModel validation for a key an older model does not take.
+STRUCTURED_REJECTED_ON_BEDROCK = {
+    "message": "extraneous key [output_config] is not permitted"
+}
+FORCED_TOOL_REJECTED = {
+    "type": "error",
+    "error": {
+        "type": "invalid_request_error",
+        "message": 'tool_choice: type "tool" and "any" are not supported for this '
+        "model.",
+    },
+}
+UNRELATED = {
+    "type": "error",
+    "error": {
+        "type": "invalid_request_error",
+        "message": "messages: text content blocks must be non-empty",
+    },
+}
+
+
+@pytest.fixture(autouse=True)
+def _fresh_request_choices(monkeypatch):
+    import app.processing.ai.claude_structured as claude_structured
+
+    monkeypatch.setattr(claude_structured, "_requests", {})
+
+
+def _claude_replies(monkeypatch, *replies):
+    """A real SDK client that answers each request with the next reply."""
     sent: list[dict] = []
+    pending = list(replies)
 
     def handler(request):
         sent.append(json.loads(request.content))
-        return httpx2.Response(
-            200,
-            json={
-                "id": "msg_1",
-                "type": "message",
-                "role": "assistant",
-                "model": "claude-sonnet-5-5",
-                "content": [{"type": "text", "text": text}],
-                "stop_reason": stop_reason,
-                "stop_sequence": None,
-                "usage": {"input_tokens": 50, "output_tokens": 20},
-            },
-        )
+        return pending.pop(0)
 
     monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("synthetic-test-key"))
     client = AsyncAnthropic(
@@ -100,6 +154,10 @@ def _claude(monkeypatch, text, stop_reason="end_turn"):
         "app.processing.ai.llm_loop.get_anthropic_client", lambda: client
     )
     return sent
+
+
+def _claude(monkeypatch, text, stop_reason="end_turn"):
+    return _claude_replies(monkeypatch, _text_reply(text, stop_reason))
 
 
 async def _structured():
@@ -134,6 +192,99 @@ async def test_a_billed_claude_reply_that_does_not_parse_carries_its_usage(
     monkeypatch, text, stop_reason
 ):
     _claude(monkeypatch, text, stop_reason)
+
+    with pytest.raises(Exception) as caught:
+        await _structured()
+
+    assert token_usage_from_error(caught.value) == (50, 20)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "rejection", [STRUCTURED_REJECTED, STRUCTURED_REJECTED_ON_BEDROCK]
+)
+async def test_a_model_without_structured_outputs_falls_back_to_a_forced_tool(
+    monkeypatch, rejection
+):
+    sent = _claude_replies(
+        monkeypatch,
+        _rejection(rejection),
+        _tool_reply({"draft": "Park polygons."}),
+        _tool_reply({"draft": "Second."}),
+    )
+
+    first = await _structured()
+    second = await _structured()
+
+    assert first == (_Draft(draft="Park polygons."), 50, 20)
+    assert second[0] == _Draft(draft="Second.")
+    assert "output_config" in sent[0]
+    assert sent[1]["tool_choice"] == {"type": "tool", "name": "output"}
+    # The choice is remembered: the second call goes straight to the tool.
+    assert len(sent) == 3 and "output_config" not in sent[2]
+
+
+@pytest.mark.anyio
+async def test_a_model_without_forced_tools_switches_to_structured_outputs(
+    monkeypatch,
+):
+    import app.processing.ai.claude_structured as claude_structured
+
+    monkeypatch.setitem(
+        claude_structured._requests,
+        (settings.anthropic_platform, "claude-sonnet-5-5"),
+        "forced_tool",
+    )
+    sent = _claude_replies(
+        monkeypatch,
+        _rejection(FORCED_TOOL_REJECTED),
+        _text_reply('{"draft": "Park polygons."}'),
+    )
+
+    result = await _structured()
+
+    assert result[0] == _Draft(draft="Park polygons.")
+    assert "tool_choice" in sent[0] and "output_config" in sent[1]
+
+
+@pytest.mark.anyio
+async def test_an_unrelated_rejection_does_not_switch_requests(monkeypatch):
+    import anthropic
+
+    sent = _claude_replies(monkeypatch, _rejection(UNRELATED))
+
+    with pytest.raises(anthropic.BadRequestError):
+        await _structured()
+
+    assert len(sent) == 1
+
+
+@pytest.mark.anyio
+async def test_a_model_rejecting_both_requests_raises_after_one_switch(monkeypatch):
+    import anthropic
+
+    sent = _claude_replies(
+        monkeypatch, _rejection(STRUCTURED_REJECTED), _rejection(FORCED_TOOL_REJECTED)
+    )
+
+    with pytest.raises(anthropic.BadRequestError):
+        await _structured()
+
+    assert len(sent) == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "reply",
+    [
+        _tool_reply({"draft": "Park"}, stop_reason="max_tokens"),
+        _tool_reply({"name": "Parks"}),
+    ],
+)
+async def test_a_billed_forced_tool_reply_that_does_not_parse_carries_its_usage(
+    monkeypatch, reply
+):
+    _claude_replies(monkeypatch, _rejection(STRUCTURED_REJECTED), reply)
 
     with pytest.raises(Exception) as caught:
         await _structured()

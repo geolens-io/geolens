@@ -308,14 +308,9 @@ class DefaultAnthropicProvider:
     ):
         del base_url
         import structlog
-        from anthropic import transform_schema
 
-        from app.processing.ai.llm_loop import (
-            get_anthropic_client,
-            parse_structured_reply,
-        )
-
-        client = get_anthropic_client()
+        from app.processing.ai.claude_structured import claude_structured_reply
+        from app.processing.ai.llm_loop import get_anthropic_client
 
         structlog.stdlib.get_logger(__name__).info(
             "AI metadata request",
@@ -327,34 +322,14 @@ class DefaultAnthropicProvider:
         # Claude 4.6+ models reject a non-default `temperature` with a 400;
         # omit it on the Anthropic path (steering is prompt-based).
         del temperature
-        # Structured outputs, not a forced tool call: Sonnet 5.5, Opus 5.5 and
-        # Fable 5.1 reject tool_choice "tool" with a 400.
-        response = await client.messages.create(
+        return await claude_structured_reply(
+            get_anthropic_client(),
             model=model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            response_model=response_model,
             max_tokens=max_tokens,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-            output_config={
-                "format": {
-                    "type": "json_schema",
-                    "schema": transform_schema(response_model),
-                }
-            },
         )
-        input_tokens = response.usage.input_tokens
-        output_tokens = response.usage.output_tokens
-        parsed = parse_structured_reply(
-            response_model,
-            "".join(b.text for b in response.content if b.type == "text"),
-            stopped_early=(
-                None
-                if response.stop_reason == "end_turn"
-                else f"Claude stopped with {response.stop_reason}"
-            ),
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        )
-        return parsed, input_tokens, output_tokens
 
     async def resolve_runtime_config(  # type: ignore[no-untyped-def]
         self, db, settings: Mapping[str, object] | None = None
