@@ -235,12 +235,12 @@ test.describe('Refresh-door credential prompt on service_token_required', () => 
     await page.getByLabel('Authentication method').click();
     await page.getByRole('option', { name: 'Sign in with username and password' }).click();
     await page.getByLabel('Portal URL').fill('https://myorg.maps.arcgis.com');
-    await page.getByLabel('Username').fill('alice');
-    await page.getByLabel('Password').fill('hunter2');
+    await page.getByLabel('Username', { exact: true }).fill('alice');
+    await page.getByLabel('Password', { exact: true }).fill('hunter2');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByText('Signed in. The refresh will use this token.')).toBeVisible();
-    await expect(page.getByLabel('Password')).toHaveValue('');
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
 
     await page.getByRole('button', { name: 'Start refresh' }).click();
 
