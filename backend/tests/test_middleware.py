@@ -11,10 +11,25 @@ from app.standards.ogc.errors import register_error_handlers
 
 @pytest.mark.anyio
 async def test_gzip_compression(client: AsyncClient):
-    """GET /health with Accept-Encoding: gzip returns Content-Encoding: gzip."""
-    resp = await client.get("/health", headers={"Accept-Encoding": "gzip"})
-    # Health may return 200 or 503 in test env -- we only care about compression
+    """A body over GZip's 256-byte minimum is compressed when gzip is accepted."""
+    identity = await client.get("/conformance", headers={"Accept-Encoding": "identity"})
+    assert len(identity.content) > 256, "precondition: above minimum_size"
+    resp = await client.get("/conformance", headers={"Accept-Encoding": "gzip"})
     assert resp.headers.get("content-encoding") == "gzip"
+    assert resp.json() == identity.json()
+
+
+@pytest.mark.anyio
+async def test_gzip_leaves_a_small_json_body_uncompressed(client: AsyncClient):
+    """minimum_size applies to ordinary responses, not only redirects.
+
+    The middleware layers inside GZip pass a single-message body through
+    unchanged, so a short JSON answer arrives whole and below the threshold.
+    """
+    resp = await client.get("/health", headers={"Accept-Encoding": "gzip"})
+    assert len(resp.content) < 256, "precondition: below minimum_size"
+    assert resp.headers.get("content-encoding") is None
+    assert resp.headers["content-length"] == str(len(resp.content))
 
 
 @pytest.mark.anyio

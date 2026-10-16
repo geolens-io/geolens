@@ -4,9 +4,9 @@
 without touching the awaited subprocess, so `_communicate_with_timeout`'s
 pre-fix code — which only caught `asyncio.TimeoutError` — let a cancelled
 caller unwind while the child kept running with nothing left to reap it.
-Three ``BaseHTTPMiddleware`` subclasses cancel the downstream task on
-``http.disconnect``, so this is reachable from a real client disconnect
-during export or ingest, not just a contrived test.
+``BaseHTTPMiddleware`` layers such as ``DynamicCORSMiddleware`` cancel the
+downstream task on ``http.disconnect``, so this is reachable from a real
+client disconnect during export or ingest, not just a contrived test.
 """
 
 import asyncio

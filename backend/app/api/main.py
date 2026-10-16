@@ -952,13 +952,12 @@ app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
 app.add_exception_handler(CatalogLockConflict, _catalog_lock_conflict_handler)
 app.add_exception_handler(DBAPIError, _database_error_handler)
 
-# fix(#1770): registered FIRST so it ends up INNERMOST (add_middleware
-# prepends; closest to the router). Must be a plain ASGI callable, not
-# BaseHTTPMiddleware — that spawns a separate task, so a route handler's
-# ContextVar (credential-secret registry, core/service_tokens.py) never
-# propagates back out. This is the only layer sharing the handler's task,
-# so the only place an unhandled exception can be scrubbed before anything
-# outside that task reads it. See this middleware's own docstring.
+# Registered FIRST so it ends up INNERMOST (add_middleware prepends; closest
+# to the router). Must be a plain ASGI callable, not BaseHTTPMiddleware —
+# that spawns a separate task, so a route handler's ContextVar
+# (credential-secret registry, core/service_tokens.py) never propagates back
+# out. Innermost, it scrubs an unhandled exception before any layer reads it.
+# See this middleware's own docstring.
 app.add_middleware(CredentialScrubASGIMiddleware)
 
 # SEC-02/M-64/SEC-005: gate https_only on the production indicator — dev/test

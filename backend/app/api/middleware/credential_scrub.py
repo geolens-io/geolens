@@ -1,15 +1,16 @@
 """Scrub registered credential secrets from an unhandled exception, while
 it can still be read from — before it crosses a middleware task boundary.
 
-fix(#1770): `register_credential_secret` records the exact header line a
-request's credential composed into a `ContextVar`, so the redaction
-processors can exact-scrub it — but only for a reader in the SAME async
-task, which an UNHANDLED exception's readers are not. Measured
+`register_credential_secret` records the exact header line a request's
+credential composed into a `ContextVar`, so the redaction processors can
+exact-scrub it — but only for a reader in the SAME async task, which an
+UNHANDLED exception's readers are not. Measured
 (`test_credential_scrub_middleware.py`): Starlette's
 `BaseHTTPMiddleware.dispatch` runs `call_next` in a SEPARATELY SPAWNED
-task, so `ContextVar.set()` never propagates back — both
-`RequestLoggingMiddleware` and a bare `@app.exception_handler(Exception)`
-read the registry as empty.
+task, so `ContextVar.set()` never propagates back, and a bare
+`@app.exception_handler(Exception)`, which runs outside the
+`BaseHTTPMiddleware` layers still mounted (`DynamicCORSMiddleware` among
+them), reads the registry as empty.
 
 This module is a plain ASGI callable, not `BaseHTTPMiddleware`, so it
 shares the route handler's exact task and, registered INNERMOST, can

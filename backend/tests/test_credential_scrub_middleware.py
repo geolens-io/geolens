@@ -1,5 +1,5 @@
-"""fix(#1770 round 44 P2, `api/middleware/logging.py:63` / `standards/ogc/
-errors.py:320`).
+"""Unhandled exceptions are scrubbed of registered credentials in the
+handler's own task.
 
 `register_credential_secret` (`core/service_tokens.py`) records a request's
 composed credential header line in a `ContextVar`, so `redact_exception_text`
@@ -10,12 +10,12 @@ handler ran in.
 Measured directly here (not assumed): Starlette's `BaseHTTPMiddleware.
 dispatch` runs `call_next` -- the rest of the middleware stack, the router,
 and the route handler -- in a separately spawned task. A `ContextVar.set()`
-made inside that task never propagates back to the parent, so
-`RequestLoggingMiddleware`'s own `except Exception: logger.exception(...)`
-and an `@app.exception_handler(Exception)` (which Starlette actually
-dispatches through `ServerErrorMiddleware`, outside every user middleware --
-an even more distant task) both read the registry as empty, no matter what
-the handler registered.
+made inside that task never propagates back to the parent, so a
+`BaseHTTPMiddleware`'s own `except Exception: logger.exception(...)` and an
+`@app.exception_handler(Exception)` (which Starlette actually dispatches
+through `ServerErrorMiddleware`, outside every user middleware -- an even
+more distant task) both read the registry as empty, no matter what the
+handler registered.
 
 `CredentialScrubASGIMiddleware` (`api/middleware/credential_scrub.py`) is
 what closes it: a plain ASGI callable, not a `BaseHTTPMiddleware`, registered
@@ -53,8 +53,7 @@ def test_credential_scrub_middleware_is_registered_innermost() -> None:
 
 
 class _CapturingOuterMiddleware(BaseHTTPMiddleware):
-    """Mirrors `RequestLoggingMiddleware`'s own shape closely enough for this
-    pin: a `BaseHTTPMiddleware` whose `except` clause tries to read the
+    """A `BaseHTTPMiddleware` whose `except` clause tries to read the
     registry after `call_next` raises."""
 
     captured: dict[str, str] = {}

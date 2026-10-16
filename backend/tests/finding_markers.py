@@ -214,7 +214,7 @@ MIN_SCANNED_UNITS = 7000
 UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "api/main.py": 27,
     "api/middleware/body_limit.py": 7,
-    "api/middleware/logging.py": 2,
+    "api/middleware/logging.py": 1,
     "api/middleware/security.py": 7,
     "core/catalog_port.py": 1,
     "core/config.py": 25,
