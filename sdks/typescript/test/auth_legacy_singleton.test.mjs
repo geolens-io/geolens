@@ -40,3 +40,24 @@ test('a later createGeolensClient() call updates the singleton too (last caller 
   assert.equal(apiKeyValue, 'key-second');
   assert.ok(!authValue, `singleton still carries the first caller's Authorization: ${authValue}`);
 });
+
+test('the shared singleton sends no credential left over from a previous caller', async () => {
+  const sent = [];
+  const record = async (request) => {
+    sent.push(request.headers);
+    return new Response('{}', { headers: { 'content-type': 'application/json' } });
+  };
+
+  createGeolensClient({ baseUrl: 'https://wire.example.test', bearerToken: 'tok-old' });
+  createGeolensClient({ baseUrl: 'https://wire.example.test', apiKey: 'key-new' });
+  singletonClient.setConfig({ fetch: record });
+  await singletonClient.get({ url: '/ping' });
+  assert.equal(sent[0].get('Authorization'), null);
+  assert.equal(sent[0].get('X-API-Key'), 'key-new');
+
+  createGeolensClient({ baseUrl: 'https://wire.example.test', bearerToken: 'tok-new' });
+  singletonClient.setConfig({ fetch: record });
+  await singletonClient.get({ url: '/ping' });
+  assert.equal(sent[1].get('X-API-Key'), null);
+  assert.equal(sent[1].get('Authorization'), 'Bearer tok-new');
+});

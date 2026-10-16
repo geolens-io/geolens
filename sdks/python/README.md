@@ -16,6 +16,30 @@ client = GeolensClient(base_url="https://geolens.example.com/api", bearer_token=
 # See docs.getgeolens.com for endpoint usage examples.
 ```
 
+Requests never time out unless you set one. Extra keyword arguments go to the
+generated client, so `GeolensClient(base_url, bearer_token="...", timeout=httpx.Timeout(30.0))`
+bounds every call.
+
+## Errors
+
+A documented error status (401, 403, 404, 422, 429 and so on) does not raise.
+`sync()` and `asyncio()` return a `ProblemDetail` with `status`, `title` and
+`detail`, and `sync_detailed()` returns it as `.parsed` next to the raw
+`status_code`:
+
+```python
+from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get_dataset
+from geolens.models.problem_detail import ProblemDetail
+
+result = get_dataset.sync(dataset_id, client=client.client)
+if isinstance(result, ProblemDetail):
+    print(result.status, result.title, result.detail)
+```
+
+Transport failures such as `httpx.ConnectError` do raise. A status the API
+doesn't document raises `geolens.errors.UnexpectedStatus` only when the client
+is built with `raise_on_unexpected_status=True`.
+
 ## Downloading a COG
 
 With a remote source behind a raster dataset, the COG download answers 302

@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGeolensClient } from '../dist/auth.js';
+import { client as singletonClient } from '../dist/client/client.gen.js';
 
 const BASE_URL = 'https://example.test';
 
@@ -27,7 +28,7 @@ test('BUG-023: re-creating client without bearerToken clears stale Authorization
   );
 
   // Confirm the singleton config no longer has Authorization.
-  const cfg = sdk2.client.getConfig();
+  const cfg = singletonClient.getConfig();
   const hdrs = cfg.headers;
   let authValue;
   if (hdrs instanceof Headers) {
@@ -54,7 +55,7 @@ test('BUG-023: re-creating client without apiKey clears stale X-API-Key header',
     'X-API-Key header should be absent after re-create without apiKey',
   );
 
-  const cfg = sdk2.client.getConfig();
+  const cfg = singletonClient.getConfig();
   const hdrs = cfg.headers;
   let apiKeyValue;
   if (hdrs instanceof Headers) {

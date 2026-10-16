@@ -338,7 +338,7 @@ async def ingested_datasets(client, admin_auth_header):
 
 
 class TestPythonAuthWrapperUnit:
-    """7 unit tests for ``GeolensClient`` — no network I/O."""
+    """Unit tests for ``GeolensClient`` — no network I/O."""
 
     def test_construct_with_bearer(self) -> None:
         c = GeolensClient(base_url="http://x", bearer_token="abc")
@@ -381,6 +381,57 @@ class TestPythonAuthWrapperUnit:
     def test_client_property(self) -> None:
         c = GeolensClient(base_url="http://x", bearer_token="abc")
         assert c.client is c._client
+
+    @pytest.mark.parametrize(
+        "auth", [{}, {"bearer_token": "abc"}, {"api_key": "key123"}]
+    )
+    def test_client_options_reach_the_generated_client(self, auth: dict) -> None:
+        import httpx
+
+        timeout = httpx.Timeout(7.0)
+        c = GeolensClient(
+            base_url="http://x", timeout=timeout, headers={"X-Probe": "1"}, **auth
+        )
+        assert c.client.get_httpx_client().timeout == timeout
+        assert c.client.get_httpx_client().headers["X-Probe"] == "1"
+
+    def test_a_credential_swap_does_not_carry_the_old_credential_over(self) -> None:
+        c = GeolensClient(
+            base_url="http://x", api_key="key123", headers={"X-Probe": "1"}
+        )
+        c.client.get_httpx_client()
+        c.set_bearer_token("tok")
+        for headers in (
+            c.client.get_httpx_client().headers,
+            c.client.get_async_httpx_client().headers,
+        ):
+            assert headers["Authorization"] == "Bearer tok"
+            assert "X-API-Key" not in headers
+            assert headers["X-Probe"] == "1"
+
+    @pytest.mark.parametrize("auth", ["bearer_token", "api_key"])
+    def test_the_callers_options_are_not_mutated(self, auth: str) -> None:
+        headers = {"X-Probe": "1"}
+        httpx_args = {"trust_env": False}
+        c = GeolensClient(
+            base_url="http://x", headers=headers, httpx_args=httpx_args, **{auth: "k"}
+        )
+        c.client.get_httpx_client()
+        c.set_api_key("k2")
+        c.client.get_httpx_client()
+        c.set_bearer_token("t2")
+        c.client.get_async_httpx_client()
+        assert headers == {"X-Probe": "1"}
+        assert httpx_args == {"trust_env": False}
+
+    @pytest.mark.parametrize("setter", ["set_bearer_token", "set_api_key"])
+    def test_client_options_survive_a_credential_swap(self, setter: str) -> None:
+        import httpx
+
+        timeout = httpx.Timeout(7.0)
+        c = GeolensClient(base_url="http://x", timeout=timeout)
+        getattr(c, setter)("secret")
+        assert c.client.get_httpx_client().timeout == timeout
 
 
 # ------------------- Model field compatibility (older server) -------------------

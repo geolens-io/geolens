@@ -6,6 +6,14 @@ Apache-2.0 licensed. Native `fetch` client + typed request/response interfaces +
 
 See [docs.getgeolens.com](https://docs.getgeolens.com/) for installation, regeneration, and version-pin policy.
 
+## Install
+
+```bash
+npm install @geolens/sdk
+```
+
+The package is ESM only (`import`, not `require`).
+
 ## Quickstart
 
 ```typescript
@@ -18,6 +26,28 @@ const sdk = createGeolensClient({
 });
 // See docs.getgeolens.com for endpoint usage examples.
 ```
+
+## Errors
+
+Generated calls return `{ data, error, response }` and don't throw on an HTTP
+error status. `error` is the parsed `application/problem+json` body
+(`type`, `title`, `status`, `detail`):
+
+```typescript
+import { createGeolensClient, getSingleDatasetDatasetsDatasetIdGet } from '@geolens/sdk';
+
+const sdk = createGeolensClient({ baseUrl: 'https://geolens.example.com/api', apiKey: '...' });
+const { data, error, response } = await getSingleDatasetDatasetsDatasetIdGet({
+  client: sdk.client,
+  path: { dataset_id: '00000000-0000-0000-0000-000000000000' },
+});
+if (error) {
+  console.error(response.status, error.detail);
+}
+```
+
+With `throwOnError: true` the call throws the parsed error body, a plain object
+rather than an `Error` instance.
 
 `createGeolensClient()` returns a client scoped to that call (`sdk.client`).
 Pass it explicitly to every generated endpoint call — `{ client: sdk.client }`

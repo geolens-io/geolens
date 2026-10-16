@@ -18,7 +18,7 @@
  * - Pass `{ client: sdk.client }` explicitly to every generated endpoint
  *   call. This client is scoped to THIS `createGeolensClient()` call —
  *   concurrent callers (e.g. one client per request in a Node server)
- *   never interfere with each other (fix(#1778)).
+ *   never interfere with each other.
  * - Omit `client` and rely on the legacy shared default: every generated
  *   function falls back to one module-level singleton
  *   (`(options?.client ?? client)`, sdk.gen.ts) that `createGeolensClient()`
@@ -95,13 +95,9 @@ export const createGeolensClient = (
     headers['X-API-Key'] = opts.apiKey;
   }
 
-  // fix(#1778): build a client scoped to this call instead of ONLY
-  // mutating the generated module's shared singleton. Two concurrent
-  // createGeolensClient() calls (e.g. one per request in a Node server)
-  // used to reconfigure the same underlying client object, so the
-  // credentials of whichever call ran last leaked onto every other
-  // call's in-flight and subsequent requests when that call passed
-  // `{ client: sdk.client }` explicitly.
+  // A client scoped to this call, so two concurrent createGeolensClient()
+  // calls (e.g. one per request in a Node server) never share credentials
+  // when callers pass `{ client: sdk.client }`.
   const scopedClient = createClient(createConfig({
     baseUrl: opts.baseUrl,
     headers,
@@ -109,22 +105,10 @@ export const createGeolensClient = (
   installFileReadHandling(scopedClient);
   installRedirectHandling(scopedClient);
 
-  // fix(#1778 review round 3): ALSO reconfigure the shared singleton,
-  // exactly as this wrapper did before the scoped client above was
-  // added. Existing consumers that call createGeolensClient() once and
-  // then call generated endpoints WITHOUT passing `client` rely on the
-  // singleton fallback (`options?.client ?? client`, sdk.gen.ts) — those
-  // calls broke when the singleton stopped being touched, hitting
-  // whatever baseUrl (or none) it last had. This package follows the
-  // app's version and this is not a major release, so both call shapes
-  // must keep working: `{ client: sdk.client }` is isolated (the bug
-  // this PR fixes); omitting `client` keeps the legacy shared default,
-  // last-caller-wins, same as always.
-  //
-  // BUG-023: explicitly clear headers that are NOT provided so a prior
-  // call's credentials do not persist on the shared singleton. The
-  // @hey-api/client-fetch mergeHeaders implementation deletes a header
-  // when its value is null — passing null removes a previously-set one.
+  // Also reconfigure the shared singleton: calls that omit `client` fall back
+  // to it (`options?.client ?? client`, sdk.gen.ts), last caller wins.
+  // @hey-api/client-fetch's mergeHeaders deletes a header whose value is
+  // null, so passing null clears a credential left by a previous call.
   client.setConfig({
     baseUrl: opts.baseUrl,
     headers: {
