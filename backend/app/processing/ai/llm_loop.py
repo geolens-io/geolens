@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from pydantic import BaseModel
 
 from app.core.config import reveal, settings
 from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER
@@ -248,6 +249,28 @@ def attach_token_usage(
         exc.output_tokens = output_tokens  # type: ignore[attr-defined]
     except Exception:  # broad: accounting must never mask the original failure
         pass
+
+
+def parse_structured_reply(
+    response_model: type[BaseModel],
+    text: str,
+    *,
+    stopped_early: str | None,
+    input_tokens: int,
+    output_tokens: int,
+) -> BaseModel:
+    """Validate a structured reply the provider billed.
+
+    Raises when ``stopped_early`` names why the reply is partial, or when
+    ``text`` does not validate; either error carries the reply's usage.
+    """
+    try:
+        if stopped_early:
+            raise ValueError(stopped_early)
+        return response_model.model_validate_json(text)
+    except Exception as exc:  # broad: a stop or parse failure still billed
+        attach_token_usage(exc, input_tokens, output_tokens)
+        raise
 
 
 # Depth bound on the __cause__/__context__ walk below. Three hops covers
