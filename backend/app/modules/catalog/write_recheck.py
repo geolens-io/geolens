@@ -21,7 +21,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.identity import Identity
+from app.core.identity import Identity, IdentityProtocol
 from app.modules.auth.permissions import admitted_capabilities, user_standing_columns
 from app.platform.extensions import get_permission_extension
 
@@ -90,17 +90,31 @@ async def recheck_admitted_writer(
     with db.no_autoflush:
         row = (await db.execute(statement)).one_or_none()
         if row is not None and row.active:
-            await _reload_if_expired(db, admitted.user)
+            admitted.user = await _complete_identity(db, admitted)
     await enforce(admitted.user, row)
     await _recheck_capabilities(db, admitted, set(row.roles))
     admitted.rechecked_in = ref(transaction)
 
 
-async def _reload_if_expired(db: AsyncSession, user: Identity) -> None:
+async def _complete_identity(db: AsyncSession, admitted: _AdmittedWriter) -> Identity:
+    """The admitted writer as a full ``Identity`` that reads without IO.
+
+    The guards and permission extensions it is handed to read the whole
+    contract. An ORM caller a rollback expired is refreshed; a stand-in that
+    carries part of it, or an instance of another session, is replaced by the
+    account as committed now.
+    """
+    from app.modules.auth.service import get_user_identity
+
+    user = admitted.user
     state = sa_inspect(user, raiseerr=False)
     if state is not None and state.session is db.sync_session:
         if state.expired_attributes:
             await db.refresh(user)
+        return user
+    if state is None and isinstance(user, IdentityProtocol):
+        return user
+    return await get_user_identity(db, admitted.user_id) or user
 
 
 async def _recheck_capabilities(

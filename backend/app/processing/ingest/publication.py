@@ -588,20 +588,32 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
-class _Role:
+class IdentityRole:
     name: str
 
 
 @dataclass(frozen=True, slots=True)
-class _Submitter:
-    """The job's submitter as an ``Identity``, read as committed now."""
+class IdentitySnapshot:
+    """An account as a full ``Identity`` held in plain values, which no
+    rollback can expire."""
 
     id: uuid.UUID
     username: str
     email: str | None
     is_active: bool
-    roles: tuple[_Role, ...]
+    roles: tuple[IdentityRole, ...]
     created_at: datetime
+
+    @classmethod
+    def of(cls, user: Any) -> IdentitySnapshot:
+        return cls(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            is_active=user.is_active,
+            roles=tuple(IdentityRole(role.name) for role in user.roles),
+            created_at=user.created_at,
+        )
 
 
 # In SQL, since processing may not import the auth models.
@@ -632,12 +644,12 @@ async def require_submitter_can_write(
         row = (await session.execute(_SUBMITTER, {"uid": job.created_by})).first()
     if row is None or not row.is_active:
         raise WriteAccessRevoked
-    submitter = _Submitter(
+    submitter = IdentitySnapshot(
         id=row.id,
         username=row.username,
         email=row.email,
         is_active=row.is_active,
-        roles=tuple(_Role(name) for name in row.roles),
+        roles=tuple(IdentityRole(name) for name in row.roles),
         created_at=row.created_at,
     )
     await session.refresh(

@@ -7,7 +7,6 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 import structlog
 from fastapi import HTTPException, Request
@@ -56,7 +55,7 @@ from app.processing.ingest.manifest_reservation import (
     release_manifest_reservation,
     staged_source_is_referenced,
 )
-from app.processing.ingest.publication import WriteAccessRevoked
+from app.processing.ingest.publication import IdentitySnapshot, WriteAccessRevoked
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
     ManifestApplyRequest,
@@ -89,13 +88,6 @@ MANIFEST_STAGE_MAX_SECONDS = JOB_TIMEOUT_SECONDS // 2
 MANIFEST_ADMIT_MAX_SECONDS = JOB_TIMEOUT_SECONDS // 4
 
 log = structlog.get_logger()
-
-
-@dataclass(frozen=True)
-class _ManifestCaller:
-    """Rollback-stable identity subset used by the per-entry apply loop."""
-
-    id: uuid.UUID
 
 
 @dataclass
@@ -1227,10 +1219,10 @@ async def apply_manifest(
     http_request: Request,
 ) -> ManifestApplyResponse:
     """Apply a manifest payload through existing ingest/reupload queues."""
-    # AsyncSession.rollback() expires ORM instances; keep the caller id
-    # outside that lifecycle so a rejected entry can't trigger a
-    # synchronous lazy load (MissingGreenlet) in the next entry's auth check.
-    caller = cast(Identity, _ManifestCaller(id=user.id))
+    # AsyncSession.rollback() expires ORM instances; a snapshot outside that
+    # lifecycle keeps a rejected entry from triggering a synchronous lazy load
+    # (MissingGreenlet) in the next entry's auth check.
+    caller = IdentitySnapshot.of(user)
     results: list[ManifestApplyEntryResult] = []
     quota = _ManifestQuotaReservation()
     for dataset in request.datasets:

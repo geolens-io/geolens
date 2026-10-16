@@ -422,3 +422,30 @@ async def test_a_map_deleted_before_the_lock_is_not_found(
     await test_db_session.commit()
 
     assert await _refused(lock_map_layers(request_session, map_id)) == 404
+
+
+async def test_a_stand_in_writer_reaches_the_extension_as_a_full_identity(
+    test_db_session: AsyncSession,
+    request_session: AsyncSession,
+    people: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A guard handed only the caller's id still gives an overlay the contract."""
+    from types import SimpleNamespace
+
+    from app.platform import extensions
+    from tests.test_manifest_run_admission import _ContractReadingExtension
+
+    _, owner_id = people["owner"]
+    created = await create_dataset(test_db_session, created_by=owner_id)
+    dataset = await get_dataset(request_session, created.id)
+    # The guard is handed a caller object carrying the id alone.
+    stand_in = SimpleNamespace(id=owner_id)
+    await check_dataset_write_access(
+        request_session, dataset, created.id, stand_in, user_roles={"editor"}
+    )
+    monkeypatch.setitem(
+        extensions._extensions, "permission", _ContractReadingExtension()
+    )
+
+    await lock_catalog_rows_for_write(request_session, dataset)

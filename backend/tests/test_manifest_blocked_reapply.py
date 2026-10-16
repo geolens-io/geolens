@@ -7,7 +7,6 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -210,9 +209,11 @@ async def test_another_user_learns_nothing_about_the_hold(
 ):
     held = await _held_apply(test_db_session)
     me = await client.get("/auth/me/", headers=editor_auth_header)
-    editor = SimpleNamespace(id=uuid.UUID(me.json()["id"]))
+    editor_id = uuid.UUID(me.json()["id"])
 
     for dry_run in (True, False):
+        # Each apply ends its transaction, which expires the loaded account.
+        editor = await test_db_session.get(User, editor_id)
         with _reupload_task() as task:
             response = await apply_manifest(
                 test_db_session,

@@ -16,6 +16,7 @@ from sqlalchemy import delete, select, update
 from app.core.config import settings
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.platform.extensions import DefaultPermissionExtension
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
@@ -533,3 +534,64 @@ class TestManifestAdmissionUnderTheCatalogRows:
             False,
         )
         assert staged and not Path(staged[0]).exists()
+
+
+class _ContractReadingExtension(DefaultPermissionExtension):
+    """Reads the whole identity contract on every check, as an overlay may."""
+
+    def __init__(self) -> None:
+        self.denied = False
+
+    @staticmethod
+    def _read(user) -> None:
+        _ = (user.id, user.username, user.email, user.is_active, user.created_at)
+        _ = [role.name for role in user.roles]
+
+    async def can_access_dataset(self, db, dataset, dataset_id, user, *, user_roles):
+        if user is not None:
+            self._read(user)
+        if self.denied:
+            return False
+        return await super().can_access_dataset(
+            db, dataset, dataset_id, user, user_roles=user_roles
+        )
+
+    async def check_permission(self, db, user, capability, **kwargs):
+        self._read(user)
+        return await super().check_permission(db, user, capability, **kwargs)
+
+
+class TestManifestAdmissionWithAnOverlayPermissionExtension:
+    @pytest.mark.parametrize("denied", [False, True])
+    async def test_the_admission_hands_the_extension_a_full_identity(
+        self, test_db_session, clean_tables, monkeypatch, denied
+    ):
+        from app.platform import extensions
+        from app.processing.ingest.publication import WriteAccessRevoked
+
+        _stage_fixture()
+        user = await _admin(test_db_session)
+        await _applied_dataset(test_db_session, user, "overlay-identity")
+        extension = _ContractReadingExtension()
+        monkeypatch.setitem(extensions._extensions, "permission", extension)
+
+        async def deny() -> None:
+            extension.denied = denied
+
+        _staged, stage_then = _stage_then(deny)
+        with (
+            _reupload_task() as task,
+            patch.object(manifest_service, "_stage_source_if_needed", stage_then),
+        ):
+            response = await apply_manifest(
+                test_db_session, _update("overlay-identity"), user, _http_request()
+            )
+
+        result = response.results[0]
+        if denied:
+            assert result.action == "error"
+            assert result.message == str(WriteAccessRevoked())
+            task.defer_async.assert_not_awaited()
+        else:
+            assert result.action == "update", result
+            task.defer_async.assert_awaited_once()
