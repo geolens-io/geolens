@@ -564,6 +564,55 @@ describe('DataDrivenStyleEditor', () => {
       expect((newConfig as StyleConfig).categories![1].color).toBe(COLORS[1]);
     });
 
+    describe('boolean column (AI style)', () => {
+      const AI_EXPR = [
+        'match', ['to-string', ['get', 'active']], 'true', '#66c2a5', 'false', '#fc8d62', '#cccccc',
+      ];
+      const aiLayer = () =>
+        makeLayer({
+          dataset_column_info: [{ name: 'active', type: 'boolean' }],
+          paint: { 'fill-color': AI_EXPR },
+          style_config: {
+            mode: 'categorical',
+            column: 'active',
+            ramp: 'Set2',
+            categories: [
+              { value: 'true', color: '#66c2a5' },
+              { value: 'false', color: '#fc8d62' },
+            ],
+          } as StyleConfig,
+        });
+
+      beforeEach(() => {
+        mockUseColumnValues.mockReturnValue(hookData({ values: [true, false], count: 2 }));
+      });
+
+      it('keeps the style when the editor opens on it', async () => {
+        const onStyleConfigChange = vi.fn();
+        render(<DataDrivenStyleEditor layer={aiLayer()} onStyleConfigChange={onStyleConfigChange} />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+
+      it('writes a to-string match with true/false labels when a category color changes', async () => {
+        const onStyleConfigChange = vi.fn();
+        render(<DataDrivenStyleEditor layer={aiLayer()} onStyleConfigChange={onStyleConfigChange} />);
+
+        await userEvent.setup().click(screen.getAllByTestId('hex-color-picker')[0]);
+
+        await waitFor(() => expect(onStyleConfigChange).toHaveBeenCalled(), { timeout: 1000 });
+        const [, config, paint] = onStyleConfigChange.mock.calls[0];
+        expect((config as StyleConfig).categories).toEqual([
+          { value: 'true', color: '#ff0000' },
+          { value: 'false', color: '#fc8d62' },
+        ]);
+        expect(JSON.stringify((paint as Record<string, unknown>)['fill-color'])).toContain(
+          '["match",["to-string",["get","active"]],"true","#ff0000","false","#fc8d62"',
+        );
+      });
+    });
+
     it('handleGraduatedColorChange sets ramp to custom', async () => {
       const breaks = equalIntervalBreaks(0, 100, 3);
       const colors = getRampColors('YlOrRd', 3);

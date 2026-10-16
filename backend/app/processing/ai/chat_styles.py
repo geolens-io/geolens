@@ -120,7 +120,13 @@ async def _build_categorical_style(
     colors = _get_ramp_colors(ramp, len(values))
 
     # Build MapLibre match expression: ["match", ["get", column], val1, color1, ..., fallback]
-    match_expr: list = ["match", ["get", column]]
+    # MapLibre rejects boolean match labels, so a boolean column is matched
+    # on its "true"/"false" string form. Other types keep native labels.
+    match_input: list = ["get", column]
+    if any(isinstance(v, bool) for v in values):
+        match_input = ["to-string", match_input]
+        values = [str(v).lower() if isinstance(v, bool) else str(v) for v in values]
+    match_expr: list = ["match", match_input]
     categories = []
     for i, val in enumerate(values):
         match_expr.append(val)

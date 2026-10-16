@@ -265,11 +265,14 @@ export function getRampColors(rampName: string, count: number, reversed = false)
 /**
  * Build a MapLibre categorical (match) expression.
  * Returns: ['match', ['get', column], val1, color1, val2, color2, ..., fallback]
+ * `stringInput` matches on ['to-string', ['get', column]] for columns whose
+ * values cannot be match labels themselves (booleans).
  */
 export function buildCategoricalExpression(
   column: string,
   valueColorMap: [unknown, string][],
   fallback: string,
+  stringInput = false,
 ): unknown[] | string {
   const pairs: unknown[] = [];
   for (const [value, color] of valueColorMap) {
@@ -282,7 +285,8 @@ export function buildCategoricalExpression(
     // Mirror the symbol-adapter guard by emitting the bare fallback.
     return fallback;
   }
-  const matchExpr = ['match', ['get', column], ...pairs, fallback];
+  const input = stringInput ? ['to-string', ['get', column]] : ['get', column];
+  const matchExpr = ['match', input, ...pairs, fallback];
   return ['case', ['==', ['get', column], null], fallback, matchExpr];
 }
 

@@ -35,7 +35,7 @@ import {
 } from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { isGenericGeometryType } from '@/components/builder/layer-adapters/shared';
-import { isNumericColumn } from '@/lib/column-utils';
+import { isBooleanColumn, isNumericColumn } from '@/lib/column-utils';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 interface DataDrivenStyleEditorProps {
@@ -369,7 +369,9 @@ export function DataDrivenStyleEditor({
         : ['color'];
 
   const columns = layer.dataset_column_info ?? [];
-  const textColumns = columns.filter((c) => isTextColumn(c.type));
+  // Booleans classify as the strings "true"/"false" (a match label can't be a boolean).
+  const textColumns = columns.filter((c) => isTextColumn(c.type) || isBooleanColumn(c.type));
+  const columnIsBoolean = columns.some((c) => c.name === column && isBooleanColumn(c.type));
   const numericColumns = columns.filter((c) => isNumericColumn(c.type));
   const filteredColumns = mode === 'categorical' ? textColumns : numericColumns;
 
@@ -462,8 +464,10 @@ export function DataDrivenStyleEditor({
   useEffect(() => {
     if (!column || mode !== 'categorical' || !valuesData) return;
 
-    // Only text columns reach categorical mode, and a match label can't be a boolean.
-    const values = valuesData.values.filter((v) => typeof v !== 'boolean');
+    // Boolean columns arrive as true/false; classify them by their string form.
+    const values = columnIsBoolean
+      ? valuesData.values.map((v) => String(v))
+      : valuesData.values.filter((v) => typeof v !== 'boolean');
     const colorProp = getColorProperty(geomType);
 
     // Preserve existing per-category colors when column and ramp haven't changed.
@@ -503,14 +507,14 @@ export function DataDrivenStyleEditor({
     const rawColors = getRampColors(effectiveRamp, Math.max(values.length, 1));
     const colors = reversed ? reverseRamp(rawColors) : rawColors;
     const valueColorMap: [unknown, string][] = values.map((v, i) => [v, colors[i]]);
-    const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback);
+    const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback, columnIsBoolean);
 
     const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
     const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, reversed, categories };
     const paint = stripStaleLineGradient({ ...layer.paint, [colorProp]: expression }, colorProp);
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
-  }, [column, mode, ramp, reversed, valuesData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
+  }, [column, mode, ramp, reversed, valuesData, columnIsBoolean, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
 
   // Effect 2: Graduated color styling
   useEffect(() => {
@@ -752,6 +756,7 @@ export function DataDrivenStyleEditor({
         styleConfig.column,
         valueColorMap,
         MAP_COLORS.fallback,
+        columnIsBoolean,
       );
       const newConfig: StyleConfig = { ...styleConfig, categories: updated, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
@@ -762,7 +767,7 @@ export function DataDrivenStyleEditor({
         setRamp('custom');
       }, 200);
     },
-    [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange, colorDebounceRef],
+    [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange, colorDebounceRef, columnIsBoolean],
   );
 
   const handleGraduatedColorChange = useCallback(
