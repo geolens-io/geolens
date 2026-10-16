@@ -435,8 +435,9 @@
   },
   "apiKeyReveal": {
     "title": "API 密钥已创建",
-    "description": "请立即复制此密钥，它不会再次显示。",
+    "description": "请立即复制此密钥。",
     "warning": "此密钥不会再次显示，请务必现在复制。",
+    "copy": "复制 API 密钥",
     "done": "完成"
   },
   "sharedMaps": {

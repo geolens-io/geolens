@@ -416,8 +416,9 @@
   },
   "apiKeyReveal": {
     "title": "Clé API créée",
-    "description": "Copiez cette clé maintenant. Elle ne sera plus affichée.",
+    "description": "Copiez cette clé maintenant.",
     "warning": "Cette clé ne sera plus affichée. Assurez-vous de la copier maintenant.",
+    "copy": "Copier la clé API",
     "done": "Terminé"
   },
   "sharedMaps": {

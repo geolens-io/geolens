@@ -435,8 +435,9 @@
   },
   "apiKeyReveal": {
     "title": "API Key Created",
-    "description": "Copy this key now. It will not be shown again.",
+    "description": "Copy this key now.",
     "warning": "This key will not be shown again. Make sure to copy it now.",
+    "copy": "Copy API key",
     "done": "Done"
   },
   "sharedMaps": {

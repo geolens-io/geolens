@@ -57,7 +57,7 @@ export function ApiKeyRevealDialog({ apiKey, open, onOpenChange }: ApiKeyRevealD
           <code className="flex-1 rounded-sm bg-muted p-3 font-mono text-sm break-all select-all">
             {apiKey.key}
           </code>
-          <Button variant="outline" size="sm" onClick={handleCopy}>
+          <Button variant="outline" size="sm" onClick={handleCopy} aria-label={t('apiKeyReveal.copy')}>
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           </Button>
         </div>

@@ -215,7 +215,7 @@ describe('BulkTrackingList', () => {
 
     expect(screen.getByRole('link', { name: /Add AI metadata/ })).toHaveAttribute(
       'href',
-      '/datasets/dataset-9',
+      '/datasets/dataset-9#metadata',
     );
   });
 

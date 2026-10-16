@@ -257,7 +257,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
                 size="sm"
                 className="border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
               >
-                <Link to={`/datasets/${completedEntries[0].datasetId}`}>
+                <Link to={`/datasets/${completedEntries[0].datasetId}#metadata`}>
                   <Sparkles className="me-1 size-3" />
                   {t('complete.aiMetadata', { defaultValue: 'Add AI metadata' })}
                 </Link>
@@ -298,7 +298,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
           <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
           <div className="flex-1">
             <p className="text-xs">
-              <span className="font-semibold">{t('bulk.importingFiles', { count: trackable.length, defaultValue: `Importing ${trackable.length} files` })}</span>
+              <span className="font-semibold">{t('bulk.importingFiles', { count: trackable.length })}</span>
             </p>
             <p className="font-mono text-mini text-muted-foreground tracking-wide mt-0.5">
               {t(failedCount > 0 ? 'bulk.progressDetailWithFailures' : 'bulk.progressDetail', {

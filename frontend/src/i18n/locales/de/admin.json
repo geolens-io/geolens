@@ -416,8 +416,9 @@
   },
   "apiKeyReveal": {
     "title": "API-Schlüssel erstellt",
-    "description": "Kopieren Sie diesen Schlüssel jetzt. Er wird nicht erneut angezeigt.",
+    "description": "Kopieren Sie diesen Schlüssel jetzt.",
     "warning": "Dieser Schlüssel wird nicht erneut angezeigt. Kopieren Sie ihn jetzt.",
+    "copy": "API-Schlüssel kopieren",
     "done": "Fertig"
   },
   "sharedMaps": {

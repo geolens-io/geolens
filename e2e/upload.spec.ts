@@ -35,7 +35,7 @@ test.describe('Upload Flow', () => {
       .click();
 
     // Verify tracking phase (import progress) and compact completion state
-    await expect(page.getByText(/Importing \d+ files/i)).toBeVisible({
+    await expect(page.getByText('Importing 1 file', { exact: true })).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByRole('link', { name: 'Open dataset' })).toBeVisible({
