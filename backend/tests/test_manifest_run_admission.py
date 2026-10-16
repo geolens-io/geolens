@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -11,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import Request
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 
 from app.core.config import settings
 from app.modules.auth.models import User
@@ -534,6 +537,89 @@ class TestManifestAdmissionUnderTheCatalogRows:
             False,
         )
         assert staged and not Path(staged[0]).exists()
+
+
+async def _wait_until_it_blocks_a_writer(session) -> None:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        # The activity view is snapshotted once per transaction.
+        await session.execute(text("SELECT pg_stat_clear_snapshot()"))
+        if await session.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity"
+                " WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+            )
+        ):
+            return
+        await asyncio.sleep(0.1)
+    pytest.fail("the re-upload commit never waited on the manifest")
+
+
+class TestManifestAdmissionAgainstAReuploadCommit:
+    async def test_a_commit_racing_the_admission_is_refused_busy(
+        self, test_db_session, clean_tables, client, admin_auth_header
+    ):
+        """A re-upload commit that reaches the dataset while the manifest holds
+        its catalog rows queues behind the manifest and answers dataset_busy."""
+        from app.modules.catalog import authorization
+
+        _stage_fixture()
+        user = await _admin(test_db_session)
+        dataset_id = await _applied_dataset(test_db_session, user, "commit-race")
+        reupload = IngestJob(
+            dataset_id=dataset_id,
+            status="pending",
+            attempt_id=uuid.uuid4(),
+            source_filename="parcels.gpkg",
+            file_path="/tmp/commit-race-reupload.gpkg",
+            created_by=user.id,
+            user_metadata={"reupload": True, "dataset_id": str(dataset_id)},
+        )
+        test_db_session.add(reupload)
+        await test_db_session.commit()
+        reupload_id = reupload.id
+        original_lock = authorization.lock_dataset_rows_for_write
+        commits: list[asyncio.Task] = []
+
+        async def lock_then_race(db, dataset, **kwargs):
+            await original_lock(db, dataset, **kwargs)
+            if db is test_db_session and not commits:
+                # A context of its own, as a separate request has: the
+                # manifest's lock-timeout marker must not leak into it.
+                commits.append(
+                    asyncio.create_task(
+                        client.post(
+                            f"/datasets/{dataset_id}/reupload/{reupload_id}/commit",
+                            json={},
+                            headers=admin_auth_header,
+                        ),
+                        context=contextvars.Context(),
+                    )
+                )
+                await _wait_until_it_blocks_a_writer(db)
+
+        with (
+            _reupload_task() as task,
+            patch.object(authorization, "lock_dataset_rows_for_write", lock_then_race),
+            patch(
+                "app.modules.catalog.datasets.api.router_reupload.defer_with_orphan_guard",
+                new=AsyncMock(),
+            ),
+        ):
+            response = await apply_manifest(
+                test_db_session, _update("commit-race"), user, _http_request()
+            )
+            refused = await commits[0]
+
+        result = response.results[0]
+        assert result.action == "update", result
+        task.defer_async.assert_awaited_once()
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "dataset_busy"
+        [run] = await _runs(test_db_session, dataset_id)
+        assert run.ingest_job_id == result.job_id
+        await test_db_session.refresh(reupload)
+        assert reupload.status == "pending"
 
 
 class _ContractReadingExtension(DefaultPermissionExtension):

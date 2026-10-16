@@ -658,13 +658,13 @@ async def _classify_dataset(
 async def _admit_refresh_run(
     db: AsyncSession, job: IngestJob, dataset_id: uuid.UUID, user: Identity
 ) -> None:
-    """Take the dataset's one active-run slot for this update.
+    """Take the dataset's one active-run slot for this update, then its
+    catalog rows, the order a re-upload commit takes them in.
 
     Raises ``DatasetBusyError`` while the dataset has another active run or
     another writer holds its catalog rows past the lock budget, and
     ``WriteAccessRevoked`` when the caller has lost the dataset, or is no
-    longer the admin a raw seed source needs. ``trigger`` is ``api``, as the
-    refresh endpoints record.
+    longer the admin a raw seed source needs. ``trigger`` is ``api``.
     """
     from app.modules.catalog.authorization import lock_dataset_rows_for_write
 
@@ -675,6 +675,15 @@ async def _admit_refresh_run(
             "The dataset this entry updates was deleted while its source was "
             "being staged."
         )
+    await create_pending_run(
+        db,
+        dataset_id=dataset_id,
+        origin_kind="upload",
+        trigger="api",
+        triggered_by=user.id,
+        ingest_job_id=job.id,
+        feature_count_before=dataset.feature_count,
+    )
     try:
         await lock_dataset_rows_for_write(db, dataset)
     except CatalogLockConflict as exc:
@@ -685,15 +694,6 @@ async def _admit_refresh_run(
         db, user
     ):
         raise WriteAccessRevoked
-    await create_pending_run(
-        db,
-        dataset_id=dataset_id,
-        origin_kind="upload",
-        trigger="api",
-        triggered_by=user.id,
-        ingest_job_id=job.id,
-        feature_count_before=dataset.feature_count,
-    )
 
 
 async def _fail_unqueued_job(job: IngestJob, exc: BaseException) -> None:
