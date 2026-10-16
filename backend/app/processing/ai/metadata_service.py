@@ -32,7 +32,7 @@ from app.core.persistent_config import (
     llm_model_default,
 )
 from app.processing.ai.service import _should_send_sample_values
-from app.processing.ai.token_usage import record_token_usage
+from app.processing.ai.token_usage import record_token_usage, usage_accounting
 
 if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
@@ -302,15 +302,16 @@ async def _generate_structured(
     )
     if db is not None:
         await release_connection(db)
-    result, input_tokens, output_tokens = await provider_ext.structured_complete(
-        model=model,
-        system_prompt=system,
-        user_message=prompt,
-        response_model=response_model,
-        base_url=runtime_config.get("base_url"),
-        max_tokens=1024,
-        temperature=0.3,
-    )
+    async with usage_accounting(db, user_id=user_id, subsystem="metadata", model=model):
+        result, input_tokens, output_tokens = await provider_ext.structured_complete(
+            model=model,
+            system_prompt=system,
+            user_message=prompt,
+            response_model=response_model,
+            base_url=runtime_config.get("base_url"),
+            max_tokens=1024,
+            temperature=0.3,
+        )
     await record_token_usage(
         db,
         user_id=user_id,

@@ -1204,7 +1204,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/processing/ai/chat_actions.py": 587,
         "backend/app/processing/ai/chat_geojson.py": 440,
         # Default adapters expose explicit extension contracts rather than catch-all shims.
-        "backend/app/platform/extensions/defaults_ai_openai.py": 475,
+        "backend/app/platform/extensions/defaults_ai_openai.py": 483,
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.

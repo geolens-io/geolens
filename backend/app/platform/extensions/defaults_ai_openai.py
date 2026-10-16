@@ -64,7 +64,10 @@ class DefaultOpenAICompatibleProvider:
             _LLM_CONNECT_TIMEOUT_SECONDS,
             _LLM_TIMEOUT_SECONDS,
         )
-        from app.processing.ai.openai_conversation import open_conversation
+        from app.processing.ai.openai_conversation import (
+            ResponsesError,
+            open_conversation,
+        )
         from app.processing.ai.tool_call_parser import parse_xml_tool_calls
 
         log = structlog.stdlib.get_logger(__name__)
@@ -128,7 +131,12 @@ class DefaultOpenAICompatibleProvider:
                         input_tokens=total_input,
                         output_tokens=total_output,
                     )
-                round_ = await conversation.complete()
+                try:
+                    round_ = await conversation.complete()
+                except ResponsesError as exc:
+                    total_input += exc.input_tokens
+                    total_output += exc.output_tokens
+                    raise
                 total_input += round_.input_tokens
                 total_output += round_.output_tokens
 

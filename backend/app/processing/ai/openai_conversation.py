@@ -14,7 +14,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.platform.ai_tool_payloads import tool_result_content
-from app.processing.ai.llm_loop import build_history_messages
+from app.processing.ai.llm_loop import attach_token_usage, build_history_messages
 from app.processing.ai.openai_request import (
     create_chat_completion,
     create_response,
@@ -65,7 +65,15 @@ def _answers(
 
 
 class ResponsesError(RuntimeError):
-    """A Responses request failed, or ended without a final response."""
+    """A Responses request failed, or ended without a final response.
+
+    Carries the failed response's usage, if any, for the daily quota.
+    """
+
+    def __init__(self, message: str, *, usage: Any = None) -> None:
+        super().__init__(message)
+        self.input_tokens = usage.input_tokens if usage else 0
+        self.output_tokens = usage.output_tokens if usage else 0
 
 
 def open_conversation(
@@ -127,8 +135,12 @@ async def structured_completion(
             temperature=temperature,
             store=False,
         )
-        parsed = response.output_parsed
         usage = response.usage
+        if response.status not in ("completed", "incomplete"):
+            raise ResponsesError(
+                f"OpenAI Responses request {response.status}", usage=usage
+            )
+        parsed = response.output_parsed
         input_tokens = usage.input_tokens if usage else 0
         output_tokens = usage.output_tokens if usage else 0
     else:
@@ -149,7 +161,10 @@ async def structured_completion(
         input_tokens = usage.prompt_tokens if usage else 0
         output_tokens = usage.completion_tokens if usage else 0
     if parsed is None:
-        raise ValueError("OpenAI returned no parsed response")
+        error = ValueError("OpenAI returned no parsed response")
+        # The provider billed the reply even though nothing parsed.
+        attach_token_usage(error, input_tokens, output_tokens)
+        raise error
     return parsed, input_tokens, output_tokens
 
 
@@ -342,7 +357,9 @@ class ResponsesConversation:
         partial text, as Chat Completions does for ``finish_reason="length"``.
         """
         if response.status not in ("completed", "incomplete"):
-            raise ResponsesError(f"OpenAI Responses request {response.status}")
+            raise ResponsesError(
+                f"OpenAI Responses request {response.status}", usage=response.usage
+            )
         self._output = [item.model_dump(exclude_none=True) for item in response.output]
         function_calls = [
             item for item in response.output if item.type == "function_call"

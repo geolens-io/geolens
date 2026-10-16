@@ -253,6 +253,7 @@ async def test_structured_metadata_uses_responses_parse(monkeypatch):
     async def parse(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
+            status="completed",
             output_parsed=parsed,
             usage=SimpleNamespace(input_tokens=5, output_tokens=4),
         )
@@ -715,3 +716,73 @@ async def test_a_streamed_completed_event_without_a_final_answer_raises(monkeypa
         await _stream_chat(
             SimpleNamespace(responses=SimpleNamespace(create=server.create))
         )
+
+
+def _capture_error_usage(monkeypatch):
+    import app.processing.ai.token_usage as token_usage
+
+    recorded: list[tuple[int, int]] = []
+
+    async def record_token_usage(_session, **kwargs):
+        recorded.append((kwargs["input_tokens"], kwargs["output_tokens"]))
+
+    monkeypatch.setattr(token_usage, "record_token_usage", record_token_usage)
+    return recorded
+
+
+async def test_a_failed_round_counts_toward_the_daily_quota(monkeypatch):
+    from app.processing.ai.token_usage import usage_accounting
+
+    recorded = _capture_error_usage(monkeypatch)
+    server = _Server(
+        _response([_call_item()], input_tokens=100, output_tokens=20),
+        _response([], status="failed", input_tokens=30, output_tokens=7),
+    )
+
+    with pytest.raises(ResponsesError):
+        async with usage_accounting(None, user_id=None, subsystem="chat", model="m"):
+            await _complete(monkeypatch, server, [])
+
+    assert recorded == [(130, 27)]
+
+
+@pytest.mark.parametrize("style", ["responses", "chat_completions"])
+async def test_a_billed_metadata_reply_that_does_not_parse_still_counts(
+    monkeypatch, style
+):
+    import app.processing.ai.metadata_service as metadata_service
+
+    class _Answer(BaseModel):
+        title: str
+
+    monkeypatch.setattr(settings, "openai_api_style", style)
+    monkeypatch.setattr(metadata_service, "anthropic_configured", lambda: False)
+    recorded = _capture_error_usage(monkeypatch)
+
+    async def responses_parse(**kwargs):
+        return SimpleNamespace(
+            status="failed",
+            output_parsed=None,
+            usage=SimpleNamespace(input_tokens=5, output_tokens=4),
+        )
+
+    async def chat_parse(**kwargs):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(parsed=None))],
+            usage=SimpleNamespace(prompt_tokens=5, completion_tokens=4),
+        )
+
+    client = SimpleNamespace(
+        responses=SimpleNamespace(parse=responses_parse),
+        beta=SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(parse=chat_parse))
+        ),
+    )
+    monkeypatch.setattr(
+        "app.processing.ai.llm_loop.get_openai_client", lambda _url: client
+    )
+
+    with pytest.raises((ResponsesError, ValueError)):
+        await metadata_service._generate_structured("sys", "describe", _Answer)
+
+    assert recorded == [(5, 4)]
