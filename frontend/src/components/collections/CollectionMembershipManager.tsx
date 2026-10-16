@@ -242,11 +242,8 @@ function MembershipPanel({ collectionId }: CollectionMembershipManagerProps) {
             onClick={() => candidates.fetchNextPage()}
             disabled={candidates.isFetchingNextPage}
           >
-            {candidates.isFetchingNextPage ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              t('membership.loadMore')
-            )}
+            {candidates.isFetchingNextPage && <Loader2 className="h-4 w-4 me-1 animate-spin" />}
+            {t('membership.loadMore')}
           </Button>
         )}
       </div>

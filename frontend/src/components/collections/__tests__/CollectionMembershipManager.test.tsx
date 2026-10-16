@@ -114,6 +114,27 @@ describe('CollectionMembershipManager', () => {
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
   });
 
+  it('keeps the Load more name while the next page loads', async () => {
+    const first = Array.from({ length: 20 }, (_, i) => record(`a${i}`, `Alpha ${i}`));
+    let finish: (value: Awaited<ReturnType<typeof searchDatasets>>) => void = () => {};
+    vi.mocked(searchDatasets).mockImplementation((params) =>
+      params.offset === '0'
+        ? Promise.resolve(page(first, true))
+        : new Promise((resolve) => {
+            finish = resolve;
+          }),
+    );
+    const user = userEvent.setup();
+    render(<CollectionMembershipManager collectionId="col-1" />);
+    await screen.findByRole('checkbox', { name: 'Select Alpha 0' });
+
+    await user.click(screen.getByRole('button', { name: 'Load more' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Load more' })).toBeDisabled());
+    finish(page([record('b', 'Beta')]));
+    expect(await screen.findByRole('checkbox', { name: 'Select Beta' })).toBeInTheDocument();
+  });
+
   it('does not skip datasets when page 0 also returns matching collections', async () => {
     const datasets = Array.from({ length: 20 }, (_, i) => record(`d${i}`, `Dataset ${i}`));
     const collections = [1, 2, 3].map((i) => ({
