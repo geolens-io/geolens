@@ -196,10 +196,9 @@ async def test_a_public_manifest_update_records_its_admin_admission(
     assert job.user_metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] is True
 
 
-def test_an_accepted_upload_carries_the_admin_admission() -> None:
-    from app.platform.jobs.models import ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY
-
-    blocked = {"manifest_key": "k", ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY: True}
+@pytest.mark.parametrize("key", ["admitted_public_visibility", "admitted_raw_source"])
+def test_an_accepted_upload_carries_the_admin_admission(key: str) -> None:
+    blocked = {"manifest_key": "k", key: True}
     metadata = _accepted_upload_metadata(
         SimpleNamespace(id=uuid.uuid4(), user_metadata=blocked),
         dataset_id=uuid.uuid4(),
@@ -207,7 +206,7 @@ def test_an_accepted_upload_carries_the_admin_admission() -> None:
         fingerprint="fp",
         held_version=None,
     )
-    assert metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] is True
+    assert metadata[key] is True
 
 
 async def test_a_manifest_update_over_http_hands_an_overlay_a_full_identity(

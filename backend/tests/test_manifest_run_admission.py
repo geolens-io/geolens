@@ -595,3 +595,83 @@ class TestManifestAdmissionWithAnOverlayPermissionExtension:
         else:
             assert result.action == "update", result
             task.defer_async.assert_awaited_once()
+
+
+_S3_BUCKET = "manifest-seed-bucket"
+
+
+def _raw_source_entry(key: str, uri: str) -> dict:
+    entry = _entry(key, title="Updated roads")
+    entry["sources"] = [{"type": "vector", "uri": uri, "format": "geojson"}]
+    return entry
+
+
+class TestRawSeedSourceNeedsAnAdmin:
+    """Local staging paths and same-bucket keys are admin-only seed sources, so
+    an update that reads one is held to its caller still being an admin."""
+
+    @pytest.mark.parametrize("demoted", [True, False])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            _FIXTURE,
+            f"./{_FIXTURE}",
+            f"{Path(settings.upload_staging_dir).name}/{_FIXTURE}",
+            f"s3://{_S3_BUCKET}/seed/roads.geojson",
+        ],
+    )
+    async def test_a_raw_source_update_rechecks_its_admin(
+        self,
+        test_db_session,
+        clean_tables,
+        client,
+        admin_auth_header,
+        monkeypatch,
+        uri,
+        demoted,
+    ):
+        from app.processing.ingest.publication import WriteAccessRevoked
+        from tests.factories import create_user
+        from tests.write_recheck_races import _commit, _move_to_role
+
+        _stage_fixture()
+        _, caller_id = await create_user(client, admin_auth_header, "admin")
+        caller = await test_db_session.get(User, uuid.UUID(caller_id))
+        dataset_id = await _applied_dataset(test_db_session, caller, "raw-seed")
+        # Reloaded after the commits above expired it.
+        caller = await test_db_session.get(User, uuid.UUID(caller_id))
+
+        async def demote() -> None:
+            if demoted:
+                await _commit(_move_to_role(uuid.UUID(caller_id), "editor"))
+
+        staged, stage_then = _stage_then(demote)
+        if uri.startswith("s3://"):
+            monkeypatch.setattr(settings, "storage_provider", "s3")
+            monkeypatch.setattr(settings, "s3_bucket", _S3_BUCKET)
+            # The test storage serves keys from the staging directory.
+            key = Path(settings.upload_staging_dir) / "seed/roads.geojson"
+            key.parent.mkdir(parents=True, exist_ok=True)
+            copyfile(Path(settings.upload_staging_dir) / _FIXTURE, key)
+        with (
+            _reupload_task() as task,
+            patch.object(manifest_service, "_stage_source_if_needed", stage_then),
+        ):
+            response = await apply_manifest(
+                test_db_session,
+                _request(_raw_source_entry("raw-seed", uri)),
+                caller,
+                _http_request(),
+            )
+
+        result = response.results[0]
+        if demoted:
+            assert result.action == "error", result
+            assert result.message == str(WriteAccessRevoked())
+            task.defer_async.assert_not_awaited()
+            assert await _runs(test_db_session, dataset_id) == []
+        else:
+            assert result.action == "update", result
+            task.defer_async.assert_awaited_once()
+            job = await _newest_job(test_db_session, "raw-seed")
+            assert job.user_metadata["admitted_raw_source"] is True

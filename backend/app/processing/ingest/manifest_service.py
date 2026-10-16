@@ -43,6 +43,7 @@ from app.platform.jobs import ledger
 from app.platform.jobs.models import (
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+    ADMITTED_RAW_SOURCE_METADATA_KEY,
     MANIFEST_FINGERPRINT_METADATA_KEY,
     IngestJob,
 )
@@ -661,11 +662,13 @@ async def _admit_refresh_run(
 
     Raises ``DatasetBusyError`` while the dataset has another active run or
     another writer holds its catalog rows past the lock budget, and
-    ``WriteAccessRevoked`` when the caller has lost the dataset. ``trigger`` is
-    ``api``, as the refresh endpoints record.
+    ``WriteAccessRevoked`` when the caller has lost the dataset, or is no
+    longer the admin a raw seed source needs. ``trigger`` is ``api``, as the
+    refresh endpoints record.
     """
     from app.modules.catalog.authorization import lock_dataset_rows_for_write
 
+    raw_source = bool((job.user_metadata or {}).get(ADMITTED_RAW_SOURCE_METADATA_KEY))
     dataset = await get_processing_port().get_dataset(db, dataset_id)
     if dataset is None:
         raise ManifestSourceError(
@@ -678,6 +681,10 @@ async def _admit_refresh_run(
         raise DatasetBusyError(str(exc)) from exc
     except HTTPException as exc:
         raise WriteAccessRevoked from exc
+    if raw_source and "admin" not in await get_processing_port().get_user_roles(
+        db, user
+    ):
+        raise WriteAccessRevoked
     await create_pending_run(
         db,
         dataset_id=dataset_id,
@@ -794,6 +801,8 @@ async def _reserve_entry(
         metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
         if await _admitted_as_admin_to_publish(db, metadata.get("visibility")):
             metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] = True
+        if prepared.kind != "http":
+            metadata[ADMITTED_RAW_SOURCE_METADATA_KEY] = True
 
     # fix(#1814): `running`, not `pending`. A pending row with no
     # file_path and no queue task is reapable by four actors while its source

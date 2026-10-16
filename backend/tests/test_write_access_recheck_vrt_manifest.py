@@ -300,3 +300,47 @@ async def test_a_source_door_records_the_capability_it_admitted_under(
 
     assert job.user_metadata == {ADMITTED_CAPABILITY_METADATA_KEY: "upload"}
     await test_db_session.rollback()
+
+
+@pytest.mark.parametrize("raw_source", [True, False])
+async def test_a_manifest_admission_holds_only_a_raw_source_to_an_admin(
+    test_db_session: AsyncSession,
+    people: dict,  # noqa: F811
+    raw_source: bool,
+) -> None:
+    """An editor's update from a non-raw source is admitted as before."""
+    from app.platform.jobs.models import ADMITTED_RAW_SOURCE_METADATA_KEY
+
+    _, owner_id = people["owner"]
+    created = await create_dataset(test_db_session, created_by=owner_id)
+    metadata: dict = {"manifest_key": "editor-update", "reupload": True}
+    if raw_source:
+        metadata[ADMITTED_RAW_SOURCE_METADATA_KEY] = True
+    job = IngestJob(
+        dataset_id=created.id,
+        status="running",
+        attempt_id=uuid.uuid4(),
+        source_filename="parcels.gpkg",
+        created_by=owner_id,
+        user_metadata=metadata,
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+
+    async with db_module.async_session() as request:
+        owner = await request.get(User, owner_id)
+        await check_dataset_write_access(
+            request, await get_dataset(request, created.id), created.id, owner
+        )
+        request_job = await request.get(IngestJob, job.id)
+        if raw_source:
+            with pytest.raises(WriteAccessRevoked):
+                await _admit_refresh_run(request, request_job, created.id, owner)
+        else:
+            await _admit_refresh_run(request, request_job, created.id, owner)
+            await request.commit()
+
+    run = await test_db_session.scalar(
+        select(DatasetRefreshRun.id).where(DatasetRefreshRun.dataset_id == created.id)
+    )
+    assert (run is None) == raw_source

@@ -397,3 +397,44 @@ async def test_a_public_replacement_rechecks_that_its_admin_still_is_one(
     else:
         assert state["run"] == ("failed", "write_access_revoked")
         assert state["live"] == "before"
+
+
+@pytest.mark.parametrize(("demoted", "published"), [(True, False), (False, True)])
+async def test_a_raw_source_replacement_rechecks_that_its_admin_still_is_one(
+    submitted_by_editor, editor, demoted: bool, published: bool
+) -> None:
+    """An admin owner queued a replacement from an admin-only raw seed source."""
+    from app.platform.jobs.models import ADMITTED_RAW_SOURCE_METADATA_KEY
+
+    seeded = submitted_by_editor
+    _, owner_id = editor
+    admin = select(Role.id).where(Role.name == "admin").scalar_subquery()
+    await _commit(
+        update(UserRole).where(UserRole.user_id == owner_id).values(role_id=admin)
+    )
+    async with db_module.async_session() as session:
+        job = await session.get(IngestJob, seeded.job_id)
+        job.user_metadata = {
+            **(job.user_metadata or {}),
+            ADMITTED_RAW_SOURCE_METADATA_KEY: True,
+        }
+        await session.commit()
+    editor_role = select(Role.id).where(Role.name == "editor").scalar_subquery()
+
+    async def demote() -> None:
+        if demoted:
+            await _commit(
+                update(UserRole)
+                .where(UserRole.user_id == owner_id)
+                .values(role_id=editor_role)
+            )
+
+    await _settle(_Fake(seeded, during={"install": demote}))
+
+    state = await _state(seeded)
+    if published:
+        assert state["job"] == "complete"
+        assert state["live"] == "after"
+    else:
+        assert state["run"] == ("failed", "write_access_revoked")
+        assert state["live"] == "before"

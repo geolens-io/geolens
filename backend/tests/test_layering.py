@@ -1279,8 +1279,8 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow, including the settlement of a contended or refused admission
-    # and the record of an admin's public intent under the visibility restriction.
-    "backend/app/processing/ingest/manifest_service.py": 1268,
+    # and the records of an admin's raw seed source and restricted public intent.
+    "backend/app/processing/ingest/manifest_service.py": 1277,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1360,

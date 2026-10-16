@@ -62,6 +62,7 @@ BOOKKEEPING = {
     "start_data_revision": 3,
     "admitted_capability": "upload",
     "admitted_public_visibility": True,
+    "admitted_raw_source": True,
     "archive_error": "Could not archive staging/job/original.tif",
     "archive_pending": True,
     "superseded_keys": [f"rasters/{uuid.uuid4()}/attempt/source.cog.tif"],
