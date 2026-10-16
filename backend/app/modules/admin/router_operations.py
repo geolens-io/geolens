@@ -308,7 +308,8 @@ async def admin_revoke_share_token(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only)."""
-    result = await AdminService(db).revoke_share_token_with_cascade(token_id)
+    admin = AdminService(db)
+    result = await admin.revoke_share_token_with_cascade(token_id, current_user)
     if result is None:
         raise HTTPException(status_code=404, detail="Share token not found")
     revoked_token_id, map_id, cascade_count = result

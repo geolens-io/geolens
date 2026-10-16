@@ -19,6 +19,7 @@ from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password_async
 from app.modules.auth.service import AuthService
+from app.core.identity import Identity
 from app.core.text import escape_ilike
 from app.platform.catalog_locks import bump_publication_versions_for_owner
 
@@ -864,19 +865,21 @@ class AdminService:
         return rows, total
 
     async def revoke_share_token_with_cascade(
-        self, token_id: uuid.UUID
+        self, token_id: uuid.UUID, actor: Identity
     ) -> tuple[uuid.UUID, uuid.UUID, int] | None:
         """Revoke a share token and cascade-revoke all active embed tokens for the map.
 
         Returns (token_id, map_id, cascade_embed_count) on success; None if the
-        share token doesn't exist (caller maps to 404). Caller is responsible
-        for committing the transaction and writing the audit log.
+        share token doesn't exist (caller maps to 404). The map's row is taken,
+        and ``actor`` re-checked under it, before any token or cache write.
+        Caller is responsible for committing the transaction and writing the
+        audit log.
         """
         from app.modules.catalog.maps.service import revoke_share_token
         from app.modules.embed_tokens.models import EmbedToken
         from app.modules.embed_tokens.service import bulk_revoke_embed_tokens
 
-        token_obj = await revoke_share_token(self.db, token_id)
+        token_obj = await revoke_share_token(self.db, token_id, actor=actor)
         if token_obj is None:
             return None
 

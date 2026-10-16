@@ -33,7 +33,10 @@ from app.modules.catalog.maps.sharing_policy import (
     resolve_share_expiration as _resolve_share_expiration,
 )
 from app.modules.catalog.maps.service_crud import get_map
-from app.modules.catalog.maps.service_layers import lock_map_layers
+from app.modules.catalog.maps.service_layers import (
+    lock_map_layers,
+    lock_maps_for_admin_write,
+)
 from app.modules.catalog.maps.service_shared import (
     _apply_map_visibility_filter,
     _extract_dem_vertical_units,
@@ -784,8 +787,14 @@ async def list_share_tokens(
 async def revoke_share_token(
     session: AsyncSession,
     token_id: uuid.UUID,
+    *,
+    actor: Identity | None = None,
 ) -> MapShareToken | None:
-    """Soft-revoke a share token by setting is_active=False. Returns token if found, None otherwise."""
+    """Soft-revoke a share token by setting is_active=False. Returns token if found, None otherwise.
+
+    With ``actor``, an admin acting on someone else's map, the map's row is
+    taken first and ``actor`` re-checked under it, before the token changes.
+    """
     result = await session.execute(
         select(MapShareToken)
         .join(Map, MapShareToken.map_id == Map.id)
@@ -794,6 +803,8 @@ async def revoke_share_token(
     token_obj = result.scalar_one_or_none()
     if token_obj is None:
         return None
+    if actor is not None:
+        await lock_maps_for_admin_write(session, [token_obj.map_id], actor)
     token_obj.is_active = False
     return token_obj
 

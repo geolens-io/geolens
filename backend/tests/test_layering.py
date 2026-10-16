@@ -1172,7 +1172,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 104,
+        "backend/app/modules/catalog/maps/service.py": 106,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 112,
         "backend/app/processing/ai/chat_service.py": 519,
@@ -1269,7 +1269,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router_sharing.py": 435,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 104,
-    "backend/app/modules/admin/router_operations.py": 330,
+    "backend/app/modules/admin/router_operations.py": 331,
     "backend/app/modules/settings/router_public.py": 175,
 }
 
@@ -1375,7 +1375,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1150,
     # Admin mutations share locking and audit outcomes.
-    "backend/app/modules/admin/service.py": 1041,
+    "backend/app/modules/admin/service.py": 1044,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
     "backend/app/processing/ingest/service.py": 1566,

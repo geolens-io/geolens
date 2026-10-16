@@ -3,6 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -17,6 +18,8 @@ from app.modules.embed_tokens.schemas import (
     BulkRevokeResponse,
     EmbedTokenResponse,
 )
+from app.modules.catalog.maps.service import lock_maps_for_admin_write
+from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import (
     bulk_revoke_embed_tokens,
     list_admin_embed_tokens,
@@ -97,6 +100,14 @@ async def bulk_revoke(
     filter_tenant_id = (
         uuid.UUID(request_tenant) if is_multi_tenant() and request_tenant else None
     )
+    # The maps' rows first, which re-check the admin, before any token or
+    # cache-denial write.
+    maps = select(EmbedToken.map_id).where(
+        EmbedToken.id.in_(body.token_ids), EmbedToken.is_active.is_(True)
+    )
+    if filter_tenant_id is not None:
+        maps = maps.where(EmbedToken.tenant_id == filter_tenant_id)
+    await lock_maps_for_admin_write(db, (await db.scalars(maps)).all(), user)
     count = await bulk_revoke_embed_tokens(
         db, body.token_ids, tenant_id=filter_tenant_id
     )
