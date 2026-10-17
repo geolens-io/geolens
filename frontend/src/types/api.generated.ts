@@ -2319,6 +2319,17 @@ export interface paths {
          *     been replaced by a reupload or an overwrite, the repeat is refused with 409
          *     rather than creating another. Without the key every request inserts, and
          *     an attempt number sent without one is ignored.
+         *
+         *     A GeoJSON FeatureCollection body inserts up to 1,000 features in one
+         *     transaction: all of them or none. A feature the schema refuses is named
+         *     by its position under `features` in the 422. One refused while writing
+         *     gets the status a single create would, with `detail.code`
+         *     `feature_refused`, `detail.index` (counting from 0) and
+         *     `detail.message`. The 201 answer is a FeatureCollection of the stored
+         *     features in request order, each as a single create returns it, with
+         *     `table_id` and `tile_cache_version` also on the collection. It has no
+         *     `Location` header since there is no single new resource.
+         *     `Idempotency-Key` is refused with 422 for a FeatureCollection.
          */
         post: operations["create_feature_datasets__dataset_id__features__post"];
         delete?: never;
@@ -9312,6 +9323,22 @@ export interface components {
              * @description User-safe error description when status='failed'. Never contains internal file paths.
              */
             error?: string | null;
+        };
+        /**
+         * FeatureCollectionCreate
+         * @description A GeoJSON FeatureCollection whose features are inserted together.
+         */
+        FeatureCollectionCreate: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "FeatureCollection";
+            /**
+             * Features
+             * @description Features to insert in one transaction, at most 1000. If any is refused, none is inserted.
+             */
+            features: components["schemas"]["FeatureCreate"][];
         };
         /**
          * FeatureCreate
@@ -26131,7 +26158,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["FeatureCreate"];
+                "application/json": components["schemas"]["FeatureCreate"] | components["schemas"]["FeatureCollectionCreate"];
             };
         };
         responses: {
@@ -26180,6 +26207,74 @@ export interface operations {
                         properties: {
                             [key: string]: unknown;
                         };
+                        /**
+                         * Table Id
+                         * @description Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+                         */
+                        table_id?: string | null;
+                        /**
+                         * Tile Cache Version
+                         * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                         */
+                        tile_cache_version?: number | null;
+                    } | {
+                        /**
+                         * Type
+                         * @default FeatureCollection
+                         * @constant
+                         */
+                        type: "FeatureCollection";
+                        /** Features */
+                        features: {
+                            /**
+                             * Type
+                             * @default Feature
+                             * @constant
+                             */
+                            type: "Feature";
+                            /** Id */
+                            id: number;
+                            /** Geometry */
+                            geometry?: {
+                                /**
+                                 * Type
+                                 * @constant
+                                 */
+                                type: "GeometryCollection";
+                                /** Geometries */
+                                geometries: {
+                                    /**
+                                     * Type
+                                     * @enum {string}
+                                     */
+                                    type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                    /** Coordinates */
+                                    coordinates: unknown[];
+                                }[];
+                            } | {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            } | null;
+                            /** Properties */
+                            properties: {
+                                [key: string]: unknown;
+                            };
+                            /**
+                             * Table Id
+                             * @description Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+                             */
+                            table_id?: string | null;
+                            /**
+                             * Tile Cache Version
+                             * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+                             */
+                            tile_cache_version?: number | null;
+                        }[];
                         /**
                          * Table Id
                          * @description Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.

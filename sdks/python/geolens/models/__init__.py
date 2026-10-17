@@ -202,6 +202,30 @@ from .create_empty_dataset_request import CreateEmptyDatasetRequest
 from .create_feature_datasets_dataset_id_features_post_geo_json_feature import (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature,
 )
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeature,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry_collection import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry_collection_geo_json_geometry import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry_collection_geo_json_geometry_type import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry_type import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryType,
+)
+from .create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_properties import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureProperties,
+)
 from .create_feature_datasets_dataset_id_features_post_geo_json_feature_geo_json_geometry import (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry,
 )
@@ -286,6 +310,7 @@ from .fan_out_commit_response import FanOutCommitResponse
 from .fan_out_layer_request import FanOutLayerRequest
 from .fan_out_layer_result import FanOutLayerResult
 from .fan_out_layer_result_status import FanOutLayerResultStatus
+from .feature_collection_create import FeatureCollectionCreate
 from .feature_create import FeatureCreate
 from .feature_create_properties_type_0 import FeatureCreatePropertiesType0
 from .feature_flags_response import FeatureFlagsResponse
@@ -1031,6 +1056,14 @@ __all__ = (
     "ContactUpdateExtraJsonType0",
     "CreateEmptyDatasetRequest",
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeature",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryType",
+    "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureProperties",
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometry",
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollection",
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometry",
@@ -1095,6 +1128,7 @@ __all__ = (
     "FanOutLayerRequest",
     "FanOutLayerResult",
     "FanOutLayerResultStatus",
+    "FeatureCollectionCreate",
     "FeatureCreate",
     "FeatureCreatePropertiesType0",
     "FeatureFlagsResponse",

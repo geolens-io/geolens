@@ -4872,6 +4872,24 @@ export type FanOutLayerResult = {
 };
 
 /**
+ * FeatureCollectionCreate
+ *
+ * A GeoJSON FeatureCollection whose features are inserted together.
+ */
+export type FeatureCollectionCreate = {
+    /**
+     * Type
+     */
+    type: 'FeatureCollection';
+    /**
+     * Features
+     *
+     * Features to insert in one transaction, at most 1000. If any is refused, none is inserted.
+     */
+    features: Array<FeatureCreate>;
+};
+
+/**
  * FeatureCreate
  *
  * GeoJSON-style feature for insertion.
@@ -19336,7 +19354,10 @@ export type ListFeaturesDatasetsDatasetIdFeaturesGetResponses = {
 export type ListFeaturesDatasetsDatasetIdFeaturesGetResponse = ListFeaturesDatasetsDatasetIdFeaturesGetResponses[keyof ListFeaturesDatasetsDatasetIdFeaturesGetResponses];
 
 export type CreateFeatureDatasetsDatasetIdFeaturesPostData = {
-    body: FeatureCreate;
+    /**
+     * Body
+     */
+    body: FeatureCreate | FeatureCollectionCreate;
     headers?: {
         /**
          * Idempotency-Key
@@ -19404,9 +19425,7 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostError = CreateFeatureDatas
 
 export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
     /**
-     * GeoJSONFeature
-     *
-     * A written GeoJSON Feature, plus the dataset's committed tile version.
+     * Successful Response
      */
     201: {
         /**
@@ -19454,6 +19473,85 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
         properties: {
             [key: string]: unknown;
         };
+        /**
+         * Table Id
+         *
+         * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+         */
+        table_id?: string | null;
+        /**
+         * Tile Cache Version
+         *
+         * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+         */
+        tile_cache_version?: number | null;
+    } | {
+        /**
+         * Type
+         */
+        type?: 'FeatureCollection';
+        /**
+         * Features
+         */
+        features: Array<{
+            /**
+             * Type
+             */
+            type?: 'Feature';
+            /**
+             * Id
+             */
+            id: number;
+            /**
+             * Geometry
+             */
+            geometry?: {
+                /**
+                 * Type
+                 */
+                type: 'GeometryCollection';
+                /**
+                 * Geometries
+                 */
+                geometries: Array<{
+                    /**
+                     * Type
+                     */
+                    type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                    /**
+                     * Coordinates
+                     */
+                    coordinates: Array<unknown>;
+                }>;
+            } | {
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+            } | null;
+            /**
+             * Properties
+             */
+            properties: {
+                [key: string]: unknown;
+            };
+            /**
+             * Table Id
+             *
+             * Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.
+             */
+            table_id?: string | null;
+            /**
+             * Tile Cache Version
+             *
+             * The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
+             */
+            tile_cache_version?: number | null;
+        }>;
         /**
          * Table Id
          *

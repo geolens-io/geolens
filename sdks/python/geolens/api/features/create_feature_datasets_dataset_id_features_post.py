@@ -11,6 +11,10 @@ from ... import errors
 from ...models.create_feature_datasets_dataset_id_features_post_geo_json_feature import (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature,
 )
+from ...models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write import (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite,
+)
+from ...models.feature_collection_create import FeatureCollectionCreate
 from ...models.feature_create import FeatureCreate
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
@@ -20,7 +24,7 @@ from uuid import UUID
 def _get_kwargs(
     dataset_id: UUID,
     *,
-    body: FeatureCreate,
+    body: FeatureCollectionCreate | FeatureCreate,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -38,7 +42,10 @@ def _get_kwargs(
         ),
     }
 
-    _kwargs["json"] = body.to_dict()
+    if isinstance(body, FeatureCreate):
+        _kwargs["json"] = body.to_dict()
+    else:
+        _kwargs["json"] = body.to_dict()
 
     headers["Content-Type"] = "application/json"
 
@@ -48,13 +55,41 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail | None:
+) -> (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
+    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
+    | ProblemDetail
+    | None
+):
     if response.status_code == 201:
-        response_201 = (
-            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature.from_dict(
-                response.json()
+
+        def _parse_response_201(
+            data: object,
+        ) -> (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
+            | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
+        ):
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                response_201_geo_json_feature = (
+                    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature.from_dict(
+                        data
+                    )
+                )
+
+                return response_201_geo_json_feature
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, dict):
+                raise TypeError()
+            response_201_geo_json_feature_collection_write = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite.from_dict(
+                data
             )
-        )
+
+            return response_201_geo_json_feature_collection_write
+
+        response_201 = _parse_response_201(response.json())
 
         return response_201
 
@@ -111,7 +146,11 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]:
+) -> Response[
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
+    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
+    | ProblemDetail
+]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -124,10 +163,14 @@ def sync_detailed(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: FeatureCreate,
+    body: FeatureCollectionCreate | FeatureCreate,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
-) -> Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]:
+) -> Response[
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
+    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
+    | ProblemDetail
+]:
     """Create Feature
 
      Insert a new GeoJSON feature into a dataset.
@@ -149,20 +192,31 @@ def sync_detailed(
     rather than creating another. Without the key every request inserts, and
     an attempt number sent without one is ignored.
 
+    A GeoJSON FeatureCollection body inserts up to 1,000 features in one
+    transaction: all of them or none. A feature the schema refuses is named
+    by its position under `features` in the 422. One refused while writing
+    gets the status a single create would, with `detail.code`
+    `feature_refused`, `detail.index` (counting from 0) and
+    `detail.message`. The 201 answer is a FeatureCollection of the stored
+    features in request order, each as a single create returns it, with
+    `table_id` and `tile_cache_version` also on the collection. It has no
+    `Location` header since there is no single new resource.
+    `Idempotency-Key` is refused with 422 for a FeatureCollection.
+
     Args:
         dataset_id (UUID):
         idempotency_key (str | Unset): Optional key that makes a retried create safe. Letters,
             digits and `._:-`, up to 128 characters.
         idempotency_attempt (int | Unset): Attempt number sent with `Idempotency-Key`, counting up
             by one each time the body is sent again. Counts as 1 when omitted.
-        body (FeatureCreate): GeoJSON-style feature for insertion.
+        body (FeatureCollectionCreate | FeatureCreate):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]
+        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -183,10 +237,15 @@ def sync(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: FeatureCreate,
+    body: FeatureCollectionCreate | FeatureCreate,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
-) -> CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail | None:
+) -> (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
+    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
+    | ProblemDetail
+    | None
+):
     """Create Feature
 
      Insert a new GeoJSON feature into a dataset.
@@ -208,20 +267,31 @@ def sync(
     rather than creating another. Without the key every request inserts, and
     an attempt number sent without one is ignored.
 
+    A GeoJSON FeatureCollection body inserts up to 1,000 features in one
+    transaction: all of them or none. A feature the schema refuses is named
+    by its position under `features` in the 422. One refused while writing
+    gets the status a single create would, with `detail.code`
+    `feature_refused`, `detail.index` (counting from 0) and
+    `detail.message`. The 201 answer is a FeatureCollection of the stored
+    features in request order, each as a single create returns it, with
+    `table_id` and `tile_cache_version` also on the collection. It has no
+    `Location` header since there is no single new resource.
+    `Idempotency-Key` is refused with 422 for a FeatureCollection.
+
     Args:
         dataset_id (UUID):
         idempotency_key (str | Unset): Optional key that makes a retried create safe. Letters,
             digits and `._:-`, up to 128 characters.
         idempotency_attempt (int | Unset): Attempt number sent with `Idempotency-Key`, counting up
             by one each time the body is sent again. Counts as 1 when omitted.
-        body (FeatureCreate): GeoJSON-style feature for insertion.
+        body (FeatureCollectionCreate | FeatureCreate):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | ProblemDetail
     """
 
     return sync_detailed(
@@ -237,10 +307,14 @@ async def asyncio_detailed(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: FeatureCreate,
+    body: FeatureCollectionCreate | FeatureCreate,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
-) -> Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]:
+) -> Response[
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
+    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
+    | ProblemDetail
+]:
     """Create Feature
 
      Insert a new GeoJSON feature into a dataset.
@@ -262,20 +336,31 @@ async def asyncio_detailed(
     rather than creating another. Without the key every request inserts, and
     an attempt number sent without one is ignored.
 
+    A GeoJSON FeatureCollection body inserts up to 1,000 features in one
+    transaction: all of them or none. A feature the schema refuses is named
+    by its position under `features` in the 422. One refused while writing
+    gets the status a single create would, with `detail.code`
+    `feature_refused`, `detail.index` (counting from 0) and
+    `detail.message`. The 201 answer is a FeatureCollection of the stored
+    features in request order, each as a single create returns it, with
+    `table_id` and `tile_cache_version` also on the collection. It has no
+    `Location` header since there is no single new resource.
+    `Idempotency-Key` is refused with 422 for a FeatureCollection.
+
     Args:
         dataset_id (UUID):
         idempotency_key (str | Unset): Optional key that makes a retried create safe. Letters,
             digits and `._:-`, up to 128 characters.
         idempotency_attempt (int | Unset): Attempt number sent with `Idempotency-Key`, counting up
             by one each time the body is sent again. Counts as 1 when omitted.
-        body (FeatureCreate): GeoJSON-style feature for insertion.
+        body (FeatureCollectionCreate | FeatureCreate):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail]
+        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -294,10 +379,15 @@ async def asyncio(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: FeatureCreate,
+    body: FeatureCollectionCreate | FeatureCreate,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
-) -> CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail | None:
+) -> (
+    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
+    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
+    | ProblemDetail
+    | None
+):
     """Create Feature
 
      Insert a new GeoJSON feature into a dataset.
@@ -319,20 +409,31 @@ async def asyncio(
     rather than creating another. Without the key every request inserts, and
     an attempt number sent without one is ignored.
 
+    A GeoJSON FeatureCollection body inserts up to 1,000 features in one
+    transaction: all of them or none. A feature the schema refuses is named
+    by its position under `features` in the 422. One refused while writing
+    gets the status a single create would, with `detail.code`
+    `feature_refused`, `detail.index` (counting from 0) and
+    `detail.message`. The 201 answer is a FeatureCollection of the stored
+    features in request order, each as a single create returns it, with
+    `table_id` and `tile_cache_version` also on the collection. It has no
+    `Location` header since there is no single new resource.
+    `Idempotency-Key` is refused with 422 for a FeatureCollection.
+
     Args:
         dataset_id (UUID):
         idempotency_key (str | Unset): Optional key that makes a retried create safe. Letters,
             digits and `._:-`, up to 128 characters.
         idempotency_attempt (int | Unset): Attempt number sent with `Idempotency-Key`, counting up
             by one each time the body is sent again. Counts as 1 when omitted.
-        body (FeatureCreate): GeoJSON-style feature for insertion.
+        body (FeatureCollectionCreate | FeatureCreate):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | ProblemDetail
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | ProblemDetail
     """
 
     return (

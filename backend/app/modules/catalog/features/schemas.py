@@ -3,13 +3,21 @@
 import math
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainValidator,
+    model_validator,
+)
 
 
 MAX_COORDINATE_TUPLES = 100_000
 MAX_COORDINATE_DEPTH = 8
 MAX_GEOMETRY_COLLECTION_MEMBERS = 1_000
 MAX_POSITION_DIMENSIONS = 4
+MAX_FEATURES_PER_BATCH = 1_000
 
 
 def inline_json_schema(model: type[BaseModel]) -> dict:
@@ -281,6 +289,53 @@ class FeatureCreate(BaseModel):
     @classmethod
     def _no_nested_collections(cls, data: object) -> object:
         return _reject_nested_collections(data)
+
+
+class FeatureCollectionCreate(BaseModel):
+    """A GeoJSON FeatureCollection whose features are inserted together."""
+
+    type: Literal["FeatureCollection"]
+    features: list[FeatureCreate] = Field(
+        min_length=1,
+        max_length=MAX_FEATURES_PER_BATCH,
+        description=(
+            "Features to insert in one transaction, at most "
+            f"{MAX_FEATURES_PER_BATCH}. If any is refused, none is inserted."
+        ),
+    )
+
+
+def _feature_create_body(value: object) -> FeatureCreate | FeatureCollectionCreate:
+    """Validate as a collection only when the body says it is one.
+
+    A union would prefix every error location with the member it was tried
+    as, which would change the errors a single-feature body already gets.
+    """
+    if isinstance(value, (FeatureCreate, FeatureCollectionCreate)):
+        return value
+    if isinstance(value, dict) and value.get("type") == "FeatureCollection":
+        return FeatureCollectionCreate.model_validate(value)
+    return FeatureCreate.model_validate(value)
+
+
+FeatureCreateBody = Annotated[
+    FeatureCreate | FeatureCollectionCreate,
+    PlainValidator(
+        _feature_create_body,
+        json_schema_input_type=FeatureCreate | FeatureCollectionCreate,
+    ),
+]
+
+
+class GeoJSONFeatureCollectionWrite(BaseModel):
+    """The features a FeatureCollection create inserted, in request order."""
+
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[GeoJSONFeatureWrite]
+    table_id: str | None = Field(default=None, description=TABLE_ID_DESCRIPTION)
+    tile_cache_version: int | None = Field(
+        default=None, description=TILE_CACHE_VERSION_DESCRIPTION
+    )
 
 
 class FeatureReplace(BaseModel):

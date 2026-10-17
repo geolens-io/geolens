@@ -95,6 +95,7 @@ const CURRENT_AUDIT_ACTIONS = [
   'embed_token.revoke',
   'embed_token.update',
   'embedding.backfill',
+  'feature.bulk_insert',
   'feature.delete',
   'feature.insert',
   'feature.replace',

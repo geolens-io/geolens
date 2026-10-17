@@ -8298,6 +8298,32 @@
         "title": "FanOutLayerResult",
         "type": "object"
       },
+      "FeatureCollectionCreate": {
+        "description": "A GeoJSON FeatureCollection whose features are inserted together.",
+        "properties": {
+          "type": {
+            "const": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          },
+          "features": {
+            "description": "Features to insert in one transaction, at most 1000. If any is refused, none is inserted.",
+            "items": {
+              "$ref": "#/components/schemas/FeatureCreate"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Features",
+            "type": "array"
+          }
+        },
+        "required": [
+          "type",
+          "features"
+        ],
+        "title": "FeatureCollectionCreate",
+        "type": "object"
+      },
       "FeatureCreate": {
         "description": "GeoJSON-style feature for insertion.",
         "properties": {
@@ -37945,7 +37971,7 @@
         ]
       },
       "post": {
-        "description": "Insert a new GeoJSON feature into a dataset.\n\nSend the same `Idempotency-Key` on every attempt to create one feature, and\n`Idempotency-Attempt` numbering the attempts 1, 2, 3 and so on. A repeat\nfrom the same user on the same dataset never inserts a second feature. It\nanswers with the feature as stored, with the same 201 status and body\nshape. If its attempt number is higher than any applied so far, it first\napplies its geometry and the properties it names to that feature, with the\nvalidation a create gets, unless anyone else has written the feature since\nthe last attempt was applied: then it is refused with 409, the stored\nfeature in `detail.feature`, and nothing is overwritten. If it is equal or\nlower, the stored feature comes back unchanged, so a request that arrives\nlate cannot undo a later one. Two requests with one key never both insert. A key is honored for 24 hours. If\nthe feature it created has been deleted since, or the dataset's data has\nbeen replaced by a reupload or an overwrite, the repeat is refused with 409\nrather than creating another. Without the key every request inserts, and\nan attempt number sent without one is ignored.",
+        "description": "Insert a new GeoJSON feature into a dataset.\n\nSend the same `Idempotency-Key` on every attempt to create one feature, and\n`Idempotency-Attempt` numbering the attempts 1, 2, 3 and so on. A repeat\nfrom the same user on the same dataset never inserts a second feature. It\nanswers with the feature as stored, with the same 201 status and body\nshape. If its attempt number is higher than any applied so far, it first\napplies its geometry and the properties it names to that feature, with the\nvalidation a create gets, unless anyone else has written the feature since\nthe last attempt was applied: then it is refused with 409, the stored\nfeature in `detail.feature`, and nothing is overwritten. If it is equal or\nlower, the stored feature comes back unchanged, so a request that arrives\nlate cannot undo a later one. Two requests with one key never both insert. A key is honored for 24 hours. If\nthe feature it created has been deleted since, or the dataset's data has\nbeen replaced by a reupload or an overwrite, the repeat is refused with 409\nrather than creating another. Without the key every request inserts, and\nan attempt number sent without one is ignored.\n\nA GeoJSON FeatureCollection body inserts up to 1,000 features in one\ntransaction: all of them or none. A feature the schema refuses is named\nby its position under `features` in the 422. One refused while writing\ngets the status a single create would, with `detail.code`\n`feature_refused`, `detail.index` (counting from 0) and\n`detail.message`. The 201 answer is a FeatureCollection of the stored\nfeatures in request order, each as a single create returns it, with\n`table_id` and `tile_cache_version` also on the collection. It has no\n`Location` header since there is no single new resource.\n`Idempotency-Key` is refused with 422 for a FeatureCollection.",
         "operationId": "create_feature_datasets__dataset_id__features__post",
         "parameters": [
           {
@@ -37990,7 +38016,15 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FeatureCreate"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/FeatureCreate"
+                  },
+                  {
+                    "$ref": "#/components/schemas/FeatureCollectionCreate"
+                  }
+                ],
+                "title": "Body"
               }
             }
           },
@@ -38001,138 +38035,320 @@
             "content": {
               "application/geo+json": {
                 "schema": {
-                  "description": "A written GeoJSON Feature, plus the dataset's committed tile version.",
-                  "properties": {
-                    "type": {
-                      "const": "Feature",
-                      "default": "Feature",
-                      "title": "Type",
-                      "type": "string"
-                    },
-                    "id": {
-                      "title": "Id",
-                      "type": "integer"
-                    },
-                    "geometry": {
-                      "anyOf": [
-                        {
-                          "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
-                          "properties": {
-                            "type": {
-                              "const": "GeometryCollection",
-                              "title": "Type",
-                              "type": "string"
-                            },
-                            "geometries": {
-                              "items": {
-                                "description": "A GeoJSON geometry object (RFC 7946).",
-                                "properties": {
-                                  "type": {
-                                    "enum": [
-                                      "Point",
-                                      "MultiPoint",
-                                      "LineString",
-                                      "MultiLineString",
-                                      "Polygon",
-                                      "MultiPolygon"
-                                    ],
-                                    "title": "Type",
-                                    "type": "string"
-                                  },
-                                  "coordinates": {
-                                    "items": {},
-                                    "title": "Coordinates",
-                                    "type": "array"
-                                  }
-                                },
-                                "required": [
-                                  "type",
-                                  "coordinates"
-                                ],
-                                "title": "GeoJSONGeometry",
-                                "type": "object"
-                              },
-                              "title": "Geometries",
-                              "type": "array"
-                            }
-                          },
-                          "required": [
-                            "type",
-                            "geometries"
-                          ],
-                          "title": "GeoJSONGeometryCollection",
-                          "type": "object"
-                        },
-                        {
-                          "description": "A GeoJSON geometry object (RFC 7946).",
-                          "properties": {
-                            "type": {
-                              "enum": [
-                                "Point",
-                                "MultiPoint",
-                                "LineString",
-                                "MultiLineString",
-                                "Polygon",
-                                "MultiPolygon"
-                              ],
-                              "title": "Type",
-                              "type": "string"
-                            },
-                            "coordinates": {
-                              "items": {},
-                              "title": "Coordinates",
-                              "type": "array"
-                            }
-                          },
-                          "required": [
-                            "type",
-                            "coordinates"
-                          ],
-                          "title": "GeoJSONGeometry",
-                          "type": "object"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Geometry"
-                    },
-                    "properties": {
-                      "type": "object",
-                      "additionalProperties": true,
-                      "title": "Properties"
-                    },
-                    "table_id": {
-                      "anyOf": [
-                        {
+                  "oneOf": [
+                    {
+                      "description": "A written GeoJSON Feature, plus the dataset's committed tile version.",
+                      "properties": {
+                        "type": {
+                          "const": "Feature",
+                          "default": "Feature",
+                          "title": "Type",
                           "type": "string"
                         },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
-                      "title": "Table Id"
-                    },
-                    "tile_cache_version": {
-                      "anyOf": [
-                        {
+                        "id": {
+                          "title": "Id",
                           "type": "integer"
                         },
-                        {
-                          "type": "null"
+                        "geometry": {
+                          "anyOf": [
+                            {
+                              "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
+                              "properties": {
+                                "type": {
+                                  "const": "GeometryCollection",
+                                  "title": "Type",
+                                  "type": "string"
+                                },
+                                "geometries": {
+                                  "items": {
+                                    "description": "A GeoJSON geometry object (RFC 7946).",
+                                    "properties": {
+                                      "type": {
+                                        "enum": [
+                                          "Point",
+                                          "MultiPoint",
+                                          "LineString",
+                                          "MultiLineString",
+                                          "Polygon",
+                                          "MultiPolygon"
+                                        ],
+                                        "title": "Type",
+                                        "type": "string"
+                                      },
+                                      "coordinates": {
+                                        "items": {},
+                                        "title": "Coordinates",
+                                        "type": "array"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "coordinates"
+                                    ],
+                                    "title": "GeoJSONGeometry",
+                                    "type": "object"
+                                  },
+                                  "title": "Geometries",
+                                  "type": "array"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "geometries"
+                              ],
+                              "title": "GeoJSONGeometryCollection",
+                              "type": "object"
+                            },
+                            {
+                              "description": "A GeoJSON geometry object (RFC 7946).",
+                              "properties": {
+                                "type": {
+                                  "enum": [
+                                    "Point",
+                                    "MultiPoint",
+                                    "LineString",
+                                    "MultiLineString",
+                                    "Polygon",
+                                    "MultiPolygon"
+                                  ],
+                                  "title": "Type",
+                                  "type": "string"
+                                },
+                                "coordinates": {
+                                  "items": {},
+                                  "title": "Coordinates",
+                                  "type": "array"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "coordinates"
+                              ],
+                              "title": "GeoJSONGeometry",
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "title": "Geometry"
+                        },
+                        "properties": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "title": "Properties"
+                        },
+                        "table_id": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                          "title": "Table Id"
+                        },
+                        "tile_cache_version": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
+                          "title": "Tile Cache Version"
                         }
+                      },
+                      "required": [
+                        "id",
+                        "properties"
                       ],
-                      "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
-                      "title": "Tile Cache Version"
+                      "title": "GeoJSONFeature",
+                      "type": "object"
+                    },
+                    {
+                      "description": "The features a FeatureCollection create inserted, in request order.",
+                      "properties": {
+                        "type": {
+                          "const": "FeatureCollection",
+                          "default": "FeatureCollection",
+                          "title": "Type",
+                          "type": "string"
+                        },
+                        "features": {
+                          "items": {
+                            "description": "A written GeoJSON Feature, plus the dataset's committed tile version.",
+                            "properties": {
+                              "type": {
+                                "const": "Feature",
+                                "default": "Feature",
+                                "title": "Type",
+                                "type": "string"
+                              },
+                              "id": {
+                                "title": "Id",
+                                "type": "integer"
+                              },
+                              "geometry": {
+                                "anyOf": [
+                                  {
+                                    "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nGeometry collections carry ``geometries`` instead of ``coordinates``.\nOnly generic-geometry datasets accept them on write.\n\nNested collections are rejected because PostGIS cannot round-trip them\nthrough the GeoJSON boundary.",
+                                    "properties": {
+                                      "type": {
+                                        "const": "GeometryCollection",
+                                        "title": "Type",
+                                        "type": "string"
+                                      },
+                                      "geometries": {
+                                        "items": {
+                                          "description": "A GeoJSON geometry object (RFC 7946).",
+                                          "properties": {
+                                            "type": {
+                                              "enum": [
+                                                "Point",
+                                                "MultiPoint",
+                                                "LineString",
+                                                "MultiLineString",
+                                                "Polygon",
+                                                "MultiPolygon"
+                                              ],
+                                              "title": "Type",
+                                              "type": "string"
+                                            },
+                                            "coordinates": {
+                                              "items": {},
+                                              "title": "Coordinates",
+                                              "type": "array"
+                                            }
+                                          },
+                                          "required": [
+                                            "type",
+                                            "coordinates"
+                                          ],
+                                          "title": "GeoJSONGeometry",
+                                          "type": "object"
+                                        },
+                                        "title": "Geometries",
+                                        "type": "array"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "geometries"
+                                    ],
+                                    "title": "GeoJSONGeometryCollection",
+                                    "type": "object"
+                                  },
+                                  {
+                                    "description": "A GeoJSON geometry object (RFC 7946).",
+                                    "properties": {
+                                      "type": {
+                                        "enum": [
+                                          "Point",
+                                          "MultiPoint",
+                                          "LineString",
+                                          "MultiLineString",
+                                          "Polygon",
+                                          "MultiPolygon"
+                                        ],
+                                        "title": "Type",
+                                        "type": "string"
+                                      },
+                                      "coordinates": {
+                                        "items": {},
+                                        "title": "Coordinates",
+                                        "type": "array"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "coordinates"
+                                    ],
+                                    "title": "GeoJSONGeometry",
+                                    "type": "object"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "title": "Geometry"
+                              },
+                              "properties": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "title": "Properties"
+                              },
+                              "table_id": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                                "title": "Table Id"
+                              },
+                              "tile_cache_version": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
+                                "title": "Tile Cache Version"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "properties"
+                            ],
+                            "title": "GeoJSONFeature",
+                            "type": "object"
+                          },
+                          "title": "Features",
+                          "type": "array"
+                        },
+                        "table_id": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Opaque id of the data table this feature was read from or written to. A reupload or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if the table was replaced since.",
+                          "title": "Table Id"
+                        },
+                        "tile_cache_version": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.",
+                          "title": "Tile Cache Version"
+                        }
+                      },
+                      "required": [
+                        "features"
+                      ],
+                      "title": "GeoJSONFeatureCollectionWrite",
+                      "type": "object"
                     }
-                  },
-                  "required": [
-                    "id",
-                    "properties"
-                  ],
-                  "title": "GeoJSONFeature",
-                  "type": "object"
+                  ]
                 }
               },
               "application/json": {

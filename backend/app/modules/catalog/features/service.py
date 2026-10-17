@@ -17,6 +17,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 from sqlalchemy import bindparam, func, select, text
 from sqlalchemy import types as sa_types
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.pg_ranges import check_int8_range, check_pg_value_range
@@ -684,6 +685,14 @@ async def get_feature_by_id(
 
     Returns a dict with gid, geometry, and properties, or None if not found.
     """
+    rows = await _features_by_ids(db, table_name, [gid], has_geometry=has_geometry)
+    return rows[0] if rows else None
+
+
+async def _features_by_ids(
+    db: AsyncSession, table_name: str, gids: list[int], *, has_geometry: bool = True
+) -> list[dict]:
+    """The features with these gids, in the order the gids are given."""
     if has_geometry:
         select_cols = (
             "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
@@ -693,12 +702,10 @@ async def get_feature_by_id(
         select_cols = "gid, NULL::json AS geometry, to_jsonb(t.*) - 'gid' AS properties"
 
     row_source = await _projected_row_source(db, table_name, with_geometry=has_geometry)
-    sql = f"SELECT {select_cols} FROM {row_source} t WHERE gid = :gid"
-    result = await db.execute(text(sql).bindparams(gid=gid))
-    row = result.first()
-    if row is None:
-        return None
-    return dict(row._mapping)
+    sql = f"SELECT {select_cols} FROM {row_source} t WHERE gid = ANY(:gids)"
+    result = await db.execute(text(sql).bindparams(gids=gids))
+    by_gid = {row.gid: dict(row._mapping) for row in result}
+    return [by_gid[gid] for gid in gids if gid in by_gid]
 
 
 # ---------------------------------------------------------------------------
@@ -892,6 +899,74 @@ async def insert_feature(
     """
     if await _geom_column_is_measured(db, table_name):
         raise ValueError(_MEASURED_LAYER_EDIT_ERROR)
+    gid = await _insert_row(
+        db,
+        table_name,
+        geometry,
+        properties,
+        column_info,
+        dataset_geometry_type,
+        dataset_srid,
+    )
+    row = await get_feature_by_id(db, table_name, gid)
+    if row is None:
+        raise RuntimeError(f"Feature {gid} not found immediately after insert")
+    return row
+
+
+class FeatureBatchError(Exception):
+    """The feature at ``index`` of a batch insert failed with ``cause``."""
+
+    def __init__(self, index: int, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.index = index
+        self.cause = cause
+
+
+async def insert_features(
+    db: AsyncSession,
+    table_name: str,
+    features: Sequence[tuple[dict, dict | None]],
+    column_info: list[dict],
+    dataset_geometry_type: str,
+    dataset_srid: int | None = None,
+) -> list[dict]:
+    """Insert (geometry, properties) pairs in order and return the stored rows.
+
+    Each feature is validated as ``insert_feature`` validates one. The first
+    failure raises ``FeatureBatchError``; earlier rows are still in the
+    transaction, so the caller must roll it back.
+    """
+    if await _geom_column_is_measured(db, table_name):
+        raise ValueError(_MEASURED_LAYER_EDIT_ERROR)
+    gids: list[int] = []
+    for index, (geometry, properties) in enumerate(features):
+        try:
+            gids.append(
+                await _insert_row(
+                    db,
+                    table_name,
+                    geometry,
+                    properties,
+                    column_info,
+                    dataset_geometry_type,
+                    dataset_srid,
+                )
+            )
+        except (ValueError, DBAPIError) as exc:
+            raise FeatureBatchError(index, exc) from exc
+    return await _features_by_ids(db, table_name, gids)
+
+
+async def _insert_row(
+    db: AsyncSession,
+    table_name: str,
+    geometry: dict,
+    properties: dict | None,
+    column_info: list[dict],
+    dataset_geometry_type: str,
+    dataset_srid: int | None,
+) -> int:
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
     normalized_geom = _validate_geometry_structure(geometry)
     _reject_unknown_properties(properties, column_info)
@@ -918,12 +993,7 @@ async def insert_feature(
         f"VALUES ({', '.join(vals)}) RETURNING gid"
     )
     result = await db.execute(text(sql).bindparams(**params))
-    gid = result.scalar_one()
-
-    row = await get_feature_by_id(db, table_name, gid)
-    if row is None:
-        raise RuntimeError(f"Feature {gid} not found immediately after insert")
-    return row
+    return result.scalar_one()
 
 
 async def replace_feature(

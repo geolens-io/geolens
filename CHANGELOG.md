@@ -15,6 +15,21 @@ and releases use semantic versioning.
   expires. A key past its expiry is marked Expired, because it no longer
   authenticates. The API already accepted `expires_at`, so nothing changes for
   API callers.
+- `POST /datasets/{dataset_id}/features/` also takes a GeoJSON
+  FeatureCollection of up to 1,000 features and inserts them in one
+  transaction. Either every feature is written or none is. A feature refused
+  while writing gets the status a single create would, with `detail.code`
+  `feature_refused` and `detail.index` naming it; one the schema refuses is
+  named by its position under `features` in the 422. The 201 response is a
+  FeatureCollection of the stored features in request order, each as a single
+  create returns it, with `table_id` and `tile_cache_version` on the
+  collection too. The batch rolls the tile cache once and writes one
+  `feature.bulk_insert` audit entry. `Idempotency-Key` is refused with a
+  FeatureCollection. A single Feature body gets the same request and response
+  as before. In the generated SDKs the create call now takes
+  `FeatureCreate | FeatureCollectionCreate` and returns a union of the two 201
+  shapes, so TypeScript callers that read `id` from the result narrow it
+  first.
 
 ### Fixed
 

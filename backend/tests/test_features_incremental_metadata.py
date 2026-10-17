@@ -4,8 +4,8 @@
 entire table, inside the request transaction, on every insert, replace, delete
 and geometry-bearing patch. A dataset wider than 180 degrees pays a second scan
 over `ST_ShiftLongitude(geom_4326)`, and a created dataset a third
-`SELECT DISTINCT GeometryType(...)`. There is no bulk feature endpoint, so a
-client digitizing 200 points issued 200 requests and paid it 200 times.
+`SELECT DISTINCT GeometryType(...)`. A client digitizing 200 points one
+request at a time pays it 200 times.
 
 When the caller can say how many rows the write added or removed and where the
 geometry it touched sits, and every touched envelope is strictly inside the

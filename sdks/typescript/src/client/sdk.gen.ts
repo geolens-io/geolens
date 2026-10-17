@@ -2407,6 +2407,17 @@ export const listFeaturesDatasetsDatasetIdFeaturesGet = <ThrowOnError extends bo
  * been replaced by a reupload or an overwrite, the repeat is refused with 409
  * rather than creating another. Without the key every request inserts, and
  * an attempt number sent without one is ignored.
+ *
+ * A GeoJSON FeatureCollection body inserts up to 1,000 features in one
+ * transaction: all of them or none. A feature the schema refuses is named
+ * by its position under `features` in the 422. One refused while writing
+ * gets the status a single create would, with `detail.code`
+ * `feature_refused`, `detail.index` (counting from 0) and
+ * `detail.message`. The 201 answer is a FeatureCollection of the stored
+ * features in request order, each as a single create returns it, with
+ * `table_id` and `tile_cache_version` also on the collection. It has no
+ * `Location` header since there is no single new resource.
+ * `Idempotency-Key` is refused with 422 for a FeatureCollection.
  */
 export const createFeatureDatasetsDatasetIdFeaturesPost = <ThrowOnError extends boolean = false>(options: Options<CreateFeatureDatasetsDatasetIdFeaturesPostData, ThrowOnError>): RequestResult<CreateFeatureDatasetsDatasetIdFeaturesPostResponses, CreateFeatureDatasetsDatasetIdFeaturesPostErrors, ThrowOnError> => (options.client ?? client).post<CreateFeatureDatasetsDatasetIdFeaturesPostResponses, CreateFeatureDatasetsDatasetIdFeaturesPostErrors, ThrowOnError>({
     security: [

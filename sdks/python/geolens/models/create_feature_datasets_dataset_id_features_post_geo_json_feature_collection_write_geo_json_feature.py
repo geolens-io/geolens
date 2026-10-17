@@ -1,0 +1,237 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, TypeVar, TYPE_CHECKING
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
+
+from typing import cast
+from typing import Literal
+
+if TYPE_CHECKING:
+    from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry import (
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry,
+    )
+    from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry_collection import (
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection,
+    )
+    from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_properties import (
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureProperties,
+    )
+
+
+T = TypeVar(
+    "T",
+    bound="CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeature",
+)
+
+
+@_attrs_define
+class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeature:
+    """A written GeoJSON Feature, plus the dataset's committed tile version.
+
+    Attributes:
+        id (int):
+        properties (CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureProperties):
+        type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
+        geometry (CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry |
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection |
+            None | Unset):
+        table_id (None | str | Unset): Opaque id of the data table this feature was read from or written to. A reupload
+            or an overwrite of the dataset's data replaces the table, and the replacement can reuse feature ids. Send it
+            back as the `table_id` query parameter of a PUT, PATCH or DELETE of this feature to have the write refused if
+            the table was replaced since.
+        tile_cache_version (int | None | Unset): The dataset's tile_cache_version after this write committed. Send it as
+            the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is
+            forced to re-read the dataset instead of serving that worker's own cached snapshot.
+    """
+
+    id: int
+    properties: CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureProperties
+    type_: Literal["Feature"] | Unset = "Feature"
+    geometry: (
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry
+        | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection
+        | None
+        | Unset
+    ) = UNSET
+    table_id: None | str | Unset = UNSET
+    tile_cache_version: int | None | Unset = UNSET
+    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry,
+        )
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry_collection import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection,
+        )
+
+        id = self.id
+
+        properties = self.properties.to_dict()
+
+        type_ = self.type_
+
+        geometry: dict[str, Any] | None | Unset
+        if isinstance(self.geometry, Unset):
+            geometry = UNSET
+        elif isinstance(
+            self.geometry,
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection,
+        ):
+            geometry = self.geometry.to_dict()
+        elif isinstance(
+            self.geometry,
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry,
+        ):
+            geometry = self.geometry.to_dict()
+        else:
+            geometry = self.geometry
+
+        table_id: None | str | Unset
+        if isinstance(self.table_id, Unset):
+            table_id = UNSET
+        else:
+            table_id = self.table_id
+
+        tile_cache_version: int | None | Unset
+        if isinstance(self.tile_cache_version, Unset):
+            tile_cache_version = UNSET
+        else:
+            tile_cache_version = self.tile_cache_version
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "id": id,
+                "properties": properties,
+            }
+        )
+        if type_ is not UNSET:
+            field_dict["type"] = type_
+        if geometry is not UNSET:
+            field_dict["geometry"] = geometry
+        if table_id is not UNSET:
+            field_dict["table_id"] = table_id
+        if tile_cache_version is not UNSET:
+            field_dict["tile_cache_version"] = tile_cache_version
+
+        return field_dict
+
+    @classmethod
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry,
+        )
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_geo_json_geometry_collection import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection,
+        )
+        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature_properties import (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureProperties,
+        )
+
+        d = dict(src_dict)
+        id = d.pop("id")
+
+        properties = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureProperties.from_dict(
+            d.pop("properties")
+        )
+
+        type_ = cast(Literal["Feature"] | Unset, d.pop("type", UNSET))
+        if type_ != "Feature" and not isinstance(type_, Unset):
+            raise ValueError(f"type must match const 'Feature', got '{type_}'")
+
+        def _parse_geometry(
+            data: object,
+        ) -> (
+            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry
+            | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection
+            | None
+            | Unset
+        ):
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                geometry_geo_json_geometry_collection = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection.from_dict(
+                    data
+                )
+
+                return geometry_geo_json_geometry_collection
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                geometry_geo_json_geometry = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry.from_dict(
+                    data
+                )
+
+                return geometry_geo_json_geometry
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(
+                CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometry
+                | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWriteGeoJSONFeatureGeoJSONGeometryCollection
+                | None
+                | Unset,
+                data,
+            )
+
+        geometry = _parse_geometry(d.pop("geometry", UNSET))
+
+        def _parse_table_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        table_id = _parse_table_id(d.pop("table_id", UNSET))
+
+        def _parse_tile_cache_version(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        tile_cache_version = _parse_tile_cache_version(
+            d.pop("tile_cache_version", UNSET)
+        )
+
+        create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature = cls(
+            id=id,
+            properties=properties,
+            type_=type_,
+            geometry=geometry,
+            table_id=table_id,
+            tile_cache_version=tile_cache_version,
+        )
+
+        create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature.additional_properties = d
+        return create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write_geo_json_feature
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> Any:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

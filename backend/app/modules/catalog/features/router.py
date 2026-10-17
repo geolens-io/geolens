@@ -69,17 +69,21 @@ from app.modules.catalog.features.idempotency import (
 from app.modules.catalog.features.schemas import (
     TILE_CACHE_VERSION_DESCRIPTION,
     TILE_CACHE_VERSION_HEADER,
+    FeatureCollectionCreate,
     FeatureCreate,
+    FeatureCreateBody,
     FeatureReplace,
     FeatureUpdate,
     GeoJSONFeature,
     GeoJSONFeatureCollection,
+    GeoJSONFeatureCollectionWrite,
     GeoJSONFeatureRead,
     GeoJSONFeatureWrite,
     inline_json_schema,
 )
 from app.modules.catalog.features.service import (
     Bounds,
+    FeatureBatchError,
     UnwritablePropertyError,
     delete_feature,
     effective_geometry_type,
@@ -88,6 +92,7 @@ from app.modules.catalog.features.service import (
     get_features,
     get_features_geojson_z,
     insert_feature,
+    insert_features,
     lock_catalog_rows_for_write,
     number_matched_headers,
     parse_bbox,
@@ -204,6 +209,121 @@ def _created_feature_response(
     )
     return JSONResponse(
         content=feature.model_dump(mode="json"),
+        status_code=status.HTTP_201_CREATED,
+        media_type="application/geo+json",
+    )
+
+
+def _batch_feature_refused(error: FeatureBatchError) -> HTTPException:
+    """The refusal a single create would get, naming the feature that failed."""
+    cause = error.cause
+    if isinstance(cause, DBAPIError):
+        refusal = _feature_write_db_error(cause)
+    elif isinstance(cause, UnwritablePropertyError):
+        refusal = HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(cause)
+        )
+    else:
+        refusal = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(cause)
+        )
+    if refusal.status_code >= 500:
+        return refusal
+    return HTTPException(
+        status_code=refusal.status_code,
+        detail={
+            "code": "feature_refused",
+            "index": error.index,
+            "message": refusal.detail,
+        },
+    )
+
+
+async def _create_features(
+    db: AsyncSession,
+    dataset,
+    user: Identity,
+    dataset_id: uuid.UUID,
+    body: FeatureCollectionCreate,
+) -> JSONResponse:
+    """Insert every feature of a FeatureCollection in this transaction, or none."""
+    geometries = [feature.geometry.model_dump() for feature in body.features]
+    try:
+        rows = await insert_features(
+            db,
+            dataset.table_name,
+            [
+                (geometry, feature.properties)
+                for geometry, feature in zip(geometries, body.features)
+            ],
+            dataset.column_info or [],
+            await effective_geometry_type(db, dataset),
+            dataset_srid=dataset.srid,
+        )
+        table_oid = await current_table_oid(db, dataset.table_name)
+    except FeatureBatchError as e:
+        await db.rollback()
+        raise _batch_feature_refused(e)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except DBAPIError as exc:
+        await db.rollback()
+        raise _feature_write_db_error(exc)
+
+    gids = [row["gid"] for row in rows]
+    geometry_types = {feature.geometry.type for feature in body.features}
+    await _refresh_metadata_guarded(
+        db,
+        dataset,
+        count_delta=len(gids),
+        touched_bounds=[geojson_bounds(geometry) for geometry in geometries],
+        added_geometry_type=(
+            next(iter(geometry_types)) if len(geometry_types) == 1 else None
+        ),
+    )
+    dataset.record.updated_by = user.id
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="feature.bulk_insert",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "gids": gids,
+                "count": len(gids),
+                "property_fields": sorted(
+                    {key for f in body.features for key in (f.properties or {})}
+                ),
+            },
+        ),
+    )
+    tile_version = await record_live_data_write(db, dataset)
+    await db.commit()
+
+    logger.info(
+        "feature.bulk_insert",
+        dataset_id=str(dataset_id),
+        tile_cache_version=tile_version,
+        count=len(gids),
+        user_id=str(user.id),
+    )
+    written = GeoJSONFeatureCollectionWrite(
+        features=[
+            GeoJSONFeatureWrite(
+                id=row["gid"],
+                geometry=row["geometry"],
+                properties=row["properties"],
+                table_id=str(table_oid),
+                tile_cache_version=tile_version,
+            )
+            for row in rows
+        ],
+        table_id=str(table_oid),
+        tile_cache_version=tile_version,
+    )
+    return JSONResponse(
+        content=written.model_dump(mode="json"),
         status_code=status.HTTP_201_CREATED,
         media_type="application/geo+json",
     )
@@ -818,8 +938,13 @@ async def get_single_feature(
         201: {
             "content": {
                 "application/geo+json": {
-                    "schema": inline_json_schema(GeoJSONFeatureWrite)
-                }
+                    "schema": {
+                        "oneOf": [
+                            inline_json_schema(GeoJSONFeatureWrite),
+                            inline_json_schema(GeoJSONFeatureCollectionWrite),
+                        ]
+                    }
+                },
             }
         },
         **ERROR_RESPONSES_WRITE,
@@ -827,7 +952,7 @@ async def get_single_feature(
 )
 async def create_feature(
     dataset_id: uuid.UUID,
-    body: FeatureCreate,
+    body: FeatureCreateBody,
     # Annotated `str` and `int`, not optional types: a nullable optional header
     # becomes a generated-client parameter that accepts None and then sends it.
     idempotency_key: str = Header(
@@ -871,6 +996,17 @@ async def create_feature(
     been replaced by a reupload or an overwrite, the repeat is refused with 409
     rather than creating another. Without the key every request inserts, and
     an attempt number sent without one is ignored.
+
+    A GeoJSON FeatureCollection body inserts up to 1,000 features in one
+    transaction: all of them or none. A feature the schema refuses is named
+    by its position under `features` in the 422. One refused while writing
+    gets the status a single create would, with `detail.code`
+    `feature_refused`, `detail.index` (counting from 0) and
+    `detail.message`. The 201 answer is a FeatureCollection of the stored
+    features in request order, each as a single create returns it, with
+    `table_id` and `tile_cache_version` also on the collection. It has no
+    `Location` header since there is no single new resource.
+    `Idempotency-Key` is refused with 422 for a FeatureCollection.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -882,6 +1018,14 @@ async def create_feature(
     await check_dataset_write_access(db, dataset, dataset_id, user)
     await require_dataset_editing_enabled(db)
     _require_feature_table(dataset)
+
+    if isinstance(body, FeatureCollectionCreate):
+        if idempotency_key is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Idempotency-Key is not supported with a FeatureCollection.",
+            )
+        return await _create_features(db, dataset, user, dataset_id, body)
 
     keyed = None
     try:
