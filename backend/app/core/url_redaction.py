@@ -474,8 +474,8 @@ def _secret_variants(secret: str) -> list[str]:
     cleartext prose ("bad password for alice") rather than the base64 blob,
     so the decoded username/password join the variants too.
     """
-    # fix(#1844): no length floor here or on the secret — round 1
-    # added one and it silently stopped scrubbing short-but-valid credentials
+    # No length floor here or on the secret: an earlier floor
+    # silently stopped scrubbing short-but-valid credentials
     # (e.g. an 8-char API key). Under-scrubbing a valid secret is not a trade.
     forms = {secret}
     _, separator, tail = secret.partition(HEADER_LINE_SEPARATOR)

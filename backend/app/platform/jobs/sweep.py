@@ -1026,7 +1026,7 @@ async def sweep_stale_vrt_assets(
 ) -> tuple[int, int, tuple[str, ...]]:
     """Reconcile RasterAsset rows stuck in status='regenerating' past ``stale_cutoff``.
 
-    GAP-002 / feat(#1267): a worker crash mid-regeneration otherwise leaves
+    A worker crash mid-regeneration otherwise leaves
     the asset 'regenerating' forever and every link/regenerate call 409s.
     Staleness is ``VrtGeneration.heartbeat_at`` (falling back to
     ``started_at``), renewed by a live worker every 30s.
@@ -1456,7 +1456,7 @@ async def settle_stale_jobs(
         )
 
     # After the job ends, which supply one of the facts the run pass requires.
-    # GAP-002: the VRT pass resolves a dead generation's keys, and the caller
+    # The VRT pass resolves a dead generation's keys, and the caller
     # reaps them only after its commit (fix(#1322)), like _staged_paths.
     linked = await run_stale_passes(db, now, job_ids=job_ids)
     if linked.refresh_runs_cancelled:

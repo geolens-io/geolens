@@ -390,7 +390,7 @@ class DefaultEntitlementPort:
     (RBAC) remain orthogonal and guard independently.
 
     The cloud overlay REPLACES this by registering under the
-    ``"entitlement"`` single-slot key; ExtensionSlotConflictError (SLOT-01)
+    ``"entitlement"`` single-slot key; ExtensionSlotConflictError
     prevents two overlays from claiming it. See ``protocols.EntitlementPort``
     for the full contract.
     """

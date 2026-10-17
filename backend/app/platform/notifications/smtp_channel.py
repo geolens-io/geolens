@@ -1,4 +1,4 @@
-"""SMTP email channel for GeoLens outbound notifications (NOTIF-02).
+"""SMTP email channel for GeoLens outbound notifications.
 
 Sends an ``email.message.EmailMessage`` via stdlib ``smtplib``.
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 async def send_email(notification: "Notification") -> None:  # type: ignore[name-defined]  # noqa: F821
     """Send *notification* as an email via stdlib smtplib.
 
-    Imports are deferred (Phase 214) so this module pays no import cost
+    Imports are deferred so this module pays no import cost
     for deployments that never call it.
 
     Raises:
@@ -58,10 +58,10 @@ async def send_email(notification: "Notification") -> None:  # type: ignore[name
     def _blocking_send() -> None:
         """Blocking smtplib sequence — runs in a thread via asyncio.to_thread."""
         use_ssl = port == 465
-        # WR-01: verify the server cert against the system trust store —
+        # Verify the server cert against the system trust store —
         # smtplib's default omits a context, exposing the password to a MITM.
         ssl_context = ssl.create_default_context()
-        # WR-02: bound connect/socket time so an unreachable host can't pin a thread.
+        # Bound connect/socket time so an unreachable host can't pin a thread.
         timeout = 15.0
 
         if use_ssl:

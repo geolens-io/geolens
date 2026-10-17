@@ -5,11 +5,11 @@ Stores gzip-compressed MVT tile bytes with configurable TTL, using
 RedisCacheProvider). All Redis errors are caught and logged, never
 propagated to callers.
 
-PERF-01: when ``REDIS_URL`` is unset, ``InMemoryTileCacheProvider`` gives an
+When ``REDIS_URL`` is unset, ``InMemoryTileCacheProvider`` gives an
 LRU fallback bounded by bytes with matching TTL semantics (default 300s,
 per-call override).
 
-PERF-11: hit/miss counters carry a ``table_name`` label; ``_safe_label``
+Hit/miss counters carry a ``table_name`` label; ``_safe_label``
 bounds cardinality by collapsing anything not matching the documented
 ``data.*`` shape to ``"_other"``.
 
@@ -27,14 +27,14 @@ import time
 
 import redis.asyncio as redis_async
 import structlog
-from cachetools import LRUCache  # PERF-01 (Phase 274)
+from cachetools import LRUCache
 from prometheus_client import Counter
 
 from app.platform.redis_protocol import REDIS_PROTOCOL
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# PERF-11: per-table cache observability (cardinality bounded by _safe_label).
+# Per-table cache observability (cardinality bounded by _safe_label).
 tile_cache_hits = Counter(
     "geolens_tile_cache_hits_total",
     "Total tile cache hits",
@@ -53,7 +53,7 @@ _SAFE_TABLE_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 
 def _safe_label(table: str) -> str:
-    """Bound Prometheus label cardinality (PERF-11): ``table`` if it matches
+    """Bound Prometheus label cardinality: ``table`` if it matches
     the documented dataset-table shape, else ``"_other"`` so an unsanitized
     identifier can't pollute the Prometheus label index.
     """
@@ -99,7 +99,7 @@ class TileCacheProvider:
 
         `cols_key` differentiates tiles for the same table/z/x/y with
         different column projections; empty string preserves the original
-        key shape. `label` is the bare table name for the PERF-11 metric.
+        key shape. `label` is the bare table name for the metric.
         """
         suffix = f":{cols_key}" if cols_key else ""
         key = f"tile:{table}:{z}:{x}:{y}{suffix}"

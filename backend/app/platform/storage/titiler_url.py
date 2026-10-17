@@ -22,7 +22,7 @@ from app.platform.storage.raster_relay import (
     relay_url,
 )
 
-# IN-01: env-overridable TITILER_BASE_URL, read lazily (in
+# Env-overridable TITILER_BASE_URL, read lazily (in
 # _get_titiler_base_url) so the module can import before FastAPI settings
 # are ready. Defaults to "http://titiler:8000" when unset.
 _TITILER_BASE_URL: str | None = None  # populated lazily on first call
@@ -49,7 +49,7 @@ def _validate_asset_uri(asset_uri: str) -> None:
     exploitation needs a prior DB write compromise; this guard stops a
     compromised or malformed value from escaping the tenant prefix.
 
-    Checked (WR-01): ``..`` traversal, a leading ``/`` (absolute path), and
+    Checked: ``..`` traversal, a leading ``/`` (absolute path), and
     embedded scheme-like strings (``://``, ``/vsicurl/``, ``/vsis3/``,
     ``/vsiaz/``) that would reconstruct a raw VSI path. http(s):// URLs are
     exempt — they pass through the STAC branch unchanged.

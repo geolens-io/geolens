@@ -29,7 +29,7 @@ class SSRFResolutionError(SSRFError):
     """
 
 
-# SEC-013: ranges is_private/is_reserved miss but must be blocked for SSRF.
+# Ranges is_private/is_reserved miss but must be blocked for SSRF.
 # CGNAT 100.64.0.0/10 (not flagged by is_private on Python <=3.10); IPv6 ULA
 # fc00::/7 (missed on some older builds); NAT64 64:ff9b::/96 (embeds an IPv4
 # address that may itself be private).
@@ -51,7 +51,7 @@ def _is_blocked_ip(
         or ip.is_multicast
     ):
         return True
-    # SEC-013: check ranges not covered by the standard predicates above.
+    # Check ranges not covered by the standard predicates above.
     for network in _EXTRA_BLOCKED_NETWORKS:
         if ip in network:
             return True
@@ -61,7 +61,7 @@ def _is_blocked_ip(
 async def _resolve_and_validate(host: str, port: int | None) -> str:
     """Resolve *host*, validate every resolved IP, and return one validated IP.
 
-    SEC-008: the caller pins the connection to this address, closing the gap
+    The caller pins the connection to this address, closing the gap
     between validation-time and connect-time DNS. Raises SSRFError if
     resolution fails or any resolved address is blocked.
     """
@@ -122,7 +122,7 @@ async def validate_url_for_ssrf(url: str) -> None:
             raise SSRFError("URLs targeting private/internal networks are not allowed")
 
 
-# HYG-03: include 305 (Use Proxy) for completeness even though RFC 7231
+# Include 305 (Use Proxy) for completeness even though RFC 7231
 # deprecated it and httpx doesn't follow it by default. Cheap defense-in-depth.
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 305, 307, 308})
 
@@ -193,7 +193,7 @@ def _refuse_cross_origin_credential(
 async def _revalidate_redirect(response: httpx.Response) -> None:
     """httpx response hook: re-validate the Location target on every redirect hop.
 
-    SEC-S04: `follow_redirects=True` silently retargets to attacker-controlled
+    `follow_redirects=True` silently retargets to attacker-controlled
     internal IPs on a 302; `validate_url_for_ssrf` runs at submission time but
     not per-hop, so this hook closes the gap. Raising SSRFError here aborts
     further redirect-following.
@@ -276,7 +276,7 @@ async def _without_redirect_body(response, http: ModuleType):
 class _SSRFGuard:
     """Transport that re-resolves, re-validates, and PINS the IP at connect time.
 
-    SEC-008: `validate_url_for_ssrf` resolves DNS once at submission time,
+    `validate_url_for_ssrf` resolves DNS once at submission time,
     but the client does its own lookup at connect time — a low-TTL attacker
     domain can answer public at validation and private at connect (DNS
     rebinding). This transport resolves + validates immediately before
@@ -342,9 +342,9 @@ def make_safe_client(
 ) -> httpx.AsyncClient:
     """Construct an httpx.AsyncClient with SSRF IP-pinning and per-hop revalidation.
 
-    SEC-S04: use this factory instead of `httpx.AsyncClient(
+    Use this factory instead of `httpx.AsyncClient(
     follow_redirects=True, ...)` for any handler that fetches user-supplied
-    URLs. SEC-008: uses `_SSRFGuardTransport`, which re-resolves, validates,
+    URLs. Uses `_SSRFGuardTransport`, which re-resolves, validates,
     and pins at connect time, so a DNS-rebinding answer after submission-time
     validation can't reach an internal IP; `_revalidate_redirect` re-validates
     each 3xx Location and the transport re-pins each hop.

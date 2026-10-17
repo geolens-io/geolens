@@ -241,12 +241,12 @@ def wire_credential(
     which is what an in-process caller of plan D2 sets when constructing
     one directly.
 
-    fix(#1840): the ArcGIS branch is selected by
+    The ArcGIS branch is selected by
     ``requires_header_token_policy``, NOT by "the builder answered None".
-    Lane C2 taught ``build_credential_header`` to compose an
+    ``build_credential_header`` composes an
     ``X-Esri-Authorization: Bearer`` header for ArcGIS (for GeoLens's own
-    httpx requests — a different transport) and that silently killed the
-    branch below: this handed the worker ``Authorization: Bearer <token>``
+    httpx requests — a different transport), so keying off it would have
+    killed the branch below: it handed the worker ``Authorization: Bearer <token>``
     as ``token``, which ``build_gdal_source`` then percent-encoded into
     ``&token=Authorization%3A+Bearer+...``, breaking every authenticated
     ArcGIS ingest/refresh/reupload at the origin after the single-use
@@ -331,7 +331,7 @@ def bearer_credential(token: str | None) -> ServiceCredential | None:
 
 
 def _validate_safe_token(v: str | None) -> str | None:
-    """Reject control characters / whitespace in auth tokens (SEC-021).
+    """Reject control characters / whitespace in auth tokens.
 
     Tokens flow into a GDAL_HTTP_HEADER_FILE (WFS/OAPIF bearer) and into
     service query URLs (ArcGIS). A CR/LF or other control character could

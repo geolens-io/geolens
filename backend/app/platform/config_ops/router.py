@@ -72,7 +72,7 @@ async def export_configuration(
     headers. Using ``response_class=JSONResponse`` is the correct way to
     document a download endpoint in OpenAPI.
     """
-    # Deferred (D-17): platform must not import product domains at module
+    # Deferred: platform must not import product domains at module
     # load time.
     from app.modules.audit.service import AuditEvent, audit_emit
 

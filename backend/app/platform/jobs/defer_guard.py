@@ -43,7 +43,7 @@ RollbackCallable = Callable[[BaseException], Awaitable[object]]
 """Async callable that reverts committed DB state after a defer failure.
 
 Receives the defer exception so the rollback can name its type in the
-stored reason (fix(#1953): ``coded_failure_reason``, never ``str(exc)``,
+stored reason (#1953: ``coded_failure_reason``, never ``str(exc)``,
 which ADR-002 Decision 3 keeps out of a stored reason). Must *not* commit
 the session — ``defer_with_orphan_guard`` commits after invoking the
 rollback. Returning ``True`` reports that its write landed, which

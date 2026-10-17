@@ -1,7 +1,7 @@
 """Pure domain-validation helpers for the allowed_email_domains allowlist.
 
 No database, session, FastAPI, or persistent_config imports. Imported by
-settings/schemas.py (validator) and the four enforcement paths (signup,
+settings/schemas.py (validator) and four enforcement paths (signup,
 password login, SSO, admin-create).
 
 Security notes

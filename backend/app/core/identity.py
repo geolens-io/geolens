@@ -4,8 +4,7 @@ Structural Protocols downstream code uses to type a request's authenticated
 user without importing the concrete SQLAlchemy ORM (PEP 544; the concrete
 ``app.modules.auth.models.User`` satisfies ``IdentityProtocol`` implicitly).
 Uses only stdlib types plus ``fastapi.Request``/``AsyncSession`` (allowed
-infrastructure types) to avoid a ``core -> modules.auth`` import edge
-(Phase 214, IDENT-01..03).
+infrastructure types) to avoid a ``core -> modules.auth`` import edge.
 
 An enterprise auth overlay is the first concrete consumer of
 ``IdentityExtension``: it registers under the ``geolens.extensions``
@@ -38,11 +37,11 @@ class RoleProtocol(Protocol):
 class IdentityProtocol(Protocol):
     """Comprehensive identity surface read by cross-domain call sites.
 
-    The 6-field surface (D-01) covers every read of the concrete ``User`` ORM
+    The 6-field surface covers every read of the concrete ``User`` ORM
     made outside ``auth/`` and ``admin/``. Sensitive fields (``password_hash``,
     ``auth_provider``, ``last_login_at``, ``status``) are deliberately NOT
     exposed — admin endpoints that need them keep importing the concrete
-    ``User`` (allowlisted in the Phase 214 architecture guard).
+    ``User`` (allowlisted in the architecture guard).
     """
 
     id: uuid.UUID
@@ -53,7 +52,7 @@ class IdentityProtocol(Protocol):
     created_at: datetime
 
 
-# Shorter alias for caller annotations (Phase 214 D-05); ``IdentityProtocol``
+# Shorter alias for caller annotations; ``IdentityProtocol``
 # is preferred in conformance assertions / runtime ``isinstance`` checks.
 Identity = IdentityProtocol
 
@@ -95,7 +94,7 @@ class IdentityExtension(Protocol):
     "fall through to the existing JWT path." An overlay implements this to
     validate its own session token, JIT-provision via
     ``find_or_create_oauth_user()``, and return an ``Identity``. Async is
-    mandatory (Pitfall 8): overlay implementations may hit the DB.
+    mandatory: overlay implementations may hit the DB.
     """
 
     async def resolve_identity_from_token(

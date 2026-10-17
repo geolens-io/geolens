@@ -1,6 +1,6 @@
 """``catalog.dataset_refresh_runs`` — one row per refresh attempt.
 
-feat(#1219), ADR-002 Decision 4.
+ADR-002 Decision 4.
 
 A sibling table rather than extra columns on ``DatasetVersion``: that table
 is a SUCCESS ledger with ``UNIQUE (dataset_id, version_number)``, and a
@@ -123,7 +123,7 @@ class DatasetRefreshRun(Base):
     dataset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.datasets.id", ondelete="CASCADE"), nullable=False
     )
-    # TSEAM-01 dormant tenant_id. Not in migration 0018's stamping-trigger
+    # Dormant tenant_id. Not in migration 0018's stamping-trigger
     # set, so `create_pending_run` writes it explicitly from the parent
     # dataset's STORED value, not the ORM attribute — the trigger fills the
     # DB column but leaves the ORM attribute None (#1218 finding).

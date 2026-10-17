@@ -7,8 +7,8 @@ do and the text an operator reads. :mod:`app.core.db.tenant_adoption` is what
 adoption *does* — the queries, the DDL, the CLI.
 
 ``AdoptionReport.ok`` sits next to what it consults deliberately: it is the
-process exit code, so every printable condition must reach it. fix(#1405):
-several review rounds found the report saying something is broken while the
+process exit code, so every printable condition must reach it. A report could
+say something is broken while the
 check still exited 0.
 """
 

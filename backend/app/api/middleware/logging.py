@@ -43,7 +43,7 @@ class RequestLoggingMiddleware:
         request_id = str(uuid.uuid4())
         structlog.contextvars.bind_contextvars(service="api", request_id=request_id)
         # Stash on request.state so the global exception handler can read the
-        # ID without parsing client-supplied headers (RESILIENCE-9).
+        # ID without parsing client-supplied headers.
         request.state.request_id = request_id
 
         # fix(#1778): stamped the moment the request entered the app, on

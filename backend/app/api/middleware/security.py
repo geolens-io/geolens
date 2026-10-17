@@ -4,12 +4,12 @@ Adds standard security headers to all API responses:
 - X-Content-Type-Options: nosniff -- prevents MIME-type sniffing
 - Referrer-Policy: strict-origin-when-cross-origin -- limits referrer leakage
   (skipped if the route already set Referrer-Policy, e.g. OAuth callbacks
-  use no-referrer per SEC-13)
+  use no-referrer)
 - Content-Security-Policy: frame-ancestors 'self' -- prevents clickjacking
   (skipped if the route already set Content-Security-Policy, e.g. the icon
-  GET endpoint uses `default-src 'none'; sandbox` for SVG per SEC-01)
+  GET endpoint uses `default-src 'none'; sandbox` for SVG)
 - X-Frame-Options: DENY -- legacy clickjacking protection (skipped when
-  the route set its own CSP frame-ancestors, per SEC-S08: legacy
+  the route set its own CSP frame-ancestors: legacy
   browsers apply XFO=DENY unconditionally and reject a permitted embed)
 - Permissions-Policy: camera=(), microphone=(), geolocation=()
 - Strict-Transport-Security (conditional) -- when behind a TLS terminator
@@ -48,17 +48,17 @@ class SecurityHeadersMiddleware:
 def _add_security_headers(headers: MutableHeaders, *, https: bool) -> None:
     route_set = {key.lower() for key in headers.keys()}
     headers["X-Content-Type-Options"] = "nosniff"
-    # SEC-13: only set Referrer-Policy if the route did NOT already set it.
+    # Only set Referrer-Policy if the route did NOT already set it.
     # OAuth callback uses no-referrer to keep the IdP authorization code
     # and URL-fragment tokens out of subsequent Referer headers; non-OAuth
     # routes still get the global strict-origin-when-cross-origin default.
     if "referrer-policy" not in route_set:
         headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    # SEC-01: only set the global CSP if the route hasn't already (the
+    # Only set the global CSP if the route hasn't already (the
     # icon GET handler uses `default-src 'none'; sandbox`; the
-    # shared-map endpoint (SEC-S08) emits a per-token frame-ancestors).
+    # shared-map endpoint emits a per-token frame-ancestors).
     #
-    # SEC-S08: skip X-Frame-Options: DENY when the route owns its own
+    # Skip X-Frame-Options: DENY when the route owns its own
     # CSP — modern browsers honor frame-ancestors over XFO, but legacy
     # browsers apply the unconditional XFO=DENY and would reject the
     # embed regardless of the route's per-token policy.

@@ -306,7 +306,7 @@ async def claim_job_attempt_and_start_heartbeat(
     fix(#836): rolls back and returns ``None`` when the caller no longer owns
     the attempt. When ``job``/``current_step`` are given, stamps the first
     progress step in the same commit so polling sees a fresh signal on its
-    first poll after pickup (REMED-02 / ingest-audit P2-07).
+    first poll after pickup.
     """
     if not await ledger.claim(session, job_uuid, attempt_uuid):
         await session.rollback()

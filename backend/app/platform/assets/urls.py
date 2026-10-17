@@ -37,11 +37,11 @@ def resolve_asset_url(
     """Resolve an asset href to the correct URL form.
 
     Returns None when no safe authorized URL exists (e.g. a local-storage
-    path that would collide with the SPA /assets/ nginx location — GAP-031).
+    path that would collide with the SPA /assets/ nginx location).
     """
-    # feat(#1692): a by-reference origin asset (STAC import) stores the
+    # A by-reference origin asset (STAC import) stores the
     # publisher's already-public absolute URL as its href — not managed
-    # storage, so the presign branch and the GAP-031 refusal below would
+    # storage, so the presign branch and the local-path refusal below would
     # both mishandle it. Checked first and passed through untouched.
     if is_remote_href(href):
         return href
@@ -58,7 +58,7 @@ def resolve_asset_url(
             physical_key, **presign_options
         )
 
-    # GAP-031: no backend route serves /assets/{key} — nginx returns the SPA
+    # No backend route serves /assets/{key} — nginx returns the SPA
     # index or a 404, never the storage file. Return None so callers omit the
     # asset rather than publish a dead href.
     return None

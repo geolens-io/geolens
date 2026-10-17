@@ -47,7 +47,7 @@ _UNSET: Any = object()
 
 _registry: list[PersistentConfig] = []
 
-# fix(#435): ADMIN-03 (M-03) — single source of truth for enterprise-only
+# Single source of truth for enterprise-only
 # Settings tabs; the backend `_require_enterprise_for_key` gate, config
 # import/export, and the frontend AdminSidebar all consult this set. Lives
 # here so config_ops need not import settings/router.py at import time.
@@ -169,7 +169,7 @@ class PersistentConfig(Generic[T]):
             effective = self.env_default
 
         # On validation fallback, skip the cache write so the next read
-        # re-hits the DB and re-logs until the corrupt row is fixed (D-03).
+        # re-hits the DB and re-logs until the corrupt row is fixed.
         if cache is not None and validated_ok:
             await cache.set(cache_key, effective, ttl=_CACHE_TTL)
         self._update_sync_cache(effective)
@@ -277,14 +277,14 @@ class PersistentConfig(Generic[T]):
         Deliberately synchronous: this runs once per key of a batch, and having
         no await in it is what keeps a whole batch's worth uninterleavable.
         """
-        # BUG-025: public-URL keys are also memoized in a separate 60s cache
+        # Public-URL keys are also memoized in a separate 60s cache
         # in public_urls; clear it so the new value is reflected immediately.
         if self.key in PUBLIC_URL_KEYS:
             invalidate_public_url_cache()
 
         self._on_change(value)
 
-        # BUG-008: warm the sync cache with the NEW value — set() only ever
+        # Warm the sync cache with the NEW value — set() only ever
         # warmed it with the OLD value (via get(db) above), so slowapi kept
         # enforcing the previous limit for up to _CACHE_TTL per process.
         self._update_sync_cache(value)
@@ -352,7 +352,7 @@ class PersistentConfig(Generic[T]):
         if self.key in (
             "login_rate_limit",
             "global_rate_limit",
-            # CR-03 (Phase 1062 review): also warm the cache for the two new
+            # Also warm the cache for the two new
             # rate-limit knobs so DB-overridden values are picked up by slowapi
             # at request time. Without these entries, get_cached_*_rate_limit()
             # always fell through to _DEFAULT_* and ignored admin-set values.
@@ -413,7 +413,7 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
     label="Registration Enabled",
 )
 
-# SIGNUP-04: when self-serve registration is ON, email verification is the
+# When self-serve registration is ON, email verification is the
 # activation gate. Default True for the secure path; independent of
 # REGISTRATION_ENABLED, which gates availability, not activation.
 # SECURITY (#267): with SMTP, this is NOT username-enumeration-safe — the
@@ -447,7 +447,7 @@ PUBLIC_BASE_URL = PersistentConfig[str](
     label="Public Base URL",
 )
 
-# CONF-01: PUBLIC_BASE_URL is the legacy alias for PUBLIC_API_URL, kept
+# PUBLIC_BASE_URL is the legacy alias for PUBLIC_API_URL, kept
 # functional for backwards compatibility. Warn once at import time rather
 # than per-request.
 if settings.public_base_url:
@@ -485,7 +485,7 @@ PUBLIC_API_URL = PersistentConfig[str](
     label="Public API URL",
 )
 
-# PRIV-1: per-instance privacy-policy link for the login/register pages.
+# Per-instance privacy-policy link for the login/register pages.
 # tab="general" (not "branding") deliberately: ENTERPRISE_ONLY_TABS gates the
 # branding tab, and self-hosted community operators need this the most.
 PRIVACY_URL = PersistentConfig[str](
@@ -539,7 +539,7 @@ RESTRICT_PUBLIC_VISIBILITY = PersistentConfig[bool](
     label="Restrict Public Visibility to Admins",
 )
 
-# FRONT-01: landing-first flag, default OFF. When ON, the frontend root
+# Landing-first flag, default OFF. When ON, the frontend root
 # guard redirects unauthenticated visitors from "/" to "/login" unless
 # they've set the gl-guest-browse sessionStorage escape hatch.
 LANDING_FIRST = PersistentConfig[bool](
@@ -611,7 +611,7 @@ LOGIN_RATE_LIMIT = PersistentConfig[int](
     label="Login Rate Limit (per min)",
 )
 
-# DOMAIN-01: allowlist of permitted email domains for signup/login/SSO/
+# Allowlist of permitted email domains for signup/login/SSO/
 # admin-create. Default [] means unrestricted. JSONB-backed key — no
 # Alembic migration required.
 ALLOWED_EMAIL_DOMAINS = PersistentConfig[list[str]](
@@ -622,7 +622,7 @@ ALLOWED_EMAIL_DOMAINS = PersistentConfig[list[str]](
     label="Allowed Email Domains",
 )
 
-# SSO-01: when False, POST /auth/login returns 403 for users without
+# When False, POST /auth/login returns 403 for users without
 # manage_settings — admins always retain password-login as a break-glass
 # escape hatch. Default True. JSONB-backed key — no Alembic migration
 # required.
@@ -1143,7 +1143,7 @@ def get_cached_global_rate_limit() -> int:
 def get_cached_semantic_search_rate_limit() -> int:
     """Sync accessor for slowapi callable -- reads from sync cache, falls back to default.
 
-    SEC-S11: caps OpenAI embedding cost-DoS by limiting unique novel queries per IP.
+    Caps OpenAI embedding cost-DoS by limiting unique novel queries per IP.
     Default 30/min matches the audit recommendation for cost-sensitive endpoints.
     Configurable at runtime via the admin Settings UI / PUT /settings/ with key
     `semantic_search_rate_limit` (there is no SEMANTIC_SEARCH_RATE_LIMIT env var;
@@ -1158,7 +1158,7 @@ def get_cached_semantic_search_rate_limit() -> int:
 def get_cached_basemap_proxy_rate_limit() -> int:
     """Sync accessor for slowapi callable -- reads from sync cache, falls back to default.
 
-    SEC-S10: caps commercial-tier basemap key replay from anonymous clients.
+    Caps commercial-tier basemap key replay from anonymous clients.
     Default 120/min is loose enough for the SPA boot path (one call per page load
     across users behind a shared NAT) while still bounding attacker throughput.
     Configurable at runtime via the admin Settings UI / PUT /settings/ with key

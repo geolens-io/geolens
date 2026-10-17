@@ -1,7 +1,7 @@
 """CRS URI/URN → EPSG integer parser.
 
 Converts URI/URN CRS reference forms emitted by GeoServer and pygeoapi into
-EPSG integer codes (D-07). Anchored regexes, known-form allowlist; anything
+EPSG integer codes. Anchored regexes, known-form allowlist; anything
 unrecognised returns None (default-deny) — do NOT add forms not on this list:
 
   1. http://www.opengis.net/def/crs/OGC/1.3/CRS84  → 4326
@@ -11,7 +11,7 @@ unrecognised returns None (default-deny) — do NOT add forms not on this list:
   5. urn:ogc:def:crs:OGC:1.3:CRS84                 → 4326
 
 NOT covered: bare "EPSG:N" strings (ogrinfo projjson/WKT extraction) and
-backend-side reprojection (out of scope per D-13).
+backend-side reprojection (out of scope).
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def parse_crs_uri(value: str | None) -> int | None:
     ``None`` for anything else, including ``None``/empty input (default-deny).
 
     No upper bound on the returned code — downstream PostGIS rejects unknown
-    SRIDs at Find_SRID/ST_Transform time (T-1057C-04 accepted).
+    SRIDs at Find_SRID/ST_Transform time.
     """
     if not value:
         return None
@@ -67,5 +67,5 @@ def parse_crs_uri(value: str | None) -> int | None:
     if _RE_OGC_CRS84_URN.match(value):
         return 4326
 
-    # Unrecognised — preserve null-CRS fallthrough (D-07 default-deny)
+    # Unrecognised — preserve null-CRS fallthrough (default-deny)
     return None

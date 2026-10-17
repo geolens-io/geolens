@@ -43,7 +43,7 @@ class DefaultOpenAICompatibleProvider:
         base_url=None,
         temperature=0.5,
     ):
-        # Deferred imports (Phase 214 discipline)
+        # Deferred imports
         import json
         import time
 
@@ -251,7 +251,7 @@ class DefaultOpenAICompatibleProvider:
     ):
         raise NotImplementedError(
             "DefaultOpenAICompatibleProvider.stream() not implemented in "
-            "community edition; use complete() (Phase 226 D-03)."
+            "community edition; use complete()."
         )
 
     # fix(#1590): explicit keyword-only signature, matching
@@ -389,7 +389,7 @@ class DefaultOpenAIEmbeddingProvider:
         base_url: str | None = None,
         timeout: float | None = None,
     ) -> list[list[float]]:
-        # Deferred imports (Phase 214 discipline)
+        # Deferred imports
         import asyncio
         import random
 

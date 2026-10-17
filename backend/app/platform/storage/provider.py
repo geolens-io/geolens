@@ -30,7 +30,7 @@ class StorageProvider(Protocol):
     async def get(self, key: str) -> bytes:
         """Retrieve raw bytes for a key.
 
-        Raises FileNotFoundError if the key does not exist (BA-24).
+        Raises FileNotFoundError if the key does not exist.
         """
         ...
 
@@ -40,7 +40,7 @@ class StorageProvider(Protocol):
         Server-side wherever the provider supports it — the bytes must not
         round-trip through this process, because callers use this to snapshot
         multi-GB uploads. Raises FileNotFoundError if ``src_key`` does not
-        exist (BA-24).
+        exist.
         """
         ...
 
@@ -50,8 +50,7 @@ class StorageProvider(Protocol):
         For checking a bounded window of a large object (e.g. a header, or
         Parquet's trailing magic) without downloading it whole. ``length``
         must be positive; returns fewer bytes if the window runs past the
-        object's end. Raises FileNotFoundError if the key does not exist
-        (BA-24).
+        object's end. Raises FileNotFoundError if the key does not exist.
         """
         ...
 
@@ -78,7 +77,7 @@ class StorageProvider(Protocol):
         ``length`` must be positive. The stream ends early if the object is
         shorter than the window — never pad to length, which trades a loud
         transfer error for a silent corruption. Raises FileNotFoundError if
-        the key does not exist (BA-24).
+        the key does not exist.
         """
         ...
 
@@ -97,7 +96,7 @@ class StorageProvider(Protocol):
     async def size(self, key: str) -> int:
         """Return the stored object size in bytes.
 
-        Raises FileNotFoundError if the key does not exist (BA-24: all providers
+        Raises FileNotFoundError if the key does not exist (all providers
         normalize their native not-found error to FileNotFoundError).
         """
         ...
@@ -237,7 +236,7 @@ def init_storage() -> None:
             raise RuntimeError(
                 "storage_provider='azure' but azure_storage_container is not configured"
             )
-        # CR-04: connection_string takes precedence over account_url+key
+        # connection_string takes precedence over account_url+key
         # inside AzureBlobStorageProvider. reveal() here is passed straight
         # to the SDK and never logged.
         _storage = AzureBlobStorageProvider(

@@ -567,7 +567,7 @@ class DefaultCatalogPort:
 
         return await get_job_or_404(session, job_id, user)
 
-    # Tile signing (Phase 252 LAYERING-01)
+    # Tile signing
     def generate_tile_signature(self, scope, exp):  # type: ignore[no-untyped-def]
         from app.processing.tiles.signing import generate_tile_signature
 

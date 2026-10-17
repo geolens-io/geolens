@@ -87,7 +87,7 @@ SINGLE_SLOT_KEYS: frozenset[str] = frozenset(
         "workflow",
         "branding",
         "auth",
-        "entitlement",  # ENTSEAM-01 — cloud overlay claims this
+        "entitlement",  # cloud overlay claims this
         "connectors",
         "data_serving",
         "scheduled_refresh_lifecycle",
@@ -102,7 +102,7 @@ ADDITIVE_SLOT_KEYS: frozenset[str] = frozenset(
         "billing_extensions",
         "ai_providers",
         "embedding_providers",
-        "notification_sinks",  # NOTIF-01 — overlays append sinks
+        "notification_sinks",  # overlays append sinks
         "_routers",
     }
 )
@@ -112,11 +112,11 @@ _slot_owners: dict[str, str] = {}
 
 
 class ExtensionSlotConflictError(RuntimeError):
-    """Raised when two overlays write the same single-slot key (SLOT-01)."""
+    """Raised when two overlays write the same single-slot key."""
 
 
 def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) -> None:
-    """Invoke ``loader(registry)`` and detect duplicate single-slot writes (SLOT-01).
+    """Invoke ``loader(registry)`` and detect duplicate single-slot writes.
 
     Raises :class:`ExtensionSlotConflictError` if a single-slot key changes
     owner. :data:`ADDITIVE_SLOT_KEYS` are exempt — they legitimately stack.
@@ -136,7 +136,7 @@ def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) ->
         if key in pre_snapshot:
             prior_val = pre_snapshot[key]
             if new_val is not prior_val:
-                # SLOT-02/CLOUD-04: a replacement is allowed only if it
+                # A replacement is allowed only if it
                 # transparently wraps the prior value via __slot_inner__;
                 # a bare replacement or a wrong/missing inner still raises.
                 if getattr(new_val, "__slot_inner__", None) is prior_val:
@@ -164,17 +164,17 @@ def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) ->
 def load_extensions() -> None:
     """Discover and load all extensions from the ``geolens.extensions`` group.
 
-    Version contract (OCG-04): each loader must declare
+    Version contract: each loader must declare
     ``EXTENSION_API_VERSION`` matching
     :data:`app.platform.extensions.version.EXTENSION_API_VERSION`; a mismatch
     raises :class:`RuntimeError` and is never swallowed. Other loader
     exceptions (e.g. missing dependencies) are caught and logged as warnings.
 
-    Slot-conflict guard (SLOT-01): a second overlay writing a non-additive
+    Slot-conflict guard: a second overlay writing a non-additive
     single-slot key (see :data:`SINGLE_SLOT_KEYS`) raises
     :class:`ExtensionSlotConflictError`. :data:`ADDITIVE_SLOT_KEYS` are exempt.
 
-    Wrap-don't-replace (SLOT-02/CLOUD-04): to add behavior on a single-slot
+    Wrap-don't-replace: to add behavior on a single-slot
     key, read the prior impl via the matching ``get_*_extension()``, wrap it,
     set ``wrapper.__slot_inner__ = prior`` so the guard recognizes a
     transparent wrap, and register the wrapper under the same key LAST::
@@ -202,7 +202,7 @@ def load_extensions() -> None:
     for ep in entry_points(group="geolens.extensions"):
         try:
             loader = ep.load()
-            # OCG-04: version check runs before the loader call; its
+            # Version check runs before the loader call; its
             # RuntimeError escapes the broad except below.
             declared_version = getattr(loader, "EXTENSION_API_VERSION", None)
             check_extension_api_version(ep.name, declared_version)
@@ -343,7 +343,7 @@ def get_audit_sinks() -> list[AuditSink]:
 
     Additive slot: overlays append via
     ``registry.setdefault("audit_sinks", [DefaultAuditSink()]).append(sink)``.
-    Reassigning the key drops DefaultAuditSink and breaks the AUDIT-05
+    Reassigning the key drops DefaultAuditSink and breaks the
     guarantee that every deployment writes at least one sink; this is not
     enforced beyond the architecture-guard test on direct ``log_action(`` calls.
 
@@ -380,7 +380,7 @@ def get_notification_sinks() -> list[NotificationSink]:
     ``registry.setdefault("notification_sinks",
     [DefaultNotificationSink()]).append(sink)``. Community (no notification
     env vars set) sends zero outbound notifications. Reassigning the key
-    drops DefaultNotificationSink — use setdefault+append to preserve NOTIF-01.
+    drops DefaultNotificationSink — use setdefault+append to preserve the default sink.
 
     Returns a defensive copy so a sink can't mutate the registry mid-iteration.
     """

@@ -251,7 +251,7 @@ class IngestJob(Base):
             "status IN ({})".format(", ".join(f"'{s}'" for s in ALL_STATUSES)),
             name="chk_ingest_jobs_status",
         ),
-        # DBM-03: partial index for stale-job recovery scans.
+        # Partial index for stale-job recovery scans.
         # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_ingest_jobs_status_active",
@@ -316,9 +316,9 @@ class IngestJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # REMED-02 / ingest-audit P2-07: progress fields written by workers at
+    # Progress fields written by workers at
     # step boundaries; nullable for back-compat (pre-migration/service-ingest
-    # rows surface None). DB column stays String(32); Pydantic Literal is the contract (KNOWN-04).
+    # rows surface None). DB column stays String(32); Pydantic Literal is the contract.
     progress: Mapped[float | None] = mapped_column(Float, nullable=True)
     current_step: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rows_processed: Mapped[int | None] = mapped_column(Integer, nullable=True)

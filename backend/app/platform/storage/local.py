@@ -12,7 +12,7 @@ from app.core.async_io import run_in_thread_draining
 from app.platform.storage.provider import StoredObject
 
 
-# Chunk size for streaming reads (ING-03/P2-03): balances syscall overhead
+# Chunk size for streaming reads: balances syscall overhead
 # against per-download resident memory.
 _STREAM_CHUNK_BYTES = 1024 * 1024  # 1 MiB
 
@@ -32,8 +32,8 @@ class LocalStorageProvider:
         """Return the resolved path for *key*, asserting it stays inside base_dir.
 
         Rejects absolute keys, null bytes, and path-traversal that escapes
-        base_dir, raising ``ValueError`` (caller maps to 400/403). SEC-026:
-        called at the top of every IO method so none is a bypass.
+        base_dir, raising ``ValueError`` (caller maps to 400/403).
+        Called at the top of every IO method so none is a bypass.
         """
         if "\x00" in key:
             raise ValueError(f"Storage key contains a null byte: {key!r}")
@@ -130,7 +130,7 @@ class LocalStorageProvider:
         return await asyncio.to_thread(_read)
 
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
-        """Stream key bytes in 1 MiB chunks (ING-03/P2-03).
+        """Stream key bytes in 1 MiB chunks.
 
         Avoids materializing a large COG as one ``bytes`` object. Handle
         closed in ``finally`` so a client disconnect mid-stream doesn't leak
@@ -261,7 +261,7 @@ class LocalStorageProvider:
 
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix, relative to base_dir."""
-        # SEC-026: resolve the prefix before touching the filesystem, outside
+        # Resolve the prefix before touching the filesystem, outside
         # the worker, so a rejected key never reaches exists()/rglob()/glob().
         resolved_prefix = self._resolve_contained(prefix)
         resolved_base = self.base_dir.resolve()

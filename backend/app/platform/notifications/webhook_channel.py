@@ -1,4 +1,4 @@
-"""Generic outbound webhook channel for GeoLens notifications (NOTIF-03).
+"""Generic outbound webhook channel for GeoLens notifications.
 
 POSTs a JSON payload to the operator-configured ``NOTIFICATION_WEBHOOK_URL``
 via the already-present ``httpx`` dependency.
@@ -37,7 +37,7 @@ def _make_client(timeout: "httpx.Timeout") -> "httpx.AsyncClient":  # type: igno
 async def post_webhook(notification: "Notification") -> None:  # type: ignore[name-defined]  # noqa: F821
     """POST *notification* as JSON to the configured webhook URL.
 
-    Imports are deferred (Phase 214) so this module pays no import cost
+    Imports are deferred so this module pays no import cost
     for deployments that never call it.
 
     Raises:
@@ -57,7 +57,7 @@ async def post_webhook(notification: "Notification") -> None:  # type: ignore[na
         "subject": notification.subject,
         "body": notification.body,
         "data": notification.data or {},
-        # Slack/Teams compatibility: both render {"text": "..."} (NOTIF-03).
+        # Slack/Teams compatibility: both render {"text": "..."}.
         "text": f"{notification.subject}\n{notification.body}",
     }
 

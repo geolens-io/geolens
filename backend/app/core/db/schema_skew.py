@@ -1,4 +1,4 @@
-"""MIG-02 — startup schema-head skew guard.
+"""Startup schema-head skew guard.
 
 Refuse to boot when the database's applied migration heads do not match the
 heads the running image's migration scripts declare. Booting the API/worker

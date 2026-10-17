@@ -1,4 +1,4 @@
-"""Environment-driven NotificationSink that routes to configured channels (NOTIF-04).
+"""Environment-driven NotificationSink that routes to configured channels.
 
 ``EnvConfiguredNotificationSink`` reads ``app_settings`` at ``deliver()``
 time and dispatches to whichever channels are configured: SMTP
@@ -57,7 +57,7 @@ class EnvConfiguredNotificationSink:
         delivered, failures = await self.deliver_channels(notification)
         if failures and not delivered:
             # All channels failed: raise a secret-free error. notify()'s own
-            # try/except keeps this off any request path (NOTIF-04).
+            # try/except keeps this off any request path.
             raise NotificationDeliveryError(
                 f"All {len(failures)} channel(s) failed: "
                 + ", ".join(f"{name}: {error}" for name, error in failures)
@@ -72,7 +72,7 @@ class EnvConfiguredNotificationSink:
         name and the exception's type name. Never raises. A name no channel
         is configured under sends nothing.
         """
-        # Deferred import of settings (Phase 214) — not paid at module load.
+        # Deferred import of settings — not paid at module load.
         from app.core.config import settings as app_settings
 
         # Master toggle: notifications_enabled=False ⇒ no channels attempted.

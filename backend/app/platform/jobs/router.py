@@ -97,7 +97,7 @@ async def _can_access_another_users_job(
     that forgets the flag over-reports rather than losing a denial silently.
     """
     # Deferred by design: shared platform code must not import product-domain
-    # policy implementations at module load time (D-17).
+    # policy implementations at module load time.
     from app.modules.auth.dependencies import (
         get_cached_user_roles,
         log_permission_denial,
@@ -527,7 +527,7 @@ def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
 async def _job_to_status_response(
     job: IngestJob, *, include_detail: bool
 ) -> JobStatusResponse:
-    """Extract warnings + structured metadata from ``user_metadata`` (S3/TYPE-2).
+    """Extract warnings + structured metadata from ``user_metadata``.
 
     Shared by ``get_job_status`` and ``get_job_status_by_dataset`` so the
     warning-parse contract lives in one place.
@@ -612,7 +612,7 @@ async def _job_to_status_response(
         and QUICKLOOK_ITEM in obligations,
         warning_message=warning_message,
         warnings=warnings,
-        # REMED-02 / ingest-audit P2-07: surface worker-written progress fields.
+        # Surface worker-written progress fields.
         progress=job.progress,
         current_step=job.current_step,
         rows_processed=job.rows_processed,
@@ -772,7 +772,7 @@ async def retry_job(
 
     # Reset the job to pending and commit before re-queueing so the
     # orphan guard in queue_ingest_job can flip it back to failed if
-    # the queue is down (RESILIENCE-2).
+    # the queue is down.
     previous_attempt_id = job.attempt_id
     if await retry(db, job) is not Outcome.LANDED:
         await db.rollback()

@@ -1,6 +1,6 @@
 """Prometheus series for the dataset-refresh lifecycle.
 
-feat(#1268)/ADR-002 Amendment A10. Gauges, not counters at the event:
+ADR-002 Amendment A10 (#1268). Gauges, not counters at the event:
 the worker is a different process with no scrape endpoint and shares no
 PROMETHEUS_MULTIPROC_DIR, so a counter incremented there is written to a
 file nothing reads; and every API worker would count the same run, since

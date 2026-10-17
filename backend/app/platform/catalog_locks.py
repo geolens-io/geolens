@@ -423,7 +423,7 @@ async def admit_vrt_mutation(
 ) -> bool:
     """Admit one VRT-mutating dispatch per dataset, or refuse this one.
 
-    fix(#1955): ADR-002 Decision 5b's partial unique index does not reach VRT
+    The partial unique index from ADR-002 Decision 5b (#1955) does not reach VRT
     regeneration, and the three doors that dispatch one read the asset status,
     check it and flip it as three statements. The lock comes FIRST and the
     status is re-read under it: read before the lock, the loser's snapshot

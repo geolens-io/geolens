@@ -55,7 +55,8 @@ class AuditSink(Protocol):
     Enterprise overlays subscribe by appending instances to
     ``_extensions["audit_sinks"]`` in ``register_extensions(registry)`` via
     ``setdefault + append`` — overwriting the slot makes DefaultAuditSink
-    disappear and breaks AUDIT-05.
+    disappear and breaks the guarantee that every deployment writes at least
+    one audit sink.
     """
 
     async def emit(self, session: AsyncSession, event: "AuditEvent") -> None: ...
@@ -429,7 +430,7 @@ class PermissionExtension(Protocol):
     singleton registry entry under ``"permission"`` to implement advanced
     RBAC, ABAC, or row-level filters without changing core.
 
-    **Wrap-don't-replace (SLOT-02):** an overlay needing additive behavior
+    **Wrap-don't-replace:** an overlay needing additive behavior
     MUST wrap the prior implementation retrieved via
     ``get_permission_extension()`` at construction time — never bare
     re-register the ``"permission"`` key (the slot-conflict guard rejects it).
@@ -539,7 +540,7 @@ class WorkflowExtension(Protocol):
     approval states, block transitions, or observe transitions without
     changing catalog routes.
 
-    **Wrap-don't-replace (SLOT-02):** an overlay that needs to observe
+    **Wrap-don't-replace:** an overlay that needs to observe
     transitions while preserving existing behavior MUST wrap
     ``get_workflow_extension()`` at construction time — never bare
     re-register the ``"workflow"`` key.
@@ -608,7 +609,7 @@ class EntitlementPort(Protocol):
     fail-OPEN). The cloud overlay registers a real implementation backed
     by the ``tenant_entitlements`` table (webhook-synced from Stripe).
 
-    **Wrap-don't-replace (SLOT-02):** an overlay needing additive behavior
+    **Wrap-don't-replace:** an overlay needing additive behavior
     MUST wrap the prior implementation retrieved via
     ``get_entitlement_port()`` at construction time — never bare
     re-register the ``"entitlement"`` key (the slot-conflict guard rejects it).

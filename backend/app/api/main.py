@@ -112,7 +112,7 @@ async def seed_roles() -> None:
 
 
 def _warn_if_cors_unset(settings_obj, log) -> None:
-    """SEC-08/M-72/SEC-005: warn when CORS_ALLOWED_ORIGINS is unset in prod.
+    """Warn when CORS_ALLOWED_ORIGINS is unset in prod.
 
     Anonymous standards/catalog reads stay browser-accessible regardless;
     credentialed routes need an explicit origin allowlist. Gated on
@@ -367,7 +367,7 @@ async def lifespan(app: FastAPI):
                 )
                 raise
 
-    # MIG-02: fail closed on migration-head skew in EITHER direction (DB
+    # Fail closed on migration-head skew in EITHER direction (DB
     # behind = migrate didn't run; DB ahead = image rolled back below schema).
     # Runs after the connectivity probe so a transient outage retries above.
     from app.core.db.schema_skew import assert_schema_in_sync
@@ -376,7 +376,7 @@ async def lifespan(app: FastAPI):
 
     await seed_bootstrap_identity()
 
-    # SEC-08 / M-72: surface unset CORS_ALLOWED_ORIGINS in production once.
+    # Surface unset CORS_ALLOWED_ORIGINS in production once.
     _warn_if_cors_unset(settings, logger)
 
     # fix(#2018): the rate-limit storage decision is made at import, before
@@ -384,17 +384,17 @@ async def lifespan(app: FastAPI):
     # there and flushed here into the configured stream.
     emit_startup_notices()
 
-    # WORK-01: shared bootstrap — extension load, enterprise-overlay-requested check,
+    # Shared bootstrap — extension load, enterprise-overlay-requested check,
     # edition init, extension router include, storage + S3 health probe, billing
     # on_startup dispatch, cache init. bootstrap() is the single source of truth
     # for this sequence; both API and worker delegate here to prevent drift.
     await bootstrap(app=app)
 
-    # WORK-02: run the same affirmative port assertion the worker runs
+    # Run the same affirmative port assertion the worker runs
     # (worker.py) so both entrypoints fail closed together. Without it, a
     # license-key activation with a missing overlay would crash the worker while
     # the API kept serving on Default community ports — the API-up/worker-down
-    # split-brain WORK-01 exists to prevent. No-op in community/single-tenant.
+    # split-brain this check exists to prevent. No-op in community/single-tenant.
     assert_enterprise_ports_resolved()
 
     staging_root = ensure_staging_ready(settings.upload_staging_dir)
@@ -738,13 +738,13 @@ _OPENAPI_TAGS = [
     },
 ]
 
-# SEC-005: docs exposure (and the Secure session cookie below) are gated on the
+# Docs exposure (and the Secure session cookie below) are gated on the
 # explicit ENVIRONMENT setting, not the LOG_JSON log-format flag. is_production
 # falls back to LOG_JSON when ENVIRONMENT is unset (backward compatibility).
 _is_production = settings.is_production
 
 
-# REL-03: version is read from the installed backend distribution metadata
+# Version is read from the installed backend distribution metadata
 # (backend/pyproject.toml [project].version) rather than a hand-maintained
 # literal, so `make version-check` can enforce that all version sites agree.
 #
@@ -781,7 +781,7 @@ app = FastAPI(
         "url": "https://github.com/geolens-io/geolens",
     },
     terms_of_service="https://github.com/geolens-io/geolens/blob/main/LICENSE",
-    # ROUTE-01: redirect_slashes=False — with the default True, a
+    # redirect_slashes=False — with the default True, a
     # trailing-slash 307's Location header leaks the in-container
     # ``api:8000`` hostname to external callers. Trailing-slash routes
     # instead register a no-slash alias via stacked decorators
@@ -960,7 +960,7 @@ app.add_exception_handler(DBAPIError, _database_error_handler)
 # See this middleware's own docstring.
 app.add_middleware(CredentialScrubASGIMiddleware)
 
-# SEC-02/M-64/SEC-005: gate https_only on the production indicator — dev/test
+# Gate https_only on the production indicator — dev/test
 # have no TLS terminator, so https_only=True would silently strip the
 # session cookie. Same settings.is_production used for docs gating above.
 app.add_middleware(
@@ -969,7 +969,7 @@ app.add_middleware(
     https_only=settings.is_production,
 )
 app.add_middleware(RequestLoggingMiddleware)
-# TSEAM-04 (Phase 1207-02): resolve tenant context after request logging so
+# Resolve tenant context after request logging so
 # the tenant_id is available to all route handlers.  In single_tenant mode
 # (default) this is a strict no-op (single boolean check, no state mutation).
 app.add_middleware(TenantContextMiddleware)
@@ -978,7 +978,7 @@ app.add_middleware(
     RequestBodyLimitMiddleware,
     max_bytes=settings.upload_max_size_mb * 1024 * 1024,
 )
-# SEC-17/L-63: mount order matters — add_middleware PREPENDS, so later calls
+# Mount order matters — add_middleware PREPENDS, so later calls
 # wrap OUTER and run LAST on the response. SecurityHeaders must run before
 # GZip compresses, so: 1) SecurityHeadersMiddleware (added first, inner,
 # runs first on response) 2) GZipMiddleware (added second, outer, runs
@@ -1074,7 +1074,7 @@ def _clone_api_route(
 
 
 def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
-    """ROUTE-01: register a hidden no-slash alias for every trailing-slash
+    """Register a hidden no-slash alias for every trailing-slash
     route in the app.
 
     With ``redirect_slashes=False`` at the app level, a trailing-slash-
@@ -1565,7 +1565,7 @@ app.openapi = _standards_aware_openapi  # type: ignore[method-assign]
 init_metrics(app)
 
 
-# Phase 1230 EVENT-04: health-alert cooldown state, module-level so it
+# Health-alert cooldown state, module-level so it
 # persists across requests in one API process.
 # _last_health_alert_at: monotonic() of the last degraded alert, or None if
 #   none sent since boot/recovery. None (not 0.0) means "alert immediately"
@@ -1575,8 +1575,8 @@ init_metrics(app)
 #   "healthy" resets _last_health_alert_at so recovery gets a fresh alert.
 _last_health_alert_at: float | None = None
 _last_health_status: str = "healthy"
-# Cooldown window: emit at most one health alert per 5 minutes
-# (low-noise requirement).  Docker healthcheck polls every 10 s → at most
+# Cooldown window: emit at most one health alert per 5 minutes (low-noise
+# requirement).  Docker healthcheck polls every 10 s → at most
 # one alert per 30 polls while the system remains degraded.
 _HEALTH_ALERT_COOLDOWN_SECS: float = 300.0
 
@@ -1590,7 +1590,7 @@ _HEALTH_ALERT_COOLDOWN_SECS: float = 300.0
 # This answers only "the process is up" (mirrors worker's split in
 # observability/health/worker.py); `include_in_schema=False` since it's
 # infrastructure, not API surface. Exempt from the limiter (unlike
-# `/health`, GAP-016): a kubelet probing every second is already at that
+# `/health`): a kubelet probing every second is already at that
 # cap, and a 429'd liveness probe gets the pod killed.
 @app.get("/health/live", include_in_schema=False, tags=["Health"])
 @limiter.exempt
@@ -1599,7 +1599,7 @@ async def health_live(request: Request):
     return {"status": "ok"}
 
 
-# GAP-016: /health is rate-limited (60/min per IP), not exempt, to bound
+# /health is rate-limited (60/min per IP), not exempt, to bound
 # abuse of this unauthenticated, dependency-probing endpoint. Generous on
 # purpose: Docker's healthcheck polls every 10s (~6/min) plus a small LB
 # constant, so legitimate infra never trips it. Response omits raw
@@ -1635,10 +1635,10 @@ async def health(request: Request):
     result["build"] = os.environ.get("GEOLENS_BUILD_SHA") or None
     status_code = 200 if result["status"] == "healthy" else 503
 
-    # Emit a health-alert when degraded and the toggle is on,
-    # cooldown-deduped so repeated unhealthy polls don't spam admin. Runs as a BackgroundTask so the response returns FIRST
-    # and is never delayed by a slow notification channel — the
-    # emit is also fail-safe (never raises).
+    # Emit a health-alert when degraded and the toggle is on, cooldown-deduped
+    # so repeated unhealthy polls don't spam admin channels. Runs as a
+    # BackgroundTask so the response returns FIRST and is never delayed by a
+    # slow notification channel — the emit is also fail-safe (never raises).
     from starlette.background import BackgroundTask
 
     global _last_health_alert_at, _last_health_status  # noqa: PLW0603
@@ -1665,7 +1665,7 @@ async def health(request: Request):
             or now - _last_health_alert_at >= _HEALTH_ALERT_COOLDOWN_SECS
         ):
             _last_health_alert_at = now
-            # Lazy import per Phase 214 discipline.
+            # Lazy import.
             from app.platform.notifications.events import (  # LAZY
                 build_event_notification,
                 emit_event_safe,

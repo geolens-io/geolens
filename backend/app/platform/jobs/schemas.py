@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# Structured ingest-warning contract (TYPE-1/TYPE-2/TYPE-3): warnings land in
+# Structured ingest-warning contract: warnings land in
 # ``IngestJob.user_metadata['warnings']``. Producers use TypedDicts in
 # ``app.ingest.warnings``; the router re-parses through ``IngestJobWarning``
 # so malformed warnings are caught before they cross the wire.
@@ -92,11 +92,11 @@ class JobStatusResponse(BaseModel):
     can_retry: bool
     retry_reason: str | None
     warning_message: str | None = None
-    # S3/TYPE-2: structured warnings from IngestJob.user_metadata. Legacy
+    # Structured warnings from IngestJob.user_metadata. Legacy
     # scalar ``warning_message`` stays as a fallback for the pre-structured
     # table-name collision case; clients should prefer ``warnings``.
     warnings: list[IngestJobWarning] = Field(default_factory=list)
-    # REMED-02 / ingest-audit P2-07: progress fields from the ingest worker,
+    # Progress fields from the ingest worker,
     # for multi-minute ingests. Default None so pre-existing/service rows
     # validate. DB column stays String(32); this Literal is the source of truth.
     progress: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
@@ -132,7 +132,7 @@ class JobStatusResponse(BaseModel):
         "publication, so a client showing the thumbnail can poll again until the "
         "image has been replaced.",
     )
-    # TYPE-3: the temporal parser only ever emits these two keys; pin the
+    # The temporal parser only ever emits these two keys; pin the
     # shape so adding a third key requires touching the contract deliberately.
     temporal_parse_errors: dict[Literal["temporal_start", "temporal_end"], str] = Field(
         default_factory=dict

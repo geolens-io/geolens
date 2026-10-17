@@ -1,6 +1,6 @@
 """Structured logging configuration using structlog with stdlib bridge.
 
-SEC-03 / M-65: a sensitive-field redactor processor is inserted into the
+A sensitive-field redactor processor is inserted into the
 structlog chain so JWT / API-key / password values are replaced with
 `[REDACTED]` before reaching stdout / log aggregators. Even a bare
 `logger.info("attempt", token=jwt)` gets redacted at the structlog layer.
@@ -69,7 +69,7 @@ from app.core.url_redaction import (
     scrub_registered_credentials,
 )
 
-# SEC-03: case-insensitive denylist of field names that contain sensitive
+# Case-insensitive denylist of field names that contain sensitive
 # values. Comparison is done in lower-case after stripping common
 # delimiters. Keep this list small and high-signal — over-aggressive
 # matching destroys log usefulness.
@@ -434,7 +434,7 @@ def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
     shared_processors.append(structlog.processors.format_exc_info)
 
     shared_processors += [
-        # SEC-03: redact sensitive fields BEFORE rendering / stack-info.
+        # Redact sensitive fields BEFORE rendering / stack-info.
         # Placed after TimeStamper (so the redactor runs on the final field
         # set, including a `format_exc_info`-rendered `exception` string
         # when one exists) and before StackInfoRenderer (which doesn't add

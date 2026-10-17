@@ -8,7 +8,7 @@ burned its single-use credential, and failed only later in the background.
 
 Not negotiable down: the token becomes an ``Authorization`` header line
 reaching libcurl through GDAL, so a disallowed character is a header-
-smuggling primitive (SEC-FU-04). Both the door and the worker enforce this
+smuggling primitive. Both the door and the worker enforce this
 module's policy, so the guarantee doesn't rest on a validator two processes
 away.
 
@@ -94,8 +94,7 @@ HEADER_TRANSPORT_SERVICE_FORMATS: frozenset[str] = HEADER_LINE_SERVICE_FORMATS |
     ARCGIS_SERVICE_FORMAT
 }
 
-# SEC-FU-04 (sec-audit-20260519.md line 535, Phase 1063-03): JWT-shaped tokens
-# use the base64url charset (RFC 4648 §5) plus dot separators (RFC 7519 —
+# JWT-shaped tokens use the base64url charset (RFC 4648 §5) plus dot separators (RFC 7519 —
 # header.payload.signature). Restricting to this set prevents a token
 # containing CR/LF from smuggling extra HTTP headers into libcurl.
 HEADER_TOKEN_CHARSET: frozenset[str] = frozenset(

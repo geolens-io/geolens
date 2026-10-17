@@ -1,12 +1,11 @@
-"""Tenant session GUC plumbing (ISO-01, Phase 1208-01).
+"""Tenant session GUC plumbing.
 
 Provides ``current_tenant_var``, a ContextVar carrying the active tenant id
 across a request or worker job; a SQLAlchemy engine-level ``begin`` hook that
 issues ``SELECT set_config('app.current_tenant', :tid, true)``; and statement
 hooks binding tenant-schema reads/writes to SET-only per-tenant roles. Active
 only in ``multi_tenant`` mode — in ``single_tenant`` (default) the hook
-returns after the first ``is_multi_tenant()`` check, a byte-identical no-op
-required by Plan 05.
+returns after the first ``is_multi_tenant()`` check, a byte-identical no-op.
 
 ``true`` as the third ``set_config`` arg makes it transaction-local, so it
 clears automatically and never bleeds across transactions on a reused
@@ -315,7 +314,7 @@ def _on_begin(conn: Connection) -> None:
     refuses a later ``SET TRANSACTION ISOLATION LEVEL``/``[NOT] DEFERRABLE``
     (25001).
 
-    The tenant id must be a bound parameter, but ``SET`` takes
+    The tenant id must be a bound parameter; ``SET`` takes
     none, so the guard moves to the value: ``_normalize_context_tenant_id``
     accepts only a canonical UUID rendering (hex + hyphens, no quote) — the
     same guard used at the ``current_tenant_var.set`` sites.

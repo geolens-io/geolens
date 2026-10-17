@@ -1,4 +1,4 @@
-"""Outbound notification facade for GeoLens (NOTIF-01/NOTIF-04).
+"""Outbound notification facade for GeoLens.
 
 Mirrors ``app.platform.audit.audit_emit()``: ``notify()`` fans out to every
 registered ``NotificationSink``, isolating each sink in its own try/except
@@ -50,11 +50,11 @@ async def notify(
     Wraps each non-default sink's ``deliver()`` in try/except — success
     increments ``delivered``, failure appends a SAFE error string and logs
     (mirrors ``audit_emit``). Never re-raises: the caller's request path is
-    always unaffected (NOTIF-04). A sink with ``deliver_channels()`` counts
+    always unaffected. A sink with ``deliver_channels()`` counts
     as delivered when any of its channels delivered, as its ``deliver()``
     does. With ``channels``, only the channels named there are sent to.
     """
-    # Deferred import to avoid a module-level edge to defaults (Phase 214).
+    # Deferred import to avoid a module-level edge to defaults.
     from app.platform.extensions.defaults import DefaultNotificationSink
     from app.platform.notifications.env_sink import NotificationDeliveryError
 

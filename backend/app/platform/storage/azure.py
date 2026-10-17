@@ -2,13 +2,13 @@
 
 Wraps the synchronous azure-storage-blob SDK in `asyncio.to_thread` so callers
 can await uploads/downloads without blocking the event loop. Uses the native
-Azure SDK, not a MinIO S3 gateway shim (STOR-01).
+Azure SDK, not a MinIO S3 gateway shim.
 
 Auth: connection_string, or account_url + credential (SAS token or account
 key). fix(#836): azure-identity credentials are not supported.
 
 Key prefixes (tenants/{tenant_id}/) and VSI paths (vsis3/vsiaz) are built by
-titiler_url.resolve_open_path (STOR-02); this class stores keys verbatim.
+titiler_url.resolve_open_path; this class stores keys verbatim.
 """
 
 from __future__ import annotations

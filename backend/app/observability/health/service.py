@@ -15,7 +15,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 HEALTH_TIMEOUT = 5.0
 
-# GAP-016: gates whether per-provider probe failures include the raw exception
+# Gates whether per-provider probe failures include the raw exception
 # string in the response dict. Defaults to False so the unauthenticated /health
 # endpoint never leaks provider internals; the admin path opts in. Carried via a
 # ContextVar so it threads through asyncio.gather without changing _probe's
@@ -28,7 +28,7 @@ _include_probe_errors: ContextVar[bool] = ContextVar(
 async def _probe(name: str, coro: Coroutine[Any, Any, None]) -> dict[str, Any]:
     """Run a health probe coroutine with timeout, returning status dict.
 
-    GAP-016: the raw provider exception (asyncpg/SQLAlchemy/S3 internals — may
+    The raw provider exception (asyncpg/SQLAlchemy/S3 internals — may
     embed hostnames, ports, usernames, bucket names) is ALWAYS logged
     server-side here, but is only returned in the dict when the caller asks for
     it via ``check_health(include_errors=True)``. The unauthenticated ``/health``
@@ -89,7 +89,7 @@ async def check_health(*, include_errors: bool = False) -> dict[str, Any]:
 
     ``include_errors`` controls whether per-provider failures embed the raw
     exception string. The unauthenticated ``/health`` endpoint leaves it False
-    (GAP-016 — no provider internals to anonymous callers); the authenticated
+    (no provider internals to anonymous callers); the authenticated
     admin ``/infrastructure`` view passes True so operators keep the detail.
     The exception is logged server-side regardless.
     """
@@ -144,8 +144,8 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
         return {}
 
     # OIDC health is surfaced only on the authenticated admin /infrastructure
-    # view, so operators keep the error detail (GAP-016 scope is the
-    # unauthenticated /health path).
+    # view, so operators keep the error detail (only the
+    # unauthenticated /health path withholds it).
     token = _include_probe_errors.set(True)
     try:
         probes = await asyncio.gather(

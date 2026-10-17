@@ -1,10 +1,10 @@
 """Shared bootstrap helper for API lifespan and worker startup.
 
-WORK-01: ``bootstrap()`` is the ONE shared extension-load + edition-init +
+``bootstrap()`` is the ONE shared extension-load + edition-init +
 storage/cache-init sequence, called from both ``api/main.py`` lifespan and
 ``worker.main()`` so the two entrypoints cannot drift into different states.
 
-WORK-02: ``assert_enterprise_ports_resolved()`` asserts, post-bootstrap, that
+``assert_enterprise_ports_resolved()`` asserts, post-bootstrap, that
 each overlay tier's single-slot ports resolved to a non-Default impl
 (enterprise ports under a resolved enterprise edition; cloud ports under
 ``GEOLENS_TENANCY_MODE=multi_tenant``) — else it raises ``RuntimeError`` and
@@ -51,7 +51,7 @@ _ENTERPRISE_PORT_CHECKS: list[tuple[str, str]] = [
 ]
 
 #: Single-slot ports that ONLY the cloud (multi-tenant) overlay registers.
-#: WORK-02 fix: the enterprise overlay never registers processing_port /
+#: The enterprise overlay never registers processing_port /
 #: catalog_port, so a bare enterprise worker legitimately runs the community
 #: defaults for these — demanding them under GEOLENS_EDITION=enterprise
 #: crash-looped the worker while the API served fine. Required only when
@@ -97,7 +97,7 @@ def assert_enterprise_ports_resolved() -> None:
       workflow.
     * ``GEOLENS_TENANCY_MODE=multi_tenant`` additionally requires
       processing_port, catalog_port, entitlement, and data_serving — ports
-      the enterprise overlay never registers (WORK-02: demanding them under
+      the enterprise overlay never registers (demanding them under
       bare enterprise crash-looped the worker while the API served fine).
 
     If any required port is still the Default impl, raises ``RuntimeError``
@@ -178,16 +178,16 @@ def assert_enterprise_ports_resolved() -> None:
 def register_builtin_notification_sinks() -> None:
     """Register EnvConfiguredNotificationSink into the notification_sinks slot.
 
-    IN-01: without this call, notify() only fans out to DefaultNotificationSink
+    Without this call, notify() only fans out to DefaultNotificationSink
     (no-op) and every event silently drops. Calling this from the shared
     bootstrap() ensures the real sink is present in both the API process and
     the worker, closing a split-brain by construction.
 
-    Uses setdefault+append (NOTIF-01) to preserve sinks an overlay already
+    Uses setdefault+append to preserve sinks an overlay already
     appended, and is idempotent — it returns early if an
     EnvConfiguredNotificationSink is already in the slot.
     """
-    # Deferred import — Phase 214 discipline; avoids circular module-load at startup.
+    # Deferred import; avoids circular module-load at startup.
     from app.platform.extensions import _extensions
     from app.platform.extensions.defaults import DefaultNotificationSink
     from app.platform.notifications.env_sink import EnvConfiguredNotificationSink
@@ -210,7 +210,7 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     """Shared bootstrap sequence for BOTH API lifespan and worker startup.
 
     Performs IN ORDER: load extensions; fail loud if GEOLENS_EDITION=enterprise
-    but no overlay loaded (BUG-003); resolve + log the edition; include
+    but no overlay loaded; resolve + log the edition; include
     extension routers (API mode only); init storage (after extensions, so
     overlay storage providers register first); S3 health probe; billing
     extensions' ``on_startup(app)`` dispatch (API mode only); init cache;
@@ -227,12 +227,12 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     # Step 1: Discover + load overlay extensions.
     load_extensions()
 
-    # Step 2 (BUG-003): fail loud if enterprise is requested but overlay
+    # Step 2: fail loud if enterprise is requested but overlay
     # absent. Uses _overlay_extension_names() so core builtins (e.g. the
     # notification sink) never read as an enterprise overlay.
     check_enterprise_overlay_requested(_overlay_extension_names())
 
-    # Step 2b (GUARD-01): fail loud if multi_tenant is configured but no
+    # Step 2b: fail loud if multi_tenant is configured but no
     # tenancy-providing overlay is loaded.
     check_tenancy_mode_supported(_overlay_extension_names())
 
@@ -253,7 +253,7 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     # to detect the edition; registering it BEFORE init_edition made
     # `list_extensions()` non-empty, so a plain community deployment
     # mis-detected as `enterprise`. Runs unconditionally for both API and
-    # worker so the sink is present in both processes (IN-01).
+    # worker so the sink is present in both processes.
     register_builtin_notification_sinks()
 
     # Step 5 (API mode only): include extension routers into the app.
@@ -325,9 +325,9 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     # Step 9: Initialize cache.
     init_cache()
 
-    # fix(#1315): initialize the binary tile cache here too. It used to live
+    # Initialize the binary tile cache here too. It used to live
     # in the API lifespan alone, so get_tile_cache() returned None in the
-    # worker and every post-swap MVT purge (fix(#394) B-019 — reupload_file,
+    # worker and every post-swap MVT purge (reupload_file,
     # reupload_service, refresh_postgis) evicted nothing from the worker.
     # The worker gets no in-memory fallback: it never reads tiles, so a
     # process-local LRU there would be a purge that evicts nothing and says
@@ -335,7 +335,7 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     # FastAPI app is the only process a process-local cache could ever serve.
     init_tile_cache(in_memory_fallback=app is not None)
 
-    # Step 10 (ISO-02): mode-gated idempotent RLS enablement. In
+    # Step 10: mode-gated idempotent RLS enablement. In
     # single_tenant: no-op. In multi_tenant: enables + FORCEs RLS on the
     # tenant-shared tables so the 0006_tenant_rls FORCE policies become
     # active. Checks pg_class flags before any ALTER TABLE, so concurrent

@@ -5,8 +5,7 @@ configuration). Domain-specific models stay in their domain package
 (`app.modules.<domain>.<...>`).
 
 Never import from `app.modules.*` in this module — `core/` must not depend on
-`modules/`. The `tests/test_layering.py` architecture guard enforces this rule
-(introduced in Phase 212, plan 03).
+`modules/`. The `tests/test_layering.py` architecture guard enforces this rule.
 """
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Text, text, true

@@ -24,7 +24,7 @@ _DEFAULT_PUBLIC_API_URL = "http://localhost:8000"
 
 
 class PublicUrlNotConfiguredError(RuntimeError):
-    """Phase 268 H-27: raised when a caller needs an external-use URL (e.g.
+    """Raised when a caller needs an external-use URL (e.g.
     OAuth redirect_uri) but neither PUBLIC_APP_URL nor PUBLIC_API_URL is
     configured. The request-origin fallback is unsafe here: an attacker
     controls ``X-Forwarded-Host``/``Origin``/``Referer``, enabling
@@ -276,7 +276,7 @@ def _is_env_only() -> bool:
 def _request_origin_decision(request: Request | None) -> tuple[str | None, bool]:
     """``(origin, allowlist_rejected)`` derived from the request headers.
 
-    SEC-05/M-67: when ``CORS_ALLOWED_ORIGINS`` is set, the derived origin
+    When ``CORS_ALLOWED_ORIGINS`` is set, the derived origin
     must be in that allowlist, or an attacker controlling
     ``X-Forwarded-Host`` behind a permissive proxy could steer URL
     generation to their own host. Empty allowlist (local dev) returns the
@@ -309,7 +309,7 @@ def _request_origin_decision(request: Request | None) -> tuple[str | None, bool]
             return None, False
         candidate = f"{scheme}://{host}"
 
-    # SEC-05: enforce CORS allowlist when configured.
+    # Enforce CORS allowlist when configured.
     allowlist = settings.cors_origins_list
     if allowlist:
         # normalize_public_url strips trailing slash; do the same on the
@@ -333,7 +333,7 @@ def resolve_public_api_url(
 ) -> str:
     """Resolve the public API URL.
 
-    Phase 268 H-27: when ``for_external_use=True`` the request-origin
+    When ``for_external_use=True`` the request-origin
     fallback is disabled and this raises ``PublicUrlNotConfiguredError`` if
     neither PUBLIC_APP_URL nor PUBLIC_API_URL is set — such a URL can reach
     a third party (e.g. an OAuth IdP) where an attacker-controlled origin
@@ -390,7 +390,7 @@ def resolve_public_app_url(
     for_external_use: bool = False,
 ) -> str:
     """Resolve the public app URL. See :func:`resolve_public_api_url` for
-    the H-27 ``for_external_use`` semantics — same rules apply."""
+    the ``for_external_use`` semantics — same rules apply."""
     normalized_app = normalize_public_url(app_url)
     if normalized_app:
         return normalized_app
@@ -441,7 +441,7 @@ def get_env_public_api_url(request: Request | None = None) -> str:
 _PUBLIC_URL_CACHE: tuple[float, dict[str, str | None]] | None = None
 _PUBLIC_URL_CACHE_TTL = 60  # seconds
 
-# BUG-025: the three keys whose AppSetting rows feed _PUBLIC_URL_CACHE. A write
+# The three keys whose AppSetting rows feed _PUBLIC_URL_CACHE. A write
 # to any of them must invalidate the cache (see invalidate_public_url_cache).
 PUBLIC_URL_KEYS = frozenset(
     {PUBLIC_APP_URL_KEY, PUBLIC_API_URL_KEY, LEGACY_PUBLIC_API_URL_KEY}
@@ -451,7 +451,7 @@ PUBLIC_URL_KEYS = frozenset(
 def invalidate_public_url_cache() -> None:
     """Clear the public-URL override cache.
 
-    BUG-025: ``_PUBLIC_URL_CACHE`` is a 60s memo of the public_app_url/
+    ``_PUBLIC_URL_CACHE`` is a 60s memo of the public_app_url/
     public_api_url/public_base_url AppSetting rows, separate from the
     ``config:`` cache ``PersistentConfig`` manages — without clearing this
     too, a settings write keeps returning the old public URL for up to
@@ -498,7 +498,7 @@ async def get_public_urls(
     for_external_use: bool = False,
 ) -> tuple[str, str]:
     """Resolve (app_url, api_url) tuple. See :func:`resolve_public_api_url`
-    for H-27 ``for_external_use`` semantics."""
+    for ``for_external_use`` semantics."""
     fleet_urls_only = False
     overrides: dict[str, str | None] | None = None
     if is_multi_tenant() and request is not None:

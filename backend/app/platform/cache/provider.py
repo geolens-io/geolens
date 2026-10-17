@@ -189,7 +189,7 @@ def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
 # Two staleness windows survive even post-commit: other uvicorn workers'
 # maps aren't evicted (bounded by the map's 60s TTL), and a request whose
 # read was already in flight writes its stale result after eviction (also
-# TTL-bounded). fix(#1444): both are safe because GH-1443 retires freed
+# TTL-bounded). Both are safe because the catalog retires freed
 # table names in catalog.retired_table_names, so a stale entry can only ever
 # describe the SAME dataset it was cached for, never a reused name's
 # predecessor -- eviction here is an optimization, not a safety mechanism.

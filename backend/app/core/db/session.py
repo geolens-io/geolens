@@ -11,7 +11,7 @@ _engine_kwargs: dict = {
     # fix(#1778): keep bound parameters out of StatementError.__str__. Without
     # this, SQLAlchemy renders "[SQL: ...] [parameters: (...)]" into the
     # exception message that api/main.py's DB error handler logs with a
-    # traceback. The SEC-03 redactor in core/logging_config.py only rewrites
+    # traceback. The log redactor in core/logging_config.py only rewrites
     # top-level event_dict keys by name, so it can't see values embedded in
     # the `exception` string: a connection reset mid-INSERT on catalog.users
     # would put password_hash, email and username in stdout, and any feature
@@ -35,7 +35,7 @@ else:
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
-# ISO-01 (Phase 1208-01): register the tenant GUC hook on the global engine
+# Register the tenant GUC hook on the global engine
 # so every transaction (get_db, raw async_session, worker) picks it up.
 # single_tenant: the hook is an unconditional no-op (one check, no SQL).
 from app.core.db.tenant_session import install_tenant_session_hook  # noqa: E402

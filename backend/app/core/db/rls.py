@@ -1,4 +1,4 @@
-"""Mode-gated, idempotent RLS enablement helper (ISO-02, Phase 1208-02).
+"""Mode-gated, idempotent RLS enablement helper.
 
 Provides ``apply_tenancy_rls(conn)`` — the runtime half of the policy split:
 migration ``0006_tenant_rls`` defines the fail-closed policies, this helper

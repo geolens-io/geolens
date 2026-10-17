@@ -1167,7 +1167,7 @@ async def import_config(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )  # LAZY
     from app.processing.embeddings.service import (
         EmbeddingColumnRebuildError,
         EmbeddingChangeBusyError,

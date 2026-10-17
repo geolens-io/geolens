@@ -62,7 +62,7 @@ def libpq_value(value: object) -> str:
 
 
 def validate_privacy_url_shape(v: str) -> str:
-    r"""PRIV-1: shape check for the login/register privacy-policy link.
+    r"""Shape check for the login/register privacy-policy link.
 
     Security control, not a formatting nit: the value renders as an
     unauthenticated ``<a href>``, so a ``javascript:``/``data:``/
@@ -236,7 +236,7 @@ KNOWN_BAD_JWT_SECRET = "demo-only-do-not-use-in-production-change-me"
 KNOWN_BAD_ADMIN_PASSWORD = "demodemo"
 KNOWN_BAD_POSTGRES_PASSWORD = "geolens-demo-2026"
 
-# Phase 268 H-28: documentation-default values the JWT length validator would
+# Documentation-default values the JWT length validator would
 # otherwise accept; rejected in all modes, no demo opt-in, since any of these
 # on a real deployment lets an attacker forge tokens trivially.
 KNOWN_BAD_JWT_SECRETS = frozenset(
@@ -309,13 +309,13 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # The key it replaced. Read-only, until rotate_secrets.py has swept the rows.
     secret_encryption_key_previous: SecretStr | None = None
 
-    # SEC-S16: password_require_classes counts how many of the four character
+    # password_require_classes counts how many of the four character
     # classes (lowercase, uppercase, digit, symbol) must be present.
     password_min_length: int = Field(default=12, ge=8)
     password_require_classes: int = Field(default=3, ge=1, le=4)
     geolens_admin_username: str
     geolens_admin_password: SecretStr
-    # FRONT-01 (Phase 1223): when True the root route redirects anonymous
+    # When True the root route redirects anonymous
     # visitors to the login page as the product landing surface.
     # Default False — self-hosters see zero change on upgrade.
     landing_first: bool = False
@@ -373,7 +373,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     public_app_url: str | None = None
     public_api_url: str | None = None
     public_base_url: str | None = None
-    # PRIV-1: privacy-policy link shown on the login/register pages. Unset by
+    # Privacy-policy link shown on the login/register pages. Unset by
     # default so a self-hosted instance never links to another operator's
     # privacy page; set this to the operator's own policy URL to show the link.
     privacy_url: str | None = None
@@ -389,9 +389,9 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     log_json: bool = False
     log_level: str = "INFO"
 
-    # SEC-005: explicit deployment environment, controlling API docs exposure
+    # Explicit deployment environment, controlling API docs exposure
     # (/docs, /redoc), the Secure flag on the OAuth session cookie
-    # (SessionMiddleware https_only), and, fix(#1485), plain traceback
+    # (SessionMiddleware https_only), and plain traceback
     # rendering (rich's frame-locals tables made one exception a
     # multi-minute event-loop stall). Unset falls back to LOG_JSON. Set
     # ENVIRONMENT=production on any public, TLS-terminated deployment.
@@ -402,13 +402,13 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # falling back to community behavior.
     geolens_edition: Literal["community", "enterprise"] | None = None
 
-    # TSEAM-03 (Phase 1207-02): orthogonal tenancy MODE axis.
+    # Orthogonal tenancy MODE axis.
     # Edition stays binary (community|enterprise); mode controls the tenancy
     # posture of the deployment.
     #   "single_tenant" (default) -> Community/Enterprise byte-identical behavior;
     #                                tenant_id is NULL everywhere, no isolation.
     #   "multi_tenant"            -> Requires the cloud overlay + tenant row-level security layer;
-    #                                boot guard (GUARD-01) fails loud without them.
+    #                                boot guard fails loud without them.
     # An invalid value raises a Pydantic ValidationError at boot.
     geolens_tenancy_mode: Literal["single_tenant", "multi_tenant"] = "single_tenant"
 
@@ -432,14 +432,14 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # Ambient AWS credential markers, injected by the runtime not an operator:
     # EKS IRSA/Pod Identity set AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE;
     # ECS/EKS container providers set one of the AWS_CONTAINER_CREDENTIALS_*
-    # pair. Fields (not os.environ) per CONF-03/CONF-04; read only by
+    # pair. Fields (not os.environ); read only by
     # has_ambient_aws_credentials below -- boto3/GDAL resolve credentials themselves.
     aws_role_arn: str | None = None
     aws_web_identity_token_file: str | None = None
     aws_container_credentials_full_uri: str | None = None
     aws_container_credentials_relative_uri: str | None = None
 
-    # Azure Blob Storage (STOR-01 / Phase 1210)
+    # Azure Blob Storage
     azure_storage_container: str | None = None
     azure_storage_connection_string: SecretStr | None = (
         None  # for Azurite: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;..."
@@ -447,7 +447,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     azure_storage_account_url: str | None = (
         None  # for live: "https://<account>.blob.core.windows.net"
     )
-    # CR-04: when connection_string is absent and only account_url is given,
+    # When connection_string is absent and only account_url is given,
     # AzureBlobStorageProvider needs this key to authenticate --
     # BlobServiceClient(account_url=..., credential=None) otherwise falls
     # through to Entra ID, which silently fails for most deployments.
@@ -479,7 +479,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     database_ssl_ca_cert: str | None = None
     database_pool_pre_ping: bool = True
 
-    # CONF-03 (Phase 277 / M-38): replaces raw os.environ.get("WORKER_SHUTDOWN_TIMEOUT") in worker.py
+    # Replaces raw os.environ.get("WORKER_SHUTDOWN_TIMEOUT") in worker.py
     worker_shutdown_timeout: int = Field(default=30, gt=0)
 
     # fix(#448): Procrastinate parallel job slots per worker process. A
@@ -495,7 +495,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # transfer off the ingest slot.
     worker_queues: str = "priority,ingest,raster,download,ingest-auth-v2"
 
-    # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
+    # Replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
     # Security-relevant: when true, the PersistentConfig DB layer is bypassed for reads
     # and writes return 403. Keep in sync with .env.example.
     env_only_config: bool = False
@@ -516,8 +516,8 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     tile_pool_min_size: int = Field(default=2, ge=1)
     tile_pool_max_size: int = Field(default=10, ge=1)
 
-    # SEED-02 (Phase 1054): GDAL_HTTP_TIMEOUT for ogr2ogr service ingest, raised
-    # from the 120s hardcoded default that timed out 50% of AGO layers in M001-7n8vpc.
+    # GDAL_HTTP_TIMEOUT for ogr2ogr service ingest, raised
+    # from the 120s hardcoded default that timed out 50% of AGO layers.
     # Set INGEST_HTTP_TIMEOUT_SECONDS in the api service env to override.
     ingest_http_timeout_seconds: int = Field(default=300, gt=0)
 
@@ -591,9 +591,9 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # `reconcile_orphaned_staging_objects`, `reconcile_orphaned_local_uploads`.
     staging_orphan_min_age_seconds: int = Field(default=86400, ge=3600)
 
-    # Outbound Notification channels (NOTIF-02/03/05). All defaults are
-    # OFF/None so existing deployments are byte-identical on upgrade
-    # (NOTIF-04). Secrets are SecretStr so they never render in logs/repr().
+    # Outbound Notification channels. All defaults are
+    # OFF/None so existing deployments are byte-identical on upgrade.
+    # Secrets are SecretStr so they never render in logs/repr().
     # These are real wired fields, not inert knobs.
     #
     # NOT registered in persistent_config.py: notification secrets must NOT live
@@ -604,7 +604,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # to activate channels.
     notifications_enabled: bool = False
 
-    # SMTP channel (NOTIF-02): configure with SMTP_HOST + SMTP_USERNAME +
+    # SMTP channel: configure with SMTP_HOST + SMTP_USERNAME +
     # SMTP_PASSWORD + SMTP_FROM_ADDRESS to send email notifications.
     smtp_host: str | None = None
     smtp_port: int = Field(default=587, ge=1, le=65535)
@@ -613,13 +613,13 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     smtp_from_address: str | None = None
     smtp_use_tls: bool = True
 
-    # Webhook channel (NOTIF-03): configure with NOTIFICATION_WEBHOOK_URL to POST
+    # Webhook channel: configure with NOTIFICATION_WEBHOOK_URL to POST
     # JSON notifications to a generic incoming-webhook endpoint (Slack, Teams,
     # custom). NOTIFICATION_WEBHOOK_SECRET is used for HMAC signing (optional).
     notification_webhook_url: str | None = None
     notification_webhook_secret: SecretStr | None = None
 
-    # EVENT-05 per-event opt-in toggles (default OFF), still gated behind
+    # Per-event opt-in toggles (default OFF), still gated behind
     # notifications_enabled=True + at least one configured channel. Not
     # registered in persistent_config.py -- env knobs, not DB settings.
     notify_on_signup: bool = False
@@ -654,16 +654,16 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
         "s3_addressing_style",
         "database_ssl_ca_cert",
         "tile_signing_secret",
-        # fix(#1871): an uncommented-but-empty .env line arrives as "", which
+        # An uncommented-but-empty .env line arrives as "", which
         # would otherwise reach validate_known_bad_credentials' Fernet check
-        # and fail boot on a config shape that means "not set" (INST-01 class).
+        # and fail boot on a config shape that means "not set".
         "secret_encryption_key",
         "secret_encryption_key_previous",
         "azure_storage_container",
         "azure_storage_connection_string",
         "azure_storage_account_url",
         "azure_storage_account_key",
-        # Phase 1229 notification str | None fields — blank env values normalize to None
+        # Notification str | None fields — blank env values normalize to None
         "smtp_host",
         "smtp_username",
         "smtp_password",
@@ -804,7 +804,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     @field_validator("privacy_url", mode="after")
     @classmethod
     def validate_privacy_url_env(cls, v: str | None) -> str | None:
-        """PRIV-1: fail boot on an unsafe PRIVACY_URL rather than silently
+        """Fail boot on an unsafe PRIVACY_URL rather than silently
         rendering it as an <a href> on the login/register page. This is the
         ONLY validation an ENV_ONLY_CONFIG deployment ever runs for this
         value — the admin-write validator in modules/settings/schemas.py
@@ -862,7 +862,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
                 "JWT_SECRET_KEY must be at least 32 characters. "
                 "Generate one with: openssl rand -hex 32"
             )
-        # Phase 268 H-28: reject known-public example values that pass the
+        # Reject known-public example values that pass the
         # length check but are committed in .env.example / docs.
         if raw in KNOWN_BAD_JWT_SECRETS:
             raise ValueError(
@@ -1198,7 +1198,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
         """Whether to enforce the production posture (API docs hidden, Secure
         session cookie, plain tracebacks).
 
-        SEC-005: driven by the explicit ENVIRONMENT setting; when unset, falls
+        Driven by the explicit ENVIRONMENT setting; when unset, falls
         back to LOG_JSON so no existing deployment silently loses its
         hardened posture. An explicit ENVIRONMENT decouples fully.
         """
@@ -1349,7 +1349,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
             # disables that check for the API (#1617).
             if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
-            # BUG-002: the override branch had dropped this search_path
+            # The override branch had dropped this search_path
             # option, breaking the job queue on managed Postgres. Re-add it,
             # preserving any caller-supplied ?options= -- ours applied last
             # so it always wins.

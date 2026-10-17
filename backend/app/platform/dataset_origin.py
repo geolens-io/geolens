@@ -1,7 +1,7 @@
 """Dataset origin vocabulary: classification, pointer, and typed payload.
 
 feat(#1218): one home for three things that must agree across the catalog
-domain, the ingest tasks, and the API response boundary (ADR-002).
+domain, the ingest tasks, and the API response boundary.
 
 - ``classify_origin`` is the derivation ADR-002 Decision 2 keeps *derived*:
   origin is a pure function of ``source_format``/``record_type``, so no
@@ -117,7 +117,7 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # `item_id` is the item's identity per the CATALOG, stored here (not
     # read from `datasets.source_filename`, the same string) because that
     # field is in the metadata PATCH's map — a user-editable rebind target
-    # is a rebinding primitive, not a pointer (fix(#1266) review round 9).
+    # is a rebinding primitive, not a pointer.
     # With it stored, a refresh can refuse a document answering for a
     # different item even when the item's URL states no identity of its own.
     # feat(#1764): `auth_required` means here what it means on the service
@@ -189,8 +189,7 @@ def set_postgis_origin(
     ``table_name`` must agree, and composing them at the call site is how
     they drift — the qualified name is built once here.
 
-    ``schema`` is passed in, not derived from ``dataset.tenant_id`` (fix
-    #1218 review round 2): in multi-tenant mode the INSERT sends
+    ``schema`` is passed in, not derived from ``dataset.tenant_id``: in multi-tenant mode the INSERT sends
     ``tenant_id`` as NULL and a trigger fills it from a GUC, so the ORM
     attribute stays None — deriving here would point every multi-tenant
     registration at the wrong schema. Callers pass the schema they actually
@@ -232,7 +231,7 @@ def geolens_owns_table(
     ``ORIGIN_REF_KEYS['postgis']`` for why an absent key means "not ours").
 
     Also the condition for retiring a name in
-    ``catalog.retired_table_names`` (GH-1443): a name frees only when the
+    ``catalog.retired_table_names``: a name frees only when the
     relation is gone. A detached table still holds the operator's rows, so
     retiring its name would permanently refuse re-registration.
 
@@ -244,7 +243,7 @@ def geolens_owns_table(
     # creates vector datasets, so a raster/VRT is GeoLens's by construction
     # — stated structurally rather than via classify_origin, which would
     # answer "postgis" for a raster with a NULL source_format and silently
-    # stop retiring its name (GH-1443).
+    # stop retiring its name.
     if record_type in RASTER_FAMILY_RECORD_TYPES:
         return True
     if classify_origin(source_format, record_type) != "postgis":
