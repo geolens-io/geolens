@@ -1479,9 +1479,10 @@ async def refresh_dataset_metadata(
 
     # ST_Extent of a single point is a POINT and of axis-collinear
     # points a LINESTRING, not always a POLYGON -- store any non-null extent.
+    # None means no row has a geometry, though rows without one may remain.
     if extent_wkt:
         dataset.record.spatial_extent = func.ST_GeomFromText(extent_wkt, 4326)
-    elif feature_count == 0:
+    else:
         dataset.record.spatial_extent = None
 
     # Keep generic-column created datasets' DISPLAY

@@ -453,6 +453,100 @@ class TestRun:
         assert not [e for e in logs if e["event"] == "dataset_retention_failed"]
         assert await _catalog_state(test_db_session, dataset.id) == before
 
+    async def test_a_batch_planned_as_a_nested_loop_still_stops_at_its_limit(
+        self, seed, test_db_session
+    ):
+        """Stale statistics and a nested-loop plan must not widen a batch."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, column="seen_at", days=30, rows=[])
+        session = test_db_session
+        await session.execute(text(f"ANALYZE data.{dataset.table_name}"))
+        await session.execute(
+            text(
+                f"INSERT INTO data.{dataset.table_name} (geom, geom_4326, seen_at, name) "
+                "SELECT ST_SetSRID(ST_MakePoint(10.5, 10.5), 4326), "
+                "ST_SetSRID(ST_MakePoint(10.5, 10.5), 4326), "
+                "CAST(:old AS timestamptz), 'old' || n FROM generate_series(1, 25) AS n"
+            ),
+            {"old": NOW - timedelta(days=90)},
+        )
+        for flag in ("hashjoin", "mergejoin", "hashagg", "material", "sort"):
+            await session.execute(text(f"SET LOCAL enable_{flag} = off"))
+
+        _, window = await retention._window(session, dataset.id, NOW)
+        try:
+            gids = await retention._delete_batch(
+                session, window, retention._GID_FLOOR, 10
+            )
+            left = await session.scalar(
+                text(f"SELECT count(*) FROM data.{dataset.table_name}")
+            )
+        finally:
+            await session.rollback()
+
+        assert len(gids) == 10
+        assert left == 15
+
+    async def _layer_losing_its_last_geometry(self, seed, test_db_session):
+        """An old placed row and a recent row with no geometry."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[
+                {"name": "old", "seen_at": NOW - timedelta(days=90), "x": 0, "y": 0},
+                {"name": "unplaced", "seen_at": NOW},
+            ],
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{dataset.table_name} SET geom = NULL, "
+                "geom_4326 = NULL WHERE name = 'unplaced'"
+            )
+        )
+        await test_db_session.commit()
+        return dataset
+
+    async def _extent_is_null(self, test_db_session, dataset) -> bool:
+        test_db_session.expire_all()
+        return await test_db_session.scalar(
+            select(Record.spatial_extent.is_(None))
+            .join(Dataset, Dataset.record_id == Record.id)
+            .where(Dataset.id == dataset.id)
+        )
+
+    async def test_pruning_the_last_geometry_clears_the_extent(
+        self, seed, test_db_session
+    ):
+        dataset = await self._layer_losing_its_last_geometry(seed, test_db_session)
+        assert await self._extent_is_null(test_db_session, dataset) is False
+
+        assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
+
+        assert await _names(test_db_session, dataset) == {"unplaced"}
+        assert await self._extent_is_null(test_db_session, dataset) is True
+        assert (await _catalog_state(test_db_session, dataset.id)).feature_count == 1
+
+    async def test_a_lost_settle_that_left_no_geometry_clears_the_extent_next_run(
+        self, seed, test_db_session, monkeypatch
+    ):
+        dataset = await self._layer_losing_its_last_geometry(seed, test_db_session)
+        real_settle = retention._settle
+
+        async def worker_lost(*_args):
+            raise RuntimeError("worker lost")
+
+        monkeypatch.setattr(retention, "_settle", worker_lost)
+        await retention.prune_expired_rows(now=NOW)
+        assert await self._extent_is_null(test_db_session, dataset) is False
+
+        monkeypatch.setattr(retention, "_settle", real_settle)
+        assert await retention.prune_expired_rows(now=NOW) == {}
+
+        assert await self._extent_is_null(test_db_session, dataset) is True
+        assert await _settle_pending(test_db_session, dataset.id) is False
+
     async def test_a_run_stops_at_its_batch_bound_and_the_next_run_goes_on(
         self, seed, test_db_session
     ):

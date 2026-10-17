@@ -72,6 +72,10 @@ and releases use semantic versioning.
   (`!` to `~`), up to 128 characters, instead of only letters, digits and
   `._:-`. Timestamps with `+00:00`, base64 values and the quoted form of the
   IETF draft no longer get a 422. The key is still compared exactly as sent.
+- Deleting a feature so that no remaining row has a geometry now clears the
+  dataset's stored extent, even when rows without a geometry remain. The
+  extent used to keep the deleted features' bounds, so spatial search and
+  published bounds still matched them.
 - The dataset page header shows catalog status and visibility in one badge,
   such as "Catalog: Published · Private", so a published dataset that only
   some people can see no longer reads as public.

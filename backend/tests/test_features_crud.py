@@ -854,6 +854,45 @@ class TestMetadataRefresh:
         count = result.scalar_one()
         assert count == 0
 
+    async def test_deleting_the_last_geometry_clears_the_extent(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        test_db_session,
+    ):
+        """Rows without a geometry can remain; the extent still has nothing left."""
+        dataset_id, record_id = test_layer.id, test_layer.record_id
+        create_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={"geometry": POINT_GEOJSON, "properties": {"name": "Placed"}},
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201
+        await test_db_session.execute(
+            text(f"INSERT INTO data.{test_layer.table_name} (name) VALUES ('Unplaced')")
+        )
+        await test_db_session.commit()
+
+        resp = await client.delete(
+            f"/datasets/{dataset_id}/features/{create_resp.json()['id']}",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 204
+
+        row = (
+            await test_db_session.execute(
+                text(
+                    "SELECT d.feature_count, r.spatial_extent IS NULL AS no_extent "
+                    "FROM catalog.datasets d JOIN catalog.records r "
+                    "ON r.id = d.record_id WHERE d.id = :id AND r.id = :rid"
+                ),
+                {"id": dataset_id, "rid": record_id},
+            )
+        ).one()
+        assert row.feature_count == 1
+        assert row.no_extent
+
 
 # ---------------------------------------------------------------------------
 # BBOX filtering tests (including antimeridian crossing)

@@ -172,11 +172,14 @@ async def _delete_batch(
     session: AsyncSession, window: _Window, after: int, limit: int
 ) -> list[int]:
     quoted = get_catalog_port().quote_table(window.table_name)
+    # MATERIALIZED picks the batch once; an IN subquery a nested loop rescans
+    # would lock and delete a fresh batch per outer row.
     sql = (
-        f"DELETE FROM {quoted} WHERE gid IN (SELECT gid FROM {quoted} "
+        f"WITH batch AS MATERIALIZED (SELECT gid FROM {quoted} "
         f"WHERE {_safe_column_ref(window.column)} < :cutoff "
         "AND gid > CAST(:after AS bigint) "
-        "ORDER BY gid LIMIT :limit FOR UPDATE SKIP LOCKED) RETURNING gid"
+        "ORDER BY gid LIMIT :limit FOR UPDATE SKIP LOCKED) "
+        f"DELETE FROM {quoted} WHERE gid IN (SELECT gid FROM batch) RETURNING gid"
     )
     params = {"cutoff": window.cutoff, "after": after, "limit": limit}
     async with worker_lock_budget(session):
