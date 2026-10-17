@@ -422,7 +422,7 @@ class TestVrtSourcesEndpoint:
 
     @pytest.fixture(autouse=True)
     def _stub_vrt_member_authz(self):
-        """SEC-E: list_vrt_sources now drops members the caller
+        """list_vrt_sources now drops members the caller
         cannot access via get_permission_extension().can_access_dataset(per
         member). These unit tests mock the SQL rows and ``check_dataset_access``
         (which they set to return None), then assert the FULL returned list, so

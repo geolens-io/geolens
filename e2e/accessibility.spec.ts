@@ -389,7 +389,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
         expect(results.violations, formatViolations(results.violations)).toEqual([]);
       });
 
-      // fix(#438): the audit found Import, Settings, and Collections
+      // The audit found Import, Settings, and Collections
       // uncovered. Same wcagTags contract as the routes above.
       //
       // fix(#1778): the admin overview scan above only ever covered

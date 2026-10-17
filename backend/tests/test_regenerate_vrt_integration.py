@@ -457,7 +457,6 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     assert vrt_dataset.tile_cache_version == pre_tile_cache_version + 1
 
     # --- BONUS: Rasterio re-open + bounds sanity check ---------------------
-    #
     with rasterio.open(str(vrt_abs_path)) as src:
         bounds = src.bounds
         assert bounds.left is not None and bounds.right is not None

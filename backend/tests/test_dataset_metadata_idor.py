@@ -258,9 +258,9 @@ async def test_update_publication_status_other_user_private_returns_404(
 ):
     """Editor B cannot promote editor A's private dataset via /status/ endpoint.
 
-    regression: require_permission("edit_metadata") is
-       role-level only.  Without check_dataset_access any editor could publish
-       another user's private dataset.
+    Regression: require_permission("edit_metadata") is
+    role-level only.  Without check_dataset_access any editor could publish
+    another user's private dataset.
     """
     session = test_db_session
 
@@ -292,8 +292,8 @@ async def test_set_target_status_other_user_private_returns_404(
 ):
     """Editor B cannot walk editor A's private dataset to published via /target-status/.
 
-    regression: without check_dataset_access the full
-       draft→published chain would execute without ownership verification.
+    Regression: without check_dataset_access the full
+    draft→published chain would execute without ownership verification.
     """
     session = test_db_session
 

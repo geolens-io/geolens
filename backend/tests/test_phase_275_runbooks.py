@@ -29,7 +29,7 @@ def test_backup_service_is_default_on() -> None:
     readme = _read("README.md")
     compose = _read("docker-compose.yml")
     # The backup service is first-class and default-on, not opt-in behind a
-    # Compose profile (the pre- model). Guard against the profile gate
+    # Compose profile (the earlier opt-in model). Guard against the profile gate
     # being reintroduced.
     assert "backup:" in compose
     assert "pg_dump" in compose

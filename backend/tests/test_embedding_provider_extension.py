@@ -42,7 +42,7 @@ def test_unknown_embedding_provider_raises_value_error():
 
 @pytest.mark.asyncio
 async def test_overlay_embedding_provider_is_dispatched():
-    """/ SC#5 / binding: overlay registered via
+    """Overlay registered via
     importlib.metadata entry_points is dispatched correctly without
     modifying any core file.
 

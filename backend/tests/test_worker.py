@@ -188,7 +188,7 @@ async def test_main_uses_shutdown_graceful_timeout():
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        # storage/cache/edition init now lives inside the shared bootstrap()
+        # Storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).
         patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
         patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
@@ -228,7 +228,7 @@ async def test_main_uses_default_shutdown_timeout():
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        # storage/cache/edition init now lives inside the shared bootstrap()
+        # Storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).
         patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
         patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
@@ -340,7 +340,7 @@ async def test_main_passes_install_signal_handlers_true():
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        # storage/cache/edition init now lives inside the shared bootstrap()
+        # Storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).
         patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
         patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),

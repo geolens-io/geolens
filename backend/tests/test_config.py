@@ -1095,7 +1095,7 @@ class TestSecretStrMasking:
 
 
 class TestPendingJobTimeoutBounds:
-    """fix(#1235): both ends, enforced at config load.
+    """Both ends, enforced at config load.
 
     Each end had the same shape — a value the settings model accepted under
     which no upload could ever succeed, so the deployment booted clean and
@@ -1115,7 +1115,7 @@ class TestPendingJobTimeoutBounds:
         assert "pending_job_timeout_seconds" in str(excinfo.value)
 
     def test_a_timeout_at_the_signing_margin_is_refused(self):
-        """fix(#1235): the dead zone is excluded by the bound, not
+        """The dead zone is excluded by the bound, not
         discovered by the operator when every upload starts failing."""
         with pytest.raises(Exception) as excinfo:
             _make_settings(

@@ -27,7 +27,7 @@ class _FakeAPIStatusError(Exception):
 
 class _FakeAIProvider:
     """Stands in for a registered AIProviderExtension (the probe's dispatch
-    seam — forbids hardcoded provider branches in processing/).
+    seam; processing/ must not hardcode provider branches).
     Also serves resolve_provider's runtime-config lookup."""
 
     def __init__(self, exc: Exception | None = None) -> None:
@@ -112,7 +112,7 @@ async def test_probe_with_working_keys_reports_ok(
     assert probe["embeddings"] == {"configured": True, "ok": True}
     assert chat_provider.complete_calls == 1
     assert embed_provider.embed_calls == 1
-    # codex P2 on #635: probe with the SAME dims production embedding uses —
+    # Probe with the SAME dims production embedding uses (#635) —
     # dimensions=None would pass while an unsupported EMBEDDING_DIMS breaks
     # every real backfill/search call. 1536 = the persistent-config default.
     assert embed_provider.last_embed_kwargs["dimensions"] == 1536

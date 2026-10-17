@@ -127,7 +127,7 @@ test.describe.serial('Non-spatial CSV', () => {
     await expect(codeBlock).toContainText(`/api/collections/${datasetId}/items?limit=10`);
     await expect(codeBlock).not.toContainText('/api/v1/collections/');
 
-    // fix(#438): replaced the native <select> with ui/select (Radix)
+    // The native <select> was replaced with ui/select (Radix)
     const formatTrigger = page.getByRole('combobox', { name: 'Export format' });
     await expect(formatTrigger).toContainText('CSV');
     await formatTrigger.click();

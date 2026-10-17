@@ -600,7 +600,7 @@ class TestGetJobStatus:
     async def test_job_status_returns_written_progress_values(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """worker-written progress values surface via the API."""
+        """Worker-written progress values surface via the API."""
         admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(test_db_session, created_by=admin_id, status="running")
 
@@ -1426,7 +1426,7 @@ class TestCleanupStaleJobs:
         monkeypatch.setattr(audit_service, "audit_emit_durable", record_durable)
         monkeypatch.setattr(jobs_router, "fail_stale_jobs", cleanup)
         monkeypatch.setattr(jobs_router, "_reap_committed_staged_paths", reap)
-        # fix(#1202): the post-expiry staging sweep runs beside the
+        # The post-expiry staging sweep runs beside the
         # reaper on this path; stub it out so the fake session is not queried.
         monkeypatch.setattr(
             jobs_router,
@@ -1515,7 +1515,7 @@ class TestCleanupStaleJobs:
         monkeypatch.setattr(audit_service, "audit_emit_durable", fail_durable)
         monkeypatch.setattr(jobs_router, "fail_stale_jobs", cleanup)
         monkeypatch.setattr(jobs_router, "_reap_committed_staged_paths", reap)
-        # fix(#1202): the post-expiry staging sweep runs beside the
+        # The post-expiry staging sweep runs beside the
         # reaper on this path; stub it out so the fake session is not queried.
         monkeypatch.setattr(
             jobs_router,

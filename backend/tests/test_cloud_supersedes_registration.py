@@ -1,6 +1,6 @@
 """Tests for /auth/register closure when the cloud overlay is active.
 
-Enforces the "replacing" directive:
+The cloud overlay replaces global self-signup:
   - When has_extension("cloud") is True → POST /auth/register returns 403
     (global-scoped self-signup is CLOSED; ONLY /cloud/signup/register is valid)
   - When has_extension("cloud") is False → /auth/register behaves exactly as

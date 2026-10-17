@@ -1135,8 +1135,7 @@ class TestPreviewEndpoint:
         """An embedded-layer ArcGIS URL (.../FeatureServer/0) with no explicit
         layer_id must persist the NORMALIZED base URL + effective layer id on
         the pending job, so the commit/ingest step targets the right layer
-        instead of rebuilding ".../FeatureServer/0/0/query" or a None layer
-        (Codex P2 regression).
+        instead of rebuilding ".../FeatureServer/0/0/query" or a None layer.
         """
         import uuid as _uuid
         from types import SimpleNamespace

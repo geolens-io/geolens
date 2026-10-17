@@ -310,7 +310,7 @@ class TestMiddlewareBridge:
     def test_middleware_resolves_slug_and_bridges_uuid_in_multi_tenant(self):
         """multi_tenant: the slug signal is resolved to a UUID, which is bridged.
 
-        Regression for the Gap-A Codex finding (PR #256): the middleware must
+        Regression for PR #256: the middleware must
         hand current_tenant_var a tenant UUID, not the raw subdomain slug — the
         RLS GUC casts ::uuid. We patch the resolver to keep this a fast unit
         test and assert (a) the extracted slug reaches the resolver and (b) the

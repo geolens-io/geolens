@@ -118,7 +118,7 @@ def test_schema_cache_partitions_on_map_id():
 
 
 def test_schema_cache_key_handles_none_map_id():
-    """backward-compat - None map_id uses sentinel."""
+    """Backward-compat - None map_id uses sentinel."""
     from app.processing.ai.sql_generator import _schema_cache_key
 
     k = _schema_cache_key([_StubLayer()], None)
@@ -149,7 +149,7 @@ def test_build_sql_schema_context_signature_includes_map_id():
 
 
 def test_schema_cache_max_bumped_to_64():
-    """Cache size bound is 64 ."""
+    """Cache size bound is 64."""
     from app.processing.ai import sql_generator
 
     assert sql_generator._SCHEMA_CACHE_MAX == 64
@@ -193,7 +193,7 @@ def test_schema_cache_eviction_at_64():
 
 
 def test_chat_service_call_site_passes_map_id():
-    """chat-edit threads map_id into the schema_context call.
+    """Chat-edit threads map_id into the schema_context call.
 
     chat_service was split into a facade + chat_*.py
     sub-modules; the actual ``build_sql_schema_context`` call now lives in

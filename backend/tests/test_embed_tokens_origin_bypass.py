@@ -103,7 +103,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
 
     @pytest.fixture(autouse=True)
     def _pin_revocation_generation(self, monkeypatch):
-        """fix(#1778): a positive entry now carries the revocation
+        """A positive entry now carries the revocation
         generation it was minted under, and one whose stamp is stale (or
         missing) is refused and re-read from the database. These cases are about
         the ORIGIN check on the cache-hit path, so they pin the generation and

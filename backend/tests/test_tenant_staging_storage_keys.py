@@ -150,7 +150,7 @@ async def test_presigned_upload_uses_physical_key_and_persists_logical_key(monke
     from app.processing.ingest import router
     from app.processing.ingest.schemas import PresignedUploadRequest
 
-    # fix(#1235): a real created_at, because the presign path now
+    # A real created_at, because the presign path now
     # signs against the job's remaining lifetime. A MagicMock here yields
     # int(MagicMock) == 1 and the assertion below would pin a meaningless TTL.
     job = MagicMock(
@@ -224,7 +224,7 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
         },
     )
     db = AsyncMock()
-    # fix(#1202): completion re-fetches the row FOR UPDATE before
+    # Completion re-fetches the row FOR UPDATE before
     # reading file_path, so the locked fetch has to yield the SAME job the
     # test configured — a bare AsyncMock returns a fresh mock whose truthy
     # file_path trips the one-shot guard.
@@ -301,10 +301,10 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
         return frozen_staging_key(logical_key)
 
     port.finalize_presigned_object = AsyncMock(side_effect=_fake_finalize)
-    # fix(#1235): a real TTL, for the same reason as above.
+    # A real TTL, for the same reason as above.
     port.require_signable_job_lifetime = MagicMock(return_value=1800)
 
-    # fix(#1235): the door signs through one port call that computes
+    # The door signs through one port call that computes
     # the expiration inside the signing thread, so this fake has to actually
     # invoke the storage method. A bare MagicMock would put a mock where the
     # URL string belongs and the tenant-key assertion below would never run.
@@ -418,17 +418,17 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     # VrtGeneration UPDATE in that same sweep reads via .all(), and this
     # fixture doesn't care which statement lands at which index, only that
     # every accessor the sweep might call returns an empty result.
-    # fix(#1709): nine — the childless-`fanned_out` reconciliation
+    # Nine — the childless-`fanned_out` reconciliation
     # (a fan-out parent whose dispatch died before its first child
     # committed) runs between the running-jobs sweep and the VRT sweep.
-    # fix(#1778): nine — the retention purge used to read its
+    # Nine — the retention purge used to read its
     # exempted rows first, the terminal rows that still name an unreaped
     # artifact, which it refused to delete so the record survived for the
     # next sweep to retry. Missing it here shifted every later result by one:
     # the purge's DELETE consumed the survivor SELECT's double, `deleted_paths`
     # came back empty and the tenant-scoped delete this test exists for was
     # never made.
-    # fix(#1778): back down to nine — that exempted-rows SELECT
+    # Back down to nine — that exempted-rows SELECT
     # moved OUT of this block entirely, into the unconditional
     # artifact-carrying SELECT that now runs after the purge (see below), so
     # nothing here answers it any more.
@@ -437,19 +437,19 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
         result.scalars.return_value = []
         result.all.return_value = []
     deleted = MagicMock()
-    # fix(#1202): the purge's RETURNING is (id, file_path,
+    # The purge's RETURNING is (id, file_path,
     # user_metadata) now — it also reaps the presigned staging key, which
     # needs the row's own id to decide ownership. No s3_key here, so this
     # row still contributes exactly one delete.
     deleted.all.return_value = [(uuid.uuid4(), logical, None)]
     survivors = MagicMock()
     survivors.scalars.return_value = []
-    # fix(#1778): the artifact-carrying SELECT, unconditional and
+    # The artifact-carrying SELECT, unconditional and
     # run after the retention block. No rows in this fixture carry an
     # unreaped artifact.
     artifact_rows = MagicMock()
     artifact_rows.all.return_value = []
-    # fix(#1202): one more SELECT for the post-expiry staging sweep.
+    # One more SELECT for the post-expiry staging sweep.
     post_expiry = MagicMock()
     post_expiry.all.return_value = []
     db = AsyncMock()

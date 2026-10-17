@@ -2576,8 +2576,8 @@ async def test_the_account_lock_scope_is_the_account_and_not_the_geolens_caller(
     assert len(seen) == 2
     user_scopes = [pair[0] for pair in seen]
     account_scopes = [pair[1] for pair in seen]
-    # fix(#1758): the ORDER is the deadlock argument, and fix(#1758
-    # codex) made it the ARGUMENT order, so pin which scope is which.
+    # fix(#1758): the ORDER is the deadlock argument, and it is the
+    # ARGUMENT order, so pin which scope is which.
     assert all(scope.startswith("user:") for scope in user_scopes)
     assert all(scope.startswith("account:") for scope in account_scopes)
     # One account, so one account scope, whoever is asking.

@@ -114,7 +114,7 @@ fi
 
 # Refuse to run if the chosen port is in use; a stale container or other
 # postgres on this port would silently mask migration failures.
-# Lsof is macOS/BSD-native; on Linux it may be
+# lsof is macOS/BSD-native; on Linux it may be
 # absent. Fall back to nc -z (universally available on macOS and Linux) so
 # the port-in-use guard works in both CI environments. The script
 # auto-detects which tool is available.
@@ -153,7 +153,7 @@ docker run -d \
 #   1. pg_isready alone is not enough because init-db.sh runs AFTER initial
 #      readiness. Poll for the `vector` extension explicitly so we don't
 #      race the extension-creation step.
-# 2. docker-entrypoint.sh's init-script phase
+#   2. docker-entrypoint.sh's init-script phase
 #      runs against a temporary Postgres listening ONLY on the Unix socket;
 #      `pg_isready` and `docker exec ... psql` succeed via the socket during
 #      this phase. After all init scripts finish, the temporary server

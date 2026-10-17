@@ -376,7 +376,7 @@ class TestCancelRaces:
 
 
 class TestCancelEmbeddingBackfillAudit:
-    """fix(#1709): the job row and the backfill audit trail are
+    """The job row and the backfill audit trail are
     written together by whichever actor settles the job (sweep.py's rule).
     A cancelled queued backfill never runs — the queue row is aborted or the
     claim fails — so the cancel transaction is the only settling actor left."""
@@ -393,7 +393,7 @@ class TestCancelEmbeddingBackfillAudit:
     async def test_cross_user_cancel_names_the_canceller_on_both_events(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#1709): the sibling of the refresh.cancelled fix.
+        """The sibling of the refresh.cancelled fix.
         The terminal `embedding.backfill` event named the run's original
         requester (job.created_by), so a cross-user cancel put the action in
         the requester's audit history while `job.cancel` — in the SAME
@@ -606,7 +606,7 @@ class TestCancelAuthorization:
 
 
 class TestCancelDenialTelemetry:
-    """fix(#1709): a losing ARM is not a denied REQUEST.
+    """A losing ARM is not a denied REQUEST.
 
     Arm 2 (the cross-user capability check) used to log a
     ``permission_denied`` event the instant it failed — including on every
@@ -698,7 +698,7 @@ class TestCancelAuditAttribution:
     async def test_cross_user_cancel_names_the_canceller_on_both_events(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#1709 B): `refresh.cancelled` is attributed to the
+        """`refresh.cancelled` is attributed to the
         CANCELLING user, matching `job.cancel` in the same transaction —
         not to the run's immutable triggered_by. The divergence shows in
         exactly the arm-3 case this PR added: a dataset owner cancelling a
@@ -755,7 +755,7 @@ class TestCancelAuditAttribution:
 
 
 class TestAnalysisWorkerBookkeepingFence:
-    """fix(#1709 B): the analysis materialize is one CTAS awaited
+    """The analysis materialize is one CTAS awaited
     on asyncpg under SET LOCAL statement_timeout — a DELIVERED abort lands
     as asyncio cancellation at that await and kills the query server-side,
     so the lost-abort overlap is bounded by the statement budget, not by a

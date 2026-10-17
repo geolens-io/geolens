@@ -2,8 +2,8 @@ import { test, expect, type Page } from './helpers/session';
 
 /**
  * The ArcGIS sign-in method on the import
- * wizard's Service URL tab. The sign-in endpoint (lane A1,
- * POST /api/services/arcgis/signin/) is mocked here with page.route — it
+ * wizard's Service URL tab. The sign-in endpoint
+ * (POST /api/services/arcgis/signin/) is mocked here with page.route — it
  * mints a request-only token from a username and password, so this spec
  * never touches a real ArcGIS portal.
  *

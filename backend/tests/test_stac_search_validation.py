@@ -109,11 +109,12 @@ class TestSecFu05StacIntersectsMaxLength:
     async def test_sec_fu_05_post_body_is_capped(self, client: AsyncClient):
         """POST /stac/search body.intersects dict IS now capped.
 
-        Capped only the GET `intersects` query param (max_length=10000);
-        the POST body dict bypassed any bound and reached the same anonymous
-        ST_GeomFromGeoJSON predicate (a multi-megabyte GeoJSON DoS amplifier).
-        Adds a matching serialized-size cap on StacSearchBody.intersects,
-        so an oversized body now returns 400 before any spatial query runs. This
+        An earlier cap covered only the GET `intersects` query param
+        (max_length=10000); the POST body dict bypassed any bound and reached
+        the same anonymous ST_GeomFromGeoJSON predicate (a multi-megabyte
+        GeoJSON DoS amplifier). A matching serialized-size cap on
+        StacSearchBody.intersects now makes an oversized body return 400
+        before any spatial query runs. This
         test previously asserted the body was *unaffected* — that was the bug.
         """
         # Build a large polygon dict whose JSON representation exceeds 10000 chars

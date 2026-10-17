@@ -6,8 +6,7 @@ encode but cannot self-verify:
 
 1. The compose-vs-.env.example dual-default for DB_PORT / API_PORT is
    intentional and documented.
-2. The titiler / valkey image pins are not stuck at their original
-   tags.
+2. The titiler / valkey image pins are not stuck at their original tags.
 3. The uv installer pin is byte-aligned across every Dockerfile stage.
 4. Deferred commercial-overlay material is not documented in the public
    repository surfaces.
@@ -33,10 +32,10 @@ def _exists(path: str) -> bool:
 def test_compose_dual_default_documented() -> None:
     """docker-compose.yml port fallbacks differ from .env.example by design."""
     body = _read("docker-compose.yml")
-    # NOTE: the original ">=2 '' inline-comment" assertion was
-    # dropped after commit fec874a6 ("docs(compose): replace long Phase-ID
-    # archaeology with one-line pointers") intentionally removed per-line phase
-    # citations from docker-compose.yml. The load-bearing invariant is the
+    # NOTE: an earlier assertion counted per-line phase citations in
+    # docker-compose.yml; it was dropped after commit fec874a6
+    # ("docs(compose): replace long Phase-ID archaeology with one-line
+    # pointers") intentionally removed them. The load-bearing invariant is the
     # functional fallback below (no-.env baseline still binds 5432 / 8000), not
     # the comment archaeology.
     # The fallback values themselves must remain unchanged so `docker compose up`

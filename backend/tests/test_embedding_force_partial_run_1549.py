@@ -151,7 +151,7 @@ async def _blank_title(session, record_id: uuid.UUID) -> None:
 async def _ingest_write(session, record_id: uuid.UUID, title: str) -> None:
     """Write a vector the way the INGEST PATH does, mid-run.
 
-    fix(#1584, codex P2): this calls the real writer rather than
+    fix(#1584): this calls the real writer rather than
     UPDATEing `updated_at` by hand. The reclamation compares stored stamps
     against a cutoff read from the DATABASE, so the guarantee only holds while
     the writer stamps from the database clock too. A hand-rolled UPDATE with
@@ -319,7 +319,7 @@ async def test_a_short_provider_response_is_counted_and_retried(
     under a valid content hash and a valid stamp, which nothing downstream can
     detect.
 
-    fix(#1581 review): so a length mismatch is a batch FAILURE now
+    fix(#1581): so a length mismatch is a batch FAILURE now
     (`zip(..., strict=True)`), and the batch goes to the per-record retry where
     `[vector] = ...` cannot pair a text with another text's vector. This test
     drives the short answer and asserts the outcome that matters either way:
@@ -471,7 +471,7 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1549 review): the end-of-run pass acts on a start-of-run observation.
+    """fix(#1549): the end-of-run pass acts on a start-of-run observation.
 
     A record with no embeddable text is noted as skipped when the run reads the
     catalog, and its stale vector is reclaimed at the END so an aborted run does
@@ -487,7 +487,7 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
 
     Two intervals need covering, and one cutoff guards both:
 
-    - fix(#1584, codex P2): between the RECORD FETCH and the batch
+    - fix(#1584): between the RECORD FETCH and the batch
       loop. The fetch is what decides a record is empty, and materialising the
       catalog takes as long as it takes, so a cutoff read after it would leave
       that whole span unguarded. `edited_during_fetch` lands its write from
@@ -570,7 +570,7 @@ async def test_a_written_row_is_stamped_when_it_was_written_not_when_the_run_beg
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1583 review): `updated_at` has to be wall-clock, not transaction-start.
+    """fix(#1583): `updated_at` has to be wall-clock, not transaction-start.
 
     PostgreSQL's `now()` is the start of the enclosing TRANSACTION. A batch
     opens one, spends the length of a provider call inside it, and only then

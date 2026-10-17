@@ -33,8 +33,8 @@ def mock_ingest_task():
     """Prevent procrastinate task deferral in all ingest tests.
 
     The router now delegates all task routing (ingest_file / ingest_raster
-    / ingest_service) to ``queue_ingest_job`` in the service layer. Mock that single entry point so every commit_import
-    path becomes a no-op.
+    / ingest_service) to ``queue_ingest_job`` in the service layer. Mock that
+    single entry point so every commit_import path becomes a no-op.
     """
     with patch(
         "app.processing.ingest.router.queue_ingest_job", new_callable=AsyncMock

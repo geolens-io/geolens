@@ -123,7 +123,7 @@ class TestLoginIsSerializedAgainstRevocation:
         first = await _login(client, username)
         original_emit = audit_mod.audit_emit
 
-        # fix(#1460 codex): both ends of the window are synchronized on events,
+        # fix(#1460): both ends of the window are synchronized on events,
         # not on elapsed time. Neither side may drift out of the interleaving.
         #
         # Start: audit_emit runs after revoke_all_tokens and before the commit,
@@ -315,7 +315,7 @@ class TestTheSerializationPointsStillExist:
         ):
             source = (backend / rel).read_text()
             assign = source.find("last_login_at = func.now()")
-            # fix(#1460 codex): compare against create_access_token, NOT
+            # fix(#1460): compare against create_access_token, NOT
             # create_refresh_token. The boundary that matters is the version
             # re-SELECT, because that is the query the pending write
             # autoflushes into. Measuring against the refresh mint leaves a gap

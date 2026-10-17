@@ -8,7 +8,7 @@ Covers the 8 SAML test scenarios specified in 217-02-PLAN.md task 03:
   redirects to /oauth/callback?source=saml#token=...&nonce=<login's nonce>
 - ACS rejects: invalid signature, unsigned, expired, replayed, XSW
 
-The remaining 2 SAML tests (audit-log + role-mapping) land in Plan 03.
+The audit-log and role-mapping SAML tests follow the schema tests.
 
 All tests use the ``saml_overlay_registered`` conftest fixture which
 programmatically installs ``EnterpriseSamlExtension`` for the test's
@@ -129,7 +129,7 @@ def saml_response_dir(tmp_path_factory) -> Path:
         # tmp full), subprocess.CalledProcessError raised by xmlsec1 invocation,
         # RuntimeError raised by generate_fixtures._build_xsw_attack_xml when an
         # Assertion can't be located. Any of these must fall back to the
-        # committed `.xml.b64.template` files instead of aborting the session
+        # committed `.xml.b64.template` files instead of aborting the session.
         print(
             f"[saml-fixtures] generator unavailable ({type(exc).__name__}: {exc}); "
             "using committed templates",
@@ -210,8 +210,8 @@ async def _seed_saml_provider(
     """Seed a SAML OAuthProvider row.
 
     NOTE: ``client_id`` and ``client_secret_encrypted`` are NOT-NULL on the
-    ORM (backend/app/modules/auth/oauth/models.py:40-41). Plan 03 makes them
-    Optional in Pydantic but does NOT relax the DB columns. Seed with
+    ORM (backend/app/modules/auth/oauth/models.py:40-41). The Pydantic schema makes them
+    Optional but does NOT relax the DB columns. Seed with
     placeholder strings to satisfy the constraint.
     """
     if group_role_mapping is None:
@@ -559,10 +559,10 @@ async def test_saml_acs_rejects_invalid_signature(
     _cleanup_saml_providers,
     saml_idp_server,
 ):
-    """tampered/wrong-signature assertion produces an error redirect.
+    """A tampered/wrong-signature assertion produces an error redirect.
 
     The expired fixture's signature was invalidated by post-signing
-    text-rewrite of IssueInstant (SUMMARY decision); this is a
+    text-rewrite of IssueInstant; this is a
     convenient stand-in for a generic invalid-signature scenario.
     """
     await _seed_saml_provider(test_db_session)
@@ -755,7 +755,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
     saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """post-ACS redirect URL must include ?source=saml so
+    """The post-ACS redirect URL must include ?source=saml so
     the frontend OAuth callback handler can distinguish SAML callbacks.
 
     Verified against both happy-path and error redirect to confirm the
@@ -876,7 +876,7 @@ def test_oauth_provider_update_saml_fields_reject_community(community_edition):
 
 def test_oauth_provider_create_oauth_rejects_saml_fields():
     """OIDC/Google/Microsoft providers must not set SAML fields — prevents
-    mixed configs that confuse the runtime (Pitfall: ambiguous provider rows)."""
+    mixed configs that confuse the runtime."""
     from pydantic import ValidationError
 
     from app.modules.auth.oauth.schemas import OAuthProviderCreate
@@ -948,11 +948,11 @@ async def test_saml_provider_update_logs_old_new_role_mapping(
     saml_router_mounted,
     _cleanup_saml_providers,
 ):
-    """/ SC#4: audit-log entry for SAML provider update captures
+    """Audit-log entry for SAML provider update captures
     ``details.changes.group_role_mapping = {old: ..., new: ...}``.
 
-    Closes an audit gap (the prior code
-    logged only ``slug``; mandates "old/new values").
+    Closes an audit gap: the prior code
+    logged only ``slug``, but the update must record old/new values.
 
     Uses ``saml_router_mounted`` to flip ``is_enterprise()`` to True --
     OAuthProviderUpdate's ``_validate_idp_mapping_gate`` rejects non-empty
@@ -1187,7 +1187,7 @@ async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
     saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """/ SC#4 behavior coverage: a SAML user whose assertion contains
+    """Behavior coverage: a SAML user whose assertion contains
     ``groups=['editors']`` and whose provider has
     ``group_claim='groups'`` + ``group_role_mapping={'editors': 'editor'}``
     must be JIT-provisioned with role='editor' (NOT default_role='viewer').

@@ -102,7 +102,7 @@ async def test_anon_cog_download_with_empty_token_param_is_401(
     client: AsyncClient,
     test_db_session,
 ):
-    """fix(#1693): a bare ``?token=`` (empty value) must 401, not
+    """A bare ``?token=`` (empty value) must 401, not
     fall through to the anonymous branch as if no token were supplied at
     all — even for a public+published raster where the anonymous branch
     would otherwise return 200. An empty value is a PRESENT, malformed

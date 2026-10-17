@@ -601,7 +601,7 @@ async def test_a_resume_naming_the_previous_artifact_is_not_sliced(
     assert resumed.status_code == 200, (
         f"a resume naming the previous artifact returned {resumed.status_code}. "
         f"A 206 here is ten bytes of the new export at offsets measured against "
-        f"the old one, which is the splice this PR exists to prevent."
+        f"the old one, which is the splice the cache exists to prevent."
     )
     assert resumed.content == conversions.body
     assert "content-range" not in resumed.headers
@@ -676,7 +676,7 @@ def test_no_provider_stubs_out_a_method_the_read_path_calls(method):
     ``AzureBlobStorageProvider.get_stream`` raised ``NotImplementedError`` behind
     a docstring asserting "the router returns a SAS-signed redirect for the azure
     storage backend, so this method is unreachable". It was reachable, and the
-    claim was already stale before this PR — fix(#1540) established that no
+    claim was already stale — fix(#1540) established that no
     ingest path writes ``storage_backend="azure"`` at all, so managed assets take
     the LOCAL branch, whose whole-object GET calls exactly that method. The
     cached export made a second caller.
@@ -740,7 +740,7 @@ async def test_a_provider_without_presigning_serves_cold_and_hit(
 
     Cold (the request that builds and stores) and hit (a later request with no
     usable Range) both end in ``get_stream``. Asserting them together is the
-    point: the cold path was reachable before this PR too, and a change that
+    point: the cold path was reachable before the cache too, and a change that
     fixed one while leaving the other would pass a test that checked one.
     """
     from app.platform.storage import get_storage
@@ -876,7 +876,7 @@ async def test_a_truncated_artifact_is_skipped_rather_than_served(test_db_sessio
     Free, too: the response needs the length anyway, so verifying it costs the
     call that was already being made. Without the check a truncated export is
     served to every reader until the horizon — a persistent version of exactly
-    the corrupt download this PR exists to prevent.
+    the corrupt download the cache exists to prevent.
     """
     from app.platform.storage import get_storage
     from app.processing.export import artifact_cache as cache
@@ -943,7 +943,7 @@ async def test_the_sweep_reclaims_aged_artifacts_and_keeps_young_ones(test_db_se
 
 
 async def test_a_publish_racing_the_sweep_survives(test_db_session, monkeypatch):
-    """The sweep must not delete on the strength of a snapshot (codex).
+    """The sweep must not delete on the strength of a snapshot.
 
     An earlier revision read a selection's pointer, found it past the horizon,
     declared the whole PREFIX stale and removed every key under it — including
@@ -1585,8 +1585,8 @@ async def test_publication_stops_at_the_byte_budget(test_db_session, monkeypatch
     the volume `export_dataset` converts on and every ingest stages uploads on.
     Before #1532 those export bytes were transient; retaining a copy of every
     distinct selection for a horizon means a handful of large ones blocks every
-    conversion and upload on the instance. The reclaim-and-retry only frees AGED artifacts, so a volume full of FRESH ones has nothing to
-    give back.
+    conversion and upload on the instance. The reclaim-and-retry only frees AGED
+    artifacts, so a volume full of FRESH ones has nothing to give back.
     """
     import tempfile
 
@@ -1786,8 +1786,8 @@ async def test_an_exhausted_budget_reclaims_and_then_publishes(
     going to reclaim them. Misses then rebuilt and served whole forever, until an
     operator cleaned storage by hand.
 
-    The same deadlock the reclaim-and-retry fixed for ENOSPC, re-created by a new early exit above
-    the same sweep. The artifacts here are past the horizon, so a sweep frees the
+    The same deadlock the reclaim-and-retry fixed for ENOSPC, re-created by a
+    new early exit above the same sweep. The artifacts here are past the horizon, so a sweep frees the
     room; the point is whether one runs at all.
     """
     import tempfile
@@ -1916,7 +1916,7 @@ async def test_two_publishers_may_overshoot_and_the_horizon_reclaims_it(
 
 
 # ---------------------------------------------------------------------------
-# The scratch files this PR introduced, everywhere
+# The scratch files the cache introduced, everywhere
 # ---------------------------------------------------------------------------
 
 
@@ -2240,8 +2240,8 @@ async def test_the_export_route_is_never_gzipped_and_others_still_are(
 ):
     """A compressed 200 and a raw 206 must not share one ETag — on THIS route only.
 
-    Parametrized over the spellings that trip ``GZipMiddleware`` (fix(#1532
-    codex)): it engages on a SUBSTRING test, ``"gzip" in Accept-Encoding``,
+    Parametrized over the spellings that trip ``GZipMiddleware`` (fix(#1532)): it
+    engages on a SUBSTRING test, ``"gzip" in Accept-Encoding``,
     so ``x-gzip`` — which RFC 9110 section 8.4.1.3 makes equivalent to gzip —
     compresses too. The opt-out used to drop members that STARTED with gzip and
     let that one through; it now applies the same predicate the middleware does.
@@ -2739,7 +2739,7 @@ def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
     against a copy of the first build: two reversible UPDATE transactions
     that leave every row exactly as they found it, but commit twice.
 
-    fix(#1633 review, codex P2): the fix stamps a DERIVED value now, not a
+    fix(#1633): the fix stamps a DERIVED value now, not a
     fixed constant (see `test_normalize_derives_distinct_counters_for_different_content`
     below for why), so this only checks the two header fields agree with
     each other and land on the same value for the same content — not that
@@ -2833,7 +2833,7 @@ def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
 
 
 def test_normalize_derives_distinct_counters_for_different_content(tmp_path):
-    """fix(#1633 review, codex P2): the derived counter must vary with content.
+    """fix(#1633): the derived counter must vary with content.
 
     The first version of this fix stamped both header fields to a FIXED
     constant. That made #1633's determinism property hold, but it also meant
@@ -2904,7 +2904,7 @@ def test_normalize_derives_distinct_counters_for_different_content(tmp_path):
 
 
 def test_the_streamed_header_derivation_matches_a_naive_whole_file_hash(tmp_path):
-    """fix(#1633 review, codex P1): streaming must not change what gets stamped.
+    """fix(#1633): streaming must not change what gets stamped.
 
     `_stamp_gpkg_header_counters` reads and hashes the file in fixed-size
     chunks rather than loading it whole, because the naive version's
@@ -4926,7 +4926,7 @@ async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_who
     # bytes is a v1 publication plus a TTL, and the client that took it gets a
     # TTL to come back — so a v1 publication 700 s old (TTL 600: served until
     # 100 s ago) still holds bare ranges whole, and one 1300 s old releases
-    # them (#1585 codex). Re-keyed each time, since the stamp in the name
+    # them (#1585). Re-keyed each time, since the stamp in the name
     # floors publication.
     storage = get_storage()
     prefix = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"

@@ -13,7 +13,7 @@ a wrong or absent ``Referer``           no difference on any of the above
 ======================================  ==================================
 
 Hosted ArcGIS Online takes either name. ``X-Esri-Authorization`` is what is
-sent (fix(#1840 codex)), because Esri documents that name precisely
+sent (fix(#1840)), because Esri documents that name precisely
 for the case AGOL cannot show: on ArcGIS Enterprise behind a Web Adaptor, or
 with web-tier authentication (IWA/PKI in IIS), the front end consumes the
 standard ``Authorization`` header and answers 401/403 before ArcGIS produces
@@ -282,7 +282,7 @@ class TestEveryReadSendsTheHeaderAndNoQueryToken:
             # feat(C2) sends no Referer: measured, and not needed even for a
             # referer-bound token.
             assert "referer" not in {name.lower() for name in request.headers}
-            # the Esri-specific name, NOT the
+            # The Esri-specific name, NOT the
             # standard one -- a web tier in front of ArcGIS Enterprise
             # consumes `Authorization` and refuses before ArcGIS runs.
             assert "authorization" not in {name.lower() for name in request.headers}

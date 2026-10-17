@@ -225,7 +225,7 @@ class TestRedirectSlashesNoLeak:
         # Even on the 404 path the no-leak invariant must hold —
         # FastAPI's default 404 has no Location header but a future
         # change that surfaces a Location here would re-introduce the
-        # vulnerability shape.
+        # original leak.
         location = resp.headers.get("location", "")
         assert "api:8000" not in location and "://api/" not in location, (
             f"in-container hostname leak on 404 path: {location!r}"

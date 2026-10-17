@@ -305,7 +305,7 @@ class TestBinaryJoinFields:
         Raw bytes raise inside Pydantic's JSON serializer, turning a valid
         preview into a 500 — and a ``bytea[]`` column comes back as a LIST of
         bytes, so the encoder must recurse into containers, not just handle
-        the scalar (review). Both encodings match ``to_jsonb``'s
+        the scalar. Both encodings match ``to_jsonb``'s
         (which the features browse API serves for the same columns):
         ``\\x`` + hex, and an array of the same.
         """
@@ -396,7 +396,7 @@ class TestCurvedIngestNormalization:
     async def test_reprojected_ingest_densifies_in_the_source_crs(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1113): linearize before ST_Transform, not after.
+        """Linearize before ST_Transform, not after.
 
         An arc is defined by control points and CRS transforms are nonlinear,
         so densifying after the transform traces the arc in the wrong space.
@@ -561,7 +561,7 @@ class TestCurvedIngestNormalization:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1113): a STORED GENERATED column must not abort.
+        """A STORED GENERATED column must not abort.
 
         PostgreSQL rejects any UPDATE against a generated column at parse
         time — even one whose WHERE matches nothing — so the enforcement
@@ -608,7 +608,7 @@ class TestCurvedIngestNormalization:
     async def test_register_refuses_a_generated_column_that_yields_curves(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1113): curved generated values refuse registration.
+        """Curved generated values refuse registration.
 
         No write of ours can repair a generated column, so admitting one whose
         rows are already curved registers a dataset broken on every surface.
@@ -650,7 +650,7 @@ class TestCurvedIngestNormalization:
     async def test_generated_reject_sees_nested_curves_but_not_linear_gcs(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1113): the reject test is 'would conversion change it'.
+        """The reject test is 'would conversion change it'.
 
         A curve container nested in a GEOMETRYCOLLECTION has no arc and a
         collection top-level type, so any type-list predicate misses it; an
@@ -719,7 +719,7 @@ class TestCurvedIngestNormalization:
     async def test_relationship_fetch_may_target_a_projected_out_column(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1113): the match runs against the base table.
+        """The match runs against the base table.
 
         Safe-column validation accepts ``geom_4326`` as a relationship target,
         and the projection deliberately drops it — predicating on the
@@ -742,7 +742,7 @@ class TestCurvedIngestNormalization:
     async def test_register_refuses_a_constraint_declared_curved_column(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1113): legacy CHECK declarations fail closed.
+        """Legacy CHECK declarations fail closed.
 
         An old-style PostGIS table declares its type through
         ``enforce_geotype_*`` CHECK constraints on a bare geometry column;

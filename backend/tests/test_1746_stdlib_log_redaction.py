@@ -168,13 +168,13 @@ def test_httpx_warning_request_line_is_delivered_but_redacted():
 
 
 def test_httpx_warning_userinfo_credential_is_redacted():
-    """Codex P1: a userinfo credential the whole-event gate missed.
+    """A userinfo credential the whole-event gate missed.
 
     `has_url_credentials()` (the original gate, since replaced) parses the
     WHOLE event as one URL, and a sentence like `HTTP Request: GET
     https://user:SECRET@host/path "HTTP/1.1 200 OK"` does not parse as a URL
     on its own -- the surrounding prose breaks `urlsplit`, so the gate
-    returned False and the credential went out untouched. matches
+    returned False and the credential went out untouched. The fix matches
     `URL_LIKE_RE` first and redacts each matched URL individually, which
     finds the userinfo the whole-event parse missed.
     """
@@ -190,7 +190,7 @@ def test_httpx_warning_userinfo_credential_is_redacted():
 
 
 def test_httpx_warning_query_credential_with_hash_is_fully_redacted():
-    """Codex P1: an un-escaped `#` in a token value breaks the parse.
+    """An un-escaped `#` in a token value breaks the parse.
 
     The token/source validators only reject whitespace/control characters,
     so a value containing `#` is reachable. `urlsplit` reads `#` as the
@@ -215,7 +215,7 @@ def test_httpx_warning_query_credential_with_hash_is_fully_redacted():
 
 
 def test_httpx_warning_query_credential_with_ampersand_is_fully_redacted():
-    """Codex P1: an un-escaped `&` in a token value breaks the parse.
+    """An un-escaped `&` in a token value breaks the parse.
 
     `parse_qsl` reads an un-escaped `&` inside a token value as the START of
     a NEW query parameter -- a bare name with no `=`, which matches no
@@ -309,7 +309,7 @@ def test_procrastinate_worker_task_kwargs_token_is_redacted():
 
 
 def test_procrastinate_worker_token_with_escaped_quotes_is_redacted():
-    """Codex P1: a token containing both quote styles survives `repr()`.
+    """A token containing both quote styles survives `repr()`.
 
     `repr()` of a string with BOTH a single and a double quote in it picks
     one quote character as the delimiter and ESCAPES that character where it
@@ -346,12 +346,12 @@ def test_procrastinate_worker_token_with_escaped_quotes_is_redacted():
 
 
 def test_event_without_a_credential_url_is_never_mangled():
-    """Codex P2, mechanism since updated.
+    """A message with no credential URL is left alone.
 
     `redact_url_credentials()`'s `_URLSPLIT_STRIPS` step deletes
     `\t`/`\r`/`\n` unconditionally -- correct for a string already known to
-    be URL-shaped, wrong for an arbitrary log `event`. gated the
-    whole-event call on `has_url_credentials()`; replaced that with
+    be URL-shaped, wrong for an arbitrary log `event`. The old code gated the
+    whole-event call on `has_url_credentials()`; that was replaced with
     matching `URL_LIKE_RE` and redacting each match, which keeps this
     property for a different reason: a message with no URL-shaped substring
     at all has nothing for `URL_LIKE_RE` to match, so it is never handed to
@@ -433,7 +433,7 @@ def test_redact_token_value_repr_handles_a_dict_repr_escaped_quote():
     ],
 )
 def test_setup_logging_derives_httpx_floor_from_root(log_level, expected_httpx_level):
-    """Codex P2: httpx's WARNING floor must track root, not override it.
+    """Httpx's WARNING floor must track root, not override it.
 
     A FIXED WARNING silently reverses itself the moment root is raised past
     it: `LOG_LEVEL=ERROR` at boot (`app.core.config`) previously left httpx
@@ -448,7 +448,7 @@ def test_setup_logging_derives_httpx_floor_from_root(log_level, expected_httpx_l
 
 
 def test_redact_token_value_repr_stays_linear_on_unterminated_input():
-    """Codex P2: the two value-body alternatives must not overlap.
+    """The two value-body alternatives must not overlap.
 
     `(?:\\.|.)*?` let `.` also match a backslash, so an unterminated
     `token='` followed by N backslashes had N different ways to split into
@@ -547,7 +547,7 @@ def _raise_with_secret_local() -> None:
 
 
 def test_dev_console_exception_is_scrubbed_and_has_no_locals():
-    """Codex P1: dev console mode leaked a token two different ways.
+    """Dev console mode leaked a token two different ways.
 
     An earlier fix covered only the JSON/production path: `format_exc_info` stayed
     conditional on `json_logs or production`, so in pure dev mode `exc_info`
@@ -584,7 +584,7 @@ def test_dev_console_exception_is_scrubbed_and_has_no_locals():
 
 
 def test_httpx_warning_apostrophe_in_url_path_still_redacts_the_query():
-    """Codex P1: URL_LIKE_RE's own match can hide the query from it.
+    """URL_LIKE_RE's own match can hide the query from it.
 
     `URL_LIKE_RE`'s character class excludes `'`/`"`/`<`/`>` and whitespace,
     so a base URL with an apostrophe in its PATH -- accepted by validators
@@ -828,7 +828,7 @@ def test_nested_url_credential_in_an_extra_is_scrubbed():
     )
 
     assert _TOKEN not in line
-    # compare the host EXACTLY, and the string as a
+    # Compare the host EXACTLY, and the string as a
     # whole, rather than asserting the hostname is a substring of the scrubbed
     # detail. `"services6.arcgis.com" in <text>` is satisfied by
     # `services6.arcgis.com.evil.test` too, so as an assertion about a URL it
@@ -983,7 +983,7 @@ def test_repr_scrub_covers_every_denylisted_name():
     `credential_ref` -- 2 of the 14 denylisted names -- so the other 12 were
     redacted as keys and then emitted verbatim in the `call_string` rendering
     beside them. That is the same key-pass/text-pass asymmetry that produced
-    this PR's own finding, one level down. Pinning the two sets equal is what
+    the original leak, one level down. Pinning the two sets equal is what
     keeps adding a name to the denylist from covering only half a record.
     """
     assert set(_REDACTED_REPR_NAMES) == _SENSITIVE_FIELDS

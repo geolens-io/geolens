@@ -15,7 +15,7 @@ Earlier fixes each patched one CELL of the same underlying decision
 ("given the marker and the keyring, which credential is active?").
 This file pins the WHOLE table instead, against
 auth.resolve_active_credential() (the one precedence implementation
-introduced -- see its own docstring in auth.py) exercised
+-- see its own docstring in auth.py) exercised
 through AppState.sdk(), so it also proves main.py's exception-to-exit-
 code translation is right.
 

@@ -196,7 +196,7 @@ async def test_invalidate_table_does_not_purge_a_prefix_sibling(kind):
 
 
 # ---------------------------------------------------------------------------
-# Label (fix #1429 restores it for composite keys)
+# table_name label (fix #1429 restores it for composite keys)
 # ---------------------------------------------------------------------------
 
 

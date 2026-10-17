@@ -798,7 +798,7 @@ class TestResolution:
     async def test_a_search_that_could_not_be_carried_out_is_not_a_withdrawal(
         self, stac_transport, code: int
     ) -> None:
-        """Collapsed "looked and found
+        """An earlier version collapsed "looked and found
         nothing" into "could not look", on the reasoning that the item's own
         404 was authoritative anyway.
 
@@ -820,7 +820,7 @@ class TestResolution:
         """A 404 from /search is the catalog saying there is nowhere to look,
         which leaves the item's own 404 as the last authoritative word.
 
-        including its DETAIL. The search
+        That includes its DETAIL. The search
         endpoint's `not_found` describes the wrong resource — the Source
         panel would tell a user the source was not found where it should say
         the item was withdrawn.
@@ -858,7 +858,7 @@ class TestResolution:
     async def test_a_search_page_that_ignores_the_filters_proves_nothing(
         self, stac_transport
     ) -> None:
-        """non-empty and non-matching is not
+        """A non-empty and non-matching result is not
         absence.
 
         The request asks for one id in one collection with `limit: 1`, so an

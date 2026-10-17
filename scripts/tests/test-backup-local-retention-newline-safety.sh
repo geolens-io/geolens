@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fix(#1778, P2 class): the LOCAL half of retention pruning had the
+# The LOCAL half of retention pruning had the
 # same "env-derived value fed through a line-oriented tool" shape as the S3
 # half (see test-backup-s3-retention-newline-safety.sh), reached a different
 # way: dump_listing (renamed dump_listing_arrays) used to build its listing

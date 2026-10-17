@@ -141,7 +141,7 @@ def test_the_worked_example_expands_and_the_sandbox_admits_it():
 def test_rendered_buffer_expression_validates():
     """fix(#1001): the sandbox has to admit what the expander produces.
 
-    This test spent one release inverted. #935 codex admitted the buffer's
+    This test spent one release inverted. #935 admitted the buffer's
     functions and bounded them with per-call cost guards; #990 then rebuilt the
     renderer and those guards, written against the older shape, rejected the
     very expression the prompt mandates. Three attempts to recalibrate them

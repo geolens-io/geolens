@@ -1113,7 +1113,7 @@ class TestDatasetStatusRefreshRetry:
 
 
 class TestReauthReviewRoundOne:
-    """fix(#1778 review, PR #1802): three follow-ups on
+    """Three follow-ups on
     call_sdk_with_reauth found on the initial review."""
 
     def test_403_never_triggers_a_refresh(
@@ -1207,7 +1207,7 @@ class TestReauthReviewRoundOne:
         env var outranked a stored credential, so with an expired
         env token and a valid stored refresh token, the retry kept
         resending the SAME expired env token and burned the rotated
-        refresh token for nothing. "fixed" this by making the
+        refresh token for nothing. The first fix "fixed" this by making the
         retry carry the token try_refresh() just returned instead of
         re-resolving -- but that meant an expired GEOLENS_TOKEN silently
         spent a stored login's refresh token and continued the command
@@ -1321,7 +1321,7 @@ class TestWhoamiEnvTokenNeverRefreshes:
 
 
 class TestReauthReviewRoundThree:
-    """fix(#1778 review, PR #1802): refresh must only be attempted
+    """Refresh must only be attempted
     for a client authenticated with a bearer token."""
 
     def test_api_key_client_with_a_stored_refresh_token_never_refreshes_on_401(
@@ -1646,7 +1646,7 @@ def _setup_bearer_provenance(mock_keyring: dict, monkeypatch, provenance: str) -
     (the value try_refresh() must PROVE a refresh token is paired
     with). "interactive" and "manual" are both keyring-stored bearers
     -- they produce the IDENTICAL credential_provenance == "stored-
-    bearer" tag (does not distinguish HOW a stored bearer got
+    bearer" tag (it does not distinguish HOW a stored bearer got
     there, only THAT it's stored vs. env) -- given distinct literal
     values purely so each row's setup and assertions read clearly."""
     if provenance == "env":
@@ -1688,7 +1688,7 @@ def _setup_refresh_state(mock_keyring: dict, current_bearer: str, refresh_state:
 # call made (False).
 #
 # "interactive" and "manual" both resolve to credential_provenance ==
-# "stored-bearer" (does not track HOW a stored bearer got
+# "stored-bearer" (the tag does not track HOW a stored bearer got
 # there) -- the pairing mechanism is intentionally NOT a
 # provenance flag, only a fingerprint proving "this refresh token
 # belongs to the CURRENTLY stored bearer." (manual, paired) is
@@ -1701,7 +1701,7 @@ def _setup_refresh_state(mock_keyring: dict, current_bearer: str, refresh_state:
 # legacy) and (manual, mismatched) ARE the realistic finding scenario:
 # a stale refresh token an earlier interactive login left behind,
 # surviving a later `login --token`/`--api-key` that never cleared it.
-# "env" never reaches try_refresh() at all (gates on
+# "env" never reaches try_refresh() at all (it gates on
 # credential_provenance == "stored-bearer" before ever consulting a
 # refresh token), so every env row is False regardless of refresh_state.
 REFRESH_MATRIX = {
@@ -1804,7 +1804,7 @@ class TestRefreshPairingMatrix:
 # normal auth error." api_key is NOT read by the pairing check at all
 # (it is unrelated to which bearer a refresh token rotates) -- its own
 # unreadability is tolerated by the ALREADY-tolerant "no marker"
-# Precedence path, so the honest, code-accurate
+# precedence path, so the honest, code-accurate
 # expectation for that row is that the refresh proceeds and succeeds,
 # completely unaffected. Included anyway, with its own true
 # expectation, to prove unrelated interference does not leak into the

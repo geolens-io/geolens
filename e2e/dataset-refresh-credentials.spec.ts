@@ -4,8 +4,7 @@ import { getAuthToken, getSearchSeed, type SearchSeed } from './helpers/catalog'
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
 /**
- * Refresh-door inline credential prompt (#1755 item 4, service-auth plan
- * section 3.7). Covers the 422 `service_token_required` refusal from
+ * Refresh-door inline credential prompt (#1755 item 4). Covers the 422 `service_token_required` refusal from
  * `POST /datasets/{id}/refresh`: the dialog must stay open and reveal a
  * credential prompt keyed to the token field, with different copy for an
  * ArcGIS origin (full sign-in taxonomy) than for a WFS/OGC API Features
@@ -15,19 +14,17 @@ const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
  *   - `GET /api/datasets/{id}` is rewritten to report whichever service
  *     `source_format` the test needs, on top of a real dataset's full
  *     payload (so every other field the page renders stays valid).
- *   - `POST /api/datasets/{id}/refresh` is fulfilled with the 422 this
- *     lane's frontend change reacts to; lane A1's sign-in endpoint has not
- *     merged yet, and the 422 itself does not depend on any dataset's real
- *     `auth_required` marker, so nothing here needs the live backend to
+ *   - `POST /api/datasets/{id}/refresh` is fulfilled with the 422 the
+ *     refresh dialog reacts to. The 422 itself does not depend on any
+ *     dataset's real `auth_required` marker, so nothing here needs the live backend to
  *     agree the dataset is protected.
- *   - `POST /api/services/arcgis/signin/` is fulfilled per lane A1's
- *     contract (plan 3.2), which this lane builds against and mocks rather
- *     than calling for real.
+ *   - `POST /api/services/arcgis/signin/` is mocked rather
+ *     than called for real.
  *
  * Navigation to the dataset goes through the search typeahead (client-side
  * routing), not a direct `page.goto('/datasets/{id}')` — a hard `goto` of a
  * protected route drops the session under the worktree Vite recipe used to
- * exercise this lane (`AGENTS.md`, "Worktrees").
+ * exercise this spec (`AGENTS.md`, "Worktrees").
  */
 
 const RAW_SERVICE_TOKEN_MESSAGE =
@@ -70,7 +67,7 @@ function mockDataset(page: Page, sourceFormat: 'wfs' | 'arcgis_featureserver') {
   });
 }
 
-/** Always answers the 422 this lane's frontend change reacts to. */
+/** Always answers the 422 the refresh dialog reacts to. */
 function mockRefreshRefused(page: Page) {
   return page.route(`**/api/datasets/${seed.id}/refresh`, (route: Route) => {
     if (route.request().method() !== 'POST') return route.continue();
@@ -131,7 +128,7 @@ test.describe('Refresh-door credential prompt on service_token_required', () => 
   // feat(#1746 B4): the WFS/OGC API Features credential prompt is the
   // four-way `ServiceCredentialBlock` select (none/bearer/basic/header), in
   // place of the bearer-only field this door offered before B2b (#1770,
-  // merged to main before this lane started).
+  // merged to main before this spec).
   test('WFS origin: a Basic-auth retry sends the structured auth object, not the deprecated token field', async ({
     page,
   }) => {

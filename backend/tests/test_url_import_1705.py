@@ -1158,7 +1158,7 @@ class TestUrlImportS3Staging:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 P1-A): pins the ordering. The byte-quota check
+        """fix(#1708): pins the ordering. The byte-quota check
         runs AFTER the staging put, in the same short transaction as the CAS,
         so a put that fails must short-circuit before any byte-charged quota
         call — and the job must still settle failed."""

@@ -1,6 +1,6 @@
-"""cross-tenant isolation gate.
+"""Cross-tenant isolation gate.
 
-The security gate the whole phase exists to deliver.
+The blocking security gate for multi-tenant mode.
 
 What this tests
 ---------------
@@ -433,7 +433,7 @@ class TestGate01CrossEntitySymmetry:
     async def test_full_cross_tenant_isolation_envelope(self, multi_tenant_rls):
         """All 5 cross-tenant reads return 0; all 5 own-tenant reads return 1.
 
-        This is the ROADMAP fail-closed cross-tenant assertion criterion.
+        This is the fail-closed cross-tenant assertion.
         A refactor that breaks the tenant contract on ANY of the 5 entity types
         will fail this test on every core PR.
         """

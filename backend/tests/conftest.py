@@ -850,7 +850,7 @@ _SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)
 #     SQLAlchemy 2.x's async dialect).
 # Catching BOTH the SQLAlchemy wrapper AND the raw asyncpg classes is
 # required for the retry path to actually fire in practice — initial
-# measurement showed retry coverage of only ~42% (188 → 109)
+# Measurement showed retry coverage of only ~42% (188 → 109)
 # when only `OperationalError` was caught, because the majority of
 # contention failures surface as raw asyncpg exceptions through the
 # `bind.connect()` → `greenlet_spawn` → asyncpg connection_class path.
@@ -1006,8 +1006,8 @@ async def _acquire_test_session_with_retry(
     (the connection error fires later, inside the request handler, after
     the session has been yielded and the retry envelope has exited).
 
-    Iter-1 first-attempt measurement confirmed this: wrapping
-    only ``__aenter__`` reduced 4.3 from 137 -> 135 (0 effective coverage).
+    Measurement confirmed this: wrapping only ``__aenter__`` reduced the
+    in-test failures from 137 -> 135 (0 effective coverage).
     The fix: eagerly trigger asyncpg connection acquisition INSIDE the
     retry envelope by issuing a cheap ``SELECT 1`` after the session is
     created. If the warm-up query raises a transient contention
@@ -1132,8 +1132,8 @@ def _invoke_sleep_in_sync_context(sleep_fn, seconds):
 
     - If ``sleep_fn`` is the production ``asyncio.sleep`` reference
       specifically: use ``time.sleep`` for the actual blocking delay.
-      Shape Y2 (load-bearing
-      rationale): ``asyncio.run(asyncio.sleep(seconds))`` was
+      Load-bearing
+      rationale: ``asyncio.run(asyncio.sleep(seconds))`` was
       empirically tested and produced
       658 ``RuntimeError: asyncio.run() cannot be called from a
       running event loop`` cascade failures across `pytest -n auto`,
@@ -1285,7 +1285,7 @@ class _RetryingAsyncEngine:
         except AttributeError:
             # Test doubles may not expose sync_engine; the .connect() /
             # .dispose() retry wrappers above still apply.
-            # pre-initialize listener refs
+            # Pre-initialize listener refs
             # to None so dispose() can no-op cleanly.
             object.__setattr__(self, "_sync_engine", None)
             object.__setattr__(self, "_do_connect_handler", None)
@@ -1295,8 +1295,7 @@ class _RetryingAsyncEngine:
                 sync_engine, sleep_fn=sleep_fn, backoffs=backoffs
             )
         except (TypeError, AttributeError, InvalidRequestError):
-            # Closure: narrowed from
-            # `except Exception` to avoid a silent-swallow
+            # Narrowed from `except Exception` to avoid a silent-swallow
             # anti-pattern. Test doubles (MagicMock sync_engine) cannot
             # accept `event.listens_for` — SQLAlchemy raises one of three
             # documented event-API failure shapes:
@@ -1318,7 +1317,7 @@ class _RetryingAsyncEngine:
             # accept the event hook because they are real SQLAlchemy
             # Engine instances.
             handler = None
-        # closure: store the handler ref + sync
+        # Store the handler ref + sync
         # engine ref so `dispose()` can `event.remove(...)` the listener
         # and prevent stacking when a shared engine is wrapped multiple
         # times. `handler` is None when install was silently skipped per
@@ -1385,7 +1384,7 @@ class _RetryingAsyncEngine:
         worker is racing the connection ceiling at the moment of
         dispose. Symmetric with `connect()` retry coverage.
 
-        Closure: before delegating to the
+        Before delegating to the
         underlying dispose, remove the `do_connect` event listener
         registered by `_install_dbapi_connect_retry` in `__init__`.
         Without removal, a future refactor wrapping the SAME shared
@@ -1891,15 +1890,14 @@ async def client(tmp_path):
         # Override the get_db dependency
         from app.core.dependencies import get_db
 
-        # Wrap the per-request session-factory
-        # acquisition with `_acquire_test_session_with_retry` so transient
+        # Wrap the per-request session-factory acquisition with `_acquire_test_session_with_retry` so transient
         # `asyncpg.TooManyConnectionsError` / `OperationalError("too many clients
         # already")` raised inside `__aenter__` is retried with bounded backoff
         # (0.5 + 1.0 = 1.5s budget) before failing loudly. Distinct from
-        # the setup-phase wrap of `_ensure_roles_and_admin`: this one
+        # The setup-phase wrap of `_ensure_roles_and_admin` is separate: this one
         # fires per-request inside the test body (e.g., when a test issues
         # multiple sequential `TestClient.post(...)` calls), so the budget is
-        # intentionally tighter than the setup- window.
+        # intentionally tighter than the setup-phase 7s window.
         _client_session_factory = test_session_factory
         app.dependency_overrides[get_db] = _override_get_db
 
@@ -1920,16 +1918,15 @@ async def client(tmp_path):
 
         # Ensure roles and admin user exist before tests.
         #
-        # This is the FIRST async-session
-        # connection acquisition under the test_engine, and under -n auto
+        # This is the FIRST async-session connection acquisition under the test_engine, and under -n auto
         # it surfaced 188 of 365 residual failures as
         # `asyncpg.TooManyConnectionsError: sorry, too many clients already`
         # during fixture setup.
         # Wrap with `_run_with_too_many_clients_retry` so transient
         # connection-contention is retried with bounded backoff
         # (1.0 + 2.0 + 4.0 = 7s) before failing loudly. The retry budget is
-        # the SAME shape as `_create_test_db_with_retry`, so both setup-phase contention sites use a
-        # consistent retry contract.
+        # the SAME shape as `_create_test_db_with_retry`, so both setup-phase
+        # contention sites use a consistent retry contract.
         await _run_with_too_many_clients_retry(
             lambda: _ensure_roles_and_admin(test_session_factory)
         )
@@ -2050,17 +2047,16 @@ async def viewer_auth_header(
 async def test_db_session(client: AsyncClient):
     """Yield an async session from the test engine for direct DB operations.
 
-       Uses the same session factory that the client fixture patches into the app,
-       so records inserted here are visible to request handlers.
+    Uses the same session factory that the client fixture patches into the app,
+    so records inserted here are visible to request handlers.
 
-    Wraps the session
-       acquisition with `_acquire_test_session_with_retry`. The original plan
-       scoped only `override_get_db`, but measurement showed 66 of the
-       remaining 4.3 failures route through this fixture (tests that combine
-       `test_db_session` for direct DB writes with `client` for HTTP requests
-       open >=2 distinct asyncpg connections per test body). The contention
-       surface is identical to `override_get_db` — same lazy-connection
-       failure pattern under NullPool — so the same retry helper applies.
+    Wraps the session acquisition with `_acquire_test_session_with_retry`.
+    `override_get_db` alone did not cover the in-test failures: 66 of them
+    route through this fixture (tests that combine `test_db_session` for
+    direct DB writes with `client` for HTTP requests open >=2 distinct
+    asyncpg connections per test body). The contention surface is identical
+    to `override_get_db` (same lazy-connection failure pattern under
+    NullPool), so the same retry helper applies.
     """
     import app.core.db as db_module
 
@@ -2105,7 +2101,7 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
     settings. Any test that invokes ``run_ogr2ogr`` /
     ``run_ogr2ogr_service`` without this redirect would write to the
     wrong database and collide with non-test data. The original fixture
-    lived locally in ``test_ingest_column_preservation.py`` (K2-PRE) —
+    lived locally in ``test_ingest_column_preservation.py`` —
     lifting it to ``conftest.py`` behind the ``requires_ogr2ogr`` marker
     means any future test that opts in automatically inherits the
     safety redirect.
@@ -2347,7 +2343,7 @@ def _clean_registry():
 def stub_endpoint_check(request, monkeypatch):
     """Neutralise the advertised-endpoint check for tests about something else.
 
-    fix(#1746 B2b codex): every credentialed WFS or OGC API preview
+    Every credentialed WFS or OGC API preview
     and worker run now reads the service's own description first, because GDAL
     applies the header file to the operation endpoints that description
     advertises. That is a network call on paths which previously made none, and

@@ -544,7 +544,7 @@ class TestSeamFrameOrigin:
 class TestSeamDecisionOpensNothing:
     """The seam decision comes from the built XML, never from opening sources.
 
-    an earlier cut probed every source with
+    An earlier cut probed every source with
     ``rasterio.open`` before the build. ``build_vrt`` runs inside
     ``asyncio.to_thread`` and Python threads are not killable, so a stalled
     ``/vsis3/`` read pinned a pool thread with none of ``run_gdal``'s wall-clock

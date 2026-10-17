@@ -144,7 +144,7 @@ def test_production_resolves_exc_info_before_the_renderer(json_logs: bool) -> No
 
 
 def test_development_console_renderer_uses_plain_traceback_too() -> None:
-    """fix(#1746): dev no longer keeps rich at all, locals-off or not.
+    """Dev no longer keeps rich at all, locals-off or not.
 
     Superseded by a stronger fix, not merely a stricter test: a later
     change retired dev's rich-with-locals-off compromise (the previous version of

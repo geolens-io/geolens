@@ -68,12 +68,12 @@ class TestWhereClauseInjectionRejection:
     def test_balanced_string_literal_accepted(self):
         """A legitimate WHERE with properly-quoted string literals passes the
         checks (statement terminator / comment / unbalanced quote)
-        and the v1014 AST allowlist.
+        and the AST allowlist.
 
         fix(#1870): word-shaped values are covered by
         TestWhereClauseStringLiterals below; these two stay as the
         numeric-shaped cases they were written as."""
-        # Numeric-only string (passes identifier check, passes IA).
+        # Numeric-only string (passes the identifier and string-level checks).
         validate_where_clause("name = '42'", COLS)
         # SQL-escaped doubled quote — must accept (collapses to even).
         validate_where_clause("name = '42'' '", COLS)
@@ -310,7 +310,7 @@ class TestExportFileTouchedBeforeStreaming:
 # app/processing/export/router.py:47). This is a regression pin.
 
 
-# Default matrix payload — viewer.export=True (the v1014 baseline).
+# Default matrix payload — viewer.export=True (the baseline).
 # Used to restore the permission state after revoke tests so leakage
 # into other tests is prevented. (The clean_tables fixture does NOT
 # truncate the persistent_config table, so manual restore is needed.)

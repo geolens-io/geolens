@@ -185,7 +185,7 @@ class TestProtocolDefaults:
         assert DefaultAuthExtension().get_auth_methods() == []
 
     def test_pre_pr_import_surface_is_intact(self):
-        """fix(#873): the #836 split must not shrink the importable surface.
+        """The #836 split must not shrink the importable surface.
 
         Computed mechanically: the runtime-importable public names of
         ``app.platform.extensions`` (package root), ``.defaults``, and
@@ -226,7 +226,7 @@ class TestProtocolDefaults:
             )
 
     def test_pre_pr_wildcard_surface_is_intact(self):
-        """fix(#873): pin the ``import *`` surface of the facade.
+        """Pin the ``import *`` surface of the facade.
 
         The pre-split defaults.py had NO ``__all__``, so a wildcard import
         exported every public module-level name — all seventeen Default*

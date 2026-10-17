@@ -238,7 +238,7 @@ test.describe.serial('Map Builder', () => {
       await waitForBuilder(page);
 
       await expect(page.getByTestId('builder-sidebar'), `${viewport.label} sidebar`).toBeVisible();
-      // Retired the "Map Stack" / "Data" section headings. At
+      // The "Map Stack" / "Data" section headings no longer exist. At
       // desktop (≥1100px) the unified stack renders with an h2 "Layers"
       // header + stack-row-* IDs. At tablet (<1100px) the sidebar collapses
       // to a 64px rail (SidebarRail) with icon buttons but no h2 and no
@@ -307,7 +307,7 @@ test.describe.serial('Map Builder', () => {
     const dialog = page.getByRole('dialog', { name: /add dataset/i });
     await expect(dialog).toBeVisible();
 
-    // fix(#392): no "Basemap" radio in the Add-Dataset dialog.
+    // No "Basemap" radio in the Add-Dataset dialog.
     for (const tab of ['All', 'Vector', 'Raster']) {
       await expect(dialog.getByRole('radio', { name: tab })).toBeVisible();
     }
@@ -342,8 +342,8 @@ test.describe.serial('Map Builder', () => {
 
     const initialDatasetCount = initialLayers.filter((layer) => layer.dataset_id === originalLayer.dataset_id).length;
 
-    // Replaced per-layer LayerItem testids and the auto-grouped
-    // "dataset-rendering-group" rollup with flat unified stack rows
+    // Per-layer LayerItem testids and the auto-grouped
+    // "dataset-rendering-group" rollup are replaced by flat unified stack rows
     // (id="stack-row-{layerId}"). Duplicate is exposed via the row kebab.
     const originalRow = page.locator(`#stack-row-${originalLayer.id}`);
     await expect(originalRow).toBeVisible();
@@ -427,10 +427,10 @@ test.describe.serial('Map Builder', () => {
     const presetSection = editor.locator('section').filter({ hasText: /^PRESET/i }).first();
     await expect(presetSection).toBeVisible({ timeout: 5_000 });
 
-    // fix(#394): preset cards are role="radio" inside a radiogroup now.
+    // Preset cards are role="radio" inside a radiogroup now.
     await presetSection.getByRole('radio', { name: /OpenFreeMap Dark/i }).click();
 
-    // Replaced the dedicated "Basemap" section heading with a
+    // The dedicated "Basemap" section heading is now a
     // basemap-group row at the top of the unified stack (id=stack-row-basemap-group);
     // overlay layers are now flat stack-row-{layerId} entries. The row renders
     // `Basemap · {derivedPresetName}`, where the derived name strips the
@@ -624,7 +624,7 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    // Replaced the inline "Swap to ..." popover with a basemap-group
+    // The inline "Swap to ..." popover is now a basemap-group
     // editor scene: click the basemap-group row to open the flyout, then pick a
     // preset from the PRESET grid.
     const overlaySelector = '[id^="stack-row-"]:not([id="stack-row-basemap-group"])';
@@ -670,7 +670,7 @@ test.describe.serial('Map Builder', () => {
     // sit after the Settings + Add data controls and open the LayerEditorPanel
     // in a drill-down Sheet (<800px viewport). The Sheet itself doesn't carry
     // builder-layer-editor — the LayerEditorPanel renders inside the dialog.
-    // Added a basemap-group button at the bottom of the SidebarRail —
+    // The SidebarRail has a basemap-group button at the bottom —
     // avoid `button.last()` which now selects the basemap button. Target user layer
     // buttons by excluding the fixed control buttons (Settings, Add data, Basemap group).
     const sidebar = page.getByTestId('builder-sidebar');
@@ -822,7 +822,7 @@ test.describe.serial('Map Builder', () => {
     await waitForBuilder(page);
 
     // Click Save. The frontend pre-check detects the invalid placeholder and shows
-    // a named error toast (surface).
+    // a named error toast.
     await page.getByRole('button', { name: /save/i }).first().click();
 
     // Assert: error toast with the popup-config-invalid dedupe id appears.

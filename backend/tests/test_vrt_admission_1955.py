@@ -237,7 +237,7 @@ class TestAHeldAdmissionRefusesTheSecondDoor:
 
 
 async def test_an_asset_deleted_under_the_re_read_is_refused(test_db_session) -> None:
-    """fix(#1955): `refresh` reports a vanished row, and 409 beats 500."""
+    """`refresh` reports a vanished row, and 409 beats 500."""
     import app.core.db as db_module
     from app.processing.raster.models import RasterAsset
 

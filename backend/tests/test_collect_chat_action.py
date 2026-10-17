@@ -1,4 +1,4 @@
-"""carry-forward fix: _collect_chat_action regression pins.
+"""_collect_chat_action regression pins.
 
 Ensures show_query_result actions emit columns+rows for non-spatial query_data
 results so the frontend inline data-analysis card can render. Previously only
@@ -213,7 +213,7 @@ def test_set_style_without_validation_falls_back_to_tool_input_unchanged() -> No
 
 
 # ---------------------------------------------------------------------------
-# fix(#394): set_label validation
+# set_label validation
 # ---------------------------------------------------------------------------
 
 
@@ -285,7 +285,7 @@ def test_set_label_halo_contrasts_text_color() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Set_opacity server-side clamp + per-item action building
+# Server-side set_opacity clamp + per-item action building
 # ---------------------------------------------------------------------------
 
 

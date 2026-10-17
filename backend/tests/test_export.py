@@ -807,7 +807,7 @@ class TestExportFeatureCap:
         self, client: AsyncClient, admin_auth_header: dict, capped_dataset
     ):
         """where=1=1 selects every row, so an oversized dataset must still 413.
-        This is the codex bypass regression."""
+        This is the bypass regression."""
         resp = await client.get(
             f"/datasets/{capped_dataset.id}/export",
             params={"where": "1=1"},
@@ -935,7 +935,7 @@ class TestExportFeatureCap:
     async def test_ordinary_bbox_count_stays_envelope_conservative(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
     ):
-        """fix(#905): the non-crossing branch must keep counting with
+        """The non-crossing branch must keep counting with
         `&&` (envelope overlap), not exact ST_Intersects — the export runs
         ogr2ogr -spat, whose GDAL contract permits envelope false positives,
         so an exact count could pass the cap while -spat exports more. Three
@@ -1216,7 +1216,7 @@ class TestExportWhereWordLiteral:
 
 
 class TestPmtilesMaxzoomForExtent:
-    """fix(#1686): the PMTiles writer materializes the whole pyramid,
+    """The PMTiles writer materializes the whole pyramid,
     so MAXZOOM is budgeted from extent instead of fixed at 14."""
 
     def test_world_extent_caps_at_z8(self):
@@ -1261,7 +1261,7 @@ class TestPmtilesMaxzoomForExtent:
 
 
 class TestPmtilesMaxzoomPropagation:
-    """fix(#1686): the cap is only real if it reaches the pmtiles
+    """The cap is only real if it reaches the pmtiles
     ogr2ogr invocation — the router's computation was once silently dropped
     because the kwarg was threaded through the wrong service branch."""
 

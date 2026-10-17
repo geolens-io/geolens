@@ -71,7 +71,7 @@ class TestExportSubprocessBudget:
         assert budget == pytest.approx(350, abs=1)
 
     def test_unspent_pre_work_time_goes_to_the_conversion(self, monkeypatch):
-        """The defect codex named, in both directions.
+        """The defect, in both directions.
 
         A fixed allowance for pool waits that did not happen killed a
         conversion that would have fitted; the same allowance let a request

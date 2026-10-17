@@ -712,7 +712,7 @@ class Api:
         """This account's OWN maps, name -> id, newest-created match winning.
 
         A map name is not a key, and three separate things follow from that
-        (fix(#1404 review)):
+        (fix(#1404)):
 
         * Keep the FIRST match and only maps this account created. `--force`
           creates a SECOND map with the same name rather than replacing the
@@ -762,7 +762,7 @@ class Api:
         reuse/refresh path.
 
         Scoped to `created_by` for the same reason list_maps is scoped
-        (fix(#1404 review)): a title is not a key, an admin token sees every
+        (fix(#1404)): a title is not a key, an admin token sees every
         user's datasets, and all three callers here MUTATE what they resolve.
         Unscoped, _get_or_analyze would publish and rewrite the summary of a
         stranger's same-titled dataset and then build the showcase chain on it,
@@ -2585,7 +2585,7 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     # Ownership is still worth SHOWING for the expected-foreign pins: they are
     # trusted, but a cleanup audit that never mentions a kept dataset belongs
     # to another account would be hiding the one fact the pin class encodes.
-    # fix(#1487 review): a NULL owner is a deleted creator account, not a
+    # fix(#1487): a NULL owner is a deleted creator account, not a
     # visitor - label it as the unknown it is instead of calling it expected.
     # It stays hard-kept either way; only the words change.
     pinned_foreign = [
@@ -5084,7 +5084,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                 "listing cannot see other users' private maps, so the "
                 "shared-scene protection would be blind"
             )
-        # fix(#1493 review): --force must REBUILD, not duplicate - the import
+        # fix(#1493): --force must REBUILD, not duplicate - the import
         # endpoint dedupes on source_url and returns status="skipped" WITHOUT
         # updating origin_ref, so a rerun over existing scenes could never
         # record fresh bindings. Deleting the SCENES first is what makes
@@ -5106,7 +5106,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         # * Runs AFTER the catalog search succeeded: a flaky
         #   Element84 must fail this builder BEFORE it destroys a working
         #   showcase, not after.
-        # * Enumerates ALL owned maps under the name via list_all_maps()
+        # * Enumerates ALL owned maps under the name via list_all_maps():
         #   list_maps() collapses a name to the newest id, and the
         #   old --force behavior could stack duplicates; deleting only the
         #   newest would cascade the survivors' layers away and leave husks.
@@ -5116,7 +5116,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         #   attached-layer sweep would destroy a shared context dataset if a
         #   styling pass ever adds one to this map.
         # * Aborts BEFORE deleting when a selected asset is held by a dataset
-        # the rebuild can neither delete nor resolve: the
+        #   the rebuild can neither delete nor resolve: the
         #   import dedupe is instance-wide on asset href, and the
         #   skip-fallback below resolves own datasets by seeder title only.
         #   A holding survives the rebuild unless it is in the deletion set,
@@ -5151,7 +5151,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                 ):
                     doomed[ds_id] = title
         if doomed:
-            # a scene someone layered into ANY
+            # A scene someone layered into ANY
             # other map is not ours to cascade away - keep it and say so. The
             # kept scene then rides the dedupe skip-fallback below if the
             # fresh search reselects its asset (reattached, still

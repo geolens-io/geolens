@@ -232,7 +232,7 @@ def test_a_comment_between_the_name_and_its_parenthesis_still_reads_as_a_call():
 
 
 # ---------------------------------------------------------------------------
-# Comments inside the call (fix(#1589) codex)
+# Comments inside the call (fix(#1589))
 # ---------------------------------------------------------------------------
 
 
@@ -290,7 +290,7 @@ def test_a_comment_that_looks_like_one_inside_a_literal_is_kept():
 
 
 # ---------------------------------------------------------------------------
-# Redundant parentheses (fix(#1589) codex)
+# Redundant parentheses (fix(#1589))
 # ---------------------------------------------------------------------------
 
 

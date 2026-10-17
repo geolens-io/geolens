@@ -3,12 +3,12 @@ OGC items trailing-slash route parity.
 
 Pins the behavior:
   - Positive guard: anonymous export of public+published dataset succeeds
-  - deny matrix:
+  - Deny matrix:
       * anon + public-unpublished (record_status="internal") -> {401,403,404}
       * anon + private -> {401,403,404}
       * anon + restricted -> {401,403,404}
       * non-owner authenticated (viewer, not the admin owner) + private -> {401,403,404}
-  - parity: /collections/{id}/items/ (trailing) == /collections/{id}/items (no-slash)
+  - Trailing-slash parity: /collections/{id}/items/ (trailing) == /collections/{id}/items (no-slash)
 
 Requirements:
   - Docker database must be running (docker compose up db)

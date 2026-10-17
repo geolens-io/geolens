@@ -33,7 +33,7 @@ def test_readme_surfaces_examples_manifests_directory() -> None:
 
 
 def test_readme_documents_cold_build_time() -> None:
-    """cold-build time documented for first-time users."""
+    """Cold-build time documented for first-time users."""
     body = _read("README.md")
     assert ("5-10 minutes" in body) or ("Cold-build time" in body), (
         "README.md must document cold-build time (M-73): 'First build takes 5-10 minutes'"
@@ -50,7 +50,7 @@ def test_code_of_conduct_has_inline_pledge() -> None:
 
 
 def test_all_readmes_are_utf8() -> None:
-    """non-English READMEs preserve UTF-8."""
+    """Non-English READMEs preserve UTF-8."""
     for filename in (
         "README.md",
         "README.es.md",

@@ -1,4 +1,4 @@
-"""fix(#1778): a revoke on one Uvicorn worker has to reach the others.
+"""A revoke on one Uvicorn worker has to reach the others.
 
 ``RedisCacheProvider``'s in-memory fallback and its authoritative-replay queue
 are PROCESS-local, and production runs several workers behind one socket, so
@@ -22,7 +22,7 @@ The provider-level cases build TWO providers over ONE fakeredis, which is what
 "two workers, one Redis" means in a single process; they deliberately do not
 share a fallback, because that is the whole point.
 
-fix(#1778): the generation cases now use REAL database sessions and the
+The generation cases now use REAL database sessions and the
 production call order. The earlier drafts called ``_circuit_open()`` before
 consuming a recovery signal, which is not what a request does, and that masked
 the defect where the first request after a lapsed cooldown read a stale
@@ -132,7 +132,7 @@ class TestSecurityReadsNeverComeFromLocalMemory:
 
 
 class TestTheGenerationIsTransactional:
-    """fix(#1778): the counter and the is_active flip become visible in
+    """The counter and the is_active flip become visible in
     the same instant, so no interleaving can cache a positive that outlives the
     revocation it raced.
 
@@ -225,7 +225,7 @@ class TestTheGenerationIsTransactional:
     async def test_the_generation_never_consults_the_cache(
         self, test_db_session, clean_tables
     ):
-        """fix(#1778): the P1a defect, made structurally impossible.
+        """The P1a defect, made structurally impossible.
 
         The earlier draft cached this number in Redis and re-read it from the
         database only when a circuit-breaker transition said to. Nothing detects
@@ -276,7 +276,7 @@ class TestTheGenerationIsTransactional:
     async def test_a_deleted_counter_row_is_healed_and_the_heal_persists(
         self, test_db_session, clean_tables
     ):
-        """fix(#1778 P1): the heal must survive past the call that
+        """The heal must survive past the call that
         discovered the row missing. It runs on its own connection, committed
         independently of whatever session happens to be reading when it fires,
         so a second, unrelated session sees it too.
@@ -319,7 +319,7 @@ class TestTheGenerationIsTransactional:
     async def test_a_deleted_counter_row_is_recreated_with_a_fresh_random_seed(
         self, test_db_session, clean_tables
     ):
-        """fix(#1778 P2): two heals must not produce the same
+        """Two heals must not produce the same
         generation. seeded the heal from
         ``EXTRACT(EPOCH FROM clock_timestamp())::bigint`` -- whole wall-clock
         seconds -- so two heals landing in the same second reproduced the
@@ -380,7 +380,7 @@ class TestTheGenerationIsTransactional:
     async def test_a_bump_that_cannot_advance_raises(
         self, test_db_session, clean_tables
     ):
-        """fix(#1778): a revocation nobody else can hear about must not
+        """A revocation nobody else can hear about must not
         quietly succeed. Raising rolls the caller back, ``is_active`` flip and
         all, so the operator sees a failed revoke instead of one half the fleet
         ignores."""
@@ -497,7 +497,7 @@ class TestTheValidatorRefusesAStaleGeneration:
         )
 
     async def test_an_entry_stamped_with_the_sentinel_is_never_trusted(self):
-        """fix(#1778): two entries stamped with the sentinel compared
+        """Two entries stamped with the sentinel compared
         EQUAL, so a positive cached while the counter was unreadable survived a
         later revocation whose denial could not reach shared Redis."""
         cache = InMemoryCacheProvider()
@@ -539,7 +539,7 @@ class TestTheValidatorRefusesAStaleGeneration:
 
 @pytest.mark.usefixtures("_init_tile_pool_for_tests")
 class TestTheHealSurvivesARealRequest:
-    """fix(#1778 P1): drives the heal through the real dependency
+    """Drives the heal through the real dependency
     chain -- an actual read request on ``get_db()`` -- rather than calling
     ``current_revocation_generation`` directly. Every production caller of
     that function is a read endpoint, and ``core/dependencies.py``'s

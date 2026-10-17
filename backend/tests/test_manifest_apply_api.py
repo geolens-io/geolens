@@ -138,7 +138,7 @@ class TestManifestApplySchemas:
         assert "checksum" in str(exc.value)
 
     def test_rejects_checksum_with_a_trailing_newline(self):
-        """gh#1773 codex: pinned in parity with the CLI's JSON Schema test
+        """Pinned in parity with the CLI's JSON Schema test
         of the same name. Python's `re` module treats `$` as matching just
         before a trailing newline, which let a YAML literal-scalar checksum
         (which can carry one) through the CLI's jsonschema-based validator.
@@ -154,7 +154,7 @@ class TestManifestApplySchemas:
             ManifestApplyRequest.model_validate(payload)
 
     def test_openapi_contract_carries_the_checksum_length_bound(self):
-        """gh#1773 codex: the length bound must also reach the *published*
+        """The length bound must also reach the *published*
         OpenAPI contract, not just this pydantic model. Before min_length/
         max_length were added to the ManifestChecksum Field, a consumer
         validating a request against the generated OpenAPI schema (rather

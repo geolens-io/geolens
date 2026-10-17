@@ -121,7 +121,7 @@ def _minter_reads_every_dataset(monkeypatch):
 
 
 def test_the_self_origin_lookup_cannot_be_told_about_the_request():
-    """fix(#1548): the #1531 invariant, now structural.
+    """The #1531 invariant, now structural.
 
     It used to be asserted by a fixture watching for a ``request=`` kwarg, which
     the switch to ``get_configured_public_app_url`` quietly made vacuous — that
@@ -195,7 +195,7 @@ async def _validate(request, allowed_origins: list[str] | None, monkeypatch) -> 
             "created_by": str(uuid.uuid4()),
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
             "tenant_id": None,
-            # fix(#1778): a positive entry now carries the revocation
+            # A positive entry now carries the revocation
             # generation it was minted under, and one whose stamp is stale (or
             # missing) is refused and re-read from the database. This module is
             # about the ORIGIN check on the cache-hit path, so it pins the

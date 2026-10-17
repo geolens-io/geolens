@@ -1163,9 +1163,9 @@ class TestEveryNoCapabilityExitAppliesTheRule:
     ``_authorize_vector_tile_request``, so the rule never reached them, and the
     raster sibling already answered 401 for the same request shape.
 
-    The shared map was also taken back OUT of classes 4 and 5, which an
-    earlier revision had put it in. The test for an exit has to ask whether a credential could have
-    changed that exit's answer, and on a missing or revoked share link it could
+    The shared map was also taken back OUT of classes 4 and 5, where an
+    earlier revision had put it. The test for an exit has to ask whether a
+    credential could have changed that exit's answer, and on a missing or revoked share link it could
     not: the lookup takes no user at all. Turning those into 401s refused a
     caller for a failure that was not theirs and cost the viewer the one error
     message that tells them what to do about it. The rule still applies to that

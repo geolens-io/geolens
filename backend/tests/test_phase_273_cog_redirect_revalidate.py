@@ -1,7 +1,6 @@
 """download_cog re-validates SSRF on remote-backend redirect.
 
-DNS records can change between import
-time and download time — a hostname that was a public CDN may now resolve
+DNS records can change between import time and download time — a hostname that was a public CDN may now resolve
 to 169.254.169.254 or 10.x. Re-running validate_url_for_ssrf at download
 time defeats the DNS-rebinding TOCTOU window.
 """

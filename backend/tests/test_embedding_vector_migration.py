@@ -3,20 +3,20 @@
 Tests
 -----
 A: with an empty table and EMBEDDING_DIMS=768, the migration types the column
-   vector(768) and builds the HNSW index (codex P2: the empty-table fallback
+   vector(768) and builds the HNSW index (the empty-table fallback
    must honor the configured dimension, not a hardcoded 1536).
 B: with EMBEDDING_DIMS=3072 (legal config, over pgvector's 2000-dim HNSW
    limit), the upgrade still exits 0, types the column vector(3072), and
-   skips the index instead of failing (codex P1).
+   skips the index instead of failing.
 C: with mixed-dimension rows (stale 1536-dim next to current 768-dim), the
    configured dimension wins over max(stored) and the regenerable cache is
    cleared before the bounded-lock type transition.
 D: explicit config beats UNIFORM stale rows too — all-512-dim rows with
-   EMBEDDING_DIMS=768 type the column vector(768) (codex P2).
+   EMBEDDING_DIMS=768 type the column vector(768).
 E: uniform stored rows beat only the built-in default — all-768-dim rows
    with nothing configured select vector(768), then the cache is cleared.
 F: a deliberate EMBEDDING_DIMS=1536 (equal to the default) still counts as
-   explicit and beats uniform stale 768-dim rows (codex P2).
+   explicit and beats uniform stale 768-dim rows.
 
 Notes
 -----
@@ -155,7 +155,7 @@ async def _restore_default_head() -> None:
 @_SKIP_UNDER_OVERLAY
 class TestEmbeddingVectorMigrationDims:
     async def test_env_dims_honored_on_empty_table(self):
-        """fix(#449, codex P2): EMBEDDING_DIMS=768 types the column vector(768)."""
+        """fix(#449): EMBEDDING_DIMS=768 types the column vector(768)."""
         try:
             r = await _retype_via_migration("768")
             assert r.returncode == 0, f"upgrade failed: {r.stderr}"
@@ -166,7 +166,7 @@ class TestEmbeddingVectorMigrationDims:
             await _restore_default_head()
 
     async def test_large_dims_skip_hnsw_instead_of_failing(self):
-        """fix(#449, codex P1): 3072 dims types the column but skips HNSW
+        """fix(#449): 3072 dims types the column but skips HNSW
         (pgvector rejects HNSW over 2000 dims) instead of failing the upgrade."""
         try:
             r = await _retype_via_migration("3072")

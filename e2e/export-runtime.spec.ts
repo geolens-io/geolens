@@ -274,7 +274,7 @@ function serializeBBox(bbox: BBox): string {
   return bbox.map((value) => Number(value.toFixed(6))).join(',');
 }
 
-// a number string-interpolated directly (e.g.
+// A number string-interpolated directly (e.g.
 // `${threshold}` below) goes through JS's default Number-to-string
 // conversion, which switches to scientific notation below 1e-6 or at/above
 // 1e21 -- (1e-7).toString() === '1e-7', (1e21).toString() === '1e+21'. The
@@ -452,7 +452,7 @@ function buildWherePredicate(
     let clauseValue: string;
     let evaluateThreshold: number;
 
-    // a raw token that fails the regex's
+    // A raw token that fails the regex's
     // `(?![\d.eE])` lookahead -- e.g. a NUMERIC maximum serialized as
     // "9007199254740995.1", which JSON.parse rounds to the unsafe integer
     // 9007199254740996 -- used to fall through to the `rawValues.length ===
@@ -703,7 +703,7 @@ async function resolveRuntimeDataset(
     if (baseline.features.length === 0) {
       return null;
     }
-    // kept alongside the parsed `baseline` so
+    // Kept alongside the parsed `baseline` so
     // buildWherePredicate can recover exact BIGINT digits JSON.parse
     // already discarded -- see extractRawIntegerValues.
     const baselineRawText = baselineBody.toString('utf8');
@@ -765,7 +765,7 @@ async function resolveRuntimeDataset(
   );
 }
 
-// pure-logic pin for formatNumericLiteral,
+// Pure-logic pin for formatNumericLiteral,
 // independent of any live request -- the two inputs are exactly where
 // JS's Number-to-string conversion switches to scientific notation (see
 // the function's own comment).
@@ -788,7 +788,7 @@ test.describe('formatNumericLiteral', () => {
   });
 });
 
-// pure-logic pin for buildWherePredicate's
+// Pure-logic pin for buildWherePredicate's
 // threshold computation, independent of any live request. Covers the two
 // precision-loss shapes JSON.parse can introduce: a BIGINT above
 // Number.MAX_SAFE_INTEGER (parses to a DIFFERENT integer, not just a
@@ -858,7 +858,7 @@ test.describe('buildWherePredicate precision', () => {
   });
 
   test('a raw decimal token past MAX_SAFE_INTEGER falls back to the epsilon margin, not the rounded parse', () => {
-    // a NUMERIC column can genuinely hold a
+    // A NUMERIC column can genuinely hold a
     // fractional value out here, e.g. "9007199254740995.1" -- the regex in
     // extractRawIntegerValues deliberately excludes this token (its
     // `(?![\d.eE])` lookahead requires the digit run to end cleanly, not

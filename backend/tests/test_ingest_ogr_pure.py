@@ -180,7 +180,7 @@ class TestParseTextOgrinfo:
         assert result["srid"] is None
 
     def test_non_spatial_layer_reports_no_geometry(self):
-        """fix(#2031 review): `Geometry: None` is a sentinel, not a type."""
+        """fix(#2031): `Geometry: None` is a sentinel, not a type."""
         output = "Layer name: attrs\nGeometry: None\nFeature Count: 3\n"
         assert _parse_text_ogrinfo(output)["geometry_type"] is None
 
@@ -277,7 +277,7 @@ class TestDetectDbfTruncationCollisions:
 
 
 class TestSqlQuoteIdent:
-    """Post-impl audit / KISS-N helper."""
+    """SQL identifier quoting helper."""
 
     def test_plain_identifier(self):
         assert _sql_quote_ident("foo") == '"foo"'
@@ -303,7 +303,7 @@ class TestSqlQuoteIdent:
 
 
 class TestExtractCommonLayerMetadata:
-    """Post-impl audit helper — shared ogrinfo JSON parser."""
+    """Shared ogrinfo JSON parser."""
 
     def test_raises_keyerror_when_no_layers(self):
         with pytest.raises(KeyError):
@@ -504,7 +504,7 @@ class _FakeJob:
 
 
 class TestAppendJobWarning:
-    """Post-impl audit helper — consolidated warning accumulator.
+    """Consolidated warning accumulator.
 
     Warnings are now TypedDicts built via the producer helpers in
     ``app.ingest.warnings``. These tests exercise the accumulator logic;
@@ -643,7 +643,7 @@ class TestIngestWarningProducers:
 
 
 class TestRunServiceImportWithWfsFallback:
-    """Post-impl audit helper — WFS namespace retry + auth detection."""
+    """WFS namespace retry + auth detection."""
 
     def _run(self, coro):
         return asyncio.get_event_loop().run_until_complete(coro)
@@ -765,7 +765,7 @@ class TestRunServiceImportWithWfsFallback:
 
 
 class TestResolveEffectiveSrid:
-    """Post-impl audit K1 extraction — ingest_file SRID resolution helper."""
+    """ingest_file SRID resolution helper."""
 
     def test_override_wins_over_detected(self):
         """User-supplied srid_override takes precedence over ogrinfo-detected SRID."""
@@ -791,7 +791,7 @@ class TestResolveEffectiveSrid:
 
 
 class TestBindTaskLogContext:
-    """Post-impl audit N1 — worker task log correlation via structlog contextvars."""
+    """Worker task log correlation via structlog contextvars."""
 
     def test_binds_job_id_and_task_name(self):
         import structlog
@@ -843,7 +843,7 @@ class TestBindTaskLogContext:
 
 
 class TestParseTemporalFields:
-    """Post-impl audit N5 — raster ingest temporal field parsing + error surface."""
+    """Raster ingest temporal field parsing + error surface."""
 
     def test_both_fields_valid(self):
         """Happy path: both fields parse cleanly, no errors."""
@@ -936,7 +936,7 @@ class TestParseTemporalFields:
 
 
 class TestStripOgrDriverList:
-    """driver-list stripping helper — removes GDAL driver enumeration
+    """Driver-list stripping helper that removes GDAL driver enumeration
     from ogr2ogr stderr so IngestionError messages show only actionable lines.
     """
 
@@ -1018,7 +1018,7 @@ class TestIsUnopenableSourceStderr:
     def test_matches_sqlite_malformed_page_failure(self):
         """A GPKG with a fully intact SQLite header but a corrupted interior
         b-tree page — a DIFFERENT SQLite diagnostic from the corrupt-header
-        case above (codex review, #1640): "database disk image is
+        case above (#1640): "database disk image is
         malformed", not "file is not a database". Empirically confirmed
         against a real ogr2ogr-generated GPKG with one byte-flipped leaf
         page (see test_ingest_open_failure_message.py's
@@ -1153,7 +1153,7 @@ class TestSecFu04SanitizeAuthorizationToken:
     into libcurl through the GDAL_HTTP_HEADER_FILE pipeline, so the shape and
     the charsets are a security boundary rather than a formatting preference.
 
-    fix(#1746 B2b) plan D9: the value crossing from the door to the worker is
+    fix(#1746 B2b): the value crossing from the door to the worker is
     the finished header line, so this judges a line — printable ASCII, no CR or
     LF, one ``": "`` separator, an RFC 7230 field name — and keeps the
     base64url charset and the length floor on the bearer branch of it.
@@ -1182,7 +1182,7 @@ class TestSecFu04SanitizeAuthorizationToken:
         assert _sanitize(line) == line
 
     def test_sec_fu_04_crlf_injection_raises_value_error(self):
-        """A line carrying CR/LF raises ValueError naming SEC."""
+        """A line carrying CR/LF raises ValueError naming the credential-line guard."""
         line = "Authorization: Bearer valid.jwt.sig\r\nX-Smuggled-Header: evil"
         with pytest.raises(ValueError) as exc_info:
             _sanitize(line)
@@ -1332,7 +1332,7 @@ class TestSecFu04SanitizeAuthorizationToken:
 
         `_secret_variants` (`core/url_redaction.py`) derives the bare token,
         the basic blob and the decoded `user:pass` cleartext from a secret
-        that CONTAINS `": "`, and from nothing else. registered the
+        that CONTAINS `": "`, and from nothing else. The worker used to register the
         VALUE (`Bearer <tok>` / `Basic <blob>`) to keep the header NAME out of
         the registry, which meant the worker -- the one process that spends
         the credential against a hostile origin -- registered a shape the

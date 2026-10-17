@@ -519,7 +519,7 @@ class TestKeywordsEndpointShape:
 
 
 class TestStatusEndpointWarningSurface:
-    """fix(#1178 review): the publication-status endpoints bypass
+    """fix(#1178): the publication-status endpoints bypass
     update_user_metadata, so they must run the same resolved-state check."""
 
     async def test_target_status_publish_carries_the_warning(

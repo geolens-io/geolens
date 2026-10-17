@@ -10,7 +10,7 @@ async function allowGuestCatalog(page: Page) {
 
 // Lightweight keyboard-nav smoke for the public front door.
 // Scoped to /login and / only — no MapLibre/builder routes which flake headless.
-// GLUX vitest component tests already guard the map/builder flows.
+// Vitest component tests already guard the map/builder flows.
 test.describe('Keyboard navigation — public routes', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 

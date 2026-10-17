@@ -1569,8 +1569,8 @@ class TestSchemaDiffComputation:
     def test_schema_diff_null_counts(self):
         """Null feature counts are UNKNOWN, and the delta says so.
 
-        fix(#1746 B2b codex): this asserted a delta of 0, which is what
-        `(new or 0) - (old or 0)` produced and what the review called out: an
+        The test once asserted a delta of 0, which is what
+        `(new or 0) - (old or 0)` produced: an
         unknown count coerced to zero invents a delta the size of whichever
         side is known, and two unknowns read as "no change" rather than as
         "not known". The field is nullable now, and still required.

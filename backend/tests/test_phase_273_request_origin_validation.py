@@ -107,8 +107,8 @@ def test_no_request_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): codebase audit 2026-08-30, "the CORS-allowlist gate on
-# request-derived origins is bypassed two lines later by a raw Host fallback".
+# The CORS-allowlist gate on request-derived origins was bypassed two lines
+# later by a raw Host fallback.
 #
 # _request_origin_decision returning None was read by both resolvers as "no origin to
 # derive", so they fell through to request.url.netloc -- Starlette's read of

@@ -21,7 +21,7 @@ Uses ``ast`` rather than a text grep so the check is exact: a
 backend-store call's own assigned variable passes; a bare name
 (whatever it's called) does not.
 
-a second, independent structural gate below --
+A second, independent structural gate below --
 every PRODUCTION store_refresh_token() call must also pass
 `bearer_token=`, pairing the refresh token to the bearer it can
 rotate (see auth.py's own docstrings on store_refresh_token()/

@@ -315,7 +315,8 @@ class TestPublishRoundTrip:
     The CLI's publish.py uses a multipart workaround (calls the SDK's
     ``client.get_httpx_client()`` directly to bypass the broken
     ``BodyUploadFileIngestUploadPost.to_multipart()``). Running it against a real
-    socket exercises the workaround end-to-end. If the round-trip fails for any reason (server-side
+    socket exercises the workaround end-to-end. If the round-trip fails for any
+    reason (server-side
     rejection of the test fixture, race in commit polling, etc.), the
     test skips with a documented reason — the unit slice in
     ``cli/tests/test_publish_unit.py`` covers the formatter logic with a

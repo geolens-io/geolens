@@ -4391,7 +4391,7 @@ async def test_update_map_layers_round_trip_sort_order(
     """PUT layers with sort_order=[2, 0, 1] -> response layers must be [0, 1, 2].
 
     Locks MapLayer.sort_order ordering through the PUT round-trip after the
-    service-level refactor (build response from in-session state).
+    refactor that builds the response from in-session state.
     Existing tests use dict[str, str] keyed by dataset_id (e.g.
     test_layer_type_auto_detect_via_put) and lose list order, so a focused
     list-order assertion is required.

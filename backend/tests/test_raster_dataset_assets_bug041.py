@@ -89,8 +89,8 @@ class TestReadPathNowLive:
     def test_s3_published_surfaces_data_thumbnail_overview(self):
         """Feeding the built rows into build_assets (S3 + published) emits assets.
 
-        Before raster ingest populated dataset_assets these rows never existed, so build_assets only ever
-        returned computed raster_tiles. Now the data/thumbnail/overview assets
+        Before raster ingest populated dataset_assets these rows never existed,
+        so build_assets only ever returned computed raster_tiles. Now the data/thumbnail/overview assets
         appear with presigned hrefs.
         """
         ds_id = "00000000-0000-0000-0000-0000000000aa"

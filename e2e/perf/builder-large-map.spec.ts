@@ -2,16 +2,16 @@
  * Playwright perf spec scaffold
  *
  * This spec seeds a 50-layer builder map and provides the test harness that
- * Wave B-D plans attach first-paint / input-latency / throughput assertions to.
+ * first-paint / input-latency / throughput assertions attach to.
  *
  * Currently ships:
  *   - beforeAll / afterAll seeder lifecycle (createLargeBuilderMap / deleteBuilderMap)
  *   - Smoke test: map opens and MapLibre canvas renders within 8s
  *
- * Timing assertions (performance.mark / CDP coverage) land in:
- * - (lazy-load)
- * - (rAF coalescing)
- * - (bulk-op + first-paint)
+ * Timing assertions (performance.mark / CDP coverage) attach to:
+ * - lazy-load
+ * - rAF coalescing
+ * - bulk-op + first-paint
  *
  * Environment guards:
  *   The seeder calls the live backend API; run with E2E_BACKEND_AVAILABLE=1 or
@@ -28,7 +28,7 @@ import { createLargeBuilderMap, deleteBuilderMap } from '../fixtures/seed-large-
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
-/** Number of layers in the large-map fixture. all read this. */
+/** Number of layers in the large-map fixture. Every timing assertion reads this. */
 export const LARGE_MAP_LAYER_COUNT = 50;
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
 
     await page.goto(`/maps/${largeMapId}`);
 
-    // Canvas visible within 8s (no timing assertion yet — Wave B attaches FCP mark)
+    // Canvas visible within 8s (no timing assertion yet; the FCP mark attaches later)
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 8_000 });
   });
 

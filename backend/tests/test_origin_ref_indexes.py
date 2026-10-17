@@ -25,16 +25,16 @@ fallback) AND source_format = ... AND created_by = ...``. Postgres only
 folds a top-level OR into a bitmap index scan when EVERY disjunct has an
 index path of its own. An earlier version of this migration indexed only
 the origin_ref keys #1324 named, leaving the source_url fallback disjunct
-unindexed -- codex's review on PR #1365 caught that this made both
+unindexed -- review of PR #1365 caught that this made both
 new indexes dead weight against the real queries (confirmed by EXPLAIN: the
 full guard predicate still resolved to a sequential scan). Adding
 ``ix_datasets_source_url`` gives the fallback disjunct an index path too, so
 postgres builds a BitmapOr combining it with the matching origin_ref index --
 which is what the tests below assert.
 
-Then caught that a PLAIN (btree) `source_url` index carries its own
+A PLAIN (btree) `source_url` index also carries its own
 risk -- see the test class below -- resolved by making it `USING hash`.
-Caught the same class on the two `origin_ref` indexes: WFS/OGC API
+The same class applies to the two `origin_ref` indexes: WFS/OGC API
 `layer_name` allows up to 500 multibyte characters and flows into
 `origin_ref->>'layer_id'`, so a long multibyte `url` combined with a long
 multibyte `layer_id` can exceed the btree ceiling in the COMPOSITE key even
@@ -330,7 +330,7 @@ async def test_source_url_hash_index_tolerates_byte_oversize_value(
 async def test_origin_ref_url_hash_index_tolerates_byte_oversize_value(
     test_db_session, seeded_rows
 ):
-    """The later finding's exact shape: a long multibyte
+    """The origin_ref finding's exact shape: a long multibyte
     origin_ref->>'url' combined with a multibyte layer_id (WFS/OGC API
     layer_name allows up to 500 characters, no charset restriction) --
     which would have exceeded a composite btree's tuple limit even though

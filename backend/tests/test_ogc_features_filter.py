@@ -953,9 +953,10 @@ async def test_qgis_344_request_sequence_end_to_end(
 ):
     # 1. Landing page: QGIS follows rel=data (collections) and rel=conformance
     # from here. Every subsequent leg is fetched via its *discovered* href,
-    # validated to share the landing page's own origin (fix(#1680): a hard-coded path would still land on the right local route even
-    # if an advertised link pointed somewhere QGIS could never actually reach,
-    # silently defeating the whole point of replaying advertised links).
+    # validated to share the landing page's own origin (fix(#1680)): a
+    # hard-coded path would still land on the right local route even if an
+    # advertised link pointed somewhere QGIS could never actually reach,
+    # silently defeating the whole point of replaying advertised links.
     landing = await client.get("/")
     assert landing.status_code == 200
     landing_links = landing.json()["links"]

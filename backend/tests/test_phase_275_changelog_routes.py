@@ -114,8 +114,8 @@ def test_phase_269_breaking_change_block_intact() -> None:
 
     The on-disk format wraps method+path in a single pair of backticks
     (`PUT /maps/{id}/thumbnail/`). The signature below matches the
-    wording verbatim so any rewrite of the breaking-change
-    paragraph will fail this test.
+    wording verbatim so any rewrite of the breaking-change paragraph will
+    fail this test.
     """
     unreleased = _read_unreleased() + "\n" + _read_release("1.1.0")
     signature = "`PUT /maps/{id}/thumbnail/` request body changed from `text/plain`"

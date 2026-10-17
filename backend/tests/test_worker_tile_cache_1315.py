@@ -6,11 +6,11 @@ API lifespan.  The worker is a separate process, so ``get_tile_cache()``
 returned ``None`` there and every post-swap MVT purge -- both reupload paths
 and the PostGIS refresh -- was a silent no-op.  Stale tiles kept being served
 for up to ``tile_cache_ttl`` after every re-upload, which is exactly what
-fix(#394) added the purge to prevent.
+the purge added in #394 exists to prevent.
 
 The fix moves ``init_tile_cache()`` into the shared ``bootstrap()`` so both
 entrypoints take it from one place.  The worker deliberately does NOT take the
- in-memory fallback: it never reads tiles, so a per-process LRU there
+in-memory fallback: it never reads tiles, so a per-process LRU there
 holds nothing, and purging it would evict nothing while logging that it had
 succeeded -- the current no-op with extra steps.  With ``REDIS_URL`` unset the
 worker leaves the singleton unset and says why at boot.

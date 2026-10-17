@@ -31,7 +31,7 @@ from app.processing.tiles.service import (
 
 
 # ---------------------------------------------------------------------------
-# simplification-tolerance continuity
+# Simplification-tolerance continuity
 # ---------------------------------------------------------------------------
 
 
@@ -256,7 +256,7 @@ def test_cluster_query_derives_expansion_zoom_from_member_spread():
 
 
 # ---------------------------------------------------------------------------
-# fix(#394): reupload purges the MVT tile cache post-commit
+# Reupload purges the MVT tile cache post-commit
 # ---------------------------------------------------------------------------
 
 

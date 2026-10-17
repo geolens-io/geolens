@@ -51,7 +51,7 @@ class TestIsUploadRoute:
     sub-routes, non-POST methods, trailing-slash or wrong-case variants, and
     non-UUID dataset segments — stays on the default 10 MB cap. The match mirrors
     FastAPI routing exactly so the large cap never reaches a request routing will
-    reject (PR #249 review rounds).
+    reject.
     """
 
     # --- the two real file-upload endpoints get the large cap ---
@@ -247,7 +247,7 @@ class TestGetUploadLimitRouteOverride:
 
 
 class TestGap001PerRouteBodyCap:
-    """non-upload POST over 10 MB → 413; upload path → allowed.
+    """Non-upload POST over 10 MB → 413; upload path → allowed.
 
     Pre-fix (uniform 500 MB limit): an 11 MB body to /health passed through.
     Post-fix (10 MB default + per-route override): 11 MB to /health → 413.

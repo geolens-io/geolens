@@ -121,7 +121,7 @@ async def test_non_public_without_signature_is_rejected(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Follow-up (Codex P1 on PR #243): public BUT unpublished previews are
+# Follow-up: public BUT unpublished previews are
 # owner/admin-only and must NOT be shared-cached.
 # ---------------------------------------------------------------------------
 

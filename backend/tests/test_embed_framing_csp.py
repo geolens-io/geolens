@@ -5,10 +5,11 @@ Content-Security-Policy: frame-ancestors header derived from the active
 EmbedToken.allowed_origins. SecurityHeadersMiddleware must skip X-Frame-Options
 when a route already set CSP with frame-ancestors.
 
-API response CSP header (default and dynamic allowed_origins).
-Middleware coexistence (XFO dropped when route sets CSP).
-E2E file-presence assertion (documents that the nginx test exists in
-              sec-audit.spec.ts and requires SEC_AUDIT_SHARE_TOKEN).
+Covers:
+- API response CSP header (default and dynamic allowed_origins).
+- Middleware coexistence (XFO dropped when route sets CSP).
+- E2E file-presence assertion (documents that the nginx test exists in
+  sec-audit.spec.ts and requires SEC_AUDIT_SHARE_TOKEN).
 """
 
 import hashlib

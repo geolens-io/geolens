@@ -36,7 +36,7 @@ SAMPLE_STAC: dict = {
 
 
 # ---------------------------------------------------------------------------
-# Render_stac_json (output formatting)
+# render_stac_json (output formatting)
 # ---------------------------------------------------------------------------
 
 
@@ -73,7 +73,7 @@ class TestRenderStacJson:
 
 
 # ---------------------------------------------------------------------------
-# Is_raster classifier (vector guard)
+# is_raster classifier (vector guard)
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +97,7 @@ class TestIsRaster:
 
 
 # ---------------------------------------------------------------------------
-# Vector_rejection_message (user-facing message)
+# vector_rejection_message (user-facing message)
 # ---------------------------------------------------------------------------
 
 
@@ -111,7 +111,7 @@ class TestVectorRejectionMessage:
 
 
 # ---------------------------------------------------------------------------
-# Write_stac_to_file (atomic write, mode 0o644)
+# write_stac_to_file (atomic write, mode 0o644)
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +147,7 @@ class TestWriteStacToFile:
 
 
 # ---------------------------------------------------------------------------
-# Geolens export stac CLI command body
+# `geolens export stac` CLI command body
 # ---------------------------------------------------------------------------
 
 

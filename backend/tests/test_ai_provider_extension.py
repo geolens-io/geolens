@@ -40,8 +40,7 @@ def test_default_providers_registered():
     assert isinstance(anthropic, AIProviderExtension)
     assert isinstance(openai_compatible, AIProviderExtension)
 
-    # Singleton stability:
-    # Two calls to get_ai_provider("anthropic") return the SAME instance
+    # Singleton stability: two calls to get_ai_provider("anthropic") return the SAME instance
     # (registry singleton, not re-seeded per call).
     assert get_ai_provider("anthropic") is anthropic
     assert get_ai_provider("openai_compatible") is openai_compatible
@@ -49,7 +48,7 @@ def test_default_providers_registered():
 
 def test_unknown_provider_raises_value_error():
     """Unknown name raises ValueError with the
-    EXACT message from llm_loop.py:149's previous behavior.
+    EXACT message the previous llm_loop.py behavior produced.
 
     Preserves today's exception type and message format so
     existing tests that catch ``ValueError`` from the dispatch path continue

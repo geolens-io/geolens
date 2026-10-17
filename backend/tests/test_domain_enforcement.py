@@ -420,7 +420,7 @@ class TestSSODomainEnforcement:
         domain must NOT satisfy the allowlist. Otherwise a provider where the
         caller controls the claim could assert attacker@allowed (email_verified
         false/absent), pass the domain check, and still get provisioned with
-        email=None via the branch — bypassing the allowlist. Expect
+        email=None via the no-email branch — bypassing the allowlist. Expect
         rejection + no user created, for both `email_verified: false` and an
         omitted claim.
         """
@@ -968,7 +968,7 @@ class TestSSOReturningUserDomainEnforcement:
 
 # ---------------------------------------------------------------------------
 # FIX-A: new JIT identity with no email claim and non-empty allowlist
-# (Codex P1 — no-email bypass)
+# (no-email bypass)
 # ---------------------------------------------------------------------------
 
 

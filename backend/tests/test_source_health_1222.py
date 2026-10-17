@@ -1224,9 +1224,8 @@ class TestServiceOriginProbe:
     ) -> None:
         install, recorded = probe_transport
         # fix(#1746): the ArcGIS branch reads the body, so the double has to
-        # answer with a real document rather than an empty 200. fix(#1746
-        # codex): and the thing asked is the count query, so that is what
-        # comes back.
+        # answer with a real document rather than an empty 200. And the thing asked is the
+        # count query, so that is what comes back.
         install(_json_body({"count": 4127}))
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
@@ -1326,7 +1325,7 @@ class TestServiceOriginProbe:
         (`adapters/wfs.py`) is reached here via `origin_probe.py::service_
         probe_target`, with NO surrounding `except ValueError` anywhere on
         this path -- unlike `probe_wfs`'s own caller (`_header_auth_probe`
-        in `probe.py`), which does catch it. bound this function's
+        in `probe.py`), which does catch it. An earlier change bounded this function's
         query parse with `max_num_fields`, reasoning every caller degraded
         the refusal gracefully; it checked one caller and this route was the
         one it missed, so a many-param `origin_ref.url` (schema-capped at

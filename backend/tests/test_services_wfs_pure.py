@@ -163,7 +163,7 @@ class TestBuildCapabilitiesUrl:
         assert parsed.path == "/geoserver/wfs"
 
     def test_a_query_over_the_old_field_count_bound_still_resolves(self):
-        """Bound this with `max_num_fields`,
+        """An earlier fix bounded this with `max_num_fields`,
         reasoning `_header_auth_probe` (`probe.py`) catches every
         `ValueError` from an adapter -- true for `probe_wfs`, but not the
         only caller. `origin_probe.py::service_probe_target` calls this for

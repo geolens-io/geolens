@@ -2,8 +2,8 @@
 never the global one -- against an isolated app instance with both limits
 set to known values.
 
-e2e/sec-audit.spec.ts's S11 test spent four
-rounds trying to prove this by bursting the live, shared dev stack --
+The S11 test in e2e/sec-audit.spec.ts
+tried to prove this by bursting the live, shared dev stack --
 impossible to pin reliably there, since the e2e suite cannot set
 semantic_search_rate_limit or global_rate_limit and cannot isolate itself
 from other concurrent traffic hitting the same stack. That test is now a

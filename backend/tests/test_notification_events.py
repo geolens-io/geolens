@@ -1,4 +1,4 @@
-"""Tasks 2 & 3 — per-event toggle Settings + events.py helper tests.
+"""Per-event toggle Settings + events.py helper tests.
 
 Covers:
   - Settings per-event toggle fields (notify_on_signup, notify_on_ingest_complete,
@@ -22,7 +22,7 @@ import pytest
 
 
 # ===========================================================================
-# per-event toggle Settings fields
+# Per-event toggle Settings fields
 # ===========================================================================
 
 

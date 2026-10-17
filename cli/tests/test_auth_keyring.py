@@ -186,7 +186,8 @@ class TestTryRefreshBackendRouting:
         self, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
         """fix(#1778): the sibling of the replace_credentials() backend-split
-        bug, in try_refresh()'s own rotation path. The original credential lives in the keyring (so
+        bug, in try_refresh()'s own rotation path. The original credential
+        lives in the keyring (so
         _detect_credential_backend says no_keyring=False going in),
         but the ROTATED access token's keyring write fails for the
         bearer account specifically -- store_bearer_token() catches
@@ -237,7 +238,7 @@ class TestTryRefreshBackendRouting:
     def test_an_unwritable_config_file_does_not_fail_a_keyring_backed_refresh(
         self, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """Fix P2 pin (a): the active_kind marker
+        """Pin (a): the active_kind marker
         write used to be unconditional AND fatal. When both rotated
         tokens land safely in the keyring but credentials.toml itself
         is unwritable (the marker's only home), the OLD code raised
@@ -276,7 +277,7 @@ class TestTryRefreshBackendRouting:
     def test_marker_already_bearer_skips_the_write_entirely(
         self, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """Fix P2 pin (b): try_refresh() only
+        """Pin (b): try_refresh() only
         ever rotates a bearer session, so if the marker already reads
         "bearer" there is nothing to update -- the write must be
         skipped, not merely tolerated-on-failure. Proven by mocking
@@ -484,9 +485,8 @@ class TestWhoamiStatusToleratesCorruptFileWhenSomethingElseResolves:
     which would make a corrupt credentials.toml fail both commands even
     when GEOLENS_TOKEN is set and would have been used.
 
-    Tolerating a corrupt file when a keyring credential happens to be
-    readable is superseded.
-    resolve_active_credential() treats "the file is unreadable" as its
+    A corrupt file is no longer tolerated when a keyring credential happens
+    to be readable. resolve_active_credential() treats "the file is unreadable" as its
     own failure mode, unconditionally, never silently falling back to
     whatever the keyring has (that fallback is
     exactly what let a stale bearer resurface once the keyring became
@@ -530,8 +530,8 @@ class TestWhoamiStatusToleratesCorruptFileWhenSomethingElseResolves:
     ) -> None:
         """Pin: corrupt file + a readable keyring credential
         -> whoami now REFUSES (tolerating it here would be wrong:
-        a corrupt file can itself be hiding a stale competing credential, or a marker pointing
-        elsewhere, that a keyring-only check can never see)."""
+        a corrupt file can itself be hiding a stale competing credential, or
+        a marker pointing elsewhere, that a keyring-only check can never see)."""
         from geolens_cli import config as _cfg
         from geolens_cli._sdk_helpers import EXIT_NETWORK
         from geolens_cli.main import app
@@ -577,13 +577,13 @@ class TestLoginKindSwapMakesTheMarkerMandatory:
     one just stored -- a marker-write failure must roll the whole swap
     back, not be swallowed to a warning.
 
-    this class used to also pin the
+    This class used to also pin the
     CORRUPT-FILE side of that rule (a kind swap against a corrupt file
     refuses; a same-kind login tolerates one). Both are superseded now
     that replace_credentials() refuses on a corrupt file
     unconditionally, before anything is stored, regardless of kind --
     see TestLoginRefusesUnconditionallyOnACorruptFile. What is left
-    here is the one HEALTHY-file scenario leave unchanged:
+    here is the one HEALTHY-file scenario, which is unchanged:
     a marker-write failure (whatever its cause) is now unconditionally
     fatal, which already covers the narrower "mandatory when the old
     kind is unverifiable" case this test originally isolated."""
@@ -662,7 +662,7 @@ class TestCorruptFileDiagnosticsStayOffStdout:
     future -- is stderr-safe without having to remember to route around
     the default at each call site.
 
-    the original pin here used a corrupt
+    The original pin here used a corrupt
     credentials.toml to trigger _delete_stale_credentials()'s cleanup-
     skip warning during an otherwise-successful login -- unreachable
     now that a corrupt file refuses login outright before that point is
@@ -671,7 +671,7 @@ class TestCorruptFileDiagnosticsStayOffStdout:
     keyring that rejects the WRITE (unrelated to file health) still
     succeeds via the documented credentials.toml fallback, logging
     "keyring_unavailable_falling_back_to_file" -- the exact class of
-    warning this round's structlog fix protects, on a path that still
+    warning the structlog fix protects, on a path that still
     exists."""
 
     def test_json_login_emits_exactly_one_json_document_on_stdout_despite_a_keyring_fallback_warning(

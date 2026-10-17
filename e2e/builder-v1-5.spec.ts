@@ -264,7 +264,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
       page.locator('[data-sonner-toast]').filter({ hasText: /added to map/i }),
     ).toBeVisible({ timeout: 5_000 });
 
-    // Assert modal stayed open (contract)
+    // Assert modal stayed open
     await expect(dialog).toBeVisible();
 
     assertConsoleClean(gate);
@@ -382,11 +382,10 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     const cmdKey = process.platform === 'darwin' ? 'Meta' : 'Control';
 
     // Cmd-click first overlay row to enter multi-select mode.
-    // Dropped role="listbox"/"option" from stack rows (nested-interactive
+    // Stack rows dropped role="listbox"/"option" (nested-interactive
     // a11y issue — rows contain focusable controls). With those roles gone,
     // aria-selected is meaningless; selection is signalled by data-selected="true"
-    // (renders the primary-tint background per StackRow.tsx:188). close
-    // gate test-contract update.
+    // (renders the primary-tint background per StackRow.tsx:188).
     await overlayRows.nth(0).click({ modifiers: [cmdKey] });
     await expect(overlayRows.nth(0)).toHaveAttribute('data-selected', 'true');
 
@@ -468,7 +467,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     const cmdKey = process.platform === 'darwin' ? 'Meta' : 'Control';
 
     // Select 2 rows via Cmd-click.
-    // Use data-selected (post-1052 contract — see Test 3 comment).
+    // Use data-selected (see Test 3 comment).
     await rows.nth(0).click({ modifiers: [cmdKey] });
     await expect(rows.nth(0)).toHaveAttribute('data-selected', 'true');
 

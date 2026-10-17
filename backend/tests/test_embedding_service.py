@@ -69,8 +69,7 @@ async def test_generate_embedding_returns_float_vector():
 async def test_generate_embedding_raises_when_no_openai_key():
     """EmbeddingUnavailableError raised with clear message when only Anthropic key configured.
 
-        UNCHANGED post-Phase-231 — the API-key check stays at service.py:47-53
-    .
+    The API-key check stays at service.py:47-53 (defense in depth).
     """
     mock_session = AsyncMock()
 

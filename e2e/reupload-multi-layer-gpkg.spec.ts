@@ -209,7 +209,7 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
 
     // fix(#1778): FIXTURE_PATH (multi-layer-gpkg.gpkg) is a known multi-layer
     // file, so the layer-select step is not an optional branch — it is
-    // exactly the silent-data-swap symptom exists to catch. Asserting
+    // exactly the silent-data-swap symptom this test exists to catch. Asserting
     // it unconditionally means a regression that skips straight to preview
     // (the old "acceptable, not a failure" branch) now fails this test.
     await expect(page.getByTestId('reupload-file-layer-select')).toBeVisible({ timeout: 5_000 });

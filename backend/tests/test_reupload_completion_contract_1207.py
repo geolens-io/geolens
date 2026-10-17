@@ -180,7 +180,7 @@ async def _presigned_reupload(client, headers, storage, dataset_id, filename, pa
 async def test_both_reupload_doors_reject_a_mislabeled_payload_identically(
     client, admin_auth_header, test_db_session, both_reupload_doors
 ) -> None:
-    """The gap this issue exists for: the completion door accepted what its
+    """The completion door accepted what its
     own sibling refuses."""
     dataset = await _create_dataset(
         test_db_session, created_by=await _admin_id(test_db_session)

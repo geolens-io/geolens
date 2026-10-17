@@ -64,7 +64,7 @@ def _mock_port(
 
     `resolve_embedding_config` answers the whole live configuration, which is
     what lets the caller PIN the provider call to the same one it filters rows
-    on (#1546 codex).
+    on (#1546).
     """
     port = MagicMock()
     port.generate_embedding = AsyncMock(
@@ -291,7 +291,7 @@ async def test_cache_partitioned_by_configuration():
 
 @pytest.mark.asyncio
 async def test_the_provider_call_is_pinned_to_the_resolved_configuration():
-    """fix(#1546, codex P1): one read, used for all three purposes.
+    """One read, used for all three purposes.
 
     The configuration decides three things in a single search: which stored
     rows are comparable, what the cache entry is keyed on, and which endpoint

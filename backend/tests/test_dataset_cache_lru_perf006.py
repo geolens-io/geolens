@@ -5,7 +5,7 @@
 added/overwritten; expired entries were never purged and there was no max size,
 so a long-lived tile worker grew one entry per distinct ``table_name`` ever tiled
 and never shrank. The adjacent ``_band_stats_cache`` was deliberately bounded as
-``cachetools.LRUCache(maxsize=256)`` — this finding closes the
+``cachetools.LRUCache(maxsize=256)`` — this change closes the
 inconsistent gap.
 
 The fix swaps ``_dataset_cache`` to ``cachetools.LRUCache(maxsize=256)`` while

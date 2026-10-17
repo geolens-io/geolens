@@ -164,7 +164,7 @@ def test_post_manifest_apply_raises_the_bound_for_the_manifests_own_entry_count(
     30s bound for a manifest with many datasets. post_manifest_apply()
     must raise the bound for the POST itself and restore it afterward.
 
-    the bound is no longer the fixed
+    The bound is no longer the fixed
     EXTENDED_REQUEST_TIMEOUT_SECONDS -- it's batch-aware
     (compute_manifest_apply_timeout), scaled to how many dataset
     entries THIS manifest actually has. The vector-relative.yaml
@@ -198,14 +198,14 @@ def test_post_manifest_apply_raises_the_bound_for_the_manifests_own_entry_count(
 
 
 class TestComputeManifestApplyTimeout:
-    """Fix part (a): the shared 600s
+    """The shared 600s
     long-request bound can expire during a legitimately still-
     succeeding apply -- ManifestApplyRequest allows 100 datasets,
     apply_manifest() processes them sequentially, and each entry's
     dominant synchronous cost is its own 60s HTTP source download.
     Pinned against 1/10/100-entry manifests.
 
-    ALSO capped the formula at
+    An earlier version ALSO capped the formula at
     MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS (3600s) -- smaller than the
     formula's own maximum (600 + 100*70 == 7600s), so the cap started
     truncating the budget at ~43 entries, well inside the API's
@@ -268,7 +268,7 @@ class TestComputeManifestApplyTimeout:
 
 
 class TestResolveApplyTimeout:
-    """Fix P1: the computed formula is only ever
+    """The computed formula is only ever
     a heuristic lower bound -- MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS
     (60s) is the backend's per-chunk INACTIVITY timeout on a source
     download, not a total download deadline, so a large source served
@@ -435,7 +435,7 @@ class TestManifestApplyTimeoutReporting:
     def test_status_check_follow_up_uses_the_short_fixed_timeout_regardless_of_entry_count(
         self,
     ) -> None:
-        """Fix P2: the dry-run follow-up must be
+        """The dry-run follow-up must be
         bounded by MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS (a
         short, fixed 30s), NOT the entry-scaled budget the real apply
         needed -- dry_run does no download/queue work, so its cost
@@ -554,7 +554,7 @@ class TestManifestApplyTimeoutReporting:
     def test_report_apply_timeout_warns_when_the_follow_up_hits_a_network_failure(
         self,
     ) -> None:
-        """Fix P2, at the report_apply_timeout()
+        """At the report_apply_timeout()
         level: the original timeout's explanation must still print even
         though the best-effort follow-up hit an unrelated network
         failure, not just a second timeout."""
@@ -671,7 +671,7 @@ def test_apply_dry_run_sends_dry_run_payload(
 
 
 class TestManifestApplyTimeoutDistinguishesReadTimeout:
-    """Fix P2: the on_timeout hook fired for
+    """The on_timeout hook fired for
     EVERY httpx.TimeoutException, but ConnectTimeout, PoolTimeout, and
     WriteTimeout all happen BEFORE the server could have accepted the
     request -- a hung TCP handshake, a slow local write, or waiting on
@@ -814,7 +814,7 @@ class TestManifestApplyTimeoutDistinguishesReadTimeout:
 
 
 class TestApplyTimeoutFlagAndEnvOverride:
-    """Fix P1 end-to-end: --timeout and
+    """End to end: --timeout and
     GEOLENS_MANIFEST_APPLY_TIMEOUT override the computed heuristic
     outright, with the flag winning when both are given."""
 
@@ -951,7 +951,7 @@ class TestApplyTimeoutFlagAndEnvOverride:
     def test_a_non_finite_flag_value_is_a_usage_error(
         self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch, raw: str
     ) -> None:
-        """Pin (P2): nan/inf/-inf/1e309 -> usage error for
+        """nan/inf/-inf/1e309 -> usage error for
         --timeout, rejected before any network call."""
         from geolens_cli._sdk_helpers import EXIT_USAGE
 
@@ -968,7 +968,7 @@ class TestApplyTimeoutFlagAndEnvOverride:
     def test_a_non_finite_env_var_value_is_a_usage_error(
         self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch, raw: str
     ) -> None:
-        """Pin (P2): nan/inf/-inf/1e309 -> usage error for
+        """nan/inf/-inf/1e309 -> usage error for
         GEOLENS_MANIFEST_APPLY_TIMEOUT too, rejected before any network
         call."""
         from geolens_cli._sdk_helpers import EXIT_USAGE
@@ -987,7 +987,7 @@ class TestApplyTimeoutFlagAndEnvOverride:
     def test_zero_and_a_large_finite_value_are_still_accepted(
         self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Pin (P2): 0 and 7600 still accepted -- the
+        """0 and 7600 still accepted -- the
         non-finite guard must not overreach onto ordinary values."""
         _sdk, seen = self._spying_sdk(monkeypatch)
 
@@ -1068,7 +1068,7 @@ def test_apply_json_output_reports_timeout_as_one_structured_payload(
     JSON object for a timeout, not report_apply_timeout's human-mode
     output.error()/warn() writes bleeding in ahead of it.
 
-    the "resumable": True field claimed an
+    The "resumable": True field claimed an
     immediate re-run was always safe -- not true, and removed. The
     payload now carries a "guidance" string with the same accurate,
     non-blanket explanation a human running the same command sees."""
@@ -1099,7 +1099,7 @@ def test_apply_json_output_survives_a_network_failure_in_the_status_check(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Fix P2 end-to-end: the ORIGINAL apply
+    """End to end: the ORIGINAL apply
     times out, and the best-effort dry-run follow-up hits a plain
     network failure (not a second timeout) -- --json mode must still
     emit exactly the one promised structured payload, with

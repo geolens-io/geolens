@@ -3,15 +3,12 @@
 Pins the migration from GDAL_HTTP_HEADERS env var to a 0600 tempfile
 referenced by GDAL_HTTP_HEADER_FILE.
 
-fix(#1746 B2b) plan D9: what crosses the queue to this worker is one finished
+fix(#1746 B2b): what crosses the queue to this worker is one finished
 header line rather than a bare token, so the ``token`` argument here is a line.
 The worker composes nothing; it validates the line and writes it. The bearer
 case is asserted byte for byte against what this path wrote before, which is
 what proves moving the prefix into the shared builder changed nothing on the
 shipping path.
-
-Requirement: IA
-Phase: 1068
 """
 
 import os
@@ -113,7 +110,7 @@ async def test_token_not_in_subprocess_env_via_header_file():
     #    given to. Stated explicitly rather than inherited from GDAL's default,
     #    and NOT "NO" -- that would drop it on a same-host canonical redirect
     #    too, which a protected service answers with a 401
-    #    (fix(#1746 B2b codex)).
+    #    (fix(#1746 B2b)).
     assert (
         captured_env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"]
         == "IF_SAME_HOST"

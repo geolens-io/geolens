@@ -450,7 +450,7 @@ def test_prune_keeps_a_pinned_name_that_also_appears_in_a_retired_list(monkeypat
     assert api.deleted_datasets == [retired_dataset]
 
 
-# --- the Sentinel in-place repair (#1607 codex) ---------------------------
+# --- the Sentinel in-place repair (#1607) ---------------------------
 
 
 class _LayerApi:
@@ -505,7 +505,7 @@ def test_replace_map_layers_handles_a_map_whose_layers_already_cascaded():
     assert api.added == [{"dataset_id": "d1"}]
 
 
-# --- every retained duplicate is rebound (#1607 codex) --------------------
+# --- every retained duplicate is rebound (#1607) --------------------
 
 
 class _MultiRowApi:
@@ -661,7 +661,7 @@ def test_only_sentinel2_replaces_layers_in_place():
     assert _callers_of("_rebind_pinned_rows") == {"build_sentinel2"}
 
 
-# --- the outcome main() reports (#1607 codex) -----------------------------
+# --- the outcome main() reports (#1607) -----------------------------
 
 
 def test_a_pinned_keep_returns_a_distinct_marker():

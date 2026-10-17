@@ -37,7 +37,7 @@ they were found:
   (#1525 review, codex P1).
 - An endpoint that resolves to `None`, which is a pin and not an omission
   (#1525 review, codex P2).
-- Two cache windows (#1525 codex, codex P1). `update_settings` commits the
+- Two cache windows (#1525, codex P1). `update_settings` commits the
   whole batch and then evicts each key in turn, so between the commit and the
   last eviction a cached read can be stale. With one key evicted the snapshot
   could pin a MIXED pair; with none evicted it could pin a wholly SUPERSEDED
@@ -608,7 +608,7 @@ async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
     # detect, and the count below would hold on the unfixed tree too.
     assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
     # Two for `_snapshot_embedding_config` (capture then re-read), plus two per
-    # batch for the drift checks: one before requesting it (#1525 codex)
+    # batch for the drift checks: one before requesting it (#1525)
     # and one before accepting it. A batch that resolved the config for
     # its own VALUE as well would add a third, which is the bug: with
     # `base_url is None` as the pin test, a resolved None reads as an omission

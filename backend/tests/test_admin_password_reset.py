@@ -458,7 +458,7 @@ async def test_reset_is_not_overwritten_by_a_racing_change_password(
 ):
     """A holder of the old password cannot win the recovery by racing it.
 
-    The interleaving codex found: change_password verified the pre-reset hash
+    The interleaving: change_password verified the pre-reset hash
     and assigned its replacement, then blocked inside revoke_all_tokens' own
     FOR UPDATE. When the reset released the row, SQLAlchemy autoflush wrote the
     self-service password on top of the admin's, so the account stayed under
@@ -530,7 +530,7 @@ async def test_reset_is_not_outrun_by_a_racing_password_login(
 ):
     """A login with the old password cannot mint credentials across the reset.
 
-    The second interleaving of the same class codex found on change-password,
+    A second interleaving of the same class as the change-password one,
     this time on the login path. LocalAuthProvider.authenticate() looked the
     account up with an unlocked SELECT, so a login that read the row before the
     reset committed verified the STALE hash. It then minted from the post-reset

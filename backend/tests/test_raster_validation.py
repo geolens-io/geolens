@@ -176,7 +176,7 @@ class TestSingleBandCheck:
 
 
 class TestDtypeCheck:
-    """Dtype consistency check (mosaic + band_stack)."""
+    """dtype consistency check (mosaic + band_stack)."""
 
     def test_matching_dtype_no_errors(self):
         sources = [FakeRasterAsset(dtype="float32"), FakeRasterAsset(dtype="float32")]

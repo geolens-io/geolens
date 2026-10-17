@@ -1,10 +1,10 @@
 """NotificationSink protocol + notify() facade + Settings config tests.
 
 Covers:
-  -: NotificationSink Protocol shape + Notification payload
+  - NotificationSink Protocol shape + Notification payload
     dataclass + DefaultNotificationSink no-op + get_notification_sinks() accessor
-  -: notify() fan-out facade with per-sink failure isolation
-  -: Settings notification env-var fields + secret masking
+  - notify() fan-out facade with per-sink failure isolation
+  - Settings notification env-var fields + secret masking
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ def test_notification_sinks_is_additive_slot() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Notify() fan-out facade with per-sink failure isolation
+# notify() fan-out facade with per-sink failure isolation
 # ---------------------------------------------------------------------------
 
 

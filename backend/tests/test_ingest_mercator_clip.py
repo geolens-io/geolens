@@ -307,7 +307,7 @@ class TestZeroTo360GuardNearMisses(_FixtureTable):
     async def test_grads_based_geographic_crs_is_not_shifted(self, test_db_session):
         """Guard condition 1b: a geographic CRS in grads is not degree-based.
 
-        fix(#899): EPSG:4807 (NTF Paris) and 13 more SRIDs in a stock
+        EPSG:4807 (NTF Paris) and 13 more SRIDs in a stock
         ``spatial_ref_sys`` are ``GEOGCS`` with ``UNIT["grad"]``, where a full
         circle is 400. Translating one of those by -360 would move a valid
         feature to a wrong place, so the prefix test alone is not enough.
@@ -682,7 +682,7 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
         }
 
     async def test_data_wider_than_the_envelope_is_still_clipped(self, test_db_session):
-        """fix(#906): a 3857 table with a feature genuinely beyond
+        """A 3857 table with a feature genuinely beyond
         ±20 037 508 m is WIDER than its correctly transformed envelope. The
         degeneracy floor must be absolute (envelope size), never relative to
         the data extent, or exactly the geometry this routine exists to trim
@@ -704,7 +704,7 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
     async def test_compound_geographic_crs_polar_clip_is_unchanged(
         self, test_db_session
     ):
-        """fix(#906): EPSG:5498 (NAD83 + NAVD88 height) is a
+        """EPSG:5498 (NAD83 + NAVD88 height) is a
         COMPD_CS whose horizontal axes are degrees. The floor's geographic
         test must see through the compound prefix, or its valid
         360x170-degree envelope trips the 1000-unit floor and every ingest in

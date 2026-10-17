@@ -3,8 +3,7 @@ bypasses are rejected.
 
 Pins the closure of an SVG bypass. The original denylist (script tag,
 foreignObject, javascript:, on*=) matched literal byte strings only; entity
-encodings like &lt;script&gt; or &#106;avascript: slipped through. After this
-plan, defusedxml re-serializes the SVG, normalizing entities into canonical
+encodings like &lt;script&gt; or &#106;avascript: slipped through. Now defusedxml re-serializes the SVG, normalizing entities into canonical
 bytes BEFORE the denylist runs.
 """
 

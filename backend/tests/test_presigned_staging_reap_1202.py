@@ -658,7 +658,7 @@ class TestPostExpirySweep:
         the restart, and the second run's ``now=`` stands in for wall-clock
         time actually passing — rather than an actual process restart.
 
-        Also covers the codex P1 follow-up: the re-check's first delete
+        Also covers a follow-up: the re-check's first delete
         attempt (right at the SigV4 ceiling) must not finalize the row on the
         spot — a PUT accepted just under the ceiling can still be transferring
         past it — so finalization needs `_RECHECK_TRANSFER_MARGIN_SECONDS`
@@ -787,7 +787,7 @@ class TestPostExpirySweep:
     async def test_a_tiny_declared_size_still_gets_the_full_hard_limit_margin(
         self, test_db_session, monkeypatch
     ) -> None:
-        """two earlier attempts both derived the finalization
+        """Two earlier attempts both derived the finalization
         margin from a client-declared size — first the current
         `presigned_multipart_threshold_mb`, then a job's own persisted
         `expected_size`. Neither is enforced: `generate_presigned_put_url`
@@ -945,17 +945,17 @@ class TestPostExpirySweep:
     async def test_retention_purge_defers_a_presigned_job_within_the_url_lifetime(
         self, test_db_session, monkeypatch
     ) -> None:
-        """codex P1 on this PR: the retention purge in ``fail_stale_jobs`` is a
+        """The retention purge in ``fail_stale_jobs`` is a
         SEPARATE deletion path from ``_sweep_expired_presigned_staging`` and
         runs before it. Left unguarded, a short ``ingest_jobs_retention_days``
         (1 day is a supported, tested value elsewhere in this suite) could
         delete a presigned job's ROW — the only place the sweep's markers
         live — while a URL signed under a longer pre-restart setting is still
         valid. A later PUT would then recreate an object no row anywhere
-        references: worse than the marker gap this PR closes, because
+        references: worse than the marker gap the sweep closes, because
         nothing could ever find it again.
 
-        codex P1 codex: the deferral must extend through the SAME
+        The deferral must extend through the SAME
         transfer margin the sweep's own finalization waits out, not stop at
         the bare SigV4 ceiling — a single-part PUT begun just before the
         ceiling can still be transferring past it, and purging (which reaps
@@ -1023,7 +1023,7 @@ class TestPostExpirySweep:
     async def test_retention_purge_does_not_exempt_a_fan_out_child_for_a_key_it_does_not_own(
         self, test_db_session, monkeypatch
     ) -> None:
-        """codex P2 codex: `create_fan_out_jobs` clones the parent's
+        """`create_fan_out_jobs` clones the parent's
         ``user_metadata`` wholesale (processing/ingest/service.py), so every
         fan-out child carries the PARENT's ``s3_key`` too —
         ``owned_presigned_staging_key`` deliberately rejects that as

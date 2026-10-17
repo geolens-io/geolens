@@ -1,11 +1,11 @@
 """Render a raster tile from an Azurite blob via /vsiaz/.
 
-Proves that a raster tile RENDERS from an Azurite blob using GDAL's /vsiaz/ driver with the Azure credentials
-delivered via environment variables.
+Proves that a raster tile RENDERS from an Azurite blob using GDAL's /vsiaz/
+driver with the Azure credentials delivered via environment variables.
 
 Two-tier render proof
 ---------------------
- Always-on tier (CI-portable, runs whenever Azurite is reachable):
+Always-on tier (CI-portable, runs whenever Azurite is reachable):
   - Upload a small single-band GeoTIFF to Azurite via the azure-storage-blob SDK
   - Assert resolve_open_path under provider=azure yields /vsiaz/{container}/{key}
   - Assert rasterio.open of that /vsiaz/ path with the Azure env set returns the
@@ -13,7 +13,7 @@ Two-tier render proof
   This proves GDAL renders real pixels from an Azurite blob with NO Titiler
   container required. It is the authoritative CI proof for Azurite rendering.
 
- Live-stack tier (live_stack marker; run when the full cloud-dev Docker stack is up):
+Live-stack tier (live_stack marker; run when the full cloud-dev Docker stack is up):
   - Requires Titiler reachable at http://titiler:8000 (internal Docker network only)
   - Requires Azurite reachable at http://azurite:10000 (internal Docker network)
   - Requests a tile from the Titiler /cog/tiles endpoint with url=/vsiaz/... and

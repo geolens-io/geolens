@@ -26,7 +26,7 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# / #1665: _discover_migration_paths must distinguish "overlay not
+# #1665: _discover_migration_paths must distinguish "overlay not
 # installed" (silent, and the only class that continues — normal OSS) from
 # "overlay installed but broken" (raise, so the migration stops rather than
 # succeeding over an incomplete revision graph).
@@ -169,7 +169,7 @@ def test_real_discover_broken_overlay_raises():
     """Enterprise overlay present but broken must stop the migration.
 
     A non-import exception from ep.load() means the overlay IS installed but
-    fails to import. required this never be silently dropped; #1665
+    fails to import. That must never be silently dropped; #1665
     requires it RAISE rather than log-and-continue, because continuing left the
     overlay's revisions out of version_locations and let `upgrade heads` exit 0
     on a partial schema.

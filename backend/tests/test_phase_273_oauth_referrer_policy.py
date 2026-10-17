@@ -1,6 +1,6 @@
 """OAuth callback responses set Referrer-Policy: no-referrer.
 
-The redirect URL fragment carries access +
+The redirect URL fragment carries access and
 refresh tokens; the request URL carries the IdP authorization code. Both
 must not leak via Referer header to assets loaded on the post-redirect page.
 

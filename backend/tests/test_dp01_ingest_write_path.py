@@ -1,7 +1,7 @@
 """Ingest write-path tests: schema/role-parameterized helpers + tenant routing.
 
-(pure-function, no DB)
------------------------------
+Pure-function (no DB)
+---------------------
 T1-A: _qtable default schema == 'data' (single_tenant unchanged)
 T1-B: _qtable with explicit schema produces correct quoted ref
 T1-C: _safe_table_ref default schema == 'data' (single_tenant unchanged)
@@ -11,8 +11,8 @@ T1-F: _safe_table_ref validates the data_t_<uuid_underscored> schema name
 T1-G: grant_reader_access GRANT text targets correct table+role (default)
 T1-H: grant_reader_access GRANT text targets per-tenant schema+role
 
-(live DB — requires test DB at localhost:5434)
-------------------------------------------------------
+Live DB (requires test DB at localhost:5434)
+--------------------------------------------
 T2-A: ingest write helpers land a table in data_t_{TENANT_A} in multi_tenant
 T2-B: to_regclass('data_t_..._001.probe') is NOT NULL; 'data.probe' IS NULL
 T2-C: geolens_reader_t_{A} can SELECT from data_t_{A}; geolens_reader_t_{B} denied
@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 # ---------------------------------------------------------------------------
-# Test tenant IDs (provisioned in init-test-db.sh + conftest.py by Plan 01)
+# Test tenant IDs (provisioned in init-test-db.sh + conftest.py)
 # ---------------------------------------------------------------------------
 _TENANT_A = "00000000-0000-0000-0000-000000000001"
 _TENANT_B = "00000000-0000-0000-0000-000000000002"
@@ -442,7 +442,7 @@ async def test_tenant_a_reader_can_select_own_schema():
     """T2-C (positive): geolens_reader_t_{A} can SELECT from data_t_{A}.
 
     Positive control for the cross-tenant test — ensures the per-tenant
-    reader role has the USAGE + SELECT grants installed by Plan 01.
+    reader role has the USAGE + SELECT grants installed by the test DB setup.
     """
     probe_table = "dp01_probe_own_tenant"
     engine = create_async_engine(_db_url(), poolclass=NullPool)

@@ -32,7 +32,7 @@ def _request_with(exp) -> object:
 
 
 def test_the_ceiling_is_on_the_order_of_the_mint_ttl():
-    """120s minted, 300s ceiling. 3600 was 30x the window enforces."""
+    """120s minted, 300s ceiling. 3600 was 30x the minted lifetime."""
     assert _COG_PRESIGN_CEILING_SECONDS <= 300
 
 

@@ -173,7 +173,7 @@ class TestSingleTenantGlobalUniqueness:
 
 
 class TestMultiTenantPerTenantUniqueness:
-    """per-tenant partial indexes allow cross-tenant sharing, deny intra-tenant dupes."""
+    """Per-tenant partial indexes allow cross-tenant sharing, deny intra-tenant dupes."""
 
     async def test_same_username_different_tenants_succeeds(
         self, client, test_db_session

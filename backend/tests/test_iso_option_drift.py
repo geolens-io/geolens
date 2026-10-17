@@ -21,8 +21,8 @@ constraint rejects, so picking them 500s the whole pending-edit batch.
   `public`/`internal` were missing from the old SENSITIVITY_OPTIONS, which is
   a UX gap, not a 500) -- that is not what this guard checks.
 
-codex review (on the PR that added this file) found two
-gaps in the first version:
+Review of the first version found two
+gaps:
 
 1. The backend vocabulary was read off `Record.__table__` -- the ORM's
    *declared* `CheckConstraint`, not what deployed PostgreSQL actually

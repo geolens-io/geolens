@@ -13,7 +13,7 @@ for the vector fix. Unlike the vector side, the raster boundary is NOT a
 pattern match on specific stderr text: ``extract_raster_metadata`` opens the
 source with exactly one ``rasterio.open`` call and reads everything else off
 the resulting dataset, so ANY ``RasterioIOError`` it raises is by definition
-an open-time "could not read this file" failure (codex review on #1661
+an open-time "could not read this file" failure (codex review on #1661:
 an earlier version of this fix pattern-matched only the "not
 recognized as being in a supported file format" text and missed a real,
 production-reachable shape — a .tif with a valid TIFF magic header but a

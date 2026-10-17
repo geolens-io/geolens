@@ -2,7 +2,7 @@
 
 v1015 scoped ``_VRT_SAFE_ENV`` (with
 ``CPL_VSIL_CURL_ALLOWED_EXTENSIONS`` and ``VRT_VIRTUAL_OVERVIEWS``) to
-``gdalbuildvrt`` only via ``_build_vrt``. extends the same clamp
+``gdalbuildvrt`` only via ``_build_vrt``. This module extends the same clamp
 to the sibling raster subprocesses in ``cog.py``: ``gdaladdo`` (overview
 generation), ``gdalwarp`` (CRS reprojection), and ``gdal_translate`` (COG
 translation).
@@ -52,7 +52,7 @@ def _assert_clamps(env: dict) -> None:
 def _capture_subprocess_runs(monkeypatch):
     """Patch ``vrt.subprocess.run`` to capture each (cmd, env) tuple.
 
-    Cog.py no longer calls subprocess directly — its GDAL
+    ``cog.py`` no longer calls subprocess directly — its GDAL
     CLIs route through ``run_gdal`` in vrt.py (which adds the kill-on-hang
     timeout), so the patch target moved there.
 

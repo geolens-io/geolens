@@ -135,7 +135,7 @@ async def test_malformed_arity_rejected():
     assert "invalid filter expression" in dropped[0]
 
 
-# fix: ["has", col] refs are validated like ["get", col] —
+# ["has", col] refs are validated like ["get", col] —
 # a hallucinated has-column filter previously passed and hid every feature.
 @pytest.mark.anyio
 async def test_has_ref_against_known_column_accepted():

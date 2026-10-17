@@ -743,7 +743,7 @@ def test_shared_engine_carries_the_tenant_begin_hook():
 
 
 def test_worker_session_factory_is_bound_to_a_hooked_engine():
-    """fix(#1171 review): the assertion above does not imply this one.
+    """fix(#1171): the assertion above does not imply this one.
 
     Every DB test in this module monkeypatches ``app.core.db.async_session``
     onto a factory it built itself, so none of them can observe the production

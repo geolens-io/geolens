@@ -424,7 +424,7 @@ class TestServiceReuploadWorker:
         it, since a credential is request-only and there is nothing to
         un-expire.
 
-        fix(#1746 B2b codex): that field is the `auth` object rather than
+        That field is the `auth` object rather than
         the deprecated `token`, which always means a bearer credential and so
         could not authenticate the basic or named-key origin that produced this
         failure.
@@ -441,11 +441,11 @@ class TestServiceReuploadWorker:
         )
 
         with (
-            # same SSRF defense-in-depth as the first
+            # Same SSRF defense-in-depth as the first
             # worker test. Fixture URL ``protected.example.com`` fails DNS
             # in the sandbox; mock the gate so the test exercises its actual
             # contract (401-retry guidance message from IngestionError).
-            # / test_ingest.py:1369 is the canonical pattern.
+            # test_ingest.py:1369 is the canonical pattern.
             patch(
                 "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),

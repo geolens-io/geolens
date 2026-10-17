@@ -8,7 +8,7 @@ of accounts.
 
 Previously, _CredentialSnapshot/_restore_credentials/
 delete_credentials() each independently listed the accounts by hand.
-Added the refresh_fingerprint to delete_credentials() and
+A later change added the refresh_fingerprint to delete_credentials() and
 _delete_stale_credentials() but NOT to the snapshot/restore pair, so a
 login rollback silently dropped it -- a restored bearer+refresh pair
 came back without the fingerprint that proves they belong together,

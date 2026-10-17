@@ -17,7 +17,7 @@ Consumers
   ``DummyCatalogPort`` (not ``DefaultCatalogPort``) after extension load.
 - OpenAPI sentinel — ``DummyOverlayPing`` schema must
   be ABSENT from ``app.openapi()`` without lifespan and PRESENT after include.
-- (CI): Docker probe — asserts overlay resolves on both
+- CI Docker probe — asserts overlay resolves on both
   api + worker image targets.
 - In-repo isolation gate — extends this fixture with
   a ``tenant_id`` surface for RLS assertion.
@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from app.platform.extensions.version import EXTENSION_API_VERSION  # noqa: F401
 
 # ---------------------------------------------------------------------------
-# Sentinel schema (consumer)
+# Sentinel schema
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +93,7 @@ class DummyCatalogPort:
 
     ``__class__.__name__ == 'DummyCatalogPort'`` is intentionally non-Default so
     tests can assert ``type(get_catalog_port()).__name__ != 'DefaultCatalogPort'``
-    after ``install()`` is called. may subclass this to add a
+    after ``install()`` is called. The isolation gate may subclass this to add a
     ``tenant_id`` assertion surface.
     """
 
@@ -114,7 +114,6 @@ def register_extensions(registry: dict) -> None:
 
     This function is importable as the entry-point loader callback; it also
     serves as the ``install()`` helper's inner operation.
-
     """
     registry["catalog_port"] = DummyCatalogPort()
     registry.setdefault("_routers", []).append(router)

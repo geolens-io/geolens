@@ -1,5 +1,5 @@
 /**
- * feature-editing persistence round-trips.
+ * Feature-editing persistence round-trips.
  *
  * The old inline-edit e2e coverage was removed with a "moved to vitest" note,
  * but the vitest suites never covered persistence — no test anywhere walked

@@ -313,7 +313,7 @@ def _check_no_duplicate_changelog_labels(text: str, path: Path) -> None:
     stale duplicate later in the file renders invisibly while still leaving
     it ambiguous which line this script is meant to edit.
     check_version_coherence.py fails the same way for the same reason
-    (fix(#1716 review)).
+    (fix(#1716)).
     """
     first_seen: dict[str, int] = {}
     for label, _url, line in _changelog_link_lines(text):
@@ -335,7 +335,7 @@ def _validate_changelog_links(path: Path, version: str) -> None:
     `[Unreleased]:` line, or no `## [...]` section for `version` - aborts
     the whole `make bump` with nothing touched, instead of leaving every
     other site already bumped while only the CHANGELOG failed at the very
-    end (fix(#1716 review)).
+    end (fix(#1716)).
     """
     text = path.read_text()
     _check_no_duplicate_changelog_labels(text, path)
@@ -363,7 +363,7 @@ def _bump_changelog_links(path: Path, version: str) -> None:
     bailing out as soon as `[Unreleased]` already points at `version`: a
     partial or hand-edited state - `[Unreleased]` repointed but the
     `[X.Y.Z]:` link missing or stale - used to be left unrepaired
-    (fix(#1716 review)). A true no-op (both lines already correct) still
+    (fix(#1716)). A true no-op (both lines already correct) still
     writes nothing.
 
     Re-runs `_validate_changelog_links` so calling this directly (as the
@@ -418,7 +418,7 @@ def main(argv: list[str]) -> int:
     # Validate the CHANGELOG edit BEFORE touching any other version site, so
     # a CHANGELOG that can't be safely bumped aborts with nothing written
     # instead of leaving every other site already bumped while only the
-    # CHANGELOG failed, at the very end (fix(#1716 review)).
+    # CHANGELOG failed, at the very end (fix(#1716)).
     _validate_changelog_links(CHANGELOG, version)
 
     print(f"Bumping all version sites to {version}:")

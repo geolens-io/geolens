@@ -505,7 +505,8 @@ def test_out_of_range_but_syntactically_valid_value_under_a_canonical_inactive_m
     only a value FastAPI cannot parse as a float AT ALL stays raw (see
     test_malformed_float_under_an_inactive_mode_stays_raw right below).
 
-    fix(#1778): ``+5`` does not belong in this list: a raw ``+`` is never itself part of a canonical float (see
+    ``+5`` does not belong in this list: a raw ``+`` is never itself part of
+    a canonical float (see
     test_percent_or_plus_encoded_value_is_noncanonical_and_bypasses_the_cache
     below), so ``pmin=+5`` now makes the whole request non-canonical instead
     of blanking under this map."""
@@ -518,7 +519,7 @@ def test_out_of_range_but_syntactically_valid_value_under_a_canonical_inactive_m
 
 
 def test_the_coordinators_named_out_of_range_examples_collapse_to_the_blank_key():
-    """fix(#1778): the literal cases named in the finding --
+    """fix(#1778): the literal out-of-range cases --
     pmin=101, pmin=-5, sigma=0, pmax=1e3 under an inactive mode all blank,
     and pmin=abc (unparseable, not merely out of range) still stays raw."""
     conf = _conf()
@@ -581,8 +582,8 @@ def test_mixed_case_duplicate_is_noncanonical_and_the_whole_args_breaks_the_tie(
     """Nginx's $arg_stretch is case-INSENSITIVE, so it resolves
     `Stretch=minmax` (the first case-insensitive match) while FastAPI's
     exact-case binding resolves the later `stretch=percentile` -- a mode
-    disagreement a case-sensitive-only duplicate detector cannot see. Two requests differing only in pmin
-    must not share a key."""
+    disagreement a case-sensitive-only duplicate detector cannot see. Two
+    requests differing only in pmin must not share a key."""
     conf = _conf()
     args_5 = "Stretch=minmax&stretch=percentile&pmin=5"
     args_50 = "Stretch=minmax&stretch=percentile&pmin=50"
@@ -674,7 +675,7 @@ def test_duplicate_detection_finds_a_duplicate_not_starting_at_position_zero():
 
 
 # ---------------------------------------------------------------------------
-# Duplicate `pmin`/`pmax`/`sigma` (exact lowercase/3): closed by
+# Duplicate `pmin`/`pmax`/`sigma` (exact lowercase): closed by
 # ignoring the inactive value entirely at the API AND requiring
 # well-formedness at nginx, so which occurrence either side reads matters
 # only when it changes well-formedness.
@@ -715,8 +716,8 @@ def test_repeated_param_stays_raw_when_the_first_occurrence_is_not_well_formed()
 
 
 def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
-    """fix(#1778): the collision codex's shape (b) recommendation
-    didn't cover on its own. nginx reads the FIRST `stretch` (minmax, so it
+    """fix(#1778): the collision that blanking alone
+    doesn't cover. nginx reads the FIRST `stretch` (minmax, so it
     would normally blank pmin); the API reads the LAST (percentile, so it
     actually uses pmin). Two such requests with DIFFERENT pmin values must
     NOT collapse onto one key -- that would be a genuine collision (different
@@ -746,7 +747,7 @@ def test_non_duplicated_stretch_is_unaffected_by_the_guard():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): checked parameter NAMES for percent-encoding
+# fix(#1778): the name check covered percent-encoding of parameter NAMES
 # but said nothing about pmin/pmax/sigma's VALUES. nginx never decodes
 # $arg_pmin/$arg_pmax/$arg_sigma either, so a percent-encoded or
 # `+`-encoded value reaches this config as its own literal bytes while
@@ -760,7 +761,7 @@ def test_non_duplicated_stretch_is_unaffected_by_the_guard():
 
 
 def test_percent_or_plus_encoded_value_is_noncanonical_and_bypasses_the_cache():
-    """The coordinator's named cases: %31 (percent-encoded "1"), +1 (a raw
+    """Cases: %31 (percent-encoded "1"), +1 (a raw
     `+`, which Starlette's query-string unescaping turns into a space before
     float() parses it), %201 (percent-encoded " 1", same result via a
     different byte sequence), and 1%2e5 (percent-encoded "1.5") each decode

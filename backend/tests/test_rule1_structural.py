@@ -738,7 +738,8 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     (codex P1).
 
     A guard counts only when it is actually INVOKED and the called name
-    RESOLVES to a sanctioned guard object by identity (codex P2 on #863) — imports, docstrings, comments, shadowing local
+    RESOLVES to a sanctioned guard object by identity (codex P2 on #863) — imports,
+    docstrings, comments, shadowing local
     definitions, and same-named methods on unrelated objects do not count.
     The one non-identity path is a ``_PORT_GUARD_METHODS`` call on a
     provable ProcessingPort receiver. Value-returning guards

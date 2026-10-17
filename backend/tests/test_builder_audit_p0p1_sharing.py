@@ -203,7 +203,7 @@ class TestP001EmbedRevokeWiring:
     ):
         """DELETE /maps/{id}/share/ revokes an orphaned embed token even when no
         active share token exists — the embed purge must not be short-circuited by
-        the share-token 404 (Codex P1 on builder)."""
+        the share-token 404."""
         init_cache()
         uid = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset_id, map_obj, _layer = await _public_map_with_layer(

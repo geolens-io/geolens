@@ -434,7 +434,7 @@ class TestRasterAuthCheck:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#929 review): the raster gate consults the permission
+        """fix(#929): the raster gate consults the permission
         extension rather than hard-coding an owner short-circuit, so an
         overlay policy that deliberately denies a dataset's creator
         (revoked clearance, ABAC) is enforced here too."""

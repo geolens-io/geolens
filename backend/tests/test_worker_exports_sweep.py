@@ -182,7 +182,7 @@ def test_stale_jobs_sweeper_also_sweeps_orphaned_exports() -> None:
     `_sweep_orphaned_exports_and_log` helper (kept out of the nested closure
     so the extra branch does not push `lifespan`'s McCabe complexity over its
     gate), which threads the blocking work through `_sweep_orphaned_exports_
-    periodic` (fix #1435 codex — sweep_orphaned_exports does
+    periodic` (fix #1435 — sweep_orphaned_exports does
     synchronous directory traversal + shutil.rmtree, and this loop now runs
     it every few minutes on a live server, not just once at boot). This pins
     the whole chain: the loop calls the async helper, and the helper's
@@ -249,7 +249,7 @@ async def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
     export_file.write_bytes(b"x")
     now = time.time()
     # Age both the directory AND the file inside it — sweep_orphaned_exports
-    # takes the most recent of the two (fix #1435 codex), so a
+    # takes the most recent of the two (fix #1435), so a
     # freshly-written file would otherwise mask the aged directory.
     os.utime(slow_export, (now - 2 * 3600, now - 2 * 3600))  # 2 hours old
     os.utime(export_file, (now - 2 * 3600, now - 2 * 3600))

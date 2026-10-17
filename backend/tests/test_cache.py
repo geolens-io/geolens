@@ -115,7 +115,7 @@ def redis_cache():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778): these build the provider through __new__, so the
+    # These build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -164,7 +164,7 @@ async def test_redis_graceful_get_on_failure():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778): these build the provider through __new__, so the
+    # These build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -184,7 +184,7 @@ async def test_redis_graceful_set_on_failure():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778): these build the provider through __new__, so the
+    # These build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -228,7 +228,7 @@ def cb_redis():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778): these build the provider through __new__, so the
+    # These build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -486,7 +486,7 @@ async def test_a_failing_redis_delete_still_evicts_the_fallback():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778): these build the provider through __new__, so the
+    # These build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -498,7 +498,7 @@ async def test_a_failing_redis_delete_still_evicts_the_fallback():
     assert provider._failure_count == 1
 
 
-# --- fix(#1778): the OVERRIDE has the same two-store requirement ---
+# --- The OVERRIDE has the same two-store requirement ---
 #
 # The eviction fix above was not enough on its own. A revocation writes a denial
 # rather than deleting the key (so a racing publisher cannot re-cache the
@@ -514,7 +514,7 @@ async def test_a_failing_redis_delete_still_evicts_the_fallback():
 
 @pytest.mark.asyncio
 async def test_the_denial_overwrites_a_stale_fallback_positive(cb_redis):
-    """The pin codex asked for: fallback holds a positive, Redis recovers,
+    """Pin: fallback holds a positive, Redis recovers,
     revoke, Redis errors again, validation is denied."""
     # 1. Outage: the positive lands in the fallback.
     await cb_redis._fallback.set("embed_token:abc", {"is_valid": True}, 300)
@@ -546,7 +546,7 @@ async def test_set_authoritative_still_lands_when_redis_is_down():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778): these build the provider through __new__, so the
+    # These build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -576,7 +576,7 @@ async def test_set_if_absent_still_publishes_into_an_empty_cache(cb_redis):
     assert await cb_redis.get("fresh") == {"is_valid": True}
 
 
-# --- fix(#1778): an authoritative write has to survive the outage ---
+# --- An authoritative write has to survive the outage ---
 #
 # The first fix wrote the denial to both stores, but only when it could reach both.
 # With the circuit OPEN it wrote the fallback and returned, and Redis kept the

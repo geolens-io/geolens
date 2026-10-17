@@ -418,7 +418,7 @@ class TestGithubDomainEnforcement:
         test_db_session: AsyncSession,
     ) -> None:
         """A GitHub email at a disallowed domain raises OAuthDomainNotAllowedError
-        and no user is provisioned (reuse)."""
+        and no user is provisioned."""
         await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
         try:
             provider = await self._make_github_provider(test_db_session)

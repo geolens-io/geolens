@@ -9,7 +9,7 @@ Covers:
   -lco PRECISION=NO round-trip (type documented, not changed)
   Reserved-name auto-rename (gid/geom/geom_4326/fid)
   DBF truncation collision warning (shapefile-only)
-  Get_column_info excluded set unchanged (verified safe)
+  get_column_info excluded set unchanged (verified safe)
   Non-ASCII column names get sample values after identifier quoting
 
 Pure-unit tests for detect_dbf_truncation_collisions live in
@@ -355,7 +355,7 @@ class TestReservedNameAutoRename:
 
 
 class TestUnicodeSampleValues:
-    """Get_sample_values returns values for non-ASCII column names."""
+    """get_sample_values returns values for non-ASCII column names."""
 
     async def test_non_ascii_columns_have_sample_values(self, test_db_session):
         """No column should be silently absent from sample_values.

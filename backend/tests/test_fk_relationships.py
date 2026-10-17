@@ -157,7 +157,7 @@ class TestFKRelationships:
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, resp.text
-        # standard list envelope {relationships: [...], total: N}.
+        # Standard list envelope {relationships: [...], total: N}.
         body = resp.json()
         assert isinstance(body, dict)
         assert "total" in body

@@ -156,7 +156,7 @@ class TestActiveCredentialKindMarkerPrecedence:
         readable again, the marker -- not the old bearer-first
         precedence -- decides.
 
-        this test briefly needed an explicit
+        This test briefly needed an explicit
         --no-keyring flag here, because replace_credentials() had
         started refusing outright whenever it could not read the
         account it was about to overwrite -- a PLAIN login's automatic
@@ -371,7 +371,7 @@ class TestMarkerIsAuthoritativeEvenWhenItsOwnCredentialCannotBeRead:
         """Pin: no marker + api-key unreadable + bearer readable ->
         the existing tolerant bearer-first precedence still applies,
         pinned explicitly so a future change cannot silently drift
-        this (the ONLY case leaves unchanged, since there is
+        this (the ONLY case that stays unchanged, since there is
         no marker to be authoritative about)."""
         monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
         # No login at all -- written directly so no active_kind marker

@@ -166,7 +166,7 @@ class TestBackfillEmbeddings:
 
     @pytest.mark.asyncio
     async def test_failed_batch_retries_per_record(self):
-        """fix(#449, codex P2): one rejected input must not sink its batchmates —
+        """fix(#449): one rejected input must not sink its batchmates —
         the failed batch is retried per record and only the bad one errors."""
         from app.processing.embeddings.backfill import backfill_embeddings
 

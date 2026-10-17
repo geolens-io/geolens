@@ -11,7 +11,7 @@ post-ingest bounds-clip UPDATE in ``clip_to_mercator_bounds`` failed with:
     asyncpg.exceptions.InvalidParameterValueError:
         Geometry type (MultiPolygon) does not match column type (MultiSurface)
 
-Fixes this by replacing ``-nlt PROMOTE_TO_MULTI`` with
+The fix replaces ``-nlt PROMOTE_TO_MULTI`` with
 ``-nlt GEOMETRY`` on the service path only.  ``-nlt GEOMETRY`` instructs
 ogr2ogr to emit a generic ``geometry(Geometry, 4326)`` PostGIS column with no
 subtype constraint, so any concrete geometry subtype can be stored freely.
@@ -21,8 +21,8 @@ The concrete subtype for ``Dataset.geometry_type`` is derived post-ingest via
 ``SELECT GeometryType(geom) … LIMIT 1``.  The file-ingest sibling
 ``run_ogr2ogr()`` is unaffected and continues to use ``PROMOTE_TO_MULTI``.
 
-Live MCP re-verify against ``ahocevar.com/geoserver/wfs → Countries of the
-World`` is deferred to the close gate.
+Live MCP re-verification against ``ahocevar.com/geoserver/wfs → Countries of the
+World`` is not part of this test.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -237,7 +237,7 @@ class TestNormalizeGeometryType:
     chk_datasets_geometry_type CHECK constraint, which only allows the 7
     concrete OGC simple-features types.
 
-    Close-gate fix: map abstract → closest concrete equivalent
+    The fix maps abstract → closest concrete equivalent
     before persisting Dataset.geometry_type.
     """
 

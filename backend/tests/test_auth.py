@@ -300,7 +300,7 @@ class TestLoginAudit:
     async def test_login_deactivated_user_creates_audit_log(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """fix(#1230 P1): denial paths past credential-check are also
+        """Denial paths past credential-check are also
         audited, not just AuthenticationError -- a deactivated account trying
         to log in is exactly the kind of attempt an operator needs to see.
         """
@@ -436,7 +436,7 @@ class TestLoginAudit:
     async def test_login_oauth_only_user_creates_audit_log_not_500(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#1230 P1): an OAuth-created user has password_hash=
+        """An OAuth-created user has password_hash=
         None (oauth/service.py never sets one). Submitting the password form
         for that username used to hand pwdlib an empty-string "hash" it
         can't parse, raising UnknownHashError uncaught -- a 500 instead of
@@ -482,7 +482,7 @@ class TestLoginAudit:
     async def test_login_failure_truncates_long_username(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """fix(#1230 P1): OAuth2PasswordRequestForm applies no length
+        """OAuth2PasswordRequestForm applies no length
         limit to username, so a failed login must not persist an unbounded
         string in details -- bound it to User.username's own width (150).
         """

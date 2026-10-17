@@ -1,4 +1,4 @@
-"""Regression tests.
+"""Regression tests for admin settings gating and audit export.
 
 Lock the single-source-of-truth contract for enterprise-only
 Settings tab keys. Without this gate, future drift between backend
@@ -27,10 +27,11 @@ from app.modules.settings.schemas import EnterpriseTabsResponse
 def test_enterprise_only_tabs_constant_includes_branding_and_appearance():
     """Backend frozenset matches the frontend's prior hardcoded enterpriseOnly flags.
 
-       Pre-Phase-279: backend had {'branding'}; frontend had branding+appearance.
-       The two drifted silently — community callers could write `appearance`
-       settings because `_require_enterprise_for_key` only blocked branding.
-    reconciles them and this test gates against regression.
+    Previously the backend had {'branding'} while the frontend had
+    branding+appearance. The two drifted silently — community callers could
+    write `appearance` settings because `_require_enterprise_for_key` only
+    blocked branding. The constant now reconciles them and this test gates
+    against regression.
     """
     assert "branding" in ENTERPRISE_ONLY_TABS
     assert "appearance" in ENTERPRISE_ONLY_TABS

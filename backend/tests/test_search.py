@@ -1722,7 +1722,7 @@ async def test_search_datasets_raster_res_x_res_y_survive_response_model(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """Gsd is a lossy min(abs(res_x), abs(res_y)) --
+    """``gsd`` is a lossy min(abs(res_x), abs(res_y)) --
     two sources at (res_x=10, res_y=20) and (res_x=10, res_y=30) collapse to
     the identical gsd=10 and, if both share dimensions, look grid-aligned to
     a client comparing gsd alone. _check_grid_alignment (backend/app/

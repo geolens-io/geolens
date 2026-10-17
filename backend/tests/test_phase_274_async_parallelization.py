@@ -1,11 +1,11 @@
 """Regression tests.
 
-_bulk_fetch_dataset_metadata runs every lookup on the caller's
-          session, and the raster-meta + VRT-source-count path stays ordered.
-extract_metadata for spatial tables consolidates four data-table
-          SELECTs (feature_count, srid, geometry_type, extent_wkt) into a
-          single CTE-driven query so PostgreSQL does one shared scan and
-          one network round-trip.
+- _bulk_fetch_dataset_metadata runs every lookup on the caller's
+  session, and the raster-meta + VRT-source-count path stays ordered.
+- extract_metadata for spatial tables consolidates four data-table
+  SELECTs (feature_count, srid, geometry_type, extent_wkt) into a
+  single CTE-driven query so PostgreSQL does one shared scan and
+  one network round-trip.
 """
 
 import inspect
@@ -19,7 +19,7 @@ from sqlalchemy import text
 
 
 def test_extract_metadata_uses_single_cte():
-    """spatial-table fast path issues one CTE-driven query."""
+    """Spatial-table fast path issues one CTE-driven query."""
     from app.processing.ingest.metadata import extract_metadata
 
     src = inspect.getsource(extract_metadata)
@@ -43,7 +43,7 @@ def test_extract_metadata_keeps_fallback_path():
 
 
 def test_extract_metadata_non_spatial_skips_spatial_helpers():
-    """non-spatial table path uses ONLY get_feature_count."""
+    """Non-spatial table path uses ONLY get_feature_count."""
     from app.processing.ingest.metadata import extract_metadata
 
     src = inspect.getsource(extract_metadata)
@@ -143,7 +143,7 @@ def test_bulk_fetch_dependent_path_stays_sequential():
 
 
 def test_bulk_fetch_preserves_best_effort_semantics():
-    """per-block exceptions stay broad-handled."""
+    """Per-block exceptions stay broad-handled."""
     from app.modules.catalog.search.router import _bulk_fetch_dataset_metadata
 
     src = inspect.getsource(_bulk_fetch_dataset_metadata)

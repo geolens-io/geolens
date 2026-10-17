@@ -5,9 +5,6 @@ Pins the new max_size_bytes parameter behavior, including:
 - Local mode: partial file cleaned up on 413
 - S3 mode: 413 raised before storage.put() is called
 - Both modes: no max_size_bytes → no enforcement (backwards compatible)
-
-Requirement: IA
-Phase: 1066
 """
 
 import asyncio
@@ -202,7 +199,7 @@ async def test_presigned_multipart_url_failure_aborts_initialized_session():
     from app.processing.ingest import router
     from app.processing.ingest.schemas import PresignedUploadRequest
 
-    # fix(#1235): a real created_at. The presign path now derives the
+    # A real created_at. The presign path now derives the
     # URL TTL from it and refuses (409) when too little of the job's lifetime is
     # left, and a MagicMock attribute silently makes int() of the remainder 1 —
     # so the door would answer 409 before ever reaching the part-URL failure

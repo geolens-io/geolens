@@ -158,7 +158,7 @@ async def test_job_phase_session_none_branch_rolls_back_on_exception(client):
     test has already exercised the production factory under a DIFFERENT
     event loop, leaving the engine's pool / asyncpg connections bound to
     a now-defunct loop. When the helper's ``session.rollback()`` fires
-    inside the broad-except at line 232, asyncpg
+    inside the broad-except, asyncpg
     raises ``RuntimeError: Task got Future attached to a different loop``.
     Requesting the ``client`` fixture pulls the conftest monkey-patch at
     conftest.py:368-369 (``db_module.async_session = test_session_factory``)
@@ -334,8 +334,8 @@ def test_every_phase2_site_requires_running() -> None:
 async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
     test_db_session, settle
 ) -> None:
-    """fix(#1778): the pin for the TOCTOU left open. A
-    plain SELECT is not a lock, so the sweep could still fail a row in the
+    """fix(#1778): the pin for the TOCTOU the earlier
+    status check left open. A plain SELECT is not a lock, so the sweep could still fail a row in the
     window between ``_job_phase_session``'s read and the phase's first
     irreversible write. ``require_status`` now takes ``FOR NO KEY UPDATE``,
     and ``fail_stale_jobs``'s running-job transition reads its candidates
@@ -362,7 +362,7 @@ async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
         await session.commit()
     assert await _select_status(test_db_session, job_id) == "running"
 
-    # Holding the lock across its first put: acquiring it here and
+    # Phase 2 holds the lock across its first put: acquiring it here and
     # keeping the transaction open is exactly what `require_status="running"`
     # does inside `_job_phase_session`, for as long as the caller's session
     # stays open.

@@ -34,8 +34,7 @@ def _recording_validator_logger():
     which turned main red. The same file passes run alone, and two failing
     runs disagreed on how many of the three broke.
 
-    fix(#1064): the trigger IS now pinned down, and this paragraph
-    used to say it was not. It is a CONJUNCTION, which is why five separate
+    The trigger is a CONJUNCTION, which is why five separate
     reproduction attempts came back empty — each had one half:
 
         `cache_logger_on_first_use=True` is in force
@@ -68,7 +67,7 @@ def _recording_validator_logger():
     `setup_logging()` turns it on. Use `configured_logging()` from
     `tests/_logging_state.py`, which owns both steps; its sibling
     `preserved_logging_state()` only snapshots and restores, so composing that
-    one with `setup_logging()` by hand leaves the freeze armed (#1064 codex).
+    one with `setup_logging()` by hand leaves the freeze armed.
     """
     events: list[dict] = []
 
@@ -160,7 +159,7 @@ def _assert_allows(sql: str) -> None:
 class TestIntrospectionFunctionsRejected:
     """Unlisted server-introspection functions must raise SandboxError.
 
-    These are the acceptance-criteria queries from the plan.
+    These are the acceptance-criteria queries.
     Pre-fix: all PASSED (not in small denylist). Post-fix: all REJECTED.
     """
 
@@ -212,7 +211,7 @@ class TestIntrospectionFunctionsRejected:
 class TestNiladicKeywordFunctionsRejected:
     """PostgreSQL's parenless identity keywords must be rejected too.
 
-    fix(#1778): the allowlist is driven by one
+    The allowlist is driven by one
     ``stmt.find_all(exp.Func)`` walk, and sqlglot 30.17.0 gives only some of
     PostgreSQL's SQLValueFunction keywords a Func subclass. Measured before the
     fix, ``user``, ``current_role`` and ``system_user`` parsed as ``exp.Column``
@@ -742,7 +741,7 @@ class TestResourceAmplificationRejected:
         _assert_rejects(sql)
 
     def test_rejects_table_scanning_unary_st_collect_however_aliased(self):
-        """fix(#935, restored by #1001): the canonical buffer's unary
+        """The canonical buffer's unary
         ST_Collect is admitted by whole-template match, not by a per-call
         exception. Hiding a table scan one derived level down — or borrowing
         the renderer's own alias names — must not slip past."""
@@ -752,7 +751,7 @@ class TestResourceAmplificationRejected:
         )
 
     def test_rejects_tiny_or_dynamic_segmentize_length(self):
-        """fix(#935, restored by #1001): ST_Segmentize's max-edge
+        """ST_Segmentize's max-edge
         argument controls vertex amplification. Outside the rendered template
         the function is not allowlisted at all, so no argument saves it."""
         _assert_rejects("SELECT ST_Segmentize(geom_4326, 1e-100) FROM data.cities")
@@ -763,7 +762,7 @@ class TestResourceAmplificationRejected:
         )
 
     def test_rejects_table_scanning_st_dump(self):
-        """fix(#935, restored by #1001): ST_Dump over a table is the
+        """ST_Dump over a table is the
         UNNEST row-amplification class."""
         _assert_rejects(
             "SELECT COUNT(*) FROM data.cities c "
@@ -989,7 +988,7 @@ class TestCanonicalBufferExemptionIsScoped:
         ],
     )
     def test_rejects_an_unbounded_buffer_input(self, label, geom):
-        """fix(#1001): matching the template is not sufficient. The
+        """Matching the template is not sufficient. The
         scaffold's cost is a function of its INPUT's planar span, so the input
         has to be a stored geometry rather than one the caller manufactured."""
         rendered = (
@@ -1002,7 +1001,7 @@ class TestCanonicalBufferExemptionIsScoped:
     @pytest.mark.parametrize(
         ("label", "sql_template"),
         [
-            # fix(#1001): a bare column is not enough on its own. An
+            # A bare column is not enough on its own. An
             # alias launders the projected geometry back in, and the
             # ST_Transform sits OUTSIDE the exempt subtree so it clears the
             # allowlist on its own.
@@ -1071,7 +1070,7 @@ class TestCanonicalBufferExemptionIsScoped:
         )
 
     def test_rejects_a_bare_top_level_column(self):
-        """fix(#1001): documented limit. The scaffold interposes its
+        """Documented limit. The scaffold interposes its
         own `(SELECT ... OFFSET 0) AS _pb` scope between the column and the
         real FROM, so deciding whether a bare name belongs to `_pb` or to the
         outer table needs the table's column list. The prompt teaches the
@@ -1095,7 +1094,7 @@ class TestCanonicalBufferExemptionIsScoped:
         ],
     )
     def test_rejects_a_positional_column_alias_list(self, label, prefix, source):
-        """fix(#1001): `AS s(gid, name, geom_4326)` binds the NAME
+        """`AS s(gid, name, geom_4326)` binds the NAME
         geom_4326 to whatever the third physical column is, which may be a
         projected geom. Deciding that needs the table's real column order,
         which the validator does not have."""
@@ -1107,7 +1106,7 @@ class TestCanonicalBufferExemptionIsScoped:
         )
 
     def test_an_unrelated_nested_alias_does_not_refuse_the_buffer(self):
-        """fix(#1001): binding resolution is lexical. A nested query
+        """Binding resolution is lexical. A nested query
         that happens to reuse an alias must not make the outer binding look
         ambiguous — before this, adding `(SELECT count(*) FROM data.cities s)`
         as a sibling projection refused a buffer that was fine."""
@@ -1118,7 +1117,7 @@ class TestCanonicalBufferExemptionIsScoped:
         )
 
     def test_rejects_an_alias_shadowing_a_safe_cte(self):
-        """fix(#1001): `FROM bad AS x` binds x to `bad`, whatever a
+        """`FROM bad AS x` binds x to `bad`, whatever a
         CTE literally named x also defines. Resolving through CTE definitions
         instead of through the from/join reference read the safe one."""
         _assert_rejects(
@@ -1161,7 +1160,7 @@ class TestCanonicalBufferExemptionIsScoped:
     def test_rejects_a_base_column_that_is_not_the_managed_4326_column(
         self, label, sql
     ):
-        """fix(#1001): reaching a base table is not enough. Ingest
+        """Reaching a base table is not enough. Ingest
         keeps a dataset's ORIGINAL `geom` in whatever CRS it arrived in and
         adds `geom_4326` alongside, so a Web Mercator `s.geom` has a
         40-million-unit span and drives the scaffold exactly like a
@@ -1178,7 +1177,7 @@ class TestCanonicalBufferExemptionIsScoped:
     def test_follows_a_two_hop_pass_through(self):
         """Sibling CTEs are in scope for each other, so lineage crosses them.
 
-        fix(#1001): the earlier resolver stopped at one hop and
+        The earlier resolver stopped at one hop and
         refused this; walking WITH clauses outward from the scope that binds
         the reference is what makes it resolve.
         """

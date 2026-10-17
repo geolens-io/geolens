@@ -69,7 +69,7 @@ def _dataset(record_status: str):
         # the PATCH handler snapshots tile_columns pre-update
         # to detect no-op echoes, so the fake needs the attribute.
         tile_columns=None,
-        # fix(#1178 review): the status endpoints run the inherited-keyword
+        # fix(#1178): the status endpoints run the inherited-keyword
         # disclosure check on the resolved state, which starts from
         # record.derived_from — None models a record that is not
         # analysis-derived, so the check exits before touching the fake DB.

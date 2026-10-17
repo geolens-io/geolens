@@ -20,7 +20,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # empty string just because .env omits that key. See restore.sh's comment
 # on the same pattern for the full reasoning.
 #
-# Assigns straight into
+# The assignment goes straight into
 # each target via env_value_into — see restore.sh's own comment
 # on the same pattern for why a plain `_v="$(get_env_value ...)"` capture
 # is not enough on its own (it strips a trailing decoded newline
@@ -30,7 +30,7 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
     # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
     env_value_into POSTGRES_PASSWORD POSTGRES_PASSWORD "$PROJECT_ROOT/.env" || true
     env_value_into POSTGRES_DB POSTGRES_DB "$PROJECT_ROOT/.env" || true
-    # also honor an
+    # Also honor an
     # operator's COMPOSE_FILE (e.g. docker-compose.prod.yml) instead of
     # always hardcoding the source-build file below -- this script used to
     # be the one caller that never read it at all.
@@ -60,7 +60,7 @@ done
 
 # Section 2: Database Connectivity
 echo "=== Database Connectivity ==="
-# Calls the shared
+# This calls the shared
 # compose() wrapper (scripts/lib/common.sh) instead of a raw `docker
 # compose -f ...` invocation, so COMPOSE_PROJECT_NAME/COMPOSE_PROFILES from
 # $PROJECT_ROOT/.env are honored the same way restore.sh/upgrade.sh honor

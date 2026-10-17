@@ -1,21 +1,20 @@
 """Exit-code matrix.
 
-Stubbed login/logout/whoami exits at 2; replaced those stubs
-with real implementations whose exit codes depend on state:
+Login/logout/whoami are real implementations whose exit codes depend on state:
 - whoami with no instance configured → EXIT_AUTH (3)
 - login --token + --api-key together → EXIT_USAGE (2)
-Wires scan to walk + classify (exits 0 even on all-ingest:no). Publish runs
+Scan walks and classifies (exits 0 even on all-ingest:no). Publish runs
 the 3-step ingest flow (per-command behavior in
 test_publish_unit.py::TestPublishCli). The remaining stub command
 (export stac) still exits 2.
 
-Adds offline manifest commands:
+Offline manifest commands:
 - init creates geolens.yaml locally and refuses overwrite with EXIT_USAGE (2)
 - validate exits 0 for valid manifests and EXIT_USAGE (2) for invalid input
 
 --------------------------------------------------------------------------
-Credential-swap state table (built as a
-coverage audit, not narrative — every cell below is either pinned by a
+Credential-swap state table (built as a coverage
+audit, not narrative — every cell below is either pinned by a
 named test or proven unreachable with the structural reason why).
 
 Axes: STORE BACKEND the credential ends up in (keyring | file) x SNAPSHOT
@@ -291,7 +290,7 @@ class TestInteractiveLoginIsBounded:
     GeolensClient directly with the SDK's default timeout=None
     (unbounded), so `geolens login <url>` (no --token/--api-key) could
     hang forever on a host that accepts a connection and then stalls,
-    despite AppState.sdk()'s bound added earlier in this PR. It now goes
+    despite AppState.sdk()'s bound. It now goes
     through the same _sdk_helpers.make_client() every other client
     construction in this package uses."""
 

@@ -50,7 +50,7 @@ from app.platform.cache.memory import InMemoryCacheProvider
 pytestmark = pytest.mark.anyio
 
 
-# fix(#1778): the generation the race cases pin themselves to.
+# The generation the race cases pin themselves to.
 _TEST_GENERATION = 7
 
 
@@ -122,7 +122,7 @@ async def _validate_with(cache, raw, dataset_id, map_id) -> bool:
             "app.modules.embed_tokens.service._request_origin_is_allowed",
             AsyncMock(return_value=True),
         ),
-        # fix(#1778): neutralise the usage bump by replacing the
+        # Neutralise the usage bump by replacing the
         # COROUTINE it runs, not asyncio.create_task. Patching create_task
         # substitutes an attribute on the shared asyncio module and hands the
         # service a MagicMock, which it then files in the module-level
@@ -136,7 +136,7 @@ async def _validate_with(cache, raw, dataset_id, map_id) -> bool:
             "app.modules.embed_tokens.service._bump_embed_token_usage_detached",
             AsyncMock(return_value=None),
         ),
-        # fix(#1778): these cases are about the NX race, not the
+        # These cases are about the NX race, not the
         # revocation generation, and RaceCache's deliberately-missing first read
         # would otherwise be spent on the generation lookup instead of the token.
         # Pinned to a constant so the entry the racer publishes is stamped with
@@ -220,7 +220,7 @@ class TestSetIfAbsent:
 
 
 class TestDenialReachesEveryStore:
-    """fix(#1778): the revoke helper's write must be the two-store one.
+    """The revoke helper's write must be the two-store one.
 
     A positive entry that landed in the layered provider's in-memory fallback
     during a Redis outage outlived a denial written after Redis recovered,
@@ -244,7 +244,7 @@ class TestDenialReachesEveryStore:
         provider._failure_count = 0
         provider._circuit_open_until = 0.0
         provider._fallback = InMemoryCacheProvider()
-        # fix(#1778): these build the provider through __new__, so the
+        # These build the provider through __new__, so the
         # replay state __init__ sets up has to be seeded here too.
         provider._pending_authoritative = OrderedDict()
         provider._replay_lock = asyncio.Lock()

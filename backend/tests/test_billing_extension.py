@@ -131,13 +131,13 @@ class HangingBillingExtension:
 async def _dispatch(extensions, app, timeout: float = 10.0) -> None:
     """Inline replica of the dispatch loop in api/main.py.
 
-    Mirrors the production code at backend/app/api/main.py. Tests inline-call this helper with a pre-populated extension
-    list, avoiding the cost of spinning up the full lifespan with a TestClient.
+    Mirrors the production code at backend/app/api/main.py. Tests inline-call
+    this helper with a pre-populated extension list, avoiding the cost of spinning up the full lifespan with a TestClient.
 
     Each extension is awaited inside asyncio.wait_for(timeout); both
     TimeoutError and general Exception are swallowed (per-extension isolation). Failures would normally be logged via
-    structlog; here we silently swallow because the tests assert behavior (subsequent extensions ran),
-    not log content. The architecture guard verifies the production loop
+    structlog; here we silently swallow because the tests assert behavior
+    (subsequent extensions ran), not log content. The architecture guard verifies the production loop
     matches this shape.
     """
     for ext in extensions:
@@ -267,7 +267,7 @@ async def test_hanging_extension_timeout() -> None:
 def test_settings_has_no_marketplace_fields() -> None:
     """aws_marketplace_* fields removed from core Settings.
 
-    Deletes:
+    Removed:
       - `aws_marketplace_product_code: str | None = None` (was at config.py:87)
       - `aws_marketplace_public_key_version: int = 1` (was at config.py:88)
       - The `aws_marketplace_product_code` entry inside the @field_validator(...)

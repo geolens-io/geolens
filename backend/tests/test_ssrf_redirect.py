@@ -116,9 +116,9 @@ async def test_revalidate_redirect_blocks_rfc1918_10x_redirect():
     This revision uses RFC-1918 10.0.0.5 to fill the address-class gap and
     renames to match the function actually exercised (_revalidate_redirect).
 
-    This test exercises
-    _revalidate_redirect directly to remain immune to sibling-test
-    contamination of httpx.AsyncClient at the make_safe_client() layer.
+    This test exercises _revalidate_redirect directly to remain immune to
+    sibling-test contamination of httpx.AsyncClient at the
+    make_safe_client() layer.
     """
     response = httpx.Response(
         302,

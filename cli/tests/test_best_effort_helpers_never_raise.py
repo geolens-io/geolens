@@ -18,7 +18,7 @@ every failure point the helper's own docstring claims to tolerate:
 - _restore_credentials() -- keyring deletes/sets AND the file
   read/write, all raising.
 - delete_credentials()'s own keyring loop -- all four accounts raising
-  (the file clear at the end is INTENTIONALLY NOT best-effort, per
+  (the file clear at the end is INTENTIONALLY NOT best-effort:
   logout must refuse on a corrupt file, so that part is not
   pinned here).
 """
@@ -64,7 +64,7 @@ class TestDiscardUnpairedRefreshTokenNeverRaises:
         _auth._set_credential_field(INSTANCE, "refresh_token", "some-refresh-token")
         _auth._set_credential_field("https://other.example.com/api", "bearer_token", "x")
         monkeypatch.setattr(_auth, "_write_credentials_file", _raise_os_error)
-        # Must not raise -- this is the exact finding fixes.
+        # Must not raise -- this is the failure the guard exists to prevent.
         _auth._discard_unpaired_refresh_token(INSTANCE)
 
 

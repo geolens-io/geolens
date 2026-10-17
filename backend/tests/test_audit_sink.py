@@ -132,7 +132,7 @@ async def test_fixture_sink_receives_events_alongside_default(
     admin_auth_header,
     test_db_session,
 ) -> None:
-    """enterprise-shape AuditSink + DefaultAuditSink coexist.
+    """Enterprise-shape AuditSink + DefaultAuditSink coexist.
 
     End-to-end integration: a fixture sink registered via direct
     ``_extensions["audit_sinks"]`` append receives every audit event AND the

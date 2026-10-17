@@ -282,7 +282,7 @@ class TestSingleSlotKeySet:
 
 
 class TestWrapDontReplaceDocumented:
-    """wrap-don't-replace rule must be documented in protocols.py docstrings."""
+    """The wrap-don't-replace rule must be documented in protocols.py docstrings."""
 
     def test_protocols_module_contains_wrap_rule(self):
         """protocols.py must document the wrap-don't-replace rule (not just in a comment)."""

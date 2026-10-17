@@ -129,7 +129,7 @@ async def test_vrt_generation_heartbeat_fences_stale_recovery(test_db_session):
 
     generation.heartbeat_at = datetime.now(timezone.utc) - timedelta(hours=2)
     await test_db_session.commit()
-    # feat(#1322 review): the 3rd element is the dead attempt's resolved (not
+    # feat(#1322): the 3rd element is the dead attempt's resolved (not
     # yet deleted) storage keys — deletion is the caller's job, strictly
     # after ITS commit lands, so sweep_stale_vrt_assets itself never touches
     # storage.

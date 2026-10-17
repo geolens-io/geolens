@@ -225,7 +225,7 @@ class TestProbeDoor:
     async def test_a_method_with_no_transport_reaches_detection(
         self, client: AsyncClient, admin_auth_header: dict, builder
     ) -> None:
-        """fix(#1746 B2b codex): the refusal moved AFTER detection.
+        """fix(#1746): the refusal moved AFTER detection.
 
         This asserted the opposite: that an ArcGIS-SHAPED URL was refused
         before the network. That was the finding. `_looks_like_arcgis` matches
@@ -767,7 +767,7 @@ class TestRefreshDoor:
 
 
 class TestServiceLayerTakesACredentialDirectly:
-    """The one thing this phase owes a caller that is not a request.
+    """The one thing the service layer owes a caller that is not a request.
 
     An overlay scheduler resolves a stored credential and then wants core to
     run with it. It can only do that if there is a function that TAKES one, so
@@ -866,7 +866,7 @@ class TestServiceLayerTakesACredentialDirectly:
         task = AsyncMock()
         with patch("app.processing.ingest.tasks.ingest_service") as ingest_service:
             ingest_service.defer_async = task
-            # a header-auth credential routes the
+            # A header-auth credential routes the
             # dispatch through ingest_service.configure(queue=...) before
             # defer_async. Returning the mock itself from configure() keeps
             # `task` the object every assertion below already checks.
@@ -937,7 +937,7 @@ class TestServiceLayerTakesACredentialDirectly:
         test_db_session,
         credential_backend,  # noqa: F811
     ) -> None:
-        """fix(#1746 B2b codex): the winner is judged, not the loser.
+        """fix(#1746): the winner is judged, not the loser.
 
         The signature promises `credential` wins over `token` when both are
         given, but the legacy pre-check ran first and judged `token`, so an
@@ -962,7 +962,7 @@ class TestServiceLayerTakesACredentialDirectly:
         task = AsyncMock()
         with patch("app.processing.ingest.tasks.ingest_service") as ingest_service:
             ingest_service.defer_async = task
-            # a header-auth credential routes the
+            # A header-auth credential routes the
             # dispatch through ingest_service.configure(queue=...) before
             # defer_async. Returning the mock itself from configure() keeps
             # `task` the object every assertion below already checks.
@@ -1280,7 +1280,7 @@ class TestImportCommitDoor:
             patch("app.processing.ingest.tasks.ingest_service") as ingest_service,
         ):
             ingest_service.defer_async = task
-            # a header-auth credential routes the
+            # A header-auth credential routes the
             # dispatch through ingest_service.configure(queue=...) before
             # defer_async. Returning the mock itself from configure() keeps
             # `task` the object every assertion below already checks.
@@ -1419,7 +1419,7 @@ class TestImportCommitDoor:
             patch("app.processing.ingest.tasks.ingest_service") as ingest_service,
         ):
             ingest_service.defer_async = task
-            # a header-auth credential routes the
+            # A header-auth credential routes the
             # dispatch through ingest_service.configure(queue=...) before
             # defer_async. Returning the mock itself from configure() keeps
             # `task` the object every assertion below already checks.

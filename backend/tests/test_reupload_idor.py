@@ -419,8 +419,8 @@ class TestReuploadIDOROwnerAllowed:
         mocked. Skip-with-rationale was rejected because gdal-bin IS
         installed in the Dockerfile (lines 22-26, 70-74), so a
         `shutil.which("ogrinfo")` skip would silently skip on macOS dev
-        but never on CI — exactly the false-green pattern the v1017
-        milestone audit named as the problem.
+        but never on CI — exactly the false-green pattern, a skip that
+        silently applies to dev hosts only.
         """
         owner_headers, owner_id = await _create_test_user_with_role(
             client, admin_auth_header, "editor"

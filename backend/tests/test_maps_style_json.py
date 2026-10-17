@@ -265,7 +265,7 @@ def test_build_maplibre_style_exports_fill_companion_layers():
     assert extrusion["paint"]["fill-extrusion-color"] == "#94a3b8"
 
 
-# fix(#910, codex P2): once a fill pattern owns the fill, the builder keeps `fill-color`
+# Once a fill pattern owns the fill, the builder keeps `fill-color`
 # out of paint and the colour lives in the builder stash. The extrusion companion is
 # the only exported layer that needs a solid colour, so it has to read the stash or a
 # patterned 3D layer exports default blue while the builder draws the saved colour.
@@ -333,7 +333,7 @@ def test_builtin_pattern_export_keeps_the_stashed_fill_color():
     """A builder-patterned polygon exports in the colour the user chose.
 
     #917 strips a builtin `fill-pattern` at export and falls back to a solid
-    colour, but means a patterned layer keeps NO `fill-color` in paint —
+    colour, but a patterned layer keeps NO `fill-color` in paint —
     the choice lives in `builder.fillColorSaved`. Without seeding it, every
     builder-patterned polygon exported as DEFAULT_FILL_COLOR.
     """
@@ -1529,7 +1529,7 @@ def test_build_maplibre_style_round_trip_preserves_line_gradient_paint_and_sourc
     assert imported_line.paint["line-gradient"] == gradient
 
     # Re-export: construct a MapLayerResponse from the imported MapLayerInput and re-build the style.
-    # This mechanic mirrors round-trip pattern: imported.layers (MapLayerInput) ->
+    # This mechanic mirrors the round-trip pattern: imported.layers (MapLayerInput) ->
     # _layer(...) factory -> MapLayerResponse -> build_maplibre_style.
     imported_polygon = next(
         entry for entry in imported.layers if entry.dataset_id == polygon_dataset_id
@@ -1572,7 +1572,7 @@ def test_build_maplibre_style_round_trip_preserves_builder_line_gradient_intent(
 
     The companion test above covers paint-driven gradient. This one covers the second
     detection input — `style_config.builder.lineGradient` — through the full
-    export -> import -> re-export cycle. builder UI is the primary consumer
+    export -> import -> re-export cycle. The builder UI is the primary consumer
     of this intent field; if a future allowlist change in `_clean_style_metadata`
     silently strips it, this test catches it. Both lineMetrics and the builder.lineGradient
     payload must survive the full round-trip.
@@ -1938,7 +1938,7 @@ def test_emitted_style_keeps_all_valid_companion_properties_spec_01():
 
 
 def test_style_config_round_trippable_keys_survive_build_parse_spec_03():
-    """legend/ramp/render-mode UI state survives the export/import path."""
+    """Legend/ramp/render-mode UI state survives the export/import path."""
     style_config = {
         "mode": "graduated",
         "column": "pop",
@@ -2093,7 +2093,7 @@ def test_builder_alias_table_is_single_source_inverse_style_01():
 
 
 # ---------------------------------------------------------------------------
-# fix(#394): symbol icon-image expression hardening
+# Symbol icon-image expression hardening
 # ---------------------------------------------------------------------------
 
 
@@ -2160,7 +2160,7 @@ def test_export_emits_layer_zoom_range_from_builder_layout_keys():
     layer = _layer(layout={"_minzoom": 8, "_maxzoom": 12})
     exported = style_json._style_layer_for_map_layer(layer, "src-1")
     primary = next(entry for entry in exported if entry["id"].startswith("layer-"))
-    # fix(#526 codex): companions (here the -label layer) inherit the
+    # Companions (here the -label layer) inherit the
     # range too — the live builder zoom-ranges every companion id.
     assert len(exported) > 1
     for entry in exported:
@@ -2286,7 +2286,7 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
     "pattern",
     [
         "some-uploaded-icon",
-        # fix(#917): `create_icon_asset` derives a sprite slug from the
+        # `create_icon_asset` derives a sprite slug from the
         # uploaded filename, so `geolens-fill-logo.png` becomes a real map_icons
         # entry whose slug carries the builtin prefix. Reserving the prefix
         # would strip a working pattern from every exported style.
@@ -2906,7 +2906,7 @@ def test_a_malformed_popup_config_is_dropped_not_raised_1778():
 
 
 # ---------------------------------------------------------------------------
-# a restored minimum must leave a visible band
+# A restored minimum must leave a visible band
 # ---------------------------------------------------------------------------
 
 # The builder's substituted range, spelled out rather than imported so this

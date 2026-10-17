@@ -369,7 +369,7 @@ async def test_settings_rejects_coerced_false_admin_capabilities(
 
 
 # ---------------------------------------------------------------------------
-# Require_permission() factory and /auth/me/permissions endpoint
+# require_permission() factory and /auth/me/permissions endpoint
 # ---------------------------------------------------------------------------
 
 

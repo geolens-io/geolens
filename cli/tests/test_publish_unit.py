@@ -20,7 +20,7 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Publish.py module surface
+# publish.py module surface
 # ---------------------------------------------------------------------------
 
 
@@ -1015,7 +1015,8 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """One extras_failures entry per requested extra (fix(#1778)): both --tags and --collection here, both skipped."""
+        """One extras_failures entry per requested extra: both --tags and --collection
+        here, both skipped."""
         from geolens_cli._sdk_helpers import EXIT_GENERIC
         from geolens_cli.main import app
 
@@ -1637,7 +1638,7 @@ class TestResolveDatasetIdTerminalStatuses:
     """Unit-level: resolve_dataset_id stops polling as soon as the job status
     is terminal, rather than sleeping and re-polling until timeout, and
     reports it via PollOutcome.stopped_because == "terminal"
-    (fix(#1778, codex))."""
+    (#1778)."""
 
     def test_cancelled_stops_polling_immediately(self, monkeypatch) -> None:
         from geolens_cli import publish as _publish
@@ -1683,7 +1684,7 @@ class TestResolveDatasetIdTerminalStatuses:
 class TestResolveDatasetIdPollOutcomeShape:
     """Unit-level: resolve_dataset_id's PollOutcome for the other three
     stopped_because reasons — "timeout", "poll_failed", "token_expired" —
-    added in fix(#1778, codex) so a caller never has to guess why
+    added in #1778 so a caller never has to guess why
     the poll gave up from a bare None."""
 
     def test_timeout_preserves_the_last_known_status(self, monkeypatch) -> None:

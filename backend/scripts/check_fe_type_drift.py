@@ -295,7 +295,7 @@ class DriftReport:
         case the KNOWN_DRIFT allowlist cannot cover — silently skipping it
         let a renamed/removed maintained model pass with zero output.
 
-        a KNOWN_DRIFT entry that has become
+        A KNOWN_DRIFT entry that has become
         fully resolved (the FE mirror caught up — check_drift() computes
         this into ``resolved_known_drift``) used to only print a
         ``[RESOLVED]`` notice; nothing made the gate itself fail, and

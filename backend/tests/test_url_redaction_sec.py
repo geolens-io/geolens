@@ -418,7 +418,7 @@ def test_has_url_credentials_detects_userinfo() -> None:
     ],
 )
 def test_has_url_credentials_detects_userinfo_behind_gdal_prefix(url: str) -> None:
-    # Urlsplit sees scheme 'esrijson'/'wfs' with no netloc, so
+    # urlsplit sees scheme 'esrijson'/'wfs' with no netloc, so
     # .username/.password were None and the credential slipped through. The
     # validator must strip the GDAL prefix before inspecting userinfo.
     assert has_url_credentials(url)

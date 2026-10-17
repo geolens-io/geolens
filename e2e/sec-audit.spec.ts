@@ -49,7 +49,7 @@ function adminHeaders(): Record<string, string> {
 }
 
 test.beforeAll(async () => {
-  // this hook used to seed five fixtures
+  // This hook used to seed five fixtures
   // sequentially. The two ingest-backed ones alone (raster + private
   // vector) can each poll for up to 60s (helpers/catalog.ts's
   // seedFixtureDataset), so a slow worker could blow past Playwright's
@@ -230,7 +230,7 @@ test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async
 });
 
 test('S02 IDOR — editor B cannot DELETE another user\'s private dataset', async ({ request }) => {
-  // the positive control below calls
+  // The positive control below calls
   // seedDataset(), which alone can poll for up to 60s (helpers/catalog.ts's
   // seedFixtureDataset) -- the same 60s as Playwright's default TEST
   // timeout, with nothing left over for the denial request, the owner
@@ -398,7 +398,7 @@ test('S06 — admin user with known-public password "demodemo" cannot log in', a
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S08 — embed frame-policy endpoint reflects the actual embed-token state', async ({ request }) => {
-  // the edge reads the embed token from the `et`
+  // The edge reads the embed token from the `et`
   // query param, not the share token in the path (frontend/nginx.conf's
   // `location ~ ^/m/` forwards $arg_et to /embed/frame-policy). Without
   // `et`, embed_frame_policy (public_router.py) always emits NO
@@ -499,7 +499,7 @@ test('S08 — embed frame-policy endpoint reflects the actual embed-token state'
     // create_embed_token_endpoint -- confirmed against the live endpoint.
     expect(restrictedRes.status()).toBe(422);
     const body = (await restrictedRes.json()) as { detail?: unknown };
-    // a vanilla FastAPI 422 body has `detail` as
+    // A vanilla FastAPI 422 body has `detail` as
     // an array of {loc, msg, type} objects, and `expect(array).toContain(
     // 'a substring')` compares array ELEMENTS for equality -- against
     // objects, that never matches, so the check would always pass or always
@@ -592,9 +592,9 @@ test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ reques
 //
 // An earlier "accept a 429 only when the configured limit is below this
 // describe block's own request count" rule assumed this describe block is
-// the only source of traffic against the bucket. It is not: in a full nightly run, search.spec.ts also hits
-// /search/datasets/ against the same server (and, if the limiter keys on
-// IP rather than per-user, the same bucket), so a configured limit that
+// the only source of traffic against the bucket. It is not: in a full
+// nightly run, search.spec.ts also hits /search/datasets/ against the same
+// server (and, if the limiter keys on IP rather than per-user, the same bucket), so a configured limit that
 // comfortably covers these four requests ALONE can still be exhausted by
 // the time they run, and an unconditional `expect(200)` would then fail a
 // perfectly healthy rate limiter. There is no configured-limit threshold
@@ -703,15 +703,14 @@ test('S11 — /search/datasets/ has semantic-search rate limiting wired (smoke)'
   // shipped (search/router.py's search_datasets_endpoint carries
   // @limiter.limit(_semantic_search_rate_limit)) -- gate on it.
   //
-  // This test spent four rounds trying to pin the
-  // actual discriminating behavior (is a 429 really from the per-route
-  // limiter and not the global one? does it fire exactly at the configured
-  // threshold?) against a live, shared, admin-configurable dev stack --
-  // structurally unreliable there, since this suite can neither set
+  // Pinning the actual discriminating behavior (is a 429 really from the
+  // per-route limiter and not the global one? does it fire exactly at the
+  // configured threshold?) against a live, shared, admin-configurable dev
+  // stack is structurally unreliable, since this suite can neither set
   // semantic_search_rate_limit or global_rate_limit nor isolate itself from
-  // other concurrent traffic hitting the same stack (tried
-  // reading the config, pacing bursts below the global limit, and retrying
-  // through DB-pool contention, and still could not fully close the gap).
+  // other concurrent traffic hitting the same stack. Reading the config,
+  // pacing bursts below the global limit and retrying through DB-pool
+  // contention did not fully close the gap.
   // That pin now lives in backend/tests/test_semantic_search_rate_limit_1778.py,
   // against an isolated app instance with both limits set to known values --
   // it also covers the "decorator still present" structural check. This is a

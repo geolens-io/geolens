@@ -3,8 +3,6 @@
 Pins the preview→commit DNS-rebinding TOCTOU closure (route layer) and the
 manifest-path defense-in-depth (worker layer).
 
-Requirement: IA
-Phase: 1066
 """
 
 import uuid

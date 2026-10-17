@@ -830,7 +830,7 @@ class TestRegenerateVrtTask:
                 str(call.args[0]) for call in mock_session.execute.await_args_list
             )
             assert "UPDATE catalog.raster_assets" in statements
-            # fix(#1962): an attempt that bound no generation releases
+            # An attempt that bound no generation releases
             # the asset unless a live generation owns it, which is the only
             # rule that reaches one the sweep cannot see.
             assert "catalog.vrt_generations" in statements

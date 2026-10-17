@@ -3,8 +3,7 @@
 Warn when CORS_ALLOWED_ORIGINS is unset in production.
 Warn when TILE_SIGNING_SECRET is unset and falls back to JWT secret.
 
-Operators who forget security-relevant
-env vars get a loud signal at boot rather than a silent insecure default.
+Operators who forget security-relevant env vars get a loud signal at boot rather than a silent insecure default.
 """
 
 from types import SimpleNamespace

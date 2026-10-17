@@ -688,7 +688,7 @@ class TestAnalysisMaterializeCli:
     ) -> None:
         """fix(#685 review): resolve_dataset_id reports a terminal status for
         a FAILED job as well as a timeout — see PollOutcome
-        (fix(#1778, codex)). Exiting 0 there would tell a script the
+        (#1778). Exiting 0 there would tell a script the
         analysis succeeded."""
         from geolens_cli import publish as _publish
         from geolens_cli.main import app

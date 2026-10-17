@@ -1166,7 +1166,7 @@ def test_metrics_endpoint_survives_concurrent_sweep(tmp_path):
     never surface a FileNotFoundError-driven 500. Exercises the actual
     middleware wired into init_metrics(), not just the raw lock file.
 
-    runs in a subprocess, not in-process --
+    Runs in a subprocess, not in-process --
     init_metrics() -> Instrumentator().instrument(app) registers
     http_requests_inprogress on prometheus_client's process-global default
     CollectorRegistry with no override, and other tests/fixtures in the same

@@ -57,7 +57,7 @@ def _storage():
 async def _objects(prefix: str, map_id: str) -> set[str]:
     """Every stored object under ``prefix`` belonging to this map.
 
-    keys carry a random component per write now, so the
+    Keys carry a random component per write now, so the
     tests read what is stored instead of reconstructing a name. That is also the
     property under test in several of them: exactly one object survives a
     replacement, and it is not the one that was there before.
@@ -212,12 +212,12 @@ class TestOverlappingReplacements:
     `.jpg`, then A commits its URI at `.jpg`, pointing the row at the object B
     just deleted. Both answer 204 and the thumbnail endpoint answers 404.
 
-    the block point moved from inside ``storage.put`` to inside
+    The block point moved from inside ``storage.put`` to inside
     ``lock_map_for_asset_write``. Previously the row lock was taken before
     the PUT, so blocking a request after its bytes landed but before it
     returned from ``put`` was also blocking it before it could reach the lock,
     which is what made ``second`` wait on ``SELECT ... FOR UPDATE`` in that
-    window. moved the lock to AFTER the PUT specifically so a stalled
+    window. The lock now sits AFTER the PUT specifically so a stalled
     write no longer holds it, so that same block point no longer represents
     "holding the lock". Hooking the lock call itself, calling through to the
     real function so the row lock is genuinely acquired in Postgres and then
@@ -360,7 +360,7 @@ class TestOverlappingReplacements:
 
 
 # ---------------------------------------------------------------------------
-# a stalled storage write must not hold the map row locked
+# A stalled storage write must not hold the map row locked
 # ---------------------------------------------------------------------------
 
 
@@ -406,7 +406,7 @@ class TestAStalledUploadDoesNotBlockOtherWriters:
         )
         await asyncio.wait_for(put_entered.wait(), timeout=10)
 
-        # The upload is stuck inside the PUT, which moved outside the
+        # The upload is stuck inside the PUT, which now sits outside the
         # row lock. A plain rename, which takes no lock_timeout of its own and
         # would previously have queued behind the held row lock for as long
         # as the PUT took, must complete right away instead of waiting on it.
@@ -976,7 +976,7 @@ class TestAFailedPublishLeavesNoObject:
         """The third write-object-then-commit-row site in the package.
 
         The failure is placed at the flush, which is after the object write and
-        before the commit. a failure of the COMMIT itself is
+        before the commit. A failure of the COMMIT itself is
         a different case, covered below: its outcome is unknowable, so nothing
         is deleted.
         """
@@ -1261,7 +1261,7 @@ def test_every_publication_marks_before_committing_1778() -> None:
 
 
 # ---------------------------------------------------------------------------
-# a failure after the commit must not roll anything back
+# A failure after the commit must not roll anything back
 # ---------------------------------------------------------------------------
 
 
@@ -1550,7 +1550,7 @@ class TestAnIndeterminateCommitKeepsTheObject:
 
 
 # ---------------------------------------------------------------------------
-# a write whose outcome is ambiguous is still rolled back
+# A write whose outcome is ambiguous is still rolled back
 # ---------------------------------------------------------------------------
 
 
@@ -1667,7 +1667,7 @@ class TestAnAmbiguousWriteIsRolledBack:
 
 
 # ---------------------------------------------------------------------------
-# a contended map row fails fast, not slow
+# A contended map row fails fast, not slow
 # ---------------------------------------------------------------------------
 
 

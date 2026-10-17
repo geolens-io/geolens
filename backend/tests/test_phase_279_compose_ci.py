@@ -1,12 +1,12 @@
 """Static-analysis tests for compose + CI hygiene changes. Each test fails
 loudly if a future PR walks back the change.
 
-MinIO + mc images bumped from RELEASE.2025-04-22 and
-                      pinned by sha256 digest in docker-compose.yml.
-Stale `--ignore-vuln CVE-2026-4539` removed from the
-                      pip-audit step in .github/workflows/ci.yml.
-Non-blocking `license-check` job added to ci.yml that
-                      uploads a license-report artifact for reviewer use.
+- MinIO + mc images bumped from RELEASE.2025-04-22 and pinned by sha256
+  digest in docker-compose.yml.
+- Stale `--ignore-vuln CVE-2026-4539` removed from the pip-audit step in
+  .github/workflows/ci.yml.
+- Non-blocking `license-check` job added to ci.yml that uploads a
+  license-report artifact for reviewer use.
 """
 
 import re

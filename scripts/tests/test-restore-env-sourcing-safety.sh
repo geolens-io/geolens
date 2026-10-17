@@ -70,15 +70,14 @@ cat > "$SHIM/docker" <<'DOCKER'
 #!/bin/sh
 if [ "$1" = "compose" ]; then
   shift
-  # compose() now also
-  # emits `--project-directory VALUE` (see scripts/lib/common.sh) -- skip
-  # any number of "-f VALUE" / "--project-directory VALUE" pairs, in
+  # compose() now also emits `--project-directory VALUE` (see
+  # scripts/lib/common.sh) -- skip any number of "-f VALUE" / "--project-directory VALUE" pairs, in
   # whichever order compose() sends them, before checking the subcommand.
   while [ "$1" = "-f" ] || [ "$1" = "--project-directory" ]; do shift 2; done
   case "$1" in
     stop|start) exit 0 ;;
     exec)
-      # fix(#1778 review, P2) test support: opt-in argv logging so
+      # fix(#1778) test support: opt-in argv logging so
       # a test can prove which POSTGRES_USER/POSTGRES_DB restore.sh
       # actually invoked psql with, without restore.sh itself changing.
       [ -n "${DOCKER_EXEC_LOG:-}" ] && printf '%s\n' "$*" >> "${DOCKER_EXEC_LOG}"
@@ -222,7 +221,7 @@ _assert_quote_line 'UNQUOTED_HASH_NO_SPACE=[value#nothash]' \
 _assert_quote_line 'EMPTY_DOUBLE=[]' "an empty double-quoted value is empty, not two quote chars"
 _assert_quote_line 'EMPTY_SINGLE=[]' "an empty single-quoted value is empty, not two quote chars"
 
-# a comment MAY follow the closing quote —
+# A comment MAY follow the closing quote —
 # `COMPOSE_FILE="docker-compose.prod.yml" # production` is valid Compose
 # syntax. The raw text does not end in a quote (it ends in the comment), so
 # the "starts and ends with a quote" dispatch used to take the unquoted
@@ -519,7 +518,7 @@ else
   bad "a BOM-prefixed single-line .env did not return the value (got: $BOM_OUT)"
 fi
 
-# fix(#1798 CI, P2): the FIRST fix here built the BOM inside
+# fix(#1798): the FIRST fix here built the BOM inside
 # awk via `sprintf("%c%c%c", 239, 187, 191)` — correct under the awk
 # builds checked locally (BWK awk on macOS, mawk in the postgres:18
 # image), but wrong on gawk under a UTF-8 locale: gawk's `%c` there
@@ -582,7 +581,7 @@ else
 fi
 
 # ============================================================================
-# CASE 9 — three findings
+# CASE 9 — three bugs
 # in the SAME interpolation/decoding core CASE 8 already covers, all fixed
 # by replacing the old flat multi-pass loop + sed-built substitution with a
 # recursive, newline-safe resolver (see scripts/lib/common.sh,
@@ -667,7 +666,7 @@ set -eu
 val="\$(get_env_value TRAILING_NL "$TRAILING_ENV" && printf x)"
 val="\${val%x}"
 printf '%s' "\$val"
-# sentinel-terminate
+# Sentinel-terminate
 # the DRIVER's own stdout too — the driver correctly reconstructs "geo\n"
 # above via its own sentinel-protected capture, but that trailing newline
 # would be stripped ALL OVER AGAIN by the plain \$(sh "\$TRAILING_DRIVER")

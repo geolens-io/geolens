@@ -371,7 +371,7 @@ else
     bad "a multiline value's continuation was misjudged (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
-# fix(#1899): a key outside the shell-identifier charset is a record
+# A key outside the shell-identifier charset is a record
 # too, so its value is interpolated where Compose interpolates it.
 run_preflight 'ODD-KEY=${MISSING:?boom}'
 if [ "$STATUS" -ne 0 ] && grep -q "line 4 (ODD-KEY)" "$WORK/out.txt"; then

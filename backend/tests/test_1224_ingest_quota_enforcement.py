@@ -7,8 +7,8 @@ These tests run against the real test DB (same pattern as test_ingest.py):
 
 Requirements verified:
   Byte cap → 413
-  dataset count cap → 422
-  default 0 unlimited → never rejects
+  Dataset count cap → 422
+  Default 0 unlimited → never rejects
 """
 
 from __future__ import annotations
@@ -263,7 +263,7 @@ class TestUploadCountCap:
         client: AsyncClient,
         admin_auth_header: dict,
     ) -> None:
-        """Default config (cap=0) never rejects — guarantee.
+        """Default config (cap=0) never rejects.
 
         No patching of PersistentConfig: uses real defaults (both 0).
         """
@@ -332,7 +332,7 @@ class TestReuploadQuota:
     ) -> None:
         """Reupload path: byte cap is enforced (not bypassable via reupload).
 
-        Enforcement on the reupload path (mitigation).
+        Enforcement on the reupload path.
         """
         user_id = await _get_test_user_id(
             test_db_session, settings.geolens_admin_username

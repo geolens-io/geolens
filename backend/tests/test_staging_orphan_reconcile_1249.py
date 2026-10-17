@@ -1,6 +1,6 @@
 """fix(#1249): staging objects with no ingest_jobs row are reconciled away.
 
-#1236 codex left a residual orphan window that no time-based margin can
+The #1236 fix left a residual orphan window that no time-based margin can
 close: S3 validates a presigned signature when a request STARTS, so an
 accepted single-part PUT can still be transferring after every deadline
 derived from its URL has passed, and a sweep that inferred "the transfer must
@@ -668,7 +668,7 @@ class TestReconciliationDecision:
     async def test_the_pass_stops_paging_once_its_delete_budget_is_spent(
         self, test_db_session: AsyncSession, monkeypatch
     ) -> None:
-        """fix(#1249) codex: a large `staging/` prefix is not materialized.
+        """fix(#1249): a large `staging/` prefix is not materialized.
 
         The pass holds a transaction (and its connection) open for the advisory
         lock, so both budgets are checked BETWEEN pages — it must stop asking
@@ -709,7 +709,7 @@ class TestReconciliationDecision:
 
 
 class TestScanCursor:
-    """fix(#1249) codex: a capped walk without a cursor is a blind spot.
+    """fix(#1249): a capped walk without a cursor is a blind spot.
 
     Without one, every pass re-walks the same lexicographically first window,
     and an orphan sorting after a window full of tracked, recent, or
@@ -1024,7 +1024,7 @@ class TestProviderIterObjectPages:
     async def test_s3_pages_and_stops_when_the_consumer_does(self) -> None:
         """Real ListObjectsV2 continuation, and a consumer that breaks early.
 
-        The second assertion is the one codex asked for: abandoning the
+        The second assertion is the one that matters: abandoning the
         generator must abandon the round trips too, not just the results.
         """
         from app.platform.storage.s3 import S3StorageProvider

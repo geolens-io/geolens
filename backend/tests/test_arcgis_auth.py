@@ -728,9 +728,8 @@ class TestArcGISNonDictResponsesDoNotCrash:
     feature_counts` under `asyncio.gather`) or a preview returned a bare
     500 instead of a degraded result.
 
-    fix(#1770 P3, `adapters/arcgis.py:462`): the whole-diff audit
-    caught the fifth sibling this round missed --
-    `fetch_arcgis_pagination_info`, same shape (`"error" in data` with no
+    fix(#1770 P3, `adapters/arcgis.py:462`): the fifth sibling,
+    `fetch_arcgis_pagination_info`, had the same shape (`"error" in data` with no
     local `except`), same class, same fix.
     """
 

@@ -186,7 +186,7 @@ class TestCrossProviderMoveAcceptance:
 
         # ------------------------------------------------------------------
         # Step 2: rewrite_vrt_sources normalizes the stored VRT
-        # pass vrt_storage_key so the rewrite computes the correct
+        # Pass vrt_storage_key so the rewrite computes the correct
         # path relative to the VRT's own directory (not the full logical key).
         # vrt_key="stor07/dataset1/source.vrt", cog_key="stor07/dataset1/source.cog.tif"
         # -> relative path = "source.cog.tif" (same directory).

@@ -70,9 +70,9 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
-    // Retired the "Expand options" button — clicking the unified
-    // stack row opens the LayerEditorPanel flyout directly. inserted
-    // a basemap-group row at the top of the stack, so the actual vector layer
+    // The "Expand options" button is gone: clicking the unified
+    // stack row opens the LayerEditorPanel flyout directly. A
+    // basemap-group row sits at the top of the stack, so the actual vector layer
     // row is at index 1 (or any row not matching the basemap-group ID).
     const dataRow = page
       .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')

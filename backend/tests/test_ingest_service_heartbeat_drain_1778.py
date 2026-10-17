@@ -1,8 +1,7 @@
 """The service-import heartbeat's cancellation drain has a finite deadline,
-and a stuck tick's own database wait does too (#1778 on
-#1791).
+and a stuck tick's own database wait does too (#1778).
 
-fix(#1778) put each heartbeat tick's session open/write/commit/close under
+The #1778 fix put each heartbeat tick's session open/write/commit/close under
 ``asyncio.shield`` so a caller's ``.cancel()`` could only land at the
 ``asyncio.sleep`` between ticks, never mid-connection -- closing an asyncpg
 ``ConnectionError: unexpected connection_lost() call`` seen in the merge
@@ -21,7 +20,7 @@ then that connection stays checked out and blocked, and repeated stalled
 imports could exhaust the worker's pool even though their parent tasks moved
 on.
 
-Bounds the tick's OWN database wait instead:
+The tick's OWN database wait is bounded too:
 ``_service_import_heartbeat_tick`` now sets ``lock_timeout``/
 ``statement_timeout`` on its own transaction (see
 ``_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS``), so a blocked commit
@@ -98,8 +97,8 @@ def _pause_the_tick_after_its_select(
     """Deterministically pause ``_service_import_heartbeat_tick`` between its
     own SELECT (inside ``_job_phase_session``) and whatever it does next, so
     a test can commit a real, concurrent mutation to the row strictly
-    between the two -- the exact ordering fix(#1778) closes a gap
-    for.
+    between the two -- the exact ordering the atomic UPDATE guards
+    against.
 
     Wraps ``tasks_vector._job_phase_session`` (patched by name in
     ``tasks_vector``'s own module namespace, where
@@ -294,7 +293,7 @@ async def test_the_stuck_tick_is_not_cancelled_by_the_drain_timeout(monkeypatch)
 async def test_a_tick_blocked_behind_a_held_row_lock_times_out_inside_the_db_and_releases_its_connection(
     test_db_session, monkeypatch
 ):
-    """fix(#1778): ``_service_import_heartbeat_tick`` sets
+    """``_service_import_heartbeat_tick`` sets
     ``lock_timeout``/``statement_timeout`` on its OWN transaction, so a
     commit blocked on another session's row lock fails INSIDE the database
     within a few seconds and releases its connection back to the pool --
@@ -402,7 +401,7 @@ async def test_a_tick_blocked_behind_a_held_row_lock_times_out_inside_the_db_and
 async def test_a_tick_blocked_on_its_own_initial_select_times_out_inside_the_db_and_releases_its_connection(
     test_db_session, monkeypatch
 ):
-    """fix(#1778): the row-lock test above blocks the tick's LATER
+    """The row-lock test above blocks the tick's LATER
     commit; this one blocks its FIRST statement, the SELECT
     ``_job_phase_session`` runs internally before the caller gets control at
     all. A ``FOR UPDATE`` row lock does not block a plain SELECT under
@@ -410,7 +409,7 @@ async def test_a_tick_blocked_on_its_own_initial_select_times_out_inside_the_db_
     ``ACCESS EXCLUSIVE`` table lock does, the same class of lock a
     ``DROP``/``ALTER``/``TRUNCATE`` (or an explicit ``LOCK TABLE``) takes.
 
-    Before fix(#1778), ``_service_import_heartbeat_tick`` issued
+    Before the fix, ``_service_import_heartbeat_tick`` issued
     its ``SET LOCAL lock_timeout``/``statement_timeout`` AFTER entering
     ``_job_phase_session``'s ``async with`` block -- too late to protect the
     SELECT that already ran to get there, so this exact scenario hung on
@@ -500,7 +499,7 @@ async def test_a_tick_blocked_on_its_own_initial_select_times_out_inside_the_db_
 async def test_a_tick_that_loses_a_race_to_finalize_does_not_clobber_the_completed_job(
     test_db_session, monkeypatch
 ):
-    """fix(#1778): the tick's own SELECT read the row as
+    """The tick's own SELECT read the row as
     "running"/"ogr2ogr" with progress=0.5. Pause the tick DETERMINISTICALLY
     right after that SELECT (see ``_pause_the_tick_after_its_select`` below --
     this test database is shared with a live dev stack, so timing- or

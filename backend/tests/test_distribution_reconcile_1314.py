@@ -824,7 +824,7 @@ class TestTheStaleProtocolRepair:
     in ``generate_distributions`` means the template never rewrites a pair it
     already owns, so without the repair below the row stays wrong for good.
 
-    what this does NOT do. Both refresh callers gate
+    What this does NOT do. Both refresh callers gate
     ``reconcile_distributions`` on a modality flip, so an ordinary refresh of an
     unchanged dataset never arrives here and the repair is a partial mitigation
     rather than a closer. The reach is a dataset that gains or loses geometry,

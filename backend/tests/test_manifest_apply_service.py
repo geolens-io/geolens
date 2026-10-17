@@ -751,7 +751,7 @@ class TestManifestApplyService:
         assert result.dataset_id == dataset.id
         queue.assert_not_awaited()
         # gh#1736: the message must not claim the source was checked, only
-        # that the manifest entry itself is unchanged. gh#1773 codex:
+        # that the manifest entry itself is unchanged. gh#1773:
         # this is the vector branch, which does have a working checksum
         # recovery path -- see test_completed_raster_fingerprint_skip_does_
         # not_promise_checksum_recovery for the raster branch, which does not.
@@ -761,7 +761,7 @@ class TestManifestApplyService:
     async def test_completed_raster_fingerprint_skip_does_not_promise_checksum_recovery(
         self, test_db_session, clean_tables
     ):
-        """gh#1773 codex: bumping checksum on a raster_cog entry does move
+        """gh#1773: bumping checksum on a raster_cog entry does move
         the fingerprint and reclassify skip_complete as update, but
         _validate_existing_dataset_update then rejects a raster update
         outright ("Manifest raster updates are not supported"). Naming
@@ -1746,7 +1746,7 @@ class TestManifestMetadataPropagation:
     async def test_manifest_tags_dedupe_only_against_theme_keywords(
         self, test_db_session, clean_tables
     ):
-        """fix(#2039 review): `uq_record_keyword` is per keyword_type, case-sensitive."""
+        """fix(#2039): `uq_record_keyword` is per keyword_type, case-sensitive."""
         from app.modules.catalog.datasets.domain.models import RecordKeyword
         from app.processing.ingest.tasks_common import apply_manifest_record_metadata
 
@@ -1760,7 +1760,7 @@ class TestManifestMetadataPropagation:
                 RecordKeyword(
                     record_id=dataset.record.id, keyword="Transit", keyword_type="theme"
                 ),
-                # fix(#2039 review): `uq_record_keyword` COALESCEs this to '',
+                # fix(#2039): `uq_record_keyword` COALESCEs this to '',
                 # so the row collides with the NULL the read-back would write.
                 RecordKeyword(
                     record_id=dataset.record.id,

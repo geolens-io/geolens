@@ -195,8 +195,7 @@ class TestCheckUploadQuota:
     async def test_default_unlimited_never_raises(self) -> None:
         """default_unlimited: cap=0 for both → never raises even with large values.
 
-        guarantee: default 0 = unlimited, zero change for
-               existing self-hosters.
+        Default 0 = unlimited, zero change for existing self-hosters.
         """
         db = _make_mock_db(bytes_used=500_000_000, dataset_count=99_999)
         user_id = uuid.uuid4()

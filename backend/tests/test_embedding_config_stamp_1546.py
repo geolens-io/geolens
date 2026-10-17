@@ -367,7 +367,7 @@ async def test_a_configuration_read_that_raises_degrades_to_fts(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """fix(#1546, codex P2): resolving is inside the fallback guard.
+    """Resolving is inside the fallback guard.
 
     The vector arm has always degraded to FTS on any failure rather than taking
     the search request down with it, and resolving the configuration is a
@@ -466,7 +466,7 @@ async def test_the_ingest_pin_is_never_a_configuration_that_was_never_live(
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1546, codex P2): the third writer, same relocated pair.
+    """The third writer, same relocated pair.
 
     `generate_and_store_embedding` composed its pin from a `model_name` read at
     the top and a dimensions/endpoint read further down. `PersistentConfig.set`

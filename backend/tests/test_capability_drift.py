@@ -1,7 +1,7 @@
 """Static-analysis test: frontend Capability literal union must mirror
 backend ALL_CAPABILITIES list byte-for-byte.
 
-Closes the bug class that allowed a
+Closes the bug class that allowed an earlier
 `view_audit` typo (an unregistered capability key) to silently return
 false from `usePermissions().can(...)`.
 

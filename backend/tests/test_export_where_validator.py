@@ -259,7 +259,7 @@ class TestWrapper:
 
 
 class TestCanonicalWhere:
-    """Canonical_where re-renders the validated AST so the
+    """``canonical_where`` re-renders the validated AST so the
     export cap's bounded COUNT never interpolates the caller's raw bytes."""
 
     def test_returns_equivalent_canonical_sql(self):

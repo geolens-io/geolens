@@ -778,7 +778,7 @@ async def test_a_private_discovered_token_endpoint_refuses_the_login(
 async def test_a_malformed_discovered_endpoint_refuses_without_reparsing(
     test_db_session: AsyncSession, authlib_transport
 ) -> None:
-    """fix(#1861): the refusal path itself must not raise.
+    """The refusal path itself must not raise.
 
     urlparse rejects a malformed authority with ValueError, so
     validate_url_for_ssrf raises before reaching its own checks and the refusal

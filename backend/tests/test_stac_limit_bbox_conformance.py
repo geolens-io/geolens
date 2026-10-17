@@ -34,7 +34,7 @@ from tests.factories import get_user_id
 ZERO_HEIGHT_BBOX = "-74.10,40.70,-73.90,40.70"
 # Inverted latitude: south > north. Invalid on every surface.
 INVERTED_BBOX = "-74.10,40.80,-73.90,40.70"
-# non-finite coordinates are rejected on every surface.
+# Non-finite coordinates are rejected on every surface.
 NAN_BBOX = "-74.10,nan,-73.90,40.80"
 
 

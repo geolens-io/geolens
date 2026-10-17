@@ -8,7 +8,7 @@ leaves those three changed — measured, a caller's ``uvicorn.access`` goes in
 with ``propagate=True`` and comes back out with ``propagate=False``.
 
 fix(#1746): the same function also sets ``httpx``/``httpcore`` to
-``WARNING`` (finding 1/13's fix), and that level survived every restore here
+``WARNING``, and that level survived every restore here
 until now for exactly the reason the paragraph above warns about: it was not
 on this list. A caller doing ``configured_logging()`` around a direct
 ``setup_logging()`` call left both loggers pinned at ``WARNING`` for the rest

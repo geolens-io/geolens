@@ -1502,7 +1502,7 @@ class TestMaterializeWorker:
         forever. It now runs the same adoption probe as _mark_job_failed and
         drops the table when no dataset row adopted it.
 
-        fix(#1778): the table has to carry THIS job and attempt's
+        The table has to carry THIS job and attempt's
         scope, or `drop_unadopted_analysis_output`'s ownership check refuses
         it on purpose — a name that is not this job's can never become this
         job's. An unscoped name tested a case production code never produces;
@@ -2048,11 +2048,11 @@ class TestMaterializeWorker:
         one — exactly what happens when two jobs draw the same name in the
         window between generation and CREATE.
 
-        fix(#1778): the occupied table is created at the name this
+        The occupied table is created at the name this
         JOB will derive, because the output name is scoped by the job now. The
         race is the same one; only where the name comes from has changed.
 
-        fix(#1778): the collision-check now runs against the SCOPED
+        The collision-check now runs against the SCOPED
         candidate (`resolve_analysis_output_table`), which reads pg_class
         before CREATE and would self-heal to a `_2` suffix if it saw the
         occupied name sitting there when it probed. So pinning only
@@ -2126,7 +2126,7 @@ class TestMaterializeWorker:
         CREATE TABLE. It now probes information_schema too: the retry lands
         on a _2 suffix and the orphan is left untouched for an operator.
 
-        fix(#1778): the output name carries a job scope now, so the
+        The output name carries a job scope now, so the
         suffix walk is no longer what keeps the retry off the orphan. The walk
         still runs and still lands on _2, and this keeps asserting it, but the
         guarantee underneath is stronger: a name embedding a job id could not
@@ -3753,7 +3753,7 @@ class TestWideSingleComponentBuffer:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#902): a single geometry that itself crosses the
+        """A single geometry that itself crosses the
         antimeridian segmentizes to a vertex jump from ~+180 to ~-180, and a
         planar band cut read that jump as a near-global chord — the buffer
         touched every longitude band. The slice pass unwraps into the shifted
@@ -3795,7 +3795,7 @@ class TestWideSingleComponentBuffer:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#902): a feature holding a seam-crossing component AND
+        """A feature holding a seam-crossing component AND
         a Greenwich-crossing one fails a feature-wide unwrap test in both
         domains, which left the seam component's planar chord in place. The
         unwrap decides per component, so the seam component shifts and the
@@ -3834,7 +3834,7 @@ class TestWideSingleComponentBuffer:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#902): a single component crossing BOTH the
+        """A single component crossing BOTH the
         antimeridian and the prime meridian is wide in either longitude
         domain, so no whole-component unwrap exists — its planar form always
         carries a seam jump. Such a component falls back to per-segment
@@ -3875,7 +3875,7 @@ class TestWideSingleComponentBuffer:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#902): polygonal components are densified PLANAR-ly —
+        """Polygonal components are densified PLANAR-ly —
         geography-segmentizing a ring reinterprets long planar edges as great
         arcs and moved the region itself (this fixture's lat-45 center fell
         outside its own area). The buffer of a wide polygon must cover the

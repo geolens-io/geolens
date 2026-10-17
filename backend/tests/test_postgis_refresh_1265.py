@@ -1226,7 +1226,7 @@ class TestPostgisRefreshExecution:
     async def test_an_emptied_generic_column_with_nothing_known_stays_spatial(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1382): the sub-case with no last measurement.
+        """The sub-case with no last measurement.
 
         Same branch as above, minus the stored value to fall back on: a table
         registered while it was empty and generic has never had a type

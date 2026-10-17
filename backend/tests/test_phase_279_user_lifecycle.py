@@ -1,4 +1,4 @@
-"""Regression tests.
+"""Regression tests for user lifecycle auditing and delete behavior.
 
 POST /auth/register/ now emits a `user.register` audit
 event. Without this lock, a future register-route refactor could silently

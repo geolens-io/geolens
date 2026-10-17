@@ -209,8 +209,8 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     monkeypatch.setattr(
         service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
     )
-    # One batch for the whole run, deliberately. The drift check added by
-    # #1525 codex runs at each batch boundary, so with several batches this
+    # One batch for the whole run, deliberately. The drift check added in
+    # #1525 runs at each batch boundary, so with several batches this
     # run would stop at the second one and the record whose label is asserted
     # below might never be written — the order records come back in is not
     # fixed. A single batch keeps this test on the question it asks (does the
@@ -278,7 +278,7 @@ async def test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_confi
 ):
     """The pin's own contract, asserted without the backfill loop around it.
 
-    The run-level tests above cannot cover this any more. #1525 codex added
+    The run-level tests above cannot cover this any more. #1525 added
     a drift check at the batch boundary, so a config change mid-run stops the
     run before an unpinned re-read could produce a divergent second call, and
     an unpinned tree therefore produces the same observables there as a pinned

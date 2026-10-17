@@ -232,7 +232,7 @@ class TestGap021DbBindMountsReadOnly:
 
 
 # ---------------------------------------------------------------------------
-# shared-staging contract — UPLOAD_STAGING_DIR is pinned, not a knob
+# Shared-staging contract — UPLOAD_STAGING_DIR is pinned, not a knob
 # ---------------------------------------------------------------------------
 
 

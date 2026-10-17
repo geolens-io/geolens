@@ -1572,8 +1572,8 @@ class TestOAuthLoginEndpoint:
         the subsequent client.get(...) under -n 4 / -n auto. The
         _ensure_public_app_url fixture pins settings.public_app_url so
         the test is self-contained regardless of test order (the OAuth
-        for_external_use=True path refuses request-origin fallback per
-        the explicit-URL requirement).
+        for_external_use=True path refuses request-origin fallback because
+        it requires an explicit URL).
         """
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
         from app.modules.auth.oauth.service import create_provider

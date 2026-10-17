@@ -1,4 +1,4 @@
-"""Cancel racing POST /ingest/commit-fan-out/{job_id} (#1709 codex P1 P1).
+"""Cancel racing POST /ingest/commit-fan-out/{job_id} (#1709, codex P1).
 
 The fan-out endpoint queues children (each committed and deferred inside
 ``create_fan_out_jobs``) and its finale used to be a blind
@@ -350,7 +350,7 @@ class TestCancelLosesToFanOut:
 
 
 class TestChildlessFannedOutSweep:
-    """fix(#1709 A): the crash window the early flip opened —
+    """fix(#1709): the crash window the early flip opened —
     death between the parent's fanned_out commit and the first child commit
     leaves a terminal parent that retry (failed-only) and cancel (terminal
     -> 409) both refuse. The stale sweep restores the self-healing the old
@@ -400,7 +400,7 @@ class TestChildlessFannedOutSweep:
     async def test_crashed_dispatch_settles_failed_with_a_retry_refusal(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, settle
     ):
-        """fix(#1709 A): the recovered parent must never silently
+        """fix(#1709): the recovered parent must never silently
         import. Generic /jobs/{id}/retry re-queues a job as ONE
         default-layer import — the fan-out's layer selection lived only in
         the request body — so the sweep stamps a marker the retry
@@ -488,7 +488,7 @@ class TestNeverQueuedChildRecovery:
        stale-pending shape (pending, aging created_at, no live queue row)
        and no clause excludes fan-out children.
     2. Generic retry then imports the RIGHT layer, because the child is
-       different from the parent in exactly the way hinged on: its
+       different from the parent in exactly the way that mattered for the recovered parent: its
        layer selection was PERSISTED at clone time (create_fan_out_jobs
        writes layer_name into the child's user_metadata), retry's reset
        leaves user_metadata untouched, and the worker reads the layer from

@@ -1,4 +1,4 @@
-"""feat(#1746) lane B2b: how a service credential actually travels.
+"""How a service credential actually travels.
 
 The contract tests next door assert what the doors ACCEPT. These assert what
 leaves the process once a door has accepted it, which is where this change can
@@ -11,8 +11,8 @@ fail quietly:
   moved into the shared builder;
 - an input carrying CR, LF or a non-ASCII character is refused at the door,
   before a single-use credential can be spent, and the refusal echoes nothing;
-- no composed ArcGIS URL contains the string ``Authorization``, which is plan
-  D9's invariant at the place it would actually do damage;
+- no composed ArcGIS URL contains the string ``Authorization``, which is the
+  invariant at the place it would actually do damage;
 - a cross-origin redirect cannot carry a service-chosen credential header off
   the origin it was given to, on each of the three httpx paths that send one;
 - the GDAL envs that carry a header file pin the Authorization redirect rule.
@@ -70,7 +70,7 @@ from app.platform.service_items import (
 from app.core.url_redaction import scrub_secret_from_exception
 from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
 
-# fix(#1746): autouse where imported — the credential header lands in
+# Autouse where imported — the credential header lands in
 # gdal_header_dir(), so without this the suite writes into the real /tmp.
 from tests.test_ogr_subprocess_env import gdal_header_tmpdir  # noqa: F401
 
@@ -81,7 +81,7 @@ pytestmark = pytest.mark.anyio
 def _staging_dir(tmp_path, monkeypatch):
     """Keep the materialised-items extract out of the real staging volume.
 
-    fix(#1746 B2b codex): a protected OGC API collection is streamed to a
+    A protected OGC API collection is streamed to a
     file under the staging dir, which on a developer host is the unwritable
     container path.
     """
@@ -285,7 +285,7 @@ class TestTheHeaderFileHoldsOneComposedLine:
     async def test_the_redirect_pin_is_on_every_env_that_carries_a_header_file(
         self, monkeypatch, path
     ) -> None:
-        """Plan rule A, on both GDAL paths.
+        """Both GDAL paths pin the Authorization redirect rule.
 
         GDAL forwards ``Authorization`` only to the host it was given to, and
         forwards every other header name verbatim even across hosts, so a
@@ -312,7 +312,7 @@ class TestTheHeaderFileHoldsOneComposedLine:
     async def test_the_pin_does_not_drop_the_header_on_a_same_host_redirect(
         self, monkeypatch, path
     ) -> None:
-        """fix(#1746 B2b codex): NO would have regressed working imports.
+        """NO would have regressed working imports.
 
         ``NO`` blocks forwarding after ANY redirect, not only a cross-host one,
         so a protected WFS or OAPIF endpoint that redirects to its own
@@ -483,7 +483,7 @@ class TestUnusableInputsAreRefusedAtTheDoor:
     async def test_a_bearer_token_is_not_charset_judged_before_detection(
         self, client, admin_auth_header: dict
     ) -> None:
-        """fix(#1746 B2b codex): the probe is what determines the service.
+        """The probe is what determines the service.
 
         A bearer token reaches detection whatever the URL looks like, because
         the transport that would constrain it is not known yet. The refusal,
@@ -515,15 +515,15 @@ class TestUnusableInputsAreRefusedAtTheDoor:
 
 
 # ---------------------------------------------------------------------------
-# Plan D9's invariant: an ArcGIS URL never carries a header
+# An ArcGIS URL never carries a header
 # ---------------------------------------------------------------------------
 
 
 class TestNoArcgisUrlCarriesAnAuthorizationHeader:
     """No ArcGIS URL ever contains a header line, and only bearer gets one.
 
-    feat(C2) narrowed this class rather than deleting it. The httpx path now
-    sends ``Authorization: Bearer <token>``, which is what measured
+    The ArcGIS bearer change narrowed this class rather than deleting it. The httpx path now
+    sends ``Authorization: Bearer <token>``, which is what was measured
     live. What must NOT change is the GDAL side: ``build_gdal_source`` and the
     paged import path still percent-encode the token into the ESRIJSON source
     URL, so a builder that put a header line into one of those would produce
@@ -554,7 +554,7 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
         assert build_credential_header(credential) is None
 
     def test_the_builder_composes_a_bearer_header_for_arcgis(self):
-        """feat(C2): the one method ArcGIS does carry.
+        """The one method ArcGIS does carry.
 
         And it is composed by the same single producer every other transport
         goes through, so the exact-value scrub registration
@@ -590,14 +590,14 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
             assert token in url
 
     def test_the_count_url_carries_nothing_on_the_header_transport(self):
-        """feat(C2): the default, which is what httpx logs at INFO.
+        """The default, which is what httpx logs at INFO.
 
-        this asserted only that a count URL built
+        This asserted only that a count URL built
         with NO token argument contains no token, which has been true in every
         revision -- it passed unchanged against the parent and was therefore
-        worth nothing as evidence for this lane. It now drives the transport
+        worth nothing as evidence. It now drives the transport
         DECISION, which is the thing that changed: ``arcgis_request_auth`` is
-        what chooses, and it did not exist before C2.
+        what chooses, and it did not exist before.
         """
         token = "tok" + _value()
         headers, query_token = arcgis_mod.arcgis_request_auth(token)
@@ -610,14 +610,14 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
         assert token not in url
 
     def test_the_worker_gets_the_bare_arcgis_token_not_a_header_line(self):
-        """The P1 this class was narrowed past.
+        """The bug this class was narrowed past.
 
         ``wire_credential`` is the one string that crosses to the worker under
         the kwarg ``token``, and for ArcGIS it must be the BARE token, because
         ``build_gdal_source`` percent-encodes whatever it gets into
         ``&token=`` in the ESRIJSON source URL. It used to select that branch
-        by asking whether ``build_credential_header`` answered None, and lane
-        C2 made the builder answer with a pair -- so the worker was handed
+        by asking whether ``build_credential_header`` answered None, and the
+        builder began answering with a pair -- so the worker was handed
         ``Authorization: Bearer <token>`` and every authenticated ArcGIS
         import, refresh and reupload sent ``token=Authorization%3A+Bearer+...``
         and got a 498/499, after the single-use credential had been spent.
@@ -650,7 +650,7 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
             assert f"token={quote(token, safe='')}" in url
 
         # And the httpx side of the same credential still gets the header,
-        # so this pins the split rather than a revert of the lane.
+        # so this pins the split rather than a revert of the bearer change.
         headers, query_token = arcgis_mod.arcgis_request_auth(wired)
         assert headers == {"X-Esri-Authorization": f"Bearer {token}"}
         assert query_token is None
@@ -704,7 +704,7 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
         validator two processes away, and which is what keeps an ArcGIS token
         out of ``GDAL_HTTP_HEADER_FILE`` if a caller's gate is relaxed.
 
-        Put that gate inside ``_legacy_bearer_line``, the BARE-token
+        The earlier version put that gate inside ``_legacy_bearer_line``, the BARE-token
         branch, so a finished line arriving for an ArcGIS job walked straight
         through and the guarantee was half a guarantee. Both shapes are
         parametrized here for that reason.
@@ -734,7 +734,7 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
         """The positive control names the string it is looking for.
 
         A source-text assertion, scoped to the WORKER's paged ArcGIS fetch,
-        which hands GDAL a URL. feat(C2) removed the adapter from this check
+        which hands GDAL a URL. The adapter is excluded from this check
         because the adapter now legitimately calls the shared builder; the
         tree-wide rule that no SECOND composer appears anywhere is
         ``test_credential_producer_structural.py``'s job, and it covers both
@@ -774,7 +774,7 @@ class TestACrossOriginRedirectCannotCarryTheKey:
             monkeypatch.setattr(
                 security,
                 "make_safe_transport",
-                # the probe adapters now read via
+                # The probe adapters now read via
                 # `client.stream`, and `_as_stream` (see its own docstring)
                 # is what turns a plain `httpx.Response(json=...)` double into
                 # one that supports being streamed at all.
@@ -842,9 +842,9 @@ class TestACrossOriginRedirectCannotCarryTheKey:
 class TestAFailedDispatchLeavesNoCredentialBehind:
     """The durable surfaces, for a credential that is no longer a bare token.
 
-    Plan D9 keeps them all working by keeping the kwarg NAME: the queued-row
+    They all keep working because the kwarg NAME is unchanged: the queued-row
     purge is ``args - 'token'``, the terminal-row sweep reads the same key, and
-    the log scrubber's regex is a word-boundary match on ``token``. What D9
+    the log scrubber's regex is a word-boundary match on ``token``. What that
     does not close on its own is the exact-value scrub: with a header line as
     the value, an origin that echoed back only the credential half would have
     survived it.
@@ -885,7 +885,7 @@ class TestAFailedDispatchLeavesNoCredentialBehind:
         assert password not in json.dumps(args)
 
     def test_an_echo_of_the_credential_half_is_scrubbed_too(self) -> None:
-        """The residual D9 does not close on its own.
+        """The residual the unchanged kwarg name does not close on its own.
 
         ``scrub_secret_from_exception`` scrubs the exact value it is handed.
         With the line as that value, an origin that quotes back the encoded
@@ -908,7 +908,7 @@ class TestAFailedDispatchLeavesNoCredentialBehind:
             assert blob not in str(error)
 
     def test_a_bearer_echo_is_still_scrubbed_by_its_bare_token(self) -> None:
-        """The parity half: this is exactly what was scrubbed before D9."""
+        """The parity half: this is exactly what was scrubbed before the header line replaced the bare token."""
         from app.core.url_redaction import scrub_secret_from_exception
 
         token = "tok" + _value()
@@ -969,7 +969,7 @@ class TestAFailedDispatchLeavesNoCredentialBehind:
 
 
 class TestAPreviewFailureCarriesNoCredential:
-    """fix(#1746 B2b codex): the door path needed the worker's scrub too.
+    """The door path needed the worker's scrub too.
 
     GDAL prints the request it failed on, so an origin that rejects a
     credential can put the header line, or the encoded credential on its own,
@@ -1125,9 +1125,9 @@ class TestAPreviewFailureCarriesNoCredential:
 
 
 class TestALegacyQueuedTokenStillImports:
-    """fix(#1746 B2b codex): a deploy must not fail the jobs already in flight.
+    """A deploy must not fail the jobs already in flight.
 
-    Changed what travels under the `token` kwarg from a bare bearer
+    The credential door changed what travels under the `token` kwarg from a bare bearer
     token to a finished header line. A worker that starts while authenticated
     WFS or OGC API jobs are already queued reads the OLD shape, out of
     `procrastinate_jobs.args` or out of the credential store behind a reference
@@ -1177,7 +1177,7 @@ class TestALegacyQueuedTokenStillImports:
 
         A protected OGC API collection is read in-process now, so the legacy
         value has to arrive at that reader already composed, and nothing may be
-        written for GDAL to pick up (fix #1746 B2b codex).
+        written for GDAL to pick up.
         """
         token = "tok" + _value()
         capture = _CapturedRun()
@@ -1271,7 +1271,7 @@ _OTHER_ORIGIN = "https://elsewhere.example"
 
 
 class TestTheConformanceLinkStaysOnTheServiceOrigin:
-    """fix(#1746 B2b codex): the second way a credential leaves its origin.
+    """The second way a credential leaves its origin.
 
     `make_safe_client` refuses a cross-origin REDIRECT, and that covers every
     hop httpx follows. It cannot cover this one: when an OGC API landing page
@@ -1436,7 +1436,7 @@ class TestTheConformanceLinkStaysOnTheServiceOrigin:
     async def test_a_syntactically_invalid_link_is_unusable_not_a_crash(
         self, monkeypatch
     ) -> None:
-        """fix(#1746 B2b codex): the origin question must be answerable.
+        """The origin question must be answerable.
 
         `httpx.URL` raises on something like `http://example.com:notaport/`,
         and the landing document chooses this URL, so asking whether it is the
@@ -1477,7 +1477,7 @@ class TestTheConformanceLinkStaysOnTheServiceOrigin:
     async def test_a_link_that_will_not_even_resolve_degrades_too(
         self, monkeypatch
     ) -> None:
-        """fix(#1746 B2b codex): resolution itself is inside the guard.
+        """Resolution itself is inside the guard.
 
         An earlier fix moved the origin comparison in and left `urljoin` outside, which
         held for the invalid-port case it was reasoning about because
@@ -1538,7 +1538,7 @@ class TestTheConformanceLinkStaysOnTheServiceOrigin:
 
 
 class TestABearerTokenIsJudgedAfterDetection:
-    """fix(#1746 B2b codex): restores the probe's pre-#1770 acceptance.
+    """Restores the probe's pre-#1770 acceptance.
 
     The first cut of #1755 item 2 chose the credential policy from the URL
     shape, and that rejected a working import. `detect_service_type`'s slow
@@ -1613,7 +1613,7 @@ class TestABearerTokenIsJudgedAfterDetection:
 
         assert resp.status_code == 200, resp.text
         assert resp.json()["service_type"] == "ArcGIS FeatureServer"
-        # feat(C2): the token reached the service as an Authorization header
+        # The token reached the service as an Authorization header
         # and no part of it is in any URL. The vocabulary point is unchanged
         # and is the reason this test exists: `+` and `/` are outside
         # `HEADER_TOKEN_CHARSET`, which is the WFS/OAPIF header-FILE rule, and
@@ -1649,7 +1649,7 @@ class TestABearerTokenIsJudgedAfterDetection:
         assert detail["code"] == "invalid_service_token"
         assert detail["message"] == HEADER_TOKEN_POLICY
         assert token not in resp.text
-        # feat(C2): the ArcGIS probe fires here too and now presents the token
+        # The ArcGIS probe fires here too and now presents the token
         # as a bearer header, so the invariant is no longer "no Authorization
         # anywhere". It is that no OTHER credential shape went out, and that
         # nothing carried the token in a URL: the two header-auth adapters
@@ -1718,7 +1718,7 @@ class TestABearerTokenIsJudgedAfterDetection:
     async def test_a_fallback_detected_arcgis_refuses_a_method_it_cannot_carry(
         self, client, admin_auth_header: dict
     ) -> None:
-        """fix(#1746 B2b codex): the probe must answer what preview will.
+        """The probe must answer what preview will.
 
         `url_query_token` answers None for basic and for a named API key,
         because neither fits in a query parameter. On this path that silently
@@ -1800,7 +1800,7 @@ class TestABearerTokenIsJudgedAfterDetection:
 
         assert resp.status_code == 200, resp.text
         assert resp.json()["service_type"] == "ArcGIS FeatureServer"
-        # feat(C2): the token travelled, as a header rather than in the query.
+        # The token travelled, as a header rather than in the query.
         assert [r for r in recorded if r.headers.get("Authorization")]
         assert all(token not in str(r.url) for r in recorded)
 
@@ -1841,7 +1841,7 @@ class TestABearerTokenIsJudgedAfterDetection:
     async def test_a_challenged_fallback_refuses_a_method_it_cannot_carry(
         self, client, admin_auth_header: dict
     ) -> None:
-        """fix(#1746 B2b codex): the third sub-branch of one question.
+        """The third sub-branch of one question.
 
         ArcGIS answers 499 in the BODY of a 200, which `probe_arcgis_service`
         turns into `ArcGISTokenError`. That challenge identifies the service
@@ -1918,7 +1918,7 @@ class TestABearerTokenIsJudgedAfterDetection:
 
 
 class TestTheCleartextHalvesOfABasicCredentialAreScrubbed:
-    """fix(#1746 B2b codex): base64 matches none of what a service says.
+    """base64 matches none of what a service says.
 
     A basic credential travels encoded, so every spelling scrubbed until now
     was an encoded one. The origin does not know that spelling: it knows a
@@ -2079,7 +2079,7 @@ _FOREIGN = "https://collector.example"
 def _collection_doc(items_href: str | None) -> dict:
     """A collection document, advertising where its items are or saying nothing.
 
-    fix(#1746 B2b codex): the materialiser reads this first now and
+    The materialiser reads this first now and
     follows what it advertises, so every double that serves items has to serve
     the document that points at them.
     """
@@ -2103,8 +2103,7 @@ def _as_stream(response: httpx.Response, *, chunk: int = 64) -> httpx.Response:
     `aiter_raw` over one raises `StreamConsumed`. A real transport never hands
     back a read response, so a double that does cannot exercise the bounded
     streaming read the production code performs, and would fail on a
-    `RuntimeError` that says nothing about the behaviour under test
-    (fix #1746 B2b codex).
+    `RuntimeError` that says nothing about the behaviour under test.
 
     Applied by every mock transport in this file rather than by each handler,
     because the handler that forgets is the one that matters.
@@ -2136,7 +2135,7 @@ def _streamed(body: dict, *, chunk: int = 64) -> httpx.Response:
 def _hosts(requests) -> set[str]:
     """The hosts a recorded run actually contacted.
 
-    fix(#1746 B2b codex): comparing parsed hosts rather than testing a
+    Comparing parsed hosts rather than testing a
     substring of the URL. CodeQL flags the substring form, and it is right to:
     `"collector.example" in url` also matches
     `https://collector.example.attacker.test/`, so the assertion was weaker
@@ -2238,7 +2237,7 @@ def _capabilities_10_ops(operations: dict[str, str]) -> str:
 
 
 class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
-    """fix(#1770 P2, `service_endpoints.py:292`).
+    """Regression for #1770: `service_endpoints.py:292`.
 
     `_operation_hrefs` used to collect every `Get`/`Post` in the whole
     capabilities document, regardless of which `ows:Operation` (or, for 1.0,
@@ -2407,9 +2406,9 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
 
 
 class TestTheCapabilitiesUrlBuilderIsNotFieldCountBounded:
-    """fix(#1770, `service_endpoints.py::_capabilities_url`).
+    """Regression for #1770: `service_endpoints.py::_capabilities_url`.
 
-    Bound this with `max_num_fields=MAX_QUERY_FIELDS`, reasoning
+    An earlier fix bound this with `max_num_fields=MAX_QUERY_FIELDS`, reasoning
     it "costs nothing to close" since `url` is caller-submitted rather than
     the finding's live shape -- true, but wrong about the cost. This
     function is `_check_wfs`'s capabilities read, reached from
@@ -2490,7 +2489,7 @@ class TestTheCapabilitiesUrlBuilderIsNotFieldCountBounded:
 
 
 class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
-    """fix(#1770 P2, `service_endpoints.py:481`/`:1062`).
+    """Regression for #1770: `service_endpoints.py:481`/`:1062`.
 
     `_xml_preflight` only refused a document deeper than `MAX_DOCUMENT_DEPTH`
     -- at 1,000, exactly Python's own default recursion ceiling
@@ -2555,7 +2554,7 @@ class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
             assert_endpoints_stay_on_origin,
         )
 
-        # fix(#1770, low-priority): a hard `== 1000` failed for the
+        # A hard `== 1000` failed for the
         # wrong reason wherever the interpreter's default ever legitimately
         # differs (a future CPython release, a pytest plugin or conftest
         # that raises the limit for its own purposes) -- a confusing
@@ -2653,8 +2652,7 @@ class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
 
 
 class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
-    """fix(#1770 P2, `service_endpoints.py:126`) and
-    fix(#1770 P2, `service_endpoints.py:986`).
+    """Regression for #1770: `service_endpoints.py:126` and `service_endpoints.py:986`.
 
     `_OGCAPI_OPERATION_RELS` used to include `self` and `data`.
     Neither is ever GET'd: `self` names the document itself and nothing here
@@ -2667,7 +2665,7 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
     an endpoint nothing in this codebase ever contacts. Corrected to
     `{"conformance", "items"}`.
 
-    Got the REL right and the SCOPE wrong. That corrected
+    The first fix got the REL right and the SCOPE wrong. That corrected
     set was still applied UNIFORMLY to every document `_check_ogcapi` reads
     -- the landing page, a collections listing page, each entry in that
     listing, and the collection document itself -- when only two rel+document
@@ -2686,7 +2684,7 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
     collection document directly rather than reading an entry's inlined
     `items` href.
 
-    `next` deliberately stays out of BOTH sets, in both rounds. Trying to add
+    `next` deliberately stays out of BOTH sets. Trying to add
     it (before this note existed) turned `_next_page`'s deliberate
     soft-degrade on the probe's own `/collections` listing walk into a
     hard `CrossOriginEndpointError`, breaking
@@ -2845,7 +2843,7 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
     async def test_a_json_depth_bomb_on_an_items_page_is_a_coded_refusal(
         self, monkeypatch, tmp_path
     ) -> None:
-        """fix(#1770 P2, `service_items.py:451`).
+        """Regression for #1770: `service_items.py:451`.
 
         Same bomb as `TestAnXmlDocumentIsBoundedByItsElements::
         test_a_json_depth_bomb_is_a_coded_refusal_not_a_crash`, on the OTHER
@@ -2893,7 +2891,7 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
         there stops the walk rather than raising, the same as
         `test_a_listing_next_that_will_not_parse_stops_the_walk` pins for the
         unparseable case. Adding `next` to either `_LANDING_RELS` or
-        `_COLLECTION_RELS` (tried in before this test existed)
+        `_COLLECTION_RELS` (tried before this test existed)
         would have turned this into a `CrossOriginEndpointError` and broken
         that sibling test.
         """
@@ -2931,10 +2929,10 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
     ) -> None:
         """Source-enumeration, hand-traced rather than blindly grepped.
 
-        renamed from `test_the_checked_set_matches_
-        what_the_walkers_actually_dereference` -- split the single
-        set this test's old name referred to into `_LANDING_RELS`/
-        `_COLLECTION_RELS` and moved the equality assertion into
+        Renamed from `test_the_checked_set_matches_
+        what_the_walkers_actually_dereference`: the single
+        set this test's old name referred to was split into `_LANDING_RELS`/
+        `_COLLECTION_RELS` and the equality assertion moved into
         `test_each_document_type_is_scoped_to_only_the_rel_it_reads` below,
         so this test no longer mentions either set at all; what it still
         checks is the MEMBERSHIP tracing the name now says.
@@ -3147,7 +3145,7 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
 
 
 class TestAServiceCannotPointTheCredentialSomewhereElse:
-    """fix(#1746 B2b codex): the document GDAL reads, not the one we do.
+    """The document GDAL reads, not the one we do.
 
     GDAL applies `GDAL_HTTP_HEADER_FILE` to every request it makes, and for
     these two formats it does not only fetch the URL it was given: it reads the
@@ -3156,7 +3154,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     `CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT` never applies and
     would not cover a service-chosen header name if it did.
 
-    Two properties, and an earlier failure is why the first one matters as much as the second.
+    Two properties, and the first matters as much as the second.
     The description is read WITH the credential, because the services this
     protects are exactly the ones that answer an anonymous read with a 401; and
     a description that cannot be read is a refusal rather than a pass, because
@@ -3187,7 +3185,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
             "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
             AsyncMock(),
         )
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -3320,7 +3318,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     async def test_a_protected_service_is_read_with_the_credential(
         self, client, admin_auth_header: dict, monkeypatch
     ) -> None:
-        """fix(#1746 B2b codex): the reported hole, end to end.
+        """The reported hole, end to end.
 
         A protected origin answers an anonymous read with 401. The check used
         to take that as "nothing to see" and approve the source, and GDAL then
@@ -3434,7 +3432,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         to fetch that href either way -- so this is Allowed, not merely
         "didn't crash".
 
-        the corrected 200 + no-foreign-host
+        The corrected 200 + no-foreign-host
         assertions pass identically if the listing walk stopped after page
         1 -- they prove nothing about whether the walk actually REACHES the
         later page carrying the cross-origin link, which is the whole
@@ -3496,7 +3494,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     async def test_the_preview_refuses_a_cross_origin_items_link(
         self, monkeypatch
     ) -> None:
-        """fix(#1746 B2b codex): the link is read, and judged.
+        """The link is read, and judged.
 
         The earlier version stopped consulting the advertised `rel=items` link at all, which
         made a cross-origin one harmless and a non-conventional one broken.
@@ -3570,7 +3568,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     async def test_an_endpoint_href_that_will_not_parse_is_refused(
         self, monkeypatch
     ) -> None:
-        """fix(#1746 B2b codex): the href comes out of a distrusted document.
+        """The href comes out of a distrusted document.
 
         An address the parser cannot read cannot be shown to stay on the
         origin, so it gets the same coded refusal, and nothing of what the
@@ -3721,7 +3719,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     # -- the validator itself -----------------------------------------------
 
     async def test_an_unreadable_document_refuses(self, monkeypatch) -> None:
-        """fix(#1746 B2b codex): fail closed, and this is why.
+        """Fail closed, and this is why.
 
         The previous revision failed OPEN here, reasoning that one request
         against a third party should not refuse an import. That reasoning was
@@ -3800,7 +3798,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     def _capabilities_10(online_resource: str) -> str:
         """WFS 1.0: `DCPType/HTTP/Get @onlineResource`, and no xlink at all.
 
-        fix(#1746 B2b codex): reading only `href` let a 1.0 service
+        Reading only `href` let a 1.0 service
         advertise a cross-origin GetFeature and pass the guard, which is
         exactly what this check exists to catch.
         """
@@ -3868,7 +3866,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     async def test_a_malformed_port_is_refused_without_raising(
         self, client, admin_auth_header: dict, monkeypatch
     ) -> None:
-        """fix(#1746 B2b codex): the refusal must survive being built.
+        """The refusal must survive being built.
 
         `same_origin` already answered False for `http://example.com:notaport/`,
         which is correct. Reporting it then read `parsed.port`, which
@@ -3895,7 +3893,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         assert value not in resp.text
 
     def test_the_validator_has_exactly_one_request_site(self) -> None:
-        """fix(#1746 B2b codex): one site, one marker, both counted.
+        """One site, one marker, both counted.
 
         Every document this module reads goes through one `_fetch`, so the
         SSRF revalidation cannot be forgotten at a new call site and there is
@@ -3927,7 +3925,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
 
 
 class TestAPagedCollectionCannotWalkOffTheOrigin:
-    """fix(#1746 B2b codex): the page chain is bounded where it is read.
+    """The page chain is bounded where it is read.
 
     An OGC API items response names its own successor. GDAL follows that link
     and applies `GDAL_HTTP_HEADER_FILE` to every request the process makes, and
@@ -3947,7 +3945,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -4059,7 +4057,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         recorded = self._transport(
             monkeypatch,
             # `?page=1` so the foreign page is the LAST one. The chain has to
-            # end: otherwise the page cap refuses it (fix #1746 B2b codex)
+            # end: otherwise the page cap refuses it
             # and the leak this exists to demonstrate hides behind a different
             # refusal.
             self._pages(f"{_FOREIGN}/oapif/collections/c1/items?page=1", None),
@@ -4101,7 +4099,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
 
         document = json.loads(pathlib.Path(extract.path).read_text())
         assert len(document["features"]) == 2
-        # fix(#1746 B2b codex): the sample size is not the collection.
+        # The sample size is not the collection.
         # These pages publish no `numberMatched`, so the total is unknown
         # rather than two.
         assert extract.features == 2
@@ -4139,7 +4137,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
     async def test_a_chain_still_offering_next_at_the_cap_is_refused(
         self, monkeypatch, tmp_path
     ) -> None:
-        """fix(#1746 B2b codex): a prefix is not a collection.
+        """A prefix is not a collection.
 
         The cap used to close the array and return the file, so a service that
         only partly honours `limit`, or a collection past ten thousand pages,
@@ -4208,7 +4206,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
     async def test_a_next_that_will_not_parse_is_refused(
         self, monkeypatch, tmp_path
     ) -> None:
-        """fix(#1746 B2b codex): `urljoin` raises on some references.
+        """`urljoin` raises on some references.
 
         Refused rather than read as the end of the chain, so a short extract is
         never mistaken for a complete collection.
@@ -4248,7 +4246,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
 
 
 class TestOnePageCannotCostTheWholeProcess:
-    """fix(#1746 B2b codex): the page is bounded on the way in.
+    """The page is bounded on the way in.
 
     The whole page is held in memory to be parsed, so a bound applied while
     writing features measures the wrong thing: the decode has already happened
@@ -4266,7 +4264,7 @@ class TestOnePageCannotCostTheWholeProcess:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -4359,7 +4357,7 @@ class TestOnePageCannotCostTheWholeProcess:
     async def test_a_json_round_trip_that_grows_is_bounded_on_disk(
         self, monkeypatch, tmp_path
     ) -> None:
-        """fix(#1746 B2b codex): the "cannot grow" proof was wrong.
+        """The "cannot grow" proof was wrong.
 
         An earlier fix removed a written-bytes counter, reasoning that compact UTF-8
         output is a subset of the page it came from. A JSON round trip can
@@ -4404,7 +4402,7 @@ class TestOnePageCannotCostTheWholeProcess:
         cap = (wire + on_disk) // 2
         monkeypatch.setattr("app.platform.service_items.MAX_BYTES", cap)
 
-        # fix(#1746 B2b codex): the size at the moment of refusal, caught
+        # The size at the moment of refusal, caught
         # on the way past because the file is unlinked before the error
         # escapes. Asserting on what is left afterwards would say nothing
         # about whether the cap was ever exceeded.
@@ -4518,8 +4516,8 @@ class TestOnePageCannotCostTheWholeProcess:
 
 
 class TestAnAdvertisedHrefCannotCostTheWholeProcess:
-    """fix(#1770 P1, `service_items.py:378` "Bound parsing of
-    advertised items-query parameters").
+    """Regression for #1770: bound parsing of advertised items-query
+    parameters (`service_items.py:378`).
 
     A collection document's own `rel=items` link is a JSON STRING, so its
     query can pack millions of short `key=value` pairs while costing almost
@@ -4670,7 +4668,7 @@ class TestAnAdvertisedHrefCannotCostTheWholeProcess:
 
 
 class TestTheCallersClockCoversTheDownload:
-    """fix(#1746 B2b codex): the walk runs inside the caller's budget.
+    """The walk runs inside the caller's budget.
 
     It used to run before either caller's clock started, and httpx's read
     timeout is per inactivity rather than per response, so a service answering
@@ -4702,7 +4700,7 @@ class TestTheCallersClockCoversTheDownload:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -4836,7 +4834,7 @@ class TestTheCallersClockCoversTheDownload:
             timeout=1800.0,
         )
 
-        # fix(#1746 B2b codex): the remaining budget rather than the
+        # The remaining budget rather than the
         # nominal one, because the recompute moved to immediately before the
         # spawn so it accounts for the endpoint-check preflight too. Nothing
         # spent it here, so it is the whole of it bar the arithmetic.
@@ -4844,7 +4842,7 @@ class TestTheCallersClockCoversTheDownload:
 
 
 class TestAFailedMaterialisationStillDatesTheContact:
-    """fix(#1746 B2b codex): the origin was reached, so say so.
+    """The origin was reached, so say so.
 
     `on_spawn` used to fire after the subprocess existed, which was the first
     outbound moment while GDAL did the fetching. It no longer is: a protected
@@ -4868,7 +4866,7 @@ class TestAFailedMaterialisationStillDatesTheContact:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -4973,7 +4971,7 @@ class TestAFailedMaterialisationStillDatesTheContact:
 
 
 class TestOneDescriptionCannotCostTheWholeProcess:
-    """fix(#1746 B2b codex): the sibling of the item-page bound.
+    """The sibling of the item-page bound.
 
     The first fix bounded the item pages and left the description reads beside them
     buffered, which was the same exposure through the other door: a
@@ -5112,7 +5110,7 @@ class TestOneDescriptionCannotCostTheWholeProcess:
 
 
 class TestARelativeLinkIsResolvedAgainstTheDocument:
-    """fix(#1746 B2b codex): a canonical redirect moves the base.
+    """A canonical redirect moves the base.
 
     `/items` answering 301 to `/items/` makes a relative `next` of `page2`
     mean `/items/page2`, not `/page2`. Resolving against the URL that was asked
@@ -5135,7 +5133,7 @@ class TestARelativeLinkIsResolvedAgainstTheDocument:
         # The redirect hook resolves it through security's own namespace, so
         # patching the two importers is not enough for a test that redirects.
         monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -5248,7 +5246,7 @@ class TestARelativeLinkIsResolvedAgainstTheDocument:
 
 
 class TestTheItemsLinkTheCollectionAdvertises:
-    """fix(#1746 B2b codex): where the items are is the service's to say.
+    """Where the items are is the service's to say.
 
     An earlier version moved the read in-process and built `/collections/{id}/items` by hand,
     which was a regression against the path it replaced: GDAL followed the
@@ -5267,7 +5265,7 @@ class TestTheItemsLinkTheCollectionAdvertises:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -5424,7 +5422,7 @@ class TestTheItemsLinkTheCollectionAdvertises:
 
 
 class TestAPageThatIsNotAPageIsNotAnEmptyPage:
-    """fix(#1746 B2b codex): the truncation class, one level up.
+    """The truncation class, one level up.
 
     `features or []` read an HTTP 200 JSON error envelope as an empty page,
     and read `"features": null` and `"features": {}` the same way. A preview
@@ -5446,7 +5444,7 @@ class TestAPageThatIsNotAPageIsNotAnEmptyPage:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -5581,7 +5579,7 @@ class TestAPageThatIsNotAPageIsNotAnEmptyPage:
 
 
 class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
-    """fix(#1746 B2b codex): the wire cap bounds bytes, not the objects.
+    """The wire cap bounds bytes, not the objects.
 
     Compact JSON expands enormously: measured on this interpreter, a 1 MiB
     page of `[1.5,...]` decodes to 8.2x, `[{"a":1},...]` to 24.1x and
@@ -5603,7 +5601,7 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
-        # fix(#1746 B2b codex): one module makes the requests now, so
+        # One module makes the requests now, so
         # there is one place to gate. A patch of `service_items` would silently
         # stop covering anything.
         monkeypatch.setattr(
@@ -5724,7 +5722,7 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
         # this size with an empty `links` list is PROVABLY the whole
         # collection -- what this test exercises is the byte/token cap, not
         # completeness, and a page this large with no proof of completeness
-        # is now exactly what refuses.
+        # is exactly what the completeness check refuses.
         raw = json.dumps(
             {
                 "type": "FeatureCollection",
@@ -5769,11 +5767,11 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
 
 
 class TestBothModulesReadThroughOneRequestFunction:
-    """fix(#1746 B2b codex): the sibling-site class, closed structurally.
+    """The sibling-site class, closed structurally.
 
     `service_endpoints` and `service_items` read documents a caller-named
     service chose, into the same process, holding the same credential. They had
-    grown different subsets of the same protections, and every later review
+    grown different subsets of the same protections, and every later fix
     has found one that reached one module and not the other. There is one
     request function now, and this asserts it rather than trusting it.
     """
@@ -5838,7 +5836,7 @@ class TestBothModulesReadThroughOneRequestFunction:
     def test_neither_module_builds_its_own_credential_headers(self) -> None:
         """One header builder, so `Accept-Encoding` cannot reach one and not the other.
 
-        This is the shape of an earlier P1: `service_items` asked for identity and
+        This is the shape of an earlier bug: `service_items` asked for identity and
         `service_endpoints` did not, while both refused an encoded body. The
         refusal without the request is a working-looking configuration that
         rejects honest servers.
@@ -5866,7 +5864,7 @@ class TestBothModulesReadThroughOneRequestFunction:
 
 
 class TestTheDescriptionReadHasTheItemsPathsProtections:
-    """fix(#1746 B2b codex): one test per protection that was missing."""
+    """One test per protection that was missing."""
 
     def _transport(self, monkeypatch, handler):
         recorded: list[httpx.Request] = []
@@ -6031,7 +6029,7 @@ class TestTheDescriptionReadHasTheItemsPathsProtections:
 
 
 class TestAWfsPreflightDatesTheOriginContact:
-    """fix(#1746 B2b codex): the WFS half of what the first fix did for OGC API.
+    """The WFS half of what the first fix did for OGC API.
 
     The authenticated capabilities preflight contacts the origin before the
     subprocess exists, so a 401, malformed XML or cross-origin endpoint had
@@ -6149,7 +6147,7 @@ class TestAWfsPreflightDatesTheOriginContact:
 
 
 class TestOnFirstRequestFiresOnlyAfterValidation:
-    """fix(#1746 B2b, `service_endpoints.py:586`).
+    """Regression for #1746: `service_endpoints.py:586`.
 
     `fetch_document` used to fire `on_first_request` as its first statement,
     before `validate_url_for_ssrf`. A host that resolved publicly at the door
@@ -6232,7 +6230,7 @@ class TestOnFirstRequestFiresOnlyAfterValidation:
 
 
 class TestEveryCallerNamesItsClock:
-    """fix(#1746 B2b codex): `/probe` had omitted the deadline.
+    """`/probe` had omitted the deadline.
 
     It ran under `asyncio.timeout(None)`, and since the client bounds
     inactivity rather than the operation, and the OGC API check reads up to
@@ -6358,7 +6356,7 @@ class TestEveryCallerNamesItsClock:
 
 
 class TestAPreviewReportsTheCollectionNotTheScratchFile:
-    """fix(#1746 B2b codex): two things ogrinfo cannot know.
+    """Two things ogrinfo cannot know.
 
     Pointed at a scratch file with no layer argument, the GeoJSON driver
     answers with the temp file's name and with the number of features in the
@@ -6497,7 +6495,7 @@ class TestAPreviewReportsTheCollectionNotTheScratchFile:
 
 
 class TestAnUnknownRowCountIsNotADelta:
-    """fix(#1746 B2b codex): `None` meant zero in the schema diff.
+    """`None` meant zero in the schema diff.
 
     `(new or 0) - (old or 0)` turned an unknown count into a delta the size of
     whichever side was known, and the case that reaches it most often is a
@@ -6537,7 +6535,7 @@ class TestAnUnknownRowCountIsNotADelta:
 
 
 class TestAServiceThatServesHtmlToAnyoneWhoAsks:
-    """fix(#1746 B2b codex): the check negotiated, the probe negotiated, differently.
+    """The check negotiated, the probe negotiated, differently.
 
     `probe_ogcapi` asks for `application/json`. The endpoint check asked for
     nothing, so httpx sent `*/*` and a service that defaults that to HTML
@@ -6710,7 +6708,7 @@ class TestAServiceThatServesHtmlToAnyoneWhoAsks:
 
 
 class TestEveryReadStatesWhatItWants:
-    """fix(#1746 B2b codex): structurally, not by review."""
+    """structurally, not by review."""
 
     def test_fetch_document_requires_an_accept(self) -> None:
         import inspect as _inspect
@@ -6765,7 +6763,7 @@ class TestEveryReadStatesWhatItWants:
 
 
 class TestAnXmlDocumentIsBoundedByItsElements:
-    """fix(#1746 B2b codex): the JSON counter answers ~0 for XML.
+    """The JSON counter answers ~0 for XML.
 
     `structural_tokens` counts commas and JSON brackets, so a WFS capabilities
     body made of millions of tiny elements reported near-zero complexity and
@@ -6905,7 +6903,7 @@ class TestAnXmlDocumentIsBoundedByItsElements:
     async def test_an_entity_declaration_is_a_refusal_not_a_crash(
         self, monkeypatch
     ) -> None:
-        """fix(#1746 B2b codex): found while implementing the bound.
+        """Found while implementing the bound.
 
         `DefusedXmlException` is a `ValueError`, NOT a `ParseError`, and the
         handler caught only `ParseError`. A capabilities document carrying an
@@ -6945,7 +6943,7 @@ class TestAnXmlDocumentIsBoundedByItsElements:
     async def test_a_json_depth_bomb_is_a_coded_refusal_not_a_crash(
         self, monkeypatch
     ) -> None:
-        """fix(#1770 P2, `service_endpoints.py:903` `_parsed_json`).
+        """Regression for #1770: `service_endpoints.py:903` `_parsed_json`.
 
         900,000 nested `[` is 1.8 bytes each -- comfortably under both
         `MAX_DOCUMENT_BYTES` and `MAX_DOCUMENT_TOKENS` (`structural_tokens`
@@ -6971,8 +6969,8 @@ class TestAnXmlDocumentIsBoundedByItsElements:
 
 
 class TestAnXmlStreamingPreflightCatchesWhatTheByteScanCannot:
-    """fix(#1770 P1, `platform/service_endpoints.py:495`
-    "attribute bomb").
+    """Regression for #1770: `platform/service_endpoints.py:495`
+    (attribute bomb).
 
     `structural_elements`'s `body.count(b"<")` bounds cost spread across
     many elements, roughly one attribute each -- the shape its own
@@ -7087,7 +7085,7 @@ class TestAnXmlStreamingPreflightCatchesWhatTheByteScanCannot:
 
 
 class TestEachDocumentKindGetsItsOwnBound:
-    """fix(#1746 B2b codex): the bound is keyed on the negotiated kind."""
+    """The bound is keyed on the negotiated kind."""
 
     def test_the_dispatch_follows_the_accept_value(self) -> None:
         from app.platform.service_endpoints import (
@@ -7173,7 +7171,7 @@ class TestEachDocumentKindGetsItsOwnBound:
 
 
 class TestAnOrphanedExtractIsReclaimed:
-    """fix(#1746 B2b codex): a SIGKILL skips every cleanup this has.
+    """A SIGKILL skips every cleanup this has.
 
     `materialise_oapif_items` removes the extract in a `finally` and on every
     exception, and none of that runs when the process is killed. Up to
@@ -7295,13 +7293,13 @@ class TestAnOrphanedExtractIsReclaimed:
 
 
 class TestASampleThatExactlyFillsACollection:
-    """fix(#1746 B2b codex): complete is not the same as truncated.
+    """Complete is not the same as truncated.
 
     The earlier version reported the total as unknown whenever `written >= feature_limit`,
     which is also true of a collection holding exactly the sample size and
     ending there. That is a complete read, and its total is known.
 
-    the tests above ask this question only where the
+    The tests above ask this question only where the
     sample limit's own `written >= feature_limit` break fires -- a page at
     least as large as the sample. A page SHORTER than the sample exhausts
     naturally instead (Python's `for ... else`, never breaking), which used
@@ -7427,7 +7425,7 @@ class TestASampleThatExactlyFillsACollection:
     async def test_a_short_page_with_no_links_no_total_is_unknown(
         self, monkeypatch, tmp_path
     ) -> None:
-        """Pin, the finding itself. Three features, a
+        """Pin: the finding itself. Three features, a
         sample of five (so the page exhausts naturally, never breaking on
         the sample limit), `links` ABSENT ENTIRELY, no `numberMatched`.
         Nothing here proves the collection actually holds only three -- a
@@ -7457,7 +7455,7 @@ class TestASampleThatExactlyFillsACollection:
     async def test_a_short_page_with_matching_number_matched_is_known(
         self, monkeypatch, tmp_path
     ) -> None:
-        """Pin, the other half of the same boundary.
+        """Pin: the other half of the same boundary.
         Same shape as the finding above, except the page states
         `numberMatched` equal to what it actually carries -- which IS proof,
         so the total is known even with `links` absent entirely.
@@ -7485,7 +7483,7 @@ class TestASampleThatExactlyFillsACollection:
     async def test_a_full_walk_short_page_is_unaffected(
         self, monkeypatch, tmp_path
     ) -> None:
-        """Control, the same page shape -- `links`
+        """Control: the same page shape -- `links`
         absent, no `numberMatched` -- on a FULL walk (no `feature_limit`) is
         exactly the already-covered refusal, unchanged by anything
         added to the sampled path."""
@@ -7531,7 +7529,7 @@ class TestASampleThatExactlyFillsACollection:
 
 
 class TestNothingMalformedIsMistakenForTheLastPage:
-    """fix(#1746 B2b codex): the malformed-link rule, applied to the link shapes.
+    """The malformed-link rule, applied to the link shapes.
 
     `_has_next` and `_next_href` both answer None for a shape they cannot
     read, and None is indistinguishable from a service saying there is no
@@ -7692,7 +7690,7 @@ class TestNothingMalformedIsMistakenForTheLastPage:
 
         Common enough that refusing it would break ordinary services, and
         harmless because no link is being consulted. `numberMatched` is
-        added (fix(#1770 P1)) so this stays a test of the SHAPE
+        added so this stays a test of the SHAPE
         tolerance it names, not an incidental exercise of the now-closed
         completeness gap `TestAFullPageWithoutLinksMustProveItIsTheLastOne`
         covers on its own terms.
@@ -7759,7 +7757,7 @@ class TestNothingMalformedIsMistakenForTheLastPage:
 
 
 class TestAChainThatEndsBeforeTheServiceSaidItWould:
-    """fix(#1746 B2b codex): the response itself proves the truncation.
+    """The response itself proves the truncation.
 
     A service reporting `numberMatched: 100` whose link chain runs out after
     ten features has told us both things. Nothing about any page is malformed
@@ -7879,11 +7877,11 @@ class TestAChainThatEndsBeforeTheServiceSaidItWould:
         self, monkeypatch, tmp_path
     ) -> None:
         """`numberMatched` is optional, and its absence is not evidence --
-        restored (fix(#1770)) after an earlier change briefly closed this:
+        restored after an earlier change briefly closed this:
         `_chain` gives a single page a `links` member naming only `self`
         (no `next`), which IS the service's own terminal-page statement, not
         the shape `numberMatched` exists to police. That over-tightening
-        had made THIS test refuse; restores the original assertion.
+        had made THIS test refuse; this restores the original assertion.
         """
         self._transport(monkeypatch, self._chain([{"features": self._features(10)}]))
 
@@ -7990,7 +7988,7 @@ class TestAChainThatEndsBeforeTheServiceSaidItWould:
 
 
 class TestAPageThatContradictsItsOwnCount:
-    """fix(#1746 B2b codex): `numberReturned` checks the page against itself.
+    """`numberReturned` checks the page against itself.
 
     A page saying it returned a hundred while carrying ten is a truncated
     response, and nothing else in the walk notices: the features array is well
@@ -8119,7 +8117,7 @@ class TestAPageThatContradictsItsOwnCount:
 
 
 class TestASampleCanBeShorterButNeverLonger:
-    """fix(#1746 B2b codex): the half of the full-walk check that always holds.
+    """The half of the full-walk check that always holds.
 
     The earlier version gated the whole comparison on a full walk, which let a sampled read of
     five features past a `numberMatched` of two: the extract had five rows and
@@ -8127,7 +8125,7 @@ class TestASampleCanBeShorterButNeverLonger:
     against a real dataset. Stopping early can produce fewer rows than the
     total; nothing can produce more.
 
-    fix(#1746 B2b): "produce" was checked against `written`, which a
+    Previously "produce" was checked against `written`, which a
     sample truncates. A page of a hundred features under a `numberMatched` of
     ten and a five-row preview left `written == 5`, which is `<= 10` and
     passed, even though the page the service actually sent was ten times the
@@ -8263,8 +8261,8 @@ class TestASampleCanBeShorterButNeverLonger:
 
 
 class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
-    """fix(#1770 P1, `service_items.py:278`; tightened P1;
-    corrected P1).
+    """Regression for #1770: `service_items.py:278`, tightened twice
+    since.
 
     A first page with no `links` at all is accepted as a well-formed shape
     (`_require_links` tolerates it -- nothing was followed to get here, so
@@ -8282,7 +8280,7 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
     assumption to make. Page length proves nothing on its own, on either
     side of the check, and that removal stands.
 
-    Then over-corrected: it required `numberMatched` on EVERY page
+    A later fix over-corrected: it required `numberMatched` on EVERY page
     reaching this branch, including one that carries a `links` member --
     even `[]`, even one naming only `self`/`alternate` -- which is the
     service's own unambiguous statement that it considered pagination and
@@ -8372,7 +8370,7 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
     async def test_full_walk_page_under_the_limit_no_links_no_total_refuses(
         self, monkeypatch, tmp_path
     ) -> None:
-        """Pin (b), fix(#1770 P1). Replaces the earlier test that
+        """Pin (b). Replaces the earlier test that
         assumed the opposite (`test_full_walk_page_under_the_limit_no_links_
         accepts`): a page shorter than `limit=PAGE_SIZE`, with no `links` and
         no `numberMatched`, no longer proves anything on its own -- a server
@@ -8404,7 +8402,7 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
     async def test_full_walk_page_with_mismatched_total_refuses(
         self, monkeypatch, tmp_path
     ) -> None:
-        """Pin (c'), fix(#1770 P1). `numberMatched` present but NOT
+        """Pin (c'). `numberMatched` present but NOT
         equal to what the walk actually read is refused, not merely tolerated
         as "no proof" -- a server that states a total and then contradicts it
         on the very page carrying that total is not a case the completeness
@@ -8458,7 +8456,7 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
     async def test_full_walk_page_with_an_empty_links_array_accepts(
         self, monkeypatch, tmp_path
     ) -> None:
-        """Pin, fix(#1770 P1). `links: []` is present, so
+        """Pin: `links: []` is present, so
         `_next_href` finding no `next` in it is the service's own terminal
         signal -- not the shape-tolerance gap `numberMatched` exists to
         cover. No `numberMatched` needed."""
@@ -8472,7 +8470,7 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
     async def test_full_walk_page_with_only_self_and_alternate_links_accepts(
         self, monkeypatch, tmp_path
     ) -> None:
-        """Pin, fix(#1770 P1). Same proof, a step further: `links`
+        """Pin: Same proof, a step further: `links`
         names OTHER relations but still no `next`. Present is present,
         whatever else it says."""
         self._first_page_with_links(
@@ -8575,9 +8573,9 @@ def _find_unredacted_error_fields_in_source(
 
 
 def _find_unredacted_error_fields_in_tree(root: "pathlib.Path") -> dict:
-    """Same sweep, over every ``.py`` file under ``root`` (fix(#1770 round
-    40)): widened from a hand-picked list of six modules to the whole
-    backend, since the P2 re-review found the sixth-listed sweep
+    """Same sweep, over every ``.py`` file under ``root``: widened from a
+    hand-picked list of six modules to the whole
+    backend, since the sweep
     scope itself was the gap -- `sources/router.py`'s CRS-fallback fetch was
     never one of the six.
     """
@@ -8594,7 +8592,7 @@ def _find_unredacted_error_fields_in_tree(root: "pathlib.Path") -> dict:
 
 
 class TestAResponseProvidedUrlNeverReachesALogUnredacted:
-    """fix(#1770 P2, `adapters/ogcapi.py:131`).
+    """Regression for #1770: `adapters/ogcapi.py:131`.
 
     `_resolve_conformance` logged the landing page's advertised `conformance`
     href verbatim in three places: the cross-origin refusal, the SSRF-blocked
@@ -8663,7 +8661,7 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
         assert "conformance link is on another origin" in rendered
 
     def test_the_conformance_log_sites_redact_the_href_they_carry(self) -> None:
-        """Source-enumeration, closed set (fix(#1770 P2)).
+        """Source-enumeration, closed set.
 
         Keyed on the literal helper name, not on data flow: a keyword
         argument named `href`/`url`/`link` (case-insensitive) whose value is
@@ -8769,8 +8767,8 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
     async def test_a_reflected_token_in_a_same_origin_conformance_fetch_is_not_logged(
         self, monkeypatch
     ) -> None:
-        """fix(#1770 P2, `adapters/ogcapi.py` conformance fetch-failed
-        branch).
+        """Regression for #1770: the `adapters/ogcapi.py` conformance fetch-failed
+        branch.
 
         The href field on this log call was redacted earlier, but the
         `error` field carried `str(exc)` verbatim -- and `httpx.HTTPStatusError`
@@ -8820,14 +8818,14 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
         assert secret not in rendered
         # Not vacuous: the branch this is pinning actually ran, and it is the
         # fetch-failed branch specifically, not the cross-origin refusal
-        # already pins (this href is same-origin).
+        # pinned elsewhere (this href is same-origin).
         assert "conformance fetch failed" in rendered
         assert "another origin" not in rendered
 
     async def test_an_oversized_conformance_href_reaches_the_redactor_bounded(
         self, monkeypatch
     ) -> None:
-        """fix(#1770 P1, `adapters/ogcapi.py:123`).
+        """Regression for #1770: `adapters/ogcapi.py:123`.
 
         The `bounded_service_url` fix can itself FAIL because
         `conformance_href` is huge -- exactly the shape this finding is
@@ -8902,7 +8900,7 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
     async def test_a_same_origin_redirect_reflecting_the_credential_is_not_logged(
         self, monkeypatch
     ) -> None:
-        """fix(#1770 P2, `sources/router.py:564`).
+        """Regression for #1770: `sources/router.py:564`.
 
         The earlier sweep covered `modules/catalog/sources/adapters/` and
         `platform/service_*.py` only, and this site -- the credentialed CRS
@@ -8971,8 +8969,7 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
     def test_an_error_field_bound_to_an_httpx_except_never_bypasses_the_helper(
         self,
     ) -> None:
-        """Source-enumeration, whole-tree (fix(#1770 P2, widened
-        P2)).
+        """Source-enumeration, whole-tree (widened to the whole tree).
 
         Swept six hand-picked modules for a keyword argument
         literally named `error`, whose value is a bare reference to a name
@@ -9003,8 +9000,8 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
         `redact_exception_text(...)` before the format string sees it.
 
         A bare `except Exception as exc:` inside a function that itself
-        awaits an httpx call is the harder sibling case asked to
-        close if tractable: it is not, at an acceptable false-positive rate,
+        awaits an httpx call is the harder sibling case worth
+        closing if tractable: it is not, at an acceptable false-positive rate,
         by a purely syntactic sweep. A verb-name heuristic ("does the
         function await anything named `.get(`/`.post(`/etc.") was tried by
         hand across this tree and produced three false positives on its
@@ -9035,8 +9032,8 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
 
 
 class TestAdapterProbeReadsAreBounded:
-    """fix(#1770 P1, `adapters/ogcapi.py:203` "Bound authenticated
-    probe responses before buffering").
+    """Regression for #1770: bound authenticated probe responses before
+    buffering (`adapters/ogcapi.py:203`).
 
     `probe_ogcapi`/`probe_wfs`/`probe_arcgis_service`/`connect_stac_api` (and
     `_resolve_conformance`) used a plain `client.get`, which buffers the
@@ -9100,7 +9097,7 @@ class TestAdapterProbeReadsAreBounded:
     below to ALL of `backend/app` rather than patching the one instance, and
     routes the CRS fetch through `bounded_probe_read` under
     `DEFAULT_CHECK_TIMEOUT`, matching the four probes exactly. The
-    tree-wide sweep this round turned up, and each is documented in the
+    tree-wide sweep turned up more sites, and each is documented in the
     `expected` set below rather than here, so the two lists cannot drift
     apart:
 
@@ -9150,7 +9147,7 @@ class TestAdapterProbeReadsAreBounded:
     def test_every_network_call_in_scope_is_bounded_or_documented(self) -> None:
         """Source-enumeration, closed set, tree-wide.
 
-        widened from `modules/catalog/sources/
+        Widened from `modules/catalog/sources/
         adapters/*.py` + `platform/service_*.py` to every `*.py` under
         `backend/app`, because the earlier scope gap (see class docstring)
         was exactly a file this walk did not visit. Finds every
@@ -9227,7 +9224,7 @@ class TestAdapterProbeReadsAreBounded:
             # The two already-bounded implementations themselves.
             ("app.platform.service_endpoints", "fetch_document", "stream"),
             ("app.platform.probe_bounds", "bounded_probe_exchange", "send"),
-            # the tree-wide widening. See class
+            # The tree-wide widening. See class
             # docstring for why each of these is out of scope.
             ("app.modules.auth.oauth.service", "_resolve_github_identity", "get"),
             ("app.modules.catalog.sources.arcgis_signin", "_fetch_json", "stream"),
@@ -9262,7 +9259,7 @@ class TestAdapterProbeReadsAreBounded:
     async def test_the_crs_fallback_also_stops_at_the_byte_cap(
         self, monkeypatch
     ) -> None:
-        """Pin for `_fetch_ogcapi_collection_srid`
+        """Pin: `_fetch_ogcapi_collection_srid`
         now reads through `bounded_probe_read` exactly like the four probes
         above, so an authenticated collection endpoint that tries to stream
         an oversized body past it is stopped at `MAX_DOCUMENT_BYTES`, not
@@ -9309,7 +9306,7 @@ class TestAdapterProbeReadsAreBounded:
     async def test_the_crs_fallback_degrades_on_a_json_depth_bomb(
         self, monkeypatch
     ) -> None:
-        """fix(#1770 P2, `sources/router.py:598`).
+        """Regression for #1770: `sources/router.py:598`.
 
         Same bomb as `_parsed_json`'s own pin: 900,000 nested `[` is under
         every byte/token cap `_fetch_ogcapi_collection_srid` checks and
@@ -9477,8 +9474,8 @@ _NON_DICT_JSON_BODIES = (b"[]", b"null", b'"x"')
 
 
 class TestANonDictDocumentIsNotACrash:
-    """fix(#1770 P2, `adapters/ogcapi.py:329`, `stac.py:274`,
-    `arcgis.py:204`).
+    """Regression for #1770: `adapters/ogcapi.py:329`, `stac.py:274`,
+    `arcgis.py:204`.
 
     A credentialed endpoint answering `200 []`, `200 null`, or `200 "x"` is
     valid JSON but not a dict. `ogcapi.py`'s `/collections` fetch called
@@ -9552,7 +9549,7 @@ class TestANonDictDocumentIsNotACrash:
 
 
 class TestARegisteredCredentialIsScrubbedByExactValue:
-    """fix(#1770 P2, `sources/router.py:587`).
+    """Regression for #1770: `sources/router.py:587`.
 
     `redact_exception_text`/the structlog `_scrub_text` processor only ever
     redacted a credential by PATTERN: a query parameter whose NAME is in
@@ -9719,7 +9716,7 @@ class TestARegisteredCredentialIsScrubbedByExactValue:
 
 
 class TestASecretDoesNotSurviveInTheChain:
-    """fix(#1746 B2b codex): a traceback renders more than `args`.
+    """A traceback renders more than `args`.
 
     A namespace-qualified WFS import that fails, retries unqualified, and fails
     again leaves the FIRST attempt's error as the retry's `__context__`, and as
@@ -10044,8 +10041,8 @@ class TestAHeaderAuthJobUsesTheTasksOwnQueue:
 
 
 class TestALoneSurrogateFeatureIsAPageRefusalNotA500:
-    """fix(#1770 P2, `service_items.py:~844` "Translate lone-surrogate
-    features into a page refusal").
+    """Regression for #1770: translate lone-surrogate features into a page
+    refusal (`service_items.py:~844`).
 
     A JSON escape for an unpaired surrogate (`"\\ud800"`) is syntactically
     legal and `json.loads` accepts it as a Python `str` holding that lone

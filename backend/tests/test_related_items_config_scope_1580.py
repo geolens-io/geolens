@@ -321,7 +321,7 @@ async def test_an_unstamped_anchor_reaches_every_space_of_its_model(
 
     Comparability of two stored rows is a property of the PAIR. Whether A and B
     may be compared cannot depend on which one you start from, so if a stamped
-    anchor sees a NULL row — which it does, and did before this PR — then a NULL
+    anchor sees a NULL row — which it does — then a NULL
     anchor must see the stamped one. ``usable_by_config(model, None)`` returning
     the model predicate ALONE is what makes those two statements the same
     statement.

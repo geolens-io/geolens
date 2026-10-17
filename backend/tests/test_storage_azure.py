@@ -212,7 +212,7 @@ async def test_get_range_stream_round_trip(azurite_provider):
 async def test_get_stream_round_trip(azurite_provider):
     """The whole blob streams back byte-exact from one download call.
 
-    fix(#1532): this method raised ``NotImplementedError`` behind a
+    This method raised ``NotImplementedError`` behind a
     docstring claiming the router always redirects Azure through a SAS URL. It
     does not — fix(#1540) established that no ingest path writes
     ``storage_backend="azure"``, so managed assets take the LOCAL branch, whose

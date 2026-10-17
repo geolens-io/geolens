@@ -180,7 +180,7 @@ def test_every_codeql_marker_in_backend_app_binds_to_the_line_it_covers() -> Non
     )
 
 
-# Alert #113 (py/full-ssrf, critical). moved
+# Alert #113 (py/full-ssrf, critical). The change moved
 # the probe adapters' actual sink -- a `client.stream(` call -- out of each
 # adapter (`adapters/ogcapi.py`, `adapters/wfs.py`, `adapters/arcgis.py`,
 # `adapters/stac.py`) and into one shared helper, `bounded_probe_read`

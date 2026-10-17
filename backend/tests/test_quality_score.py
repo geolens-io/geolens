@@ -279,7 +279,7 @@ async def test_quality_score_in_dataset_response(
 @pytest.mark.anyio
 async def test_attribute_completeness_uses_single_query(test_db_session):
     """compute_quality_score must issue one SQL query for attribute completeness,
-    not one per column (/N9).
+    not one per column.
 
     Previously a 50-column dataset triggered 50 sequential full-table scans. The
     refactored implementation coalesces all per-column COUNT(col) aggregations

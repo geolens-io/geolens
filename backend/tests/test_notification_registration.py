@@ -38,7 +38,7 @@ def _restore_slot(saved):
 
 
 # ---------------------------------------------------------------------------
-# Register_builtin_notification_sinks() exists + wires the sink
+# register_builtin_notification_sinks() exists + wires the sink
 # ---------------------------------------------------------------------------
 
 
