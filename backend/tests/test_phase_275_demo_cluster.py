@@ -21,11 +21,11 @@ def _read(relative_path: str) -> str:
 
 
 def test_no_geolens_io_typos() -> None:
-    """API-14 / M-75: project owns getgeolens.com only — no demo.geolens.io references.
+    """Project owns getgeolens.com only — no demo.geolens.io references.
 
     Active, public-tracked code + docs only. Excluded paths:
     - .planning/, docs-internal/  → both gitignored, historical context only
-    - CHANGELOG.md                → preserves the Phase 269 fix record
+    - CHANGELOG.md                → preserves the historical fix record
     - this test file               → self-references in docstrings/strings
     """
     self_filename = "test_phase_275_demo_cluster.py"
@@ -55,7 +55,7 @@ def test_no_geolens_io_typos() -> None:
         and ".planning/" not in line
         and "docs-internal/" not in line  # gitignored historical audits
         and "graphify-out/" not in line  # generated graphify knowledge-graph reports
-        and "CHANGELOG.md" not in line  # historical fix record from Phase 269
+        and "CHANGELOG.md" not in line  # historical fix record
         and not line.split(":", 1)[0].endswith(self_filename)
     ]
     assert not hits, (
@@ -65,7 +65,7 @@ def test_no_geolens_io_typos() -> None:
 
 
 def test_cli_flags_preserved_in_readme() -> None:
-    """API-14: CLI flag instances like --username must NOT have been mutated."""
+    """CLI flag instances like --username must NOT have been mutated."""
     body = _read("README.md")
     # Appears in the seed-showcase example; a real flag (em-dash sweep guard).
     assert "--username admin" in body or "--username/--password" in body, (

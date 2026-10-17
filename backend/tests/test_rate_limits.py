@@ -1,10 +1,10 @@
-"""Tests for SEC-S10 and SEC-S11 per-route rate limiting.
+"""Tests for per-route rate limiting.
 
-Phase 1062 Plan 02: per-route @limiter.limit decorators on:
-  - /search/datasets/   (SEC-S11, caps OpenAI embedding cost-DoS)
-  - /search/facets/     (SEC-S11, one bucket shared with /search/datasets/)
-  - /datasets/{id}/related/  (SEC-S11, same embedding cost surface)
-  - /settings/basemaps/      (SEC-S10, caps commercial-tier basemap key replay)
+Per-route @limiter.limit decorators on:
+  - /search/datasets/   (caps OpenAI embedding cost-DoS)
+  - /search/facets/     (one bucket shared with /search/datasets/)
+  - /datasets/{id}/related/  (same embedding cost surface)
+  - /settings/basemaps/      (caps commercial-tier basemap key replay)
 
 The conftest.py `client` fixture globally disables the limiter
 (``limiter.enabled = False``) to keep all other tests fast. Rate-limit
@@ -41,7 +41,7 @@ pytestmark = pytest.mark.anyio
 
 
 # ---------------------------------------------------------------------------
-# Task 1: Default value tests (no HTTP required)
+# Default value tests (no HTTP required)
 # ---------------------------------------------------------------------------
 
 
@@ -116,7 +116,7 @@ def _reset_limiter_storage() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 2: /search/datasets/ and /search/facets/ rate limiting (SEC-S11)
+# /search/datasets/ and /search/facets/ rate limiting
 # ---------------------------------------------------------------------------
 
 
@@ -157,7 +157,7 @@ async def test_search_facets_rate_limited(client: AsyncClient):
 
     fix(#1855): facets embed the query to count over the same candidate set as
     /search/datasets/, so an unlimited /search/facets/ would be a way around
-    the SEC-S11 embedding-cost cap. The endpoint carries the same limit.
+    the embedding-cost cap. The endpoint carries the same limit.
     """
     _set_cache_limit("semantic_search_rate_limit", 5)
     limiter.enabled = True
@@ -357,7 +357,7 @@ async def test_claim_is_scoped_to_the_requesting_client(
 ):
     """fix(#1903): a claim is scoped to the client that made it.
 
-    The SEC-S11 bucket is per-IP, so two different clients requesting the
+    The bucket is per-IP, so two different clients requesting the
     same query must not be able to consume each other's claim: client B's
     own bucket has full capacity regardless of what client A just did.
     Proven by having client A admit a query, then client B request the
@@ -702,7 +702,7 @@ async def test_a_claim_store_outage_falls_back_to_the_process_local_registry(
 
 
 # ---------------------------------------------------------------------------
-# Task 3: /datasets/{id}/related/ rate limiting (SEC-S11)
+# /datasets/{id}/related/ rate limiting
 # ---------------------------------------------------------------------------
 
 
@@ -737,7 +737,7 @@ async def test_related_datasets_rate_limit_returns_429(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
-# Task 4: /settings/basemaps/ rate limiting (SEC-S10)
+# /settings/basemaps/ rate limiting
 # ---------------------------------------------------------------------------
 
 

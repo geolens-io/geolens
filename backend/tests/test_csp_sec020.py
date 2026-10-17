@@ -1,4 +1,4 @@
-"""Regression tests for SEC-020: a real Content-Security-Policy backstops the
+"""Regression tests: a real Content-Security-Policy backstops the
 JWT-in-localStorage exfil risk if a future XSS lands.
 
 On main the only CSP was `frame-ancestors 'self'` (no script-src/default-src), so

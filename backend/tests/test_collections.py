@@ -52,7 +52,7 @@ async def _create_dataset(
 
 
 # ---------------------------------------------------------------------------
-# SC1: Create collection (COLL-01)
+# SC1: Create collection
 # ---------------------------------------------------------------------------
 
 
@@ -157,7 +157,7 @@ class TestCreateCollection:
 
 
 # ---------------------------------------------------------------------------
-# SC2: Edit and delete (COLL-02)
+# SC2: Edit and delete
 # ---------------------------------------------------------------------------
 
 
@@ -278,7 +278,7 @@ class TestUpdateDeleteCollection:
 
 
 # ---------------------------------------------------------------------------
-# SC3: Multi-membership (COLL-03)
+# SC3: Multi-membership
 # ---------------------------------------------------------------------------
 
 
@@ -334,7 +334,7 @@ class TestCollectionMembership:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """GAP-014: editor cannot link ANOTHER user's PRIVATE dataset.
+        """Editor cannot link ANOTHER user's PRIVATE dataset.
 
         manage_collections gates the action but not the link target. Without the
         write-time per-dataset re-auth (mirroring the FK-relationship / VRT
@@ -388,7 +388,7 @@ class TestCollectionMembership:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """GAP-014 GUARD: linking a PUBLIC dataset still succeeds for an editor.
+        """GUARD: linking a PUBLIC dataset still succeeds for an editor.
 
         The new write-time authz must not over-block legitimate links.
         """
@@ -557,7 +557,7 @@ class TestCollectionMembership:
 
 
 # ---------------------------------------------------------------------------
-# SC4: Aggregated extent (COLL-05)
+# SC4: Aggregated extent
 # ---------------------------------------------------------------------------
 
 

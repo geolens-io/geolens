@@ -690,14 +690,14 @@ def test_both_stored_readers_use_the_stored_anchor_predicate():
 
 
 # ---------------------------------------------------------------------------
-# Review r2: one read, not two
+# One read, not two
 # ---------------------------------------------------------------------------
 
 
 async def test_a_commit_between_the_two_reads_cannot_split_the_anchor(
     client: AsyncClient, admin_auth_header: dict, test_db_session, space, monkeypatch
 ):
-    """fix(#1580 review r2): the ranking and the scoring share ONE anchor read.
+    """fix(#1580): the ranking and the scoring share ONE anchor read.
 
     `_load_self_record_and_embedding` read the anchor to score with, and
     `get_nearest_record_ids` read it again to rank against. Two reads under READ
@@ -769,14 +769,14 @@ async def test_a_commit_between_the_two_reads_cannot_split_the_anchor(
 
 
 # ---------------------------------------------------------------------------
-# Review r3: the timestamp is not as ordered as it looks
+# The timestamp is not as ordered as it looks
 # ---------------------------------------------------------------------------
 
 
 async def test_the_anchor_prefers_the_row_search_would_use(
     test_db_session, space, monkeypatch
 ):
-    """fix(#1580 review r3): live-usable first, timestamp only as a tiebreak.
+    """fix(#1580): live-usable first, timestamp only as a tiebreak.
 
     PostgreSQL `now()` is TRANSACTION-START time, and both the column default and
     the ingest re-stamp used it. A job that opens its transaction, spends thirty

@@ -128,12 +128,12 @@ async def test_put_settings_unauthenticated_returns_401(
 
 
 # ---------------------------------------------------------------------------
-# BUG-029: dead _rebuild_embedding_column shadow removed
+# Dead _rebuild_embedding_column shadow removed
 # ---------------------------------------------------------------------------
 
 
 def test_router_has_no_dead_rebuild_embedding_column_shadow():
-    """BUG-029: the local _rebuild_embedding_column that shadowed the real
+    """The local _rebuild_embedding_column that shadowed the real
     implementation (and silently swallowed DDL failures) must not exist.
 
     The route imports rebuild_embedding_column from
@@ -155,7 +155,7 @@ async def test_put_settings_embedding_rebuild_failure_propagates_as_503(
     admin_auth_header: dict,
     restore_embedding_settings,
 ):
-    """BUG-029: a DDL failure during embedding rebuild must surface as 503.
+    """A DDL failure during embedding rebuild must surface as 503.
 
     Proves the route uses the RAISING rebuild_embedding_column (which the
     handler maps to a 503 + setting rollback), not the deleted shadow that
@@ -241,7 +241,7 @@ async def test_get_tile_config_exposes_the_public_urls():
 
 @pytest.mark.anyio
 async def test_get_tile_config_never_derives_the_app_url():
-    """fix(#1548 review r9): app_url comes from get_configured_public_app_url,
+    """fix(#1548): app_url comes from get_configured_public_app_url,
     NOT the resolver.
 
     This field's only consumer builds share and embed URLs from it, and the
@@ -259,7 +259,7 @@ async def test_get_tile_config_never_derives_the_app_url():
         "an unset PUBLIC_APP_URL must not be back-filled from the API URL"
     )
     assert response.public_api_url == "https://api.example.com/api"
-    # fix(#1548 review r10): it IS given the request, because a hosted tenant's
+    # fix(#1548): it IS given the request, because a hosted tenant's
     # middleware-validated origin is the right answer there and the fleet-wide
     # setting cannot represent a tenant host. What it must never do is INFER an
     # origin from that request — get_shareable_app_url reads only
@@ -271,7 +271,7 @@ async def test_get_tile_config_never_derives_the_app_url():
 def test_tile_config_resolves_the_app_url_through_the_sharing_accessor():
     """Pin which resolver the handler depends on, because the mocks must match it.
 
-    fix(#1548 review r12): this is the second rename in this PR to leave a mock
+    fix(#1548): this is the second rename in this PR to leave a mock
     naming a function ``get_tile_config`` no longer calls. Both times the patch
     silently did nothing, the REAL resolver ran against the ``db=object()`` these
     tests pass, and it raised ``AttributeError: 'object' object has no attribute
@@ -325,7 +325,7 @@ async def test_get_tile_config_exposes_tenant_mvt_source_layer_prefix():
             "tenant_data_schema",
             return_value=expected,
         ) as schema_name,
-        # fix(#1548 review r12): the tile-config handler resolves the app URL
+        # fix(#1548): the tile-config handler resolves the app URL
         # through get_shareable_app_url, not the resolver. Left mocking the old
         # name, the real one runs against `db=object()` and raises AttributeError.
         patch(
@@ -361,7 +361,7 @@ async def test_get_tile_config_fails_closed_without_tenant_context():
             SimpleNamespace(cdn_base_url=None),
         ),
         patch.object(settings_router, "is_multi_tenant", return_value=True),
-        # fix(#1548 review r12): see the note above — get_shareable_app_url.
+        # fix(#1548): see the note above — get_shareable_app_url.
         patch(
             "app.modules.settings.router.get_shareable_app_url",
             AsyncMock(return_value=None),

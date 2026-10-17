@@ -1,4 +1,4 @@
-"""Regression tests for Phase 1207 dormant tenancy schema (TSEAM-01, TSEAM-02).
+"""Regression tests for the dormant tenancy schema.
 
 Verifies:
   A: Every tenant-shared control-plane table has a nullable tenant_id column.
@@ -52,7 +52,7 @@ _TENANT_TABLES = [
 
 
 class TestTenantIdColumns:
-    """TSEAM-01: tenant_id is present on all tenant-shared control-plane tables."""
+    """tenant_id is present on all tenant-shared control-plane tables."""
 
     async def test_tenant_id_exists_and_nullable(self, client, test_db_session):
         """Each of the six shared tables has tenant_id (nullable) in catalog."""
@@ -89,7 +89,7 @@ class TestTenantIdColumns:
 
 
 class TestTenancyTablesExist:
-    """TSEAM-01: organizations, tenants, org_memberships exist in catalog schema."""
+    """Organizations, tenants, org_memberships exist in catalog schema."""
 
     async def test_tenancy_tables_present(self, client, test_db_session):
         """All three tenancy tables are present in catalog schema."""
@@ -118,7 +118,7 @@ class TestTenancyTablesExist:
 
 
 class TestSingleTenantGlobalUniqueness:
-    """TSEAM-02: uq_users_username_global enforces global uniqueness when tenant_id IS NULL."""
+    """uq_users_username_global enforces global uniqueness when tenant_id IS NULL."""
 
     async def test_duplicate_username_null_tenant_raises(self, client, test_db_session):
         """Two users with the same username and tenant_id IS NULL must fail.
@@ -173,7 +173,7 @@ class TestSingleTenantGlobalUniqueness:
 
 
 class TestMultiTenantPerTenantUniqueness:
-    """TSEAM-02: per-tenant partial indexes allow cross-tenant sharing, deny intra-tenant dupes."""
+    """per-tenant partial indexes allow cross-tenant sharing, deny intra-tenant dupes."""
 
     async def test_same_username_different_tenants_succeeds(
         self, client, test_db_session

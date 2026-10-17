@@ -1,10 +1,10 @@
-"""Tests for SEC-S05 — /datasets/{id}/related/ visibility bypass (Phase 1061).
+"""Tests for /datasets/{id}/related/ visibility bypass.
 
 Verifies that anonymous and non-owner authenticated requests on a private
 dataset's /related/ endpoint return 404, preventing the cosine-similarity
 oracle on the seed's RecordEmbedding.
 
-Also covers Phase 1061 WR-02: /datasets/{id}/maps/ dataset-existence oracle
+Also covers /datasets/{id}/maps/ dataset-existence oracle
 (anonymous callers should not be able to confirm a private dataset UUID exists
 by probing the maps endpoint).
 
@@ -159,7 +159,7 @@ async def test_related_non_owner_private_returns_404(
 
 
 # ---------------------------------------------------------------------------
-# WR-02: /datasets/{id}/maps/ — anonymous cannot enumerate private dataset
+# /datasets/{id}/maps/ — anonymous cannot enumerate private dataset
 # ---------------------------------------------------------------------------
 
 
@@ -171,9 +171,9 @@ async def test_maps_anonymous_private_returns_404(
 ):
     """Anonymous GET /datasets/{private_id}/maps/ returns 404.
 
-    Phase 1061 WR-02 regression: without check_dataset_access_or_anonymous,
+    Regression: without check_dataset_access_or_anonymous,
     an anonymous caller could confirm a private dataset UUID exists by
-    probing /maps/ — a dataset-existence oracle analogous to SEC-S05.
+    probing /maps/ — a dataset-existence oracle analogous to the /related/ one.
     """
     session = test_db_session
 

@@ -1,8 +1,7 @@
-"""Phase 222 — AuditSink protocol tests.
+"""AuditSink protocol tests.
 
-Covers AUDIT-01 (Plan 01: this test), AUDIT-03 (Plan 02: raising-sink test),
-AUDIT-04 (Plan 04: fixture-sink test). AUDIT-02 architecture guard lives in
-test_layering.py (Plan 05).
+Covers the protocol shape, the raising-sink test and the fixture-sink test.
+The architecture guard lives in test_layering.py.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ import pytest
 
 
 def test_audit_sink_protocol_shape() -> None:
-    """AUDIT-01: AuditSink Protocol + DefaultAuditSink + AuditEvent exist with correct shape."""
+    """AuditSink Protocol + DefaultAuditSink + AuditEvent exist with correct shape."""
     from app.platform.audit import AuditEvent
     from app.platform.extensions.defaults import DefaultAuditSink
     from app.platform.extensions.protocols import AuditSink
@@ -30,7 +29,7 @@ def test_audit_sink_protocol_shape() -> None:
         "DefaultAuditSink must structurally satisfy AuditSink Protocol"
     )
 
-    # AuditEvent has the 6 expected fields (D-02 — 1:1 with log_action signature)
+    # AuditEvent has the 6 expected fields (1:1 with log_action signature)
     fields = {f.name for f in dataclasses.fields(AuditEvent)}
     assert fields == {
         "user_id",
@@ -46,7 +45,7 @@ def test_audit_sink_protocol_shape() -> None:
 
 @pytest.mark.anyio
 async def test_raising_sink_does_not_break_business_op(test_db_session, caplog) -> None:
-    """AUDIT-03 / D-06 / D-07 / D-13: a sink that raises must NOT propagate.
+    """A sink that raises must NOT propagate.
 
     Verifies the audit_emit() facade contract:
       (a) RaisingSink.emit() raises RuntimeError;
@@ -133,7 +132,7 @@ async def test_fixture_sink_receives_events_alongside_default(
     admin_auth_header,
     test_db_session,
 ) -> None:
-    """AUDIT-04 / D-12: enterprise-shape AuditSink + DefaultAuditSink coexist.
+    """enterprise-shape AuditSink + DefaultAuditSink coexist.
 
     End-to-end integration: a fixture sink registered via direct
     ``_extensions["audit_sinks"]`` append receives every audit event AND the
@@ -147,7 +146,7 @@ async def test_fixture_sink_receives_events_alongside_default(
     requiring ``geolens-enterprise`` to be installed.
 
     Pitfall C: BOTH ``DefaultAuditSink()`` AND ``FixtureSink()`` must be in
-    the slot. If only the fixture sink is registered, the AUDIT-05 default-row
+    the slot. If only the fixture sink is registered, the default-row
     assertion fails (DefaultAuditSink is missing from the iteration).
     """
     from sqlalchemy import select
@@ -188,7 +187,7 @@ async def test_fixture_sink_receives_events_alongside_default(
             f"names from backend/app/modules/admin/schemas.py::AdminUserCreate."
         )
 
-        # AUDIT-04: FixtureSink received the user.create event.
+        # FixtureSink received the user.create event.
         user_create_events = [
             e for e in fixture_sink.received if e.action == "user.create"
         ]
@@ -205,7 +204,7 @@ async def test_fixture_sink_receives_events_alongside_default(
         assert evt.details.get("username") == unique_username
         assert evt.details.get("role") == "viewer"
 
-        # AUDIT-05 (default still ran): DefaultAuditSink wrote its audit_logs row.
+        # DefaultAuditSink wrote its audit_logs row.
         # The request handler committed, so committing test_db_session starts a new
         # READ COMMITTED transaction that sees the committed audit row.
         await test_db_session.commit()

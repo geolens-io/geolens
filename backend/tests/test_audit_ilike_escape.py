@@ -1,4 +1,4 @@
-"""WR-02: Audit service _apply_filters resource_type.ilike must escape %, _, and \\.
+"""Audit service _apply_filters resource_type.ilike must escape %, _, and \\.
 
 The _apply_filters() function in audit/service.py passed the raw user-supplied
 search string into AuditLog.resource_type.ilike(f"%{search}%") without escaping
@@ -29,7 +29,7 @@ def _compile_query(q) -> str:
 
 
 class TestAuditEscapeIlikeSql:
-    """SQL-compilation unit tests for WR-02.
+    """SQL-compilation unit tests for the ILIKE escaping.
 
     These verify that the emitted SQL contains the correct escaped patterns and
     the ESCAPE clause, without requiring a live database connection.

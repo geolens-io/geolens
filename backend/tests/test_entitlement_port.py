@@ -5,8 +5,6 @@ Covers:
 (b) Grant-all: has_feature returns True, enforce_limit never raises.
 (c) Duplicate 'entitlement' write raises ExtensionSlotConflictError.
 (d) require_entitlement allows under the grant-all default via a TestClient route.
-
-References: ENTSEAM-01, SLOT-01
 """
 
 from __future__ import annotations

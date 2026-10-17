@@ -38,7 +38,7 @@ class TestParseWfsCapabilities:
         version, layers = parse_wfs_capabilities(xml)
         assert version == "1.1.0"
         assert len(layers) == 2
-        # Phase 1057 D-05 / D-09: probe_wfs now includes geometry_type=None,
+        # probe_wfs now includes geometry_type=None,
         # feature_count=None, and kind='vector' in each layer dict.
         assert layers[0] == {
             "name": "ns:roads",
@@ -163,7 +163,7 @@ class TestBuildCapabilitiesUrl:
         assert parsed.path == "/geoserver/wfs"
 
     def test_a_query_over_the_old_field_count_bound_still_resolves(self):
-        """fix(#1770 round 47c): round 47b bound this with `max_num_fields`,
+        """Bound this with `max_num_fields`,
         reasoning `_header_auth_probe` (`probe.py`) catches every
         `ValueError` from an adapter -- true for `probe_wfs`, but not the
         only caller. `origin_probe.py::service_probe_target` calls this for

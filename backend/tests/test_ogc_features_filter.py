@@ -1,6 +1,6 @@
 """Server-side CQL2 filtering on per-dataset feature collections (feat(#1614)).
 
-Covers the OGC Features Part 3 surface that #430 BA-14 deliberately kept
+Covers the OGC Features Part 3 surface that #430 deliberately kept
 unadvertised until it worked:
 
   - GET /collections/{dataset_id}/queryables derived from the LIVE table
@@ -366,11 +366,11 @@ OPERATOR_CASES = [
     ("lt", "height < 2", _j("<", P, 2), 1),
     ("lte", "height <= 2.5", _j("<=", P, 2.5), 2),
     ("bool_eq", "active = TRUE", _j("=", {"property": "active"}, True), 3),
-    # fix(#1614 codex r3): a float8-cast bind against a REAL column promotes
+    # fix(#1614): a float8-cast bind against a REAL column promotes
     # the stored float4 and 0.1 never matches; the typed REAL bind does.
     ("real_eq", "ratio = 0.1", _j("=", {"property": "ratio"}, 0.1), 1),
     ("numeric_eq", "price = 19.99", _j("=", {"property": "price"}, 19.99), 1),
-    # fix(#1614 codex r3): the text grammar's unquoted identifier needs two
+    # fix(#1614): the text grammar's unquoted identifier needs two
     # characters; the shim quotes lone letters so bare `x = 3` parses.
     ("single_char_prop", "x = 3", _j("=", {"property": "x"}, 3), 1),
     ("like", "name LIKE 'A%'", _j("like", {"property": "name"}, "A%"), 1),
@@ -659,7 +659,7 @@ async def test_invalid_filters_return_400(
 async def test_non_finite_and_oversized_literals_rejected(
     client: AsyncClient, filter_dataset: Dataset, filter_json: str
 ):
-    """fix(#1614 codex r5): Python's JSON decoder accepts NaN/Infinity, and
+    """fix(#1614): Python's JSON decoder accepts NaN/Infinity, and
     math.isfinite raises OverflowError on a 401-digit integer — all of these
     must be the caller's 400, never a match-everything filter or a 500."""
     resp = await client.get(
@@ -713,7 +713,7 @@ async def test_incomparable_property_pair_is_400_not_500(
 async def test_schema_introspection_outage_is_503(
     client: AsyncClient, filter_dataset: Dataset, monkeypatch
 ):
-    """fix(#1614 codex r6): a transient database failure during the
+    """fix(#1614): a transient database failure during the
     existence/live-schema lookups classifies like the feature query's 503,
     not a 500."""
     from sqlalchemy.exc import OperationalError
@@ -739,7 +739,7 @@ async def test_missing_table_with_filter_keeps_503(
 ):
     """A missing table stays the retryable 503, whatever the filter shape.
 
-    fix(#1614 codex r2): an attribute filter must not be misreported as an
+    fix(#1614): an attribute filter must not be misreported as an
     unknown-property 400 just because the missing table has an empty live
     schema, and /queryables must not publish that empty schema as a 200.
     """
@@ -758,7 +758,7 @@ async def test_missing_table_with_filter_keeps_503(
 async def test_geojson_geometry_with_bbox_member_keeps_its_shape(
     client: AsyncClient, filter_dataset: Dataset
 ):
-    """fix(#1614 codex r2): GeoJSON's optional bbox member is metadata.
+    """fix(#1614): GeoJSON's optional bbox member is metadata.
 
     A triangle near (0,0) carrying a bbox that covers every feature must
     match nothing — rewriting the geometry to its bounding rectangle would
@@ -808,7 +808,7 @@ async def test_geojson_geometry_with_bbox_member_keeps_its_shape(
 async def test_antimeridian_bbox_is_a_dateline_strip_not_the_globe(
     client: AsyncClient, filter_dataset: Dataset, params: dict
 ):
-    """fix(#1614 codex r1): minx > maxx is a dateline-crossing box.
+    """fix(#1614): minx > maxx is a dateline-crossing box.
 
     A planar rectangle rendering would invert it into x in [-170, 170] and
     match every NYC-longitude feature; the split MultiPolygon matches none.
@@ -844,7 +844,7 @@ def test_antimeridian_bbox_compiles_to_a_split_multipolygon():
 async def test_degenerate_bbox_envelopes_evaluate(
     client: AsyncClient, filter_dataset: Dataset, bbox_args: str, expected_matched: int
 ):
-    """fix(#1614 codex r4): equal bounds are a legal point/line envelope."""
+    """fix(#1614): equal bounds are a legal point/line envelope."""
     resp = await client.get(
         _items_url(filter_dataset),
         params={"filter": f"S_INTERSECTS(geometry, BBOX({bbox_args}))"},
@@ -881,7 +881,7 @@ async def test_degenerate_bbox_envelopes_evaluate(
 async def test_invalid_bbox_bounds_rejected(
     client: AsyncClient, filter_dataset: Dataset, params: dict, fragment: str
 ):
-    """fix(#1614 codex r4): NaN and inverted bounds 400 like parse_bbox()."""
+    """fix(#1614): NaN and inverted bounds 400 like parse_bbox()."""
     resp = await client.get(_items_url(filter_dataset), params=params)
     assert resp.status_code == 400, resp.text
     assert fragment in resp.json()["detail"]
@@ -930,7 +930,7 @@ async def test_filter_still_rejected_without_value_types(
 def _same_origin_path(href: str, expected_origin: str) -> str:
     """Path+query of ``href`` iff it shares ``expected_origin``.
 
-    fix(#1680 codex r3): urlparse(href).path alone discards scheme/host, so a
+    fix(#1680): urlparse(href).path alone discards scheme/host, so a
     PUBLIC_API_URL that resolved a *different* origin on one leg would still
     resolve locally via ASGITransport and pass every suffix assertion -- a
     real client (QGIS) would instead be pointed off-server and fail to
@@ -953,8 +953,7 @@ async def test_qgis_344_request_sequence_end_to_end(
 ):
     # 1. Landing page: QGIS follows rel=data (collections) and rel=conformance
     # from here. Every subsequent leg is fetched via its *discovered* href,
-    # validated to share the landing page's own origin (fix(#1680 codex
-    # r1-r3): a hard-coded path would still land on the right local route even
+    # validated to share the landing page's own origin (fix(#1680): a hard-coded path would still land on the right local route even
     # if an advertised link pointed somewhere QGIS could never actually reach,
     # silently defeating the whole point of replaying advertised links).
     landing = await client.get("/")
@@ -962,7 +961,7 @@ async def test_qgis_344_request_sequence_end_to_end(
     landing_links = landing.json()["links"]
     # The expected origin is the landing page's OWN self href, not
     # client.base_url ("http://test" for this ASGI-transport fixture).
-    # fix(#1680 codex r5) tried comparing against client.base_url instead,
+    # fix(#1680) tried comparing against client.base_url instead,
     # reasoning that self-href-derivation was circular; that broke in CI
     # (build_url()'s PUBLIC_API_URL resolution legitimately returned
     # "http://localhost:8000" there, independent of the dummy transport
@@ -978,7 +977,7 @@ async def test_qgis_344_request_sequence_end_to_end(
     # transport address.
     self_href = next(link["href"] for link in landing_links if link["rel"] == "self")
     self_parsed = urlparse(self_href)
-    # fix(#1680 codex r7): normalize_public_url() (app/core/public_urls.py)
+    # fix(#1680): normalize_public_url() (app/core/public_urls.py)
     # accepts any nonempty string verbatim -- it strips whitespace and a
     # trailing slash but never validates scheme or host. A misconfigured
     # PUBLIC_API_URL of "https://" (no host) or "ftp://catalog.example"
@@ -1285,7 +1284,7 @@ def test_a_queryable_named_cql2_diverges_from_the_legacy_loop():
 
 
 def test_rename_scans_the_statement_once_whatever_the_bind_count():
-    """The DoS was one whole-string regex pass per bind (P2-6).
+    """The DoS was one whole-string regex pass per bind.
 
     Counted, not timed. A wall-clock bound is set by the coarsest clock the
     runner records, and would go green again the moment a fast machine

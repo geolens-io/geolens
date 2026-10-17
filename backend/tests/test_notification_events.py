@@ -1,12 +1,12 @@
-"""Phase 1230 Plan 01 Tasks 2 & 3 — per-event toggle Settings + events.py helper tests.
+"""Tasks 2 & 3 — per-event toggle Settings + events.py helper tests.
 
-Covers Task 2:
+Covers:
   - Settings per-event toggle fields (notify_on_signup, notify_on_ingest_complete,
     notify_on_ingest_failed, notify_on_health_alert) all default False.
   - Env binding flips a toggle on (NOTIFY_ON_SIGNUP=true -> notify_on_signup=True).
   - notification_admin_email defaults to None; blank env string normalizes to None.
 
-Covers Task 3:
+Covers:
   - event_enabled(event_key) returns False when the toggle is off; True when on.
   - build_event_notification() returns a Notification with the resolved recipient in
     data["to"] and the failure reason in body+data when reason is given.
@@ -22,12 +22,12 @@ import pytest
 
 
 # ===========================================================================
-# Task 2: per-event toggle Settings fields
+# per-event toggle Settings fields
 # ===========================================================================
 
 
 class TestPerEventToggleDefaults:
-    """All four per-event toggles must default to False (EVENT-05)."""
+    """All four per-event toggles must default to False."""
 
     def test_notify_on_signup_default_false(self) -> None:
         from app.core.config import Settings
@@ -136,7 +136,7 @@ def test_notification_admin_email_blank_env_normalizes_to_none() -> None:
 
 
 # ===========================================================================
-# Task 3: events.py helper — event_enabled, build_event_notification, emit_event_safe
+# events.py helper — event_enabled, build_event_notification, emit_event_safe
 # ===========================================================================
 
 
@@ -248,7 +248,7 @@ class TestBuildEventNotification:
         )
 
     def test_build_includes_reason_in_body_and_data(self, monkeypatch) -> None:
-        """When reason is given, it appears in body text and data['reason'] (EVENT-03)."""
+        """When reason is given, it appears in body text and data['reason']."""
 
         class _FakeSettings:
             notification_admin_email = "admin@example.com"

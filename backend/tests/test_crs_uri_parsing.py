@@ -1,12 +1,12 @@
 """Unit tests for the CRS URI/URN parsing helper.
 
-Phase 1057 CRS-06 — Finding 6 in SMOKE-v1012-REPORT.md:
+Smoke finding:
   URI-form CRS (http://www.opengis.net/def/crs/OGC/1.3/CRS84) not parsed to EPSG.
   User importing demo.pygeoapi.io/master → Large Lakes saw "CRS: Unknown" and had
   to enter a manual EPSG override.
 
 Covers:
-  - parse_crs_uri: the four D-07 URI/URN forms + fallthrough to None
+  - parse_crs_uri: the four URI/URN forms + fallthrough to None
   - extract_srid_from_json: ordering tests (projjson → WKT → URI) to pin third-fallback
     integration behavior
 """
@@ -23,9 +23,8 @@ from app.processing.ingest.ogr import extract_srid_from_json
 
 
 class TestParseCrsUri:
-    """Pin the four D-07 URI/URN forms and the fallthrough (None) behavior.
+    """Pin the four URI/URN forms and the fallthrough (None) behavior.
 
-    Reference: Phase 1057 CRS-06, D-07, SMOKE-v1012-REPORT.md Finding 6.
     Exact repro URI: http://www.opengis.net/def/crs/OGC/1.3/CRS84
     """
 
@@ -95,7 +94,7 @@ class TestParseCrsUri:
     def test_bare_epsg_string_returns_none(self) -> None:
         """Bare 'EPSG:4326' strings are handled elsewhere (ogrinfo projjson/WKT).
 
-        This helper covers ONLY the 4 URI/URN forms in D-07.
+        This helper covers ONLY the 4 URI/URN forms.
         """
         assert parse_crs_uri("EPSG:4326") is None
 
@@ -110,7 +109,7 @@ class TestParseCrsUri:
 
         No artificial upper bound is imposed; the helper returns int(code) unconditionally
         for any non-negative integer that regex-matches. Downstream PostGIS rejects
-        unknown SRIDs at Find_SRID / ST_Transform time (T-1057C-04 accept).
+        unknown SRIDs at Find_SRID / ST_Transform time (accept).
         """
         result = parse_crs_uri(
             "http://www.opengis.net/def/crs/EPSG/0/99999999999999999999"
@@ -127,8 +126,8 @@ class TestParseCrsUri:
 class TestExtractSridFromJsonUriFallback:
     """Integration tests for extract_srid_from_json URI-fallback ordering.
 
-    Phase 1057 CRS-06 — Finding 6 (demo.pygeoapi.io/master Large Lakes):
-      After D-07, extract_srid_from_json must resolve URI/URN-form CRS from the
+    Smoke finding (demo.pygeoapi.io/master Large Lakes):
+      extract_srid_from_json must resolve URI/URN-form CRS from the
       coordinateSystem.name field as the THIRD fallback (after projjson + WKT).
       Authoritative projjson and WKT declarations must still win.
 

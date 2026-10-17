@@ -241,7 +241,7 @@ async def test_rename_column_viewer_forbidden(
 async def test_column_ddl_invalidates_tile_cache(
     client: AsyncClient, admin_auth_header: dict, monkeypatch
 ):
-    """fix(#458 E-05): every column DDL op purges the layer's cached tiles."""
+    """Every column DDL op purges the layer's cached tiles."""
     from unittest.mock import AsyncMock, MagicMock
 
     import app.modules.catalog.layers.router as layers_router
@@ -284,7 +284,7 @@ async def test_column_ddl_invalidates_tile_cache(
 async def test_drop_readd_drop_same_column(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """fix(#458 E-12): dropping a re-added column must not 500 on the
+    """Dropping a re-added column must not 500 on the
     historical AttributeMetadata row left by the first drop."""
     dataset_id = await _create_layer(client, admin_auth_header, title="Drop Readd Test")
 
@@ -306,7 +306,7 @@ async def test_drop_readd_drop_same_column(
 async def test_column_references_counts_saved_maps(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#458 E-06): the references probe counts maps whose layer config
+    """The references probe counts maps whose layer config
     mentions the column, so the schema editor can warn before rename/drop."""
     import uuid as _uuid
 
@@ -354,7 +354,7 @@ async def test_column_references_counts_saved_maps(
 async def test_reserved_word_column_full_ddl_lifecycle(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """fix(#458 E-33): SQL reserved words as column names (desc, order — routine
+    """SQL reserved words as column names (desc, order — routine
     ogr2ogr output from DBF fields) must survive every DDL op and the
     distinct-values probe; unquoted interpolation used to raise syntax errors."""
     dataset_id = await _create_layer(
@@ -402,7 +402,7 @@ async def test_reserved_word_column_full_ddl_lifecycle(
 async def test_column_ddl_recomputes_quality_detail(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """fix(#458 E-34): column DDL recomputes the stored quality score like
+    """Column DDL recomputes the stored quality score like
     reupload does; it used to stay stale until the next reupload."""
     dataset_id = await _create_layer(client, admin_auth_header, title="Quality Refresh")
 

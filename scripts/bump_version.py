@@ -4,7 +4,7 @@
 
   - backend/pyproject.toml                 ([project] version) — the canonical
                                            distribution version the running app
-                                           derives at runtime (REL-03)
+                                           derives at runtime
   - backend/app/api/main.py                (_FALLBACK_APP_VERSION constant — the
                                            source-checkout fallback when the
                                            distribution metadata is absent)

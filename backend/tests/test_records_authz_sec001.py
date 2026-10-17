@@ -1,6 +1,6 @@
-"""DB-backed regression tests for record sub-resource read authorization (SEC-001).
+"""DB-backed regression tests for record sub-resource read authorization.
 
-SEC-001 (HIGH; public-repo Critical): the three `GET /records/{id}/{contacts,
+The three `GET /records/{id}/{contacts,
 keywords,distributions}` endpoints gated read access only on `user is None`, so
 ANY authenticated user — including the lowest-privilege viewer — could read any
 PRIVATE record's contact PII (name/email/phone/organization), keywords, and
@@ -86,7 +86,7 @@ async def test_private_record_contacts_does_not_leak_pii(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     """Concrete PII-leak guard: the seeded contact email never reaches a
-    non-owner. Mirrors the live SEC-001 reproduction."""
+    non-owner. Mirrors the live reproduction."""
     _owner_headers, owner_id = await _create_test_user(
         client, admin_auth_header, "editor"
     )

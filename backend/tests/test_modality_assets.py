@@ -25,7 +25,7 @@ API_URL = "http://localhost:8080/api"
 
 class TestRasterTilesAssetVersion:
     def test_raster_tiles_href_carries_tile_cache_version(self):
-        """fix(#1372 codex r2): the advertised template is versioned so a
+        """fix(#1372): the advertised template is versioned so a
         refetching STAC/OGC client stops sharing the unversioned nginx cache
         entry after a replace."""
         ds = _make_dataset(record_type="raster_dataset", table_name=None)

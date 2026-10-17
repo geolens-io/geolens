@@ -1,7 +1,7 @@
-"""Static-analysis tests for Phase 272 Dockerfile + frontend image hardening.
+"""Static-analysis tests for Dockerfile + frontend image hardening.
 
-Pins INF-06 (multi-stage), INF-09 (BuildKit cache mounts), INF-10 (frontend/Dockerfile
-deletion), INF-14 (nginx mime), INF-15 (python pin cross-comments), INF-16 (USER node).
+Pins multi-stage builds, BuildKit cache mounts, frontend/Dockerfile deletion,
+nginx mime types, python pin cross-comments and the non-root node USER.
 """
 
 import re
@@ -17,7 +17,7 @@ PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 
 
 # ---------------------------------------------------------------------------
-# INF-06: True multi-stage Dockerfile
+# True multi-stage Dockerfile
 # ---------------------------------------------------------------------------
 
 
@@ -66,7 +66,7 @@ class TestInf06MultiStage:
         )
 
     def test_uv_kept_in_runtime_with_explanatory_comment(self):
-        """INF-06 disposition: uv is intentionally kept in runtime; comment must explain."""
+        """Disposition: uv is intentionally kept in runtime; comment must explain."""
         text = DOCKERFILE.read_text()
         # Two COPY --from=ghcr.io/astral-sh/uv lines (one per stage)
         copy_count = text.count("COPY --from=ghcr.io/astral-sh/uv")
@@ -82,7 +82,7 @@ class TestInf06MultiStage:
 
 
 # ---------------------------------------------------------------------------
-# INF-09: BuildKit npm cache mounts
+# BuildKit npm cache mounts
 # ---------------------------------------------------------------------------
 
 
@@ -114,7 +114,7 @@ class TestInf09BuildkitNpmCache:
 
 
 # ---------------------------------------------------------------------------
-# INF-10: frontend/Dockerfile deleted
+# frontend/Dockerfile deleted
 # ---------------------------------------------------------------------------
 
 
@@ -127,7 +127,7 @@ class TestInf10FrontendDockerfileDeleted:
 
 
 # ---------------------------------------------------------------------------
-# INF-14: nginx mime types
+# Nginx mime types
 # ---------------------------------------------------------------------------
 
 
@@ -146,13 +146,13 @@ class TestInf14NginxMime:
 
 
 # ---------------------------------------------------------------------------
-# INF-15: Python pin cross-comments
+# Python pin cross-comments
 # ---------------------------------------------------------------------------
 
 
 class TestInf15PythonPinReconciliation:
     def test_dockerfile_pins_python_consistently(self):
-        """INF-15: the shared backend system stage pins python:x.y.z-slim.
+        """The shared backend system stage pins python:x.y.z-slim.
 
         Dependabot bumps the concrete patch; builder and runtime both derive
         from this stage so their Python and patched Debian packages stay aligned.
@@ -172,13 +172,13 @@ class TestInf15PythonPinReconciliation:
         )
 
     def test_pyproject_has_cross_comment(self):
-        """A comment near requires-python referencing the Docker pin / INF-15."""
+        """A comment near requires-python referencing the Docker pin."""
         text = PYPROJECT.read_text()
         # Find the requires-python line and check the preceding lines for a comment block
         lines = text.splitlines()
         for i, line in enumerate(lines):
             if "requires-python" in line and "=" in line:
-                # Look at preceding 5 lines for a comment about Dockerfile / 3.14-slim / INF-15
+                # Look at preceding 5 lines for a comment about Dockerfile / 3.14-slim
                 preceding = "\n".join(lines[max(0, i - 5) : i])
                 assert any(
                     kw in preceding for kw in ("3.14-slim", "Dockerfile", "INF-15")
@@ -191,7 +191,7 @@ class TestInf15PythonPinReconciliation:
 
 
 # ---------------------------------------------------------------------------
-# INF-16: Vite non-root user
+# Vite non-root user
 # ---------------------------------------------------------------------------
 
 

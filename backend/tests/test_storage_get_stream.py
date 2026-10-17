@@ -1,4 +1,4 @@
-"""Regression test for ING-03 / P2-03: LocalStorageProvider.get_stream() must stream large files in fixed-size chunks without buffering the full payload."""
+"""Regression test: LocalStorageProvider.get_stream() must stream large files in fixed-size chunks without buffering the full payload."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ async def test_s3_get_stream_is_one_request_not_one_per_chunk(s3_provider) -> No
 
 @pytest.mark.asyncio
 async def test_s3_get_stream_missing_key_raises(s3_provider) -> None:
-    """Same FileNotFoundError contract every provider normalizes to (#430 BA-24).
+    """Same FileNotFoundError contract every provider normalizes to.
 
     It is what lets the COG route answer 404 rather than 503 for an object that
     is simply gone.

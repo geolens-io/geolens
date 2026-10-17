@@ -235,7 +235,7 @@ class TestRegisteredDeleteDetaches:
 
 
 class TestDetachOfAnAlreadyMissingTableStillRetires:
-    """fix(#1452 review round 1): a detach only frees nothing while the
+    """A detach only frees nothing while the
     relation is there to occupy the name.
 
     A registered dataset whose table the operator already dropped frees its

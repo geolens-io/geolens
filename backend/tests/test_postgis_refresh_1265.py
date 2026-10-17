@@ -692,7 +692,7 @@ class TestPostgisRefreshExecution:
     async def test_the_snapshot_survives_a_query_at_transaction_begin(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1313 review round 4): the multi-tenant shape, in single-tenant.
+        """The multi-tenant shape, in single-tenant.
 
         ``tenant_session._on_begin`` issues ``SELECT set_config('app.
         current_tenant', ...)`` the instant a multi-tenant transaction starts,
@@ -788,7 +788,7 @@ class TestPostgisRefreshExecution:
         refreshed = await _reload(test_db_session, dataset.id)
         assert refreshed.feature_count == 2  # unchanged, which is the point
         purge.assert_awaited_once_with(dataset.table_name)
-        # fix(#1313 review round 3): and the half the purge cannot do. The
+        # And the half the purge cannot do. The
         # Valkey purge clears the server cache; `_v=` in the tile URL is the
         # only thing that reaches a browser or a CDN.
         assert (refreshed.tile_cache_version or 1) > (before_version or 1)
@@ -1170,7 +1170,7 @@ class TestPostgisRefreshExecution:
     async def test_an_emptied_table_keeps_its_geometry_type(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1313 review round 5): rows are not the only evidence.
+        """Rows are not the only evidence.
 
         ``extract_metadata`` derives the geometry type by sampling a row, so
         an emptied spatial table reports None — the same answer a genuinely
@@ -1226,7 +1226,7 @@ class TestPostgisRefreshExecution:
     async def test_an_emptied_generic_column_with_nothing_known_stays_spatial(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1382 review r1): the sub-case with no last measurement.
+        """fix(#1382): the sub-case with no last measurement.
 
         Same branch as above, minus the stored value to fall back on: a table
         registered while it was empty and generic has never had a type
@@ -1259,7 +1259,7 @@ class TestPostgisRefreshExecution:
     async def test_a_table_that_gains_geometry_becomes_a_vector_dataset(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1313 review round 6): modality is derived, so keep deriving it.
+        """Modality is derived, so keep deriving it.
 
         ``service_create.py`` sets ``record_type`` from whether the dataset
         has geometry, and this task is the only thing that can change the
@@ -1326,7 +1326,7 @@ class TestPostgisRefreshExecution:
         assert refreshed.geometry_type is None
         assert refreshed.record.record_type == "table"
 
-        # fix(#1313 review round 7): refresh_attribute_metadata touches the
+        # refresh_attribute_metadata touches the
         # synthetic `geom` row only when geometry_type is non-null, and
         # excludes it from the removed-column sweep by name — so without an
         # explicit retirement the attributes API would go on advertising a
@@ -1472,7 +1472,7 @@ class TestPostgisRefreshExecution:
     async def test_the_quality_score_uses_the_measured_modality(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1313 review round 7): the score and the record must agree.
+        """The score and the record must agree.
 
         ``compute_quality_score`` branches on ``record_type`` to choose which
         dimensions apply, and the loaded record still carries the pre-refresh
@@ -1501,7 +1501,7 @@ class TestPostgisRefreshExecution:
     async def test_a_concurrent_feature_edit_is_not_rolled_back(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1313 review round 5): a stale measurement must not win.
+        """A stale measurement must not win.
 
         Feature writes are not blocked by the refresh admission index, and
         every one of them recomputes ``feature_count`` and the record extent

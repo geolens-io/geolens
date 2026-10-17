@@ -1,4 +1,4 @@
-"""single_tenant BYTE-IDENTICAL fail-open guard tests (Phase 1208-05, ISO-02/GATE-01).
+"""single_tenant BYTE-IDENTICAL fail-open guard tests.
 
 Proves that in single_tenant (the test default):
 
@@ -14,7 +14,7 @@ Proves that in single_tenant (the test default):
   (d) The GUC ``app.current_tenant`` is unset (NULL/empty) in a default
       single_tenant session — the after_begin hook is a no-op.
 
-This is the [BLOCKING] acceptance gate for Phase 1208.  RLS accidentally active
+This is the [BLOCKING] acceptance gate.  RLS accidentally active
 in single_tenant would cause every catalog query to return 0 rows (GUC unset +
 fail-closed policy), breaking the entire backend suite.
 

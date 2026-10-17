@@ -1,4 +1,4 @@
-"""builder-audit #338 P1-13: AI set_filter actions are validated against the full
+"""AI set_filter actions are validated against the full
 shared MapLibre filter grammar (filter_grammar.validate_filter), not just
 ``["get", ...]`` column refs.
 
@@ -135,7 +135,7 @@ async def test_malformed_arity_rejected():
     assert "invalid filter expression" in dropped[0]
 
 
-# fix(#527 B-054/F-04): ["has", col] refs are validated like ["get", col] —
+# fix: ["has", col] refs are validated like ["get", col] —
 # a hallucinated has-column filter previously passed and hid every feature.
 @pytest.mark.anyio
 async def test_has_ref_against_known_column_accepted():

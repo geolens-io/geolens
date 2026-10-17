@@ -7,7 +7,7 @@ query count so a future edit cannot silently reintroduce the N+1.
 
 The per-row `can_access_dataset()` call is intentionally NOT batched: only `restricted`
 targets reach the database from there, and a batch op on the permission seam would let
-a wrapping overlay's policy be skipped (SLOT-02). An admin caller short-circuits that
+a wrapping overlay's policy be skipped. An admin caller short-circuits that
 check with no query, so the count below reflects the batched member load alone.
 """
 

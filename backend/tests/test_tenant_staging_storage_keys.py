@@ -150,7 +150,7 @@ async def test_presigned_upload_uses_physical_key_and_persists_logical_key(monke
     from app.processing.ingest import router
     from app.processing.ingest.schemas import PresignedUploadRequest
 
-    # fix(#1235 review r3): a real created_at, because the presign path now
+    # fix(#1235): a real created_at, because the presign path now
     # signs against the job's remaining lifetime. A MagicMock here yields
     # int(MagicMock) == 1 and the assertion below would pin a meaningless TTL.
     job = MagicMock(
@@ -224,7 +224,7 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
         },
     )
     db = AsyncMock()
-    # fix(#1202 review r5): completion re-fetches the row FOR UPDATE before
+    # fix(#1202): completion re-fetches the row FOR UPDATE before
     # reading file_path, so the locked fetch has to yield the SAME job the
     # test configured — a bare AsyncMock returns a fresh mock whose truthy
     # file_path trips the one-shot guard.
@@ -301,10 +301,10 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
         return frozen_staging_key(logical_key)
 
     port.finalize_presigned_object = AsyncMock(side_effect=_fake_finalize)
-    # fix(#1235 review r3/r4): a real TTL, for the same reason as above.
+    # fix(#1235): a real TTL, for the same reason as above.
     port.require_signable_job_lifetime = MagicMock(return_value=1800)
 
-    # fix(#1235 review r8): the door signs through one port call that computes
+    # fix(#1235): the door signs through one port call that computes
     # the expiration inside the signing thread, so this fake has to actually
     # invoke the storage method. A bare MagicMock would put a mock where the
     # URL string belongs and the tenant-key assertion below would never run.
@@ -412,23 +412,23 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     # feat(#1219): six, with the abandoned-refresh-run sweep after them.
     # fix(#1274 review): seven — the refresh-run sweep is two statements,
     # the legacy-completion recorder before the abandonment cancel.
-    # fix(#1322 review round 3): eight — the VRT RasterAsset UPDATE split
+    # Eight — the VRT RasterAsset UPDATE split
     # into two (composition-preserving -> 'ready', composition-changed ->
     # 'failed'). Both .scalars() and .all() are set on every result: the
     # VrtGeneration UPDATE in that same sweep reads via .all(), and this
     # fixture doesn't care which statement lands at which index, only that
     # every accessor the sweep might call returns an empty result.
-    # fix(#1709 review r7): nine — the childless-`fanned_out` reconciliation
+    # fix(#1709): nine — the childless-`fanned_out` reconciliation
     # (a fan-out parent whose dispatch died before its first child
     # committed) runs between the running-jobs sweep and the VRT sweep.
-    # fix(#1778 codex r5/r7): nine — the retention purge used to read its
+    # fix(#1778): nine — the retention purge used to read its
     # exempted rows first, the terminal rows that still name an unreaped
     # artifact, which it refused to delete so the record survived for the
     # next sweep to retry. Missing it here shifted every later result by one:
     # the purge's DELETE consumed the survivor SELECT's double, `deleted_paths`
     # came back empty and the tenant-scoped delete this test exists for was
     # never made.
-    # fix(#1778 codex r10): back down to nine — that exempted-rows SELECT
+    # fix(#1778): back down to nine — that exempted-rows SELECT
     # moved OUT of this block entirely, into the unconditional
     # artifact-carrying SELECT that now runs after the purge (see below), so
     # nothing here answers it any more.
@@ -437,19 +437,19 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
         result.scalars.return_value = []
         result.all.return_value = []
     deleted = MagicMock()
-    # fix(#1202 review r5): the purge's RETURNING is (id, file_path,
+    # fix(#1202): the purge's RETURNING is (id, file_path,
     # user_metadata) now — it also reaps the presigned staging key, which
     # needs the row's own id to decide ownership. No s3_key here, so this
     # row still contributes exactly one delete.
     deleted.all.return_value = [(uuid.uuid4(), logical, None)]
     survivors = MagicMock()
     survivors.scalars.return_value = []
-    # fix(#1778 codex r10): the artifact-carrying SELECT, unconditional and
+    # fix(#1778): the artifact-carrying SELECT, unconditional and
     # run after the retention block. No rows in this fixture carry an
     # unreaped artifact.
     artifact_rows = MagicMock()
     artifact_rows.all.return_value = []
-    # fix(#1202 review r8): one more SELECT for the post-expiry staging sweep.
+    # fix(#1202): one more SELECT for the post-expiry staging sweep.
     post_expiry = MagicMock()
     post_expiry.all.return_value = []
     db = AsyncMock()

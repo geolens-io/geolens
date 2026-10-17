@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""fix(#1778 review round 2): structural gate — every construction of the
+"""Structural gate — every construction of the
 SDK's generated ``GeolensClient`` in this package must go through
 ``_sdk_helpers.make_client()``, the single point that binds the request to
 ``DEFAULT_HTTP_TIMEOUT_SECONDS``. Before this gate, AppState.sdk(),

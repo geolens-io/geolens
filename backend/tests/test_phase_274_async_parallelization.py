@@ -1,8 +1,8 @@
-"""PERF-02 and PERF-03 regression tests (Phase 274).
+"""Regression tests.
 
-PERF-02 — _bulk_fetch_dataset_metadata runs every lookup on the caller's
+_bulk_fetch_dataset_metadata runs every lookup on the caller's
           session, and the raster-meta + VRT-source-count path stays ordered.
-PERF-03 — extract_metadata for spatial tables consolidates four data-table
+extract_metadata for spatial tables consolidates four data-table
           SELECTs (feature_count, srid, geometry_type, extent_wkt) into a
           single CTE-driven query so PostgreSQL does one shared scan and
           one network round-trip.
@@ -15,11 +15,11 @@ import pytest
 from sqlalchemy import text
 
 
-# --- PERF-03: extract_metadata uses CTE consolidation ---------------------
+# --- extract_metadata uses CTE consolidation ---------------------
 
 
 def test_extract_metadata_uses_single_cte():
-    """PERF-03: spatial-table fast path issues one CTE-driven query."""
+    """spatial-table fast path issues one CTE-driven query."""
     from app.processing.ingest.metadata import extract_metadata
 
     src = inspect.getsource(extract_metadata)
@@ -31,7 +31,7 @@ def test_extract_metadata_uses_single_cte():
 
 
 def test_extract_metadata_keeps_fallback_path():
-    """PERF-03: graceful degradation if CTE fails (e.g., legacy PostGIS)."""
+    """Graceful degradation if CTE fails (e.g., legacy PostGIS)."""
     from app.processing.ingest.metadata import extract_metadata
 
     src = inspect.getsource(extract_metadata)
@@ -43,7 +43,7 @@ def test_extract_metadata_keeps_fallback_path():
 
 
 def test_extract_metadata_non_spatial_skips_spatial_helpers():
-    """PERF-03: non-spatial table path uses ONLY get_feature_count."""
+    """non-spatial table path uses ONLY get_feature_count."""
     from app.processing.ingest.metadata import extract_metadata
 
     src = inspect.getsource(extract_metadata)
@@ -53,7 +53,7 @@ def test_extract_metadata_non_spatial_skips_spatial_helpers():
     assert "has_geometry" in src
 
 
-# --- PERF-02: _bulk_fetch_dataset_metadata parallelization ---------------
+# --- _bulk_fetch_dataset_metadata parallelization ---------------
 
 
 @pytest.mark.anyio
@@ -113,7 +113,7 @@ async def test_bulk_fetch_uses_only_the_callers_session(monkeypatch):
 
 
 def test_bulk_fetch_dependent_path_stays_sequential():
-    """PERF-02: block 3 still mutates block 2's output IN PLACE.
+    """Block 3 still mutates block 2's output IN PLACE.
 
     Asserts that the *executable* call to ``fetch_raster_meta_bulk``
     precedes the *executable* assignment of ``source_count`` into
@@ -143,13 +143,13 @@ def test_bulk_fetch_dependent_path_stays_sequential():
 
 
 def test_bulk_fetch_preserves_best_effort_semantics():
-    """PERF-02: per-block exceptions stay broad-handled."""
+    """per-block exceptions stay broad-handled."""
     from app.modules.catalog.search.router import _bulk_fetch_dataset_metadata
 
     src = inspect.getsource(_bulk_fetch_dataset_metadata)
-    # Multiple try/except blocks for per-block degradation. After PERF-02
-    # this includes: stac inner block + extents inner block + raster_meta
-    # block + VRT source_count block = 4. Pre-PERF-02 there were 4 too.
+    # Multiple try/except blocks for per-block degradation. The
+    # count includes: stac inner block + extents inner block + raster_meta
+    # block + VRT source_count block = 4, the same as before.
     # Lock at >=2 so this test stays loose enough to not break on minor
     # refactors but tight enough to catch a wholesale removal of error
     # handling.
@@ -158,7 +158,7 @@ def test_bulk_fetch_preserves_best_effort_semantics():
     )
 
 
-# --- PERF-03 behavior round-trip (DB-required) ---------------------------
+# --- behavior round-trip (DB-required) ---------------------------
 
 
 @pytest.mark.skipif(
@@ -168,7 +168,7 @@ def test_bulk_fetch_preserves_best_effort_semantics():
 )
 @pytest.mark.anyio
 async def test_extract_metadata_round_trips_on_spatial_table(test_db_session):
-    """PERF-03: spatial table returns all 4 fields in one round-trip.
+    """Spatial table returns all 4 fields in one round-trip.
 
     Skipped automatically when no test DB env var is present. Even when
     those env vars are set, the underlying ``test_db_session`` fixture

@@ -48,7 +48,7 @@ class TestAllowedEmailDomainsSetting:
     async def test_put_valid_list_persists_and_get_returns_normalized(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """PUT a valid non-empty list; GET returns the case-folded result (DOMAIN-01 criterion 1)."""
+        """PUT a valid non-empty list; GET returns the case-folded result (criterion 1)."""
         resp = await client.put(
             "/settings/",
             json={
@@ -66,7 +66,7 @@ class TestAllowedEmailDomainsSetting:
     async def test_put_mixed_case_stored_as_lowercase(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """PUT mixed-case domains; GET returns case-folded value (DOMAIN-01 criterion 2)."""
+        """PUT mixed-case domains; GET returns case-folded value (criterion 2)."""
         resp = await client.put(
             "/settings/",
             json={"settings": {"allowed_email_domains": ["EXAMPLE.COM"]}},
@@ -80,7 +80,7 @@ class TestAllowedEmailDomainsSetting:
     async def test_put_invalid_patterns_returns_422_and_nothing_persisted(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """PUT invalid patterns -> 422, and prior value is unchanged (no partial-apply, DOMAIN-01 criterion 1)."""
+        """PUT invalid patterns -> 422, and prior value is unchanged (no partial-apply, criterion 1)."""
         # First set a known good value
         await client.put(
             "/settings/",
@@ -134,7 +134,7 @@ class TestAllowedEmailDomainsSetting:
     async def test_put_empty_list_succeeds_and_get_returns_empty(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """PUT [] succeeds; GET returns [] (unrestricted, DOMAIN-01 criterion 3)."""
+        """PUT [] succeeds; GET returns [] (unrestricted, criterion 3)."""
         resp = await client.put(
             "/settings/",
             json={"settings": {"allowed_email_domains": []}},

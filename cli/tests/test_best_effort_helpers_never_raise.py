@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""fix(#1778 round 32): every cleanup helper documented as "best-effort"
+"""Every cleanup helper documented as "best-effort"
 must actually be non-raising. _discard_unpaired_refresh_token() claimed
 this in its own docstring, but its file WRITE was unguarded -- an
 unwritable credentials.toml raised straight out of it, past
@@ -19,7 +19,7 @@ every failure point the helper's own docstring claims to tolerate:
   read/write, all raising.
 - delete_credentials()'s own keyring loop -- all four accounts raising
   (the file clear at the end is INTENTIONALLY NOT best-effort, per
-  round 22: logout must refuse on a corrupt file, so that part is not
+  logout must refuse on a corrupt file, so that part is not
   pinned here).
 """
 from __future__ import annotations
@@ -64,7 +64,7 @@ class TestDiscardUnpairedRefreshTokenNeverRaises:
         _auth._set_credential_field(INSTANCE, "refresh_token", "some-refresh-token")
         _auth._set_credential_field("https://other.example.com/api", "bearer_token", "x")
         monkeypatch.setattr(_auth, "_write_credentials_file", _raise_os_error)
-        # Must not raise -- this is the exact finding round 32 fixes.
+        # Must not raise -- this is the exact finding fixes.
         _auth._discard_unpaired_refresh_token(INSTANCE)
 
 
@@ -99,7 +99,7 @@ class TestRestoreCredentialsNeverRaises:
 
 class TestDeleteCredentialsKeyringLoopNeverRaises:
     """logout's file-side _clear_credential_section() is deliberately
-    NOT best-effort (round 22: a corrupt file must make logout refuse,
+    NOT best-effort (a corrupt file must make logout refuse,
     not silently rewrite it empty) -- only the keyring loop's own
     documented "missing entries are silently ignored" contract is
     pinned here."""

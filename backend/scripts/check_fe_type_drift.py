@@ -1,4 +1,4 @@
-"""OCG-03: FE/SDK type-drift guard.
+"""FE/SDK type-drift guard.
 
 Checks that the backend-boundary types in ``frontend/src/types/api.ts`` are a
 structural subset of ``backend/openapi.json`` (the canonical backend schema).
@@ -32,7 +32,7 @@ Design choices
   ``DuplicateMapResponse extends MapResponse``).
 
 - **Scope**: comparison is limited to the MAINTAINED_MODELS allowlist (seeded with
-  the five tenant-bound models that will gain a ``tenant_id`` in Phase 1207, plus
+  the five tenant-bound models that will gain a ``tenant_id``, plus
   the full overlap set for broader coverage).  New models should be added to the
   allowlist as the API surface grows.
 
@@ -49,7 +49,6 @@ Usage::
 
     PYTHONPATH=. uv run python scripts/check_fe_type_drift.py --check-all
     # Also checks schemas outside the maintained allowlist (informational only)
-
 """
 
 from __future__ import annotations
@@ -69,8 +68,8 @@ _OPENAPI_JSON = _REPO_ROOT / "backend" / "openapi.json"
 _FE_TYPES = _REPO_ROOT / "frontend" / "src" / "types" / "api.ts"
 
 # ---------------------------------------------------------------------------
-# Five tenant-bound models (Phase 1207 will add tenant_id to these)
-# These are the MINIMUM models to hand-audit before tenancy lands (OCG-03).
+# Five tenant-bound models (each will gain tenant_id)
+# These are the MINIMUM models to hand-audit before tenancy lands.
 # ---------------------------------------------------------------------------
 
 TENANT_BOUND_MODELS: list[str] = [
@@ -296,7 +295,7 @@ class DriftReport:
         case the KNOWN_DRIFT allowlist cannot cover — silently skipping it
         let a renamed/removed maintained model pass with zero output.
 
-        fix(#1778 review round 9): a KNOWN_DRIFT entry that has become
+        a KNOWN_DRIFT entry that has become
         fully resolved (the FE mirror caught up — check_drift() computes
         this into ``resolved_known_drift``) used to only print a
         ``[RESOLVED]`` notice; nothing made the gate itself fail, and

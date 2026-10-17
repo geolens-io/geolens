@@ -1,13 +1,13 @@
-"""SEC-01: SVG icon GET responses carry CSP `default-src 'none'; sandbox`.
+"""SVG icon GET responses carry CSP `default-src 'none'; sandbox`.
 
-Pins the v13.13 closure of M-63. The header isolates uploaded SVGs from
+The header isolates uploaded SVGs from
 running scripts in the user's auth context (cookies, localStorage) — even if
 the upload validator is bypassed by a future regression, browsers honor the
 CSP sandbox on image/svg+xml responses.
 
 The strict CSP is set by the route handler (router.py) and the global
 SecurityHeadersMiddleware honors a route-level CSP via setdefault semantics
-(matching the SEC-13 pattern for Referrer-Policy). Non-icon routes continue
+(matching the pattern for Referrer-Policy). Non-icon routes continue
 to get the global default `frame-ancestors 'self'`.
 """
 

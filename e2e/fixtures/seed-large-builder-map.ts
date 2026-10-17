@@ -1,5 +1,5 @@
 /**
- * Seed fixture for large-map perf tests (Phase 1047 PERF-01..04).
+ * Seed fixture for large-map perf tests.
  *
  * Creates a builder map with many layers via the REST API so Playwright perf
  * specs can measure first-paint, hover latency, and bulk-op throughput on a

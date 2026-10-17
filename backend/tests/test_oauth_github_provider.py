@@ -1,12 +1,12 @@
-"""Tests for the GitHub OAuth2 provider (SSO-05, Phase 1237 Plan 01).
+"""Tests for the GitHub OAuth2 provider.
 
 Three test groups:
   1. POST /settings/oauth-providers/ with provider_type='github' auto-populates
-     GitHub's fixed endpoints and a read:user/user:email scope (success criterion 1).
+     GitHub's fixed endpoints and a read:user/user:email scope.
   2. _resolve_github_identity selects ONLY the primary+verified email from /user/emails
-     and raises when none exists (T-1237-01 ASVS account-takeover guard, criterion 2).
-  3. Disallowed-domain GitHub email is rejected by find_or_create_oauth_user (Phase 1236
-     reuse); allowed-domain GitHub email JIT-provisions a new user (criterion 4).
+     and raises when none exists (ASVS account-takeover guard).
+  3. Disallowed-domain GitHub email is rejected by find_or_create_oauth_user;
+     allowed-domain GitHub email JIT-provisions a new user.
 
 Run with:
     cd backend && set -a && source ../.env.test && set +a &&
@@ -366,11 +366,11 @@ async def _clear_allowed_domains(client: AsyncClient, header: dict) -> None:
 
 @pytest.mark.anyio
 class TestGithubDomainEnforcement:
-    """Proves Phase 1236 domain enforcement applies to GitHub JIT provisioning.
+    """Proves domain enforcement applies to GitHub JIT provisioning.
 
     The normalized GitHub userinfo dict feeds the EXISTING find_or_create_oauth_user,
     which runs the is_email_allowed check before any provisioning — so disallowed-domain
-    GitHub emails are rejected and no user is created (T-1237-02).
+    GitHub emails are rejected and no user is created.
     """
 
     @pytest.fixture(autouse=True)
@@ -418,7 +418,7 @@ class TestGithubDomainEnforcement:
         test_db_session: AsyncSession,
     ) -> None:
         """A GitHub email at a disallowed domain raises OAuthDomainNotAllowedError
-        and no user is provisioned (T-1237-02, DOMAIN-03 reuse)."""
+        and no user is provisioned (reuse)."""
         await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
         try:
             provider = await self._make_github_provider(test_db_session)

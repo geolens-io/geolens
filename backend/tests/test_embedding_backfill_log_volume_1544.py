@@ -137,7 +137,7 @@ async def test_log_volume_per_failed_record_stays_small():
     Measured against the app's own JSON renderer — the production posture, and
     the one #1544 said had never been sized — by running the same failure at two
     record counts and taking the slope. A traceback per record puts that slope
-    around 12 KiB; a compact line puts it under a few hundred bytes.
+    a KiB; a compact line puts it under a few hundred bytes.
 
     The slope is what is asserted rather than the total, because the total also
     contains the run's fixed lines (start, progress, complete) and the single
@@ -361,7 +361,7 @@ def test_compact_error_redacts_userinfo_the_truncation_point_would_have_entered(
 def test_compact_error_redacts_a_credential_whitespace_would_have_split(
     template, whitespace
 ):
-    """Collapsing whitespace before redacting hides the credential (#1577 review r2).
+    """Collapsing whitespace before redacting hides the credential (#1577 codex).
 
     `URL_LIKE_RE` stops at whitespace, so turning a tab, CR or LF inside a URL
     into a space ends the match early. Split the userinfo and the terminating

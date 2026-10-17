@@ -1,4 +1,4 @@
-"""Regression tests for the conftest test-DB lifecycle (TI-01).
+"""Regression tests for the conftest test-DB lifecycle.
 
 Pins:
 - worker_id-aware DB naming under pytest-xdist
@@ -6,9 +6,9 @@ Pins:
 - settings.postgres_db_test mutation during the session fixture
 - the test DB actually exists and is reachable after the fixture yields
 
-These tests are the regression net for the 1363 InvalidCatalogNameError
-errors observed in v1016 Phase 1074. If any of them fail, the conftest
-test-DB lifecycle has drifted from the TI-01 contract.
+These tests are the regression net for a run of InvalidCatalogNameError
+errors. If any of them fail, the conftest
+test-DB lifecycle has drifted from the contract.
 
 Pure-unit style for Tests 1-4 (no @pytest.mark.asyncio, no DB I/O); they
 exercise the naming + quoting helpers in isolation. Tests 5-6 implicitly

@@ -1,4 +1,4 @@
-"""Phase 1230 Plan 01 Task 1 — EnvConfiguredNotificationSink registration tests.
+"""EnvConfiguredNotificationSink registration tests.
 
 Covers:
   - After register_builtin_notification_sinks() runs, get_notification_sinks()
@@ -38,7 +38,7 @@ def _restore_slot(saved):
 
 
 # ---------------------------------------------------------------------------
-# Task 1.1: register_builtin_notification_sinks() exists + wires the sink
+# Register_builtin_notification_sinks() exists + wires the sink
 # ---------------------------------------------------------------------------
 
 
@@ -90,7 +90,7 @@ def test_register_builtin_notification_sinks_preserves_default_sink() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 1.2: idempotency — two calls must not duplicate the sink
+# Idempotency — two calls must not duplicate the sink
 # ---------------------------------------------------------------------------
 
 
@@ -115,7 +115,7 @@ def test_register_builtin_notification_sinks_is_idempotent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 1.3: worker-path proof — bootstrap(app=None) registers the sink
+# Worker-path proof — bootstrap(app=None) registers the sink
 # ---------------------------------------------------------------------------
 
 
@@ -233,7 +233,7 @@ async def test_bootstrap_api_path_registers_env_sink(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 1.4: delivery proof — notify() reports attempted >= 1 after registration
+# Delivery proof — notify() reports attempted >= 1 after registration
 # ---------------------------------------------------------------------------
 
 

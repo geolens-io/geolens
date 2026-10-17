@@ -1,6 +1,6 @@
-"""SEC-10: Share-token entropy is 32 bytes (256 bits), parity with embed tokens.
+"""Share-token entropy is 32 bytes (256 bits), parity with embed tokens.
 
-Pins the v13.13 closure of L-60. Existing 16-byte tokens (already hashed in
+Existing 16-byte tokens (already hashed in
 the DB as sha256) continue to validate — the entropy bump applies only to
 newly generated tokens.
 """

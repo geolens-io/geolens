@@ -1,5 +1,5 @@
 #!/bin/sh
-# Consistency test for UPGRADING.md (UPG-03): the documented commands/paths must
+# Consistency test for UPGRADING.md: the documented commands/paths must
 # match the actual tooling (scripts/upgrade.sh, scripts/restore.sh, the compose
 # files), and the doc must never tell anyone to `psql < dump` a -Fc custom-format
 # dump. Pure text checks; no stack.

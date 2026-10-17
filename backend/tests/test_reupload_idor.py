@@ -4,8 +4,7 @@ Verifies that all 6 router_reupload.py handlers reject non-owner editors
 with 404 when the target dataset is private, and that the owner still
 gets a non-404 response on the service-preview path.
 
-Requirement: REUPLOAD-IDOR-01 — check_dataset_access added to all 6 handlers.
-Phase: 1065-02
+check_dataset_access is applied in all 6 handlers.
 """
 
 import uuid
@@ -182,8 +181,8 @@ class TestReuploadIDORNonOwner:
     """All 6 reupload handlers must return 404 for a non-owner editor
     hitting a private dataset they do not own.
 
-    This pins the fix from Phase 1065-02 (REUPLOAD-IDOR-01):
-    check_dataset_access added to all 6 handlers.
+    This pins the fix:
+    check_dataset_access is applied in all 6 handlers.
     """
 
     async def test_reupload_dataset_idor_non_owner(
@@ -398,7 +397,7 @@ class TestReuploadIDOROwnerAllowed:
 
         This confirms check_dataset_access does not block the owner.
 
-        TD-04 disposition (mock-out, not skip-with-rationale): the
+        Disposition (mock-out, not skip-with-rationale): the
         reupload_service_preview handler at router_reupload.py:263 calls
         run_service_preview, which spawns an `ogrinfo` subprocess. On
         macOS dev hosts without `gdal-bin` on PATH, the subprocess raises
@@ -408,7 +407,7 @@ class TestReuploadIDOROwnerAllowed:
         mock run_service_preview at the CALLER module path
         (`app.modules.catalog.datasets.api.router_reupload.run_service_preview`)
         because router_reupload.py:44 uses a module-top `from ... import`
-        binding — unlike Plan 1081-02's lazy-import case (function-body
+        binding — unlike the lazy-import case (function-body
         import in tasks_reupload.py), the symbol is bound in the caller's
         namespace at module load time, so the caller-namespace target is
         required for the patch to intercept the call. We raise
@@ -421,14 +420,14 @@ class TestReuploadIDOROwnerAllowed:
         installed in the Dockerfile (lines 22-26, 70-74), so a
         `shutil.which("ogrinfo")` skip would silently skip on macOS dev
         but never on CI — exactly the false-green pattern the v1017
-        milestone audit named as the TD-04 problem.
+        milestone audit named as the problem.
         """
         owner_headers, owner_id = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
         )
         dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
 
-        # TD-04: mock run_service_preview so the test does not depend on
+        # Mock run_service_preview so the test does not depend on
         # `ogrinfo` being on the host PATH. Patch the CALLER module
         # (router_reupload) because the import at router_reupload.py:44
         # is module-top (`from ... import run_service_preview`), binding

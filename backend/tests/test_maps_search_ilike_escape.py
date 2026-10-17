@@ -1,11 +1,11 @@
-"""SEC-FU-07 / WR-01: service_crud.py list_maps ILIKE search must escape %, _, and \\.
+"""service_crud.py list_maps ILIKE search must escape %, _, and \\.
 
 The list_maps() function in service_crud.py composes an ILIKE pattern as
 f"%{search}%" without escaping the user-supplied string first. A search of
 "%" matches all rows because the pattern becomes "%%", which Postgres treats
 as "match any string". Similarly, "_" matches any single character.
 
-WR-01 (review-1063): the initial fix also missed escaping the backslash
+The initial fix also missed escaping the backslash
 character itself. A search for ``foo\\`` produced the pattern ``%foo\\%``.
 PostgreSQL treats ``\\%`` as "escaped percent = literal %", so ``foo\\``
 would match maps named ``foo%`` — the wrong rows.
@@ -210,7 +210,7 @@ class TestSecFu07IlikeEscape:
     ):
         """search='\\\\' (literal backslash) must NOT match maps containing '%' via escape confusion.
 
-        WR-01 regression: without escaping '\\\\' first, the pattern becomes
+        Regression: without escaping '\\\\' first, the pattern becomes
         ``%\\\\%``. PostgreSQL interprets ``\\\\%`` as "escape char then literal %",
         i.e. ``\\\\`` is treated as the ESCAPE prefix for ``%``, so the pattern
         matches rows containing a literal '%' — the wrong rows.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Per-shard table-count capacity benchmark for GeoLens (Phase 1209-04, DP-05).
+"""Per-shard table-count capacity benchmark for GeoLens.
 
 Measures the real per-shard table-count ceiling on local Postgres using three
 complementary signals:
@@ -580,7 +580,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # WR-04 (Phase 1209-CR): guard against runaway DDL on production DBs.
+    # Guard against runaway DDL on production DBs.
     # Without a cap, --max-tables 50000 would create 50 k tables + indexes
     # if pointed at a production DSN by mistake.
     _MAX_TABLES_LIMIT = 10_000

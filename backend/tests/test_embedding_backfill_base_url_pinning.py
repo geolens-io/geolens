@@ -37,7 +37,7 @@ they were found:
   (#1525 review, codex P1).
 - An endpoint that resolves to `None`, which is a pin and not an omission
   (#1525 review, codex P2).
-- Two cache windows (#1525 review r2, codex P1). `update_settings` commits the
+- Two cache windows (#1525 codex, codex P1). `update_settings` commits the
   whole batch and then evicts each key in turn, so between the commit and the
   last eviction a cached read can be stale. With one key evicted the snapshot
   could pin a MIXED pair; with none evicted it could pin a wholly SUPERSEDED
@@ -201,7 +201,7 @@ class _AtomicSwitchProvider(_EndpointRecordingProvider):
 class _BatchFailsWithTheEditProvider(_EndpointRecordingProvider):
     """Fails the batch call and lands the endpoint edit as it fails.
 
-    fix(#1525 review r6, codex P2). A provider stumble and an admin edit in the
+    fix(#1525, codex P2). A provider stumble and an admin edit in the
     same window is the shape the per-record fallback was blind to, and it is
     not a coincidence: an outage is exactly when someone goes and repoints the
     endpoint. Because the batch call raises, the batch's own post-call check
@@ -222,7 +222,7 @@ class _BatchFailsWithTheEditProvider(_EndpointRecordingProvider):
 class _RetryLandsTheEditProvider(_EndpointRecordingProvider):
     """Fails the batch call cleanly, then lands the edit during the first retry.
 
-    fix(#1525 review r6, codex P2). The other half: nothing has drifted when
+    fix(#1525, codex P2). The other half: nothing has drifted when
     the retry loop starts, so the check before the retry's provider call passes
     and only the one AFTER it can catch the edit, before that record's vector
     is committed.
@@ -336,7 +336,7 @@ async def test_a_mid_run_endpoint_edit_cannot_split_a_run_across_providers(
     # batch size of 128 the non-force path makes exactly one.
     monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 1)
 
-    # fix(#1525 review r4, codex P2): the run STOPS at the next batch boundary
+    # fix(#1525, codex P2): the run STOPS at the next batch boundary
     # once the endpoint it pinned is no longer the active one, instead of
     # quietly finishing the catalog in a vector space the live search will
     # never match. So "one run reached two endpoints" is now unreachable rather
@@ -608,8 +608,8 @@ async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
     # detect, and the count below would hold on the unfixed tree too.
     assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
     # Two for `_snapshot_embedding_config` (capture then re-read), plus two per
-    # batch for the drift checks: one before requesting it (#1525 review r4)
-    # and one before accepting it (r5). A batch that resolved the config for
+    # batch for the drift checks: one before requesting it (#1525 codex)
+    # and one before accepting it. A batch that resolved the config for
     # its own VALUE as well would add a third, which is the bug: with
     # `base_url is None` as the pin test, a resolved None reads as an omission
     # and every batch re-resolves.
@@ -629,7 +629,7 @@ async def test_a_half_evicted_cache_cannot_pin_a_mixed_pair(
 ):
     """Two reads through one stale cache entry agree with each other.
 
-    fix(#1525 review r2, codex P1): `PersistentConfig.get` answers from a
+    fix(#1525, codex P1): `PersistentConfig.get` answers from a
     PER-KEY cache, and `update_settings` commits the whole batch before evicting
     each key in turn (settings/router.py:338-345). Between the commit and the
     last eviction, one key answers from the DB while another answers from cache,
@@ -787,7 +787,7 @@ async def test_an_edit_during_the_final_batch_is_not_committed(
 ):
     """The batch with no successor to catch it.
 
-    fix(#1525 review r5, codex P2): checking for drift before requesting each
+    fix(#1525, codex P2): checking for drift before requesting each
     batch leaves the LAST one uncovered, because there is no next iteration.
     An edit landing during that final provider call was never observed: the
     vectors were generated against the pinned endpoint, committed, and the run
@@ -847,7 +847,7 @@ async def test_an_edit_during_a_failed_batch_stops_the_per_record_retry(
 ):
     """Drift must not slip through on the failure path.
 
-    fix(#1525 review r6, codex P2): the per-record fallback (#449) ran with no
+    fix(#1525, codex P2): the per-record fallback (#449) ran with no
     drift check at all. A batch call that fails while an admin repoints the
     endpoint skips the batch's post-call check entirely, and every retry below
     it then generated against the stale pin and committed one vector at a time,
@@ -905,7 +905,7 @@ async def test_an_edit_during_a_per_record_retry_is_not_committed(
 ):
     """The retry's own call is bracketed, not just preceded.
 
-    fix(#1525 review r6, codex P2): nothing has drifted when the retry loop
+    fix(#1525, codex P2): nothing has drifted when the retry loop
     starts here, so the check before the call passes and only the one after it
     can see the edit that landed during the call. Without it that record's
     vector is committed against the stale pin.

@@ -1,4 +1,4 @@
-"""Tests for SEC-S03 — column DDL IDOR (Phase 1061).
+"""Tests for the column DDL IDOR.
 
 Verifies that editor B cannot mutate columns on editor A's private dataset
 via POST/PATCH/DELETE /layers/{id}/columns/*.
@@ -35,7 +35,7 @@ async def _create_layer_for_user(
 
 
 # ---------------------------------------------------------------------------
-# SEC-S03: deny-paths — editor B cannot perform DDL on editor A's dataset
+# deny-paths — editor B cannot perform DDL on editor A's dataset
 # ---------------------------------------------------------------------------
 
 
@@ -123,7 +123,7 @@ async def test_drop_column_other_user_private_returns_404(
 
 
 # ---------------------------------------------------------------------------
-# SEC-S03: owner-allow-paths — editor A retains DDL on their own dataset
+# owner-allow-paths — editor A retains DDL on their own dataset
 # ---------------------------------------------------------------------------
 
 

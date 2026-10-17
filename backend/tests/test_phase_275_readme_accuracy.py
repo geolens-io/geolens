@@ -1,4 +1,4 @@
-"""Phase 275 / API-04 + API-09 + API-13 regression: README accuracy locks."""
+"""Regression: README accuracy locks."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def _read(rel_path: str) -> str:
 
 
 def test_readme_api_reference_link_is_external() -> None:
-    """API-04 / M-21: API Reference table row points to docs.getgeolens.com."""
+    """API Reference table row points to docs.getgeolens.com."""
     body = _read("README.md")
     assert "docs.getgeolens.com/guides/api/" in body, (
         "README.md API Reference link must point to docs.getgeolens.com/guides/api/"
@@ -25,7 +25,7 @@ def test_readme_api_reference_link_is_external() -> None:
 
 
 def test_readme_surfaces_examples_manifests_directory() -> None:
-    """API-04 / L-17: examples/manifests/ must be discoverable from the README."""
+    """examples/manifests/ must be discoverable from the README."""
     body = _read("README.md")
     assert "examples/manifests" in body, (
         "README.md must reference examples/manifests/ (covers public-cog discoverability)"
@@ -33,7 +33,7 @@ def test_readme_surfaces_examples_manifests_directory() -> None:
 
 
 def test_readme_documents_cold_build_time() -> None:
-    """API-13 / M-73: cold-build time documented for first-time users."""
+    """cold-build time documented for first-time users."""
     body = _read("README.md")
     assert ("5-10 minutes" in body) or ("Cold-build time" in body), (
         "README.md must document cold-build time (M-73): 'First build takes 5-10 minutes'"
@@ -41,7 +41,7 @@ def test_readme_documents_cold_build_time() -> None:
 
 
 def test_code_of_conduct_has_inline_pledge() -> None:
-    """API-09 / L-24: CODE_OF_CONDUCT.md gains a pledge above the link."""
+    """CODE_OF_CONDUCT.md gains a pledge above the link."""
     body = _read("CODE_OF_CONDUCT.md")
     assert "## Our Pledge" in body, "CODE_OF_CONDUCT.md missing '## Our Pledge' section"
     assert re.search(r"[Ww]e pledge", body), (
@@ -50,7 +50,7 @@ def test_code_of_conduct_has_inline_pledge() -> None:
 
 
 def test_all_readmes_are_utf8() -> None:
-    """API-09 / L-25: non-English READMEs preserve UTF-8."""
+    """non-English READMEs preserve UTF-8."""
     for filename in (
         "README.md",
         "README.es.md",
@@ -67,7 +67,7 @@ def test_all_readmes_are_utf8() -> None:
 
 
 def test_readme_fr_has_accent_marks() -> None:
-    """API-09 / L-25: README.fr.md restores accent marks (no bare 'donnees')."""
+    """README.fr.md restores accent marks (no bare 'donnees')."""
     body = _read("README.fr.md")
     assert "données" in body, (
         "README.fr.md missing 'données' (UTF-8 restoration regression)"

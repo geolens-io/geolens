@@ -4,13 +4,12 @@ Run with::
 
     cd backend && uv run python tests/fixtures/saml/generate_fixtures.py
 
-(requires pysaml2 + xmlsec1 -- available via the enterprise overlay; see
-Phase 217 RESEARCH.md S10.)
+(requires pysaml2 + xmlsec1 -- available via the enterprise overlay.)
 
 Produces 5 base64-encoded SAMLResponse XML fixtures used by tests in
 ``backend/tests/test_saml_overlay.py``.
 
-Signing keypair (SEC-015)
+Signing keypair
 -------------------------
 No private key is tracked in the repo. ``main()`` resolves the IdP signing
 keypair via ``_resolve_keypair``: it prefers a committed ``idp_cert.pem`` +
@@ -110,7 +109,7 @@ def _make_server(sp_metadata_path: Path, cert_path: Path, key_path: Path) -> Ser
 
     ``cert_path`` / ``key_path`` are resolved by ``_resolve_keypair`` -- either
     a committed pair (manual rotation / back-compat) or a throwaway pair
-    self-generated into the output dir (SEC-015: no private key tracked).
+    self-generated into the output dir (no private key is tracked).
     """
     config = IdPConfig()
     config.load(
@@ -231,7 +230,7 @@ def _force_expired(xml_str: str) -> str:
     they should not assert that the rejection reason is specifically 'expired'
     versus 'signature mismatch' -- both are correct rejections.
 
-    The plan's intent (per RESEARCH S10) is: we have an expired-LOOKING
+    The intent is: we have an expired-LOOKING
     fixture that our pipeline rejects. pysaml2's parse_authn_request_response
     will raise (signature error or expiry error) and the SP-side test asserts
     rejection. If a test needs to specifically verify the expiry code path
@@ -255,9 +254,9 @@ def _build_xsw_attack_xml(signed_xml: str) -> str:
     <saml:Advice> element while injecting an EVIL assertion as the primary
     Assertion. A naive parser that picks the first Assertion sees the EVIL
     one but a signature-aware parser like pysaml2 7.5.4 with xmlsec1 should
-    detect the wrapping and raise SignatureError (per RESEARCH Pitfall 2).
+    detect the wrapping and raise SignatureError.
 
-    This fixture is the negative test payload -- Plan 02's
+    This fixture is the negative test payload -- the
     test_saml_acs_rejects_xsw_attack asserts pysaml2 rejects it.
     """
     # Find the legitimate <ns:Assertion ...>...</ns:Assertion> block.
@@ -314,7 +313,7 @@ def _build_xsw_attack_xml(signed_xml: str) -> str:
 def _generate_keypair(target: Path) -> tuple[Path, Path]:
     """Self-generate a throwaway RSA-2048 keypair + self-signed cert into ``target``.
 
-    SEC-015: no private key is tracked in the repo. When the committed cert/key
+    No private key is tracked in the repo. When the committed cert/key
     are absent, the IdP simulator signs with a freshly-minted pair written
     alongside the generated fixtures, and the SP-side test seeds the matching
     ``idp_cert.pem`` so signature validation passes. (A *different* cert is
@@ -364,7 +363,7 @@ def _resolve_keypair(target: Path) -> tuple[Path, Path]:
 
     Prefers a committed ``idp_cert.pem`` + ``idp_key.pem`` (manual rotation /
     back-compat); otherwise self-generates a throwaway pair into ``target``
-    (SEC-015 -- no private key tracked in the repo).
+    (no private key is tracked in the repo).
     """
     if CERT_PEM.exists() and KEY_PEM.exists():
         return CERT_PEM, KEY_PEM
@@ -422,7 +421,7 @@ if __name__ == "__main__":
     # Refresh the committed PUBLIC fallback (idp_cert.pem + signed
     # .xml.b64.template files). A throwaway keypair is minted in a temp dir,
     # used to sign, then discarded -- only the public cert + templates are
-    # copied into the tracked tree (SEC-015: the private key is never written
+    # copied into the tracked tree (the private key is never written
     # to the repo). This keeps the committed cert and templates mutually
     # consistent after a rotation.
     import tempfile as _tempfile

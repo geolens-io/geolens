@@ -1,4 +1,4 @@
-"""Tests for the single-slot conflict guard + wrap-don't-replace contract (SLOT-01/02).
+"""Tests for the single-slot conflict guard + wrap-don't-replace contract.
 
 Covers:
 - Duplicate single-slot writes raise ExtensionSlotConflictError naming key + both providers.
@@ -8,7 +8,6 @@ Covers:
 - The guard observes writes made DURING the loader callback.
 - The wrap-don't-replace convention is documented in protocols.py (structural test).
 
-References: SLOT-01, SLOT-02
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ class TestSingleSlotConflictGuard:
             "workflow",
             "branding",
             "auth",
-            "entitlement",  # Phase 1207 / ENTSEAM-01
+            "entitlement",
             "connectors",
             "data_serving",
         ],
@@ -247,7 +246,7 @@ class TestAdditiveSlotExempt:
                 "billing_extensions",
                 "ai_providers",
                 "embedding_providers",
-                "notification_sinks",  # Phase 1229 NOTIF-01
+                "notification_sinks",
                 "_routers",
             }
         )
@@ -271,7 +270,7 @@ class TestSingleSlotKeySet:
                 "workflow",
                 "branding",
                 "auth",
-                "entitlement",  # Phase 1207 / ENTSEAM-01
+                "entitlement",
                 "connectors",
                 "data_serving",
                 "scheduled_refresh_lifecycle",
@@ -283,7 +282,7 @@ class TestSingleSlotKeySet:
 
 
 class TestWrapDontReplaceDocumented:
-    """SLOT-02: wrap-don't-replace rule must be documented in protocols.py docstrings."""
+    """wrap-don't-replace rule must be documented in protocols.py docstrings."""
 
     def test_protocols_module_contains_wrap_rule(self):
         """protocols.py must document the wrap-don't-replace rule (not just in a comment)."""

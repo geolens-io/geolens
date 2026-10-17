@@ -1,6 +1,6 @@
-"""DP-01 ingest write-path tests: schema/role-parameterized helpers + tenant routing.
+"""Ingest write-path tests: schema/role-parameterized helpers + tenant routing.
 
-Task 1 (pure-function, no DB)
+(pure-function, no DB)
 -----------------------------
 T1-A: _qtable default schema == 'data' (single_tenant unchanged)
 T1-B: _qtable with explicit schema produces correct quoted ref
@@ -11,7 +11,7 @@ T1-F: _safe_table_ref validates the data_t_<uuid_underscored> schema name
 T1-G: grant_reader_access GRANT text targets correct table+role (default)
 T1-H: grant_reader_access GRANT text targets per-tenant schema+role
 
-Task 2 (live DB — requires test DB at localhost:5434)
+(live DB — requires test DB at localhost:5434)
 ------------------------------------------------------
 T2-A: ingest write helpers land a table in data_t_{TENANT_A} in multi_tenant
 T2-B: to_regclass('data_t_..._001.probe') is NOT NULL; 'data.probe' IS NULL
@@ -46,7 +46,7 @@ _ROLE_B = "geolens_reader_t_00000000_0000_0000_0000_000000000002"
 
 
 # ===========================================================================
-# Task 1: Pure-function assertions (no DB)
+# Pure-function assertions (no DB)
 # ===========================================================================
 
 
@@ -312,7 +312,7 @@ class TestInteractiveCreateTenantRouting:
 
 
 # ===========================================================================
-# Task 2: Live DB tests — require test DB at localhost:5434
+# Live DB tests — require test DB at localhost:5434
 # These tests are marked DB and skipped when POSTGRES_HOST is not set.
 # ===========================================================================
 

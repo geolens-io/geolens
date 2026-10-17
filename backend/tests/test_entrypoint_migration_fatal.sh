@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test_entrypoint_migration_fatal.sh — MIG-01 regression test.
+# test_entrypoint_migration_fatal.sh — regression test.
 #
 # Asserts that backend/scripts/api-entrypoint.sh FAILS CLOSED when the
 # `alembic upgrade heads` step exits non-zero: the entrypoint must exit

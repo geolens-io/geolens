@@ -46,7 +46,7 @@ RECONCILE_EXIT="${RECONCILE_EXIT:-0}"
 
 if [ "$1" = "compose" ]; then
   shift
-  # fix(#1798 review round 16, P2, review 5104847831): compose() now also
+  # compose() now also
   # emits `--project-directory VALUE` (see scripts/lib/common.sh) -- skip
   # any number of "-f VALUE" / "--project-directory VALUE" pairs, in
   # whichever order compose() sends them, before checking the subcommand.

@@ -1,4 +1,4 @@
-"""Integration tests for quality scoring (PREV-05).
+"""Integration tests for quality scoring.
 
 Tests verify quality score computation logic and its presence in API responses.
 Since compute_quality_score requires a real data table for geometry validity
@@ -272,14 +272,14 @@ async def test_quality_score_in_dataset_response(
 
 
 # ---------------------------------------------------------------------------
-# Regression tests for PERF-N3/N9 — single-query attribute-completeness
+# Regression tests for single-query attribute-completeness
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
 async def test_attribute_completeness_uses_single_query(test_db_session):
     """compute_quality_score must issue one SQL query for attribute completeness,
-    not one per column (PERF-N3/N9).
+    not one per column (/N9).
 
     Previously a 50-column dataset triggered 50 sequential full-table scans. The
     refactored implementation coalesces all per-column COUNT(col) aggregations

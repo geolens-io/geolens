@@ -246,7 +246,7 @@ async def test_head_on_an_s3_backed_cog_answers_200_over_the_wire(uvicorn_url, s
 
 
 async def test_a_presigned_get_ignores_conditional_headers(real_s3_storage):
-    """The premise of the round-4 fix: the bucket does not evaluate If-Range.
+    """The premise of the fix: the bucket does not evaluate If-Range.
 
     The redirect design would be free of the splice hazard if a presigned GET
     honoured the ``If-Range`` a resuming client re-sends across the hop. It does

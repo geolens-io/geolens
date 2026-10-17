@@ -4,7 +4,7 @@ Tests verify the orchestration logic (call order, argument passing, branching)
 using mocks. These do NOT require a real database — they test that the helper
 calls the expected pipeline steps with the correct arguments.
 
-Per D-06: mock-based unit tests verifying the helper's orchestration logic.
+Mock-based unit tests verifying the helper's orchestration logic.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -681,7 +681,7 @@ class TestIngestVectorIntoStaging:
 
     @pytest.mark.asyncio
     async def test_session_commit_never_called(self):
-        """Test 10: session.commit() is never called inside the helper (D-10)."""
+        """Test 10: session.commit() is never called inside the helper."""
         from app.processing.ingest.tasks import _ingest_vector_into_staging
 
         # Build a session that tracks all method calls

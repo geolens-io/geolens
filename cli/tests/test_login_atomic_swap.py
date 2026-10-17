@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""fix(#1778 review round 4): structural gate — `login` must never call
+"""Structural gate — `login` must never call
 delete_credentials() directly. delete_credentials() removes every stored
 credential unconditionally; calling it before storing the replacement (the
 bug this fix addresses) left a user logged out if the store then failed.

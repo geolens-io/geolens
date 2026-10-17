@@ -1,10 +1,10 @@
-"""Phase 279 ADMIN-05 + ADMIN-06 regression tests.
+"""Regression tests.
 
-ADMIN-05 (L-02): POST /auth/register/ now emits a `user.register` audit
+POST /auth/register/ now emits a `user.register` audit
 event. Without this lock, a future register-route refactor could silently
 drop the event and the registration funnel goes dark.
 
-ADMIN-06 (L-03): delete_user assumes every catalog FK referencing users.id
+delete_user assumes every catalog FK referencing users.id
 has ondelete='SET NULL' (cross-user references) or 'CASCADE' (owned data).
 A future migration that introduces a non-nullable user FK without setting
 ondelete would break delete_user at runtime. This test catches that BEFORE
@@ -22,7 +22,7 @@ from app.modules.auth.router import REGISTRATION_ENABLED
 
 
 # -------------------------------------------------------------------
-# ADMIN-06 — Static-analysis FK delete-behavior regression
+# Static-analysis FK delete-behavior regression
 # -------------------------------------------------------------------
 
 
@@ -67,7 +67,7 @@ def test_user_fk_delete_behavior_locked():
         # SavedSearch is per-user state (named queries the user authored);
         # has no value once the user is gone.
         "saved_searches.user_id",
-        # Email-verification tokens (Phase 1231 migration 0009) are short-lived
+        # Email-verification tokens (migration 0009) are short-lived
         # per-user credentials; they are meaningless once the user is deleted.
         "email_verification_tokens.user_id",
         # Feature-create retry keys are per-user request state that matches a
@@ -115,7 +115,7 @@ def test_user_fk_test_imports_dont_silently_skip():
     """
     from app.core.db import Base
 
-    # We expect at LEAST these tables to be in metadata after Task 1's
+    # We expect at LEAST these tables to be in metadata after the
     # imports above run (pytest collects test functions in order and the
     # noqa imports persist for the module's lifetime).
     table_names = set(Base.metadata.tables.keys())
@@ -127,7 +127,7 @@ def test_user_fk_test_imports_dont_silently_skip():
 
 
 # -------------------------------------------------------------------
-# ADMIN-05 — register emits user.register audit event
+# Register emits user.register audit event
 # -------------------------------------------------------------------
 #
 # These integration tests need a live DB + AsyncClient. They use the same
@@ -156,7 +156,7 @@ async def test_register_emits_user_register_audit(
     unique = uuid.uuid4().hex[:8]
     username = f"audituser_{unique}"
     email = f"audituser_{unique}@example.com"
-    # TD-02 (Plan 1081-01): v1014 SEC-S16 enforces 12-char minimum + 3-of-4 class
+    # v1014 enforces 12-char minimum + 3-of-4 class
     # diversity at validate_password_complexity. The prior "securepass123" literal
     # (lowercase + digit = 2 classes) fails the 3-of-4 rule before the register
     # audit path runs. "TestPass1234!" mirrors conftest.py:491 / test_password_policy.py:37.
@@ -212,7 +212,7 @@ async def test_register_disabled_does_not_emit_audit(
     before_count = len(list(before.scalars().all()))
 
     unique = uuid.uuid4().hex[:8]
-    # TD-03 (Plan 1081-01): v1014 SEC-S16 enforces 12-char minimum + 3-of-4 class
+    # v1014 enforces 12-char minimum + 3-of-4 class
     # diversity at validate_password_complexity. The prior "securepass123" literal
     # (lowercase + digit = 2 classes) fails the 3-of-4 rule before the registration
     # disabled path runs. "TestPass1234!" mirrors conftest.py:491 / test_password_policy.py:37.

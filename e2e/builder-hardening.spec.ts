@@ -64,7 +64,7 @@ function attachConsoleGate(page: Page): ConsoleGate {
   return { errors, warnings };
 }
 
-// fix(#524 B-036): status-0 AJAXErrors are network-level aborts of in-flight
+// Status-0 AJAXErrors are network-level aborts of in-flight
 // tile fetches (page reload / source teardown mid-request), not server or app
 // failures. MapLibre surfaces them as console errors during the
 // save-and-reload flows this suite drives, and BuilderMap's DEV error handler

@@ -1,4 +1,4 @@
-"""Reusable multi_tenant test harness (ISO-03, ISO-04, Phase 1208-03).
+"""Reusable multi_tenant test harness.
 
 Provides a ``multi_tenant_rls`` pytest fixture (and a matching
 ``MultiTenantContext`` dataclass) that scopes RLS enablement to a single test:
@@ -20,7 +20,7 @@ Usage
             rows = (await session.execute(select(User))).scalars().all()
             # Only tenant_a rows visible
 
-Reused by Plan 04 (GATE-01 cross-tenant gate) and Phase 1209.
+Reused by the cross-tenant gate and the per-tenant data-plane tests.
 
 Design notes
 ------------
@@ -314,7 +314,7 @@ async def multi_tenant_rls(monkeypatch) -> AsyncGenerator[MultiTenantContext, No
 
     Teardown runs even when setup or the test body raises, so the shared
     per-worker DB is always returned to single_tenant/RLS-disabled state for
-    subsequent tests (T-1208-09).
+    subsequent tests.
 
     Mark tests that use this fixture with ``@pytest.mark.rls``.
     """

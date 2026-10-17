@@ -1,4 +1,4 @@
-"""MIG-02 — startup schema-head skew guard tests.
+"""Startup schema-head skew guard tests.
 
 Verifies ``app.core.db.schema_skew.assert_schema_in_sync`` fails closed on
 schema-head skew in BOTH directions and passes against a real DB at head.

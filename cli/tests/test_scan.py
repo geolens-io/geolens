@@ -1,10 +1,10 @@
-"""OCCLI-03: scan command — walk, classify, group, table + JSON output.
+"""Scan command — walk, classify, group, table + JSON output.
 
 Hand-maintained — NOT regenerated. Covers the four behavior buckets:
 - TestClassification: extension-based format detection
-- TestShapefileGrouping: D-18 sibling grouping under .shp parent
-- TestWalkSemantics: D-16 hidden-dirs / max-depth / symlink-loop
-- TestCliInvocation: end-to-end CLI invocation (Task 2)
+- TestShapefileGrouping: sibling grouping under .shp parent
+- TestWalkSemantics: hidden-dirs / max-depth / symlink-loop
+- TestCliInvocation: end-to-end CLI invocation
 """
 from __future__ import annotations
 
@@ -186,7 +186,7 @@ class TestCliInvocation:
 
 
 class TestGeojsonSnifferBoundedRead:
-    """PERF-008: the .json sniffer reads only a bounded prefix, never the whole file."""
+    """The .json sniffer reads only a bounded prefix, never the whole file."""
 
     def test_does_not_read_entire_file(self, tmp_path: Path, monkeypatch) -> None:
         # A "large" GeoJSON: small valid header followed by megabytes of filler.

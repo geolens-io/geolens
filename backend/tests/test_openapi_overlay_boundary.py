@@ -1,4 +1,4 @@
-"""OCG-01: OpenAPI-without-lifespan overlay sentinel.
+"""OpenAPI-without-lifespan overlay sentinel.
 
 This module pins the open-core SDK boundary: overlay (cloud/billing/tenant) routers
 stay OUT of the published ``@geolens/sdk`` ONLY because ``dump_openapi.py:24-26``
@@ -26,8 +26,6 @@ Tests
 - ``test_regression_intent``: documents (as a runtime assertion) that moving
   ``include_router`` to import time would flip the ABSENT test red — the test is
   the canary.
-
-References: OCG-01, T-1206-07
 """
 
 from __future__ import annotations
@@ -115,12 +113,12 @@ def _schema_present(spec: dict, schema_name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# OCG-01 sentinel tests
+# Sentinel tests
 # ---------------------------------------------------------------------------
 
 
 class TestOpenAPIOverlayBoundary:
-    """OCG-01: Sentinel route+schema is ABSENT without lifespan, PRESENT after include."""
+    """Sentinel route+schema is ABSENT without lifespan, PRESENT after include."""
 
     def test_sentinel_absent_without_lifespan(self):
         """ABSENT: the dummy overlay's route and schema do NOT appear in app.openapi().
@@ -132,8 +130,6 @@ class TestOpenAPIOverlayBoundary:
 
         If this test fails, it means an overlay router was included at import time —
         the open-core SDK boundary has been breached.
-
-        References: OCG-01, T-1206-07
         """
         from app.platform.extensions import load_extensions
 
@@ -167,8 +163,6 @@ class TestOpenAPIOverlayBoundary:
            ``get_extension_routers()`` → ``app.include_router(...)``.
         3. Clear ``app.openapi_schema`` so FastAPI regenerates from the new route set.
         4. Assert the sentinel path and schema ARE present.
-
-        References: OCG-01, T-1206-07
         """
         import app.platform.extensions as ext_mod
         from app.api.main import app
@@ -237,8 +231,6 @@ class TestOpenAPIOverlayBoundary:
         certainly that someone moved an ``app.include_router(overlay_router)`` call from
         inside the lifespan to module level — inadvertently leaking overlay schemas into
         the public SDK.
-
-        References: OCG-01, T-1206-07
         """
         # The open-core SDK boundary is maintained by this invariant:
         #   overlay routers are included ONLY inside the FastAPI lifespan.
@@ -254,7 +246,7 @@ class TestOpenAPIOverlayBoundary:
 
 
 # ---------------------------------------------------------------------------
-# OCG-01 extension: cloud control-plane + signup paths must be absent / present
+# Extension: cloud control-plane + signup paths must be absent / present
 # ---------------------------------------------------------------------------
 
 
@@ -263,7 +255,7 @@ _CLOUD_SIGNUP_PATH = "/cloud/signup/register/"
 
 
 class TestCloudOpenAPIBoundary:
-    """OCG-01 extended: cloud control-plane + signup paths are absent without lifespan.
+    """Extended: cloud control-plane + signup paths are absent without lifespan.
 
     The cloud overlay registers its routers via the same lazy lifespan mechanism
     as enterprise overlays (geolens_cloud/__init__.py::_get_routers() → registry
@@ -271,13 +263,11 @@ class TestCloudOpenAPIBoundary:
     lifespan bootstrap calls app.include_router for each).
 
     Without lifespan, app.openapi() must NOT contain:
-      - /cloud/control-plane/tenants   (CLOUD-02 tenant CRUD routes)
-      - /cloud/signup/register/        (CLOUD-03 atomic signup)
+      - /cloud/control-plane/tenants (tenant CRUD routes)
+      - /cloud/signup/register/ (atomic signup)
 
     After the lifespan-equivalent include (simulated), both paths MUST be present
-    (proves the mechanism is not vacuous — T-1211-18).
-
-    References: OCG-01, T-1211-18, CLOUD-02, CLOUD-03
+    (proves the mechanism is not vacuous).
     """
 
     def test_cloud_routes_absent_without_lifespan(self):
@@ -288,7 +278,7 @@ class TestCloudOpenAPIBoundary:
         load_extensions() → bootstrap(app=app). They must be absent here.
 
         If this test fails, a cloud router was included at import time — the
-        open-core SDK boundary has been breached (OCG-01, T-1211-18).
+        open-core SDK boundary has been breached.
         """
         from app.platform.extensions import load_extensions
 
@@ -328,8 +318,6 @@ class TestCloudOpenAPIBoundary:
            register_extensions function (simulates the lifespan loading the cloud entry point).
         2. Extract the routers from the registry and include them via app.include_router.
         3. Regenerate the spec and assert cloud paths ARE present.
-
-        References: OCG-01, T-1211-18
         """
         from app.api.main import app
 

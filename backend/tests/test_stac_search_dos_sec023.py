@@ -1,6 +1,6 @@
-"""Regression test for SEC-023: STAC POST /search intersects GeoJSON DoS cap.
+"""Regression test: STAC POST /search intersects GeoJSON DoS cap.
 
-The GET `intersects` query param is capped at max_length=10000 (SEC-FU-05), but
+The GET `intersects` query param is capped at max_length=10000, but
 `StacSearchBody.intersects` (the POST body dict) had no bound and reached the
 same anonymous ST_GeomFromGeoJSON / ST_Intersects predicate — a multi-megabyte
 GeoJSON polygon could pin CPU/memory and a DB connection. The fix caps the

@@ -1,4 +1,4 @@
-"""fix(#1548 review r8): PUBLIC_APP_URL has ONE shape rule, and both sides obey it.
+"""fix(#1548): PUBLIC_APP_URL has ONE shape rule, and both sides obey it.
 
 The setting is environment-backed, so it never passes through the
 persistent-setting validator and arrives as whatever string the operator typed.
@@ -92,7 +92,7 @@ def test_every_shape_the_spec_calls_invalid_is_refused():
 
 
 def test_every_canonical_origin_matches_the_browsers_spelling():
-    """fix(#1548 review r9): same place is not the same STRING.
+    """fix(#1548): same place is not the same STRING.
 
     A browser serializes the shell's Origin with an IDNA ASCII host, lowercased,
     no userinfo and the default port dropped. The configured value is compared
@@ -355,7 +355,7 @@ def test_both_entry_points_accept_a_value_a_viewer_could_reach(configured):
     four engines accept identically — a rule that rejected either would cost an
     operator a setting that works today.
 
-    fix(#1555 review r4): ACE labels are otherwise absent from this file, and
+    fix(#1555): ACE labels are otherwise absent from this file, and
     that is the finding rather than an omission. Chromium and WebKit accept
     every ``xn--`` label without decoding it, Firefox applies the full URL
     Standard and refuses most of them, and Node agrees with neither, so no

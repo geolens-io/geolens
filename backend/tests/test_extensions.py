@@ -185,7 +185,7 @@ class TestProtocolDefaults:
         assert DefaultAuthExtension().get_auth_methods() == []
 
     def test_pre_pr_import_surface_is_intact(self):
-        """fix(#873 review r4): the #836 split must not shrink the importable surface.
+        """fix(#873): the #836 split must not shrink the importable surface.
 
         Computed mechanically: the runtime-importable public names of
         ``app.platform.extensions`` (package root), ``.defaults``, and
@@ -226,7 +226,7 @@ class TestProtocolDefaults:
             )
 
     def test_pre_pr_wildcard_surface_is_intact(self):
-        """fix(#873 review r5): pin the ``import *`` surface of the facade.
+        """fix(#873): pin the ``import *`` surface of the facade.
 
         The pre-split defaults.py had NO ``__all__``, so a wildcard import
         exported every public module-level name — all seventeen Default*
@@ -265,7 +265,7 @@ class TestProtocolDefaults:
 
 
 class TestGetIdentityExtension:
-    """Tests for the get_identity_extension() typed accessor (Phase 214 D-13)."""
+    """Tests for the get_identity_extension() typed accessor."""
 
     def test_get_identity_extension_returns_default_when_unregistered(self):
         """No enterprise overlay registered -> returns DefaultIdentityExtension."""
@@ -291,7 +291,7 @@ class TestGetIdentityExtension:
     async def test_default_identity_extension_resolve_returns_none(self):
         """DefaultIdentityExtension.resolve_identity_from_token returns None for any input.
 
-        Enforces Pitfall 8: the method MUST be async — calling `await` on it
+        The method MUST be async — calling `await` on it
         must not raise TypeError. Enterprise auth overlays rely on this
         contract for their DB-lookup wire-in.
         """
@@ -304,7 +304,7 @@ class TestGetIdentityExtension:
 
 
 class TestSlotConflictGuard:
-    """Tests for the SLOT-01 wrap-recognition guard refinement (CLOUD-04).
+    """Tests for the wrap-recognition guard refinement.
 
     TDD RED: these tests will fail until _run_loader_with_slot_guard is updated
     to recognize the __slot_inner__ marker.
@@ -486,7 +486,7 @@ class TestSlotConflictGuard:
 class TestProtocolOverlayDispatch:
     """Tests for the get_*_extension() typed accessors' overlay-dispatch behavior.
 
-    Phase 276 CODE-03 — closes M-11 / M-54: the BrandingExtension and
+    The BrandingExtension and
     AuthExtension Protocol seams previously had only OSS-side
     default-shape tests (TestProtocolDefaults above). These tests lock the
     overlay-dispatch boundary so a regression where the accessor accidentally
@@ -498,9 +498,9 @@ class TestProtocolOverlayDispatch:
     """
 
     def test_branding_extension_overlay_dispatch(self):
-        """Phase 276 CODE-03: A registered overlay under 'branding' is returned by the accessor.
+        """A registered overlay under 'branding' is returned by the accessor.
 
-        Mirrors the IdentityExtension dispatch test (line 226+). Closes M-11 / M-54.
+        Mirrors the IdentityExtension dispatch test (line 226+).
         """
         from app.platform.extensions import _extensions, get_branding_extension
         from app.platform.extensions.defaults import DefaultBrandingExtension
@@ -534,9 +534,9 @@ class TestProtocolOverlayDispatch:
         assert isinstance(get_branding_extension(), DefaultBrandingExtension)
 
     def test_auth_extension_overlay_dispatch(self):
-        """Phase 276 CODE-03: A registered overlay under 'auth' is returned by the accessor.
+        """A registered overlay under 'auth' is returned by the accessor.
 
-        Mirrors the IdentityExtension dispatch test (line 226+). Closes M-11 / M-54.
+        Mirrors the IdentityExtension dispatch test (line 226+).
         """
         from app.platform.extensions import _extensions, get_auth_extension
         from app.platform.extensions.defaults import DefaultAuthExtension

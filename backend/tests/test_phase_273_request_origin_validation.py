@@ -1,6 +1,6 @@
-"""SEC-05: _request_origin_decision validates derived origin against CORS allowlist.
+"""_request_origin_decision validates derived origin against CORS allowlist.
 
-Pins the v13.13 closure of M-67. When CORS_ALLOWED_ORIGINS is set, an
+When CORS_ALLOWED_ORIGINS is set, an
 attacker who steers X-Forwarded-Host or Origin to a non-allowlisted host
 gets None back — falling through to the configured public_app_url /
 public_api_url or default, NOT the attacker-controlled value.
@@ -107,7 +107,7 @@ def test_no_request_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): codebase audit 2026-08-30, "SEC-05's CORS-allowlist gate on
+# fix(#1778): codebase audit 2026-08-30, "the CORS-allowlist gate on
 # request-derived origins is bypassed two lines later by a raw Host fallback".
 #
 # _request_origin_decision returning None was read by both resolvers as "no origin to

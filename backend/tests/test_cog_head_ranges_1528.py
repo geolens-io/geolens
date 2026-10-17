@@ -886,7 +886,7 @@ async def test_head_cog_issues_exactly_one_s3_metadata_call(
 async def test_a_stale_resume_on_s3_is_not_redirected(
     client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
 ):
-    """fix(#1540 review P2, round 4): the version binding reaches the s3 branch.
+    """The version binding reaches the s3 branch.
 
     It landed in ``_local_cog_response`` first, which left the splice open on
     the backend this PR was extended to support. The bucket cannot be asked to
@@ -1169,7 +1169,7 @@ async def test_head_cog_remote_ssrf_denial_matches_get(
 ):
     """403 parity: HEAD must not skip the download-time SSRF re-validation.
 
-    SEC-06 re-runs ``validate_url_for_ssrf`` on the remote branch to defeat
+    Re-runs ``validate_url_for_ssrf`` on the remote branch to defeat
     DNS-rebinding TOCTOU. A HEAD that returned the redirect without it would
     hand a client the location the GET refuses to give.
     """

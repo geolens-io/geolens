@@ -1,4 +1,4 @@
-"""OCCLI-01: `geolens --version` prints version and exits 0 (no config, no SDK)."""
+"""`geolens --version` prints version and exits 0 (no config, no SDK)."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ class TestVersion:
         assert __version__  # non-empty
 
     def test_module_version_sourced_from_cli_distribution(self) -> None:
-        """BUG-031: the version must come from `geolens-cli`, not the SDK."""
+        """The version must come from `geolens-cli`, not the SDK."""
         assert __version__ == metadata.version("geolens-cli")
 
     def test_version_flag_reports_cli_distribution(self, runner, monkeypatch) -> None:
-        """BUG-031: `--version` must look up `geolens-cli`, not `geolens`.
+        """`--version` must look up `geolens-cli`, not `geolens`.
 
         Map the SDK distribution to a sentinel that must NOT appear, and the
         CLI distribution to a recognizable value that MUST appear.

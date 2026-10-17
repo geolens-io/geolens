@@ -12,11 +12,11 @@ C: with mixed-dimension rows (stale 1536-dim next to current 768-dim), the
    configured dimension wins over max(stored) and the regenerable cache is
    cleared before the bounded-lock type transition.
 D: explicit config beats UNIFORM stale rows too — all-512-dim rows with
-   EMBEDDING_DIMS=768 type the column vector(768) (codex P2 round 5).
+   EMBEDDING_DIMS=768 type the column vector(768) (codex P2).
 E: uniform stored rows beat only the built-in default — all-768-dim rows
    with nothing configured select vector(768), then the cache is cleared.
 F: a deliberate EMBEDDING_DIMS=1536 (equal to the default) still counts as
-   explicit and beats uniform stale 768-dim rows (codex P2 round 7).
+   explicit and beats uniform stale 768-dim rows (codex P2).
 
 Notes
 -----
@@ -181,7 +181,7 @@ class TestEmbeddingVectorMigrationDims:
             await _restore_default_head()
 
     async def test_mixed_dims_prefer_configured_dimension(self):
-        """fix(#449, codex P2 round 4): when stored rows disagree (stale
+        """When stored rows disagree (stale
         1536-dim next to current 768-dim), the configured dimension wins over
         max(stored) — otherwise the current model's rows get deleted and its
         future inserts fail against the stale-typed column."""
@@ -203,7 +203,7 @@ class TestEmbeddingVectorMigrationDims:
             await _restore_default_head()
 
     async def test_explicit_config_beats_uniform_stale_rows(self):
-        """fix(#449, codex P2 round 5): rows that ALL carry a superseded
+        """Rows that ALL carry a superseded
         model's dimension must not pin the column — explicit config wins."""
         try:
             r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
@@ -242,7 +242,7 @@ class TestEmbeddingVectorMigrationDims:
             await _restore_default_head()
 
     async def test_explicit_default_value_still_beats_stored_rows(self):
-        """fix(#449, codex P2 round 7): EMBEDDING_DIMS=1536 set deliberately
+        """EMBEDDING_DIMS=1536 set deliberately
         equals the frozen fallback, but the exported variable's presence makes
         it explicit — it must beat uniform stale 768-dim rows."""
         try:

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """logout credential + config teardown semantics.
 
-BUG-032: logging out of a non-default instance (via --instance / GEOLENS_INSTANCE
+Logging out of a non-default instance (via --instance / GEOLENS_INSTANCE
 override) must remove ONLY that instance's stored credentials and must NOT delete
 the global config.toml that points at the default instance.
 """
@@ -42,7 +42,7 @@ class TestLogoutConfigPreservation:
         )
         assert result.exit_code == 0, result.output
 
-        # BUG-032: the global config (default = prod) MUST survive.
+        # The global config (default = prod) MUST survive.
         assert _config.config_path().is_file(), "global config.toml was wiped"
         cfg = _config.load_config()
         assert cfg.instance == "https://prod.example.com/api"

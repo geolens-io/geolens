@@ -1,7 +1,5 @@
 """Regression test for GH-101: tempfile.tempdir override.
 
-Source: .planning/quick/260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads/
-
 Asserts that importing app.api.main has the side effect of redirecting
 Python's stdlib tempfile to settings.upload_staging_dir, so Starlette's
 MultiPartParser SpooledTemporaryFile rollover lands on the staging

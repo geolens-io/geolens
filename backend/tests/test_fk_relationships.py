@@ -157,7 +157,7 @@ class TestFKRelationships:
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, resp.text
-        # GAP-033: standard list envelope {relationships: [...], total: N}.
+        # standard list envelope {relationships: [...], total: N}.
         body = resp.json()
         assert isinstance(body, dict)
         assert "total" in body
@@ -187,7 +187,7 @@ class TestFKRelationships:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """GAP-033: the envelope `total` is the FULL visible count, not the page.
+        """The envelope `total` is the FULL visible count, not the page.
 
         With limit=1 over 2 relationships the page holds 1 item but total is 2,
         so a paginating client can detect that more pages exist. FAILS pre-fix
@@ -260,7 +260,7 @@ class TestFKRelationships:
         resp = await client.get(f"/datasets/{source.id}/relationships/")
 
         assert resp.status_code == 200, resp.text
-        # GAP-033 envelope: private target is filtered out, total reflects the
+        # envelope: private target is filtered out, total reflects the
         # visible count (0), not the raw row count.
         body = resp.json()
         assert body["relationships"] == []

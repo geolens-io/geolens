@@ -4,7 +4,7 @@ These tests require a real ogr2ogr binary and a running test PostGIS database.
 They exercise the shared helper with real ogr2ogr + real PostGIS to verify
 behavioral parity with the pre-refactor ingest_file and reupload_file paths.
 
-Per D-07: integration tests complement the mock-based unit tests in
+Integration tests complement the mock-based unit tests in
 test_staging_pipeline.py. Mocks verify orchestration; real tests verify the
 end-to-end pipeline actually works.
 

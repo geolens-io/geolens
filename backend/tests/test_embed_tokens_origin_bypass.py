@@ -1,4 +1,4 @@
-"""Unit-level regression tests for Phase 268 H-31 — embed-token Origin bypass.
+"""Unit-level regression tests for the embed-token Origin bypass.
 
 The legacy localhost-Origin bypass was trivially forgeable by non-browser
 callers: a curl/CLI/server-side caller could set ``Origin: http://localhost``
@@ -61,7 +61,7 @@ def _make_request(*, origin: str | None, client_host: str | None) -> MagicMock:
 
 
 class TestClientIsLoopback:
-    """Phase 268 H-31: _client_is_loopback gates bypass on TCP peer."""
+    """_client_is_loopback gates bypass on TCP peer."""
 
     def test_127_0_0_1_is_loopback(self):
         request = _make_request(origin=None, client_host="127.0.0.1")
@@ -98,12 +98,12 @@ _TEST_GENERATION = 3
 
 
 class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
-    """Phase 268 H-31: validate_embed_token_access must NOT honor a forged
+    """validate_embed_token_access must NOT honor a forged
     ``Origin: http://localhost`` from a non-loopback TCP peer."""
 
     @pytest.fixture(autouse=True)
     def _pin_revocation_generation(self, monkeypatch):
-        """fix(#1778 codex r3): a positive entry now carries the revocation
+        """fix(#1778): a positive entry now carries the revocation
         generation it was minted under, and one whose stamp is stale (or
         missing) is refused and re-read from the database. These cases are about
         the ORIGIN check on the cache-hit path, so they pin the generation and
@@ -124,7 +124,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         from datetime import datetime, timedelta, timezone
 
         # Patch the cache to return a positive cache hit with allowed_origins.
-        # SEC-014: cache entry must include expires_at so the expiry re-check passes.
+        # Cache entry must include expires_at so the expiry re-check passes.
         cache = AsyncMock()
         cache.get = AsyncMock(
             return_value={

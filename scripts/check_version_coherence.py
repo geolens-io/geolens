@@ -1,4 +1,4 @@
-"""Version-coherence gate: assert EVERY version site agrees (REL-04).
+"""Version-coherence gate: assert EVERY version site agrees.
 
 Reads the version from every place the project records one and exits non-zero
 if any disagree, printing the offending site(s). This is the READ/verify side of
@@ -51,7 +51,7 @@ structurally — the package's OWN entry, not "the version string appears in the
 file" — since any dependency could coincidentally sit at the same version.
 
 The canonical version is backend/pyproject.toml — the distribution version the
-running app derives at runtime via importlib.metadata (REL-03). Every other
+running app derives at runtime via importlib.metadata. Every other
 site must equal it.
 
 Usage:

@@ -1,10 +1,10 @@
-"""Unit tests for the CommitRequest subclass split (Phase 220, INGEST-K6-01).
+"""Unit tests for the CommitRequest subclass split.
 
 These tests validate the pydantic models in isolation — no database, no
 FastAPI, no fixtures. Fast (< 1 second total). They prove:
   - Required-field validation still fires on the subclasses
   - Kitchen-sink bodies are silently coerced into the subclass view
-  - Field distribution matches D-04 in CONTEXT.md
+  - Field distribution matches the documented distribution
 """
 
 import inspect
@@ -115,7 +115,7 @@ class TestRasterCommitRequest:
         with pytest.raises(ValidationError):
             RasterCommitRequest.model_validate({"compression": "LZW"})
 
-    # ING-07 / P2-09: optional strict_cog opt-in. Default False preserves
+    # Optional strict_cog opt-in. Default False preserves
     # backward compatibility with every existing raster commit call site.
     def test_raster_strict_cog_default_false(self) -> None:
         r = RasterCommitRequest(title="DEM")
@@ -247,8 +247,8 @@ class TestServiceCommitRequest:
 
 
 class TestFieldDistribution:
-    """Lock field distribution to D-04 in CONTEXT.md. If this test breaks,
-    the field distribution changed and CONTEXT.md/D-04 must be updated first."""
+    """Lock the field distribution. If this test breaks, the field
+    distribution changed and the documented distribution must be updated first."""
 
     def test_base_fields(self) -> None:
         assert set(BaseCommitRequest.model_fields) == {

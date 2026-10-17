@@ -1,7 +1,7 @@
 """Static-analysis test: the frontend normalizeBasemapConfig preserve-set must
 be a subset of the backend BasemapConfig allowed fields.
 
-Contract (GUARD-02):
+Contract:
   `normalizeBasemapConfig` in `frontend/src/lib/basemap-utils.ts` builds a
   `normalized` object whose keys are sent to the backend as
   `basemap_config` on map save. `BasemapConfig` is declared with
@@ -96,7 +96,7 @@ def _parse_frontend_basemap_preserve_set() -> set[str]:
 def test_normalize_basemap_preserve_set_subset_of_backend():
     """Frontend normalizeBasemapConfig preserve-set must be a subset of backend BasemapConfig fields.
 
-    Contract direction (GUARD-02):
+    Contract direction:
       frontend_preserve_set ⊆ backend_fields
 
     Every field the frontend writes into the `normalized` object and sends to

@@ -1,8 +1,8 @@
-"""PERF-01 / PERF-09 / PERF-11 regression tests (Phase 274).
+"""Regression tests.
 
-PERF-01 — InMemoryTileCacheProvider LRU fallback when REDIS_URL is unset.
-PERF-09 — Tile pool DSN parsed via sqlalchemy.engine.url.make_url, not str.replace.
-PERF-11 — tile_cache_hits / tile_cache_misses counters carry a `table_name`
+InMemoryTileCacheProvider LRU fallback when REDIS_URL is unset.
+Tile pool DSN parsed via sqlalchemy.engine.url.make_url, not str.replace.
+tile_cache_hits / tile_cache_misses counters carry a `table_name`
           label, with cardinality bounded by the `_safe_label` regex guard.
 """
 
@@ -18,7 +18,7 @@ from app.platform.cache.tile_cache import (
 )
 
 
-# --- PERF-11: Prometheus label cardinality protection ---------------------
+# --- Prometheus label cardinality protection ---------------------
 
 
 def test_safe_label_passes_data_table_names():
@@ -40,7 +40,7 @@ def test_counters_have_table_name_label():
 
 
 def test_safe_table_re_anchors_pattern():
-    """_SAFE_TABLE_RE must anchor to start AND end (PERF-11 cardinality)."""
+    """_SAFE_TABLE_RE must anchor to start AND end (cardinality)."""
     assert _SAFE_TABLE_RE.match("valid_table_99") is not None
     assert _SAFE_TABLE_RE.match("Invalid") is None  # uppercase rejected
     assert _SAFE_TABLE_RE.match("9_starts_digit") is None  # must start with letter
@@ -48,7 +48,7 @@ def test_safe_table_re_anchors_pattern():
     assert _SAFE_TABLE_RE.match("has;semicolon") is None
 
 
-# --- PERF-01: InMemoryTileCacheProvider behavior --------------------------
+# --- InMemoryTileCacheProvider behavior --------------------------
 
 
 @pytest.mark.asyncio
@@ -143,7 +143,7 @@ def test_init_tile_cache_falls_back_to_in_memory_when_redis_url_unset(
         cache_provider._tile_cache = saved
 
 
-# --- PERF-09: DSN parsing via make_url ------------------------------------
+# --- DSN parsing via make_url ------------------------------------
 #
 # settings.tile_database_url is a computed property (no setter), so we cannot
 # monkeypatch it directly on the Settings instance. Instead we substitute

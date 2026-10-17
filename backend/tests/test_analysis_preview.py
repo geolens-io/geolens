@@ -1442,7 +1442,7 @@ class TestBboxScopedPreview:
         test_db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """fix(#727 codex P1 round 1): the bbox-scoped count runs through
+        """The bbox-scoped count runs through
         execute_safe now (not a bare db.execute before the semaphore), so it
         counts against the SAME global preview bound as the geometry query —
         otherwise N concurrent viewport-scoped previews could each hold a
@@ -1495,7 +1495,7 @@ class TestBboxScopedPreview:
         test_db_session: AsyncSession,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """fix(#727 codex P2 round 1): a bbox-scoped denominator that could not
+        """A bbox-scoped denominator that could not
         be computed within the query budget must come back null, not a
         LIMIT-capped number dressed up as exact — the response's documented
         contract for both source_feature_count and match_count."""
@@ -1821,7 +1821,7 @@ class TestBuildPreviewSql:
         # single-part) put the per-component SubPlan at loops=285 and the
         # whole-input SubPlan at loops=1715.
         assert buffer_expr.count("ST_Buffer(") == 2
-        # fix(#902 codex r1-r3): beyond the two dateline-safe passes, the
+        # fix(#902-r3): beyond the two dateline-safe passes, the
         # sliced branch shifts per component (1) and per segment on the
         # jump-carrying fallback (3: the CASE tests the shifted copy twice
         # and emits it once).
@@ -1867,7 +1867,7 @@ class TestBuildPreviewSql:
         # along great circles (geography buffers geodesic edges — cutting the
         # bare planar chord buffered a different line, 141.7e9 m² vs the
         # 134.1e9 truth on the 90° fixture), polygonal components PLANAR-ly
-        # (fix(#902 codex r4): geography-segmentizing a ring moved the region
+        # (fix(#902): geography-segmentizing a ring moved the region
         # itself).
         from app.platform.analysis_sql import BUFFER_SLICE_SEGMENTIZE_PLANAR_DEG
 
@@ -1880,7 +1880,7 @@ class TestBuildPreviewSql:
             in buffer_expr
         )
         assert "ST_Dimension(_pb_d0.c0) >= 2" in buffer_expr
-        # fix(#902 codex r5): the shifted domain must win by the shared
+        # fix(#902): the shifted domain must win by the shared
         # longitude epsilon in BOTH the per-component and per-segment
         # unwraps, or ±360 float noise on a tied span tears a
         # Greenwich-crossing ring via the per-vertex shift.
@@ -1893,7 +1893,7 @@ class TestBuildPreviewSql:
         assert f"({BUFFER_LOCAL_SRID_SPAN_DEG} - 0.001)" in buffer_expr
         assert "generate_series" in buffer_expr
         assert "ST_Intersection(_pb_g.uc," in buffer_expr
-        # fix(#902 codex r3): a component still carrying a >180-degree planar
+        # fix(#902): a component still carrying a >180-degree planar
         # segment (it crosses BOTH meridians, so no whole-component unwrap
         # exists) bypasses band slicing and buffers per segment instead.
         assert "ST_DumpSegments(_pb_g.uc)" in buffer_expr
@@ -2053,7 +2053,7 @@ class TestBuildPreviewSql:
             assert sql.endswith("ORDER BY gid")
 
     def test_bbox_threaded_into_intersect(self):
-        """fix(#727 codex round 2): intersect renders through a separate
+        """Intersect renders through a separate
         JOIN+GROUP BY pipeline (render_intersect_preview/render_intersect_pairs)
         that does not share build_preview_sql's WHERE composition, so it needs
         its own explicit bbox plumbing — this pins that it actually receives
@@ -2077,7 +2077,7 @@ class TestBuildPreviewSql:
         assert sql.index("_src.geom_4326 && ST_MakeEnvelope") < sql.index("GROUP BY")
 
     def test_bbox_not_threaded_into_intersect_materialize(self):
-        """fix(#727 codex round 2): render_intersect_pairs's bbox param is
+        """render_intersect_pairs's bbox param is
         PREVIEW-ONLY. A saved dataset must be the WHOLE overlay, not whatever
         was on screen when Create dataset was clicked — the materialize
         worker's call site (processing/analysis/tasks.py) must keep omitting
@@ -2089,7 +2089,7 @@ class TestBuildPreviewSql:
         assert "ST_MakeEnvelope" not in sql
 
     def test_bbox_threaded_into_spatial_join_match_count(self):
-        """fix(#727 codex round 5): spatial_join's match_count is a SEPARATE
+        """spatial_join's match_count is a SEPARATE
         statement from the geometry preview (unlike intersect's, which rides
         the same one), so it needs its own explicit bbox plumbing too — the
         schema's contract says match_count is bbox-scoped for this operation,

@@ -1,6 +1,6 @@
-"""STOR-08: multi_tenant raster ingest stores at tenant-prefixed key (CR-02 regression).
+"""multi_tenant raster ingest stores at tenant-prefixed key (regression).
 
-Proves the fix for CR-02: the ingest path must store COG/VRT assets at the same
+Proves the fix: the ingest path must store COG/VRT assets at the same
 tenant-prefixed key that the serve path (resolve_open_path) resolves at tile time.
 
 Before the fix:
@@ -29,7 +29,7 @@ from app.core.db.tenant_session import current_tenant_var
 
 
 class TestMultiTenantIngestKeyAlignment:
-    """CR-02: ingest storage key must match serve-time resolve_open_path key."""
+    """Ingest storage key must match serve-time resolve_open_path key."""
 
     def test_single_tenant_prefix_is_empty(self):
         """In single_tenant mode, _tenant_prefix is empty — keys unchanged."""
@@ -46,7 +46,7 @@ class TestMultiTenantIngestKeyAlignment:
         """In multi_tenant mode, ingest prefix matches the serve-side prefix."""
         fake_tenant_id = "tenant-abc-123"
 
-        # Simulate what ingest now computes (CR-02 fix)
+        # Simulate what ingest now computes
         ingest_prefix = f"tenants/{fake_tenant_id}/"
         logical_key = "rasters/dataset-id/sha256abc/source.cog.tif"
         ingest_storage_key = f"{ingest_prefix}{logical_key}"
@@ -102,7 +102,7 @@ class TestMultiTenantIngestKeyAlignment:
         )
 
     def test_s3_serve_path_alignment(self):
-        """CR-02 alignment holds for S3 provider too."""
+        """Alignment holds for S3 provider too."""
         fake_tenant_id = "tenant-xyz"
         logical_key = "rasters/id/sha/source.cog.tif"
 

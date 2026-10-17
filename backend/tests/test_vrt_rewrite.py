@@ -1,4 +1,4 @@
-"""Unit tests for vrt_rewrite.rewrite_vrt_sources (STOR-03/04, Phase 1210 Wave 3).
+"""Unit tests for vrt_rewrite.rewrite_vrt_sources.
 
 Coverage:
 - /vsis3/ prefix stripped to logical key, relativeToVRT="1" set
@@ -402,7 +402,7 @@ class TestOrderingProof:
 
         # --- Step 5: ORDERING GATE — rewrite_vrt_sources runs AFTER extraction ---
         # (extraction already done in step 3 above)
-        # CR-01 fix: supply vrt_storage_key so the rewrite computes paths relative
+        # Supply vrt_storage_key so the rewrite computes paths relative
         # to the VRT's own directory within the bucket.  The VRT is at
         # "rasters/test123/source.vrt" and the source COG is at
         # "rasters/test123/source.cog.tif", so the correct relative path is

@@ -214,7 +214,7 @@ class TestRasterTokenZoomMetadata:
                 'ANGLEUNIT["degree",0.0174532925199433]]',
             ),
             (
-                # fix(#939 codex r3): WKT2:2015 spelling — GEODCRS with an
+                # fix(#939): WKT2:2015 spelling — GEODCRS with an
                 # ellipsoidal CS, the form rasterio still emits.
                 4269,
                 'GEODCRS["NAD83",DATUM["North American Datum 1983",'
@@ -312,7 +312,7 @@ class TestRasterAuthCheck:
     async def test_auth_check_mismatched_tile_version_is_not_cacheable(
         self, client: AsyncClient, test_db_session
     ):
-        """fix(#1372 codex r3): tile_cache_version is advertised in public URLs
+        """fix(#1372): tile_cache_version is advertised in public URLs
         and increments predictably, so a caller could pre-warm the NEXT
         version's nginx cache key with pre-replace bytes. A `v` that does not
         match the dataset's current version must therefore never produce a
@@ -340,7 +340,7 @@ class TestRasterAuthCheck:
         assert resp.status_code == 200
         assert resp.headers.get("x-geolens-cache-status") == "private"
 
-        # fix(#1372 codex r4): duplicate v — nginx keys on the FIRST value,
+        # fix(#1372): duplicate v — nginx keys on the FIRST value,
         # Starlette's .get() would return the LAST, so a naive check passes
         # while nginx caches under the future key. Exactly one v is required.
         resp = await client.get(
@@ -349,7 +349,7 @@ class TestRasterAuthCheck:
         assert resp.status_code == 200
         assert resp.headers.get("x-geolens-cache-status") == "private"
 
-        # fix(#1372 codex r4): nginx matches the param NAME case-insensitively
+        # fix(#1372): nginx matches the param NAME case-insensitively
         # ($arg_v sees V=999); an exact-case backend check would miss it.
         resp = await client.get(
             "/tiles/raster-auth-check/",
@@ -960,7 +960,7 @@ class TestRasterTokenEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# HYG-01: _band_stats_cache LRUCache unit tests
+# _band_stats_cache LRUCache unit tests
 # ---------------------------------------------------------------------------
 
 
@@ -1006,7 +1006,7 @@ async def test_band_stats_cache_hit(monkeypatch):
     monkeypatch.setattr("app.processing.tiles.router._titiler_client.get", mock_get)
 
     path = "/data/cache-hit-test.tif"
-    # Phase 1153: _fetch_band_statistics now requires pmin/pmax for cache-key isolation
+    # _fetch_band_statistics now requires pmin/pmax for cache-key isolation
     result1 = await _fetch_band_statistics(path, 2.0, 98.0)
     result2 = await _fetch_band_statistics(path, 2.0, 98.0)
 
@@ -1309,7 +1309,7 @@ class TestSignedRasterTileTemplate:
     async def test_a_signed_template_renders_an_unpublished_public_draft(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#688 codex r1): the draft-preview case.
+        """fix(#688): the draft-preview case.
 
         A public-but-unpublished raster is an owner/admin preview, and the mint
         endpoint issues a template for it. Gating the signature branch on
@@ -1342,7 +1342,7 @@ class TestSignedRasterTileTemplate:
     async def test_an_expired_signature_does_not_break_a_signed_in_session(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#688 codex r1): the signature is additive, never a restriction.
+        """fix(#688): the signature is additive, never a restriction.
 
         MapLibre keeps requesting the URL it was handed, so a preemptive refusal
         403'd an in-app map holding a valid session the moment its 15-minute

@@ -116,7 +116,7 @@ class TestGetExtent:
     async def test_positive_seam_edge_still_covers_the_stored_row(
         self, test_db_session
     ):
-        """fix(#934 codex r2): features at +180 and -170. The winning shifted
+        """fix(#934): features at +180 and -170. The winning shifted
         fold is west == 180, whose west..180 half has zero width;
         ``bbox_to_extent_wkt`` drops such halves, which would leave only the
         -180..-170 lobe — and that ring does not contain the row stored at the
@@ -146,7 +146,7 @@ class TestGetExtent:
             await _drop_table(test_db_session, table)
 
     async def test_negative_seam_edge_still_reads_as_crossing(self, test_db_session):
-        """fix(#934 codex r3): features at -180 and 170. ST_ShiftLongitude
+        """fix(#934): features at -180 and 170. ST_ShiftLongitude
         maps the stored -180 to +180, so the winning shifted fold read as the
         apparently non-crossing [170..180] and the producer fell back to the
         naive 350-degree extent. The helper re-expresses it as the crossing
@@ -239,7 +239,7 @@ class TestRefreshCountAndExtent:
 
 
 class TestCreateDatasetSink:
-    """fix(#934 codex r1): the dataset-creation sink accepted only POLYGON
+    """fix(#934): the dataset-creation sink accepted only POLYGON
     extents, so a first-ingest two-ring MULTIPOLYGON silently became a NULL
     ``Record.spatial_extent``."""
 

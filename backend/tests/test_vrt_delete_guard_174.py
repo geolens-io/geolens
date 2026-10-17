@@ -1,4 +1,4 @@
-"""Tests for VRT delete guard and VRT dataset deletion (Phase 174-02).
+"""Tests for VRT delete guard and VRT dataset deletion.
 
 Covers:
 - TestDeleteGuard: DELETE /datasets/{id} returns 409 when COG referenced by VRTs

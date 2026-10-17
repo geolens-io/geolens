@@ -895,7 +895,7 @@ class TestArcgisAuthEnvelope:
     async def test_a_public_layer_document_does_not_clear_a_gated_query(
         self, probe_transport
     ) -> None:
-        """fix(#1746 codex r6): the exact deployment the old target missed.
+        """fix(#1746): the exact deployment the old target missed.
 
         Serving layer metadata anonymously while requiring a token to run a
         query is an ordinary ArcGIS configuration. The old probe read the
@@ -922,7 +922,7 @@ class TestArcgisAuthEnvelope:
     async def test_a_healthy_count_answer_probes_the_query_operation(
         self, probe_transport
     ) -> None:
-        """fix(#1746 codex r6): the probe asks what the WORKER asks.
+        """fix(#1746): the probe asks what the WORKER asks.
 
         ``build_gdal_source`` composes ``<layer>/query?...`` and that is what
         ogr2ogr fetches. A service that serves the layer DOCUMENT publicly and
@@ -1007,7 +1007,7 @@ class TestArcgisAuthEnvelope:
 
         Shaped as a layer with a long field list and coded-value domains,
         because that is the real thing that gets there. The probe asks
-        ``/query`` now (fix #1746 codex r6), whose answer is a single count
+        ``/query`` now (fix #1746), whose answer is a single count
         and could never be this big — which is exactly why an oversized body
         cannot be an auth envelope either, and is read as reachable.
         """
@@ -1152,7 +1152,7 @@ class TestArcgisAuthEnvelope:
 
 
 class TestAJsonDepthBombIsAVerdictNotACrash:
-    """fix(#1858, backend audit 2026-09-04 P2-2).
+    """fix(#1858).
 
     A balanced nesting 300,000 deep costs two bytes a level, so the document
     is ~600 KB and passes ``fetch_json_document``'s own 2 MiB cap with room to
@@ -1225,7 +1225,7 @@ class TestServiceOriginProbe:
         install, recorded = probe_transport
         # fix(#1746): the ArcGIS branch reads the body, so the double has to
         # answer with a real document rather than an empty 200. fix(#1746
-        # codex r6): and the thing asked is the count query, so that is what
+        # codex): and the thing asked is the count query, so that is what
         # comes back.
         install(_json_body({"count": 4127}))
         admin_id = await get_user_id(test_db_session, "admin")
@@ -1322,18 +1322,18 @@ class TestServiceOriginProbe:
     async def test_a_many_param_service_url_still_probes_not_a_500(
         self, client, admin_auth_header, test_db_session, probe_transport
     ) -> None:
-        """fix(#1770 round 47c). `build_capabilities_url`
+        """`build_capabilities_url`
         (`adapters/wfs.py`) is reached here via `origin_probe.py::service_
         probe_target`, with NO surrounding `except ValueError` anywhere on
         this path -- unlike `probe_wfs`'s own caller (`_header_auth_probe`
-        in `probe.py`), which does catch it. Round 47b bound this function's
+        in `probe.py`), which does catch it. bound this function's
         query parse with `max_num_fields`, reasoning every caller degraded
         the refusal gracefully; it checked one caller and this route was the
         one it missed, so a many-param `origin_ref.url` (schema-capped at
         2048 chars, well under the field count that reasoning bound at)
         would have reached this route as a raw 500 rather than the healthy
         (or unhealthy) probe result an ordinary URL gets. Counterfactual:
-        restoring round 47b's `max_num_fields=MAX_QUERY_FIELDS` at
+        restoring the earlier `max_num_fields=MAX_QUERY_FIELDS` at
         `build_capabilities_url` turns this into a 500.
         """
         install, recorded = probe_transport

@@ -1,4 +1,4 @@
-"""Integration tests for provenance attribution response contracts (PROV-01/02)."""
+"""Integration tests for provenance attribution response contracts."""
 
 import uuid
 from datetime import datetime, timedelta, timezone

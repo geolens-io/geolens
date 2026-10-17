@@ -254,7 +254,7 @@ async def test_get_public_urls_uses_db_overrides_when_env_only_disabled(
     loader = AsyncMock(
         return_value={public_urls.PUBLIC_APP_URL_KEY: "https://catalog.example.com/"}
     )
-    # CONF-04 (Phase 277): _is_env_only() now reads settings.env_only_config;
+    # _is_env_only() now reads settings.env_only_config;
     # patch the Settings attribute directly instead of mutating os.environ.
     monkeypatch.setattr(public_urls.settings, "env_only_config", False, raising=False)
     monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
@@ -276,7 +276,7 @@ async def test_get_public_urls_skips_db_when_env_only_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loader = AsyncMock()
-    # CONF-04 (Phase 277): _is_env_only() now reads settings.env_only_config;
+    # _is_env_only() now reads settings.env_only_config;
     # patch the Settings attribute directly instead of mutating os.environ.
     monkeypatch.setattr(public_urls.settings, "env_only_config", True, raising=False)
     monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
@@ -466,12 +466,12 @@ async def test_public_url_wrappers_delegate_to_get_public_urls(
 
 
 # ---------------------------------------------------------------------------
-# Phase 268 H-27: for_external_use=True must reject request-origin fallback
+# for_external_use=True must reject request-origin fallback
 # ---------------------------------------------------------------------------
 
 
 def test_resolve_public_api_url_for_external_use_rejects_header_fallback() -> None:
-    """H-27: when no PUBLIC_*_URL is configured, the for_external_use=True
+    """When no PUBLIC_*_URL is configured, the for_external_use=True
     path must NOT fall back to attacker-controllable request headers."""
     request = _make_request(
         headers={"x-forwarded-host": "attacker.com", "x-forwarded-proto": "https"}
@@ -483,7 +483,7 @@ def test_resolve_public_api_url_for_external_use_rejects_header_fallback() -> No
 
 
 def test_resolve_public_api_url_for_external_use_rejects_origin_header() -> None:
-    """H-27: ``Origin`` header alone is not enough for external-use URLs."""
+    """``Origin`` header alone is not enough for external-use URLs."""
     request = _make_request(headers={"origin": "https://attacker.com"})
     with pytest.raises(public_urls.PublicUrlNotConfiguredError):
         public_urls.resolve_public_api_url(
@@ -492,7 +492,7 @@ def test_resolve_public_api_url_for_external_use_rejects_origin_header() -> None
 
 
 def test_resolve_public_app_url_for_external_use_rejects_header_fallback() -> None:
-    """H-27: same gate applies to the app URL resolver."""
+    """Same gate applies to the app URL resolver."""
     request = _make_request(headers={"origin": "https://attacker.com"})
     with pytest.raises(public_urls.PublicUrlNotConfiguredError):
         public_urls.resolve_public_app_url(
@@ -501,7 +501,7 @@ def test_resolve_public_app_url_for_external_use_rejects_header_fallback() -> No
 
 
 def test_resolve_public_api_url_for_external_use_accepts_explicit_app_url() -> None:
-    """H-27: when PUBLIC_APP_URL is configured, the resolver succeeds even
+    """When PUBLIC_APP_URL is configured, the resolver succeeds even
     with for_external_use=True. The URL is derived from config, not headers."""
     request = _make_request(headers={"x-forwarded-host": "attacker.com"})
     result = public_urls.resolve_public_api_url(
@@ -513,7 +513,7 @@ def test_resolve_public_api_url_for_external_use_accepts_explicit_app_url() -> N
 
 
 def test_resolve_public_api_url_for_external_use_accepts_explicit_api_url() -> None:
-    """H-27: PUBLIC_API_URL is also acceptable explicit configuration."""
+    """PUBLIC_API_URL is also acceptable explicit configuration."""
     request = _make_request(headers={"origin": "https://attacker.com"})
     result = public_urls.resolve_public_api_url(
         None,
@@ -526,7 +526,7 @@ def test_resolve_public_api_url_for_external_use_accepts_explicit_api_url() -> N
 
 
 def test_resolve_public_app_url_for_external_use_accepts_explicit_config() -> None:
-    """H-27: app URL resolver also succeeds with explicit config."""
+    """App URL resolver also succeeds with explicit config."""
     request = _make_request(headers={"origin": "https://attacker.com"})
     result = public_urls.resolve_public_app_url(
         "https://app.example.com",
@@ -551,14 +551,14 @@ def test_resolve_public_api_url_default_path_still_uses_request_origin() -> None
 async def test_get_public_api_url_propagates_for_external_use_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """H-27: the async wrapper must thread for_external_use through to
+    """The async wrapper must thread for_external_use through to
     the resolver. Otherwise the OAuth router's protection is silently
     a no-op."""
     monkeypatch.setattr(public_urls.settings, "public_app_url", None, raising=False)
     monkeypatch.setattr(public_urls.settings, "public_api_url", None, raising=False)
     monkeypatch.setattr(public_urls.settings, "public_base_url", None, raising=False)
     loader = AsyncMock(return_value={})
-    # CONF-04 (Phase 277): _is_env_only() reads settings.env_only_config now.
+    # _is_env_only() reads settings.env_only_config now.
     monkeypatch.setattr(public_urls.settings, "env_only_config", False, raising=False)
     monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
 

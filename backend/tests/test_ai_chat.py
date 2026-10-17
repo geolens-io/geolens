@@ -119,7 +119,7 @@ async def test_validate_allows_viewer_of_public_map_read_only(
 ):
     """A non-owner who can VIEW a public map is allowed, but read-only (can_edit=False).
 
-    This is the builder-audit follow-up: anyone who can view a map may ask the
+    Anyone who can view a map may ask the
     AI questions about it; only the owner/admin may use the AI to edit. can_edit
     selects the read-only vs full tool set downstream.
     """

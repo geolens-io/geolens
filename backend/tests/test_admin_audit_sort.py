@@ -21,7 +21,7 @@ from app.modules.audit.service import (
     query_audit_logs,
 )
 
-PASSWORD = "TestPass1234!"  # SEC-S16: meets 12-char + 3-class policy
+PASSWORD = "TestPass1234!"  # Meets 12-char + 3-class policy
 
 
 async def _log(

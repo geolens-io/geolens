@@ -1,4 +1,4 @@
-"""Tests for the Titiler COG URL helper (REMED-04 / P2-01).
+"""Tests for the Titiler COG URL helper.
 
 Pins:
 - Helper output shape for every Titiler call site (info, statistics, tiles).
@@ -7,7 +7,7 @@ Pins:
 - raw_query_suffix passthrough for the pre-built render-params string
   (which uses repeated `bidx` keys that urlencode would dedupe).
 - Structural regression: every caller imports the helper and contains
-  zero literal `http://titiler:8000` strings (Task 4).
+  zero literal `http://titiler:8000` strings.
 """
 
 from app.platform.storage.titiler_url import build_titiler_cog_url
@@ -77,7 +77,7 @@ def test_build_titiler_cog_url_handles_tiles_path():
 
 
 # ---------------------------------------------------------------------------
-# Structural regression pins (Task 4 / REMED-04)
+# Structural regression pins
 #
 # These tests fail if a future hand silently re-inlines `http://titiler:8000`
 # into either caller file or drops the helper import. The combination of
@@ -93,7 +93,7 @@ def test_tiles_router_uses_helper():
     source = Path(__file__).parent.parent / "app" / "processing" / "tiles" / "router.py"
     text = source.read_text()
     # Strip comments before checking for literal Titiler hosts. The
-    # fix(#1927) SEC-OBSV-01 comment names "Titiler" in prose but never the
+    # fix(#1927) comment names "Titiler" in prose but never the
     # literal "http://titiler:8000" host string.
     non_comment_lines = [
         line for line in text.splitlines() if not line.strip().startswith("#")

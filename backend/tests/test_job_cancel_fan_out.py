@@ -1,29 +1,29 @@
-"""Cancel racing POST /ingest/commit-fan-out/{job_id} (#1709 review r2 P1, r5 P1).
+"""Cancel racing POST /ingest/commit-fan-out/{job_id} (#1709 codex P1 P1).
 
 The fan-out endpoint queues children (each committed and deferred inside
 ``create_fan_out_jobs``) and its finale used to be a blind
 ``job.status = "fanned_out"`` write — a cancel that terminated a
 still-pending parent mid-loop was silently overwritten while every child
-kept importing. The round-2 fix fenced the transition and had the loser
+kept importing. The first fix fenced the transition and had the loser
 cancel its children, but that reconciliation ran only AFTER the dispatch
 loop and rightly refused to touch terminal rows — so a cancel committing
 mid-loop still let an already-deferred fast child claim and COMPLETE
 first, and a 200 cancel created that child's dataset anyway.
 
-Round 5 makes the parent transition the MUTEX for the whole dispatch:
+The parent transition is the MUTEX for the whole dispatch:
 ``claim_fan_out_parent`` CASes ``pending -> fanned_out`` (fenced on the
 attempt id the endpoint observed) and COMMITS before the first child
 exists. Exactly two serializations remain:
 
 - Cancel wins: the claim matches zero rows, the endpoint 409s, and ZERO
-  children were ever created. The round-2 loser-reconciliation block is
+  children were ever created. The earlier loser-reconciliation block is
   deleted — the window it compensated (children existing while the parent
   CAS loses) is unreachable under this ordering.
 - Fan-out wins: the parent is terminal, every later cancel gets 409
   ``job_already_finished``, and each child is its own individually
   cancellable IngestJob (uniform scope, per the ratified design).
 
-The CR-02 all-failed contract survives as a fenced restore: when every
+The all-failed contract survives as a fenced restore: when every
 layer fails to queue, ``restore_fan_out_parent_pending`` CASes the parent
 back to ``pending`` on the attempt id so the user can retry without a
 re-upload — it can only undo the flip this request wrote. #2016 widened
@@ -103,7 +103,7 @@ class TestCancelWinsBeforeTheFlip:
     ):
         """Cancel commits between the pending read and the pre-dispatch
         claim: the claim loses, the endpoint 409s, and NO child was ever
-        created — the exact promise the round-2 post-loop shape could not
+        created — the exact promise the earlier post-loop shape could not
         keep for fast children."""
         from app.core.db import async_session
 
@@ -265,7 +265,7 @@ class TestAllLayersFailed:
     async def test_all_failed_restores_pending_for_retry(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """CR-02 under the early flip: every defer fails, the fenced
+        """Under the early flip: every defer fails, the fenced
         restore puts the parent back to `pending` so the user can retry
         without a re-upload — and a cancel afterwards works normally."""
         job = await _make_pending_parent(test_db_session, layers=["buildings"])
@@ -350,7 +350,7 @@ class TestCancelLosesToFanOut:
 
 
 class TestChildlessFannedOutSweep:
-    """fix(#1709 review r7 A): the crash window the r5 early flip opened —
+    """fix(#1709 A): the crash window the early flip opened —
     death between the parent's fanned_out commit and the first child commit
     leaves a terminal parent that retry (failed-only) and cancel (terminal
     -> 409) both refuse. The stale sweep restores the self-healing the old
@@ -400,7 +400,7 @@ class TestChildlessFannedOutSweep:
     async def test_crashed_dispatch_settles_failed_with_a_retry_refusal(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, settle
     ):
-        """fix(#1709 review r8 A): the recovered parent must never silently
+        """fix(#1709 A): the recovered parent must never silently
         import. Generic /jobs/{id}/retry re-queues a job as ONE
         default-layer import — the fan-out's layer selection lived only in
         the request body — so the sweep stamps a marker the retry
@@ -477,7 +477,7 @@ class TestChildlessFannedOutSweep:
 
 
 class TestNeverQueuedChildRecovery:
-    """fix(#1709 review r9): a crash between a child's commit and its defer
+    """fix(#1709): a crash between a child's commit and its defer
     leaves a never-queued pending CHILD — and the child, not the parent, is
     the unit of recovery. The parent staying `fanned_out` (excluded forever
     by the childless clause's NOT EXISTS) is correct: dispatch did create a
@@ -488,7 +488,7 @@ class TestNeverQueuedChildRecovery:
        stale-pending shape (pending, aging created_at, no live queue row)
        and no clause excludes fan-out children.
     2. Generic retry then imports the RIGHT layer, because the child is
-       different from the parent in exactly the way round 8 hinged on: its
+       different from the parent in exactly the way hinged on: its
        layer selection was PERSISTED at clone time (create_fan_out_jobs
        writes layer_name into the child's user_metadata), retry's reset
        leaves user_metadata untouched, and the worker reads the layer from
@@ -562,7 +562,7 @@ class TestNeverQueuedChildRecovery:
         # childless-recovery clause excludes it — the child is the unit.
         assert parent.status == "fanned_out"
 
-        # Link 2: the swept child is retryable, unlike the round-8 parent.
+        # Link 2: the swept child is retryable, unlike the earlier parent.
         can_retry, reason = await get_retry_capability(child)
         assert can_retry is True, reason
 

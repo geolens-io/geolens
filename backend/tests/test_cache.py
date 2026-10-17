@@ -42,7 +42,7 @@ async def test_memory_ttl_expiry():
 
 @pytest.mark.asyncio
 async def test_memory_lru_bound_evicts_coldest():
-    """BA-35: the store is size-bounded; overflow evicts least-recently-used."""
+    """The store is size-bounded; overflow evicts least-recently-used."""
     cache = InMemoryCacheProvider(max_entries=3)
     for i in range(3):
         await cache.set(f"k{i}", i, ttl=60)
@@ -115,7 +115,7 @@ def redis_cache():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # fix(#1778): these build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -164,7 +164,7 @@ async def test_redis_graceful_get_on_failure():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # fix(#1778): these build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -184,7 +184,7 @@ async def test_redis_graceful_set_on_failure():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # fix(#1778): these build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -228,7 +228,7 @@ def cb_redis():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # fix(#1778): these build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -338,12 +338,12 @@ async def test_health_check_bypasses_circuit_breaker(cb_redis):
 
 
 # ---------------------------------------------------------------------------
-# CR-03 regression: _update_sync_cache must warm semantic/basemap rate limits
+# Regression: _update_sync_cache must warm semantic/basemap rate limits
 # ---------------------------------------------------------------------------
 
 
 def test_update_sync_cache_populates_semantic_search_rate_limit():
-    """CR-03: calling _update_sync_cache for 'semantic_search_rate_limit'
+    """Calling _update_sync_cache for 'semantic_search_rate_limit'
     must populate _sync_rate_limit_cache so get_cached_semantic_search_rate_limit()
     returns the overridden value instead of the default.
     """
@@ -366,7 +366,7 @@ def test_update_sync_cache_populates_semantic_search_rate_limit():
 
 
 def test_update_sync_cache_populates_basemap_proxy_rate_limit():
-    """CR-03: calling _update_sync_cache for 'basemap_proxy_rate_limit'
+    """Calling _update_sync_cache for 'basemap_proxy_rate_limit'
     must populate _sync_rate_limit_cache so get_cached_basemap_proxy_rate_limit()
     returns the overridden value instead of the default.
     """
@@ -386,7 +386,7 @@ def test_update_sync_cache_populates_basemap_proxy_rate_limit():
 
 
 def test_update_sync_cache_key_allowlist_covers_new_rate_limits():
-    """CR-03: _update_sync_cache must include the two new rate-limit keys in
+    """_update_sync_cache must include the two new rate-limit keys in
     its dispatch condition. This structural test guards against accidental
     removal of the keys from the allowlist.
     """
@@ -486,7 +486,7 @@ async def test_a_failing_redis_delete_still_evicts_the_fallback():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # fix(#1778): these build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -498,7 +498,7 @@ async def test_a_failing_redis_delete_still_evicts_the_fallback():
     assert provider._failure_count == 1
 
 
-# --- fix(#1778 codex r1): the OVERRIDE has the same two-store requirement ---
+# --- fix(#1778): the OVERRIDE has the same two-store requirement ---
 #
 # The eviction fix above was not enough on its own. A revocation writes a denial
 # rather than deleting the key (so a racing publisher cannot re-cache the
@@ -546,7 +546,7 @@ async def test_set_authoritative_still_lands_when_redis_is_down():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
-    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # fix(#1778): these build the provider through __new__, so the
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
@@ -576,12 +576,12 @@ async def test_set_if_absent_still_publishes_into_an_empty_cache(cb_redis):
     assert await cb_redis.get("fresh") == {"is_valid": True}
 
 
-# --- fix(#1778 codex r2): an authoritative write has to survive the outage ---
+# --- fix(#1778): an authoritative write has to survive the outage ---
 #
-# The r1 fix wrote the denial to both stores, but only when it could reach both.
+# The first fix wrote the denial to both stores, but only when it could reach both.
 # With the circuit OPEN it wrote the fallback and returned, and Redis kept the
 # pre-revocation positive; once the cooldown lapsed, get() consulted Redis first
-# and served that positive for the rest of its TTL. That is the r1 race running
+# and served that positive for the rest of its TTL. That is the original race running
 # backwards, and it needs both halves below to close: the queue-and-replay, so
 # Redis eventually agrees, and the queue-first read, so the window before the
 # replay is not a hole of its own.

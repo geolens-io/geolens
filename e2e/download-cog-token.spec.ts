@@ -1,5 +1,5 @@
 /**
- * IA-P0-01 regression: Download COG token-mint two-request flow.
+ * Regression: Download COG token-mint two-request flow.
  *
  * Verifies:
  *   1. Clicking "Download COG" first calls POST /auth/download-token/{id}
@@ -24,7 +24,7 @@ function readAuthToken(): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// S-IA-P001 — Session JWT rejected as ?token= on /download/cog
+// Session JWT rejected as ?token= on /download/cog
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S-IA-P001 download-token typ validation — session JWT rejected on cog download', async ({ request }) => {

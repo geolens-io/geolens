@@ -27,7 +27,7 @@ class _FakeAPIStatusError(Exception):
 
 class _FakeAIProvider:
     """Stands in for a registered AIProviderExtension (the probe's dispatch
-    seam — AIEXT-03 forbids hardcoded provider branches in processing/).
+    seam — forbids hardcoded provider branches in processing/).
     Also serves resolve_provider's runtime-config lookup."""
 
     def __init__(self, exc: Exception | None = None) -> None:

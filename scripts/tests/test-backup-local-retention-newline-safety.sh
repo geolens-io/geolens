@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fix(#1778 round 19, P2 class): the LOCAL half of retention pruning had the
+# fix(#1778, P2 class): the LOCAL half of retention pruning had the
 # same "env-derived value fed through a line-oriented tool" shape as the S3
 # half (see test-backup-s3-retention-newline-safety.sh), reached a different
 # way: dump_listing (renamed dump_listing_arrays) used to build its listing
@@ -15,7 +15,7 @@
 # re-split a record on a newline that was never meant to be a record
 # boundary.
 #
-# Measured against the actual pre-round-19 `dump_listing`/`prune_old_backups`
+# Measured against the actual earlier `dump_listing`/`prune_old_backups`
 # on this exact fixture (not assumed): find's line-splitting happens to break
 # the compound name into a real leading fragment (with the true directory
 # prefix) and a bogus TRAILING fragment with no directory prefix at all, so

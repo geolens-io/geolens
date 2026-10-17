@@ -315,7 +315,7 @@ async def test_returns_404_nonexistent_dataset(
     client: AsyncClient,
     admin_auth_header: dict,
 ):
-    """POST with a nonexistent dataset_id returns 404 (SEC-D, Phase 1173).
+    """POST with a nonexistent dataset_id returns 404 (SEC-D).
 
     The endpoint now authorizes the requested dataset (``_authorize_metadata_dataset``)
     before invoking the generation service: a well-formed UUID that maps to no dataset

@@ -141,7 +141,7 @@ async def test_list_api_keys_stable_order_across_pages_on_tied_created_at(
     admin_auth_header: dict,
     test_db_session: AsyncSession,
 ):
-    """fix(#1805 review round 4 P2): created_at DESC alone is nondeterministic
+    """created_at DESC alone is nondeterministic
     for two rows sharing a timestamp, and each page (skip/limit) is a
     SEPARATE query -- Postgres is free to break the tie differently between
     them, so a tied pair could land on both pages (duplicated) or neither
@@ -557,7 +557,7 @@ async def test_create_user_duplicate_username_returns_409(
 
 
 # ---------------------------------------------------------------------------
-# GET /admin/users/?search=... — accent-insensitive search (T-1/T-2 regression)
+# GET /admin/users/?search=... — accent-insensitive search (regression)
 # ---------------------------------------------------------------------------
 
 

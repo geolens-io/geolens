@@ -1,4 +1,4 @@
-"""Programmatic migration round-trip + OSS drift-gate regression for Phase 1207.
+"""Programmatic migration round-trip + OSS drift-gate regression.
 
 Verifies the 0005_dormant_tenancy migration is reversible while its substrate is
 empty, refuses to discard tenant-scoped data, and leaves the schema in the exact

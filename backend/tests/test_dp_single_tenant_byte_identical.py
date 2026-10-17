@@ -1,6 +1,6 @@
-"""Data-plane single_tenant BYTE-IDENTICAL guard (Phase 1209-05, DP-02/DP-03).
+"""Data-plane single_tenant BYTE-IDENTICAL guard.
 
-Proves that the data-plane additions from Phase 1209 (Plans 01-04) are
+Proves that the data-plane additions are
 completely inert in single_tenant — the deployment mode used by Community
 and Enterprise editions.
 
@@ -16,7 +16,7 @@ In single_tenant:
   (g) The GUC ``app.current_tenant`` is unset in a default single_tenant session
       (the tenant_session hook is a no-op).
 
-This is the [BLOCKING] byte-identical acceptance gate for Phase 1209.
+This is the [BLOCKING] byte-identical acceptance gate.
 Any regression that activates multi_tenant behavior in single_tenant would
 break Community/Enterprise deploys silently.
 
@@ -296,8 +296,8 @@ class TestNoPerTenantSchemaExistsFromSingleTenantBoot:
 class TestGucUnsetInSingleTenantDataPlane:
     """(g): app.current_tenant GUC is never set in a default single_tenant session.
 
-    Mirrors the Phase 1208-05 guard (test_iso_single_tenant_byte_identical.py)
-    for the data-plane additions: no new hook or code path in Phase 1209
+    Mirrors the guard (test_iso_single_tenant_byte_identical.py)
+    for the data-plane additions: no new hook or code path
     should be setting the tenant GUC in single_tenant mode.
     """
 
@@ -369,11 +369,11 @@ class TestTilePathBinderNoopInSingleTenant:
 class TestSandboxRoleIsSingleTenantReader:
     """(i): execute_safe uses 'geolens_reader' (not per-tenant role) in single_tenant.
 
-    CR-04 (Phase 1209): the fallback role is geolens_reader (guaranteed by
+    The fallback role is geolens_reader (guaranteed by
     migration 0007 / init-db.sh) rather than geolens_readonly (only in
     0001_baseline which may be squashed).
 
-    This is the data-plane analogue of the Phase 1208-05 guard: confirms the
+    This is the data-plane analogue of the guard: confirms the
     sandbox executor did not accidentally activate multi_tenant role selection
     in single_tenant mode.
     """
@@ -418,7 +418,7 @@ class TestSandboxRoleIsSingleTenantReader:
             await execute_safe(MagicMock(), "SELECT 1")
 
         role_stmts = [s for s in executed_stmts if "SET LOCAL ROLE" in s]
-        # CR-04: fallback is now geolens_reader (not geolens_readonly)
+        # fallback is now geolens_reader (not geolens_readonly)
         assert any(s.strip().endswith("geolens_reader") for s in role_stmts), (
             f"DP byte-identical FAIL (i): expected SET LOCAL ROLE geolens_reader "
             f"in single_tenant; got: {role_stmts}"

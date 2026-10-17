@@ -1,4 +1,4 @@
-"""Tests for the AI-chat ``run_analysis`` tool (M4 Phase 5).
+"""Tests for the AI-chat ``run_analysis`` tool.
 
 The tool lets the chat model run a parameterized PostGIS preview on a map
 layer, reusing the catalog analysis service through ProcessingPort. Two things
@@ -351,7 +351,7 @@ class TestRunAnalysisActionCollection:
         assert "distance_meters" not in action
 
     def test_chat_action_round_trip_preserves_the_handoff_params(self) -> None:
-        """Regression guard (the builder-audit #338 B-001 trap): fields the
+        """Regression guard (the trap): fields the
         collector emits but the ChatAction model lacks are silently dropped by
         ``ChatAction(**a).model_dump(exclude_none=True)`` on the wire."""
         action = {
@@ -886,7 +886,7 @@ class TestToolResultSerializationSites:
     alongside an ``output`` key, must set that value to
     ``tool_result_content(...)``.
 
-    fix(#1778 round 2): that used to read ``json.dumps(model_safe_tool_result
+    that used to read ``json.dumps(model_safe_tool_result
     (...), ...)``, spelled out at each site. The sites now share one helper,
     which trims the map-only payload AND wraps the result in the untrusted
     trust fence, so the property this gate protects got strictly stronger and

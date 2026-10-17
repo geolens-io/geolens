@@ -1,4 +1,4 @@
-"""Tenant isolation surface extending the dummy overlay (GATE-01, Phase 1208-04).
+"""Tenant isolation surface extending the dummy overlay.
 
 Purpose
 -------
@@ -10,7 +10,7 @@ stable so 1206 tests are unaffected.
 This surface seeds two tenant-owned entities (record, dataset, map, embed_token,
 collection) for each of the two tenants produced by the ``multi_tenant_rls``
 harness, and provides helpers to read those entities through a tenant-scoped
-session so the GATE-01 cross-tenant isolation tests can assert 0/empty via RLS.
+session so the cross-tenant isolation tests can assert 0/empty via RLS.
 
 Usage (by test_gate01_cross_tenant_isolation.py)
 -------------------------------------------------
@@ -39,7 +39,7 @@ Design notes
 - Teardown (``__aexit__``) deletes all seeded rows unconditionally so no
   artifacts remain after the test even on failure.
 - Does NOT subclass or import anything from overlay.py (no dependency).
-- Reused by Phase 1209 data-plane tests (just add new entity types here).
+- Reused by the data-plane tests (just add new entity types here).
 """
 
 from __future__ import annotations

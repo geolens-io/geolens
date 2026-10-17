@@ -1,20 +1,20 @@
-"""Exit-code matrix (CONTEXT.md D-32).
+"""Exit-code matrix.
 
-Plan 01 stubbed login/logout/whoami exits at 2; Plan 02 replaced those stubs
+Stubbed login/logout/whoami exits at 2; replaced those stubs
 with real implementations whose exit codes depend on state:
 - whoami with no instance configured → EXIT_AUTH (3)
 - login --token + --api-key together → EXIT_USAGE (2)
-Plan 03 wires scan to walk + classify (exits 0 even on all-ingest:no per
-D-17). Plan 04 wires publish to the 3-step ingest flow (per-command
-behavior in test_publish_unit.py::TestPublishCli). The remaining stub
-command (export stac) still exits 2 until Plan 05 lands.
+Wires scan to walk + classify (exits 0 even on all-ingest:no). Publish runs
+the 3-step ingest flow (per-command behavior in
+test_publish_unit.py::TestPublishCli). The remaining stub command
+(export stac) still exits 2.
 
-Phase 242 adds offline manifest commands:
+Adds offline manifest commands:
 - init creates geolens.yaml locally and refuses overwrite with EXIT_USAGE (2)
 - validate exits 0 for valid manifests and EXIT_USAGE (2) for invalid input
 
 --------------------------------------------------------------------------
-Credential-swap state table (fix(#1778 review round 14): built as a
+Credential-swap state table (built as a
 coverage audit, not narrative — every cell below is either pinned by a
 named test or proven unreachable with the structural reason why).
 
@@ -28,7 +28,7 @@ replace_credentials(refresh_token=...) call — --token/--api-key never
 pass one) x FAILURE POINT (none | pre-store snapshot read | store call |
 marker write | cleanup | refresh-token write | rollback/restore itself).
 
-Organized by failure point, since that is what each round's fix actually
+Organized by failure point, since that is what each fix actually
 gates on; store backend, snapshot state, and login kind are enumerated
 within each.
 
@@ -39,7 +39,7 @@ within each.
    not a crash. That state then interacts with every later step:
    - snapshot unknown for the TARGET account (the one about to be
      overwritten): store is forced to the file backend regardless of the
-     caller's no_keyring (round 13). bearer/api_key:
+     caller's no_keyring. bearer/api_key:
      TestSnapshotUnknownForcesFileBackend::
      test_a_snapshot_read_failure_forces_the_file_backend_with_the_marker_set.
      interactive+refresh: TestRefreshTokenSharesAccessTokenBackend::
@@ -47,10 +47,10 @@ within each.
      try_refresh() composition proof in the same class's
      test_try_refresh_detects_the_file_backend_from_where_the_tokens_landed.
    - snapshot unknown for a NON-target account (the competing kind, or
-     refresh): cleanup must never delete it (round 14) —
+     refresh): cleanup must never delete it —
      TestSnapshotUnknownIsNeverDeletedByCleanup (both the direct
      _delete_stale_credentials() unit test and the end-to-end rollback
-     test); restore must never touch it either (round 9) —
+     test); restore must never touch it either —
      TestSnapshotUnknownStateNeverDeleted.
    - snapshot present or absent, any login kind: the ordinary path,
      implicitly covered by every happy-path test in
@@ -68,15 +68,15 @@ within each.
      test_keyring_unreadable_and_file_read_only_exits_network_with_no_mutation.
    - target snapshot present/absent (not forced) and the store call
      raises outright (e.g. explicit --no-keyring with an unwritable
-     file): nothing has been mutated yet, propagates untouched (round 4)
+     file): nothing has been mutated yet, propagates untouched
      — TestLoginAtomicCredentialSwap::
      test_a_storage_failure_leaves_prior_credentials_intact_and_exits_nonzero,
      test_replace_credentials_raising_touches_nothing.
 
 3. MARKER WRITE (_set_credential_field(active_kind) raises).
    - Covered for bearer via CLI --token: TestActiveKindMarkerWriteIsRollback
-     Protected::test_a_marker_write_failure_restores_the_previous_credential
-     (round 11). Not separately pinned per login kind: the marker write
+     Protected::test_a_marker_write_failure_restores_the_previous_credential.
+   - Not separately pinned per login kind: the marker write
      has no kind-conditional branch (it writes the same field the same
      way regardless of "bearer" vs "api_key"), so this is proven by
      symmetry rather than duplicated per kind.
@@ -86,20 +86,19 @@ within each.
    - keep_backend == "keyring", a DIFFERENT account's cleanup read fails
      after having been READABLE at snapshot time (a transient
      mid-transaction failure, not an _UNKNOWN snapshot): surfaced as a
-     hard failure, rollback (round 8) — TestUnreadableKeyringDuringCleanup::
+     hard failure, rollback — TestUnreadableKeyringDuringCleanup::
      test_a_keyring_that_cannot_be_read_at_cleanup_restores_the_snapshot_and_exits_nonzero.
-   - keep_backend == "file" (explicit --no-keyring, or forced by round
-     13), an account's cleanup read fails: tolerated the same as "no such
-     entry" (round 9) — TestUnreadableKeyringDuringCleanup::
+   - keep_backend == "file" (explicit --no-keyring, or forced by an
+     unreadable snapshot), an account's cleanup read fails: tolerated the same as "no such
+     entry" — TestUnreadableKeyringDuringCleanup::
      test_no_keyring_login_succeeds_even_if_the_keyring_raises,
      test_plain_login_falls_back_to_file_when_the_keyring_is_entirely_unavailable.
    - an account's SNAPSHOT was unknown (regardless of keep_backend):
-     skipped unconditionally, never handed to delete_password (round
-     14) — TestSnapshotUnknownIsNeverDeletedByCleanup.
+     skipped unconditionally, never handed to delete_password — TestSnapshotUnknownIsNeverDeletedByCleanup.
    - a genuine delete refusal on a KNOWN-present entry: surfaced,
-     rollback (round 7) — TestDeleteStaleCredentialsSurfacesGenuineFailures::
+     rollback — TestDeleteStaleCredentialsSurfacesGenuineFailures::
      test_a_delete_refusal_restores_the_snapshot_and_exits_nonzero.
-   - a missing/absent entry: trivially tolerated (round 7 baseline) —
+   - a missing/absent entry: trivially tolerated (baseline) —
      TestDeleteStaleCredentialsSurfacesGenuineFailures::
      test_a_missing_entry_is_still_tolerated.
    - cleanup's OWN file-section rewrite raises (distinct from the marker
@@ -114,21 +113,21 @@ within each.
    making "bearer/api_key + refresh-token-write failure" structurally
    UNREACHABLE via those two CLI flags, not merely untested).
    - failure restores the WHOLE prior session (access token, refresh
-     token, marker together), not just the refresh token (round 13) —
+     token, marker together), not just the refresh token —
      TestInteractiveLoginRefreshTokenIsTransactional::
      test_a_refresh_token_write_failure_restores_the_whole_prior_session.
    - backend co-location with the access token, both forced-file and
      keyring, plus the try_refresh() rotation composing correctly with
-     it (round 14) — TestRefreshTokenSharesAccessTokenBackend.
+     it — TestRefreshTokenSharesAccessTokenBackend.
    - backend co-location when the DIVERGENCE is at STORE time, not
      snapshot time: snapshot reads succeed for the target account (so
      store_no_keyring/target_is_unknown stay False — distinct from the
-     round-14 forced-file cell above), but keyring.set_password then
+     forced-file cell above), but keyring.set_password then
      fails for the access account only, so store_bearer_token/
      store_api_key fall back to backend == "file" while the refresh
-     account's OWN set_password would have succeeded if asked (round
-     15 — this is what `backend != "keyring"` fixes, replacing the
-     round-14 store_no_keyring check) — TestRefreshTokenSharesAccess
+     account's OWN set_password would have succeeded if asked (this is
+     what `backend != "keyring"` fixes, replacing the
+     store_no_keyring check) — TestRefreshTokenSharesAccess
      TokenBackend::
      test_a_store_time_keyring_failure_also_keeps_both_tokens_together.
 
@@ -171,12 +170,11 @@ class TestExitCodeConstants:
 
 
 class TestRemainingStubsExitWithUsage:
-    """Plan 05 still ships an export stac stub that exits 2 until it lands.
+    """The export stac stub still exits 2.
 
-    Plan 03 replaced the scan stub with a real walker (exits 0 on dry-run
-    per D-17); per-command exit-code behavior for scan is asserted in
-    test_scan.py::TestCliInvocation. Plan 04 replaced the publish stub
-    with the 3-step ingest flow; per-command exit-code behavior for
+    Scan is a real walker (exits 0 on dry-run); per-command exit-code
+    behavior for scan is asserted in test_scan.py::TestCliInvocation.
+    Publish runs the 3-step ingest flow; per-command exit-code behavior for
     publish is asserted in test_publish_unit.py::TestPublishCli.
     """
 
@@ -191,7 +189,7 @@ class TestRemainingStubsExitWithUsage:
 
 
 class TestAuthCommandExitCodes:
-    """Real per-command behavior (Plan 02 replaces the Plan 01 stubs)."""
+    """Real per-command behavior (replaces the stubs)."""
 
     def test_login_mutually_exclusive_token_and_api_key(
         self, runner, tmp_xdg_home
@@ -247,7 +245,7 @@ class TestAuthCommandExitCodes:
 
 
 class TestLoginStdinSecret:
-    """SEC-016: login accepts the secret via stdin (--token -)."""
+    """Login accepts the secret via stdin (--token -)."""
 
     def test_login_token_dash_reads_from_stdin(
         self, runner, tmp_xdg_home, mock_keyring
@@ -289,7 +287,7 @@ class TestLoginStdinSecret:
 
 
 class TestInteractiveLoginIsBounded:
-    """fix(#1778 review round 2): the interactive login flow built its own
+    """The interactive login flow built its own
     GeolensClient directly with the SDK's default timeout=None
     (unbounded), so `geolens login <url>` (no --token/--api-key) could
     hang forever on a host that accepts a connection and then stalls,
@@ -386,7 +384,7 @@ class TestLoginEvictsOtherCredentialType:
 
 
 class TestLoginAtomicCredentialSwap:
-    """fix(#1778 review round 4): login used to call delete_credentials()
+    """Login used to call delete_credentials()
     BEFORE storing the replacement, so a storage failure (keyring falling
     back to a read-only or full XDG path, a permissions error, ...) left
     the user logged out AND login reporting failure — the working
@@ -511,7 +509,7 @@ class TestLoginAtomicCredentialSwap:
 
 
 class TestLoginCrossBackendStaleCredential:
-    """fix(#1778 review round 5): when the old bearer/API key lives in
+    """When the old bearer/API key lives in
     credentials.toml and the replacement of the SAME kind lands in the
     keyring, the old delete-competing-kinds step never touched it (it
     only ever deleted the OTHER kinds) — it kept skipping "bearer"
@@ -551,7 +549,7 @@ class TestLoginCrossBackendStaleCredential:
 
 
 class TestDeleteStaleCredentialsSurfacesGenuineFailures:
-    """fix(#1778 review round 7): _delete_stale_credentials() used to
+    """_delete_stale_credentials() used to
     swallow EVERY keyring delete failure with a blanket
     `except Exception: pass`, matching keyring.errors.PasswordDeleteError
     raised for both "no such entry" (expected) and a genuine backend
@@ -606,7 +604,7 @@ class TestDeleteStaleCredentialsSurfacesGenuineFailures:
         instance = "https://x.example.com/api"
         # Nothing stored for this instance in either backend — every
         # account in _delete_stale_credentials' loop is absent. The
-        # snapshot (fix(#1778 review round 14): now a required arg) is
+        # snapshot (now a required arg) is
         # taken fresh here too, so every field is a confirmed None, not
         # _UNKNOWN — this test is specifically about tolerating a
         # confirmed-absent entry, distinct from the _UNKNOWN case
@@ -618,7 +616,7 @@ class TestDeleteStaleCredentialsSurfacesGenuineFailures:
 
 
 class TestSnapshotUnknownStateNeverDeleted:
-    """fix(#1778 review round 9): a transient keyring read failure while
+    """A transient keyring read failure while
     taking the rollback snapshot used to be swallowed to None, which
     recorded an EXISTING credential as absent. If cleanup then failed
     and the keyring was readable again by the time _restore_credentials
@@ -665,7 +663,7 @@ class TestSnapshotUnknownStateNeverDeleted:
 
 
 class TestSnapshotUnknownIsNeverDeletedByCleanup:
-    """fix(#1778 review round 14): TestSnapshotUnknownStateNeverDeleted
+    """TestSnapshotUnknownStateNeverDeleted
     (above) covers the RESTORE side of the _UNKNOWN sentinel -- a
     transient read failure at snapshot time must never be deleted when
     _restore_credentials() runs. This covers the other half:
@@ -795,7 +793,7 @@ class TestSnapshotUnknownIsNeverDeletedByCleanup:
 
 
 class TestActiveKindMarkerWriteIsRollbackProtected:
-    """fix(#1778 review round 11): the active_kind marker write sat
+    """The active_kind marker write sat
     OUTSIDE replace_credentials()'s rollback-protected block. If the
     keyring store succeeded but the marker write to credentials.toml
     then failed (read-only or full filesystem), the exception
@@ -834,9 +832,9 @@ class TestActiveKindMarkerWriteIsRollbackProtected:
 
 
 class TestInteractiveLoginRollbackRestoresTheWholeCredentialSet:
-    """fix(#1778 round 32): _CredentialSnapshot/_restore_credentials
+    """_CredentialSnapshot/_restore_credentials
     covered bearer/api_key/refresh but not the refresh token's pairing
-    fingerprint -- round 31 added the fingerprint to delete_
+    fingerprint -- added the fingerprint to delete_
     credentials()/_delete_stale_credentials() by hand, but not to this
     pair, so a login that failed AFTER the fingerprint had already
     been swept by cleanup restored the OLD bearer+refresh pair WITHOUT
@@ -890,7 +888,7 @@ class TestInteractiveLoginRollbackRestoresTheWholeCredentialSet:
         assert mock_keyring[("geolens", f"{instance}:refresh_fp")] == old_fingerprint
 
         # A subsequent 401 refreshes successfully using the RESTORED
-        # pair -- this is the property round 31's gap broke: with the
+        # pair -- this is the property an earlier gap broke: with the
         # fingerprint missing after a restore, try_refresh() would
         # have judged the restored (perfectly valid) refresh token
         # "unpaired" and discarded it instead of spending it.
@@ -979,7 +977,7 @@ class TestCleanupFileRewriteFailureIsRollbackProtected:
 
 
 class TestSnapshotUnknownForcesFileBackend:
-    """fix(#1778 review round 12): the _UNKNOWN sentinel used to be
+    """The _UNKNOWN sentinel used to be
     checked ONLY on the rollback path, after replace_credentials() had
     already called store_bearer_token/store_api_key -- the mutating
     keyring.set_password for the SAME account the snapshot just failed
@@ -990,16 +988,16 @@ class TestSnapshotUnknownForcesFileBackend:
     then failed, rollback skipped restoring it -- login reported
     failure with the prior credential irreversibly gone, not restored.
 
-    Round 12 closed that window by ABORTING outright before any store
-    call. fix(#1778 review round 13): that broke the documented
-    automatic credentials.toml fallback (round 8/9) for a headless box
+    Closed that window by ABORTING outright before any store
+    call. that broke the documented
+    automatic credentials.toml fallback for a headless box
     with no usable keyring -- an ordinary login now refused unless the
     caller already knew to pass --no-keyring, even when the file
     backend was perfectly writable. replace_credentials() now forces
     the keyring-free file path instead of aborting: set_password is
     still never attempted against an account whose read just failed
-    (closing round 12's actual danger), but the login itself succeeds
-    via the file when the file is writable, with the round-10 marker
+    (the earlier danger), but the login itself succeeds
+    via the file when the file is writable, with the active_kind marker
     recorded so the file credential outranks any stale keyring entry
     that later becomes readable again. The rollback-side _UNKNOWN check
     (TestSnapshotUnknownStateNeverDeleted, above) stays as defense in
@@ -1010,7 +1008,7 @@ class TestSnapshotUnknownForcesFileBackend:
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
         """Read fails; write is NOT mocked to fail (it would otherwise
-        succeed) -- the asymmetric case the round-12 finding names.
+        succeed) -- the asymmetric case.
         Asserts set_password is never even attempted, login still
         succeeds via the file, and the marker records the new kind."""
         import keyring
@@ -1043,10 +1041,10 @@ class TestSnapshotUnknownForcesFileBackend:
         monkeypatch.setattr("keyring.get_password", failing_get)
         monkeypatch.setattr("keyring.set_password", tracking_set)
 
-        # Same-kind login: pre-round-13, this would either abort
-        # outright (round 12) or call set_password on the bearer
+        # Same-kind login: previously this would either abort
+        # outright or call set_password on the bearer
         # account despite the read above having just failed for it
-        # (pre-round-12) -- and set_password is NOT mocked to fail
+        # (an older version) -- and set_password is NOT mocked to fail
         # here, so a call to it would have succeeded, destroying the
         # only copy of "old-bearer-token" before any later step could
         # roll back.
@@ -1121,7 +1119,7 @@ class TestSnapshotUnknownForcesFileBackend:
 
 
 class TestInteractiveLoginRefreshTokenIsTransactional:
-    """fix(#1778 review round 13): the interactive login flow used to
+    """The interactive login flow used to
     persist the refresh token with a SEPARATE store_refresh_token() call
     AFTER replace_credentials() had already returned -- by then the new
     access token was committed and the prior refresh credential already
@@ -1147,7 +1145,7 @@ class TestInteractiveLoginRefreshTokenIsTransactional:
         canonical = _config.normalize_instance_url(instance)
 
         # Realistic pre-existing session: an earlier login already set
-        # the round-10 marker via replace_credentials(), not a bare
+        # the active_kind marker via replace_credentials(), not a bare
         # store_bearer_token() call.
         _auth.replace_credentials(canonical, "bearer", "old-access-token")
         _auth.store_refresh_token(canonical, "old-refresh-token")
@@ -1194,17 +1192,17 @@ class TestInteractiveLoginRefreshTokenIsTransactional:
         assert loaded_refresh == "old-refresh-token"
 
         # The marker must also be back to whatever it was before this
-        # login attempt (round 10) -- restore_credentials reverts the
+        # login attempt -- restore_credentials reverts the
         # whole file section, marker included.
         assert _auth.load_active_credential_kind(canonical) == "bearer"
 
 
 class TestRefreshTokenSharesAccessTokenBackend:
-    """fix(#1778 review round 14): replace_credentials() persisted the
+    """replace_credentials() persisted the
     refresh token with the CALLER's original no_keyring, not
     store_no_keyring (the backend actually chosen for the access token
     a few lines above it). When the target keyring read was unknown,
-    round 13 forces the access token into credentials.toml -- but the
+    forces the access token into credentials.toml -- but the
     keyring itself may still be perfectly willing to accept the refresh
     token on its own account, so with the original no_keyring=False the
     two tokens landed in DIFFERENT backends. try_refresh() detects the
@@ -1217,7 +1215,7 @@ class TestRefreshTokenSharesAccessTokenBackend:
     again and never converges. Both tokens must always land in the SAME
     backend.
 
-    fix(#1778 review round 15): round 14's fix keyed the refresh
+    fix(#1778): an earlier fix keyed the refresh
     token's backend off ``store_no_keyring`` — the PRE-store intent
     computed from snapshot readability alone. That diverges from
     ``backend``, the store call's ACTUAL outcome, whenever
@@ -1229,7 +1227,7 @@ class TestRefreshTokenSharesAccessTokenBackend:
     ``backend == "file"``, while ``store_no_keyring`` stays False; the
     refresh write then tried the keyring first, and if THAT account's
     ``set_password`` happened to succeed, the two tokens split again —
-    the exact bug this round exists to close, reopened through a
+    the exact bug this fix closes, reopened through a
     store-time failure this class's original tests never exercised
     (they only fail ``get_password``). The refresh write now keys off
     ``backend != "keyring"`` — the real outcome, not the pre-store
@@ -1239,7 +1237,7 @@ class TestRefreshTokenSharesAccessTokenBackend:
         self, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
         """The target account's snapshot is _UNKNOWN (forcing the file
-        backend, round 13), but the keyring itself is NOT globally
+        backend), but the keyring itself is NOT globally
         broken -- set_password would happily accept the refresh token
         if asked. It must not be asked: both tokens belong in the file
         together."""
@@ -1304,7 +1302,7 @@ class TestRefreshTokenSharesAccessTokenBackend:
         self, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
         """End-to-end proof the two fixes compose: a forced-file login
-        (this round) followed by try_refresh() (BUG-013, pre-existing)
+        followed by try_refresh()
         rotates both tokens back into the SAME backend it found them
         in -- the file -- rather than leaking the rotated refresh token
         into the keyring."""
@@ -1354,11 +1352,11 @@ class TestRefreshTokenSharesAccessTokenBackend:
     def test_a_store_time_keyring_failure_also_keeps_both_tokens_together(
         self, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#1778 review round 15): the round-14 fix keyed the
+        """An earlier fix keyed the
         refresh-token backend off store_no_keyring -- the PRE-store
         INTENT computed from snapshot readability alone -- not off
         `backend`, the store call's ACTUAL outcome. Reproduces the
-        divergence the round-15 audit found: keyring.get_password
+        divergence found later: keyring.get_password
         SUCCEEDS at snapshot time (so store_no_keyring stays False --
         this is NOT the target_is_unknown/forced-file case above), but
         keyring.set_password then fails for the bearer account only at
@@ -1366,7 +1364,7 @@ class TestRefreshTokenSharesAccessTokenBackend:
         contention, a quota) -- store_bearer_token already catches
         that and falls back to the file, returning backend == "file".
         The refresh account's OWN set_password is left free to
-        succeed, so with the pre-round-15 code the refresh token would
+        succeed, so with the earlier code the refresh token would
         land in the keyring while the access token sat in the file."""
         import keyring
         from keyring.errors import KeyringError
@@ -1391,7 +1389,7 @@ class TestRefreshTokenSharesAccessTokenBackend:
         # Snapshot reads are NOT mocked to fail -- both accounts are
         # confirmed-absent (None), not _UNKNOWN, so target_is_unknown
         # stays False and store_no_keyring stays False too. This is
-        # what distinguishes the round-15 cell from round 14's
+        # what distinguishes this cell from the
         # forced-file test above.
         backend = _auth.replace_credentials(
             canonical, "bearer", "new-access", refresh_token="new-refresh"
@@ -1408,16 +1406,16 @@ class TestRefreshTokenSharesAccessTokenBackend:
 
 
 class TestUnreadableKeyringDuringCleanup:
-    """fix(#1778 review round 8): an unreadable keyring during the
+    """An unreadable keyring during the
     existence check (locked, backend down, ...) is not "no such
-    entry". Round 7 treated it as such, which left a stale credential
+    entry". treated it as such, which left a stale credential
     untouched in a keyring that store_bearer_token/store_api_key had
     themselves just fallen back away from (they also catch
     KeyringError and write to credentials.toml instead) — once the
     keyring became readable again, the untouched stale value won under
     AppState.sdk()'s bearer-first precedence.
 
-    fix(#1778 review round 9): round 8's propagation was
+    fix(#1778): the earlier propagation was
     unconditional, which broke `login --no-keyring` and any headless
     install with no working keyring at all -- keep_backend is "file"
     in both cases, and the cleanup loop still tried (and failed) to
@@ -1430,18 +1428,18 @@ class TestUnreadableKeyringDuringCleanup:
     store itself already fell back), an unreadable keyring is
     tolerated the same as "no such entry".
 
-    fix(#1778 review round 14): round 8's "real problem" framing only
+    fix(#1778): the "real problem" framing only
     holds when the account was READABLE at snapshot time and then
     became unreadable mid-transaction -- a genuine, worth-surfacing
     hiccup. _delete_stale_credentials now also skips an account whose
     SNAPSHOT (taken before any mutation) already came back _UNKNOWN,
     regardless of keep_backend: an account we never had visibility
     into cannot safely be deleted (see
-    TestSnapshotUnknownIsNeverDeletedByCleanup), and the round-10
+    TestSnapshotUnknownIsNeverDeletedByCleanup), and the active_kind
     marker already makes a stale entry in another backend harmless
     either way. test_a_keyring_that_cannot_be_read_at_cleanup below now
     lets the snapshot read succeed and only breaks the LATER cleanup
-    read, so it keeps exercising round 8's actual case instead of the
+    read, so it keeps exercising the original case instead of the
     now-tolerated one."""
 
     def test_a_keyring_that_cannot_be_read_at_cleanup_restores_the_snapshot_and_exits_nonzero(
@@ -1450,10 +1448,10 @@ class TestUnreadableKeyringDuringCleanup:
         """The new credential DOES land in the keyring (keep_backend ==
         "keyring", so the keyring is confirmed reachable right now),
         and the account was READABLE at snapshot time (this is not the
-        round-14 "never had visibility" case) -- but the cleanup step's
+        "never had visibility" case) -- but the cleanup step's
         LATER read of that same competing account fails. That is a
         real, worth-surfacing problem, not an unavailable backend, and
-        round 8's behavior for it stands."""
+        the original behavior for it stands."""
         import keyring
         from keyring.errors import KeyringError
 
@@ -1478,7 +1476,7 @@ class TestUnreadableKeyringDuringCleanup:
                 if calls_for_bearer > 1:
                     # The FIRST read is replace_credentials()'s own
                     # pre-store snapshot -- it must succeed, so the
-                    # snapshot is NOT _UNKNOWN and round 14's skip does
+                    # snapshot is NOT _UNKNOWN and the unknown-snapshot skip does
                     # not apply. Only the cleanup step's read (the
                     # second call onward) fails.
                     raise KeyringError("keychain hiccup")
@@ -1496,7 +1494,7 @@ class TestUnreadableKeyringDuringCleanup:
     def test_no_keyring_login_succeeds_even_if_the_keyring_raises(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """The regression this round fixes: --no-keyring must work on a
+        """--no-keyring must work on a
         box with no functioning keyring backend at all."""
         from keyring.errors import KeyringError
 
@@ -1526,21 +1524,21 @@ class TestUnreadableKeyringDuringCleanup:
     def test_plain_login_falls_back_to_file_when_the_keyring_is_entirely_unavailable(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """The other half of the regression round 8/9 fixed: a PLAIN
+        """The other half of the regression fixed: a PLAIN
         login (no --no-keyring flag) on a box where the keyring simply
         doesn't work must also succeed via the automatic file fallback,
         not just an explicit --no-keyring invocation.
 
-        fix(#1778 review round 12): this test briefly asserted the
+        this test briefly asserted the
         OPPOSITE -- that a plain login should refuse outright when the
         keyring is unreadable -- because replace_credentials() aborted
         before any store call whenever the snapshot for the target
-        account was unknown. fix(#1778 review round 13): that broke
+        account was unknown. that broke
         this documented fallback for real headless installs, so
-        round 13 restores it: an unreadable snapshot now forces the
+        restores it: an unreadable snapshot now forces the
         keyring-free file path (see TestSnapshotUnknownForcesFileBackend)
         rather than aborting. The marker assertion below is new --
-        round 10's active_kind marker must be set to "api_key" so a
+        the active_kind marker must be set to "api_key" so a
         stale keyring entry that becomes readable later cannot outrank
         the credential this login actually stored."""
         from keyring.errors import KeyringError

@@ -36,7 +36,7 @@ pytestmark = pytest.mark.anyio
 def recording_url_validator(request_sessions):
     """The door's SSRF gate, stubbed and recording.
 
-    fix(#1848 codex r1): `validate_url_for_ssrf` awaits `getaddrinfo` in a
+    fix(#1848): `validate_url_for_ssrf` awaits `getaddrinfo` in a
     thread, so it is one of the waits the release has to precede, not a cheap
     gate that may sit before it. Yields the same list the I/O recorder appends
     to, so each test reads `[validator, io]` in call order.
@@ -495,7 +495,7 @@ async def test_a_sweep_during_the_upload_refuses_rather_than_binding(
 async def test_only_the_local_provider_needs_the_stamp(
     test_db_session: AsyncSession,
 ):
-    """fix(#1848 codex r2): why the finding is local-only, measured.
+    """fix(#1848): why the finding is local-only, measured.
 
     `save_upload_file` returns `staging/{job}/{name}` under S3 and an absolute
     path under the local provider. The sweep's two classes are split by
@@ -524,7 +524,7 @@ async def test_a_slow_local_upload_that_binds_survives_the_next_sweep(
     test_db_session: AsyncSession,
     tmp_path: Path,
 ):
-    """fix(#1848 codex r2): the bind restarts the pending window.
+    """fix(#1848): the bind restarts the pending window.
 
     With the local provider the bound path is absolute, so it never matches
     the sweep's `staging/%` completion class and the row stays in the class
@@ -605,7 +605,7 @@ async def test_a_dataset_deleted_during_the_upload_refuses_the_bind(
     test_db_session: AsyncSession,
     tmp_path: Path,
 ):
-    """fix(#1848 codex r3): the binding is part of the guard, not just status.
+    """fix(#1848): the binding is part of the guard, not just status.
 
     The early commit released the row's foreign-key lock, and
     `ingest_jobs.dataset_id` is `ON DELETE SET NULL`. A dataset deleted while

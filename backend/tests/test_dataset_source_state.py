@@ -341,7 +341,7 @@ class TestSetDatasetOrigin:
         The schema is a required keyword rather than something derived from
         the dataset row, because dataset.tenant_id is NULL on the ORM instance
         in multi-tenant mode: the insert trigger fills it in the database
-        (#1218 review r2). Callers hand over the schema they actually used.
+        (#1218 codex). Callers hand over the schema they actually used.
         """
         tenant_schema = "data_t_aaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee"
         dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
@@ -639,14 +639,14 @@ class TestBackfill:
             name="Backfill WFS",
             source_format="wfs",
         )
-        # fix(#1218 review r4): the ENRICHED form ingest actually persists.
+        # fix(#1218): the ENRICHED form ingest actually persists.
         # The probe puts the layer name in layer_id for WFS, so
         # tasks_vector composes <base>/<typename> into datasets.source_url.
         wfs.source_url = "https://gis.test/geoserver/wfs/topp:parcels"
-        # fix(#1218 review r3): a WFS layer is identified by its typename,
+        # fix(#1218): a WFS layer is identified by its typename,
         # which lives on the ingest job. The retention sweep exempts each
         # dataset's newest complete job precisely so this hint survives, and
-        # r4 takes the un-enriched base from the same row.
+        # the enrichment step takes the un-enriched base from the same row.
         test_db_session.add(
             IngestJob(
                 dataset_id=wfs.id,
@@ -1067,7 +1067,7 @@ class TestBackfill:
     async def test_two_claimants_on_one_surviving_table_stay_null(
         self, test_db_session
     ) -> None:
-        """The catalog half of the ambiguity guard (#1218 review r2).
+        """The catalog half of the ambiguity guard (#1218 codex).
 
         Two tenants both registered `parcels` and one tenant's physical table
         was later dropped. The physical count is then a clean 1, so the
@@ -1148,7 +1148,7 @@ class TestBackfill:
     ) -> None:
         """A legacy secret must not be copied into a read-only column.
 
-        fix(#1218 review r5): source_url is PATCHable, so an operator who
+        fix(#1218): source_url is PATCHable, so an operator who
         spots a credential in it can edit it away. origin_uri and origin_ref
         are read-only on DatasetResponse, so a secret copied there is stuck.
         New ingests cannot produce one — _validate_service_url refuses both
@@ -1214,7 +1214,7 @@ class TestBackfill:
             )
         )
 
-        # fix(#1218 review r6): parse_qsl decodes a parameter NAME before
+        # fix(#1218): parse_qsl decodes a parameter NAME before
         # judging it, so this reads as ?token= in Python. The SQL refuses any
         # encoded NAME outright rather than decoding, closing the class.
         encoded_name = await _pre_migration_dataset(
@@ -1233,7 +1233,7 @@ class TestBackfill:
         )
         encoded_name_stac.source_url = "https://bucket.test/s.tif?%73ig=deadbeef"
 
-        # fix(#1218 review r7): parse_qsl decodes + to a space and
+        # fix(#1218): parse_qsl decodes + to a space and
         # _is_sensitive_query_param strips whitespace, so this reads as
         # ?token= in Python. Same class as the encoded name above, third
         # spelling; the guard is derived from the transforms, not the
@@ -1262,7 +1262,7 @@ class TestBackfill:
         )
         space_name.source_url = "https://gis.test/geoserver/wfs? token =hunter2"
 
-        # The admission half for r6: a percent-encoded VALUE is ordinary in a
+        # The admission half: a percent-encoded VALUE is ordinary in a
         # WFS typename and must still backfill. The name segment ends at the
         # first '=' of its pair, which is what keeps these apart.
         encoded_value = await _pre_migration_dataset(
@@ -1271,7 +1271,7 @@ class TestBackfill:
             name="Cred Encoded Value",
             source_format="wfs",
         )
-        # r7 admission: a + in a VALUE is ordinary too and must not trip the
+        # Admission: a + in a VALUE is ordinary too and must not trip the
         # name arm, so this URL carries both an encoded value and a plus one.
         encoded_value.source_url = (
             "https://gis.test/geoserver/wfs?typename=ns%3Aroads&q=a+b"
@@ -1286,7 +1286,7 @@ class TestBackfill:
             )
         )
 
-        # fix(#1218 review r7): shapes the SQL pre-filter CANNOT express, so
+        # fix(#1218): shapes the SQL pre-filter CANNOT express, so
         # the Python authority pass is the only thing that catches them.
         # has_url_credentials returns True whenever urlsplit REFUSES an
         # authority, and both of these make it refuse.
@@ -1402,7 +1402,7 @@ class TestBackfill:
     ) -> None:
         """A claimant of ANY origin counts, not just registered ones.
 
-        fix(#1218 review r8): the claimant guard used to look only at rows
+        fix(#1218): the claimant guard used to look only at rows
         this backfill targets (null source_format, vector_dataset/table).
         Uploads, service imports and created datasets own physical tables with
         tenant-local names too, so tenant A's dropped registered `roads`
@@ -1720,7 +1720,7 @@ class TestServiceLayerIdentity:
     layer id and returns an EMPTY layer name, while its WFS and OGC API
     branches pass the layer name through and never look at layer_id. So one
     key can carry the identity for all three without ambiguity, which is why
-    the allowlist is not widened with a second name field (#1218 review r3).
+    the allowlist is not widened with a second name field (#1218 codex).
     """
 
     @pytest.mark.parametrize(

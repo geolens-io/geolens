@@ -1,6 +1,6 @@
-"""The orphan-guard rollback must not clobber a committed cancel (#1709 r11).
+"""The orphan-guard rollback must not clobber a committed cancel (#1709).
 
-Round 4 recorded this window as a known-benign residual: a cancel commits
+Recorded this window as a known-benign residual: a cancel commits
 while a dispatch request is awaiting queue submission, the submission then
 fails, and ``defer_with_orphan_guard`` runs
 ``make_ingest_job_failed_rollback`` — which blindly mutated the stale ORM

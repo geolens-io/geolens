@@ -1,4 +1,4 @@
-"""PERF-007 regression — vector quicklook CPU render must run off the event loop.
+"""Regression — vector quicklook CPU render must run off the event loop.
 
 ``app/processing/vector/quicklook.py``'s ``generate_vector_quicklook`` did the
 Shapely ``make_valid`` + PIL drawing + PNG encode inline in the coroutine, with no

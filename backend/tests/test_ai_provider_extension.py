@@ -1,12 +1,9 @@
 """Tests for AIProviderExtension Protocol, registry seeding, and entry-points dispatch.
 
-Phase 226 D-15 (entry-points overlay test) + D-16 (default smoke test) +
-D-06 (ValueError on unknown provider name).
-
-Maps to AIEXT-01 (Protocol exists), AIEXT-02 (defaults registered via accessor),
-AIEXT-04 (overlay-registered providers dispatch correctly via importlib.metadata
-entry_points). The architecture-guard test in test_layering.py covers AIEXT-03
-and AIEXT-05.
+Covers: the Protocol exists, defaults are registered via the accessor,
+overlay-registered providers dispatch correctly via importlib.metadata
+entry_points, an unknown provider name raises ValueError. The
+architecture-guard test in test_layering.py covers the import boundary.
 """
 
 from __future__ import annotations
@@ -19,7 +16,7 @@ pytestmark = pytest.mark.usefixtures("_clean_registry")
 
 
 def test_default_providers_registered():
-    """D-16 / AIEXT-02 smoke: get_ai_provider returns the right community-default class for each name.
+    """Smoke: get_ai_provider returns the right community-default class for each name.
 
     Verifies SC#2 ("DefaultAIProviderExtension resolves the two community
     providers -- Anthropic native, OpenAI-compatible -- via the same accessor
@@ -37,13 +34,13 @@ def test_default_providers_registered():
     assert isinstance(anthropic, DefaultAnthropicProvider)
     assert isinstance(openai_compatible, DefaultOpenAICompatibleProvider)
 
-    # Verify Protocol satisfaction (runtime_checkable per D-07)
+    # Verify Protocol satisfaction (runtime_checkable)
     from app.platform.extensions.protocols import AIProviderExtension
 
     assert isinstance(anthropic, AIProviderExtension)
     assert isinstance(openai_compatible, AIProviderExtension)
 
-    # Singleton stability (Nyquist Dimension #6 -- state management):
+    # Singleton stability:
     # Two calls to get_ai_provider("anthropic") return the SAME instance
     # (registry singleton, not re-seeded per call).
     assert get_ai_provider("anthropic") is anthropic
@@ -51,10 +48,10 @@ def test_default_providers_registered():
 
 
 def test_unknown_provider_raises_value_error():
-    """D-06 / Nyquist Dimension #7: unknown name raises ValueError with the
-    EXACT message from llm_loop.py:149's pre-Phase-226 behavior.
+    """Unknown name raises ValueError with the
+    EXACT message from llm_loop.py:149's previous behavior.
 
-    Phase 226 D-06: preserves today's exception type and message format so
+    Preserves today's exception type and message format so
     existing tests that catch ``ValueError`` from the dispatch path continue
     to pass.
     """
@@ -69,7 +66,7 @@ def test_unknown_provider_raises_value_error():
 
 @pytest.mark.asyncio
 async def test_overlay_provider_is_dispatched():
-    """D-15 / SC#5 / AIEXT-04 binding: overlay registered via
+    """Overlay registered via
     importlib.metadata entry_points is dispatched correctly without
     modifying any core file.
 
@@ -134,7 +131,7 @@ async def test_overlay_provider_is_dispatched():
         assert captured_kwargs.get("max_rounds") == 1
 
     # Verify the community defaults still resolve correctly even though we
-    # added a third provider -- registry coexistence (D-05 setdefault discipline).
+    # added a third provider -- registry coexistence (setdefault discipline).
     from app.platform.extensions.defaults import (
         DefaultAnthropicProvider,
         DefaultOpenAICompatibleProvider,
@@ -151,7 +148,7 @@ async def test_overlay_provider_is_dispatched():
 @pytest.mark.asyncio
 async def test_anthropic_complete_aborts_at_token_budget():
     """fix(#448): the non-streaming tool loop must stop once cumulative
-    input+output tokens exceed MAX_REQUEST_TOKEN_BUDGET (PERF-009 parity with
+    input+output tokens exceed MAX_REQUEST_TOKEN_BUDGET (parity with
     the streaming path). A tool_use round that reports a huge usage makes the
     next round-top guard raise instead of calling the provider again."""
     from unittest.mock import AsyncMock

@@ -56,7 +56,7 @@ class TestIsDomainPatternValid:
         assert is_domain_pattern_valid("*.example.com") is True
 
     def test_bare_wildcard_invalid(self):
-        # T-1235-01: bare wildcard = match-everything, must be rejected
+        # Bare wildcard = match-everything, must be rejected
         assert is_domain_pattern_valid("*") is False
 
     def test_empty_string_invalid(self):
@@ -110,7 +110,7 @@ class TestIsEmailAllowed:
         assert is_email_allowed("a@example.com", ["other.com"]) is False
 
     def test_case_fold_email(self):
-        """T-1235-02: Mixed-case email domain must be folded before comparison."""
+        """Mixed-case email domain must be folded before comparison."""
         assert is_email_allowed("A@EXAMPLE.COM", ["example.com"]) is True
 
     def test_case_fold_pattern(self):

@@ -1,4 +1,4 @@
-"""Unit tests for IA-P1-06: subprocess env must not leak Authorization token.
+"""Unit tests: subprocess env must not leak Authorization token.
 
 Pins the migration from GDAL_HTTP_HEADERS env var to a 0600 tempfile
 referenced by GDAL_HTTP_HEADER_FILE.
@@ -10,7 +10,7 @@ case is asserted byte for byte against what this path wrote before, which is
 what proves moving the prefix into the shared builder changed nothing on the
 shipping path.
 
-Requirement: IA-P1-06
+Requirement: IA
 Phase: 1068
 """
 
@@ -29,7 +29,7 @@ _BEARER_LINE = f"Authorization: Bearer {_BEARER_TOKEN}"
 
 @pytest.fixture(autouse=True)
 def gdal_header_tmpdir(tmp_path, monkeypatch):
-    """fix(#1746 codex r2): keep header files out of the real /tmp/gdal-auth.
+    """fix(#1746): keep header files out of the real /tmp/gdal-auth.
 
     The mkstemp for the bearer header passes ``dir=gdal_header_dir()``, which
     creates and returns ``GDAL_HEADER_DIR`` — the container tmpfs in
@@ -113,7 +113,7 @@ async def test_token_not_in_subprocess_env_via_header_file():
     #    given to. Stated explicitly rather than inherited from GDAL's default,
     #    and NOT "NO" -- that would drop it on a same-host canonical redirect
     #    too, which a protected service answers with a 401
-    #    (fix(#1746 B2b review r4)).
+    #    (fix(#1746 B2b codex)).
     assert (
         captured_env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"]
         == "IF_SAME_HOST"

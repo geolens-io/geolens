@@ -1,13 +1,13 @@
-"""fix(#394) 2026-07-03 builder-audit: shared-map embed-token scope + tile_version.
+"""fix(#394): shared-map embed-token scope + tile_version.
 
 Covers:
-  - B-023/SH-01: GET /maps/shared/{token} honors X-Embed-Token — layers backed
+  - GET /maps/shared/{token} honors X-Embed-Token — layers backed
     by the token's scoped private datasets are included (the tile path always
-    honored the token; the metadata payload now matches, per the SEC-022
-    capability posture).
-  - SH-04: POST /tiles/tokens/ accepts X-Embed-Token as fallback authorization
+    honored the token; the metadata payload now matches, per the embed
+    token's capability posture).
+  - POST /tiles/tokens/ accepts X-Embed-Token as fallback authorization
     so embed viewers obtain the same tile/DEM descriptors as viewers.
-  - VT-02/B-026: MapLayerResponse + SharedLayerResponse carry ``tile_version``
+  - MapLayerResponse + SharedLayerResponse carry ``tile_version``
     (Dataset.current_version) for the client `_v=` cache-buster.
 """
 
@@ -32,7 +32,7 @@ from tests.factories import create_dataset, get_user_id
 
 
 async def _downgrade_to_private(session, dataset: Dataset) -> None:
-    """Flip a dataset private AFTER map publish — the exact SH-01 scenario
+    """Flip a dataset private AFTER map publish — the exact scenario
     (publishing a map with a non-public dataset is rejected up front, so the
     gap only exists for post-publish downgrades)."""
     await session.execute(
@@ -343,11 +343,11 @@ class TestTileVersionField:
     async def test_tile_version_bumps_on_content_mutation(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#525 B-038): tile_version must roll on content mutations that
+        """Tile_version must roll on content mutations that
         don't create a DatasetVersion row. It previously read current_version
         (bumped on reupload only), so feature edits / column DDL / tile_columns
         changes purged Valkey but left the ``_v=`` tile URL unchanged — CDN and
-        browser caches kept serving stale tiles until max-age expiry (T-01).
+        browser caches kept serving stale tiles until max-age expiry.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(
@@ -383,7 +383,7 @@ class TestGeojsonZEmbedFallback:
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """fix(#394) codex P2: the viewer's bounded-GeoJSON path sends
-        X-Embed-Token, and the B-023 union exposes embed-scoped private layers
+        X-Embed-Token, and the union exposes embed-scoped private layers
         to embeds — the endpoint must honor the token or those layers 401.
 
         Asserts the AUTH contract only: anonymous → 401; valid scoped token →

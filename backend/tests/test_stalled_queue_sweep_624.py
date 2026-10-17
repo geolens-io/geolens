@@ -173,7 +173,7 @@ def test_procrastinate_prune_window_matches_the_sweep_window():
 
 
 def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
-    """fix(#624 codex P2 r3): honour a long WORKER_SHUTDOWN_TIMEOUT.
+    """fix(#624 codex P2): honour a long WORKER_SHUTDOWN_TIMEOUT.
 
     Procrastinate's ``Worker._shutdown`` cancels the heartbeat side task BEFORE
     waiting ``shutdown_graceful_timeout`` for running jobs, so a worker finishing
@@ -188,7 +188,7 @@ def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
     monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
     assert stalled_worker_seconds() == JOB_TIMEOUT_SECONDS
 
-    # fix(#624 codex P1 r4): a split-queue raster worker's long graceful window
+    # fix(#624 codex P1): a split-queue raster worker's long graceful window
     # sits under the floor, so a general worker running the GLOBAL sweep cannot
     # classify it as stalled — no fleet-wide config coordination needed.
     monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
@@ -201,7 +201,7 @@ def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
 
 @pytest.mark.anyio
 async def test_job_whose_ingest_row_is_still_leasing_is_left_alone():
-    """fix(#624 codex P2 r5): a live lease outranks any stalled-worker timeout.
+    """fix(#624 codex P2): a live lease outranks any stalled-worker timeout.
 
     Procrastinate's worker heartbeat and the ingest task's own lease are
     independent: `Worker._shutdown` cancels the former, then waits out
@@ -300,7 +300,7 @@ async def test_job_with_no_lease_to_read_still_gets_swept():
 
 @pytest.mark.anyio
 async def test_lease_lookup_runs_under_each_job_s_tenant():
-    """fix(#624 codex P2 r6): hosted leases are only visible under their tenant.
+    """fix(#624 codex P2): hosted leases are only visible under their tenant.
 
     `ingest_jobs` is FORCE-RLS scoped by `app.current_tenant` in hosted mode, so
     one un-tenanted SELECT would see nothing and read every hosted lease as dead

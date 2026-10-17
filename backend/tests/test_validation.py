@@ -27,7 +27,7 @@ from tests.factories import get_user_id
 
 @pytest.fixture(autouse=True)
 async def _reset_require_metadata_setting(test_db_session):
-    """Reset require_metadata_for_publish to its default after each test (HYG-02).
+    """Reset require_metadata_for_publish to its default after each test.
 
     The per-worker test DB is shared across tests with no rollback (see the
     isolation note in tests/conftest.py). ``test_publish_blocked_when_hard_validation_fails``

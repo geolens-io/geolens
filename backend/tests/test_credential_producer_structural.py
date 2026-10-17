@@ -41,22 +41,22 @@ The two sinks it watches, over the whole ``backend/app/`` tree:
    ``post``, ``stream``, ``request`` and the rest). That binding is the whole
    test for whether a mapping is in scope; the mapping's own name is not
    consulted, so ``request_options`` is watched exactly as closely as
-   ``headers`` (fix(#1756 codex round 4)). It is also what separates a
+   ``headers`` (fix(#1756 codex)). It is also what separates a
    credential from response-header plumbing: everything under
    ``processing/export/`` and ``processing/tiles/`` passes ``headers=`` to
    ``Response``, ``StreamingResponse`` or ``HTTPException``, and none of it
    leaves the process.
 
-   fix(#1756 codex round 1): the mapping rule used to be scoped to
+   the mapping rule used to be scoped to
    ``sources/adapters/``, which missed the composition in ``sources/router.py``
-   entirely. fix(#1756 codex round 3): and it read only the three credential
+   entirely. and it read only the three credential
    names, so a hand-composed ``X-API-Key`` bypassed it.
 
 **Provenance is a whole-expression rule, and it depends on the sink.**
-fix(#1756 codex round 2): it used to ask whether the written expression
+it used to ask whether the written expression
 MENTIONED builder output anywhere, which passed
 ``f"Authorization: Bearer {line}"`` for a builder-derived ``line``.
-fix(#1756 codex round 3): and it accepted a joined line in mapping position,
+and it accepted a joined line in mapping position,
 which puts ``Authorization: Authorization: Basic ...`` on the wire.
 
 Every expression is classified as one of four kinds, or as nothing, and a
@@ -75,18 +75,17 @@ from:
 The file sink accepts a LINE and nothing else, so a PAIR or a bare component
 written to the header file fails. The mapping sink accepts a VALUE for the
 value and a NAME for the key, from the SAME builder call: a PAIR written whole
-fails, a LINE fails, a string-literal key fails (fix(#1756 codex round 4)), and
+fails, a LINE fails, a string-literal key fails (fix(#1756 codex)), and
 so does a key and value taken from two different results
-(fix(#1756 codex round 5)). ``headers[first[0]] = second[1]`` sends one call's
+(fix(#1756 codex)). ``headers[first[0]] = second[1]`` sends one call's
 credential under another call's name, which is the same mismatch a literal key
 produces, so a clean mapping write is spelled ``headers[pair[0]] = pair[1]`` or
 ``headers[name] = value``.
 
-Provenance also requires the call to BE the shared helper (fix(#1756 codex
-round 5)). A bare name counts only when the module imports it from
+Provenance also requires the call to BE the shared helper (fix(#1756)). A bare name counts only when the module imports it from
 ``app.core.service_tokens`` and nothing shadows it at the call site; an
 attribute call counts only when its base names that module AND that base is
-itself unshadowed (fix(#1756 codex round 6)), so an alias rebound by a
+itself unshadowed (fix(#1756 codex)), so an alias rebound by a
 parameter or an assignment buys nothing. A local
 ``def build_credential_header`` and an ``other.build_credential_header(...)``
 therefore confer nothing either, which matters because the whole point of the
@@ -100,7 +99,7 @@ target or import carries no provenance at all.
 
 Both allowlists are asserted EXACT in both directions and by count, so an
 entry whose site disappears fails loudly instead of going stale. Four of the
-six entries were the hand-rolled compositions lane B2b deleted, and this test
+six entries were the hand-rolled compositions deleted, and this test
 is what told it when each one was gone. The two that remain are named
 individually: an OAuth access token the builder cannot produce by design, and
 the one write whose value crosses a process boundary before it arrives.
@@ -125,7 +124,7 @@ appears beside it. It is a lexical AST rule, so:
   modelling this rule does not have.
 - A mapping is identified by the tail name it is reached through, so
   ``headers`` and ``self.headers`` are one key and the write meets the request
-  argument (fix(#1756 codex round 7)). Two things stay unmodelled after that:
+  argument (fix(#1756 codex)). Two things stay unmodelled after that:
   a mapping aliased through a second attribute or a longer chain
   (``self.session.headers`` written to and ``client.session.headers`` passed,
   or two different objects whose attribute happens to share a tail) is matched
@@ -287,7 +286,7 @@ class _Kind(NamedTuple):
     ``result`` is the id of the originating ``build_credential_header`` call
     node. The mapping sink compares it across the key and the value, so a key
     from one call and a value from another cannot be paired
-    (fix(#1756 codex round 5)).
+    (fix(#1756 codex)).
     """
 
     kind: str
@@ -371,7 +370,7 @@ def _iter_scope_nodes(scope: ast.AST):
 class _Imports(NamedTuple):
     """How this module reaches the policy functions, if it does at all.
 
-    fix(#1756 codex round 5): trusting any callable whose attribute tail spells
+    trusting any callable whose attribute tail spells
     ``build_credential_header`` lets a local helper of the same name defeat the
     gate, which matters because the point of the rule is that ONE function
     validates the inputs.
@@ -451,7 +450,7 @@ def _outbound_header_mappings(scope: ast.AST) -> _Outbound:
     """Header mappings handed to an outbound request call in *scope*.
 
     This binding, and not what the mapping is called, is what puts a mapping
-    in scope for the every-key rule (fix(#1756 codex round 4)).
+    in scope for the every-key rule (fix(#1756 codex)).
     """
     names: set[str] = set()
     dicts: set[int] = set()
@@ -466,7 +465,7 @@ def _outbound_header_mappings(scope: ast.AST) -> _Outbound:
             if isinstance(keyword.value, ast.Dict):
                 dicts.add(id(keyword.value))
                 continue
-            # fix(#1756 codex round 7): an attribute reaches the request the
+            # an attribute reaches the request the
             # same way a plain name does, and it is reduced by the same
             # function the write target is reduced by, so
             # `self.request_options[...] = ...` and
@@ -555,7 +554,7 @@ def _opaque_names(node: ast.AST, imports: _Imports) -> list[str]:
             elif isinstance(node, ast.Import) and "." in alias.name:
                 # `import a.b.c` binds the package `a` as a namespace. It
                 # cannot point `a` at another value, so it is not a shadow of
-                # a fully qualified policy call (fix(#1756 codex round 6));
+                # a fully qualified policy call (fix(#1756 codex));
                 # `import x as a` and `from x import a` still are.
                 continue
             else:
@@ -648,7 +647,7 @@ def _resolves_to_policy(
         )
         if not known:
             return False
-        # fix(#1756 codex round 6): the base needs the same shadow check the
+        # the base needs the same shadow check the
         # bare name gets. `from app.core import service_tokens as policy` plus
         # a parameter called `policy` would otherwise make anything that
         # object returns authoritative.
@@ -757,7 +756,7 @@ def _expr_kind(expr: ast.expr, ctx: _Context, limit: tuple[int, int]) -> _Kind |
     """What the WHOLE of *expr* is, and which builder call produced it.
 
     An expression that merely CONTAINS builder output is nothing: that was the
-    round-2 hole, and ``f"Authorization: Bearer {line}"`` is exactly the string
+    earlier hole, and ``f"Authorization: Bearer {line}"`` is exactly the string
     it let through.
 
     Name resolution walks backwards: a name resolves to its latest binding
@@ -804,7 +803,7 @@ def _mapping_reference(expr: ast.expr) -> str | None:
 
     ``headers`` and ``self.headers`` both reduce to ``headers``, so the write
     target and the ``headers=`` argument meet on the same key whichever way
-    each is spelled (fix(#1756 codex round 7)). Reducing to the tail is what
+    each is spelled (fix(#1756 codex)). Reducing to the tail is what
     makes that work and is also its limit, stated in the module docstring.
     """
     if isinstance(expr, ast.Name):
@@ -817,7 +816,7 @@ def _mapping_reference(expr: ast.expr) -> str | None:
 def _container_name(target: ast.expr) -> str | None:
     """The name a subscript is written into, whatever it is called.
 
-    fix(#1756 codex round 4): this used to require "header" in the name, so a
+    this used to require "header" in the name, so a
     request-bound ``request_options`` mapping was invisible. The request
     binding decides scope now; this only reports the name so that binding can
     be looked up.
@@ -882,12 +881,12 @@ def _header_writes(
 def _mapping_write_is_clean(write: _HeaderWrite, ctx: _Context) -> bool:
     """A header mapping takes both halves of ONE builder result.
 
-    fix(#1756 codex round 3): ``headers["Authorization"] =
+    ``headers["Authorization"] =
     credential_header_line(pair)`` used to pass, and puts
     ``Authorization: Authorization: Basic ...`` on the wire.
-    fix(#1756 codex round 4): and a string-literal key used to pass, so an
+    and a string-literal key used to pass, so an
     ``X-API-Key`` credential could be sent under ``Authorization``.
-    fix(#1756 codex round 5): and the key and value were classified
+    and the key and value were classified
     independently, so ``headers[first[0]] = second[1]`` paired one call's name
     with another call's credential. The two halves have to be the same answer.
     """
@@ -1052,9 +1051,9 @@ def test_the_walk_actually_covers_the_backend() -> None:
         f"{HEADER_DIR_HELPER}() is called nowhere, so the header-file rule "
         "matches nothing"
     )
-    # The scan reaches outside the sources package, which is the gap codex
-    # round 1 found: the rule used to be scoped to sources/adapters/ and so
-    # never looked at sources/router.py or anything else.
+    # The scan reaches outside the sources package, which the rule once missed: it was
+    # scoped to sources/adapters/ and so never looked at sources/router.py or
+    # anything else.
     scan = _scan_backend()
     scanned = {site[0] for site in scan.seen_headers}
     assert "modules/catalog/sources/router.py" in scanned
@@ -1186,7 +1185,7 @@ def test_guard_an_inline_composition_is_flagged() -> None:
 
 
 def test_guard_a_lookalike_helper_confers_nothing() -> None:
-    """fix(#1756 codex round 5): the call has to BE the shared function.
+    """The call has to BE the shared function.
 
     A same-named local helper, a same-named attribute on some other object,
     and no import at all each validate nothing, so none of them may buy the
@@ -1221,7 +1220,7 @@ def test_guard_a_lookalike_helper_confers_nothing() -> None:
 
 
 def test_guard_a_shadowed_module_alias_confers_nothing() -> None:
-    """fix(#1756 codex round 6): the base needs the same check as the name.
+    """The base needs the same check as the name.
 
     ``from app.core import service_tokens as policy`` is authoritative right
     up until something else in the scope is also called ``policy``, at which
@@ -1305,7 +1304,7 @@ def test_guard_rebinding_the_imported_helper_confers_nothing() -> None:
 
 
 def test_guard_two_builder_results_cannot_be_mixed() -> None:
-    """fix(#1756 codex round 5): one call's name, another call's credential.
+    """One call's name, another call's credential.
 
     Both halves are genuine builder output and the pairing is still wrong: the
     header goes out under a name that belongs to a different result.
@@ -1328,7 +1327,7 @@ def test_guard_two_builder_results_cannot_be_mixed() -> None:
 
 
 def test_guard_the_joiner_alone_confers_nothing() -> None:
-    """fix(#1756 codex round 1): the joiner only concatenates.
+    """The joiner only concatenates.
 
     Crediting a bare ``credential_header_line(...)`` would let an
     unvalidated value through under a builder-shaped name.
@@ -1345,7 +1344,7 @@ def test_guard_the_joiner_alone_confers_nothing() -> None:
 
 
 def test_guard_a_double_prefix_around_a_builder_line_is_flagged() -> None:
-    """fix(#1756 codex round 2): the case the module docstring promises.
+    """The case the module docstring promises.
 
     ``line`` really did come from the builder, and the f-string still writes
     ``Authorization: Bearer Authorization: Basic <blob>``. A rule that asks
@@ -1363,7 +1362,7 @@ def test_guard_a_double_prefix_around_a_builder_line_is_flagged() -> None:
 
 
 def test_guard_a_joined_line_in_mapping_position_is_flagged() -> None:
-    """fix(#1756 codex round 3): the wire header would carry the name twice.
+    """The wire header would carry the name twice.
 
     ``credential_header_line`` output under a header key sends
     ``Authorization: Authorization: Basic <blob>``. The mapping sink takes the
@@ -1394,7 +1393,7 @@ def test_guard_a_whole_pair_in_mapping_position_is_flagged() -> None:
 
 
 def test_guard_a_literal_key_beside_a_builder_value_is_flagged() -> None:
-    """fix(#1756 codex round 4): the two halves have to come from one answer.
+    """The two halves have to come from one answer.
 
     ``headers["Authorization"] = pair[1]`` looks careful and sends an
     ``X-API-Key`` credential under ``Authorization`` whenever the pair is a
@@ -1531,7 +1530,7 @@ def test_guard_a_write_outside_the_header_directory_is_not_judged() -> None:
 
 
 def test_guard_a_custom_api_key_header_is_judged_on_the_credential_paths() -> None:
-    """fix(#1756 codex round 3): the header-key method's whole point.
+    """The header-key method's whole point.
 
     A hand-composed ``X-API-Key`` is a credential in exactly the way an
     ``Authorization`` header is, and the three-name rule could not see it.
@@ -1559,7 +1558,7 @@ def test_guard_a_custom_api_key_header_is_judged_on_the_credential_paths() -> No
 
 
 def test_guard_a_mapping_not_called_headers_is_still_judged() -> None:
-    """fix(#1756 codex round 4): the request binding decides scope.
+    """The request binding decides scope.
 
     The name filter this replaced meant ``request_options["X-API-Key"] = raw``
     was scanned nowhere at all, even though it reaches the wire.
@@ -1575,7 +1574,7 @@ def test_guard_a_mapping_not_called_headers_is_still_judged() -> None:
 
 
 def test_guard_a_mapping_held_on_an_attribute_is_judged() -> None:
-    """fix(#1756 codex round 7): an attribute reaches the wire too.
+    """An attribute reaches the wire too.
 
     ``self.request_options["X-API-Key"] = raw`` with
     ``headers=self.request_options`` was scanned nowhere, because the write
@@ -1716,7 +1715,7 @@ def test_guard_a_self_reference_terminates() -> None:
 
 
 class TestBuildCredentialHeaderRegistersEverythingItProduces:
-    """fix(#1770 round 43 P2).
+    """fix(#1770 P2).
 
     `redact_exception_text`/the structlog `_scrub_text` processor used to
     redact a credential only by PATTERN -- a known query-parameter name, or

@@ -1,4 +1,4 @@
-"""Regression tests for Phase 1184 — GAP-005: backup schedule validation.
+"""Regression tests: backup schedule validation.
 
 The backup-entrypoint.sh sleep-loop scheduler only fires for expressions of the
 form 'M H * * *' (literal minute + hour, three wildcard fields). Any other form
@@ -73,7 +73,7 @@ def _run_validate(expr: str) -> subprocess.CompletedProcess:
 
 
 class TestBackupScheduleValidation:
-    """GAP-005: validate_cron_expr must accept supported and reject unsupported."""
+    """validate_cron_expr must accept supported and reject unsupported."""
 
     # --- Supported expressions (must exit 0) ---
 

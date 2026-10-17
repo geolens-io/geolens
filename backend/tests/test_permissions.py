@@ -1,15 +1,15 @@
-"""Tests for the granular permissions system (PERM-01, PERM-03, PERM-04, PERM-05)."""
+"""Tests for the granular permissions system."""
 
 import pytest
 
 
 # ---------------------------------------------------------------------------
-# Task 1: Permissions module, PersistentConfig key, defaults
+# Permissions module, PersistentConfig key, defaults
 # ---------------------------------------------------------------------------
 
 
 class TestDefaultPermissions:
-    """PERM-01: Default permission matrix matches current role behavior."""
+    """Default permission matrix matches current role behavior."""
 
     def test_default_permissions_viewer(self):
         from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
@@ -43,7 +43,7 @@ class TestDefaultPermissions:
         )
 
         admin = DEFAULT_ROLE_PERMISSIONS["admin"]
-        # CR-02 (Phase 1211): MANAGE_TENANTS is False for per-tenant admins —
+        # MANAGE_TENANTS is False for per-tenant admins —
         # it is a fleet-superadmin-only capability granted out-of-band.
         # All other admin capabilities are True.
         for cap, val in admin.items():
@@ -68,7 +68,7 @@ class TestDefaultPermissions:
             "use_ai_chat",
             "manage_users",
             "manage_settings",
-            "manage_tenants",  # CLOUD-02 Phase 1211 — fleet superadmin capability
+            "manage_tenants",  # fleet superadmin capability
         }
         assert set(ALL_CAPABILITIES) == expected
 
@@ -369,19 +369,19 @@ async def test_settings_rejects_coerced_false_admin_capabilities(
 
 
 # ---------------------------------------------------------------------------
-# Task 2: require_permission() factory and /auth/me/permissions endpoint
+# Require_permission() factory and /auth/me/permissions endpoint
 # ---------------------------------------------------------------------------
 
 
 class TestRequirePermission:
-    """PERM-03: require_permission() dependency factory."""
+    """require_permission() dependency factory."""
 
     @pytest.mark.anyio
     async def test_me_permissions_endpoint(
         self, client, admin_auth_header, editor_auth_header, viewer_auth_header
     ):
         """GET /auth/me/permissions returns effective permissions for each role."""
-        # Admin should have all True EXCEPT manage_tenants (CR-02 fleet-superadmin only).
+        # Admin should have all True EXCEPT manage_tenants (fleet-superadmin only).
         resp = await client.get("/auth/me/permissions/", headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
@@ -390,7 +390,7 @@ class TestRequirePermission:
         assert len(perms) == 9
         for cap, val in perms.items():
             if cap == "manage_tenants":
-                # CR-02 (Phase 1211): fleet-superadmin only; False for per-tenant admins
+                # fleet-superadmin only; False for per-tenant admins
                 assert val is False, (
                     "CR-02: manage_tenants must be False for default admin role"
                 )

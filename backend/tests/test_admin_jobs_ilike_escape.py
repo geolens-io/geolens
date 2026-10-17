@@ -1,4 +1,4 @@
-"""BUG-026: AdminService.list_jobs source_filename ILIKE must escape %, _, and \\.
+"""AdminService.list_jobs source_filename ILIKE must escape %, _, and \\.
 
 list_jobs() composed its filename filter as
 ``IngestJob.source_filename.ilike(f"%{search}%")`` with no escaping, so a search

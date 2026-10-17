@@ -1,11 +1,11 @@
-"""Phase 1229 Plan 03 — Admin notification status + test-send endpoint tests.
+"""Admin notification status + test-send endpoint tests.
 
 Covers:
-  - NOTIF-05: GET /settings/notifications/status/ returns booleans only, no secrets.
-  - NOTIF-06: POST /settings/notifications/test/ invokes configured channels, returns
-              per-channel reachable/error in a 200 body (never 5xx on channel failure).
-  - T-1229-08: Both endpoints require manage_settings permission (non-admin → 403).
-  - T-1229-09: Neither response body contains SMTP password, webhook URL, or webhook secret.
+  - GET /settings/notifications/status/ returns booleans only, no secrets.
+  - POST /settings/notifications/test/ invokes configured channels, returns
+    per-channel reachable/error in a 200 body (never 5xx on channel failure).
+  - Both endpoints require manage_settings permission (non-admin → 403).
+  - Neither response body contains SMTP password, webhook URL, or webhook secret.
 """
 
 from __future__ import annotations
@@ -292,11 +292,11 @@ class TestNotificationTestSend:
 
         assert resp.status_code == 200
         body = resp.text
-        # T-1229-09: no secrets in response body
+        # no secrets in response body
         assert _SECRET_SMTP_PASSWORD not in body
         assert _SECRET_WEBHOOK_URL not in body
         assert _SECRET_WEBHOOK_SECRET not in body
-        # T-1229-09: no secrets in captured logs
+        # no secrets in captured logs
         log_text = caplog.text
         assert _SECRET_SMTP_PASSWORD not in log_text
         assert _SECRET_WEBHOOK_SECRET not in log_text

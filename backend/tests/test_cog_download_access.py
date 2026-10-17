@@ -12,7 +12,7 @@ raster's tiles rendered anonymously while its COG could only be downloaded
 after a separate authenticated or token-minting round trip, breaking the
 "download this and open it in QGIS" flow for exactly the showcase rasters.
 
-Mirrors ``test_export_access.py``'s EXP-01/EXP-02 matrix for the COG route:
+Mirrors ``test_export_access.py``'s matrix for the COG route:
   - anon + public+published -> 200
   - anon + public-unpublished (record_status="internal") -> {401,403,404}
   - anon + private -> {401,403,404} (404 specifically: existence hiding)
@@ -102,7 +102,7 @@ async def test_anon_cog_download_with_empty_token_param_is_401(
     client: AsyncClient,
     test_db_session,
 ):
-    """fix(#1693 codex r1): a bare ``?token=`` (empty value) must 401, not
+    """fix(#1693): a bare ``?token=`` (empty value) must 401, not
     fall through to the anonymous branch as if no token were supplied at
     all — even for a public+published raster where the anonymous branch
     would otherwise return 200. An empty value is a PRESENT, malformed

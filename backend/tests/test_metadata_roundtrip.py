@@ -217,7 +217,7 @@ async def test_minimal_published_record_remains_visible_and_conformant_in_feeds(
     complete = await _create_complete_dataset(
         session, created_by=admin_id, name="Complete Feed Record"
     )
-    # Incomplete: missing summary (DCAT-3 / GeoDCAT-AP description) AND no
+    # Incomplete: missing summary (/ GeoDCAT-AP description) AND no
     # contact (DCAT-US mandatory contactPoint).
     incomplete = await _create_complete_dataset(
         session, created_by=admin_id, name="Incomplete Feed Record", with_contact=False
@@ -338,7 +338,7 @@ async def test_dcat3_catalog_validation_endpoint(
     client: AsyncClient,
     test_db_session,
 ):
-    """The new DCAT-3 catalog validation endpoint reports a conformant feed."""
+    """The new catalog validation endpoint reports a conformant feed."""
     session = test_db_session
     for _table in ("catalog.datasets", "catalog.records", "catalog.collections"):
         await session.execute(text(f"TRUNCATE TABLE {_table} CASCADE"))
@@ -365,7 +365,7 @@ async def test_patch_explicit_null_clears_field(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """fix(#458 E-04): an explicit null clears the field; absent fields keep
+    """An explicit null clears the field; absent fields keep
     PATCH semantics; title (NOT NULL) ignores a null."""
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await _create_complete_dataset(
@@ -390,7 +390,7 @@ async def test_patch_explicit_null_clears_field(
     assert body["source_organization"] == "Original Org"
     assert body["usage_constraints"] == "Attribution required"
 
-    # fix(#458 E-04, codex review): the audit event must record the cleared
+    # fix(#458): the audit event must record the cleared
     # fields (exclude_unset, not exclude_none) so history reflects the change.
     from sqlalchemy import select
 
@@ -418,7 +418,7 @@ async def test_patch_clear_text_field_requeues_embedding(
     test_db_session,
     monkeypatch,
 ):
-    """fix(#458 E-04, codex review): clearing summary/lineage must re-defer the
+    """fix(#458): clearing summary/lineage must re-defer the
     embedding (model_fields_set), not skip it because the value is None."""
     from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
 

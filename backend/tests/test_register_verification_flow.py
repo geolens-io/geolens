@@ -1,4 +1,4 @@
-"""Phase 1231 Plan 02 — Full-matrix integration tests for email-verified self-serve signup.
+"""Full-matrix integration tests for email-verified self-serve signup.
 
 Covers the eight-case behaviour matrix:
 
@@ -52,7 +52,7 @@ from unittest.mock import AsyncMock
 # Helpers
 # ---------------------------------------------------------------------------
 
-_STRONG_PASSWORD = "StrongPass1234!"  # meets SEC-S16 policy
+_STRONG_PASSWORD = "StrongPass1234!"  # meets policy
 _TEST_SMTP_PASSWORD = "smtp-super-secret-pass"
 
 
@@ -213,7 +213,7 @@ async def test_signup_off_returns_403_no_email(
     captured_send_email: list,
     set_persistent_config,
 ) -> None:
-    """SIGNUP-06: when REGISTRATION_ENABLED is off, register returns 403 and no email is sent."""
+    """When REGISTRATION_ENABLED is off, register returns 403 and no email is sent."""
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     await set_persistent_config(REGISTRATION_ENABLED, False)
@@ -243,7 +243,7 @@ async def test_signup_on_verification_required_emails_registrant(
     test_db_session,
     set_persistent_config,
 ) -> None:
-    """SIGNUP-03: register with verification on sends 1 email to the registrant."""
+    """Register with verification on sends 1 email to the registrant."""
     from app.core.persistent_config import (
         EMAIL_VERIFICATION_REQUIRED,
         REGISTRATION_ENABLED,
@@ -362,7 +362,7 @@ async def test_verify_email_activates_account_and_login_works(
     test_db_session,
     set_persistent_config,
 ) -> None:
-    """SIGNUP-03/04: verify-email with valid token activates the account; login then succeeds."""
+    """verify-email with valid token activates the account; login then succeeds."""
     from app.core.persistent_config import (
         EMAIL_VERIFICATION_REQUIRED,
         REGISTRATION_ENABLED,
@@ -423,7 +423,7 @@ async def test_verify_email_activates_account_and_login_works(
 
 
 # ---------------------------------------------------------------------------
-# CR-01: a valid token must not re-activate an admin-suspended account
+# A valid token must not re-activate an admin-suspended account
 # ---------------------------------------------------------------------------
 
 
@@ -434,7 +434,7 @@ async def test_verify_email_does_not_reactivate_suspended_account(
     test_db_session,
     set_persistent_config,
 ) -> None:
-    """CR-01: if an admin suspends a still-pending account within the token's
+    """If an admin suspends a still-pending account within the token's
     validity window, clicking the verification link must consume the token but
     must NOT silently re-activate the account."""
     from sqlalchemy import update
@@ -556,7 +556,7 @@ async def test_resend_verification_enumeration_safe(
     captured_send_email: list,
     set_persistent_config,
 ) -> None:
-    """SIGNUP-05: resend returns same 200 body for known and unknown email."""
+    """Resend returns same 200 body for known and unknown email."""
     from app.core.persistent_config import (
         EMAIL_VERIFICATION_REQUIRED,
         REGISTRATION_ENABLED,
@@ -631,7 +631,7 @@ async def test_unverified_user_blocked_from_protected_endpoint(
     captured_send_email: list,
     set_persistent_config,
 ) -> None:
-    """SIGNUP-04: an inactive/unverified user cannot reach /auth/me."""
+    """An inactive/unverified user cannot reach /auth/me."""
     from app.core.persistent_config import (
         EMAIL_VERIFICATION_REQUIRED,
         REGISTRATION_ENABLED,
@@ -673,7 +673,7 @@ async def test_smtp_failure_returns_clear_non_leaky_error(
     set_persistent_config,
     monkeypatch,
 ) -> None:
-    """T-1231-07: SMTP failure → clear HTTP error, secret never in response body."""
+    """SMTP failure → clear HTTP error, secret never in response body."""
     import smtplib
 
     from app.core.persistent_config import (
@@ -748,7 +748,7 @@ async def test_cloud_gate_preserved(
     set_persistent_config,
     monkeypatch,
 ) -> None:
-    """T-1231-08: cloud mode 403 gate is preserved; global self-signup stays disabled."""
+    """Cloud mode 403 gate is preserved; global self-signup stays disabled."""
     from app.core.persistent_config import REGISTRATION_ENABLED
 
     # Turn signup ON so the cloud-gate check is the ONLY reason for the 403
@@ -913,7 +913,7 @@ async def test_register_collision_response_identical_to_new_user(
     captured_send_email: list,
     set_persistent_config,
 ) -> None:
-    """SEC-012 regression: under verification+SMTP, a swallowed username/email
+    """Regression: under verification+SMTP, a swallowed username/email
     collision returns a response BYTE-IDENTICAL to a genuine new signup (same
     message AND next_step), so account existence cannot be enumerated via the
     register response. (Before the fix the new-user path returned 'verify_email'
@@ -1050,7 +1050,7 @@ async def test_verify_notify_not_called(
     assert resp.status_code == 201, resp.text
 
     # notify() must not have been called for the verification email
-    # (admin EVENT-01 signup notify goes through emit_event_safe which
+    # (admin signup notify goes through emit_event_safe which
     # calls notify() only when the toggle is on; in tests notify_on_signup
     # defaults False, so notify_calls should still be empty)
     email_verif_notify_calls = [

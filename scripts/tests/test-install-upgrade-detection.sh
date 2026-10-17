@@ -1,6 +1,6 @@
 #!/bin/sh
-# Regression test for the installer's newer-release detection (UPG-02,
-# scripts/install.sh). Pure shell with stubbed docker/git on PATH; no real
+# Regression test for the installer's newer-release detection
+# (scripts/install.sh). Pure shell with stubbed docker/git on PATH; no real
 # stack, no DB, no network.
 #
 # Asserts, for a RE-RUN of an existing install (current dir has .env):

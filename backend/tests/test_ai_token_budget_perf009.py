@@ -1,4 +1,4 @@
-"""PERF-009 regression — AI tool loop must stop on a cumulative token budget.
+"""Regression — AI tool loop must stop on a cumulative token budget.
 
 The streaming chat tool loop in ``app/processing/ai/streaming.py`` was bounded
 only by round count (``MAX_TOOL_ROUNDS``), wall clock
@@ -138,7 +138,7 @@ async def test_anthropic_loop_stops_when_token_budget_exceeded(monkeypatch):
         f"loop ran {rounds_run} rounds — token budget guard did not fire "
         f"(PERF-009 regression; expected < {MAX_TOOL_ROUNDS})"
     )
-    # With per-round == full budget, round 1 runs then round 2's top check trips.
+    # With per-round == full budget runs then round 2's top check trips.
     assert rounds_run == 2, (
         f"expected the loop to stop after 2 rounds (round 1 spends the budget, "
         f"round 2's top check breaks), got {rounds_run}"
@@ -196,7 +196,7 @@ async def test_anthropic_loop_does_not_stop_below_budget(monkeypatch):
 
 @pytest.mark.anyio
 async def test_chat_stream_records_usage_per_round(monkeypatch):
-    """fix(#402) codex P1 (round 4): streaming chat records usage PER ROUND, not
+    """fix(#402) codex P1: streaming chat records usage PER ROUND, not
     once at the end.
 
     A mid-stream client disconnect raises GeneratorExit at a yield and skips any

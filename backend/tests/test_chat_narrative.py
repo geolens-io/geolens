@@ -198,7 +198,7 @@ async def test_sandbox_error_uses_mapped_message():
 async def test_query_data_via_execute_chat_tool_preserves_geojson():
     """End-to-end test: _execute_chat_tool('query_data', ..., port=fake_port) preserves GeoJSON.
 
-    Phase 225 review fix W-05 — closes the test gap where _handle_query_data's
+    Closes the test gap where _handle_query_data's
     GeoJSON extraction (chat_service.py:608-611) was never exercised through
     the Port-bearing dispatcher. Asserts that out["geojson"] and out["bbox"]
     survive the _execute_chat_tool routing layer.
@@ -252,12 +252,12 @@ async def test_query_data_via_execute_chat_tool_preserves_geojson():
     assert result["truncated"] is False
 
 
-# --- add_layer: dataset_name resolution end-to-end (builder-audit #338 B-002) ---
+# --- add_layer: dataset_name resolution end-to-end ---
 
 
 @pytest.mark.anyio
 async def test_add_layer_resolves_dataset_name_end_to_end():
-    """builder-audit #338 B-002: an add_layer action must carry the dataset's display
+    """An add_layer action must carry the dataset's display
     title so the staging chip shows a human name, not the raw UUID.
 
     Earlier the field was added to the ChatAction model + read by the frontend,
@@ -307,7 +307,7 @@ async def test_add_layer_resolves_dataset_name_end_to_end():
     )
 
 
-# --- fix(#392): set_style heatmap-radius tweak survives validation (audit WR-01) ---
+# --- fix(#392): set_style heatmap-radius tweak survives validation ---
 
 
 @pytest.mark.anyio
@@ -351,7 +351,7 @@ async def test_set_style_heatmap_radius_survives_execute_chat_tool_end_to_end():
 
 @pytest.mark.anyio
 async def test_add_layer_name_lookup_failure_is_non_fatal():
-    """B-002 hardening: a dataset-name lookup failure must NOT block the add —
+    """Hardening: a dataset-name lookup failure must NOT block the add —
     the action still flows with dataset_id and simply omits dataset_name."""
     from app.processing.ai.chat_actions import _collect_chat_action
 

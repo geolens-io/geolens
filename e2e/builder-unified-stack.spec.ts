@@ -329,7 +329,7 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
   });
 
   // =========================================================================
-  // Test 4: Flyout opens, closes, focus returns to row (BSR-25 + BSR-13)
+  // Test 4: Flyout opens, closes, focus returns to row
   // =========================================================================
 
   test('4. flyout opens, closes, and returns focus to row (BSR-25 + BSR-13)', async ({ page }) => {
@@ -356,7 +356,7 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
 
     await expect(editor).not.toBeVisible({ timeout: 5_000 });
 
-    // BSR-25: focus must return to the originating stack row
+    // Focus must return to the originating stack row
     const focusedId = await page.evaluate(() => document.activeElement?.id ?? '');
     expect(focusedId, 'Focus should return to a stack-row element after closing the editor').toMatch(/^stack-row-/);
 
@@ -379,7 +379,7 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     }
     expect(focusedTags.length, 'Should tab through at least 5 focusable elements in the builder shell').toBeGreaterThanOrEqual(5);
 
-    // --- Mobile flow (viewport < 800px) — BSR-13: Sheet overlay ---
+    // --- Mobile flow (viewport < 800px) — Sheet overlay ---
     // At <800px the sidebar collapses to a 64px rail (isRail=true) and the editor
     // column is hidden (isEditorHidden=true). The full-anatomy stack rows are not
     // rendered in the rail variant — entry happens via rail icons or the mobile
@@ -387,7 +387,7 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     // component-level test in `__tests__/LayerEditorPanel.test.tsx` (`isDrillDown=true`
     // back-arrow render path). UAT-level verification of the rail→Sheet entry flow
     // is deferred to a future polish phase that designs the rail's per-layer entry
-    // affordance (BSR-13 followup).
+    // affordance (followup).
     await page.setViewportSize({ width: 700, height: 900 });
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
@@ -649,7 +649,7 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
       const targetRow = page.locator(`#stack-row-${targetLayerId}`);
       await targetRow.hover();
       await targetRow.locator('[data-kebab-trigger]').click();
-      // "New group…" lives inside the "Add to group…" submenu (Phase 1035).
+      // "New group…" lives inside the "Add to group…" submenu.
       await page.getByTestId('kebab-add-to-group').click();
       await page.getByRole('menuitem', { name: /New group/i }).click();
       await expect(page.getByText(/^Group 1$/).first()).toBeVisible();

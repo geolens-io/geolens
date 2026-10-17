@@ -8,9 +8,9 @@ async function allowGuestCatalog(page: Page) {
   }, GUEST_BROWSE_KEY);
 }
 
-// REL-02: lightweight keyboard-nav smoke for the public front door.
+// Lightweight keyboard-nav smoke for the public front door.
 // Scoped to /login and / only — no MapLibre/builder routes which flake headless.
-// Phase 1248 GLUX vitest component tests already guard the map/builder flows.
+// GLUX vitest component tests already guard the map/builder flows.
 test.describe('Keyboard navigation — public routes', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 

@@ -421,7 +421,7 @@ class TestManifestApplyHelpers:
         assert prepared.file_path == "operator/roads.geojson"
 
     def test_dotdot_traversal_rejected_at_schema_layer(self):
-        """Phase 268 H-29: ManifestSource must reject any URI containing
+        """ManifestSource must reject any URI containing
         a `..` path segment. The Pydantic validator catches it before any
         ingest classification runs."""
         for unsafe in (
@@ -445,7 +445,7 @@ class TestManifestApplyHelpers:
     async def test_classify_manifest_source_rejects_paths_outside_staging_dir(
         self, monkeypatch
     ):
-        """Phase 268 H-29: defense-in-depth — even if the regex/validator
+        """Defense-in-depth — even if the regex/validator
         is bypassed somehow, classify_manifest_source must refuse paths
         whose resolved form escapes upload_staging_dir."""
         # Construct a ManifestSource directly bypassing validation by
@@ -751,7 +751,7 @@ class TestManifestApplyService:
         assert result.dataset_id == dataset.id
         queue.assert_not_awaited()
         # gh#1736: the message must not claim the source was checked, only
-        # that the manifest entry itself is unchanged. gh#1773 codex r4:
+        # that the manifest entry itself is unchanged. gh#1773 codex:
         # this is the vector branch, which does have a working checksum
         # recovery path -- see test_completed_raster_fingerprint_skip_does_
         # not_promise_checksum_recovery for the raster branch, which does not.
@@ -761,7 +761,7 @@ class TestManifestApplyService:
     async def test_completed_raster_fingerprint_skip_does_not_promise_checksum_recovery(
         self, test_db_session, clean_tables
     ):
-        """gh#1773 codex r4: bumping checksum on a raster_cog entry does move
+        """gh#1773 codex: bumping checksum on a raster_cog entry does move
         the fingerprint and reclassify skip_complete as update, but
         _validate_existing_dataset_update then rejects a raster update
         outright ("Manifest raster updates are not supported"). Naming
@@ -809,7 +809,7 @@ class TestManifestApplyService:
     async def test_changed_raster_checksum_errors_instead_of_skipping(
         self, test_db_session, clean_tables
     ):
-        """gh#1773 codex r5: fresh evidence from the round-4 docs fix itself.
+        """gh#1773: fresh evidence from the docs fix itself.
         The README/Field/CLI-schema text said a raster entry with a changed
         checksum "still classifies as skip, not update" -- but
         _classify_dataset does not look at source type, so a changed

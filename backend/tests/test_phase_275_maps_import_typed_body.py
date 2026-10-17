@@ -1,6 +1,6 @@
-"""Phase 275 / API-01 regression: POST /maps/import accepts a typed body.
+"""Regression: POST /maps/import accepts a typed body.
 
-Closes M-05 (v13.12 medium finding): the request body parameter changed from
+The request body parameter changed from
 ``style: dict = Body(...)`` to a typed ``MapStyleImportRequest`` Pydantic
 model. The OpenAPI ``requestBody`` schema now references the named component
 instead of an inline ``additionalProperties: true`` object, and out-of-range
@@ -76,13 +76,13 @@ def test_openapi_style_json_export_declares_its_shape() -> None:
     schema = ok["content"]["application/json"]["schema"]
     assert schema.get("type") == "object", schema
     assert "maplibre-style-spec" in schema.get("description", ""), schema
-    # fix(#1672 codex r1): the open-object semantics must be explicit or
+    # fix(#1672): the open-object semantics must be explicit or
     # openapi-typescript closes the type to Record<string, never>.
     assert schema.get("additionalProperties") is True, schema
 
 
 class TestMapsImportTypedBody:
-    """Behavior regression for the typed-body change (API-01 / M-05)."""
+    """Behavior regression for the typed-body change."""
 
     async def test_post_maps_import_accepts_valid_minimal_body(
         self, client: AsyncClient, editor_auth_header: dict

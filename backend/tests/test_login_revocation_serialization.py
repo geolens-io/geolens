@@ -61,7 +61,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.auth.models import RefreshToken
 from app.modules.auth.providers.local import LocalAuthProvider
 
-PASSWORD = "TestPass1234!"  # SEC-S16: 12 chars, 3 character classes
+PASSWORD = "TestPass1234!"  # 12 chars, 3 character classes
 
 
 async def _create_user(client: AsyncClient, admin_headers: dict) -> tuple[str, str]:

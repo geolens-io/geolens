@@ -62,7 +62,7 @@ class FakeHttpxClient:
     def __init__(self, response: FakeResponse) -> None:
         self.response = response
         self.calls: list[dict[str, Any]] = []
-        # fix(#1778 review round 5): long_request_timeout() reads/restores this,
+        # long_request_timeout() reads/restores this,
         # matching real httpx.Client's `.timeout` attribute.
         self.timeout = 30.0
 
@@ -89,7 +89,7 @@ def _manifest_path() -> Path:
 
 
 def _remote_manifest_path() -> Path:
-    # GAP-020: `apply` rejects manifests with LOCAL source URIs (use `publish`
+    # `apply` rejects manifests with LOCAL source URIs (use `publish`
     # for those). Command-level apply tests therefore use a remote-URI manifest
     # so the POST path is exercised end-to-end.
     return FIXTURE_ROOT / "valid" / "vector-url.yaml"
@@ -159,12 +159,12 @@ def test_post_manifest_apply_uses_sdk_owned_transport() -> None:
 
 
 def test_post_manifest_apply_raises_the_bound_for_the_manifests_own_entry_count() -> None:
-    """fix(#1778 review round 5): the backend validates and applies the
+    """The backend validates and applies the
     manifest before responding, which can outlast AppState.sdk()'s plain
     30s bound for a manifest with many datasets. post_manifest_apply()
     must raise the bound for the POST itself and restore it afterward.
 
-    fix(#1778 review round 18): the bound is no longer the fixed
+    the bound is no longer the fixed
     EXTENDED_REQUEST_TIMEOUT_SECONDS -- it's batch-aware
     (compute_manifest_apply_timeout), scaled to how many dataset
     entries THIS manifest actually has. The vector-relative.yaml
@@ -198,14 +198,14 @@ def test_post_manifest_apply_raises_the_bound_for_the_manifests_own_entry_count(
 
 
 class TestComputeManifestApplyTimeout:
-    """fix(#1778 review round 18) part (a): the shared 600s
+    """Fix part (a): the shared 600s
     long-request bound can expire during a legitimately still-
     succeeding apply -- ManifestApplyRequest allows 100 datasets,
     apply_manifest() processes them sequentially, and each entry's
     dominant synchronous cost is its own 60s HTTP source download.
     Pinned against 1/10/100-entry manifests.
 
-    fix(#1778 review round 20): round 18 ALSO capped the formula at
+    ALSO capped the formula at
     MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS (3600s) -- smaller than the
     formula's own maximum (600 + 100*70 == 7600s), so the cap started
     truncating the budget at ~43 entries, well inside the API's
@@ -239,7 +239,7 @@ class TestComputeManifestApplyTimeout:
         assert compute_manifest_apply_timeout(10) == 1300.0
 
     def test_a_hundred_entries_is_linear_not_capped(self) -> None:
-        """fix(#1778 review round 20): the API's own 100-dataset
+        """The API's own 100-dataset
         maximum is the only bound -- 600 + 100*70 == 7600.0, NOT the
         old 3600.0 ceiling."""
         from geolens_cli.manifest_apply import compute_manifest_apply_timeout
@@ -249,7 +249,7 @@ class TestComputeManifestApplyTimeout:
     def test_the_formula_stays_linear_past_where_the_old_ceiling_used_to_bite(
         self,
     ) -> None:
-        """fix(#1778 review round 20): round 18's 3600s ceiling started
+        """fix(#1778): the earlier 3600s ceiling started
         truncating at entry 43 (600 + 43*70 == 3610, already past
         3600). Pinned at the 43/44 boundary to prove there is no
         plateau there any more -- each additional entry still adds
@@ -268,7 +268,7 @@ class TestComputeManifestApplyTimeout:
 
 
 class TestResolveApplyTimeout:
-    """fix(#1778 review round 21) P1: the computed formula is only ever
+    """Fix P1: the computed formula is only ever
     a heuristic lower bound -- MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS
     (60s) is the backend's per-chunk INACTIVITY timeout on a source
     download, not a total download deadline, so a large source served
@@ -311,9 +311,9 @@ class TestResolveApplyTimeout:
         "raw", [float("nan"), float("inf"), float("-inf"), float("1e309")]
     )
     def test_a_non_finite_value_is_rejected(self, raw: float) -> None:
-        """fix(#1778 review round 24): float("nan") < 0 is False (every
+        """float("nan") < 0 is False (every
         NaN comparison is False), and float("inf")/float("1e309")
-        (which rounds to inf) are both non-negative -- the pre-round-24
+        (which rounds to inf) are both non-negative -- the earlier
         checks let all three all the way through to
         long_request_timeout() as a real, silently-unbounded timeout
         that never went through the documented --timeout 0 path."""
@@ -337,7 +337,7 @@ class TestManifestApplyTimeoutReporting:
         def raising_post(**kwargs: Any) -> Any:
             import httpx
 
-            # fix(#1778 review round 22): specifically ReadTimeout, not
+            # Specifically ReadTimeout, not
             # the bare TimeoutException base class -- the request was
             # sent and this waited on the response, the only shape
             # ManifestApplyTimeout's "server may have already accepted
@@ -374,7 +374,7 @@ class TestManifestApplyTimeoutReporting:
     ) -> None:
         """fix(#1814): the message must say a re-run attaches to an entry still
         being staged, give actionable advice (dry-run first), and make no
-        blanket idempotency claim, which is the round-18 overclaim."""
+        blanket idempotency claim, which is the earlier overclaim."""
         from geolens_cli.manifest_apply import (
             ManifestApplyTimeout,
             build_apply_timeout_message,
@@ -390,7 +390,7 @@ class TestManifestApplyTimeoutReporting:
         assert "attaches" in message.lower()
         assert "dry-run" in message.lower()
         assert "re-running" in message.lower()
-        # The stale warning, and the round-18 overclaim, must both stay out.
+        # The stale warning, and the earlier overclaim, must both stay out.
         assert "twice" not in message.lower()
         assert "idempotent" not in message.lower()
         assert "is safe" not in message.lower()
@@ -435,7 +435,7 @@ class TestManifestApplyTimeoutReporting:
     def test_status_check_follow_up_uses_the_short_fixed_timeout_regardless_of_entry_count(
         self,
     ) -> None:
-        """fix(#1778 review round 19) P2: the dry-run follow-up must be
+        """Fix P2: the dry-run follow-up must be
         bounded by MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS (a
         short, fixed 30s), NOT the entry-scaled budget the real apply
         needed -- dry_run does no download/queue work, so its cost
@@ -518,7 +518,7 @@ class TestManifestApplyTimeoutReporting:
         assert result is None
         assert errors
         assert warnings and "could not" in warnings[0].lower()
-        # fix(#1778 review round 19): must not fall back to claiming
+        # Must not fall back to claiming
         # safety just because the status check itself failed.
         assert "is safe" not in warnings[0].lower()
         assert "safely" not in warnings[0].lower()
@@ -526,7 +526,7 @@ class TestManifestApplyTimeoutReporting:
     def test_status_check_absorbs_a_plain_network_failure_not_just_timeout(
         self,
     ) -> None:
-        """fix(#1778 review round 21) P2: attempt_apply_timeout_status_
+        """Fix P2: attempt_apply_timeout_status_
         check() only caught ManifestApplyTimeout/ManifestApplyRequestError
         -- a plain connection failure never raises either. call_sdk()
         maps httpx.NetworkError straight to typer.Exit(EXIT_NETWORK) on
@@ -554,7 +554,7 @@ class TestManifestApplyTimeoutReporting:
     def test_report_apply_timeout_warns_when_the_follow_up_hits_a_network_failure(
         self,
     ) -> None:
-        """fix(#1778 review round 21) P2, at the report_apply_timeout()
+        """Fix P2, at the report_apply_timeout()
         level: the original timeout's explanation must still print even
         though the best-effort follow-up hit an unrelated network
         failure, not just a second timeout."""
@@ -671,7 +671,7 @@ def test_apply_dry_run_sends_dry_run_payload(
 
 
 class TestManifestApplyTimeoutDistinguishesReadTimeout:
-    """fix(#1778 review round 22) P2: the on_timeout hook fired for
+    """Fix P2: the on_timeout hook fired for
     EVERY httpx.TimeoutException, but ConnectTimeout, PoolTimeout, and
     WriteTimeout all happen BEFORE the server could have accepted the
     request -- a hung TCP handshake, a slow local write, or waiting on
@@ -786,7 +786,7 @@ class TestManifestApplyTimeoutDistinguishesReadTimeout:
         self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """--json mode for a pre-acceptance timeout gets whatever the
-        ordinary (pre-round-18) network-failure path already produces
+        ordinary (pre-guidance) network-failure path already produces
         for every other command's timeout -- no guidance/status_check
         fields, because post_manifest_apply() never even builds that
         payload for this subtype."""
@@ -814,7 +814,7 @@ class TestManifestApplyTimeoutDistinguishesReadTimeout:
 
 
 class TestApplyTimeoutFlagAndEnvOverride:
-    """fix(#1778 review round 21) P1 end-to-end: --timeout and
+    """Fix P1 end-to-end: --timeout and
     GEOLENS_MANIFEST_APPLY_TIMEOUT override the computed heuristic
     outright, with the flag winning when both are given."""
 
@@ -879,7 +879,7 @@ class TestApplyTimeoutFlagAndEnvOverride:
     def test_timeout_zero_produces_a_client_with_no_read_timeout(
         self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """fix(#1778 review round 21): --timeout 0 removes the
+        """--timeout 0 removes the
         client-side READ timeout entirely (an httpx.Timeout with
         read/write/pool all None) while keeping the connect phase
         bounded -- not a bare float 0, which httpx would treat as
@@ -951,7 +951,7 @@ class TestApplyTimeoutFlagAndEnvOverride:
     def test_a_non_finite_flag_value_is_a_usage_error(
         self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch, raw: str
     ) -> None:
-        """Pin (P2 round 24): nan/inf/-inf/1e309 -> usage error for
+        """Pin (P2): nan/inf/-inf/1e309 -> usage error for
         --timeout, rejected before any network call."""
         from geolens_cli._sdk_helpers import EXIT_USAGE
 
@@ -968,7 +968,7 @@ class TestApplyTimeoutFlagAndEnvOverride:
     def test_a_non_finite_env_var_value_is_a_usage_error(
         self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch, raw: str
     ) -> None:
-        """Pin (P2 round 24): nan/inf/-inf/1e309 -> usage error for
+        """Pin (P2): nan/inf/-inf/1e309 -> usage error for
         GEOLENS_MANIFEST_APPLY_TIMEOUT too, rejected before any network
         call."""
         from geolens_cli._sdk_helpers import EXIT_USAGE
@@ -987,7 +987,7 @@ class TestApplyTimeoutFlagAndEnvOverride:
     def test_zero_and_a_large_finite_value_are_still_accepted(
         self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Pin (P2 round 24): 0 and 7600 still accepted -- the
+        """Pin (P2): 0 and 7600 still accepted -- the
         non-finite guard must not overreach onto ordinary values."""
         _sdk, seen = self._spying_sdk(monkeypatch)
 
@@ -1007,7 +1007,7 @@ class TestApplyTimeoutFlagAndEnvOverride:
 
 def _flaky_then_ok_sdk(monkeypatch: pytest.MonkeyPatch, status_response: dict) -> FakeSdk:
     """A FakeSdk whose FIRST POST times out and every one after succeeds
-    with ``status_response`` -- the round-18 apply-timeout-then-dry-run-
+    with ``status_response`` -- the apply-timeout-then-dry-run-
     follow-up shape."""
     sdk = FakeSdk(FakeResponse(200, status_response))
     monkeypatch.setattr(AppState, "sdk", lambda _self: sdk)
@@ -1020,7 +1020,7 @@ def _flaky_then_ok_sdk(monkeypatch: pytest.MonkeyPatch, status_response: dict) -
         if calls["n"] == 1:
             import httpx
 
-            # fix(#1778 review round 22): ReadTimeout specifically -- see
+            # ReadTimeout specifically -- see
             # _timing_out_client's comment above.
             raise httpx.ReadTimeout("stalled")
         return original_post(**kwargs)
@@ -1064,11 +1064,11 @@ def test_apply_json_output_reports_timeout_as_one_structured_payload(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """fix(#1778 review round 18): --json mode must emit exactly ONE
+    """--json mode must emit exactly ONE
     JSON object for a timeout, not report_apply_timeout's human-mode
     output.error()/warn() writes bleeding in ahead of it.
 
-    fix(#1778 review round 19): the "resumable": True field claimed an
+    the "resumable": True field claimed an
     immediate re-run was always safe -- not true, and removed. The
     payload now carries a "guidance" string with the same accurate,
     non-blanket explanation a human running the same command sees."""
@@ -1099,7 +1099,7 @@ def test_apply_json_output_survives_a_network_failure_in_the_status_check(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """fix(#1778 review round 21) P2 end-to-end: the ORIGINAL apply
+    """Fix P2 end-to-end: the ORIGINAL apply
     times out, and the best-effort dry-run follow-up hits a plain
     network failure (not a second timeout) -- --json mode must still
     emit exactly the one promised structured payload, with
@@ -1115,7 +1115,7 @@ def test_apply_json_output_survives_a_network_failure_in_the_status_check(
     def flaky_then_refusing_post(**kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
-            # fix(#1778 review round 22): ReadTimeout specifically -- see
+            # ReadTimeout specifically -- see
             # _timing_out_client's comment above.
             raise httpx.ReadTimeout("stalled")
         raise httpx.NetworkError("connection refused")
@@ -1232,7 +1232,7 @@ def test_apply_rejected_response_exits_one(
 
 
 # ---------------------------------------------------------------------------
-# GAP-020 — apply detects local source files and points the user to publish
+# Apply detects local source files and points the user to publish
 # ---------------------------------------------------------------------------
 
 
@@ -1263,7 +1263,7 @@ def test_apply_local_source_warns_but_posts(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """GAP-020: a manifest with scheme-less (local) sources WARNS in human mode but
+    """A manifest with scheme-less (local) sources WARNS in human mode but
     still POSTs — the server resolves those paths from its own staging dir (the
     documented apply round-trip), so apply must not block them."""
     response = FakeResponse(200, _apply_response(dry_run=False))
@@ -1284,7 +1284,7 @@ def test_apply_local_source_json_mode_is_silent_and_posts(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """GAP-020: in --json mode the local-source warning is suppressed so stdout
+    """In --json mode the local-source warning is suppressed so stdout
     stays valid JSON, and apply still POSTs (mirrors the server-staging round-trip
     contract in backend/tests/test_cli_round_trip.py)."""
     response = FakeResponse(200, _apply_response(dry_run=False))
@@ -1303,7 +1303,7 @@ def test_apply_remote_source_still_posts(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sanity: a remote-URI manifest is unaffected by the GAP-020 guard."""
+    """Sanity: a remote-URI manifest is unaffected by the guard."""
     response = FakeResponse(200, _apply_response(dry_run=False))
     sdk = _install_fake_sdk(monkeypatch, response)
 

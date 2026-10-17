@@ -47,7 +47,7 @@ from tests.test_import_token_lease_1676 import (  # noqa: F401
     credential_backend,
 )
 
-# fix(#1746 codex r2): autouse where imported — keeps the bearer header file the
+# fix(#1746): autouse where imported — keeps the bearer header file the
 # preview tests below write out of the real /tmp/gdal-auth.
 from tests.test_ogr_subprocess_env import gdal_header_tmpdir  # noqa: F401
 
@@ -164,7 +164,7 @@ class TestImportCommitDoor:
         test_db_session,
         credential_backend,  # noqa: F811
     ) -> None:
-        """fix(#1746 codex r1): the refusal must land before the metadata write.
+        """fix(#1746): the refusal must land before the metadata write.
 
         ``commit_import`` writes ``service_auth_required`` into
         ``user_metadata`` and commits it BEFORE dispatching, and that key is a
@@ -452,7 +452,7 @@ class TestServicePreviewDoor:
         present, since it silently declines to move ``tempfile.tempdir``
         otherwise.
 
-        fix(#1746 codex r2): and the named directory is ``gdal_header_dir()``,
+        fix(#1746): and the named directory is ``gdal_header_dir()``,
         the container tmpfs — never ``upload_staging_dir``, which is a
         persistent volume ``scripts/backup-entrypoint.sh`` tars every cycle. A
         crash-orphaned bearer header on that volume can reach a backup.

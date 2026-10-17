@@ -1,6 +1,6 @@
-"""[BLOCKING] single_tenant byte-identical invariant aggregator (Phase 1210 Plan 04).
+"""[BLOCKING] single_tenant byte-identical invariant aggregator.
 
-Fast CI guard for the [BLOCKING] gate: the additive Azure seam (Plans 01-03) must
+Fast CI guard for the [BLOCKING] gate: the additive Azure seam must
 NOT regress single_tenant (Community/Enterprise) behavior.
 
 What this test proves
@@ -21,20 +21,19 @@ c) resolve_vrt_source_path('k') == legacy local path
    vrt.py's backward-compat shim delegates to resolve_open_path; single_tenant
    output is the same as the pre-1210 local path.
 
-d) STOR-05 seam-lint passes
+d) seam-lint passes
    No /vsis3/ or /vsiaz/ literals outside the allowlisted seam module.
 
 e) Importing azure module does NOT change init_storage's default selection
    After importing app.platform.storage.azure, calling init_storage() with
    STORAGE_PROVIDER unset still selects LocalStorageProvider.
 
-The [BLOCKING] broad-suite evidence (pass/fail counts vs the pre-1210 baseline)
-is recorded in 1210-04-SUMMARY.md. The requirement: 0 net-new failures vs the
-1209 baseline (~3872 pass, 0 net-new failures, established in Phase 1209 Plan 05).
+The requirement: 0 net-new failures vs the pre-existing baseline of the
+broad suite.
 
 Related tests (full suite verification cross-checks)
 -----------------------------------------------------
-- tests/test_stor_vsi_seam_lint.py: STOR-05 lint (VSI literal guard)
+- tests/test_stor_vsi_seam_lint.py: lint (VSI literal guard)
 - tests/test_resolve_open_path.py: full provider × tenant dispatch matrix
 - tests/test_vrt_rewrite.py: rewrite_vrt_sources correctness
 - tests/test_storage_azure.py: AzureBlobStorageProvider round-trips vs Azurite
@@ -139,7 +138,7 @@ class TestLocalPathByteIdentical:
         assert result == f"{staging}/tenants/some-tenant/{key}"
 
     def test_s3_no_tenant_byte_identical(self):
-        """s3 + tenant_id=None -> /vsis3/{bucket}/{key} (STOR-02 byte-identical)."""
+        """s3 + tenant_id=None -> /vsis3/{bucket}/{key} (byte-identical)."""
         from app.platform.storage.titiler_url import resolve_open_path
 
         mock = MagicMock()
@@ -185,10 +184,10 @@ class TestInitStorageDefaultSelection:
 
 
 class TestSeamLintImportable:
-    """(d) STOR-05 seam-lint module is importable and runnable."""
+    """(d) seam-lint module is importable and runnable."""
 
     def test_seam_lint_module_importable(self):
-        """test_stor_vsi_seam_lint.py is importable (STOR-05 guard available)."""
+        """test_stor_vsi_seam_lint.py is importable (guard available)."""
         import importlib.util
 
         spec = importlib.util.spec_from_file_location(

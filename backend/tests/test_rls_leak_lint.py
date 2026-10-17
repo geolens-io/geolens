@@ -1,4 +1,4 @@
-"""ISO-04 leak-lint: unscoped multi_tenant query fails closed (Phase 1208-03).
+"""Leak-lint: unscoped multi_tenant query fails closed.
 
 The chokepoint proof: in multi_tenant mode with FORCE RLS active, any raw
 query against a tenant-shared table that does NOT set the ``app.current_tenant``
@@ -254,7 +254,7 @@ class TestNoPollutionAfterHarnessDisable:
 
     This test does NOT use the multi_tenant_rls fixture — it intentionally runs
     in single_tenant / RLS-disabled mode to prove the harness left the shared
-    test DB clean (T-1208-09).
+    test DB clean.
 
     Seeds its own temporary users (no harness dependency) and asserts they are
     visible without any GUC, then deletes them.

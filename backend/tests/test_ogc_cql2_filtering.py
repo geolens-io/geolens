@@ -292,7 +292,7 @@ async def test_feature_items_filter_check_ordering(
     caller's bug and 400s with no database access, while a valid filter
     against this dataset (which has no backing table) reports the same
     retryable 503 as an unfiltered items request — never an unknown-property
-    400 derived from the missing table's empty schema (codex r2). The full
+    400 derived from the missing table's empty schema. The full
     filtering surface is covered in test_ogc_features_filter.py.
     """
     session = test_db_session

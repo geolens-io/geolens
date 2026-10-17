@@ -1,4 +1,4 @@
-"""Regression tests for SEC-007: /maps/{id}/visibility-check/ authorization.
+"""Regression tests: /maps/{id}/visibility-check/ authorization.
 
 The endpoint loaded the map and checked existence but never called
 `_check_map_read_access`, so any editor (the `edit_metadata` permission) could
@@ -89,7 +89,7 @@ async def test_visibility_check_rejects_non_owner_editor_on_public_map(
     """ATTACK: read access is not enough. The response names non-public
     dataset titles, so the endpoint is owner-or-admin like the other sharing
     routes — a non-owner editor is refused (403) even on a PUBLIC (readable)
-    map; unreadable maps keep the SEC-007 404."""
+    map; unreadable maps keep the 404."""
     import uuid as _uuid
 
     from app.modules.catalog.maps.models import Map

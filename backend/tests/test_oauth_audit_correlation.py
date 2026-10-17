@@ -1,4 +1,4 @@
-"""HARDEN-04 (T-1238-05/06): OAuth audit correlation tests.
+"""OAuth audit correlation tests.
 
 Verifies that login-init and callback (success and failure) emit audit entries
 sharing a single correlation_id, and that no audit detail contains secrets,

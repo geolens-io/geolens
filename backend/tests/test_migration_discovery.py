@@ -26,7 +26,7 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# GAP-013 / #1665: _discover_migration_paths must distinguish "overlay not
+# / #1665: _discover_migration_paths must distinguish "overlay not
 # installed" (silent, and the only class that continues — normal OSS) from
 # "overlay installed but broken" (raise, so the migration stops rather than
 # succeeding over an incomplete revision graph).
@@ -169,7 +169,7 @@ def test_real_discover_broken_overlay_raises():
     """Enterprise overlay present but broken must stop the migration.
 
     A non-import exception from ep.load() means the overlay IS installed but
-    fails to import. GAP-013 required this never be silently dropped; #1665
+    fails to import. required this never be silently dropped; #1665
     requires it RAISE rather than log-and-continue, because continuing left the
     overlay's revisions out of version_locations and let `upgrade heads` exit 0
     on a partial schema.
@@ -230,7 +230,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Files that invoke `alembic upgrade`. With the enterprise overlay installed the
 # revision graph forks into two heads (core 0003 + enterprise e002), so a bare
 # `alembic upgrade head` raises "Multiple head revisions are present" and the
-# stack never boots. Every invocation must use `heads` (plural). See BUG-001.
+# stack never boots. Every invocation must use `heads` (plural).
 _MIGRATION_INVOCATION_FILES = (
     "docker-compose.yml",
     "docker-compose.prod.yml",
@@ -243,7 +243,7 @@ _BARE_HEAD_RE = re.compile(r"alembic upgrade head(?!s)")
 
 
 def test_migration_invocations_use_heads_plural():
-    """Every `alembic upgrade` site uses `heads`, never bare `head` (BUG-001).
+    """Every `alembic upgrade` site uses `heads`, never bare `head`.
 
     Bare `head` is ambiguous once the enterprise overlay adds a second head and
     aborts the migrate one-shot, so api/worker never start. Robust in-container:

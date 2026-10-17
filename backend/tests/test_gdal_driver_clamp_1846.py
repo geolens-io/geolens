@@ -321,7 +321,7 @@ def test_an_ordinary_archive_is_still_accepted(tmp_path):
 # Every real-GDAL call here sticks to flags that have existed for the whole
 # 3.x line, and reads TEXT rather than `-json`.
 #
-# fix(#1846 review round 5): CI installs Ubuntu's `gdal-bin` (GDAL 3.4) while
+# CI installs Ubuntu's `gdal-bin` (GDAL 3.4) while
 # the worker image is 3.10.3, and `-limit` does not exist on 3.4 -- `ogrinfo`
 # exits 1 with "Unknown option name '-limit'" and an empty stdout, so a
 # positive control asserting the smuggled row appeared failed before GDAL had

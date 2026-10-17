@@ -49,7 +49,7 @@ psql "${psql_base[@]}" --dbname "$test_db" --set test_db="$test_db" <<-'EOSQL'
     GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader;
     ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
 
-    -- Per-tenant schema + role for multi_tenant integration tests (Phase 1209).
+    -- Per-tenant schema + role for multi_tenant integration tests.
     -- Schema names use underscore-encoded UUIDs to match tenant_data_schema() output.
     -- The single_tenant block above (data / geolens_reader) is unchanged.
 

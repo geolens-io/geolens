@@ -1,50 +1,46 @@
 """Integration tests for the SAML enterprise overlay lifecycle.
 
-Three test functions covering Phase 220 + Phase 221 requirements:
+Three test functions covering requirements:
 
-  1. test_overlay_removal_preserves_saml_data (Phase 220 LIFECYCLE-04) --
+  1. test_overlay_removal_preserves_saml_data --
      deactivate-only. Clears the in-process extension registry (simulating
      the operator-canonical "stop loading the geolens-enterprise overlay"
-     deactivation path per Phase 220 D-01) and asserts SAML data survives:
+     deactivation path) and asserts SAML data survives:
      oauth_providers row + 4 deferred SAML columns, oauth_accounts linkage,
      User row with auth_provider='oauth', is_enterprise() flipped to False,
      and typed registry accessors falling back to Default* counterparts.
 
-  2. test_convert_saml_user_to_local_preserves_user_data (Phase 221
-     LIFECYCLE-06) -- conversion. Seeds a representative trio of FK referrers
-     (audit_log, user_roles, Record + attached Dataset), invokes
+  2. test_convert_saml_user_to_local_preserves_user_data -- conversion.
+     Seeds a representative trio of FK referrers (audit_log, user_roles, Record + attached Dataset), invokes
      POST /admin/users/{user_id}/convert-saml-to-local/ via TestClient with
      admin auth, and asserts the conversion endpoint preserves every FK
      referrer scoped to users.id while flipping auth_provider to 'local',
      deleting only the SAML oauth_accounts row, and writing an audit_log
      row with allow-listed details (no password material).
 
-  3. test_deactivate_reactivate_roundtrip_preserves_saml_data (Phase 221
-     LIFECYCLE-07) -- round-trip symmetry. Drives the registry through a
-     full deactivate->reactivate cycle (3 module-level state surfaces reset
-     on deactivate, re-populated symmetrically via Pattern 3 Shape A on
-     reactivate) and asserts the cycle is lossless across the 4 deferred
+  3. test_deactivate_reactivate_roundtrip_preserves_saml_data -- round-trip
+     symmetry. Drives the registry through a full deactivate->reactivate
+     cycle (3 module-level state surfaces reset on deactivate, re-populated
+     symmetrically by hand on reactivate) and asserts the cycle is lossless across the 4 deferred
      SAML columns, oauth_accounts linkage, User row, and a seeded
-     audit_log row (D-10 -- a real seed, not vacuous FK reflection).
+     audit_log row (a real seed, not vacuous FK reflection).
 
 All three tests are marked @pytest.mark.lifecycle. The marker is registered
 in backend/pyproject.toml; it is NOT in the addopts deselect list, so the
-tests run by default in standard pytest invocations (Phase 220 RESEARCH.md
-Pitfall 7).
+tests run by default in standard pytest invocations.
 
 All three tests take the saml_overlay_registered fixture (conftest.py:454-
 484) so the registry starts populated; mid-test clears run BEFORE the
 fixture's finally block, which restores prior state on teardown.
 
 The shared _cleanup_lifecycle_rows fixture (test-local, NOT promoted to
-conftest.py per Phase 221 D-11) extends Phase 220's pattern with
+conftest.py) extends the overlay-removal cleanup with
 dependency-ordered DELETEs against audit_logs (user_id OR resource_id),
 user_roles, datasets (by record_id), and records (by created_by) BEFORE
 the existing oauth_accounts/oauth_providers/users DELETEs.
 
-Enterprise imports are ALWAYS deferred inside test/fixture bodies (Phase
-220 RESEARCH.md Pitfall 5) so test collection succeeds in community-only
-environments; only tests that actually request the fixture/import fail
+Enterprise imports are ALWAYS deferred inside test/fixture bodies so test collection succeeds in
+community-only environments; only tests that actually request the fixture/import fail
 with ImportError when the geolens-enterprise overlay is unavailable.
 """
 
@@ -100,16 +96,16 @@ LIFECYCLE_CERT_PEM = (
 async def _cleanup_lifecycle_rows(test_db_session: AsyncSession):
     """Best-effort teardown of any rows the lifecycle test seeded.
 
-    Phase 220 created the original fixture for the deactivate-only test
+    The original fixture served the deactivate-only test
     (oauth_accounts + oauth_providers + users scoped by slug/username).
 
-    Phase 221 extends it to also clean up rows the LIFECYCLE-06 conversion test
-    and LIFECYCLE-07 round-trip test seed:
+    Extends it to also clean up rows the conversion test
+    and round-trip test seed:
       - audit_logs rows by user_id OR resource_id (test-seeded
         'test.seed.lifecycle' rows AND endpoint-written
         'user.convert_saml_to_local' rows where resource_id == converted user_id).
-      - user_roles rows by user_id (LIFECYCLE-06 conversion-test seed).
-      - records rows by created_by (LIFECYCLE-06 record-ownership seed). Datasets
+      - user_roles rows by user_id (conversion-test seed).
+      - records rows by created_by (record-ownership seed). Datasets
         attached via record_id are cleaned via CASCADE; an explicit datasets
         delete keyed by record_id is run BEFORE the records delete as a safety
         net for partial seeds.
@@ -123,8 +119,8 @@ async def _cleanup_lifecycle_rows(test_db_session: AsyncSession):
         backend/app/modules/catalog/datasets/domain/models.py:207-210).
       Dataset has NO `created_by` column; dataset ownership flows through Record.
 
-    Mirrors the test-local cleanup pattern from Phase 220 (D-11 -- fixture stays
-    test-local, NOT promoted to conftest.py).
+    Mirrors the test-local cleanup pattern of the overlay-removal test (the fixture
+    stays test-local, not promoted to conftest.py).
     """
     yield
     try:
@@ -137,7 +133,7 @@ async def _cleanup_lifecycle_rows(test_db_session: AsyncSession):
         seeded_user_id = row[0] if row is not None else None
 
         if seeded_user_id is not None:
-            # Phase 221 NEW DELETEs (run BEFORE existing oauth/users DELETEs).
+            # New DELETEs (run BEFORE existing oauth/users DELETEs).
             # AuditLog.resource_id is Mapped[uuid.UUID | None] -- single :uid
             # parameter matches both `user_id` (the actor) and `resource_id`
             # (the target user the conversion endpoint records). Project
@@ -172,7 +168,7 @@ async def _cleanup_lifecycle_rows(test_db_session: AsyncSession):
                 {"uid": seeded_user_id},
             )
 
-        # Phase 220 EXISTING DELETEs (preserved verbatim).
+        # Existing DELETEs (preserved verbatim).
         await test_db_session.execute(
             text(
                 "DELETE FROM catalog.oauth_accounts WHERE provider_id IN "
@@ -204,13 +200,13 @@ async def test_overlay_removal_preserves_saml_data(
     saml_overlay_registered,
     _cleanup_lifecycle_rows,
 ):
-    """LIFECYCLE-04: clearing the extension registry does not destroy SAML data.
+    """Clearing the extension registry does not destroy SAML data.
 
     Steps:
       1. Seed (overlay is registered via saml_overlay_registered fixture).
          init_edition(["enterprise"]) flips is_enterprise() to True.
       2. Simulate "overlay not loaded": _extensions.clear(), _routers.clear(),
-         init_edition([]) -- three explicit resets per RESEARCH.md Pitfall 2.
+         init_edition([]) -- three explicit resets.
       3. Assert SQL persistence (provider + 4 deferred columns + account + user).
       4. Assert is_enterprise() is False.
       5. Assert typed accessors return Default* instances.
@@ -241,7 +237,7 @@ async def test_overlay_removal_preserves_saml_data(
         await test_db_session.refresh(provider)
         seeded_provider_id = provider.id
 
-        # Seed User (auth_provider='oauth' -- SAML users land here per Phase 217 D-04).
+        # Seed User (auth_provider='oauth' -- SAML users land here).
         user = User(
             username=LIFECYCLE_USERNAME,
             email=LIFECYCLE_USER_EMAIL,
@@ -331,11 +327,11 @@ async def test_convert_saml_user_to_local_preserves_user_data(
     saml_overlay_registered,
     _cleanup_lifecycle_rows,
 ):
-    """LIFECYCLE-06: converting a SAML user to local-password preserves audit
+    """Converting a SAML user to local-password preserves audit
     history, group memberships, and record/dataset ownership.
 
     Seeds a representative trio of FK referrers (audit_log, user_roles, record
-    + attached dataset) -- per Phase 221 D-06, three independent FKs from three
+    + attached dataset) -- three independent FKs from three
     different domains demonstrate the design promise that users.id is the
     durable handle. Note that "dataset ownership" is recorded on Record.created_by
     (the Dataset table has no created_by column; the dataset is bound to its
@@ -355,7 +351,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
 
         # Seed SAML provider (mirrors test_overlay_removal_preserves_saml_data
         # at test_lifecycle.py:136-150 -- encrypt_secret() required for the
-        # NOT-NULL Fernet ciphertext columns; Pitfall 3).
+        # NOT-NULL Fernet ciphertext columns).
         provider = OAuthProvider(
             slug=LIFECYCLE_SLUG,
             display_name="Lifecycle Test IdP",
@@ -373,8 +369,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
         await test_db_session.refresh(provider)
         seeded_provider_id = provider.id
 
-        # Seed SAML user (auth_provider='oauth' -- SAML users land here per
-        # Phase 217 D-04).
+        # Seed SAML user (auth_provider='oauth' -- SAML users land here).
         user = User(
             username=LIFECYCLE_USERNAME,
             email=LIFECYCLE_USER_EMAIL,
@@ -413,7 +408,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
         test_db_session.add(user_role)
         await test_db_session.commit()
 
-        # Seed an AuditLog row via log_action (D-10 pattern -- log_action does
+        # Seed an AuditLog row via log_action (log_action does
         # NOT commit; caller commits explicitly).
         await log_action(
             session=test_db_session,
@@ -426,7 +421,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
         await test_db_session.commit()
 
         # Seed a Record row with created_by=seeded_user_id. Record carries the
-        # ownership invariant for LIFECYCLE-06 (B1 fix: Dataset has no
+        # ownership invariant for the conversion test (Dataset has no
         # created_by column -- ownership lives on Record).
         # Required non-null fields per
         # backend/app/modules/catalog/datasets/domain/models.py:73-87:
@@ -512,7 +507,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
             "SAML oauth_accounts row was not deleted by the conversion"
         )
 
-        # OAuthProvider row preserved (D-04 -- other users may still link)
+        # OAuthProvider row preserved (other users may still link)
         provider_row = (
             await test_db_session.execute(
                 select(OAuthProvider).where(OAuthProvider.id == seeded_provider_id)
@@ -520,7 +515,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
         ).scalar_one()
         assert provider_row.provider_type == "saml"
 
-        # user_roles row preserved (D-07)
+        # user_roles row preserved
         ur_row = (
             await test_db_session.execute(
                 select(UserRole).where(
@@ -531,7 +526,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
         ).scalar_one_or_none()
         assert ur_row is not None, "user_roles row was destroyed by conversion"
 
-        # Seeded audit_log row preserved (D-06 -- users.id immutable, FK survives)
+        # Seeded audit_log row preserved (users.id is immutable, so the FK survives)
         seed_log_row = (
             await test_db_session.execute(
                 select(AuditLog).where(
@@ -544,7 +539,7 @@ async def test_convert_saml_user_to_local_preserves_user_data(
             "test.seed.lifecycle audit_log row was destroyed by conversion"
         )
 
-        # NEW audit_log row written by the conversion endpoint (Plan 01 Task 3).
+        # NEW audit_log row written by the conversion endpoint.
         # AuditLog.resource_id is Mapped[uuid.UUID | None] -- compare via UUID
         # equality (B3 fix; project pattern at test_saml_overlay.py:699 and
         # test_provenance_attribution.py:338). NO `str()` cast.
@@ -560,15 +555,15 @@ async def test_convert_saml_user_to_local_preserves_user_data(
             "endpoint did not write the user.convert_saml_to_local audit_log row"
         )
         assert conversion_log_row.resource_type == "user"
-        # Allow-listed details only (security invariant T-221-03)
+        # Allow-listed details only (security invariant)
         assert conversion_log_row.details == {
             "from": "saml",
             "to": "local",
             "provider_slug": LIFECYCLE_SLUG,
         }, f"audit details not allow-listed: {conversion_log_row.details!r}"
 
-        # Record row preserved with original created_by (D-06 -- the
-        # ownership-invariant assertion for LIFECYCLE-06).
+        # Record row preserved with original created_by (the
+        # ownership-invariant assertion for the conversion test).
         record_row = (
             await test_db_session.execute(
                 select(Record).where(Record.id == seeded_record_id)
@@ -603,10 +598,10 @@ async def test_convert_saml_user_invalidates_prior_jwt(
     saml_overlay_registered,
     _cleanup_lifecycle_rows,
 ):
-    """CR-02 regression: SAML-to-local conversion bumps token_version so any
+    """Regression: SAML-to-local conversion bumps token_version so any
     outstanding SAML access JWT is rejected on the next request.
 
-    SEC-S15 requires that auth-provider conversion forces re-authentication.
+    Auth-provider conversion forces re-authentication.
     Before the fix, convert_saml_user_to_local never touched token_version, so
     a SAML access JWT issued before conversion remained valid until natural
     expiry (up to 15 minutes).
@@ -618,7 +613,7 @@ async def test_convert_saml_user_invalidates_prior_jwt(
     edition_mod.init_edition(["enterprise"])
 
     try:
-        # Seed SAML provider + user + account (mirrors LIFECYCLE-06 pattern).
+        # Seed SAML provider + user + account (mirrors the conversion test).
         provider = OAuthProvider(
             slug=LIFECYCLE_SLUG,
             display_name="CR-02 Test IdP",
@@ -701,23 +696,23 @@ async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
     saml_overlay_registered,
     _cleanup_lifecycle_rows,
 ):
-    """LIFECYCLE-07: deactivate -> reactivate cycle is lossless across User
+    """Deactivate -> reactivate cycle is lossless across User
     identities, oauth_providers rows (4 deferred SAML columns), oauth_accounts
     rows, and audit_log entries.
 
     Setup:    saml_overlay_registered fixture populates _extensions/_routers.
               init_edition(["enterprise"]) flips is_enterprise() to True.
     Seed:     OAuthProvider(saml) + User(auth_provider='oauth') + OAuthAccount
-              + an AuditLog row via log_action (D-10 -- a SEEDED row, not a
+              + an AuditLog row via log_action (a seeded row, not a
               vacuous FK-survival reflection).
     Deactivate: _extensions.clear(); _routers.clear(); init_edition([]).
-                Asserts is_enterprise() is False mid-cycle (Pitfall 1).
+                Asserts is_enterprise() is False mid-cycle.
     Reactivate: defer-import EnterpriseSamlExtension + saml_router INSIDE the
-                test body (Pitfall 5); manually populate _extensions["auth"],
+                test body; manually populate _extensions["auth"],
                 _extensions["identity"], _routers via append; init_edition(
-                ["enterprise"]). This is Pattern 3 Shape A -- mirrors the
+                ["enterprise"]). This mirrors the
                 fixture's setup steps, NOT the production registration helper
-                (Pitfall 2 -- the helper writes a "_routers" key into the
+                (the helper writes a "_routers" key into the
                 dict, not the module-level list).
     Assert:   is_enterprise() is True; typed accessor returns enterprise
               instance; the 4 deferred SAML columns retain values via
@@ -730,7 +725,7 @@ async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
     Note on accepted coupling (W2): the mid-cycle isinstance check on
     DefaultAuthExtension couples this test to the
     app.platform.extensions.defaults import path. This coupling is already
-    accepted in the Phase 220 test_overlay_removal_preserves_saml_data; we
+    accepted in the test_overlay_removal_preserves_saml_data; we
     keep it here for symmetry. Alternative (class-name string comparison)
     would be weaker and less informative on regressions.
     """
@@ -779,7 +774,7 @@ async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
         test_db_session.add(account)
         await test_db_session.commit()
 
-        # D-10: SEED an audit_log row (real audit-trail assertion, not vacuous
+        # Seed an audit_log row (real audit-trail assertion, not vacuous
         # FK-survival reflection).
         await log_action(
             session=test_db_session,
@@ -791,23 +786,23 @@ async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
         )
         await test_db_session.commit()
 
-        # ---------- DEACTIVATE phase (mirrors Phase 220 test_overlay_removal) ----------
+        # ---------- DEACTIVATE phase (mirrors test_overlay_removal) ----------
 
         _extensions.clear()
         _routers.clear()
         edition_mod.init_edition([])
 
-        # Mid-cycle checkpoint -- Pitfall 1.
+        # Mid-cycle checkpoint.
         assert is_enterprise() is False, (
             "deactivate phase did not flip is_enterprise() to False"
         )
         # Sanity: typed accessors fall through to defaults mid-cycle.
         assert isinstance(get_auth_extension(), DefaultAuthExtension)
 
-        # ---------- REACTIVATE phase (Pattern 3 Shape A) ----------
+        # ---------- REACTIVATE phase ----------
 
-        # Pitfall 5: defer enterprise imports inside the test body.
-        # Pitfall 2: do NOT use the production registration helper -- it writes
+        # Defer enterprise imports inside the test body.
+        # Do NOT use the production registration helper -- it writes
         # a "_routers" key into _extensions (dict key), not to the module-level
         # _routers list. Mirror the saml_overlay_registered fixture's setup
         # steps (conftest.py:466-478) verbatim instead.
@@ -832,7 +827,7 @@ async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
             "post-reactivation"
         )
 
-        # 4 deferred SAML columns retained values (Pitfall 3 -- Fernet ciphertext
+        # 4 deferred SAML columns retained values (Fernet ciphertext
         # is non-deterministic so compare via decrypt_secret() for the cert
         # column; raw equality is fine for non-encrypted columns).
         # expire_all() is sync (B2 fix; project pattern test_embed_tokens.py:798,852).
@@ -872,7 +867,7 @@ async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
             f"user.auth_provider drifted: {user_row.auth_provider!r}"
         )
 
-        # Seeded audit_log row intact (D-10 -- the real LIFECYCLE-07 contract).
+        # Seeded audit_log row intact (the real round-trip contract).
         audit_row = (
             await test_db_session.execute(
                 select(AuditLog).where(

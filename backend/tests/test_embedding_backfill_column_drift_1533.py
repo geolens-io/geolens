@@ -466,7 +466,7 @@ async def test_one_anomalous_vector_width_costs_one_record_not_the_run(
 async def test_a_one_record_batch_does_not_read_as_structural(
     test_db_session, monkeypatch
 ):
-    """One input agrees with itself, which is no evidence at all (#1579 review r2).
+    """One input agrees with itself, which is no evidence at all (#1579 codex).
 
     The batch rule calls a width mismatch structural when every vector in the
     batch shares it. With a single-record batch that test is vacuous: one
@@ -517,7 +517,7 @@ async def test_the_pre_commit_check_holds_the_relation_lock(
 ):
     """Check-then-act is only sound while the thing checked cannot move.
 
-    fix(#1579 review r3, codex P2): the pre-commit drift check reads
+    fix(#1579, codex P2): the pre-commit drift check reads
     `pg_attribute`, which locks nothing. Running it before the rows were sent
     left a window in which an `ALTER TABLE` could take ACCESS EXCLUSIVE, commit,
     and be missed entirely — and when that ALTER widens the column to an
@@ -619,7 +619,7 @@ async def test_a_move_during_the_last_retry_is_drift_not_a_counted_error(
 ):
     """The last retried record has no successor to catch what it missed.
 
-    fix(#1579 review r4, codex P2): the retry's width judgement asked "does this
+    fix(#1579, codex P2): the retry's width judgement asked "does this
     vector fit?" before "is the column still the one we pinned?", and returned
     early when the vector matched. A column that moved to a DIFFERENT fixed
     width during the provider call therefore went unnoticed: the flush raised

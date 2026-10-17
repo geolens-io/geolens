@@ -186,7 +186,7 @@ async def test_writable_cte_stays_rejected(
 async def test_regrole_oid_cast_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r11): a cast to a reg* OID-alias type resolves an OID
+    """fix(#565 codex P1): a cast to a reg* OID-alias type resolves an OID
     to a catalog name (role names here) without touching a catalog table."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -212,7 +212,7 @@ async def test_regrole_oid_cast_is_rejected(
 async def test_schema_qualified_oid_cast_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r12): qualifying the alias type (pg_catalog.regrole)
+    """fix(#565 codex P1): qualifying the alias type (pg_catalog.regrole)
     changes its AST class from ObjectIdentifier to a USER-DEFINED DataType —
     the name-based check must still reject it."""
     headers = admin_auth_header
@@ -237,7 +237,7 @@ async def test_schema_qualified_oid_cast_is_rejected(
 async def test_quoted_cte_name_cannot_mask_a_catalog_table(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r12): a quoted uppercase CTE name does not bind an
+    """fix(#565 codex P1): a quoted uppercase CTE name does not bind an
     unquoted reference — PostgreSQL folds the reference to lowercase, which
     resolves to the catalog view, so it must fall through to the data.* check."""
     headers = admin_auth_header
@@ -263,7 +263,7 @@ async def test_quoted_cte_name_cannot_mask_a_catalog_table(
 async def test_derived_table_correlated_work_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r12): an ordinary derived table with a correlated scan
+    """fix(#565 codex P1): an ordinary derived table with a correlated scan
     can be flattened by PostgreSQL to run per outer row — N^3 — so its excess
     work must propagate like a CTE's or a LATERAL's."""
     headers = admin_auth_header
@@ -315,7 +315,7 @@ async def test_out_of_scope_cte_name_cannot_mask_a_catalog_table(
 async def test_later_sibling_cte_name_cannot_mask_a_catalog_table(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r2): a CTE named after a catalog relation declared
+    """fix(#565 codex P1): a CTE named after a catalog relation declared
     LATER in the same WITH is not yet in scope for an earlier sibling, so
     PostgreSQL resolves the earlier reference to pg_catalog — the resolver must
     honor declaration order and reject it."""
@@ -374,7 +374,7 @@ async def test_cross_join_shape_is_rejected(
 async def test_parenthesized_join_group_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r8): a parenthesized FROM group hides the cross join
+    """fix(#565 codex P1): a parenthesized FROM group hides the cross join
     in a Subquery-wrapped Table carrying its joins — it must still be costed."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -398,7 +398,7 @@ async def test_parenthesized_join_group_is_rejected(
 async def test_parenthesized_group_on_predicate_is_costed(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r9): a parenthesized join group whose ON predicate
+    """fix(#565 codex P1): a parenthesized join group whose ON predicate
     runs a correlated self-join scan is N^3 — the group's ON work must be
     costed, not just its row product."""
     headers = admin_auth_header
@@ -423,7 +423,7 @@ async def test_parenthesized_group_on_predicate_is_costed(
 async def test_transitive_cte_chain_fanout_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r3): a CTE chain that keeps every per-name count at 2
+    """fix(#565 codex P1): a CTE chain that keeps every per-name count at 2
     but multiplies one physical table to N^8 must be rejected — the fan-out
     bound follows the dependency graph, not surface reference counts."""
     headers = admin_auth_header
@@ -450,7 +450,7 @@ async def test_transitive_cte_chain_fanout_is_rejected(
 async def test_subquery_hidden_self_join_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r4): a triple self-join buried in a scalar subquery
+    """fix(#565 codex P1): a triple self-join buried in a scalar subquery
     (or EXISTS/WHERE) runs per outer row, so it must be costed too — a row-only
     bound reported fan-out 1 and let it through."""
     headers = admin_auth_header
@@ -476,7 +476,7 @@ async def test_subquery_hidden_self_join_is_rejected(
 async def test_join_on_subquery_self_join_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r5): a correlated subquery in JOIN ... ON runs per
+    """fix(#565 codex P1): a correlated subquery in JOIN ... ON runs per
     row like a WHERE, so its self-join work must be costed — a join's ON side
     is not a row source."""
     headers = admin_auth_header
@@ -502,7 +502,7 @@ async def test_join_on_subquery_self_join_is_rejected(
 async def test_lateral_self_join_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r6): a repeated table wrapped in a LATERAL source is
+    """fix(#565 codex P1): a repeated table wrapped in a LATERAL source is
     still an N^3 cross join — the LATERAL subquery must be costed as a source."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -527,7 +527,7 @@ async def test_lateral_self_join_is_rejected(
 async def test_lateral_with_internal_correlated_subquery_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r7): a LATERAL whose own body runs a correlated
+    """fix(#565 codex P1): a LATERAL whose own body runs a correlated
     subquery over the same table is N^3 — the LATERAL's internal per-row work
     must be added, not just its row count."""
     headers = admin_auth_header
@@ -576,7 +576,7 @@ async def test_lateral_over_other_table_is_allowed(
 async def test_union_with_cte_resolves(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2 r5): a WITH on a set operation attaches to the UNION,
+    """fix(#565 codex P2): a WITH on a set operation attaches to the UNION,
     not its branch SELECTs. Resolving CTE references must inspect set-op scopes
     or a valid UNION over a CTE 404s."""
     headers = admin_auth_header
@@ -623,7 +623,7 @@ async def test_scalar_subquery_on_another_table_is_allowed(
 async def test_inlined_cte_correlated_work_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r10): a NOT MATERIALIZED CTE with a correlated scan,
+    """fix(#565 codex P1): a NOT MATERIALIZED CTE with a correlated scan,
     referenced across a cross join, inlines its work per outer pair — N^3. The
     CTE's excess work must propagate, not just its row count."""
     headers = admin_auth_header
@@ -649,7 +649,7 @@ async def test_inlined_cte_correlated_work_is_rejected(
 async def test_sibling_scalar_subqueries_are_allowed(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2 r13): two scalar subqueries over the same table are
+    """fix(#565 codex P2): two scalar subqueries over the same table are
     SIBLINGS — PostgreSQL runs them additively (often once), so their work is
     the per-table max, not the sum. Summing them wrongly rejected a legit
     quadratic query at the cap of 2."""
@@ -674,7 +674,7 @@ async def test_sibling_scalar_subqueries_are_allowed(
 async def test_values_cross_join_explosion_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r17): a constant VALUES CTE cross-joined three times is
+    """fix(#565 codex P1): a constant VALUES CTE cross-joined three times is
     a k-way row explosion the base-table fan-out cannot see — it must be
     counted as a fan-out source."""
     headers = admin_auth_header
@@ -700,7 +700,7 @@ async def test_values_cross_join_explosion_is_rejected(
 async def test_distinct_values_cross_join_explosion_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r18): three SEPARATELY-written VALUES cross-joined are
+    """fix(#565 codex P1): three SEPARATELY-written VALUES cross-joined are
     still 256^3 combinations — distinct constant sources must combine in the
     cross-product, not hide under per-node keys."""
     headers = admin_auth_header
@@ -734,7 +734,7 @@ async def test_distinct_values_cross_join_explosion_is_rejected(
 async def test_output_amplifying_string_functions_are_rejected(
     client: AsyncClient, admin_auth_header, test_db_session, expr
 ):
-    """fix(#565 codex P1 r18): replace / regexp_replace expand a small input to
+    """fix(#565 codex P1): replace / regexp_replace expand a small input to
     a huge cell (~100 MB) under the 20 KB request limit — also dropped."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -755,7 +755,7 @@ async def test_output_amplifying_string_functions_are_rejected(
 async def test_chained_pipe_concatenation_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r19): `||` (exp.DPipe) is string concatenation — s||s
+    """fix(#565 codex P1): `||` (exp.DPipe) is string concatenation — s||s
     chained through MATERIALIZED CTEs doubles a value into hundreds of MB. The
     operator is blocked on the raw surface alongside concat."""
     headers = admin_auth_header
@@ -782,7 +782,7 @@ async def test_concat_function_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
     """concat / concat_ws double a value the same way — dropped on the raw
-    surface too (fix(#565 codex P1 r19))."""
+    surface too (fix(#565 codex P1))."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
     tbl = await _make_table(test_db_session, owner)
@@ -802,7 +802,7 @@ async def test_concat_function_is_rejected(
 async def test_oversized_values_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r17): a huge inline VALUES relation is capped."""
+    """fix(#565 codex P1): a huge inline VALUES relation is capped."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
     tbl = await _make_table(test_db_session, owner)
@@ -823,7 +823,7 @@ async def test_oversized_values_is_rejected(
 async def test_output_amplifying_format_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r17): format() with a giant width builds hundreds of
+    """fix(#565 codex P1): format() with a giant width builds hundreds of
     MB from a one-row query — dropped on this raw surface."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -844,7 +844,7 @@ async def test_output_amplifying_format_is_rejected(
 async def test_lateral_values_nested_subquery_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r16): a LATERAL over VALUES has no inner scope to
+    """fix(#565 codex P1): a LATERAL over VALUES has no inner scope to
     unwrap, but a self-join subquery buried in it still runs per outer row —
     N^3 — so its work must be costed as the lateral's per-row work."""
     headers = admin_auth_header
@@ -870,7 +870,7 @@ async def test_lateral_values_nested_subquery_is_rejected(
 async def test_dynamic_limit_subquery_is_allowed(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2 r16): a LIMIT/OFFSET subquery is evaluated once
+    """fix(#565 codex P2): a LIMIT/OFFSET subquery is evaluated once
     (statement-level), so its work is additive with the scan — not multiplied
     by the outer rows. It must not false-reject."""
     headers = admin_auth_header
@@ -894,7 +894,7 @@ async def test_dynamic_limit_subquery_is_allowed(
 async def test_aggregate_argument_subquery_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r15): a correlated subquery INSIDE an aggregate
+    """fix(#565 codex P1): a correlated subquery INSIDE an aggregate
     argument runs per input row (the aggregate consumes per-input values), so
     the ungrouped-aggregate reduction must not zero its multiplier — N^3."""
     headers = admin_auth_header
@@ -919,7 +919,7 @@ async def test_aggregate_argument_subquery_is_rejected(
 async def test_bytea_column_is_serialized_as_hex(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2 r15): a bytea column returns raw bytes that Pydantic's
+    """fix(#565 codex P2): a bytea column returns raw bytes that Pydantic's
     JSON serializer 500s on for non-UTF-8 sequences. Result cells are encoded
     as \\x-hex, matching to_jsonb, so a successful query stays a 200."""
     from sqlalchemy import text
@@ -948,7 +948,7 @@ async def test_bytea_column_is_serialized_as_hex(
 async def test_ungrouped_aggregate_with_projection_subquery_is_allowed(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2 r14): an ungrouped-aggregate SELECT outputs one row,
+    """fix(#565 codex P2): an ungrouped-aggregate SELECT outputs one row,
     so a projection scalar subquery runs once — its work is additive with the
     scan, not multiplied by input rows. Multiplying wrongly rejected it."""
     headers = admin_auth_header
@@ -998,7 +998,7 @@ async def test_aggregate_does_not_hide_a_correlated_where_self_join(
 async def test_distinct_table_cross_product_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r20): three DISTINCT tables cross-joined is N×M×K —
+    """fix(#565 codex P1): three DISTINCT tables cross-joined is N×M×K —
     each carries per-table exponent 1, so the max missed it. The cross-product
     degree bounds it."""
     headers = admin_auth_header
@@ -1022,7 +1022,7 @@ async def test_distinct_table_cross_product_is_rejected(
 async def test_too_many_output_columns_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r20): repeated plain projections amplify response width
+    """fix(#565 codex P1): repeated plain projections amplify response width
     with no function at all — capped by output-column count."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -1041,7 +1041,7 @@ async def test_too_many_output_columns_is_rejected(
 async def test_composite_projection_width_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r21): a single composite ROW projection repeats a value
+    """fix(#565 codex P1): a single composite ROW projection repeats a value
     many times inside one AST expression, so counting projections missed it —
     the value-slot count catches it."""
     headers = admin_auth_header
@@ -1061,7 +1061,7 @@ async def test_composite_projection_width_is_rejected(
 async def test_star_projection_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r21): `SELECT *` / `t.*` expands to an unknown column
+    """fix(#565 codex P1): `SELECT *` / `t.*` expands to an unknown column
     count against a wide table, so the raw endpoint requires explicit columns."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -1080,7 +1080,7 @@ async def test_star_projection_is_rejected(
 async def test_always_true_disjunctive_join_is_rejected(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1 r21): `ON a.gid = b.gid OR TRUE` is a cartesian product —
+    """fix(#565 codex P1): `ON a.gid = b.gid OR TRUE` is a cartesian product —
     an equality merely occurring in the predicate does not constrain it."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -1107,7 +1107,7 @@ async def test_always_true_disjunctive_join_is_rejected(
 async def test_uppercase_identifiers_are_folded_for_access(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2 r23): PostgreSQL folds unquoted `DATA.ROADS` to
+    """fix(#565 codex P2): PostgreSQL folds unquoted `DATA.ROADS` to
     `data.roads`; the access check must fold too, or a table the caller can read
     404s on a spelling difference."""
     headers = admin_auth_header
@@ -1129,7 +1129,7 @@ async def test_uppercase_identifiers_are_folded_for_access(
 async def test_response_size_cap_measures_encoded_bytes(
     client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
 ):
-    """fix(#565 codex P2 r23): the response cap must count serialized UTF-8
+    """fix(#565 codex P2): the response cap must count serialized UTF-8
     bytes, not `str(cell)` characters. A 50-char multi-byte cell is 150 bytes;
     with the cap at 50 the old character count passed while the real body was
     3x the limit."""
@@ -1153,7 +1153,7 @@ async def test_response_size_cap_measures_encoded_bytes(
 async def test_range_column_is_serialized_as_text(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2 r20): asyncpg Range values cannot be serialized by
+    """fix(#565 codex P2): asyncpg Range values cannot be serialized by
     Pydantic and would 500 after a successful, audited query. They are encoded
     as their PostgreSQL text form."""
     from sqlalchemy import text
@@ -1336,7 +1336,7 @@ async def test_budget_kwargs_are_threaded(
     assert captured["require_reader_role"] is True
     assert captured["row_limit"] == 100  # smaller default than chat's 1000
     assert captured["restrict_tables"] == frozenset({"t"})  # stripped + set
-    # fix(#565 codex P1 r11): the connection-pool protections are wired through.
+    # fix(#565 codex P1): the connection-pool protections are wired through.
     assert captured["release_session"] is True
     assert captured["capacity_semaphore"] is query_router._query_slots
 
@@ -1344,7 +1344,7 @@ async def test_budget_kwargs_are_threaded(
 async def test_at_capacity_returns_429(
     client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
 ):
-    """fix(#565 codex P1 r11): when the global sandbox-query semaphore is full,
+    """fix(#565 codex P1): when the global sandbox-query semaphore is full,
     a further query fails fast with query_at_capacity (429), not a slow queue."""
     import asyncio
 
@@ -1449,7 +1449,7 @@ async def test_row_limit_above_cap_is_422(client: AsyncClient, admin_auth_header
 async def test_no_slash_alias_serves_the_same_route(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """ROUTE-01: the hidden bare form must behave identically (it is also the
+    """The hidden bare form must behave identically (it is also the
     second half of the #875 carve-out pair)."""
     headers = admin_auth_header
     owner = await _admin_id(client, headers)
@@ -1464,7 +1464,7 @@ async def test_no_slash_alias_serves_the_same_route(
 
 
 def test_both_query_shapes_keep_the_logging_route_class():
-    """fix(#565 codex P2 r3): the no-slash alias must carry the same route
+    """fix(#565 codex P2): the no-slash alias must carry the same route
     class as `/query/`, or pre-sandbox-rejection logging would fire on only one
     URL spelling. Registering it on the router (not via the app-level alias
     builder, which re-registers as a plain APIRoute) keeps them in parity."""

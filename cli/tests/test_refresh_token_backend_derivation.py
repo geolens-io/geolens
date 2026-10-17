@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""fix(#1778 review round 17): structural gate -- a store_refresh_token()
+"""Structural gate -- a store_refresh_token()
 call that shares a function with a store_bearer_token()/store_api_key()
 call must derive its `no_keyring=` from THAT call's actual return value
 (the backend the credential really landed in), not from the pre-store
@@ -10,7 +10,7 @@ keyring to credentials.toml on a KeyringError (a transient or
 account-specific failure) even when the caller asked for the keyring.
 Using the original intent instead of the real outcome for the sibling
 refresh-token write splits the two tokens across backends -- review
-round 15 found this in replace_credentials(), and round 17 found the
+found this in replace_credentials(), and later the
 IDENTICAL bug in try_refresh()'s own rotation path, because nothing
 enforced the pattern structurally between them. This walks every
 function in cli/geolens_cli and fails if a third copy could land
@@ -21,7 +21,7 @@ Uses ``ast`` rather than a text grep so the check is exact: a
 backend-store call's own assigned variable passes; a bare name
 (whatever it's called) does not.
 
-fix(#1778 round 31): a second, independent structural gate below --
+a second, independent structural gate below --
 every PRODUCTION store_refresh_token() call must also pass
 `bearer_token=`, pairing the refresh token to the bearer it can
 rotate (see auth.py's own docstrings on store_refresh_token()/

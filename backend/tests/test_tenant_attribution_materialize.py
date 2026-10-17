@@ -369,7 +369,7 @@ async def _stamped_tenant_ids(db_url: str, dataset_id) -> tuple:
                 "SELECT d.tenant_id AS dataset_tenant_id,"
                 "       r.tenant_id AS record_tenant_id,"
                 "       d.table_name AS table_name,"
-                # fix(#1218 review r2): the origin pointer rides along so the
+                # fix(#1218): the origin pointer rides along so the
                 # test below can check it against the same row's real tenant.
                 "       d.origin_uri AS origin_uri,"
                 "       d.origin_ref AS origin_ref"
@@ -424,7 +424,7 @@ class TestMaterializeStampsTenantAttribution:
     async def test_registered_origin_pointer_names_the_tenant_schema(
         self, tenant_analysis
     ):
-        """fix(#1218 review r2): the origin pointer follows physical placement.
+        """fix(#1218): the origin pointer follows physical placement.
 
         ``register_existing_table`` derived the pointer from
         ``dataset.tenant_id``, which is NULL on the ORM instance at that

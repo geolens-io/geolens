@@ -1,9 +1,9 @@
-"""Regression tests for SEC-021: service-preview GDAL bearer-token handling.
+"""Regression tests: service-preview GDAL bearer-token handling.
 
 run_service_preview passed the auth token verbatim into GDAL_HTTP_HEADERS (the
 subprocess env), leaking the bearer via /proc/<pid>/environ and allowing CRLF
 header injection through the libcurl pipeline — the exact issue the ogr2ogr
-commit path already fixed (SEC-FU-04 / IA-P1-06). This mirrors that fix: a
+commit path already fixed. This mirrors that fix: a
 base64url-sanitized token written to a 0600 GDAL_HTTP_HEADER_FILE, plus an
 API-boundary field validator that rejects control/whitespace tokens.
 """
@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from app.modules.catalog.sources.schemas import ProbeRequest, ServicePreviewRequest
 
-# fix(#1746 codex r2): autouse where imported — the bearer header now lands in
+# fix(#1746): autouse where imported — the bearer header now lands in
 # gdal_header_dir(), so without this the suite writes into the real /tmp.
 from tests.test_ogr_subprocess_env import gdal_header_tmpdir  # noqa: F401
 
@@ -136,7 +136,7 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
     assert captured.get("content") == f"Authorization: Bearer {token}\n"
     # Plan rule A: the Authorization header follows only to the host it was
     # given to, stated explicitly rather than inherited, and not "NO" -- see
-    # test_service_auth_transport_1746 for why (fix(#1746 B2b review r4)).
+    # test_service_auth_transport_1746 for why (fix(#1746 B2b codex)).
     assert (
         env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"] == "IF_SAME_HOST"
     )
@@ -212,11 +212,11 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
     }
     count = {"count": 9567}
 
-    # fix(#1770 round 44 P1): fetch_arcgis_layer_preview now reads through
+    # fetch_arcgis_layer_preview now reads through
     # bounded_probe_read, i.e. client.stream(...), which a bare MagicMock
-    # client (this test's shape before round 44) cannot support -- see
+    # client (this test's earlier shape) cannot support -- see
     # `_as_stream`'s docstring in test_service_auth_transport_1746.py for the
-    # same fix applied there in round 41. A real MockTransport, dispatched by
+    # same fix applied there. A real MockTransport, dispatched by
     # call order to mirror the removed `side_effect=[...]` list exactly.
     responses = iter([meta, sample, count])
 
@@ -263,7 +263,7 @@ async def test_fetch_arcgis_layer_preview_count_failure_degrades_to_none():
     }
     sample = {"features": []}
 
-    # fix(#1770 round 44 P1): see the sibling test above for why this is a
+    # See the sibling test above for why this is a
     # real MockTransport now rather than a MagicMock client. The third call
     # (the feature-count read) raises a transport error to exercise the same
     # degrade-to-None path the removed `side_effect=[...]` list did.

@@ -2,7 +2,7 @@
 
 Idempotent: same input always produces the same output. Run as part of
 `make sdks` so the drift gate (`make sdks-check`) catches version drift in
-the same diff that catches code drift (CONTEXT.md D-08).
+the same diff that catches code drift.
 
 Touches five files:
   - sdks/python/pyproject.toml          ([project] version)

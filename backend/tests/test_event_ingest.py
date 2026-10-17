@@ -1,9 +1,9 @@
-"""Phase 1230 Plan 03 — Ingest lifecycle event tests (EVENT-02 / EVENT-03).
+"""Ingest lifecycle event tests.
 
-Covers Task 1: vector complete (tasks_common._finalize_ingest) + shared failure
+Covers vector complete (tasks_common._finalize_ingest) + shared failure
   (_cleanup_staging_on_failure).
-Covers Task 2: raster complete + raster failure (tasks_raster.ingest_raster).
-Covers Task 3: worker-path delivery proof (bootstrap(app=None) state delivers
+Covers raster complete + raster failure (tasks_raster.ingest_raster).
+Covers worker-path delivery proof (bootstrap(app=None) state delivers
   ingest events via a stubbed channel).
 
 All tests are unit-level — no real DB, no real SMTP/webhook, no real worker loop.
@@ -51,13 +51,13 @@ def _fake_settings(*, complete: bool = False, failed: bool = False) -> SimpleNam
 
 
 # ---------------------------------------------------------------------------
-# Task 1 — vector complete (_finalize_ingest) and shared failure
+# Vector complete (_finalize_ingest) and shared failure
 #            (_cleanup_staging_on_failure)
 # ---------------------------------------------------------------------------
 
 
 class TestVectorCompleteEvent:
-    """EVENT-02: vector _finalize_ingest fires ingest_complete after commit."""
+    """Vector _finalize_ingest fires ingest_complete after commit."""
 
     @pytest.mark.anyio
     async def test_vector_complete_emits_when_toggle_on(self, monkeypatch) -> None:
@@ -197,7 +197,7 @@ class TestVectorCompleteEvent:
 
 
 class TestSharedFailureEvent:
-    """EVENT-03: _cleanup_staging_on_failure fires ingest_failed after commit."""
+    """_cleanup_staging_on_failure fires ingest_failed after commit."""
 
     @pytest.mark.anyio
     async def test_shared_failure_emits_when_toggle_on(self, monkeypatch) -> None:
@@ -336,12 +336,12 @@ class TestSharedFailureEvent:
 
 
 # ---------------------------------------------------------------------------
-# Task 2 — raster complete + failure (tasks_raster.ingest_raster)
+# Raster complete + failure (tasks_raster.ingest_raster)
 # ---------------------------------------------------------------------------
 
 
 class TestRasterCompleteEvent:
-    """EVENT-02 raster: ingest_raster fires ingest_complete after commit."""
+    """Raster: ingest_raster fires ingest_complete after commit."""
 
     @pytest.mark.anyio
     async def test_raster_complete_emits_when_toggle_on(self, monkeypatch) -> None:
@@ -421,7 +421,7 @@ class TestRasterCompleteEvent:
 
 
 class TestRasterFailureEvent:
-    """EVENT-03 raster: ingest_raster fires ingest_failed with reason."""
+    """Raster: ingest_raster fires ingest_failed with reason."""
 
     @pytest.mark.anyio
     async def test_raster_failure_emits_when_toggle_on(self, monkeypatch) -> None:
@@ -567,7 +567,7 @@ class TestRasterFailureEvent:
 
 
 # ---------------------------------------------------------------------------
-# Task 3 — Worker-path delivery proof (split-brain closed with evidence)
+# Worker-path delivery proof (split-brain closed with evidence)
 # ---------------------------------------------------------------------------
 
 
@@ -577,7 +577,7 @@ async def _async_noop(*args, **kwargs):
 
 
 class TestWorkerDeliveryProof:
-    """EVENT-03 worker path: bootstrap(app=None) delivers ingest events via registered sink."""
+    """Worker path: bootstrap(app=None) delivers ingest events via registered sink."""
 
     @pytest.mark.anyio
     async def test_worker_bootstrap_delivers_ingest_failed_emit(
@@ -585,7 +585,7 @@ class TestWorkerDeliveryProof:
     ) -> None:
         """After bootstrap(app=None), an ingest_failed emit reaches the stubbed channel.
 
-        This is the concrete defence against IN-01 split-brain: the worker's bootstrap
+        This is the concrete defence against split-brain: the worker's bootstrap
         state (not the API's) actually routes notifications through EnvConfiguredNotificationSink.
         """
         from app.platform.extensions import _extensions

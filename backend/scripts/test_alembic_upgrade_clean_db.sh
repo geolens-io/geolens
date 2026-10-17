@@ -114,7 +114,7 @@ fi
 
 # Refuse to run if the chosen port is in use; a stale container or other
 # postgres on this port would silently mask migration failures.
-# WR-02 (Phase 1071 review): lsof is macOS/BSD-native; on Linux it may be
+# Lsof is macOS/BSD-native; on Linux it may be
 # absent. Fall back to nc -z (universally available on macOS and Linux) so
 # the port-in-use guard works in both CI environments. The script
 # auto-detects which tool is available.
@@ -153,7 +153,7 @@ docker run -d \
 #   1. pg_isready alone is not enough because init-db.sh runs AFTER initial
 #      readiness. Poll for the `vector` extension explicitly so we don't
 #      race the extension-creation step.
-#   2. (Phase 1079 VG-01 fix) docker-entrypoint.sh's init-script phase
+# 2. docker-entrypoint.sh's init-script phase
 #      runs against a temporary Postgres listening ONLY on the Unix socket;
 #      `pg_isready` and `docker exec ... psql` succeed via the socket during
 #      this phase. After all init scripts finish, the temporary server
@@ -238,18 +238,16 @@ export JWT_SECRET_KEY="${JWT_SECRET_KEY:-alembic-clean-db-smoke-padding-key-32ch
 export GEOLENS_ADMIN_USERNAME="${GEOLENS_ADMIN_USERNAME:-admin}"
 export GEOLENS_ADMIN_PASSWORD="${GEOLENS_ADMIN_PASSWORD:-admin}"
 
-# Phase 1079 VG-01 fix: backend/ has no [build-system] in pyproject.toml, so
+# backend/ has no [build-system] in pyproject.toml, so
 # the `app` package is not installed into the venv's site-packages — it is
 # imported via the cwd entry on sys.path. When `uv run --no-dev` invokes the
 # `alembic` console script entry point, the launcher does not implicitly add
 # cwd to sys.path the way `python -c "..."` does. The alembic `env.py` then
 # fails at `from app.core.config import settings` with ModuleNotFoundError.
-# PYTHONPATH=. restores the cwd-on-sys.path behavior. (First live run of
-# this script in Phase 1079 surfaced the bug; Phase 1071 close-gate had
-# deferred the live run to Phase 1074, which also did not exercise it.)
+# PYTHONPATH=. restores the cwd-on-sys.path behavior.
 export PYTHONPATH=.
 
-# Phase 1079 VG-01 fix: app/core/config.py's database_connect_args returns
+# app/core/config.py's database_connect_args returns
 # `{}` (no ssl key) when database_ssl_mode='disable'. asyncpg's
 # connect_utils.py:655-656 then defaults `ssl='prefer'` on TCP, which
 # triggers a STARTTLS upgrade attempt against the throwaway PostGIS

@@ -170,7 +170,7 @@ class TestEditionEndpoint:
         assert "Authorization" not in resp.request.headers
 
     def test_edition_endpoint_returns_tenancy_mode_field(self, client):
-        """GET /api/settings/edition/ returns tenancy_mode field (FEOVL-02 additive)."""
+        """GET /api/settings/edition/ returns tenancy_mode field (additive)."""
         resp = client.get("/api/settings/edition/")
         assert resp.status_code == 200
         data = resp.json()

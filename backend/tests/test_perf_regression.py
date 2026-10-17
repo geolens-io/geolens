@@ -21,7 +21,7 @@ from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 # ---------------------------------------------------------------------------
-# Thresholds: 3x Phase 181 p95 values (generous to avoid flake)
+# Thresholds: 3x p95 values (generous to avoid flake)
 # Source: tests/load/results/baseline_stats.csv
 # ---------------------------------------------------------------------------
 SEARCH_THRESHOLD_MS = 200  # p95=12ms, p50=3ms
@@ -144,7 +144,7 @@ async def _perf_tile_pool(_perf_dataset):
 
 
 # ---------------------------------------------------------------------------
-# Phase 269 C-02: multi-feature polygon dataset fixture for tile-zoom
+# Multi-feature polygon dataset fixture for tile-zoom
 # regression tests.
 # ---------------------------------------------------------------------------
 
@@ -156,8 +156,8 @@ async def _perf_polygon_dataset(client: AsyncClient, test_db_session):
     Uses 500 polygons rather than the audit's recommended 200+ — large
     enough that low-zoom tiles cover most of them (so the LIMIT + per-zoom
     simplification matter), small enough to keep the fixture under 1 sec
-    so the perf gate stays runnable in CI. The C-02 fix prevents
-    unbounded scan; tighter realism would belong in a separate load-test
+    so the perf gate stays runnable in CI. The LIMIT and simplification
+    guards prevent unbounded scan; tighter realism would belong in a separate load-test
     suite.
 
     Polygons are arranged on a 25x25 grid spanning roughly -150,-50 to
@@ -318,7 +318,7 @@ async def test_tile_latency(
 
 
 # ---------------------------------------------------------------------------
-# Phase 269 C-02: per-zoom tile latency markers against a 500-polygon
+# Per-zoom tile latency markers against a 500-polygon
 # dataset. The original `test_tile_latency` only exercises a single
 # Point at z=0, which masks tile-SQL regressions on wider data and at
 # higher zoom levels. These markers test z=0/2/4/8 against a polygon
@@ -351,9 +351,9 @@ async def test_tile_polygon_zoom_latency(
     x: int,
     y: int,
 ):
-    """C-02: tile latency at z={0,2,4,8} on a 500-polygon dataset.
+    """Tile latency at z={0,2,4,8} on a 500-polygon dataset.
 
-    Locks the C-02 fix (50K-feature LIMIT + per-zoom simplification
+    Locks the tile guards (50K-feature LIMIT + per-zoom simplification
     extended through z<10) so a regression that drops either guard
     fails CI on the next run.
     """
@@ -444,7 +444,7 @@ async def test_browse_latency(
 
 
 # ---------------------------------------------------------------------------
-# Phase 269 H-25: extended perf-marker coverage to AI / STAC / OGC / raster /
+# Extended perf-marker coverage to AI / STAC / OGC / raster /
 # ingest hot paths. The five existing markers cover only `/search/datasets/`,
 # `/tiles/data.{table}/0/0/0.pbf`, `/datasets/{id}/rows`, `/datasets/{id}`,
 # and `/datasets/?limit=50` — leaving STAC, OGC API Features/Records, raster

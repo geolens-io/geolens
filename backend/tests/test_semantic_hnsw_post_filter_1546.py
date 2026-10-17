@@ -1,4 +1,4 @@
-"""Foreign-stamped rows must not starve the HNSW candidate window (#1546 r2).
+"""Foreign-stamped rows must not starve the HNSW candidate window (#1546).
 
 The configuration predicate is applied AFTER the approximate index scan has
 chosen its candidates. With a fixed `hnsw.ef_search` and no iterative scan, the

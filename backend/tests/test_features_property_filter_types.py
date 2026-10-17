@@ -221,7 +221,7 @@ async def test_cql2_filter_fault_message_is_unchanged(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 review r2): a value the driver cannot encode for the bound type.
+# fix(#1778): a value the driver cannot encode for the bound type.
 # ---------------------------------------------------------------------------
 
 OUT_OF_RANGE = [

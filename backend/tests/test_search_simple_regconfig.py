@@ -1,4 +1,4 @@
-"""Tests for the simple-regconfig GIN index (SEC-S12 / Phase 1062-03).
+"""Tests for the simple-regconfig GIN index.
 
 Verifies that:
 1. ix_records_simple_search_vector exists in pg_indexes.
@@ -45,7 +45,7 @@ async def _create_cjk_dataset(
     deterministic.  The important property being tested is that
     ix_records_simple_search_vector is used via EXPLAIN — not that CJK
     specifically works (that depends on the client normalising the query string
-    or using pg_bigm for n-gram indexing, which is out of scope for SEC-S12).
+    or using pg_bigm for n-gram indexing, which is out of scope here).
 
     Returns (record, dataset) because the /search/datasets/ API uses dataset.id
     as the feature "id" field (not record.id).

@@ -499,7 +499,7 @@ class TestNoImportTailStillHandRollsItsFailureWrite:
 
 
 class TestACleanupFailureCannotSwallowTheFailureWrite:
-    """fix(#1778 codex r2): the order inside the shared helper.
+    """fix(#1778): the order inside the shared helper.
 
     PostgreSQL aborts the whole transaction on any statement error, so with
     the staging DROP running first, a drop that hit a lock or statement

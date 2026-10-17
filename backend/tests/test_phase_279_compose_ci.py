@@ -1,13 +1,11 @@
-"""Phase 279 ADMIN-10..13 regression tests.
-
-Static-analysis tests for compose + CI hygiene changes. Each test fails
+"""Static-analysis tests for compose + CI hygiene changes. Each test fails
 loudly if a future PR walks back the change.
 
-ADMIN-10 + ADMIN-12 — MinIO + mc images bumped from RELEASE.2025-04-22 and
+MinIO + mc images bumped from RELEASE.2025-04-22 and
                       pinned by sha256 digest in docker-compose.yml.
-ADMIN-11           — Stale `--ignore-vuln CVE-2026-4539` removed from the
+Stale `--ignore-vuln CVE-2026-4539` removed from the
                       pip-audit step in .github/workflows/ci.yml.
-ADMIN-13           — Non-blocking `license-check` job added to ci.yml that
+Non-blocking `license-check` job added to ci.yml that
                       uploads a license-report artifact for reviewer use.
 """
 
@@ -27,7 +25,7 @@ UV_LOCK = REPO_ROOT / "backend" / "uv.lock"
 
 
 # -------------------------------------------------------------------
-# ADMIN-10 + ADMIN-12 — MinIO + mc image bump + digest pin
+# MinIO + mc image bump + digest pin
 # -------------------------------------------------------------------
 
 
@@ -35,8 +33,8 @@ UV_LOCK = REPO_ROOT / "backend" / "uv.lock"
 def test_minio_image_pinned_by_digest(compose):
     """The MinIO image is pinned as <RELEASE.YYYY-...>@sha256:<64-hex>.
 
-    The digest pin makes pulls reproducible across machines (ADMIN-12) and the
-    date-stamped tag must be after the prior 2025-04-22 pin (ADMIN-10). The
+    The digest pin makes pulls reproducible across machines and the
+    date-stamped tag must be after the prior 2025-04-22 pin. The
     image is pgsty/silo, the maintained fork, because the quay.io/minio
     repositories no longer serve anonymous pulls.
     """
@@ -97,7 +95,7 @@ def test_minio_setup_keeps_mc_config_out_of_read_only_root():
 
 
 # -------------------------------------------------------------------
-# ADMIN-11 — CVE-2026-4539 ignore is removed
+# CVE-2026-4539 ignore is removed
 # -------------------------------------------------------------------
 
 
@@ -105,7 +103,7 @@ def test_pip_audit_no_longer_ignores_cve_2026_4539():
     """The pip-audit step does not pass --ignore-vuln CVE-2026-4539.
 
     Comments referencing the CVE in historical context (e.g. "removed in
-    Phase 279...") are allowed — the test only fails if the actual
+    an earlier change...") are allowed — the test only fails if the actual
     `--ignore-vuln CVE-2026-4539` flag re-appears in a `run:` line.
     """
     text = CI.read_text()
@@ -134,7 +132,7 @@ def test_security_scan_lockfile_pins_patched_pip():
 
 
 # -------------------------------------------------------------------
-# ADMIN-13 — license-check job present and non-blocking
+# license-check job present and non-blocking
 # -------------------------------------------------------------------
 
 
@@ -152,7 +150,7 @@ def test_license_check_job_present():
 def test_license_check_job_is_non_blocking():
     """No other job depends on license-check via `needs:`.
 
-    ADMIN-13 mandates the job is non-blocking — it can fail without
+    Mandates the job is non-blocking — it can fail without
     blocking PR merge. Any `needs: license-check` would re-blockify it.
     """
     doc = yaml.safe_load(CI.read_text())

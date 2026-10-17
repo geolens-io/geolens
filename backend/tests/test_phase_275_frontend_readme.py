@@ -1,6 +1,6 @@
-"""Phase 275 / API-06 regression: frontend/README.md is not Vite boilerplate.
+"""Regression: frontend/README.md is not Vite boilerplate.
 
-Locks the M-26 finding closed: contributors who clone the repo and open
+Locks that contributors who clone the repo and open
 ``frontend/`` first must see a GeoLens-specific orientation, not the
 unmodified Vite + React + TypeScript starter README.
 """
@@ -18,7 +18,7 @@ def _read_frontend_readme() -> str:
 
 
 def test_frontend_readme_starts_with_geolens() -> None:
-    """API-06 / M-26: H1 should identify the file as GeoLens-specific."""
+    """H1 should identify the file as GeoLens-specific."""
     body = _read_frontend_readme()
     first_line = body.splitlines()[0].strip()
     assert first_line.startswith("# GeoLens"), (
@@ -27,7 +27,7 @@ def test_frontend_readme_starts_with_geolens() -> None:
 
 
 def test_frontend_readme_no_boilerplate() -> None:
-    """API-06 / M-26: Vite + React + TypeScript starter content must be gone."""
+    """Vite + React + TypeScript starter content must be gone."""
     body = _read_frontend_readme()
     boilerplate_signals = [
         # The starter's H1
@@ -51,7 +51,7 @@ def test_frontend_readme_no_boilerplate() -> None:
 
 
 def test_frontend_readme_links_to_root_docs() -> None:
-    """API-06: orientation must point contributors at the canonical docs."""
+    """Orientation must point contributors at the canonical docs."""
     body = _read_frontend_readme()
     assert "../README.md" in body or "/README.md" in body, (
         "frontend/README.md must cross-link to root README.md instead of duplicating install steps"
@@ -62,7 +62,7 @@ def test_frontend_readme_links_to_root_docs() -> None:
 
 
 def test_frontend_readme_describes_actual_stack() -> None:
-    """API-06: the file should describe what shipped, not what a starter ships."""
+    """The file should describe what shipped, not what a starter ships."""
     body = _read_frontend_readme()
     # Match the actual stack documented in the root README Architecture table
     for term in ("React 19", "Vite", "MapLibre GL", "TanStack Query", "Tailwind"):

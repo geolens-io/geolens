@@ -1,6 +1,6 @@
-"""Integration tests for anonymous search-response caching (PERF-2, PERF-7).
+"""Integration tests for anonymous search-response caching.
 
-Covers ``/search/datasets/`` (PERF-2) and ``/search/facets/`` (PERF-7):
+Covers ``/search/datasets/`` and ``/search/facets/``:
 the anon path returns a cached payload on the second request within the TTL,
 and the authenticated path bypasses the cache.
 
@@ -150,7 +150,7 @@ async def _create_search_dataset(
 
 
 # ---------------------------------------------------------------------------
-# /search/datasets/ — PERF-2
+# /search/datasets/
 # ---------------------------------------------------------------------------
 
 
@@ -164,7 +164,7 @@ async def test_anon_search_caches_response(
     Mutating the DB between the two anon calls must NOT change the second
     response — proving the second request is served from cache. We additionally
     probe the cache directly to assert the entry exists for the expected key
-    (WR-02 — positive cache assertion guards against false positives where a
+    (a positive cache assertion guards against false positives where a
     behavioral coincidence makes two responses equal even on a cache miss).
     """
     admin_id = await get_user_id(test_db_session, "admin")
@@ -201,13 +201,13 @@ async def test_anon_search_caches_response(
         "anon second request should return cached (stale) numberMatched"
     )
 
-    # WR-05: assert full-body equivalence (modulo timeStamp) — protects against
+    # Assert full-body equivalence (modulo timeStamp) — protects against
     # silent reconstruction breakage if response_model coercion ever drifts.
     first_body = {k: v for k, v in first_payload.items() if k != "timeStamp"}
     second_body = {k: v for k, v in second_payload.items() if k != "timeStamp"}
     assert second_body == first_body, "cache hit must round-trip the full body"
 
-    # WR-02: positive proof — at least one search-cache entry must exist after
+    # Positive proof — at least one search-cache entry must exist after
     # the two anon requests. This rules out the false-positive class where the
     # responses coincidentally match without the cache layer ever firing.
     cache = get_cache()
@@ -266,7 +266,7 @@ async def test_authed_search_bypasses_cache(
 
 
 # ---------------------------------------------------------------------------
-# /search/facets/ — PERF-7
+# /search/facets/
 # ---------------------------------------------------------------------------
 
 
@@ -317,10 +317,10 @@ async def test_anon_facets_caches_response(
         "anon second request should return cached (stale) facet totals"
     )
 
-    # WR-05: full-body equality — protects against silent reconstruction breakage.
+    # full-body equality — protects against silent reconstruction breakage.
     assert second_payload == first.json(), "facet cache hit must round-trip body"
 
-    # WR-02: positive proof — at least one facets-cache entry must exist.
+    # Positive proof — at least one facets-cache entry must exist.
     cache = get_cache()
     store = getattr(cache, "_store", {})  # InMemoryCacheProvider in tests
     facet_keys = [k for k in store if k.startswith("catalog:search:facets:")]

@@ -1,12 +1,12 @@
 """Tests for HMAC tile signing module, tile token endpoint, and tile signature validation.
 
 Covers:
-  - TAUTH-01: HMAC-SHA256 signing/verification
-  - TAUTH-02: Tile endpoint signature validation
-  - TAUTH-03: Access logging
-  - TAUTH-04: 15-minute boundary rounding
-  - TAUTH-05: Per-dataset cache TTL
-  - TAUTH-06: Public bypass / private enforcement
+  - HMAC-SHA256 signing/verification
+  - Tile endpoint signature validation
+  - Access logging
+  - 15-minute boundary rounding
+  - Per-dataset cache TTL
+  - Public bypass / private enforcement
 """
 
 import time
@@ -180,10 +180,10 @@ class TestTileSigningModule:
             exp2 = round_expiry()
         assert exp1 == exp2
 
-    # BUG-012 regression tests — minimum-validity guard -------------------
+    # Regression tests — minimum-validity guard -------------------
 
     def test_round_expiry_min_validity_skips_near_boundary(self):
-        """BUG-012: when now is within min_validity seconds of the next boundary,
+        """When now is within min_validity seconds of the next boundary,
         round_expiry skips to the FOLLOWING boundary so the token never has
         near-zero validity.
 
@@ -215,7 +215,7 @@ class TestTileSigningModule:
         assert exp - near_boundary_now >= 60
 
     def test_round_expiry_far_from_boundary_returns_next_boundary(self):
-        """BUG-012: when now is comfortably far from the next boundary,
+        """When now is comfortably far from the next boundary,
         round_expiry still returns the NEXT boundary (no change from pre-fix).
 
         Scenario: now is 450 s into a window → next boundary is 450 s away.
@@ -236,7 +236,7 @@ class TestTileSigningModule:
         assert exp - mid_window_now >= 60
 
     def test_round_expiry_exactly_at_min_validity_boundary_returns_next(self):
-        """BUG-012: when (next_boundary - now) == min_validity exactly, the next
+        """When (next_boundary - now) == min_validity exactly, the next
         boundary is acceptable (edge case: equality means valid, not rejected).
         """
         from app.processing.tiles.signing import round_expiry
@@ -255,7 +255,7 @@ class TestTileSigningModule:
         assert exp - now >= 60
 
     def test_round_expiry_result_always_multiple_of_900_near_boundary(self):
-        """BUG-012: the skipped result must remain a multiple of 900."""
+        """The skipped result must remain a multiple of 900."""
         from app.processing.tiles.signing import round_expiry
 
         # Test several near-boundary times
@@ -377,7 +377,7 @@ class TestTileTokenEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests: tile endpoint signature validation (TAUTH-02, TAUTH-06)
+# Integration tests: tile endpoint signature validation
 # ---------------------------------------------------------------------------
 
 
@@ -554,7 +554,7 @@ class TestTileSignatureValidation:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests: tile cache TTL (TAUTH-05)
+# Integration tests: tile cache TTL
 # ---------------------------------------------------------------------------
 
 
@@ -608,7 +608,7 @@ class TestTileCacheTTL:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests: tile access logging (TAUTH-03)
+# Integration tests: tile access logging
 # ---------------------------------------------------------------------------
 
 

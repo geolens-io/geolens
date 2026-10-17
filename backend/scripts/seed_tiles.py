@@ -118,7 +118,7 @@ def spec_bbox_to_tiles(
     crossing extent) and seed each lobe as its own longitude range.
     """
     if west > east:
-        # fix(#934 codex r1): at low zooms both lobes can resolve to the same
+        # fix(#934): at low zooms both lobes can resolve to the same
         # tile column (z0 is a single tile for either lobe), so deduplicate —
         # otherwise the same cache key is seeded twice concurrently and the
         # dry-run/summary counts over-report.

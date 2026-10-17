@@ -1,12 +1,12 @@
 /**
- * fix(#458 E-07): feature-editing persistence round-trips.
+ * feature-editing persistence round-trips.
  *
  * The old inline-edit e2e coverage was removed with a "moved to vitest" note,
  * but the vitest suites never covered persistence — no test anywhere walked
  * edit -> reload -> still there. These specs create a throwaway layer via the
  * API, edit through the real UI, and assert the edit survives a reload.
- * The numeric-column case is the live regression guard for E-03 (string
- * payloads into typed columns).
+ * The numeric-column case is the live regression guard for string
+ * payloads into typed columns.
  */
 import { test, expect, getAuthToken } from './helpers/session';
 

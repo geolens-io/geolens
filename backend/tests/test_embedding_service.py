@@ -17,7 +17,7 @@ def _make_mock_provider(
     runtime_default_model="text-embedding-3-small",
     runtime_default_dims=1536,
 ):
-    """Build a MagicMock with AsyncMock embed/resolve_runtime_config (Phase 231 D-27)."""
+    """Build a MagicMock with AsyncMock embed/resolve_runtime_config."""
     mock_provider = MagicMock()
     mock_provider.embed = AsyncMock(return_value=embed_return)
     mock_provider.resolve_runtime_config = AsyncMock(
@@ -55,7 +55,7 @@ async def test_generate_embedding_returns_float_vector():
     assert isinstance(result, list)
     assert len(result) == 1536
     assert all(isinstance(x, float) for x in result)
-    # Provider-boundary call shape (D-27)
+    # Provider-boundary call shape
     mock_provider.embed.assert_called_once_with(
         texts=["test text"],
         model="text-embedding-3-small",
@@ -69,8 +69,8 @@ async def test_generate_embedding_returns_float_vector():
 async def test_generate_embedding_raises_when_no_openai_key():
     """EmbeddingUnavailableError raised with clear message when only Anthropic key configured.
 
-    UNCHANGED post-Phase-231 — the API-key check stays at service.py:47-53
-    (defense in depth per RESEARCH.md Open Question 2 / D-22 fallback).
+        UNCHANGED post-Phase-231 — the API-key check stays at service.py:47-53
+    .
     """
     mock_session = AsyncMock()
 
@@ -107,7 +107,7 @@ async def test_generate_embedding_uses_persistent_config():
         result = await generate_embedding("test text", mock_session)
 
     assert len(result) == 768
-    # PersistentConfig values flow through to provider_ext.embed kwargs (D-27)
+    # PersistentConfig values flow through to provider_ext.embed kwargs
     mock_provider.embed.assert_called_once_with(
         texts=["test text"],
         model="custom-model",
@@ -142,7 +142,7 @@ async def test_generate_embedding_truncates_long_input():
 
         await generate_embedding(long_text, mock_session)
 
-    # Truncation happens in service.py BEFORE the provider call (D-27).
+    # Truncation happens in service.py BEFORE the provider call.
     call_kwargs = mock_provider.embed.call_args.kwargs
     passed_text = call_kwargs["texts"][0]
     assert len(passed_text) == _MAX_INPUT_CHARS

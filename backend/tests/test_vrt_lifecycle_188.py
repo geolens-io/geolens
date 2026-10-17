@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 
 # ---------------------------------------------------------------------------
-# Task 1: Model & Schema tests
+# Model & Schema tests
 # ---------------------------------------------------------------------------
 
 
@@ -218,7 +218,7 @@ class TestMigrationStructure:
 
 
 # ---------------------------------------------------------------------------
-# Task 2: Endpoint & task integration tests
+# Endpoint & task integration tests
 # ---------------------------------------------------------------------------
 
 

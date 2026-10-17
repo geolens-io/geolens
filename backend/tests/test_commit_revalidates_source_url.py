@@ -1,9 +1,9 @@
-"""Unit tests for IA-P0-03: commit-time + worker-time SSRF revalidation.
+"""Unit tests for commit-time + worker-time SSRF revalidation.
 
 Pins the preview→commit DNS-rebinding TOCTOU closure (route layer) and the
 manifest-path defense-in-depth (worker layer).
 
-Requirement: IA-P0-03
+Requirement: IA
 Phase: 1066
 """
 

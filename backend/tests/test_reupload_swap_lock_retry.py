@@ -1,7 +1,6 @@
-"""Regression test for ING-06 / P2-08: the reupload swap must retry once on lock_timeout failure.
+"""Regression test: the reupload swap must retry once on lock_timeout failure.
 
-Background — see ``.planning/audits/INGEST-AUDIT-2026-05-21.md`` P2-08:
-the swap ran ``SET LOCAL lock_timeout = '5s'`` before three
+Background: the swap ran ``SET LOCAL lock_timeout = '5s'`` before three
 ``ALTER TABLE ... RENAME TO`` statements. Under autovacuum contention on
 large tables the AccessExclusiveLock acquire failed at the 5s mark, AFTER
 staging had been loaded — surfacing a late, user-visible failure.
@@ -264,7 +263,7 @@ class TestReuploadSwapRetry:
         ).scalar()
         assert staging_exists is False
 
-        # db-audit #529 BLOAT-3: the swap also renamed the staging-era PK
+        # The swap also renamed the staging-era PK
         # constraint, so direct-DB clients see `<live_table>_pkey`.
         pkey = (
             await self.session.execute(
@@ -442,7 +441,7 @@ class TestReuploadSwapRetry:
 
 
 class TestRenamePkeyToMatchTable:
-    """Direct coverage for ``rename_pkey_to_match_table`` (db-audit #529 BLOAT-3)."""
+    """Direct coverage for ``rename_pkey_to_match_table``."""
 
     _PKEY_SQL = (
         "SELECT con.conname FROM pg_constraint con "

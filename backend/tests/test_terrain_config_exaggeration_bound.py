@@ -29,7 +29,7 @@ def test_exaggeration_default_is_true_scale():
 
 
 def test_enabled_without_source_coerced_to_disabled():
-    # fix(HT-15): enabled=True with no source is internally inconsistent — it
+    # Enabled=True with no source is internally inconsistent — it
     # can only produce dangling status and resolver no-ops. It is coerced to
     # disabled (not rejected) so this same model can also validate stored JSONB
     # on the read path without 500-ing a legacy/corrupt row.

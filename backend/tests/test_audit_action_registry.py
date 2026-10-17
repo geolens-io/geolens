@@ -160,7 +160,7 @@ def _parse_frontend_audit_actions() -> set[str]:
 
 @pytest.mark.architecture
 def test_frontend_action_list_matches_backend_registry() -> None:
-    """fix(#1230 codex r2 P2): a matching AUDIT_ACTIONS + emit-site pair added
+    """fix(#1230 P2): a matching AUDIT_ACTIONS + emit-site pair added
     together passes the two tests above without ever looking at
     AuditLogViewer.tsx's CURRENT_AUDIT_ACTIONS — exactly the drift this
     whole change exists to close. Parse the frontend array directly and

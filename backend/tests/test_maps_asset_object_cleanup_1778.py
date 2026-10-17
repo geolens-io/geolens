@@ -57,7 +57,7 @@ def _storage():
 async def _objects(prefix: str, map_id: str) -> set[str]:
     """Every stored object under ``prefix`` belonging to this map.
 
-    fix(#1778 round 3): keys carry a random component per write now, so the
+    keys carry a random component per write now, so the
     tests read what is stored instead of reconstructing a name. That is also the
     property under test in several of them: exactly one object survives a
     replacement, and it is not the one that was there before.
@@ -140,7 +140,7 @@ class TestReupload:
     The original finding was the extension flip: the key ended in `.jpg` or
     `.png` after the payload, so a PNG re-upload after a JPEG repointed the
     column and stranded the old object. Keys carry a random component per write
-    now (fix(#1778 round 3)), which makes every re-upload a replacement, so the
+    now, which makes every re-upload a replacement, so the
     same-encoding case is the same case rather than a separate one.
     """
 
@@ -200,7 +200,7 @@ class TestReupload:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 2): overlapping replacements of one map's asset
+# Overlapping replacements of one map's asset
 # ---------------------------------------------------------------------------
 
 
@@ -212,12 +212,12 @@ class TestOverlappingReplacements:
     `.jpg`, then A commits its URI at `.jpg`, pointing the row at the object B
     just deleted. Both answer 204 and the thumbnail endpoint answers 404.
 
-    fix(#1778 round 9): the block point moved from inside ``storage.put`` to inside
-    ``lock_map_for_asset_write``. Before round 9 the row lock was taken before
+    the block point moved from inside ``storage.put`` to inside
+    ``lock_map_for_asset_write``. Previously the row lock was taken before
     the PUT, so blocking a request after its bytes landed but before it
     returned from ``put`` was also blocking it before it could reach the lock,
     which is what made ``second`` wait on ``SELECT ... FOR UPDATE`` in that
-    window. Round 9 moved the lock to AFTER the PUT specifically so a stalled
+    window. moved the lock to AFTER the PUT specifically so a stalled
     write no longer holds it, so that same block point no longer represents
     "holding the lock". Hooking the lock call itself, calling through to the
     real function so the row lock is genuinely acquired in Postgres and then
@@ -360,7 +360,7 @@ class TestOverlappingReplacements:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 9): a stalled storage write must not hold the map row locked
+# a stalled storage write must not hold the map row locked
 # ---------------------------------------------------------------------------
 
 
@@ -406,7 +406,7 @@ class TestAStalledUploadDoesNotBlockOtherWriters:
         )
         await asyncio.wait_for(put_entered.wait(), timeout=10)
 
-        # The upload is stuck inside the PUT, which round 9 moved outside the
+        # The upload is stuck inside the PUT, which moved outside the
         # row lock. A plain rename, which takes no lock_timeout of its own and
         # would previously have queued behind the held row lock for as long
         # as the PUT took, must complete right away instead of waiting on it.
@@ -593,14 +593,14 @@ def test_every_cleanup_caller_takes_the_row_lock_1778() -> None:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 3): the window between the survivor re-read and the delete
+# The window between the survivor re-read and the delete
 # ---------------------------------------------------------------------------
 
 
 class TestCleanupRaceAfterTheLockIsReleased:
     """The row lock ends at the commit, so the cleanup runs unprotected.
 
-    The surviving interleave after round 2: A commits its URI and re-reads the
+    The surviving interleave: A commits its URI and re-reads the
     row, deciding its old key is dead; A is descheduled before the delete; B
     takes the lock, writes and commits; A's delete lands. While the two keys per
     map were reused, B could only ever write one of the same two names, so A's
@@ -783,7 +783,7 @@ class TestTheLockedReadIsNotStale:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 4): the cleanup's own failures stay inside it
+# The cleanup's own failures stay inside it
 # ---------------------------------------------------------------------------
 
 
@@ -876,7 +876,7 @@ class TestALiveNessReadFailureIsNotTheRequestsProblem:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 4): an object whose row never commits is rolled back
+# An object whose row never commits is rolled back
 # ---------------------------------------------------------------------------
 
 
@@ -976,7 +976,7 @@ class TestAFailedPublishLeavesNoObject:
         """The third write-object-then-commit-row site in the package.
 
         The failure is placed at the flush, which is after the object write and
-        before the commit. fix(#1778 round 6): a failure of the COMMIT itself is
+        before the commit. a failure of the COMMIT itself is
         a different case, covered below: its outcome is unknowable, so nothing
         is deleted.
         """
@@ -1007,7 +1007,7 @@ class TestAFailedPublishLeavesNoObject:
     async def test_a_commit_that_fails_outright_still_keeps_the_object(
         self, client: AsyncClient, admin_auth_header: dict, monkeypatch
     ) -> None:
-        """The accepted cost of fix(#1778 round 6), written down.
+        """The accepted cost of the per-write key change, written down.
 
         Once the commit has been awaited its outcome is unknowable from the
         exception, so a commit that genuinely failed leaves its object behind
@@ -1087,7 +1087,7 @@ def test_every_object_write_in_the_maps_package_is_published_1778() -> None:
 
 
 def test_every_object_write_records_before_putting_1778() -> None:
-    """fix(#1778 round 7): the ledger entry precedes the write it covers.
+    """The ledger entry precedes the write it covers.
 
     Object storage can durably accept a PUT and still fail the client with a
     timeout or a dropped connection, so a raise from the write says nothing
@@ -1143,7 +1143,7 @@ def test_every_object_write_records_before_putting_1778() -> None:
 
 
 def test_every_publication_settles_at_the_commit_1778() -> None:
-    """fix(#1778 round 5): the rollback boundary is the commit, not the block.
+    """The rollback boundary is the commit, not the block.
 
     Keying the rollback on "did the block raise" is not the same question as
     "did the row commit": the icon route's ``session.refresh`` ran after a
@@ -1209,7 +1209,7 @@ def _awaits_commit(statement) -> bool:
 
 
 def test_every_publication_marks_before_committing_1778() -> None:
-    """fix(#1778 round 6): an indeterminate commit outcome deletes nothing.
+    """An indeterminate commit outcome deletes nothing.
 
     A connection lost between PostgreSQL making the commit durable and the
     acknowledgement arriving raises out of the await for a transaction that DID
@@ -1261,7 +1261,7 @@ def test_every_publication_marks_before_committing_1778() -> None:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 5): a failure after the commit must not roll anything back
+# a failure after the commit must not roll anything back
 # ---------------------------------------------------------------------------
 
 
@@ -1377,7 +1377,7 @@ class TestAFailureAfterTheCommitKeepsTheObject:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 6): an indeterminate commit outcome deletes nothing
+# An indeterminate commit outcome deletes nothing
 # ---------------------------------------------------------------------------
 
 
@@ -1550,7 +1550,7 @@ class TestAnIndeterminateCommitKeepsTheObject:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 7): a write whose outcome is ambiguous is still rolled back
+# a write whose outcome is ambiguous is still rolled back
 # ---------------------------------------------------------------------------
 
 
@@ -1667,7 +1667,7 @@ class TestAnAmbiguousWriteIsRolledBack:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 8): a contended map row fails fast, not slow
+# a contended map row fails fast, not slow
 # ---------------------------------------------------------------------------
 
 

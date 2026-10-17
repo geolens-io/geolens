@@ -793,7 +793,7 @@ def test_wkb_dimensions_header_sniff():
 
 
 class TestParquetZLateRow:
-    """codex P2 round 3 on #646: undeclared geometry_types with a 2D row
+    """Codex P2 on #646: undeclared geometry_types with a 2D row
     before the Z row — the scan must not stop at the first geometry."""
 
     @pytest.fixture

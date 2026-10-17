@@ -21,8 +21,8 @@ these tests are about WHERE it asks, which took four review rounds to settle. It
 cannot be earlier: a tile answered from the byte cache must still reach the
 database zero times, which is what `_dataset_cache` is for. It cannot be later:
 everything past that point acts on the cached authorization, starting with the
-COLD-02 seam that would wake storage for a deleted dataset, and a tile request
-then takes an API-pool connection, a FAIR-01 permit and a tile-pool connection in
+seam that would wake storage for a deleted dataset, and a tile request
+then takes an API-pool connection, a permit and a tile-pool connection in
 that order — so the check must finish and hand its connection back before the
 first of them, or two paths hold a pair in opposite orders and stall.
 """
@@ -315,7 +315,7 @@ async def test_a_live_dataset_still_serves_its_own_tiles(
 
 @pytest.mark.parametrize("tile_kind", ["vector", "cluster"])
 async def test_a_cached_tile_still_reaches_the_database_zero_times(tile_kind: str):
-    """A byte-cache hit must cost no round-trip — PERF-006 / PERF-002.
+    """A byte-cache hit must cost no round-trip.
 
     ``_dataset_cache`` exists to keep the hot path off the database, so a
     liveness check placed in ``_resolve_dataset_meta`` would be paid on every
@@ -405,10 +405,10 @@ async def _null_async_context(events: list[str], label: str, value=None):
 async def test_the_catalog_is_asked_before_anything_acts_on_the_cached_meta(
     tile_kind: str,
 ):
-    """Order is the fix, so order is what this pins (codex, rounds 1-4).
+    """Order is the fix, so order is what this pins (codex).
 
     Past the byte-cache short-circuit a tile request touches four things in
-    sequence: the COLD-02 seam, an API-pool connection, a FAIR-01 permit, and a
+    sequence: the seam, an API-pool connection, a permit, and a
     tile-pool connection. Each review round found the check sitting after one
     more of them.
 
@@ -489,7 +489,7 @@ async def test_both_tile_endpoints_ask_before_they_act():
     """The check lives in two endpoints, so nothing structural funnels it.
 
     It used to sit in `_acquire_and_serve_tile`, which both endpoints reach, but
-    that is below the COLD-02 seam and below the capacity acquisitions, and both
+    that is below the seam and below the capacity acquisitions, and both
     of those turned out to matter. Moving it up traded a funnel for a convention,
     so the convention is enforced here instead: a third tile route that resolves
     cached metadata and forgets this call would otherwise be a silent regression.
@@ -523,7 +523,7 @@ async def test_both_tile_endpoints_ask_before_they_act():
 async def test_a_refusal_costs_no_capacity_and_no_storage_work(tile_kind: str):
     """A refused tile takes no permit, no pool slot, and wakes no cold storage.
 
-    All three follow from the check sitting above them. The COLD-02 seam is the
+    All three follow from the check sitting above them. The seam is the
     one that bites hardest: it acts on the same cached ``record_status``, so a
     deleted dataset left cold in the map would have bought a restore job and a
     202 for a row the catalog no longer has.

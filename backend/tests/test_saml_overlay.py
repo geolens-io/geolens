@@ -1,4 +1,4 @@
-"""Integration tests for the SAML enterprise overlay (Phase 217 Plan 02).
+"""Integration tests for the SAML enterprise overlay.
 
 Covers the 8 SAML test scenarios specified in 217-02-PLAN.md task 03:
 
@@ -17,7 +17,7 @@ app for the test's duration, then unmounted on teardown so other tests
 that assume the community/no-SAML default are unaffected.
 
 SAML response fixtures are sourced via the ``saml_response_dir``
-session-scoped fixture (Phase 227): ``tests/fixtures/saml/generate_fixtures.py``
+session-scoped fixture: ``tests/fixtures/saml/generate_fixtures.py``
 runs in-process at session start and writes 5 fresh ``idp_response_*.xml.b64``
 files into ``tmp_path_factory.mktemp("saml_responses")``. The committed
 ``backend/tests/fixtures/saml/idp_response_*.xml.b64.template`` files are
@@ -108,7 +108,7 @@ def _registration_on(monkeypatch):
 
 @pytest.fixture(scope="session")
 def saml_response_dir(tmp_path_factory) -> Path:
-    """Session-scoped dir holding generated SAML XML responses (Phase 227).
+    """Session-scoped dir holding generated SAML XML responses.
 
     Routes ``generate_fixtures.main()`` output through ``tmp_path_factory.mktemp``
     so the committed ``backend/tests/fixtures/saml/idp_response_*.xml.b64.template``
@@ -130,7 +130,6 @@ def saml_response_dir(tmp_path_factory) -> Path:
         # RuntimeError raised by generate_fixtures._build_xsw_attack_xml when an
         # Assertion can't be located. Any of these must fall back to the
         # committed `.xml.b64.template` files instead of aborting the session
-        # (Phase 227 WR-01).
         print(
             f"[saml-fixtures] generator unavailable ({type(exc).__name__}: {exc}); "
             "using committed templates",
@@ -144,7 +143,7 @@ def saml_idp_cert_pem(saml_response_dir) -> str:
     """IdP signing cert matching the fixtures in ``saml_response_dir``.
 
     ``generate_fixtures.main`` self-mints a throwaway keypair when no cert/key
-    is committed (SEC-015) and writes the signing ``idp_cert.pem`` alongside
+    is committed and writes the signing ``idp_cert.pem`` alongside
     the regenerated responses. A test that submits the *signed* fixture and
     expects it to validate must seed THIS cert -- pysaml2 rejects a mismatched
     cert with SignatureError. Falls back to the committed cert for the template
@@ -239,7 +238,7 @@ async def _seed_saml_provider(
 
 
 def _load_fixture_b64(name: str, response_dir: Path) -> str:
-    """Resolve a SAML response fixture by name (Phase 227).
+    """Resolve a SAML response fixture by name.
 
     First tries the per-session regenerated dir (where pysaml2 wrote a
     fresh fixture with current-time IssueInstant); falls back to the
@@ -311,9 +310,9 @@ def _build_saml_response_b64(server, request_id: str, *, kind: str) -> str:
 
 
 def test_load_fixture_b64_falls_back_to_template(tmp_path):
-    """Phase 227 / D-03: when the per-session dir has no regenerated file,
+    """When the per-session dir has no regenerated file,
     ``_load_fixture_b64`` must read from ``FIXTURE_DIR / f"{name}.template"``
-    instead. Guards the TESTFIX-03 fallback semantic explicitly so the
+    instead. Guards the fallback semantic explicitly so the
     template-rename refactor cannot silently regress.
     """
     # tmp_path is empty -> regenerated.exists() is False -> template branch
@@ -466,13 +465,13 @@ async def saml_router_mounted(saml_overlay_registered, client):
 async def test_saml_overlay_registers_under_identity_and_routers(
     saml_overlay_registered,
 ):
-    """SAML-09: extension dual-registered under 'identity' AND _routers."""
+    """Extension dual-registered under 'identity' AND _routers."""
     from app.platform.extensions import _extensions, _routers
     from geolens_enterprise.auth.saml import EnterpriseSamlExtension
 
     assert isinstance(_extensions["identity"], EnterpriseSamlExtension)
     assert isinstance(_extensions["auth"], EnterpriseSamlExtension)
-    # Same instance under both keys (D-13).
+    # Same instance under both keys.
     assert _extensions["identity"] is _extensions["auth"]
     # SAML router appended to the routers list.
     assert any(getattr(r, "prefix", "") == "/auth/saml" for r in _routers)
@@ -481,7 +480,7 @@ async def test_saml_overlay_registers_under_identity_and_routers(
 async def test_saml_metadata_xml_valid(
     client, test_db_session, saml_router_mounted, _cleanup_saml_providers
 ):
-    """SAML-11: GET /auth/saml/{slug}/metadata returns valid samlmetadata+xml."""
+    """GET /auth/saml/{slug}/metadata returns valid samlmetadata+xml."""
     from defusedxml import ElementTree as ET
 
     await _seed_saml_provider(test_db_session)
@@ -504,7 +503,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """SAML-11: signed assertion JIT-provisions user + issues JWT + redirects.
+    """Signed assertion JIT-provisions user + issues JWT + redirects.
 
     The fixture's Destination attribute is hardcoded to /fixture/acs so all
     ACS-POST tests use slug='fixture'. Provider rows are deleted by
@@ -529,7 +528,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     )
     location = resp.headers["location"]
 
-    # URL must include ?source=saml query param (Pitfall 8).
+    # URL must include ?source=saml query param.
     parsed = urlparse(location)
     qs = parse_qs(parsed.query)
     assert qs.get("source") == ["saml"], f"missing source=saml: {location}"
@@ -560,10 +559,10 @@ async def test_saml_acs_rejects_invalid_signature(
     _cleanup_saml_providers,
     saml_idp_server,
 ):
-    """SAML-11: tampered/wrong-signature assertion produces an error redirect.
+    """tampered/wrong-signature assertion produces an error redirect.
 
     The expired fixture's signature was invalidated by post-signing
-    text-rewrite of IssueInstant (Wave 1 SUMMARY decision); this is a
+    text-rewrite of IssueInstant (SUMMARY decision); this is a
     convenient stand-in for a generic invalid-signature scenario.
     """
     await _seed_saml_provider(test_db_session)
@@ -597,7 +596,7 @@ async def test_saml_acs_rejects_unsigned(
     _cleanup_saml_providers,
     saml_idp_server,
 ):
-    """SAML-11: unsigned assertion is rejected (want_assertions_signed=True)."""
+    """Unsigned assertion is rejected (want_assertions_signed=True)."""
     await _seed_saml_provider(test_db_session)
     request_id, relay_state = await _start_saml_login(client)
     saml_response = _build_saml_response_b64(
@@ -627,7 +626,7 @@ async def test_saml_acs_rejects_expired_assertion(
     saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """SAML-11 / Pitfall 4: expired assertion is rejected.
+    """Expired assertion is rejected.
 
     The ``expired`` fixture has IssueInstant/NotBefore/NotOnOrAfter rewritten
     to 2020 dates -- well past any reasonable accepted_time_diff (60s).
@@ -658,7 +657,7 @@ async def test_saml_acs_rejects_reused_payload(
     saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """SAML-11 / Pitfall 5: an ACS payload and relay state are single-use."""
+    """An ACS payload and relay state are single-use."""
     await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
     request_id, relay_state = await _start_saml_login(client)
     saml_response = _build_saml_response_b64(
@@ -702,7 +701,7 @@ async def test_saml_acs_rejects_xsw_attack(
     saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """SAML-11 / Pitfall 2: XML Signature Wrapping attack is rejected.
+    """XML Signature Wrapping attack is rejected.
 
     The XSW fixture wraps a legitimate signed assertion inside an evil
     unsigned outer assertion (subject=attacker@evil.test). pysaml2 7.5.4 +
@@ -756,7 +755,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
     saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """Pitfall 8 / D-15: post-ACS redirect URL must include ?source=saml so
+    """post-ACS redirect URL must include ?source=saml so
     the frontend OAuth callback handler can distinguish SAML callbacks.
 
     Verified against both happy-path and error redirect to confirm the
@@ -800,13 +799,13 @@ async def test_saml_acs_redirect_includes_source_query_param(
 
 
 # ---------------------------------------------------------------------------
-# Plan 03 Task 02: Pydantic schema per-type validation tests (SAML-12 / D-12)
+# Pydantic schema per-type validation tests
 # ---------------------------------------------------------------------------
 
 
 def test_oauth_provider_create_saml_requires_all_4_fields(enterprise_edition):
     """SAML provider creation must reject any missing SAML field with a clear
-    ValidationError naming the missing field(s) (RESEARCH §6 model_validator)."""
+    ValidationError naming the missing field(s)."""
     from pydantic import ValidationError
 
     from app.modules.auth.oauth.schemas import OAuthProviderCreate
@@ -827,7 +826,7 @@ def test_oauth_provider_create_saml_requires_all_4_fields(enterprise_edition):
 
 
 def test_oauth_provider_create_saml_accepts_all_4_fields(enterprise_edition):
-    """Complete SAML payload validates without error (RESEARCH §6 happy path)."""
+    """Complete SAML payload validates without error."""
     from app.modules.auth.oauth.schemas import OAuthProviderCreate
 
     m = OAuthProviderCreate(
@@ -916,7 +915,7 @@ def test_oauth_provider_create_oauth_requires_client_secret():
 
 
 def test_oauth_provider_response_excludes_idp_certificate():
-    """Pattern D / T-217-03-WRITEONLY: idp_certificate is a write-only credential
+    """idp_certificate is a write-only credential
     and must not appear in OAuthProviderResponse. The 3 non-secret SAML fields
     (idp_entity_id, idp_sso_url, sp_entity_id) ARE allowed."""
     from app.modules.auth.oauth.schemas import OAuthProviderResponse
@@ -935,8 +934,7 @@ def test_oauth_provider_response_excludes_idp_certificate():
 
 
 # ---------------------------------------------------------------------------
-# Plan 03 Task 03: Audit-log diff + SECRET_FIELDS redaction tests
-# (SAML-12 / Pitfall 9 HIGH / T-217-03-AUDIT-LEAK)
+# Audit-log diff + SECRET_FIELDS redaction tests
 #
 # CRITICAL: tests use HTTP PUT (not PATCH) — endpoint is @router.put at
 # backend/app/modules/settings/router.py:399. PATCH would yield 405.
@@ -950,11 +948,11 @@ async def test_saml_provider_update_logs_old_new_role_mapping(
     saml_router_mounted,
     _cleanup_saml_providers,
 ):
-    """SAML-12 / SC#4: audit-log entry for SAML provider update captures
+    """/ SC#4: audit-log entry for SAML provider update captures
     ``details.changes.group_role_mapping = {old: ..., new: ...}``.
 
-    Closes the SAML-12 audit gap identified in RESEARCH §11 (the prior code
-    logged only ``slug``; SAML-12 mandates "old/new values").
+    Closes an audit gap (the prior code
+    logged only ``slug``; mandates "old/new values").
 
     Uses ``saml_router_mounted`` to flip ``is_enterprise()`` to True --
     OAuthProviderUpdate's ``_validate_idp_mapping_gate`` rejects non-empty
@@ -1016,7 +1014,7 @@ async def test_saml_provider_update_redacts_secret_fields(
     saml_router_mounted,
     _cleanup_saml_providers,
 ):
-    """Pitfall 9 / T-217-03-AUDIT-LEAK HIGH: updating ``idp_certificate`` in
+    """Updating ``idp_certificate`` in
     a SAML provider must record the change in the audit log as
     ``{"old": "<redacted>", "new": "<redacted>"}`` — never the raw PEM, never
     the encrypted ciphertext.
@@ -1141,12 +1139,12 @@ async def test_oauth_provider_list_returns_nonsecret_saml_fields_only(
 
 
 # ---------------------------------------------------------------------------
-# Plan 04 Task 02 — SAML-10 backend half: community-mode 404
+# Backend half: community-mode 404
 # ---------------------------------------------------------------------------
 
 
 async def test_saml_endpoint_404_in_community(client):
-    """SAML-10 backend half: SAML routes return 404 in community mode.
+    """Backend half: SAML routes return 404 in community mode.
 
     Without the ``saml_router_mounted`` fixture (which both registers the
     enterprise extension AND mounts the router into the FastAPI app), the
@@ -1189,13 +1187,13 @@ async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
     saml_idp_server,
     saml_idp_cert_pem,
 ):
-    """SAML-12 / SC#4 behavior coverage: a SAML user whose assertion contains
+    """/ SC#4 behavior coverage: a SAML user whose assertion contains
     ``groups=['editors']`` and whose provider has
     ``group_claim='groups'`` + ``group_role_mapping={'editors': 'editor'}``
     must be JIT-provisioned with role='editor' (NOT default_role='viewer').
 
     Confirms the OAuth ``find_or_create_oauth_user()`` group → role mapping
-    pathway works for SAML through the existing OAuth JIT path (D-04).
+    pathway works for SAML through the existing OAuth JIT path.
     """
     from app.modules.auth.models import Role, UserRole
 

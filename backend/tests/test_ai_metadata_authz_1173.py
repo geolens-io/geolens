@@ -1,6 +1,6 @@
-"""DB-backed regression tests for AI metadata endpoint authorization (Phase 1173, SEC-D).
+"""DB-backed regression tests for AI metadata endpoint authorization.
 
-SEC-D (HIGH): the four `POST /ai/metadata/{summary,keywords,lineage,quality-statement}/`
+The four `POST /ai/metadata/{summary,keywords,lineage,quality-statement}/`
 endpoints are gated only by `require_permission("use_ai_chat")` — which the default
 editor role has (`core/permissions.py:42`). The attacker-controlled `body.dataset_id`
 flowed to `_build_dataset_context` with no visibility filter, rendering ANY dataset's

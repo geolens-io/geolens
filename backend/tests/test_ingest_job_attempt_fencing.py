@@ -112,7 +112,7 @@ async def test_vrt_generation_heartbeat_fences_stale_recovery(test_db_session):
         asset_uri="rasters/test/source.vrt",
         status="regenerating",
         current_generation_id=generation.id,
-        # fix(#1322 review round 3): this test is about HEARTBEAT-based
+        # this test is about HEARTBEAT-based
         # staleness, not composition drift — an empty built_from matches
         # this fixture's zero vrt_source_links rows (both empty sets), so
         # the composition guard finds nothing changed and the restore-to-

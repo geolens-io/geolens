@@ -1,10 +1,10 @@
-"""Phase 1229 — NotificationSink protocol + notify() facade + Settings config tests.
+"""NotificationSink protocol + notify() facade + Settings config tests.
 
 Covers:
-  - NOTIF-01 (Plan 01 Task 1): NotificationSink Protocol shape + Notification payload
+  -: NotificationSink Protocol shape + Notification payload
     dataclass + DefaultNotificationSink no-op + get_notification_sinks() accessor
-  - NOTIF-04 (Plan 01 Task 2): notify() fan-out facade with per-sink failure isolation
-  - NOTIF-05 (Plan 01 Task 3): Settings notification env-var fields + secret masking
+  -: notify() fan-out facade with per-sink failure isolation
+  -: Settings notification env-var fields + secret masking
 """
 
 from __future__ import annotations
@@ -15,12 +15,12 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Task 1: Protocol shape + Notification payload + accessor
+# Protocol shape + Notification payload + accessor
 # ---------------------------------------------------------------------------
 
 
 def test_notification_sink_protocol_shape() -> None:
-    """NOTIF-01: NotificationSink is a runtime_checkable Protocol."""
+    """NotificationSink is a runtime_checkable Protocol."""
     from app.platform.extensions.protocols import NotificationSink
 
     # Protocol is runtime_checkable
@@ -30,7 +30,7 @@ def test_notification_sink_protocol_shape() -> None:
 
 
 def test_default_notification_sink_satisfies_protocol() -> None:
-    """NOTIF-01 / NOTIF-04: DefaultNotificationSink() isinstance NotificationSink is True."""
+    """DefaultNotificationSink() isinstance NotificationSink is True."""
     from app.platform.extensions.defaults import DefaultNotificationSink
     from app.platform.extensions.protocols import NotificationSink
 
@@ -42,7 +42,7 @@ def test_default_notification_sink_satisfies_protocol() -> None:
 
 @pytest.mark.anyio
 async def test_default_notification_sink_is_noop() -> None:
-    """NOTIF-04: DefaultNotificationSink.deliver is a literal no-op (returns None, does not raise)."""
+    """DefaultNotificationSink.deliver is a literal no-op (returns None, does not raise)."""
     from app.platform.extensions.defaults import DefaultNotificationSink
     from app.platform.extensions.protocols import Notification
 
@@ -55,7 +55,7 @@ async def test_default_notification_sink_is_noop() -> None:
 
 
 def test_notification_is_frozen_dataclass() -> None:
-    """NOTIF-01: Notification is a frozen dataclass with the correct fields."""
+    """Notification is a frozen dataclass with the correct fields."""
     import dataclasses
 
     from app.platform.extensions.protocols import Notification
@@ -80,7 +80,7 @@ def test_notification_is_frozen_dataclass() -> None:
 
 
 def test_deliver_method_is_async() -> None:
-    """NOTIF-01: DefaultNotificationSink.deliver is async (enables non-blocking I/O in overlays)."""
+    """DefaultNotificationSink.deliver is async (enables non-blocking I/O in overlays)."""
     from app.platform.extensions.defaults import DefaultNotificationSink
 
     assert inspect.iscoroutinefunction(DefaultNotificationSink().deliver), (
@@ -89,7 +89,7 @@ def test_deliver_method_is_async() -> None:
 
 
 def test_get_notification_sinks_default_fallback() -> None:
-    """NOTIF-01: get_notification_sinks() with empty registry returns [DefaultNotificationSink()]."""
+    """get_notification_sinks() with empty registry returns [DefaultNotificationSink()]."""
     from app.platform.extensions import _extensions, get_notification_sinks
     from app.platform.extensions.defaults import DefaultNotificationSink
 
@@ -114,7 +114,7 @@ def test_get_notification_sinks_default_fallback() -> None:
 
 
 def test_get_notification_sinks_returns_fresh_list() -> None:
-    """NOTIF-01: get_notification_sinks() returns a fresh list each call (defensive copy)."""
+    """get_notification_sinks() returns a fresh list each call (defensive copy)."""
     from app.platform.extensions import _extensions, get_notification_sinks
 
     saved = _extensions.get("notification_sinks")
@@ -139,7 +139,7 @@ def test_get_notification_sinks_returns_fresh_list() -> None:
 
 
 def test_notification_sinks_is_additive_slot() -> None:
-    """NOTIF-01: 'notification_sinks' is a member of ADDITIVE_SLOT_KEYS."""
+    """'notification_sinks' is a member of ADDITIVE_SLOT_KEYS."""
     from app.platform.extensions import ADDITIVE_SLOT_KEYS
 
     assert "notification_sinks" in ADDITIVE_SLOT_KEYS, (
@@ -149,13 +149,13 @@ def test_notification_sinks_is_additive_slot() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 2: notify() fan-out facade with per-sink failure isolation
+# Notify() fan-out facade with per-sink failure isolation
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
 async def test_notify_noop_deployment_attempted_zero() -> None:
-    """NOTIF-04: notify() with the default registry reports attempted == 0.
+    """notify() with the default registry reports attempted == 0.
 
     The DefaultNotificationSink no-op does NOT count as a delivery attempt —
     attempted reflects channels that actually tried to send.
@@ -184,7 +184,7 @@ async def test_notify_noop_deployment_attempted_zero() -> None:
 
 @pytest.mark.anyio
 async def test_notify_raising_sink_isolated() -> None:
-    """NOTIF-04: notify() with a raising sink returns non-empty errors and does NOT raise."""
+    """notify() with a raising sink returns non-empty errors and does NOT raise."""
     from app.platform.extensions import _extensions
     from app.platform.extensions.protocols import Notification
     from app.platform.notifications import notify
@@ -216,7 +216,7 @@ async def test_notify_raising_sink_isolated() -> None:
 
 @pytest.mark.anyio
 async def test_notify_raising_sink_error_string_safe() -> None:
-    """NOTIF-04 / T-1229-03: error strings must not contain secret values."""
+    """Error strings must not contain secret values."""
     from app.platform.extensions import _extensions
     from app.platform.extensions.protocols import Notification
     from app.platform.notifications import notify
@@ -246,7 +246,7 @@ async def test_notify_raising_sink_error_string_safe() -> None:
 
 @pytest.mark.anyio
 async def test_notify_successful_sink_delivered() -> None:
-    """NOTIF-04: notify() with a succeeding sink returns delivered >= 1 and errors == []."""
+    """notify() with a succeeding sink returns delivered >= 1 and errors == []."""
     from app.platform.extensions import _extensions
     from app.platform.extensions.protocols import Notification
     from app.platform.notifications import notify
@@ -276,7 +276,7 @@ async def test_notify_successful_sink_delivered() -> None:
 
 @pytest.mark.anyio
 async def test_notify_two_sinks_first_raises_second_still_runs() -> None:
-    """NOTIF-04: failure of the first sink does NOT short-circuit delivery to the second."""
+    """Failure of the first sink does NOT short-circuit delivery to the second."""
     from app.platform.extensions import _extensions
     from app.platform.extensions.protocols import Notification
     from app.platform.notifications import notify
@@ -316,12 +316,12 @@ async def test_notify_two_sinks_first_raises_second_still_runs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 3: Settings notification fields + secret masking
+# Settings notification fields + secret masking
 # ---------------------------------------------------------------------------
 
 
 def test_settings_notification_defaults_all_off() -> None:
-    """NOTIF-05: Settings constructed with no notification env vars yields all-off defaults."""
+    """Settings constructed with no notification env vars yields all-off defaults."""
     from app.core.config import Settings
 
     # Construct a Settings-like object with required fields but no notification env vars.
@@ -355,7 +355,7 @@ def test_settings_notification_defaults_all_off() -> None:
 
 
 def test_settings_smtp_password_is_secretstr() -> None:
-    """NOTIF-05 / T-1229-01: smtp_password and webhook_secret are SecretStr (never plain str).
+    """smtp_password and webhook_secret are SecretStr (never plain str).
 
     Verifies that setting SMTP_PASSWORD produces a SecretStr whose str() / repr()
     does NOT reveal the raw value.
@@ -412,7 +412,7 @@ def test_settings_smtp_password_is_secretstr() -> None:
 
 
 def test_no_notification_key_in_persistent_config() -> None:
-    """NOTIF-05 prohibition: no notification secret is stored in PersistentConfig.
+    """Prohibition: no notification secret is stored in PersistentConfig.
 
     Notification secrets must come from env/Settings, never from the app_settings
     DB table (persistent_config.py:80-83 prohibits secrets there).

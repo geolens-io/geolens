@@ -1,4 +1,4 @@
-"""OCG-03: FE/SDK type-drift guard — pytest wrapper + tenant-model hand-audit.
+"""FE/SDK type-drift guard — pytest wrapper + tenant-model hand-audit.
 
 This module provides two layers of protection against FE/backend type drift:
 
@@ -11,18 +11,16 @@ This module provides two layers of protection against FE/backend type drift:
 
 2. **Tenant-bound model hand-audit** (``TestTenantBoundModelAudit``): explicit
    per-model assertions that each of the five models gaining a ``tenant_id``
-   in Phase 1207 has its critical backend properties covered by its FE mirror.
-   These assertions provide a hard gate that Phase 1207 must remain green through.
+   has its critical backend properties covered by its FE mirror.
+   These assertions provide a hard gate that must stay green when tenant_id lands.
 
-The five tenant-bound models (Phase 1207 will add tenant_id to each):
+The five tenant-bound models (each will gain tenant_id):
 
 - **maps** → ``MapResponse`` (also covers ``MapLayerResponse``)
 - **datasets** → ``DatasetResponse``
 - **embed_tokens** → ``EmbedTokenResponse``
 - **tiles** → ``MapLayerResponse`` (vector/raster tile consumers)
 - **collections** → ``CollectionResponse``
-
-References: OCG-03, T-1206-08
 """
 
 from __future__ import annotations
@@ -68,12 +66,12 @@ def _resolve_fe_props(interfaces: dict[str, dict], iface_name: str) -> set[str] 
 
 
 # ---------------------------------------------------------------------------
-# Task 1: Drift checker passes (no new drift)
+# Drift checker passes (no new drift)
 # ---------------------------------------------------------------------------
 
 
 def test_drift_checker_passes():
-    """OCG-03: check_fe_type_drift.py exits 0 on the current tree.
+    """check_fe_type_drift.py exits 0 on the current tree.
 
     Invokes the checker via its ``main()`` function and asserts no NEW drift
     (i.e. exit 0).  Known/pre-existing drift in the KNOWN_DRIFT allowlist is
@@ -83,8 +81,6 @@ def test_drift_checker_passes():
     (a) updating frontend/src/types/api.ts with the new field, OR
     (b) documenting the intentional omission in KNOWN_DRIFT in
         backend/scripts/check_fe_type_drift.py.
-
-    References: OCG-03, T-1206-08
     """
     module = _load_checker_module()
 
@@ -125,7 +121,7 @@ class TestResolvedKnownDriftIsReportedEvenAtZeroDrift:
         assert report.known_drift == []
 
     def test_a_resolved_known_drift_entry_fails_the_gate(self) -> None:
-        """fix(#1778 review round 9): check_drift() computed
+        """check_drift() computed
         resolved_known_drift, but should_fail() ignored it -- the only
         repo invocation of this checker is test_drift_checker_passes(),
         so the [RESOLVED] notice was just captured pytest output nobody
@@ -287,7 +283,7 @@ class TestGeneratedTypeForms:
 
 
 # ---------------------------------------------------------------------------
-# Task 2: Tenant-bound model hand-audit (minimum bar before Phase 1207)
+# Tenant-bound model hand-audit
 # ---------------------------------------------------------------------------
 
 
@@ -296,17 +292,15 @@ class TestTenantBoundModelAudit:
 
     Each test asserts that a defined set of REQUIRED_CORE properties appears
     in the FE interface for the model.  These are the properties that MUST be
-    present in the FE mirror before Phase 1207 adds ``tenant_id``.
+    present in the FE mirror before ``tenant_id`` is added.
 
-    If Phase 1207 adds ``tenant_id`` to a backend schema, the developer MUST
+    If a change adds ``tenant_id`` to a backend schema, the developer MUST
     also update ``frontend/src/types/api.ts`` for the corresponding interface
     and add ``tenant_id`` to its ``REQUIRED_CORE`` set here.
 
     The allowlisted ``KNOWN_DRIFT`` fields (e.g. ``og_image_url`` for
     ``MapResponse``) are deliberately NOT in the required set — they're
     documented omissions, not contract violations.
-
-    References: OCG-03, T-1206-08
     """
 
     @pytest.fixture(autouse=True)
@@ -336,9 +330,7 @@ class TestTenantBoundModelAudit:
         """maps → MapResponse: core identity, visibility, audit, ownership fields present.
 
         Minimum bar: the properties that gate map authorization and will interact
-        with tenant_id in Phase 1207 must be in the FE mirror.
-
-        References: OCG-03, T-1206-08
+        with tenant_id must be in the FE mirror.
         """
         required = {
             "id",
@@ -360,10 +352,7 @@ class TestTenantBoundModelAudit:
         self._assert_fe_has_props("MapResponse", "MapResponse", required)
 
     def test_datasets_model_coverage(self):
-        """datasets → DatasetResponse: core identity, visibility, type, spatial fields present.
-
-        References: OCG-03, T-1206-08
-        """
+        """Datasets → DatasetResponse: core identity, visibility, type, spatial fields present."""
         required = {
             "id",
             "record_id",
@@ -385,10 +374,7 @@ class TestTenantBoundModelAudit:
         self._assert_fe_has_props("DatasetResponse", "DatasetResponse", required)
 
     def test_embed_tokens_model_coverage(self):
-        """embed_tokens → EmbedTokenResponse: all token fields present.
-
-        References: OCG-03, T-1206-08
-        """
+        """embed_tokens → EmbedTokenResponse: all token fields present."""
         required = {
             "id",
             "map_id",
@@ -410,8 +396,6 @@ class TestTenantBoundModelAudit:
         MapLayerResponse is the primary 'tiles' surface — it is the FE type for
         a layer that renders vector/raster tile data and is the model that will
         need tenant awareness when multi-tenant tile access is controlled.
-
-        References: OCG-03, T-1206-08
         """
         required = {
             "id",
@@ -432,10 +416,7 @@ class TestTenantBoundModelAudit:
         self._assert_fe_has_props("MapLayerResponse", "MapLayerResponse", required)
 
     def test_collections_model_coverage(self):
-        """collections → CollectionResponse: all core collection fields present.
-
-        References: OCG-03, T-1206-08
-        """
+        """Collections → CollectionResponse: all core collection fields present."""
         required = {
             "id",
             "name",
@@ -455,9 +436,7 @@ class TestTenantBoundModelAudit:
 
         This is the structural check: if any of the five models is removed
         from frontend/src/types/api.ts (e.g. renamed), this test fails before
-        Phase 1207 can add tenant_id to a FE-mirror-less model.
-
-        References: OCG-03, T-1206-08
+        tenant_id can be added to a FE-mirror-less model.
         """
         # maps + tiles share MapResponse / MapLayerResponse
         # datasets → DatasetResponse

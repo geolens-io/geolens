@@ -1,11 +1,11 @@
-"""Tests for VRT source add/remove endpoints, regenerate_vrt task, and status serialization (Phase 174-01).
+"""Tests for VRT source add/remove endpoints, regenerate_vrt task, and status serialization.
 
 Covers:
 - TestAddSource: POST /ingest/vrt/{dataset_id}/sources/ endpoint behavior
 - TestRemoveSource: DELETE /ingest/vrt/{dataset_id}/sources/{source_dataset_id}/ endpoint behavior
-- TestMutationSerialization: 409 when VRT is regenerating (SRC-05)
+- TestMutationSerialization: 409 when VRT is regenerating
 - TestRegenerateVrtTask: regenerate_vrt task logic (build, swap, metadata update, error handling)
-- TestStatusField: GET /datasets/{id} response includes raster.status (SRC-06)
+- TestStatusField: GET /datasets/{id} response includes raster.status
 - TestStagedSourceSetReading: fix(#1327) — what the task accepts as a staged
   member set, and what it refuses
 
@@ -634,10 +634,10 @@ class TestRemoveSource:
 
 
 class TestMutationSerialization:
-    """Both add and remove return 409 when VRT is regenerating (SRC-05)."""
+    """Both add and remove return 409 when VRT is regenerating."""
 
     def test_add_returns_409_when_regenerating(self):
-        """SRC-05: add endpoint refuses mutation when already regenerating."""
+        """Add endpoint refuses mutation when already regenerating."""
         from fastapi import HTTPException
 
         async def _check():
@@ -658,7 +658,7 @@ class TestMutationSerialization:
         asyncio.run(_check())
 
     def test_remove_returns_409_when_regenerating(self):
-        """SRC-05: remove endpoint refuses mutation when already regenerating."""
+        """Remove endpoint refuses mutation when already regenerating."""
         from fastapi import HTTPException
 
         async def _check():
@@ -830,7 +830,7 @@ class TestRegenerateVrtTask:
                 str(call.args[0]) for call in mock_session.execute.await_args_list
             )
             assert "UPDATE catalog.raster_assets" in statements
-            # fix(#1962 codex r3): an attempt that bound no generation releases
+            # fix(#1962): an attempt that bound no generation releases
             # the asset unless a live generation owns it, which is the only
             # rule that reaches one the sweep cannot see.
             assert "catalog.vrt_generations" in statements
@@ -1210,7 +1210,7 @@ class TestRegenerateVrtTask:
 
 
 class TestStatusField:
-    """Status field exposed in GET /datasets/{id} response (SRC-06)."""
+    """Status field exposed in GET /datasets/{id} response."""
 
     def test_raster_metadata_has_status_field(self):
         """RasterMetadata schema must include a status field."""

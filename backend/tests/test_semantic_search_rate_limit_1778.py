@@ -1,8 +1,8 @@
-"""Pin SEC-S11: /search/datasets/ enforces its OWN per-route rate limit,
+"""Pin that /search/datasets/ enforces its OWN per-route rate limit,
 never the global one -- against an isolated app instance with both limits
 set to known values.
 
-fix(#1778 review round 5): e2e/sec-audit.spec.ts's S11 test spent four
+e2e/sec-audit.spec.ts's S11 test spent four
 rounds trying to prove this by bursting the live, shared dev stack --
 impossible to pin reliably there, since the e2e suite cannot set
 semantic_search_rate_limit or global_rate_limit and cannot isolate itself

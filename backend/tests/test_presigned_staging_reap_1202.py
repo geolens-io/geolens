@@ -325,7 +325,7 @@ async def test_failed_raster_ingest_sweeps_its_presigned_staging_object(
 async def test_validation_failure_still_sweeps_the_presigned_staging_object(
     test_db_session, tmp_path, monkeypatch
 ) -> None:
-    """fix(#1202 review r7): the early return, not the happy path.
+    """fix(#1202): the early return, not the happy path.
 
     ``_validate_upload_file_safety`` failing returns from the phase-1 session
     block before the phase-2 snapshot. The staging-key capture used to live in
@@ -393,7 +393,7 @@ async def test_validation_failure_still_sweeps_the_presigned_staging_object(
 
 
 class TestPostExpirySweep:
-    """fix(#1202 review r8): the backstop that outlives the PUT URL.
+    """fix(#1202): the backstop that outlives the PUT URL.
 
     Both other sweeps are event-triggered and a fast ingest fires both while
     the URL is still valid, so a re-PUT after them recreates an object nothing
@@ -787,7 +787,7 @@ class TestPostExpirySweep:
     async def test_a_tiny_declared_size_still_gets_the_full_hard_limit_margin(
         self, test_db_session, monkeypatch
     ) -> None:
-        """codex P1 review r4: rounds r2/r3 both derived the finalization
+        """two earlier attempts both derived the finalization
         margin from a client-declared size — first the current
         `presigned_multipart_threshold_mb`, then a job's own persisted
         `expected_size`. Neither is enforced: `generate_presigned_put_url`
@@ -955,7 +955,7 @@ class TestPostExpirySweep:
         references: worse than the marker gap this PR closes, because
         nothing could ever find it again.
 
-        codex P1 review r2: the deferral must extend through the SAME
+        codex P1 codex: the deferral must extend through the SAME
         transfer margin the sweep's own finalization waits out, not stop at
         the bare SigV4 ceiling — a single-part PUT begun just before the
         ceiling can still be transferring past it, and purging (which reaps
@@ -1023,7 +1023,7 @@ class TestPostExpirySweep:
     async def test_retention_purge_does_not_exempt_a_fan_out_child_for_a_key_it_does_not_own(
         self, test_db_session, monkeypatch
     ) -> None:
-        """codex P2 review r5: `create_fan_out_jobs` clones the parent's
+        """codex P2 codex: `create_fan_out_jobs` clones the parent's
         ``user_metadata`` wholesale (processing/ingest/service.py), so every
         fan-out child carries the PARENT's ``s3_key`` too —
         ``owned_presigned_staging_key`` deliberately rejects that as

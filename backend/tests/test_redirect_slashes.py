@@ -1,4 +1,4 @@
-"""Phase 1092 ROUTE-01 regression tests: trailing-slash redirect no-leak invariant.
+"""Regression tests: trailing-slash redirect no-leak invariant.
 
 The FastAPI app default is ``redirect_slashes=True``, which causes any request
 to a route registered without a trailing slash (or vice versa) to be answered
@@ -8,12 +8,12 @@ URL of the canonical form. When the app is hosted behind the docker-compose
 Host header, leaking the in-container hostname ``api:8000`` to any external
 caller (curl, SDKs, third-party integrations) that hit the Vite dev proxy.
 
-The fix is the **(c) hybrid** from Phase 1092 CONTEXT.md:
+The fix is a hybrid:
 - Disable ``redirect_slashes`` at the FastAPI app level
   (``backend/app/api/main.py``)
 - Register both slash and no-slash variants on the two surfaces that were
   leaking — ``/auth/login`` and ``/collections`` — via stacked decorators,
-  mirroring the Phase 280 ``catalog/maps/router.py`` pattern.
+  mirroring the ``catalog/maps/router.py`` pattern.
 - Add a Vite dev-proxy ``Location``-header rewrite as defense in depth
   (``frontend/vite.config.ts``).
 
@@ -40,7 +40,7 @@ ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
 
 
 class TestRedirectSlashesNoLeak:
-    """ROUTE-01 (Phase 1092): both slash and no-slash variants of the two
+    """Both slash and no-slash variants of the two
     previously-leaking surfaces must resolve directly — no 307, no
     ``api:8000`` hostname in any ``Location`` header. The documented
     ``/collections/datasets`` no-slash exception is preserved.
@@ -90,8 +90,8 @@ class TestRedirectSlashesNoLeak:
             f"Expected 200 on canonical no-slash form, got "
             f"{resp.status_code}; location={resp.headers.get('location')!r}"
         )
-        # WR-02 (Phase 1092): the no-leak invariant is ROUTE-01's actual
-        # closure — it must hold on every test, not just the previously
+        # The no-leak invariant is the actual closure of the
+        # leak — it must hold on every test, not just the previously
         # leaking surfaces. A future regression that emits an explicit 302
         # with a relative Location from this route would slip past a
         # status-only assertion.
@@ -113,11 +113,10 @@ class TestRedirectSlashesNoLeak:
         is 200 with a JWT pair in the response body. Accepting 401/422 here
         would silently mask credential-seed or JWT-issuance regressions.
 
-        SP-11 (v1009.1) originally pinned the no-trailing-slash-only
-        registration because FastAPI's default 307 stripped the POST body
-        for OAuth2 form callers. ROUTE-01 closes that gap structurally by
-        disabling ``redirect_slashes`` at the app level — both shapes now
-        deliver the body straight to the handler.
+        The route was originally registered without a trailing slash only,
+        because FastAPI's default 307 stripped the POST body for OAuth2 form
+        callers. Disabling ``redirect_slashes`` at the app level closes that gap structurally: both
+        shapes now deliver the body straight to the handler.
         """
         resp = await client.post(
             "/auth/login/",
@@ -160,7 +159,7 @@ class TestRedirectSlashesNoLeak:
             f"canonical no-slash form, got {resp.status_code}; "
             f"body={resp.text[:200]}"
         )
-        # WR-02 (Phase 1092): no-leak invariant on every test, not just
+        # The no-leak invariant holds on every test, not just
         # the previously-leaking variants. See test_collections_no_slash
         # for rationale.
         location = resp.headers.get("location", "")
@@ -175,7 +174,7 @@ class TestRedirectSlashesNoLeak:
         """Documented OGC exception preserved: ``GET /collections/datasets``
         (no trailing slash) still returns 200 directly. The OGC API Features
         catalog endpoint is registered without a trailing slash by design;
-        ROUTE-01 must not regress that contract.
+        Disabling slash redirects must not regress that contract.
         """
         resp = await client.get("/collections/datasets", follow_redirects=False)
 
@@ -184,7 +183,7 @@ class TestRedirectSlashesNoLeak:
             f"return 200, got {resp.status_code}; "
             f"location={resp.headers.get('location')!r}"
         )
-        # WR-02 (Phase 1092): no-leak invariant on every test, including
+        # The no-leak invariant holds on every test, including
         # the OGC catalog surface — defends against an out-of-scope
         # middleware re-introducing a Location header here. See
         # test_collections_no_slash for rationale.
@@ -197,18 +196,17 @@ class TestRedirectSlashesNoLeak:
         self,
         client: AsyncClient,
     ) -> None:
-        """WR-03 (Phase 1092): pin the new 404 contract for the with-slash
+        """Pin the new 404 contract for the with-slash
         form of ``/collections/datasets``.
 
-        Pre-Phase 1092 this returned 307 with the
+        Previously this returned 307 with the
         ``Location: http://api:8000/...`` leak. With redirect_slashes=False
         at the app level the OGC catalog endpoint is registered as
-        ``/collections/datasets`` (no trailing slash) by design — see the
-        MEMORY.md ``project_v1013_post_smoke_fixes`` rationale — and the
+        ``/collections/datasets`` (no trailing slash) by design — and the
         with-slash form is now an unregistered surface that 404s.
 
         Pinning the 404 contract here makes the narrowing explicit and
-        intentional. The MEMORY guidance that previously warned "do NOT
+        intentional. The earlier guidance that warned "do NOT
         add a slash alias (causes 307 → api:8000 leak)" still holds, but
         the failure mode has shifted from "leak through 307" to "404 with
         no leak". This test guards both shapes — if someone re-introduces
@@ -227,7 +225,7 @@ class TestRedirectSlashesNoLeak:
         # Even on the 404 path the no-leak invariant must hold —
         # FastAPI's default 404 has no Location header but a future
         # change that surfaces a Location here would re-introduce the
-        # ROUTE-01 vulnerability shape.
+        # vulnerability shape.
         location = resp.headers.get("location", "")
         assert "api:8000" not in location and "://api/" not in location, (
             f"in-container hostname leak on 404 path: {location!r}"
@@ -235,10 +233,10 @@ class TestRedirectSlashesNoLeak:
 
 
 class TestAllTrailingSlashRoutesAcceptBothShapes:
-    """ROUTE-01 broad enumeration (Phase 1092 / CR-01 sweep): every route
+    """Broad enumeration: every route
     registered with a trailing slash in the FastAPI app must ALSO accept
     the no-trailing-slash form. This pins the dual-shape sweep applied
-    across 9 router files in this phase's review-fix iteration.
+    across 9 router files.
 
     With ``redirect_slashes=False`` at the app level
     (``backend/app/api/main.py``), routes that only register the

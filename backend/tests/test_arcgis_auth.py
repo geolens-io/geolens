@@ -27,7 +27,7 @@ def _make_mock_response(json_data: dict, status_code: int = 200) -> MagicMock:
 
 def _streaming_json_response(data: dict) -> httpx.Response:
     """A response whose body supports the streaming read `probe_arcgis_
-    service` now uses (fix(#1770 round 41 P1)).
+    service` now uses (fix(#1770 P1)).
 
     `httpx.Response(200, json=...)` materialises the body at construction, so
     `client.stream(...)`'s `aiter_raw()` over one raises `StreamConsumed` --
@@ -91,7 +91,7 @@ async def test_arcgis_probe_sends_the_token_as_an_esri_authorization_header():
 
 @pytest.mark.asyncio
 async def test_arcgis_probe_falls_back_to_an_encoded_query_token_on_499():
-    """fix(#1746 codex r7) and feat(C2): the pre-10.5.1 fallback still encodes.
+    """fix(#1746) and feat(C2): the pre-10.5.1 fallback still encodes.
 
     A token with URL-reserved characters must be percent-encoded when it does
     travel in a query string: a raw ``#`` truncates the URL at a fragment
@@ -141,7 +141,7 @@ async def test_enrich_arcgis_feature_counts_uses_the_header_and_the_one_builder(
     would have concatenated is an ``X-Esri-Authorization`` header, so the URL this
     site issues is byte-identical to the one the health probe issues.
 
-    fix(#1770 round 44 P1): this read goes through `bounded_probe_read`
+    this read goes through `bounded_probe_read`
     (`client.stream`), so `AsyncMock(spec=httpx.AsyncClient)` -- which cannot
     fake the async-context-manager protocol `.stream()` returns -- is
     replaced with a real client over `MockTransport`, per this file's own
@@ -329,7 +329,7 @@ def test_build_gdal_source_arcgis_result_offset():
 async def test_fetch_arcgis_pagination_info_requires_explicit_support():
     """Chunking must require ArcGIS supportsPagination, not just maxRecordCount.
 
-    fix(#1770 round 44 P1): this read now goes through `bounded_probe_read`
+    this read now goes through `bounded_probe_read`
     (`client.stream`), so `AsyncMock(spec=httpx.AsyncClient)` -- which cannot
     fake the async-context-manager protocol `.stream()` returns -- is
     replaced with a real client over `MockTransport`. Two sequential calls in
@@ -481,7 +481,7 @@ async def test_import_page_info_returns_fallback_when_the_read_raises(monkeypatc
 async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
     """Layer metadata can identify the stable order field via field type.
 
-    fix(#1770 round 44 P1): see the sibling test above for why this is a
+    see the sibling test above for why this is a
     real MockTransport client now rather than an `AsyncMock`.
     """
 
@@ -517,12 +517,12 @@ async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
 
 
 class TestArcGISReadsAreBounded:
-    """fix(#1770 round 44 P1, `adapters/arcgis.py:291,353,386,441,485`).
+    """fix(#1770 P1, `adapters/arcgis.py:291,353,386,441,485`).
 
     `enrich_arcgis_feature_counts`/`fetch_arcgis_feature_count`/
     `fetch_arcgis_pagination_info`/`fetch_arcgis_layer_preview` (two sites)
     all carry the request-scoped ArcGIS ``token=`` in the URL and used a
-    plain `client.get`. Round 41's own docstring justified leaving these out
+    plain `client.get`. An earlier docstring justified leaving these out
     of `bounded_probe_read`'s reach on the theory that
     `assert_endpoints_stay_on_origin` had already vetted the target -- wrong
     for ArcGIS specifically, since that function returns immediately for any
@@ -711,10 +711,10 @@ _NON_DICT_ARCGIS_BODIES = ("5", "[]", '"x"', "null")
 
 
 class TestArcGISNonDictResponsesDoNotCrash:
-    """fix(#1770 round 45 P2, `adapters/arcgis.py:317,397,516,564`).
+    """fix(#1770 P2, `adapters/arcgis.py:317,397,516,564`).
 
-    Round 44's non-dict guard was added only to `probe_arcgis_service`'s
-    service-root response. The four reads round 44 converted to
+    The non-dict guard was added only to `probe_arcgis_service`'s
+    service-root response. The four reads converted to
     `bounded_probe_read` in the same file -- `_fetch_count`,
     `fetch_arcgis_feature_count`, and `fetch_arcgis_layer_preview`'s
     metadata and sample-row reads -- still do `"error" in data` /
@@ -728,7 +728,7 @@ class TestArcGISNonDictResponsesDoNotCrash:
     feature_counts` under `asyncio.gather`) or a preview returned a bare
     500 instead of a degraded result.
 
-    fix(#1770 round 49 P3, `adapters/arcgis.py:462`): the whole-diff audit
+    fix(#1770 P3, `adapters/arcgis.py:462`): the whole-diff audit
     caught the fifth sibling this round missed --
     `fetch_arcgis_pagination_info`, same shape (`"error" in data` with no
     local `except`), same class, same fix.

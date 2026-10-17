@@ -70,8 +70,8 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
-    // Phase 1034 retired the "Expand options" button — clicking the unified
-    // stack row opens the LayerEditorPanel flyout directly. Phase 1035 inserted
+    // Retired the "Expand options" button — clicking the unified
+    // stack row opens the LayerEditorPanel flyout directly. inserted
     // a basemap-group row at the top of the stack, so the actual vector layer
     // row is at index 1 (or any row not matching the basemap-group ID).
     const dataRow = page

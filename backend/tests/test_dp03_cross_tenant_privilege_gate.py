@@ -1,4 +1,4 @@
-"""DP-03: [BLOCKING] Cross-tenant privilege gate — fail-closed at the DB privilege layer.
+"""[BLOCKING] Cross-tenant privilege gate — fail-closed at the DB privilege layer.
 
 Proves that tenant A's reader role hitting tenant B's table raises a REAL
 PostgreSQL permission error — NOT a silent empty result, NOT an app-convention

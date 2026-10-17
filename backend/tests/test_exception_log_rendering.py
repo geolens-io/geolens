@@ -144,10 +144,10 @@ def test_production_resolves_exc_info_before_the_renderer(json_logs: bool) -> No
 
 
 def test_development_console_renderer_uses_plain_traceback_too() -> None:
-    """fix(#1746 codex r10): dev no longer keeps rich at all, locals-off or not.
+    """fix(#1746): dev no longer keeps rich at all, locals-off or not.
 
-    Superseded by a stronger fix, not merely a stricter test: round 10
-    retired dev's rich-with-locals-off compromise (the previous version of
+    Superseded by a stronger fix, not merely a stricter test: a later
+    change retired dev's rich-with-locals-off compromise (the previous version of
     this test) entirely. `format_exc_info` now runs unconditionally, so an
     `exception` field is always pre-rendered before any renderer sees it --
     and a non-plain formatter meeting a pre-rendered `exception` field is

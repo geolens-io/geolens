@@ -1,6 +1,6 @@
-"""SEC-13: OAuth callback responses set Referrer-Policy: no-referrer.
+"""OAuth callback responses set Referrer-Policy: no-referrer.
 
-Pins the v13.13 closure of L-67. The redirect URL fragment carries access +
+The redirect URL fragment carries access +
 refresh tokens; the request URL carries the IdP authorization code. Both
 must not leak via Referer header to assets loaded on the post-redirect page.
 
@@ -88,7 +88,7 @@ def test_oauth_callback_failure_sets_referrer_policy(oauth_test_client: TestClie
 def test_global_referrer_policy_unchanged_on_health(oauth_test_client: TestClient):
     """The global Referrer-Policy on non-OAuth routes is unchanged.
 
-    Confirms the SEC-13 setdefault semantics in SecurityHeadersMiddleware
+    Confirms the setdefault semantics in SecurityHeadersMiddleware
     do NOT regress the global default — non-OAuth routes still receive
     `strict-origin-when-cross-origin` from the middleware.
     """
@@ -106,9 +106,9 @@ def test_oauth_callback_response_has_explicit_no_referrer(
 ):
     """Sanity: SecurityHeadersMiddleware no longer overwrites the route-set value.
 
-    Pre-SEC-13 the middleware unconditionally set `Referrer-Policy:
+    The middleware used to unconditionally set `Referrer-Policy:
     strict-origin-when-cross-origin`, which would have overwritten any
-    route-level header. After SEC-13 the middleware uses setdefault semantics,
+    route-level header. It now uses setdefault semantics,
     so the route's `no-referrer` survives. This test pins that behavior.
     """
     with (

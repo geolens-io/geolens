@@ -244,7 +244,7 @@ class TestServiceReuploadWorker:
         }
 
         with (
-            # Phase 1066 IA-P0-03 (commit f8c91297) added a defense-in-depth
+            # commit f8c91297 added a defense-in-depth
             # SSRF re-validation of ``source_url`` at the top of the
             # ``reupload_service`` worker body (tasks_reupload.py:373-378)
             # via a LAZY from-import inside the function body:
@@ -255,8 +255,8 @@ class TestServiceReuploadWorker:
             # ``services.example.com`` fails DNS resolution in the test
             # sandbox, which is unrelated to this test's contract
             # (identity preservation + version increment), so we no-op
-            # the gate via AsyncMock. Same fix shape as Plan 1075-03
-            # closed in test_ingest.py:1369-1372.
+            # the gate via AsyncMock. Same fix shape as in
+            # test_ingest.py.
             patch(
                 "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
@@ -424,7 +424,7 @@ class TestServiceReuploadWorker:
         it, since a credential is request-only and there is nothing to
         un-expire.
 
-        fix(#1746 B2b review r1): that field is the `auth` object rather than
+        fix(#1746 B2b codex): that field is the `auth` object rather than
         the deprecated `token`, which always means a bearer credential and so
         could not authenticate the basic or named-key origin that produced this
         failure.
@@ -441,11 +441,11 @@ class TestServiceReuploadWorker:
         )
 
         with (
-            # Phase 1066 IA-P0-03: same SSRF defense-in-depth as the first
+            # same SSRF defense-in-depth as the first
             # worker test. Fixture URL ``protected.example.com`` fails DNS
             # in the sandbox; mock the gate so the test exercises its actual
             # contract (401-retry guidance message from IngestionError).
-            # Plan 1075-03 / test_ingest.py:1369 is the canonical pattern.
+            # / test_ingest.py:1369 is the canonical pattern.
             patch(
                 "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),

@@ -1,4 +1,4 @@
-"""DP-05: Shard routing map + PgBouncer transaction-mode config + SET LOCAL survival.
+"""Shard routing map + PgBouncer transaction-mode config + SET LOCAL survival.
 
 Tests
 -----
@@ -103,7 +103,7 @@ async def _get_db_url() -> str:
 
 
 class TestDp05ShardRoutingMap:
-    """DP-05-A: tenant_shard_id routing lookup.
+    """tenant_shard_id routing lookup.
 
     - single_tenant → None (routing primitive inactive)
     - tenant_id=None → None
@@ -216,7 +216,7 @@ class TestDp05ShardRoutingMap:
 
 
 class TestDp05PgBouncerConfig:
-    """DP-05-B: Assert infra/pgbouncer/pgbouncer.ini contains required config values.
+    """Assert infra/pgbouncer/pgbouncer.ini contains required config values.
 
     pool_mode = transaction  — required for SET LOCAL ROLE/search_path survival
     min_pool_size = 2        — matches tile_pool_min_size in config.py
@@ -327,7 +327,7 @@ class TestDp05PgBouncerConfig:
 
 @pytest.mark.rls
 class TestDp05SetLocalSurvival:
-    """DP-05-C: SET LOCAL ROLE + SET LOCAL search_path survive WITHIN one transaction.
+    """SET LOCAL ROLE + SET LOCAL search_path survive WITHIN one transaction.
 
     This proves the PgBouncer transaction-mode contract: a request that begins a
     transaction, issues SET LOCAL ROLE + SET LOCAL search_path, then reads

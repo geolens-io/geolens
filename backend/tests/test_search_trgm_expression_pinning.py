@@ -1,4 +1,4 @@
-"""T-1 regression: catalog-search text filter must emit the indexed
+"""Regression: catalog-search text filter must emit the indexed
 ``lower(catalog.immutable_unaccent(...))`` expression.
 
 The trigram GIN indexes from migration 0010 (``ix_records_title_trgm``,

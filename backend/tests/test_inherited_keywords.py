@@ -280,7 +280,7 @@ class TestDisclosureWarning:
     async def test_no_warning_for_actor_without_source_access(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1178 review r2): the warning must not be a membership oracle.
+        """fix(#1178): the warning must not be a membership oracle.
 
         An output owner whose access to the now-private source was revoked
         adds a GUESSED keyword to their own record and sends a no-op

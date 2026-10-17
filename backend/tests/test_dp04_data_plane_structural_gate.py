@@ -1,4 +1,4 @@
-"""DP-04: Structural CI gate — data-plane shape invariants (Phase 1209-04).
+"""Structural CI gate — data-plane shape invariants.
 
 What this tests
 ---------------
@@ -119,7 +119,7 @@ async def _drop_probe_tables(db_url: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DP-04-A: No data table in the shared schema (gate fails closed)
+# No data table in the shared schema (gate fails closed)
 # ---------------------------------------------------------------------------
 
 
@@ -268,7 +268,7 @@ class TestDp04SharedSchemaGate:
 
 
 # ---------------------------------------------------------------------------
-# DP-04-B: No global role holds blanket SELECT on per-tenant tables
+# No global role holds blanket SELECT on per-tenant tables
 # ---------------------------------------------------------------------------
 
 

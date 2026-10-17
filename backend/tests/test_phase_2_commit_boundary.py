@@ -1,4 +1,4 @@
-"""Regression test for ING-02 / P2-02: phase-2 metadata helpers must not commit internally.
+"""Regression test: phase-2 metadata helpers must not commit internally.
 
 The four helpers re-exported by ``app.processing.ingest.metadata``
 (``ensure_geom_column``, ``clip_to_mercator_bounds``, ``add_4326_column``,
@@ -81,7 +81,7 @@ class TestPhase2CommitBoundary:
     async def test_add_4326_column_rollback_undoes_column(self):
         """A rollback after add_4326_column must drop the geom_4326 column.
 
-        This is the core ING-02 invariant: if a downstream phase-2 step
+        This is the core invariant: if a downstream phase-2 step
         fails after ``add_4326_column`` succeeds, the rollback must undo
         the ALTER TABLE + UPDATE + CREATE INDEX work atomically.
         """

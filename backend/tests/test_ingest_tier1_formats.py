@@ -157,7 +157,7 @@ class TestContentValidation:
     def test_wide_encoded_kml_with_bom_passes(
         self, tmp_path: Path, bom: bytes, encoding: str
     ):
-        """fix(#1682 codex r1): LIBKML reads UTF-16 KML — verified against the
+        """fix(#1682): LIBKML reads UTF-16 KML — verified against the
         worker's GDAL — but its interleaved NULs read as binary to the plain
         text check, so these were refused before GDAL ever saw them."""
         f = tmp_path / "wide.kml"
@@ -375,7 +375,7 @@ def _quoted_values(sql: str) -> list[str]:
 
 
 class TestDbfWarningIsShapefileOnly:
-    """fix(#1682 codex r1): every DBF-truncation block, not just the one found.
+    """fix(#1682): every DBF-truncation block, not just the one found.
 
     DBF field-name truncation is a Shapefile property. Both ingest paths used
     to gate the warning on the ``.zip`` suffix, which a File Geodatabase now

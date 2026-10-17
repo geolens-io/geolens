@@ -1,4 +1,4 @@
-"""Unit tests for resolve_open_path provider + tenant dispatch matrix (STOR-02 / Phase 1210).
+"""Unit tests for resolve_open_path provider + tenant dispatch matrix.
 
 Pins the full dispatch table:
   - local  + tenant_id=None -> {upload_staging_dir}/{asset_uri}
@@ -9,7 +9,7 @@ Pins the full dispatch table:
   - http(s):// asset_uri    -> unchanged regardless of provider/tenant
 
 The single_tenant byte-identical assertion (row 2, s3 + tenant_id=None) proves
-STOR-02: the seam produces the exact string the pre-1210 inline block in
+the seam produces the exact string the pre-1210 inline block in
 tiles/router.py would have produced for s3 + single_tenant.
 """
 
@@ -81,7 +81,7 @@ class TestResolveOpenPathProviderMatrix:
     def test_s3_no_tenant_byte_identical(self):
         """s3 + tenant_id=None -> /vsis3/{s3_bucket}/{asset_uri}.
 
-        STOR-02 byte-identical assertion: this exact string is what the
+        Byte-identical assertion: this exact string is what the
         pre-1210 inline block in tiles/router.py produced for s3 + single_tenant.
         """
         bucket = "my-geolens-bucket"
@@ -180,10 +180,10 @@ class TestResolveOpenPathProviderMatrix:
         with pytest.raises(RemoteRasterPathError):
             self._call(url, tenant_id=tenant_id, settings_kwargs=settings_kwargs)
 
-    # --- Path traversal / scheme injection guard (WR-01) -------------------
+    # --- Path traversal / scheme injection guard -------------------
 
     def test_absolute_path_asset_uri_rejected(self):
-        """asset_uri starting with '/' raises ValueError (WR-01 defense-in-depth).
+        """asset_uri starting with '/' raises ValueError (defense-in-depth).
 
         Previously a suspicious path like /etc/passwd was prepended with the
         provider prefix (e.g. /vsis3/bkt//etc/passwd) which GDAL may resolve
@@ -199,7 +199,7 @@ class TestResolveOpenPathProviderMatrix:
             )
 
     def test_dotdot_traversal_rejected(self):
-        """asset_uri containing '..' raises ValueError (WR-01 defense-in-depth)."""
+        """asset_uri containing '..' raises ValueError (defense-in-depth)."""
         import pytest
 
         with pytest.raises(ValueError, match="path-traversal"):
@@ -210,7 +210,7 @@ class TestResolveOpenPathProviderMatrix:
             )
 
     def test_dotdot_cross_tenant_rejected(self):
-        """asset_uri with '..' cannot escape tenant prefix (WR-01 multi-tenant guard)."""
+        """asset_uri with '..' cannot escape tenant prefix (multi-tenant guard)."""
         import pytest
 
         with pytest.raises(ValueError, match="path-traversal"):
@@ -223,7 +223,7 @@ class TestResolveOpenPathProviderMatrix:
             )
 
     def test_embedded_vsi_scheme_rejected(self):
-        """asset_uri embedding '/vsicurl/' raises ValueError (WR-01 injection guard)."""
+        """asset_uri embedding '/vsicurl/' raises ValueError (injection guard)."""
         import pytest
 
         with pytest.raises(ValueError, match="disallowed pattern"):

@@ -401,11 +401,11 @@ class TestEverySinkGoesThroughTheOneDoor:
         )
 
     def test_no_writer_anywhere_puts_an_exception_into_a_reason(self) -> None:
-        """The gate codex round 1 asked for: enumerate, do not list.
+        """The gate asked for: enumerate, do not list.
 
         Every `error_message` value in `backend/app/` must reach a sanctioned
         redactor, be a name this module already redacted, or be a fixed
-        constant. Round 2 removed the bare-name exemption: the manifest
+        constant. removed the bare-name exemption: the manifest
         reservation was handed one composed from an exception.
         """
         offenders: list[str] = []

@@ -1,4 +1,4 @@
-"""SEC-005: the deployment security posture (API docs exposure + Secure session
+"""The deployment security posture (API docs exposure + Secure session
 cookie) is driven by the explicit ENVIRONMENT setting, decoupled from the
 LOG_JSON log-format flag.
 

@@ -14,7 +14,7 @@ pattern match on specific stderr text: ``extract_raster_metadata`` opens the
 source with exactly one ``rasterio.open`` call and reads everything else off
 the resulting dataset, so ANY ``RasterioIOError`` it raises is by definition
 an open-time "could not read this file" failure (codex review on #1661
-round 1: an earlier version of this fix pattern-matched only the "not
+an earlier version of this fix pattern-matched only the "not
 recognized as being in a supported file format" text and missed a real,
 production-reachable shape — a .tif with a valid TIFF magic header but a
 corrupt/truncated IFD, which passes upload-time content-sniffing the same as
@@ -104,7 +104,7 @@ class TestInspectSourceRasterFriendlyOpenFailure:
         """Valid little-endian TIFF magic ("II*\\x00") followed by garbage —
         the GTiff driver claims the source by magic, then fails reading the
         IFD. A DIFFERENT rasterio failure shape from the "no driver" case
-        above, and the one the round-1 fix's narrower pattern match missed."""
+        above, and the one the first fix's narrower pattern match missed."""
         path = tmp_path / "9f2c1a3e-uuid_survey.tif"
         path.write_bytes(b"II*\x00" + os.urandom(500))
         return str(path)
@@ -122,7 +122,7 @@ class TestInspectSourceRasterFriendlyOpenFailure:
         assert source not in message
 
     def test_corrupt_ifd_source_raises_friendly_message(self, tmp_path):
-        """codex review, #1661 round 1: a valid TIFF magic header with a
+        """Codex review, #1661: a valid TIFF magic header with a
         corrupt IFD is a distinct RasterioIOError shape from the "no driver"
         case, but it is STILL an open-time failure at this call site — and
         its rasterio message ALSO quotes the staging path — so it gets the

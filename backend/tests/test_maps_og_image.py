@@ -1,4 +1,4 @@
-"""Tests for OG-image social-card backend surface (SHARE-08).
+"""Tests for OG-image social-card backend surface.
 
 Covers:
   - Migration 0024 schema (og_image_uri column present on Map model)
@@ -9,8 +9,8 @@ Covers:
   - GET /shared/{token}/card  — HTML OG/Twitter meta + access-control + escaping
 
 Security tests (BLOCKING):
-  T-1142-01: HTML-escaped title/description in card route
-  T-1142-02: Private-map 404, invalid-token 404, expired-token 404
+  HTML-escaped title/description in card route
+  Private-map 404, invalid-token 404, expired-token 404
 """
 
 import base64
@@ -332,7 +332,7 @@ class TestCardRoute:
     async def test_card_route_escapes_html_in_title(
         self, client: AsyncClient, admin_auth_header: dict
     ) -> None:
-        """T-1142-01 [BLOCKING]: malicious title is HTML-escaped in meta output."""
+        """[BLOCKING]: malicious title is HTML-escaped in meta output."""
         evil_name = 'Evil "><script>alert(1)</script>'
         map_data = await _create_map(
             client, admin_auth_header, name=evil_name, visibility="public"
@@ -358,7 +358,7 @@ class TestCardRoute:
     async def test_card_route_404_for_private_map(
         self, client: AsyncClient, admin_auth_header: dict
     ) -> None:
-        """T-1142-02 [BLOCKING]: private map returns 404; title not leaked."""
+        """[BLOCKING]: private map returns 404; title not leaked."""
         map_data = await _create_map(
             client,
             admin_auth_header,
@@ -376,7 +376,7 @@ class TestCardRoute:
         )
         assert upd.status_code == 200
 
-        # fix(#526 B-048): the card route now returns a 200 HTML shell that
+        # The card route now returns a 200 HTML shell that
         # meta-refreshes into /m/{token} so the SPA renders the friendly
         # expired/unavailable view (previously: bare JSON 404 on the PRIMARY
         # "Copy Link" affordance). Map details must still never leak.
@@ -389,7 +389,7 @@ class TestCardRoute:
         assert "og:title" not in resp.text
 
     async def test_card_route_404_for_invalid_token(self, client: AsyncClient) -> None:
-        """fix(#526 B-048): bogus token returns the 200 SPA-redirect shell."""
+        """Bogus token returns the 200 SPA-redirect shell."""
         resp = await client.get("/maps/shared/bogus-invalid-token-xyz/card")
         assert resp.status_code == 200, resp.text
         assert "0;url=/m/bogus-invalid-token-xyz" in resp.text
@@ -398,7 +398,7 @@ class TestCardRoute:
     async def test_card_route_404_for_expired_token(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """T-1142-02 [BLOCKING]: revoked/expired token returns 404."""
+        """[BLOCKING]: revoked/expired token returns 404."""
         map_data = await _create_map(
             client, admin_auth_header, name="Expired Token Map", visibility="public"
         )
@@ -411,7 +411,7 @@ class TestCardRoute:
         )
         assert revoke_resp.status_code == 204, f"Revoke failed: {revoke_resp.text}"
 
-        # fix(#526 B-048): revoked/expired links get the 200 SPA-redirect
+        # Revoked/expired links get the 200 SPA-redirect
         # shell so the recipient lands on the friendly "link expired" view.
         resp = await client.get(f"/maps/shared/{token}/card")
         assert resp.status_code == 200, resp.text

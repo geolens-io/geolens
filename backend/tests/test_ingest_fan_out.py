@@ -1,4 +1,4 @@
-"""Tests for POST /ingest/commit-fan-out/{job_id} (GPKG-03, Phase 1058-04).
+"""Tests for POST /ingest/commit-fan-out/{job_id}.
 
 Tests:
   - Happy path: 3-layer fan-out creates 3 queued results
@@ -10,7 +10,7 @@ Tests:
   - Fan-out jobs carry fan_out_parent_id + layer_name in user_metadata
   - file_path on original job is NOT mutated; all cloned jobs share it
   - Title defaults to '{file_basename}: {layer_name}'
-  - T-1058D-04: _user_safe_error strips absolute file-system paths
+  - _user_safe_error strips absolute file-system paths
 
 These tests use a real test database (docker compose up db) and mock
 Procrastinate task deferral (defer_with_orphan_guard is replaced with a
@@ -335,12 +335,12 @@ class TestFanOutEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# CR-01 regression test: preview must stamp all_layers before fan-out validates
+# Regression test: preview must stamp all_layers before fan-out validates
 # ---------------------------------------------------------------------------
 
 
 class TestCR01PreviewStampsAllLayers:
-    """Verify the CR-01 fix: /preview/{job_id} persists all_layers into
+    """Verify /preview/{job_id} persists all_layers into
     job.user_metadata so the fan-out validation has a non-empty known set.
 
     Unlike the other tests that use _make_pending_job (which injects all_layers
@@ -515,7 +515,7 @@ class TestCR01PreviewStampsAllLayers:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests for _user_safe_error (T-1058D-04)
+# Unit tests for _user_safe_error
 # ---------------------------------------------------------------------------
 
 

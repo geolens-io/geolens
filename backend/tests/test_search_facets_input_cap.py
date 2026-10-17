@@ -1,7 +1,7 @@
-"""Tests for max_length=1000 enforcement on /search/facets/?q= (SEC-S13 / Phase 1062-03).
+"""Tests for max_length=1000 enforcement on /search/facets/?q=.
 
 /search/datasets/?q= already caps at 1000 chars via SearchQueryParams.q.
-/search/facets/?q= previously had no length cap.  SEC-S13 closes the gap.
+/search/facets/?q= previously had no length cap; the cap closes the gap.
 
 These tests do not require a seeded database: they test Pydantic validation
 at the route parameter boundary, which fires before any DB query is executed.

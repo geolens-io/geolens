@@ -83,7 +83,7 @@ async def test_record_schema_endpoint(client: AsyncClient):
 async def test_conformance_includes_cql2(client: AsyncClient):
     """GET /conformance advertises the CQL2 language and Part 3 filter classes.
 
-    fix(#430 BA-14) dropped the Features Part 3 classes while feature
+    An earlier change dropped the Features Part 3 classes while feature
     collections rejected `filter` with 400; feat(#1614) restored them in the
     same commit that implemented `filter=` + per-collection /queryables, so
     the advertisement and the implementation flip together.

@@ -285,7 +285,7 @@ async def test_datetime_own_day_still_matches_null_temporal_record(
     datetime_datasets: dict,
     test_db_session,
 ):
-    """BA-13 intent preserved: the record's own advertised fallback instant
+    """Intent preserved: the record's own advertised fallback instant
     (created_at) still matches -- the fix narrows the match, it does not
     remove the fallback."""
     record = await test_db_session.get(Record, datetime_datasets["ds_none"].record_id)

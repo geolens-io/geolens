@@ -1,4 +1,4 @@
-"""Integration tests for saved searches (SRCH-08): CRUD with ownership enforcement.
+"""Integration tests for saved searches: CRUD with ownership enforcement.
 
 Tests verify: create, list, load, delete, cross-user isolation, and
 unauthenticated access rejection for the /search/saved endpoints.

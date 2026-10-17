@@ -33,8 +33,7 @@ def mock_ingest_task():
     """Prevent procrastinate task deferral in all ingest tests.
 
     The router now delegates all task routing (ingest_file / ingest_raster
-    / ingest_service) to ``queue_ingest_job`` in the service layer (post-
-    impl audit KISS-9). Mock that single entry point so every commit_import
+    / ingest_service) to ``queue_ingest_job`` in the service layer. Mock that single entry point so every commit_import
     path becomes a no-op.
     """
     with patch(
@@ -50,7 +49,7 @@ def mock_file_save(tmp_path: Path):
         "app.processing.ingest.router.save_upload_file", new_callable=AsyncMock
     ) as mock_save:
         # NOTE: `**_` absorbs production kwargs the mock doesn't model
-        # (e.g. ``max_size_bytes`` added by Phase 1066 feat IA-P0-02 in
+        # (e.g. ``max_size_bytes`` added in
         # commit e11924c3). The tests using this fixture do not exercise
         # the size-enforcement path, so silently ignoring the kwarg is
         # the smallest-diff way to keep the mock signature future-proof.
@@ -718,7 +717,7 @@ class TestCsvNonSpatialPipeline:
 
 
 async def _get_admin_id_for_ingest(session):
-    """Helper to get admin user id for Task 3 tests."""
+    """Helper to get admin user id for these tests."""
     from tests.factories import get_user_id
 
     return await get_user_id(session, "admin")
@@ -781,7 +780,7 @@ async def test_nonspatial_arcgis_service_load_keeps_attribute_columns(
 
 
 # ---------------------------------------------------------------------------
-# fix(#430 codex r16): published_at must match the FINAL record_status
+# fix(#430): published_at must match the FINAL record_status
 # ---------------------------------------------------------------------------
 
 
@@ -789,7 +788,7 @@ async def test_nonspatial_arcgis_service_load_keeps_attribute_columns(
 async def test_finalize_ingest_non_published_status_has_no_published_at(
     test_db_session,
 ):
-    """fix(#430 codex r16): create_dataset defaults the record to 'published',
+    """fix(#430): create_dataset defaults the record to 'published',
     so the before_insert hook stamps published_at BEFORE _finalize_ingest
     overwrites record_status from user_metadata — a manifest/vector ingest
     finalizing as draft/ready/internal kept a bogus publication timestamp."""
@@ -880,7 +879,7 @@ async def test_finalize_ingest_non_published_status_has_no_published_at(
 async def test_detect_and_override_geometry_returns_none_when_no_override(
     test_db_session,
 ):
-    """Empty user_metadata → helper is a no-op returning None (KISS-2)."""
+    """Empty user_metadata → helper is a no-op returning None."""
     from app.processing.ingest.tasks import _detect_and_override_geometry
 
     geom_type = await _detect_and_override_geometry(
@@ -1245,7 +1244,7 @@ async def test_archive_original_file_failure_lands_nothing_once_another_attempt_
 async def test_archive_original_file_commit_failure_does_not_raise(
     tmp_path, monkeypatch
 ):
-    """RESILIENCE-1 regression: commit failure after archive failure must not raise.
+    """Regression: commit failure after archive failure must not raise.
 
     Before fix: if storage.put raised AND then session.commit raised (e.g. a
     transient pooler drop), the unguarded commit propagated out of the helper
@@ -1308,7 +1307,7 @@ async def test_archive_original_file_failure_truncates_long_error(
 
 
 # ---------------------------------------------------------------------------
-# queue_ingest_job orphan-guard (RESILIENCE-2 extension)
+# queue_ingest_job orphan-guard (extension)
 # ---------------------------------------------------------------------------
 
 
@@ -1363,8 +1362,8 @@ async def test_queue_ingest_job_defer_failure_marks_job_failed(
 
 
 class TestCommitImportDispatch:
-    """Direct router coverage for POST /ingest/commit/{job_id} (Phase 220,
-    INGEST-K6-02). Before this phase, the endpoint had zero direct tests."""
+    """Direct router coverage for POST /ingest/commit/{job_id} (the
+    endpoint had no direct tests before this class)."""
 
     async def test_vector_job_commits_with_vector_body(
         self,
@@ -1570,7 +1569,7 @@ class TestCommitImportDispatch:
         await test_db_session.commit()
         await test_db_session.refresh(job)
 
-        # Phase 1066 feat IA-P0-03 (commit f8c91297) added a commit-time
+        # A change (commit f8c91297) added a commit-time
         # SSRF re-validation of ``job.source_url`` in ``commit_import``
         # (router.py:640-652) via a LAZY import:
         #     from app.platform.security import validate_url_for_ssrf
@@ -1612,7 +1611,7 @@ class TestCommitImportDispatch:
     ) -> None:
         """Vector job + kitchen-sink body (mixed vector/raster/service fields) -> 202.
 
-        Regression test for D-02: the frontend may send irrelevant fields
+        Regression test: the frontend may send irrelevant fields
         and the server must silently ignore them, not 422.
         """
         result = await test_db_session.execute(
@@ -1675,7 +1674,7 @@ class TestCommitImportDispatch:
         (``title``, ``status``, ``detail``). Using ``RequestValidationError``
         (not ``HTTPException(422)``) in the handler refactor ensures the
         envelope shape is consistent with every other 422 in the API — which
-        is the whole point of Pitfall 2.
+        is the whole point.
         """
         result = await test_db_session.execute(
             select(User).where(User.username == "admin")

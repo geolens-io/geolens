@@ -6,9 +6,9 @@ These tests run against the real test DB (same pattern as test_ingest.py):
 - PersistentConfig.get() is patched per test to control cap values.
 
 Requirements verified:
-  QUOTA-01 — byte cap → 413
-  QUOTA-02 — dataset count cap → 422
-  QUOTA-03 — default 0 unlimited → never rejects
+  Byte cap → 413
+  dataset count cap → 422
+  default 0 unlimited → never rejects
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ class TestUploadByteCap:
     ) -> None:
         """Byte cap: pre-existing usage exceeds cap → 413 Storage quota exceeded.
 
-        QUOTA-01 enforcement boundary (fail-before).
+        Enforcement boundary (fail-before).
         """
         user_id = await _get_test_user_id(
             test_db_session, settings.geolens_admin_username
@@ -198,7 +198,7 @@ class TestUploadByteCap:
     ) -> None:
         """Byte cap: usage within cap → 201 OK.
 
-        QUOTA-01 pass-after case.
+        Pass-after case.
         """
         with (
             patch(
@@ -226,7 +226,7 @@ class TestUploadCountCap:
     ) -> None:
         """Count cap: user already AT cap → 422 Dataset quota exceeded.
 
-        QUOTA-02 enforcement boundary (fail-before).
+        Enforcement boundary (fail-before).
         """
         user_id = await _get_test_user_id(
             test_db_session, settings.geolens_admin_username
@@ -263,7 +263,7 @@ class TestUploadCountCap:
         client: AsyncClient,
         admin_auth_header: dict,
     ) -> None:
-        """Default config (cap=0) never rejects — QUOTA-03 SC-3 guarantee.
+        """Default config (cap=0) never rejects — guarantee.
 
         No patching of PersistentConfig: uses real defaults (both 0).
         """
@@ -332,7 +332,7 @@ class TestReuploadQuota:
     ) -> None:
         """Reupload path: byte cap is enforced (not bypassable via reupload).
 
-        QUOTA-01 enforcement on the reupload path (T-1224-05 mitigation).
+        Enforcement on the reupload path (mitigation).
         """
         user_id = await _get_test_user_id(
             test_db_session, settings.geolens_admin_username

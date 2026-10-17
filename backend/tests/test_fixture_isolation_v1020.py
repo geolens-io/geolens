@@ -1,6 +1,6 @@
-"""Regression pins for v1020 fixture-isolation fixes (Phase 1088 / FI-03).
+"""Regression pins for v1020 fixture-isolation fixes.
 
-One regression test per audit Section 4 category fixed in Phase 1088. Each pin
+One regression test per fixture-isolation category fixed in v1020. Each pin
 SHOULD fail on pre-fix HEAD and PASS on post-fix HEAD.
 
 The pins do NOT need a live Postgres host: they exercise the extracted helpers
@@ -9,20 +9,13 @@ with mocked engine factories / coroutine callables, so they run cleanly under
 `pytest tests/test_fixture_isolation_v1020.py` even without the autouse
 `_test_db_lifecycle` setup completing.
 
-Cross-references:
-- Audit: `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`
-    - Section 4.1 (per-worker DB lifecycle race, 407/648 failures, 62.8%)
-    - Section 4.2 (setup-phase connection contention, 188 post-1088-01)
-- Plans:
-    - Plan 1088-01 — replaced silent-swallow at conftest.py:275-278 with
-      structured `except OperationalError` handler + retry-with-backoff via
-      `_create_test_db_with_retry` (category 4.1).
-    - Plan 1088-03 — wrapped `_ensure_roles_and_admin` (the first async-
-      session connection acquisition in the `client` fixture) with
-      `_run_with_too_many_clients_retry` (category 4.2).
-- Requirements: FI-02 (audit-driven fix), FI-03 (regression pin). The
-  REQUIREMENTS.md traceability flip is owned by Plan 1088-N per CONTEXT.md
-  LOCKED sequencing and the TD-13 `requirements_traceability_flip` rule.
+Fixes pinned:
+    - Replaced the silent swallow in conftest.py with a structured
+      `except OperationalError` handler + retry-with-backoff via
+      `_create_test_db_with_retry` (per-worker DB lifecycle race).
+    - Wrapped `_ensure_roles_and_admin` (the first async-session connection
+      acquisition in the `client` fixture) with
+      `_run_with_too_many_clients_retry` (setup-phase connection contention).
 """
 
 import asyncio
@@ -57,7 +50,7 @@ def test_lifecycle_retries_on_transient_too_many_clients():
     """Audit Section 4.1 regression pin: transient TooManyConnections during
     per-worker DB CREATE must be retried, NOT silently swallowed.
 
-    Pre-fix HEAD shape (conftest.py:275-278 before Plan 1088-01):
+    Pre-fix HEAD shape (conftest.py:275-278 before the retry fix):
         try:
             with dev_engine.connect() as conn:
                 ... DROP + CREATE ...
@@ -237,19 +230,18 @@ def test_lifecycle_exhausts_retry_budget_then_fails_loudly():
 
 
 # ---------------------------------------------------------------------------
-# Plan 1088-03 / audit Section 4.2: setup-phase async-session contention
+# Setup-phase async-session contention
 # ---------------------------------------------------------------------------
 #
-# After Plan 1088-01 closed category 4.1 (407 → 0), residual category 4.2
-# stayed at 188 failures under `pytest -n auto` (see
-# `.planning/audits/PYTEST-XDIST-REMEASURE-AFTER-1088-01.md`). The failure
+# After the retry fix closed category 4.1 (407 → 0), residual category 4.2
+# stayed at 188 failures under `pytest -n auto`. The failure
 # shape is identical across all 188: `asyncpg.TooManyConnectionsError` raised
 # at fixture setup, specifically when the `client` fixture's first async-
 # session connection (inside `_ensure_roles_and_admin`) tries to acquire a
-# connection from the test_engine's NullPool. Plan 1088-03 wraps that call
+# connection from the test_engine's NullPool. The fix wraps that call
 # with `_run_with_too_many_clients_retry` (a bounded retry-with-backoff
 # helper that mirrors `_create_test_db_with_retry`'s shape — see audit
-# Section 4.2 + Plan 1088-03 PLAN.md). These three pins guard the async
+# Section 4.2). These three pins guard the async
 # retry path (retry-on-contention, propagate-non-contention, exhaust-then-
 # loud-fail) — the same coverage envelope used for the sync helper above.
 
@@ -317,11 +309,11 @@ async def test_setup_phase_contention_retries_or_serializes():
 
 @pytest.mark.asyncio
 async def test_setup_phase_contention_retries_raw_asyncpg_too_many_connections():
-    """Plan 1088-03 critical-contract pin: the retry helper MUST catch the
+    """Critical-contract pin: the retry helper MUST catch the
     RAW ``asyncpg.exceptions.TooManyConnectionsError`` shape, not only the
     SQLAlchemy-wrapped ``OperationalError`` shape.
 
-    During the initial Plan 1088-03 measurement, the helper as first
+    During the initial measurement, the helper as first
     written (catching only ``OperationalError``) achieved only ~42% retry
     coverage (188 → 109) because the majority of contention failures
     surface as RAW asyncpg exceptions through the ``bind.connect()`` →
@@ -462,19 +454,18 @@ async def test_setup_phase_exhausts_retry_budget_then_fails_loudly():
 
 
 # ---------------------------------------------------------------------------
-# Plan 1088-04 / audit Section 4.3: in-test connection contention
+# In-test connection contention
 # ---------------------------------------------------------------------------
 #
-# After Plan 1088-03 closed category 4.2 (188 → 47, below 50 threshold),
-# residual category 4.3 stayed at 137 failures under `pytest -n auto` (see
-# `.planning/phases/1088-fixture-isolation-fixes-regression-pins/1088-03-SUMMARY.md`).
+# After the setup-phase retry closed category 4.2 (188 → 47, below 50 threshold),
+# residual category 4.3 stayed at 137 failures under `pytest -n auto`.
 # The failure shape: tests internally open multiple DB connections within
 # their body (multiple `TestClient.post(...)` calls), each triggering a
 # fresh `override_get_db` → `test_session_factory()` connection acquisition.
 # Distinct from 4.2 — here the `client` fixture has already completed
 # setup and yielded; the test itself is opening a connection mid-execution.
 #
-# Plan 1088-04 wraps the session-factory acquisition inside `override_get_db`
+# The fix wraps the session-factory acquisition inside `override_get_db`
 # with `_acquire_test_session_with_retry` (an `@asynccontextmanager` that
 # retries on `_TRANSIENT_CONTENTION_EXCEPTIONS` with a tight backoff budget
 # of (0.5s, 1.0s) — bounded total wait 1.5s, well below any reasonable
@@ -537,8 +528,7 @@ async def test_in_test_contention_retries_succeeds():
     `pytest -n auto` against max_connections=30, tests internally opening
     multiple DB connections (e.g., several sequential ``TestClient.post(...)``
     calls inside a single test body) raced the connection ceiling — 137
-    failures across the suite (audit Section 4.3 / re-measure category
-    4.3 = 137 post-1088-03).
+    failures across the suite.
 
     Post-1088-04 shape: ``_acquire_test_session_with_retry`` wraps the
     factory acquisition AND issues a warm-up ``SELECT 1`` inside the
@@ -546,7 +536,7 @@ async def test_in_test_contention_retries_succeeds():
     connection acquisition (triggered by the warm-up query) is caught
     and retried. Total wait budget under contention is 1.5s — bounded
     for in-test latency (must not stall test bodies indefinitely),
-    shorter than the setup-phase 7s budget because in-test retries fire
+    shorter than the setup-phase budget because in-test retries fire
     per-request and a single test may issue several sequential requests.
 
     This test exercises the canonical lazy-connection failure surface:
@@ -644,12 +634,12 @@ async def test_in_test_contention_retries_succeeds():
 
 @pytest.mark.asyncio
 async def test_in_test_contention_retries_raw_asyncpg_too_many_connections():
-    """Plan 1088-04 critical-contract pin: the in-test retry helper MUST
+    """Critical-contract pin: the in-test retry helper MUST
     catch the RAW ``asyncpg.exceptions.TooManyConnectionsError`` raised
     during the warm-up ``SELECT 1``, not only the SQLAlchemy-wrapped
     ``OperationalError`` shape.
 
-    Mirrors Plan 1088-03's
+    Mirrors the setup-phase pin
     ``test_setup_phase_contention_retries_raw_asyncpg_too_many_connections``
     pin. In production, under SQLAlchemy + asyncpg + NullPool, the
     connection-saturation error raised by asyncpg's ``_connect_addr``
@@ -870,9 +860,8 @@ def test_engine_retry_succeeds_on_transient_too_many_clients():
     ``engine.connect()`` must be retried at the engine layer, NOT propagated
     on the first attempt.
 
-    Plan 1093-02 / audit `.planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md`
-    Section 3: after Plan 1088-04's session-factory wrapper closed the
-    in-test warm-up surface, the engine-layer wrapper closes the
+    After the session-factory wrapper closed the in-test warm-up surface,
+    the engine-layer wrapper closes the
     post-commit `bind.connect()` surface that fires OUTSIDE any
     session-factory envelope.
 
@@ -946,7 +935,7 @@ def test_engine_retry_catches_raw_asyncpg_too_many_connections():
     underlying ``engine.connect()``, not only the SQLAlchemy-wrapped
     ``OperationalError`` shape.
 
-    Mirrors Plan 1088-04's
+    Mirrors the in-test pin
     ``test_in_test_contention_retries_raw_asyncpg_too_many_connections``
     pin. Under SQLAlchemy + asyncpg + NullPool, the connection-saturation
     error raised by asyncpg's ``_connect_addr`` surfaces RAW through the
@@ -957,7 +946,7 @@ def test_engine_retry_catches_raw_asyncpg_too_many_connections():
     This pin guards against a future refactor narrowing the catch back
     to only ``OperationalError`` (which would silently drop the dominant
     in-test contention surface, restoring the post-commit residual that
-    Plan 1093-02 was created to close).
+    the engine-layer wrapper was created to close).
     """
     import asyncpg.exceptions
 
@@ -1094,17 +1083,16 @@ def test_engine_retry_exhausts_budget_then_fails_loudly():
 
 
 # ---------------------------------------------------------------------------
-# Phase 1095 / PARA-01 — regression pin family for _init_tile_pool_for_tests
+# Regression pin family for _init_tile_pool_for_tests
 # ---------------------------------------------------------------------------
 # Pin the wrap pattern applied at the 3 sibling `_init_tile_pool_for_tests`
 # fixtures in backend/tests/{test_tiles,test_embed_tokens,test_tile_signing}.py
-# per spike audit `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md`
-# Section 3.2 (Shape A* — wrap `asyncpg.create_pool(...)` in the existing
+# (wrap `asyncpg.create_pool(...)` in the existing
 # `_run_with_too_many_clients_retry` envelope at `conftest.py:359`).
 #
 # Distinct from the `test_engine_retry_*` family above because:
 # - Engine family tests the engine-layer wrapper / do_connect event handler
-#   (Plan 1093-02 / TEST-01) for the post-commit `bind.connect()` surface.
+#   for the post-commit `bind.connect()` surface.
 # - Init-tile-pool family tests the FIXTURE-LAYER wrap of raw
 #   `asyncpg.create_pool(...)` calls in 3 test files that bypass both the
 #   session-factory and engine wrappers. This was the dominant cascade
@@ -1120,7 +1108,7 @@ def test_engine_retry_exhausts_budget_then_fails_loudly():
 
 
 def test_init_tile_pool_retries_on_transient_too_many_clients():
-    """Phase 1095 / PARA-01 (d): the Shape A* wrap pattern applied at the
+    """The wrap pattern applied at the
     3 ``_init_tile_pool_for_tests`` fixtures must retry on injected
     ``asyncpg.exceptions.TooManyConnectionsError`` instead of failing on
     first attempt.
@@ -1220,63 +1208,54 @@ def test_init_tile_pool_retries_on_transient_too_many_clients():
     )
 
 
-# Phase 1095 / PARA-02 (WR-02 closure) — the pin below extends the existing
+# The pin below extends the existing
 # `test_engine_retry_*` family (covers the engine-wrapper retry surface).
-# The WR-02 footgun lives on the engine-wrapper path (audit Section 4.1
-# call-site map), so the `test_engine_retry_*` family is the semantically
-# correct home for the loop-yield regression pin. Distinct from Plan 01's
+# The footgun lives on the engine-wrapper path, so the `test_engine_retry_*`
+# family is the semantically correct home for the loop-yield regression pin. Distinct from the
 # `test_init_tile_pool_*` pin which covers the pool-init surface.
 
 
 def test_engine_retry_yields_event_loop_during_backoff():
-    """Phase 1095 / PARA-02 (b): Shape Y2 (load-bearing rationale)
-    regression pin. The production-path branch at
+    """Load-bearing rationale regression pin. The production-path branch at
     ``backend/tests/conftest.py:_invoke_sleep_in_sync_context`` retains
     blocking ``time.sleep(seconds)`` rather than the originally-planned
-    Shape Y1 ``asyncio.run(asyncio.sleep(seconds))``, because Y1 produced
+    ``asyncio.run(asyncio.sleep(seconds))``, because that produced
     658 ``RuntimeError: asyncio.run() cannot be called from a running
-    event loop`` cascade failures at Plan 1095-02 Task 5 Run 1 — the
+    event loop`` cascade failures — the
     production caller path (``_retry_do_connect`` via SQLAlchemy's
     ``do_connect`` event handler from inside ``greenlet_spawn``) DOES
     have a running event loop in the calling thread.
 
-    The pin name retained for traceability symmetry with the original
-    Plan 02 PARA-02 (b) shape. Under Shape Y2, the regression-detection
-    contract becomes: assert the load-bearing rationale block exists
+    The pin name is retained from the original shape. The
+    regression-detection contract is: assert the load-bearing rationale block exists
     verbatim at the source-of-record line, so a future refactor cannot
-    silently remove the WR-02 / PARA-02 cross-references without also
+    silently remove the cross-references without also
     breaking this pin.
 
-    The Shape Y2 rationale block MUST contain (drift-guard):
-    - The token ``WR-02`` (links to the original footgun audit finding).
-    - The token ``PARA-02`` (links to the closed requirement).
-    - The token ``Plan 1095-02`` (links to the empirical regression
-      that drove the Y1→Y2 fallback).
-    - The token ``greenlet_spawn`` (load-bearing rationale: why Y1
-      cannot work — production caller path has running loop in thread).
+    The rationale block MUST contain (drift-guard):
+    - The cross-reference tokens listed in ``required_tokens`` below.
+    - The token ``greenlet_spawn`` (load-bearing rationale: why the
+      awaitable form cannot work — production caller path has running loop in thread).
     - The token ``Section 4.3`` OR ``Section 4.4`` (audit
-      cross-reference to the WR-02 INDEPENDENT disposition + caveat).
+      cross-reference to the INDEPENDENT disposition + caveat).
     - The substring ``time.sleep`` on the production-path branch line
       (the blocking primitive is structurally load-bearing).
 
-    Pre-Plan-1095-02 HEAD (Shape Y0): the inline comment at
+    Before the rationale was added, the inline comment at
     ``if sleep_fn is asyncio.sleep:`` was the terse 1-line "Production
-    path: skip event-loop overhead, just block." — no WR-02 / PARA-02
-    cross-reference, no greenlet_spawn rationale.
+    path: skip event-loop overhead, just block." with no greenlet_spawn
+    rationale.
 
-    Post-Plan-1095-02 HEAD (Shape Y2): the inline comment block is the
-    load-bearing rationale documented above; this pin asserts the block
-    is intact so silent removal breaks CI rather than slipping past
+    The inline comment block is the load-bearing rationale documented
+    above; this pin asserts the block is intact so silent removal breaks
+    CI rather than slipping past
     review.
 
-    Why Y2 over Y1 (empirical evidence): Plan 1095-02 Task 5 Run 1 of
-    ``pytest -n auto`` post-Y1-fix produced 156 failed + 227 errors =
-    383 distinct (vs. Plan 01 close baseline of 20/8/16). 658 of those
-    failures had the RuntimeError signature above. The Y1 candidate
-    cited in the CONTEXT.md `<decisions>` and the Plan 02 `<interfaces>`
-    blocks did not account for the greenlet-bridge running-loop case.
-    The Plan 02 Y1/Y2 fork rule (explicit fallback per CONTEXT.md
-    `<decisions>` `WR-02 fix shape`) was triggered and Y2 applied.
+    Why keep the blocking sleep (empirical evidence): a ``pytest -n auto``
+    run with the sleep replaced by an awaitable produced 156 failed + 227
+    errors = 383 distinct (vs. a baseline of 20/8/16). 658 of those
+    failures had the RuntimeError signature above, because the awaitable
+    form did not account for the greenlet-bridge running-loop case.
     """
     from pathlib import Path
 
@@ -1290,8 +1269,8 @@ def test_engine_retry_yields_event_loop_during_backoff():
     assert anchor_idx >= 0, (
         f"Anchor `{anchor}` not found in {conftest_path}. The "
         "`_invoke_sleep_in_sync_context` production-path branch has "
-        "been removed or restructured — re-read the function body + "
-        "audit Section 4.3 (WR-02 INDEPENDENT) before re-anchoring."
+        "been removed or restructured — re-read the function body "
+        "before re-anchoring."
     )
 
     # Inspect the ~30 lines AFTER the anchor (the inline comment +
@@ -1299,49 +1278,28 @@ def test_engine_retry_yields_event_loop_during_backoff():
     block = conftest_text[anchor_idx : anchor_idx + 2000]
 
     required_tokens = [
-        "WR-02",
-        "PARA-02",
-        "Plan 1095-02",
         "greenlet_spawn",
         "time.sleep",
     ]
-    # Audit cross-reference is satisfied by Section 4.3 OR 4.4
-    # citation (both correlate the WR-02 disposition).
-    audit_token_present = "Section 4.3" in block or "Section 4.4" in block
-
     for token in required_tokens:
         assert token in block, (
             f"Required Shape Y2 load-bearing rationale token `{token}` "
             f"missing from the production-path branch at "
             f"{conftest_path}:_invoke_sleep_in_sync_context. The "
-            "WR-02 / PARA-02 traceability block has been silently "
-            "removed or weakened — re-read audit Section 4.3 + 4.4 "
-            "before re-running this pin (do NOT delete the comment "
-            "block to pass)."
+            "rationale comment has been silently removed or weakened "
+            "(do NOT delete the comment block to pass)."
         )
-
-    assert audit_token_present, (
-        f"Required audit cross-reference (`Section 4.3` or "
-        f"`Section 4.4`) missing from the production-path branch at "
-        f"{conftest_path}:_invoke_sleep_in_sync_context. The Shape "
-        "Y2 rationale MUST cite the audit section that justifies the "
-        "INDEPENDENT disposition (WR-02 fix is forward-safety hygiene "
-        "on a different surface than the actual cascade source). The "
-        "structural mitigation lives at Plan 1095-01 (3 fixture-site "
-        "wraps via `_run_with_too_many_clients_retry`), not at this "
-        "helper."
-    )
 
 
 # ---------------------------------------------------------------------------
-# Phase 1096 / HYG-01 / WR-01 — `do_connect` event handler retry path
+# `do_connect` event handler retry path
 # ---------------------------------------------------------------------------
 # Pin the LOAD-BEARING production-effective retry surface: the
 # `@event.listens_for(sync_engine, "do_connect")` handler installed by
 # `_install_dbapi_connect_retry` at `backend/tests/conftest.py:701-745`.
 # The 4 existing `test_engine_retry_*` pins above (lines 905/978/1030/1071)
 # all use `_FakeAsyncEngine` whose `.sync_engine` returns MagicMock, which
-# triggers the WR-03 narrow-catch silent-swallow branch in
+# triggers the narrow-catch silent-swallow branch in
 # `_RetryingAsyncEngine.__init__` at conftest.py:826-836 — meaning those 4
 # pins exercise the wrapper-method `.connect()`/`.dispose()` retry paths
 # but NOT the event-handler path.
@@ -1356,14 +1314,14 @@ def test_engine_retry_yields_event_loop_during_backoff():
 # Pin uses a real `sqlalchemy.create_engine("sqlite:///:memory:")` because
 # the event-handler install requires a real Engine instance (MagicMock
 # raises TypeError / AttributeError / InvalidRequestError, exactly what
-# the WR-03 narrow-catch in `_RetryingAsyncEngine.__init__` swallows for
+# the narrow-catch in `_RetryingAsyncEngine.__init__` swallows for
 # test doubles). SQLite is sync, lightweight, accepts SQLAlchemy event
 # hooks, and lets us patch `dialect.connect` to control per-attempt
 # outcomes without executing any query.
 
 
 def test_engine_retry_do_connect_event_handler_retries_on_transient_error():
-    """Phase 1096 / HYG-01 / WR-01: the `do_connect` event handler installed
+    """The `do_connect` event handler installed
     by ``_install_dbapi_connect_retry`` must retry on
     ``_TRANSIENT_CONTENTION_EXCEPTIONS`` (asyncpg.TooManyConnectionsError)
     and respect the ``_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)`` budget.
@@ -1371,15 +1329,15 @@ def test_engine_retry_do_connect_event_handler_retries_on_transient_error():
     Distinct from the 4 existing ``test_engine_retry_*`` pins above:
     - Those pins exercise the wrapper-method ``.connect()`` / ``.dispose()``
       retry paths against ``_FakeAsyncEngine`` (whose ``.sync_engine`` is
-      MagicMock — triggers the WR-03 narrow-catch silent-swallow branch
+      MagicMock — triggers the narrow-catch silent-swallow branch
       in ``_RetryingAsyncEngine.__init__``).
     - THIS pin exercises the event-handler retry branch DIRECTLY — the
       load-bearing production-effective path validated by the v1021 -91%
       ``-n auto`` measurement. Uses a real ``sqlalchemy.create_engine(
       "sqlite:///:memory:")`` so ``event.listens_for(sync_engine,
       "do_connect")`` succeeds (MagicMock would fail with TypeError /
-      AttributeError / InvalidRequestError, exactly what the WR-03
-      narrow-catch swallows).
+      AttributeError / InvalidRequestError, exactly what the narrow
+      catch swallows).
 
     Asserts:
     (a) The dispatched ``do_connect`` event invoked ``dialect.connect``
@@ -1391,15 +1349,14 @@ def test_engine_retry_do_connect_event_handler_retries_on_transient_error():
         backoffs ``[1.0, 2.0]`` (proves the canonical first-two
         ``_SETUP_PHASE_RETRY_BACKOFFS`` values are respected).
     (d) ``_install_dbapi_connect_retry`` returned a callable (the handler
-        reference — Phase 1096 / WR-04 contract that lets dispose()
+        reference that lets dispose()
         ``event.remove`` the listener).
     (e) ``event.remove(stub_engine, "do_connect", handler)`` succeeds
-        after the test (proves the WR-04 teardown contract works against
+        after the test (proves the teardown contract works against
         a real-shape engine).
 
-    Pre-Phase-1096 HEAD: this test FAILS at assertion (d) because
-    ``_install_dbapi_connect_retry`` returns None implicitly.
-    Post-Phase-1096 HEAD: passes because ``_install_dbapi_connect_retry``
+    Fails at assertion (d) if ``_install_dbapi_connect_retry`` returns None
+    implicitly; passes because ``_install_dbapi_connect_retry``
     returns the registered ``_retry_do_connect`` handler.
     """
     import asyncpg.exceptions
@@ -1437,7 +1394,7 @@ def test_engine_retry_do_connect_event_handler_retries_on_transient_error():
 
     try:
         # Install the do_connect handler. Returns the handler reference
-        # (WR-04 contract — used by _RetryingAsyncEngine.dispose() to
+        # (used by _RetryingAsyncEngine.dispose() to
         # remove the listener on teardown).
         handler = _install_dbapi_connect_retry(
             stub_engine,
@@ -1445,7 +1402,7 @@ def test_engine_retry_do_connect_event_handler_retries_on_transient_error():
             backoffs=_SETUP_PHASE_RETRY_BACKOFFS,
         )
 
-        # Assertion (d): handler is a callable (WR-04 contract).
+        # Assertion (d): handler is a callable.
         assert callable(handler), (
             f"Expected _install_dbapi_connect_retry to return the registered "
             f"_retry_do_connect handler (Phase 1096 / WR-04); got {handler!r}. "
@@ -1501,7 +1458,7 @@ def test_engine_retry_do_connect_event_handler_retries_on_transient_error():
             "Plan 1093-02 + Plan 1096-01 in tandem."
         )
 
-        # Assertion (e): event.remove succeeds (WR-04 teardown contract).
+        # Assertion (e): event.remove succeeds (teardown contract).
         event.remove(stub_engine, "do_connect", handler)
         # After remove, the listener is gone — verify by checking the
         # DialectEventsDispatch listeners no longer contain our handler.
@@ -1521,15 +1478,15 @@ def test_engine_retry_do_connect_event_handler_retries_on_transient_error():
 
 
 # ---------------------------------------------------------------------------
-# Phase 1096 / HYG-01 / WR-01-1095 carry-forward — fixture-layer envelope
+# Fixture-layer envelope
 # parity pins. Mirror the engine-layer family's `catches_raw_asyncpg` +
 # `propagates_non_transient` pins at the fixture-layer `_init_tile_pool_*`
-# surface. Closes the symmetry gap from Phase 1095 REVIEW Section 2.
+# surface.
 # ---------------------------------------------------------------------------
 
 
 def test_init_tile_pool_catches_raw_asyncpg_too_many_connections():
-    """Phase 1096 / HYG-01 / WR-01-1095 carry-forward: the fixture-layer
+    """The fixture-layer
     ``_run_with_too_many_clients_retry`` envelope wrapped at the 3
     ``_init_tile_pool_for_tests`` fixtures MUST catch the RAW
     ``asyncpg.exceptions.TooManyConnectionsError`` raised during
@@ -1545,9 +1502,7 @@ def test_init_tile_pool_catches_raw_asyncpg_too_many_connections():
     ``TooManyConnectionsError`` directly (no SQLAlchemy wrapping
     because asyncpg.create_pool bypasses the SQLAlchemy dialect).
 
-    Closes the symmetry gap called out in Phase 1095 REVIEW WR-01
-    carry-forward (`.planning/phases/1095-cascade-fix-wr-02-closure/
-    1095-REVIEW.md` Warnings Section 2): the existing positive-retry
+    Closes a symmetry gap: the existing positive-retry
     pin at line 1144 covers the success path, but a future refactor
     narrowing the envelope's catch to only ``OperationalError`` would
     silently drop the dominant cascade source (raw asyncpg from
@@ -1638,7 +1593,7 @@ def test_init_tile_pool_catches_raw_asyncpg_too_many_connections():
 
 
 def test_init_tile_pool_propagates_non_transient_error():
-    """Phase 1096 / HYG-01 / WR-01-1095 carry-forward (pin 2 of 2):
+    """Pin 2 of 2:
     ``OperationalError`` shapes OTHER than "too many clients already" must
     propagate immediately (NOT retried) at the fixture-layer envelope.
 
@@ -1649,13 +1604,10 @@ def test_init_tile_pool_propagates_non_transient_error():
     before failing with the same exception. The envelope MUST surface
     them on the first attempt.
 
-    Closes the symmetry gap from Phase 1095 REVIEW WR-01 carry-forward
-    (`.planning/phases/1095-cascade-fix-wr-02-closure/1095-REVIEW.md`
-    Warnings — fixture-layer family was missing the propagation pin
-    that the engine-layer family has had since Plan 1093-02).
+    Closes a symmetry gap: the fixture-layer family was missing the
+    propagation pin that the engine-layer family already had.
 
-    Pre-Phase-1096 HEAD: this test does not exist.
-    Post-Phase-1096 HEAD: passes because the envelope's substring guard
+    Passes because the envelope's substring guard
     at conftest.py:~441 (mirroring engine-wrapper line 876 logic)
     re-raises ``OperationalError`` shapes without "too many clients
     already" in the message.

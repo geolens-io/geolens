@@ -1,4 +1,4 @@
-"""Integration test for regenerate_vrt task — behavioral anchor for Phase 219.
+"""Integration test for regenerate_vrt task — behavioral anchor for the regenerate_vrt refactor.
 
 This test is DELIBERATELY slow and real:
 - Generates 2 real GeoTIFFs via rasterio
@@ -7,11 +7,11 @@ This test is DELIBERATELY slow and real:
 - Writes the result via a real LocalStorageProvider
 - Reads back and asserts on 16 state mutations
 
-Phase 219 extracts 3 helpers from regenerate_vrt. Any drift in behavior will
+Extracts 3 helpers from regenerate_vrt. Any drift in behavior will
 fail this test — that is the whole point of shipping this phase first.
 
 DO NOT mock subprocess, rasterio, or async_session in this file. Use mocks
-ONLY for the quicklook render (see D-05) and optionally the non-fatal cache
+ONLY for the quicklook render and optionally the non-fatal cache
 invalidation / embedding deferral calls.
 """
 
@@ -27,7 +27,7 @@ from tests.factories import get_user_id
 import rasterio
 from sqlalchemy import select, text
 
-# Fixture helpers (D-01: direct cross-test-file import)
+# Fixture helpers (direct cross-test-file import)
 from tests.test_raster_ingest import _write_tmp_tif
 
 # NOTE: No `pytestmark = pytest.mark.asyncio`. The project configures
@@ -100,10 +100,10 @@ async def local_storage(
     monkeypatch.setattr("app.processing.ingest.tasks_vrt.get_storage", lambda: provider)
 
     # Override upload_staging_dir so resolve_vrt_source_path (delegating to
-    # resolve_open_path since Phase 1210-02) resolves source asset_uris to files
+    # resolve_open_path) resolves source asset_uris to files
     # under our storage root. Without this override, gdalbuildvrt gets production
     # paths that do not exist and fails. The settings object at app.core.config is
-    # the single source after the Plan 02 delegation (raster_vrt_module.settings
+    # the single source after the delegation (raster_vrt_module.settings
     # was removed; app.core.config.settings is patched here instead).
     monkeypatch.setattr(settings, "upload_staging_dir", str(storage_root))
 
@@ -112,7 +112,7 @@ async def local_storage(
 
 @pytest.fixture
 def quicklook_stub(monkeypatch: pytest.MonkeyPatch):
-    """Stub the quicklook render at the test boundary (D-05).
+    """Stub the quicklook render at the test boundary.
 
     Returns fixed bytes regardless of inputs. The real render runs PIL in the
     probe child; its failures are non-fatal inside regenerate_vrt, so a stub
@@ -291,12 +291,12 @@ async def test_regenerate_vrt_happy_path_end_to_end(
 ):
     """Full integration test: invoke regenerate_vrt and assert on 16 state mutations.
 
-    This is the behavioral anchor for Phase 219's refactor. Any drift in the
+    This is the behavioral anchor for the regenerate_vrt refactor. Any drift in the
     observable outcome of regenerate_vrt will fail this test — that's the
-    whole point of shipping this before Phase 219.
+    whole point of shipping this before the refactor.
 
     The 15 assertions cover every DB + storage mutation that regenerate_vrt
-    performs in the happy path. See CONTEXT.md D-03 for the enumerated list.
+    performs in the happy path.
     """
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.processing.ingest.tasks import regenerate_vrt
@@ -457,7 +457,7 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     assert vrt_dataset.tile_cache_version == pre_tile_cache_version + 1
 
     # --- BONUS: Rasterio re-open + bounds sanity check ---------------------
-    # (per CONTEXT.md Claude's Discretion + RESEARCH.md recommendation)
+    #
     with rasterio.open(str(vrt_abs_path)) as src:
         bounds = src.bounds
         assert bounds.left is not None and bounds.right is not None
@@ -969,7 +969,7 @@ async def test_an_unsettled_asset_leaves_its_generation_sweepable(
     clean_tables,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """fix(#1962 codex r1): the generation stays non-terminal when the asset does.
+    """fix(#1962): the generation stays non-terminal when the asset does.
 
     ``sweep_stale_vrt_assets`` reaches an abandoned pair only through a
     ``pending``/``running`` generation, so stamping one terminal under an asset
@@ -1055,7 +1055,7 @@ async def test_a_legacy_delivery_with_no_generation_still_settles_its_asset(
     quicklook_stub,
     clean_tables,
 ):
-    """fix(#1962 codex r2): the only release path for a NULL-pointer asset.
+    """fix(#1962): the only release path for a NULL-pointer asset.
 
     ``sweep_stale_vrt_assets`` finds assets through the generations it just
     failed, so an asset left ``regenerating`` with no pointer is unreachable to
@@ -1156,7 +1156,7 @@ async def test_a_dangling_pointer_from_a_rolled_back_claim_is_settled(
     quicklook_stub,
     clean_tables,
 ):
-    """fix(#1962 codex r3): released unless a LIVE generation owns the asset.
+    """fix(#1962): released unless a LIVE generation owns the asset.
 
     A pointer at a generation that is already terminal, or at no row at all, is
     invisible to ``sweep_stale_vrt_assets``, which reaches an asset only through

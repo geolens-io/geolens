@@ -1,13 +1,11 @@
-"""Tests for CLOUD-03: /auth/register closure when the cloud overlay is active.
+"""Tests for /auth/register closure when the cloud overlay is active.
 
-Enforces the CLOUD-03 "replacing" directive:
+Enforces the "replacing" directive:
   - When has_extension("cloud") is True → POST /auth/register returns 403
     (global-scoped self-signup is CLOSED; ONLY /cloud/signup/register is valid)
   - When has_extension("cloud") is False → /auth/register behaves exactly as
     today (REGISTRATION_ENABLED-gated) — byte-identical community/enterprise path
   - seed_initial_admin still seeds the fleet superadmin on a fresh DB, cloud or not
-
-References: CLOUD-03, T-1211-22 (EoP - global registration left open in cloud mode)
 """
 
 from __future__ import annotations
@@ -102,7 +100,7 @@ class TestCloudActiveRegistrationClosed:
     ):
         """POST /auth/register (no trailing slash) is ALSO closed when cloud is active.
 
-        Both ROUTE-01 variants must be gated — not just the canonical slash form.
+        Both variants must be gated — not just the canonical slash form.
         """
         _set_cloud_active(True)
 
@@ -120,7 +118,7 @@ class TestCloudActiveRegistrationClosed:
     ):
         """When cloud is active, POST /auth/register creates ZERO user rows.
 
-        T-1211-22: the gate must fire BEFORE any DB write — a 403 must not
+        The gate must fire BEFORE any DB write — a 403 must not
         create an orphan pending user.
         """
         _set_cloud_active(True)
@@ -183,7 +181,7 @@ class TestCloudActiveRegistrationClosed:
 
 
 # ---------------------------------------------------------------------------
-# Tests: cloud overlay ABSENT — /auth/register byte-identical (T-1211-22)
+# Tests: cloud overlay ABSENT — /auth/register byte-identical
 # ---------------------------------------------------------------------------
 
 

@@ -559,7 +559,7 @@ class TestMapLayerDatasetVisibilityLeak:
     async def test_anon_get_map_hides_private_dataset_layer(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """REG-1: anon GET /maps/{id} omits a private-dataset layer (no table_name/
+        """Anon GET /maps/{id} omits a private-dataset layer (no table_name/
         column_info/sample_values leak). Fails on main (unfiltered fetch)."""
         map_id, ds = await self._public_map_with_layer(
             client, admin_auth_header, test_db_session, dataset_visibility="private"
@@ -573,7 +573,7 @@ class TestMapLayerDatasetVisibilityLeak:
     async def test_anon_style_json_omits_private_dataset_source(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """REG-2: anon GET /maps/{id}/style.json omits the private dataset's source
+        """Anon GET /maps/{id}/style.json omits the private dataset's source
         (and its replayable signed .pbf URL). Fails on main."""
         map_id, ds = await self._public_map_with_layer(
             client, admin_auth_header, test_db_session, dataset_visibility="private"
@@ -606,7 +606,7 @@ class TestMapLayerDatasetVisibilityLeak:
     async def test_anon_keeps_public_dataset_layer(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """REG-3 (control): a PUBLIC dataset layer is STILL visible to anon on both
+        """A PUBLIC dataset layer is STILL visible to anon on both
         endpoints — guards against over-filtering."""
         map_id, ds = await self._public_map_with_layer(
             client, admin_auth_header, test_db_session, dataset_visibility="public"
@@ -623,7 +623,7 @@ class TestMapLayerDatasetVisibilityLeak:
     async def test_owner_still_sees_own_private_layer(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """REG-4: the owner/admin STILL sees their own private layer (the filter must
+        """The owner/admin STILL sees their own private layer (the filter must
         honor the owner/admin bypass, not strip legitimate access)."""
         map_id, ds = await self._public_map_with_layer(
             client, admin_auth_header, test_db_session, dataset_visibility="private"
@@ -1053,7 +1053,7 @@ class TestUpdateMap:
     async def test_update_map_round_trips_basemap_opacity_field(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """Explicit opacity round-trip: PUT 0.55 -> GET 0.55 (covers PB-A3)."""
+        """Explicit opacity round-trip: PUT 0.55 -> GET 0.55."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -4391,7 +4391,7 @@ async def test_update_map_layers_round_trip_sort_order(
     """PUT layers with sort_order=[2, 0, 1] -> response layers must be [0, 1, 2].
 
     Locks MapLayer.sort_order ordering through the PUT round-trip after the
-    PERF-6 service-level refactor (build response from in-session state).
+    service-level refactor (build response from in-session state).
     Existing tests use dict[str, str] keyed by dataset_id (e.g.
     test_layer_type_auto_detect_via_put) and lose list order, so a focused
     list-order assertion is required.

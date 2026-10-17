@@ -26,7 +26,7 @@ def _seed_login(mock_keyring: dict) -> None:
 def _pair_refresh_fingerprint(
     mock_keyring: dict, bearer: str, instance: str = INSTANCE
 ) -> None:
-    """fix(#1778 round 31): tests that seed a bearer + refresh token
+    """Tests that seed a bearer + refresh token
     directly into mock_keyring (bypassing store_refresh_token(), which
     would pair them automatically) must also seed the matching pairing
     fingerprint, or try_refresh() now correctly treats the refresh
@@ -657,7 +657,7 @@ class TestRefreshWait:
     def test_request_timeout_before_deadline_is_retried_not_fatal(
         self, monkeypatch
     ) -> None:
-        """fix(#1778 review round 8): a per-request timeout well before
+        """A per-request timeout well before
         the operation's own deadline used to exit EXIT_NETWORK
         immediately (call_sdk's default, un-reraised behavior). It is
         now retried via poll_until() as long as the deadline hasn't
@@ -1036,7 +1036,7 @@ class TestDatasetStatus:
 
 class TestDatasetStatusRefreshRetry:
     """fix(#1778): `geolens status` now spends a stored refresh token on a
-    401 instead of hard-failing — previously only `whoami` did this (D-13),
+    401 instead of hard-failing — previously only `whoami` did this,
     so a status check with an expired access token failed even though
     login had stored a refresh token that could have renewed it."""
 
@@ -1113,7 +1113,7 @@ class TestDatasetStatusRefreshRetry:
 
 
 class TestReauthReviewRoundOne:
-    """fix(#1778 review round 1, PR #1802): three follow-ups on
+    """fix(#1778 review, PR #1802): three follow-ups on
     call_sdk_with_reauth found on the initial review."""
 
     def test_403_never_triggers_a_refresh(
@@ -1201,23 +1201,23 @@ class TestReauthReviewRoundOne:
     def test_env_token_401_is_never_refreshed_from_a_stored_session(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#1778 review round 26): this test used to pin the OPPOSITE
+        """This test used to pin the OPPOSITE
         of what it now asserts -- rebuild_client() re-resolved
         credentials from scratch, and a higher-precedence GEOLENS_TOKEN
-        env var outranked a stored credential (D-35), so with an expired
+        env var outranked a stored credential, so with an expired
         env token and a valid stored refresh token, the retry kept
         resending the SAME expired env token and burned the rotated
-        refresh token for nothing. Round 1 "fixed" this by making the
+        refresh token for nothing. "fixed" this by making the
         retry carry the token try_refresh() just returned instead of
         re-resolving -- but that meant an expired GEOLENS_TOKEN silently
         spent a stored login's refresh token and continued the command
         as THAT stored principal, never telling the operator their env
-        override was rejected. Round 26: credential_provenance narrows
+        override was rejected. credential_provenance now narrows
         the refresh attempt to a STORED bearer session only. An env
         token's 401 is now reported directly, naming GEOLENS_TOKEN, and
         the stored refresh token underneath it is never touched.
 
-        Pin (P2 round 26): env token + 401 + a stored refresh token
+        Pin (P2): env token + 401 + a stored refresh token
         present -> no refresh call, error names GEOLENS_TOKEN, keyring
         (the refresh token entry) untouched."""
         from geolens_cli import config as _config
@@ -1269,7 +1269,7 @@ class TestReauthReviewRoundOne:
 
 
 class TestWhoamiEnvTokenNeverRefreshes:
-    """fix(#1778 review round 26): whoami shares call_sdk_with_reauth
+    """Whoami shares call_sdk_with_reauth
     with status -- the same env-token-must-never-refresh rule applies
     there too, exercised through the actual whoami command rather than
     a direct call_sdk_with_reauth unit test."""
@@ -1321,7 +1321,7 @@ class TestWhoamiEnvTokenNeverRefreshes:
 
 
 class TestReauthReviewRoundThree:
-    """fix(#1778 review round 3, PR #1802): refresh must only be attempted
+    """fix(#1778 review, PR #1802): refresh must only be attempted
     for a client authenticated with a bearer token."""
 
     def test_api_key_client_with_a_stored_refresh_token_never_refreshes_on_401(
@@ -1420,7 +1420,7 @@ class TestReauthReviewRoundThree:
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
         """Sanity check the gate doesn't over-fire: a genuine bearer
-        client must still refresh-retry (unchanged from round 1)."""
+        client must still refresh-retry (unchanged behavior)."""
         from geolens_cli import config as _config
         from geolens_cli.main import app
 
@@ -1463,7 +1463,7 @@ class TestReauthReviewRoundThree:
 
 
 class TestRefreshPersistenceFailureNeverCrashes:
-    """fix(#1778 round 29): try_refresh()'s optional-return contract
+    """try_refresh()'s optional-return contract
     ("None on failure, never raise") covered the HTTP call and response
     parsing, but not the actual PERSISTENCE of a successful rotation --
     store_bearer_token()/store_refresh_token() propagate uncaught when
@@ -1646,7 +1646,7 @@ def _setup_bearer_provenance(mock_keyring: dict, monkeypatch, provenance: str) -
     (the value try_refresh() must PROVE a refresh token is paired
     with). "interactive" and "manual" are both keyring-stored bearers
     -- they produce the IDENTICAL credential_provenance == "stored-
-    bearer" tag (round 26 does not distinguish HOW a stored bearer got
+    bearer" tag (does not distinguish HOW a stored bearer got
     there, only THAT it's stored vs. env) -- given distinct literal
     values purely so each row's setup and assertions read clearly."""
     if provenance == "env":
@@ -1672,7 +1672,7 @@ def _setup_refresh_state(mock_keyring: dict, current_bearer: str, refresh_state:
             current_bearer
         )
     elif refresh_state == "unpaired-legacy":
-        pass  # No fingerprint field at all -- a pre-round-31 profile.
+        pass  # No fingerprint field at all -- a legacy profile.
     elif refresh_state == "mismatched":
         mock_keyring[("geolens", f"{INSTANCE}:refresh_fp")] = _auth._fingerprint_bearer(
             "some-other-stale-bearer"
@@ -1681,15 +1681,15 @@ def _setup_refresh_state(mock_keyring: dict, current_bearer: str, refresh_state:
         raise AssertionError(f"unhandled refresh_state: {refresh_state!r}")
 
 
-# fix(#1778 round 31): the refresh-pairing dimension of the credential-
+# The refresh-pairing dimension of the credential-
 # resolution matrix. Keys are (bearer_provenance, refresh_state); the
 # value is whether try_refresh() may spend the refresh token (True) or
 # must discard it and report the normal auth error with NO refresh
 # call made (False).
 #
 # "interactive" and "manual" both resolve to credential_provenance ==
-# "stored-bearer" (round 26 does not track HOW a stored bearer got
-# there) -- the pairing mechanism (round 31) is intentionally NOT a
+# "stored-bearer" (does not track HOW a stored bearer got
+# there) -- the pairing mechanism is intentionally NOT a
 # provenance flag, only a fingerprint proving "this refresh token
 # belongs to the CURRENTLY stored bearer." (manual, paired) is
 # therefore a SYNTHETIC row: a real `login --token`/`--api-key` never
@@ -1701,7 +1701,7 @@ def _setup_refresh_state(mock_keyring: dict, current_bearer: str, refresh_state:
 # legacy) and (manual, mismatched) ARE the realistic finding scenario:
 # a stale refresh token an earlier interactive login left behind,
 # surviving a later `login --token`/`--api-key` that never cleared it.
-# "env" never reaches try_refresh() at all (round 26 gates on
+# "env" never reaches try_refresh() at all (gates on
 # credential_provenance == "stored-bearer" before ever consulting a
 # refresh token), so every env row is False regardless of refresh_state.
 REFRESH_MATRIX = {
@@ -1721,8 +1721,8 @@ REFRESH_MATRIX = {
 
 
 class TestRefreshPairingMatrix:
-    """fix(#1778 round 31): the class-closing test for the refresh-
-    pairing dimension, extending round 30's credential-resolution
+    """The class-closing test for the refresh-
+    pairing dimension, extending the credential-resolution
     matrix. 12 rows: refresh in {absent, paired, unpaired-legacy,
     mismatched} x bearer provenance {interactive, manual, env}. Only
     a stored bearer with a correctly PAIRED refresh token may refresh;
@@ -1796,7 +1796,7 @@ class TestRefreshPairingMatrix:
             )
 
 
-# fix(#1778 round 32): every one of the four credential-set members
+# Every one of the four credential-set members
 # {bearer, api_key, refresh, refresh_fingerprint} unreadable, one row
 # each. bearer/refresh/refresh_fingerprint are all read by the pairing
 # check itself: an unreadable one there proves nothing, so the
@@ -1804,7 +1804,7 @@ class TestRefreshPairingMatrix:
 # normal auth error." api_key is NOT read by the pairing check at all
 # (it is unrelated to which bearer a refresh token rotates) -- its own
 # unreadability is tolerated by the ALREADY-tolerant "no marker"
-# precedence path (round 27/30), so the honest, code-accurate
+# Precedence path, so the honest, code-accurate
 # expectation for that row is that the refresh proceeds and succeeds,
 # completely unaffected. Included anyway, with its own true
 # expectation, to prove unrelated interference does not leak into the
@@ -1824,12 +1824,12 @@ UNREADABLE_MEMBER_BLOCKS_REFRESH = {
 
 
 class TestUnreadableMemberNeverDeletesOrRefreshes:
-    """fix(#1778 round 32): a transient/account-specific KeyringError
+    """A transient/account-specific KeyringError
     on ANY credential-set member the pairing check actually reads
     (bearer, refresh, refresh_fingerprint) must never be treated as
     "confirmed absent" -- that collapse is exactly what let the
     pairing check judge a possibly-valid refresh token stale and run
-    the destructive discard on it (the round-32 finding at
+    the destructive discard on it (the earlier finding at
     auth.py:1372). api_key is pinned too, with its own true (different)
     expectation, since the pairing check never reads it at all."""
 
@@ -1923,8 +1923,8 @@ class TestUnreadableMemberNeverDeletesOrRefreshes:
             )
         else:
             # api_key: unrelated to pairing: the tolerant "no marker"
-            # precedence path already swallows this read failure
-            # (round 27/30), so the refresh proceeds normally.
+            # precedence path already swallows this read failure,
+            # so the refresh proceeds normally.
             assert result.exit_code == 0, result.output
             assert refresh_calls["count"] == 1, member
 

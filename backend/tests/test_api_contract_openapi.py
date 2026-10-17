@@ -469,7 +469,7 @@ def test_config_ops_and_source_health_tags_are_title_case() -> None:
 def _published_post_endpoint(path: str):
     """The handler behind the schema-visible POST operation at *path*.
 
-    Two traps here. The auth routes register twice (ROUTE-01 dual-shape), so
+    Two traps here. The auth routes register twice (dual-shape), so
     ``include_in_schema`` picks the half that reaches the spec. And routes
     included from a router stay NESTED under fastapi 0.140 — a plain scan of
     ``app.routes`` sees almost none of the API — so this walks the flattened

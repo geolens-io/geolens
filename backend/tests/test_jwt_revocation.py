@@ -1,4 +1,4 @@
-"""Tests for JWT revocation via User.token_version (SEC-S15, Phase 1062-01).
+"""Tests for JWT revocation via User.token_version.
 
 Covers:
   - JWT payload carries jti (32-char hex) and token_version claims.
@@ -320,7 +320,7 @@ class TestChangePasswordRevocation:
     ):
         """After password change the user can log in with the new password.
 
-        Regression for CR-01: if the password hash and token revocation were
+        Regression: if the password hash and token revocation were
         committed in separate transactions a crash between them could leave the
         user with all tokens revoked but the old password still stored, locking
         them out. This test asserts the new password is always persisted when

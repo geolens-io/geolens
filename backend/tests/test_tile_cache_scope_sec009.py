@@ -1,4 +1,4 @@
-"""Regression tests for SEC-009: non-public vector tiles get a private cache scope.
+"""Regression tests: non-public vector tiles get a private cache scope.
 
 `_authorize_vector_tile_request` returned "public" for a valid NON-public signed
 request (it fell through past the signature check), so `_tile_headers` emitted
@@ -121,7 +121,7 @@ async def test_non_public_without_signature_is_rejected(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# SEC-002 follow-up (Codex P1 on PR #243): public BUT unpublished previews are
+# Follow-up (Codex P1 on PR #243): public BUT unpublished previews are
 # owner/admin-only and must NOT be shared-cached.
 # ---------------------------------------------------------------------------
 

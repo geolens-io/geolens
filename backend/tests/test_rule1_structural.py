@@ -114,7 +114,7 @@ _DELEGATED_GUARDS = (
     # tiles: app/processing/tiles/router.py — the vector-tile access model
     # (embed token, HMAC signature for non-public, published-status gating).
     "_authorize_vector_tile_request",
-    # tiles: app/processing/tiles/router.py — the SEC-01 status-aware gate
+    # tiles: app/processing/tiles/router.py — the status-aware gate
     # for the tile-token minting endpoints; delegates non-public RBAC to
     # port.check_dataset_access and 404s unpublished-public for non-owners.
     "_enforce_tile_token_access",
@@ -145,7 +145,7 @@ _RAISING_GUARDS = frozenset(
 # accessible-id set). SQLAlchemy Selects are immutable: a bare
 # ``apply_visibility_filter(stmt, ...)`` statement discards the filtered
 # statement and protects nothing. These count only when the result is
-# consumed — assigned, returned, or passed on (codex P1 on #863, round 3).
+# consumed — assigned, returned, or passed on (codex P1 on #863).
 _VALUE_GUARDS = frozenset(
     {
         "apply_visibility_filter",
@@ -165,7 +165,7 @@ def _guard_objects() -> dict[str, Any]:
     """The sanctioned guard FUNCTION OBJECTS, keyed by canonical name.
 
     Guard calls are credited only when the called name resolves to one of
-    these objects by identity (codex P2 on #863, round 5) — a handler
+    these objects by identity (codex P2 on #863) — a handler
     defining its own ``check_dataset_access`` or calling
     ``some_service.check_dataset_access(...)`` on an unrelated object does
     not count. Fails loudly here if a sanctioned guard is renamed or moved.
@@ -209,7 +209,7 @@ def _guards_requiring_await() -> frozenset[str]:
 
     Calling a coroutine guard WITHOUT ``await`` only creates a coroutine —
     no authorization runs and no denial ever raises — so for these the call
-    must sit under an ``ast.Await`` to count (codex P1 on #863, round 4).
+    must sit under an ``ast.Await`` to count (codex P1 on #863).
     Keyed on ``inspect.iscoroutinefunction`` of the real guard objects
     rather than a hardcoded list, so a guard changing between sync and
     async updates the requirement automatically.
@@ -448,7 +448,7 @@ def _select_functions() -> tuple[Any, ...]:
 def _select_aliases(fn: Any, tree: ast.Module) -> frozenset[str]:
     """Names bound to ``sqlalchemy.select``, so aliased imports like
     ``from sqlalchemy import select as sel`` still register as fetches
-    (codex P1 on #863, round 3). The literal names ``select`` /
+    (codex P1 on #863). The literal names ``select`` /
     ``select_from`` are always recognized in addition to these.
     """
     return frozenset(_bound_names(fn, tree, _select_functions()))
@@ -460,7 +460,7 @@ def _accessor_functions() -> tuple[Any, ...]:
 
     Calls to these (resolved by identity, so function-local imports and
     aliases count) are fetch evidence just like a raw select — they are the
-    normal by-ID service paths Rule 1 exists for (codex P1 on #863, round 5).
+    normal by-ID service paths Rule 1 exists for (codex P1 on #863).
     """
     from app.modules.catalog.datasets.domain.service import get_dataset
     from app.modules.catalog.maps.service_crud import get_map, get_map_with_layers
@@ -590,7 +590,7 @@ def _assigned_call_targets(tree: ast.Module) -> dict[int, tuple[frozenset[str], 
 
     Maps call id -> (assigned Name targets, assignment end line). Used to
     require that an assigned value-guard result is actually loaded again
-    afterwards (codex P1, round 8).
+    afterwards (codex P1).
     """
     out: dict[int, tuple[frozenset[str], int]] = {}
     for node in ast.walk(tree):
@@ -666,8 +666,8 @@ def _guard_creditable_call_ids(tree: ast.Module) -> set[int]:
     """Call ids on the analyzed function's own EXECUTION PATH (guard scope).
 
     ``ast.walk`` visits nested function bodies, so a guard awaited inside a
-    nested def that may never run credited the enclosing handler (codex P2,
-    round 7). Guard credit is restricted to:
+    nested def that may never run credited the enclosing handler (codex P2).
+    Guard credit is restricted to:
 
     - calls in the analyzed function's own body (and at module level), and
     - calls in a FIRST-LEVEL nested def that the outer body provably
@@ -724,7 +724,7 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     lines is irrelevant — codex P2 on #863). ``select`` matches both the
     plain name and qualified forms like ``sa.select``; model classes are
     recognized in positional and keyword argument position, so
-    ``db.get(entity=Dataset, ident=...)`` counts (codex P2, round 3):
+    ``db.get(entity=Dataset, ident=...)`` counts (codex P2):
     - ``select(<model or model attribute>, ...)`` / ``sa.select(...)``
     - ``<anything>.select_from(<model>)``
     - ``<anything>.get(<model>, ...)`` / ``.get_one(<model>, ...)``
@@ -735,19 +735,18 @@ def _analyze_source(fn: Any, source: str, label: str) -> tuple[list[str], bool]:
     by identity (``get_dataset`` / ``get_record`` / ``get_map`` /
     ``get_map_with_layers``, including function-local imports) and the
     matching method names on any receiver (``port.get_record(db, id)``)
-    (codex P1, round 5).
+    (codex P1).
 
     A guard counts only when it is actually INVOKED and the called name
-    RESOLVES to a sanctioned guard object by identity (codex P2 on #863,
-    rounds 2 and 5) — imports, docstrings, comments, shadowing local
+    RESOLVES to a sanctioned guard object by identity (codex P2 on #863) — imports, docstrings, comments, shadowing local
     definitions, and same-named methods on unrelated objects do not count.
     The one non-identity path is a ``_PORT_GUARD_METHODS`` call on a
     provable ProcessingPort receiver. Value-returning guards
     (``_VALUE_GUARDS``) additionally require the call result to be
     CONSUMED — a bare expression statement discards the filtered Select and
-    is not a guard (codex P1, round 3). Coroutine guards additionally
+    is not a guard (codex P1). Coroutine guards additionally
     require the call to be AWAITED — an un-awaited call only creates a
-    coroutine and never runs the check (codex P1, round 4).
+    coroutine and never runs the check (codex P1).
     """
     tree = _parse(source)
     if tree is None:
@@ -817,7 +816,7 @@ def _resolve_guard(ctx: _AnalysisContext, node: ast.Call) -> tuple[str, Any] | N
 
 def _is_effective_guard(ctx: _AnalysisContext, node: ast.Call) -> bool:
     if id(node) not in ctx.creditable:
-        return False  # nested def/lambda that may never run (codex P2, round 7)
+        return False  # nested def/lambda that may never run (codex P2)
     resolved = _resolve_guard(ctx, node)
     if resolved is None:
         return False
@@ -842,7 +841,7 @@ def _is_effective_guard(ctx: _AnalysisContext, node: ast.Call) -> bool:
             ):
                 # ``filtered = apply_visibility_filter(stmt, ...)`` with
                 # ``filtered`` never read again: the protection is inert
-                # (codex P1, round 8). Bounded check — see the module
+                # (codex P1). Bounded check — see the module
                 # docstring's documented-limits entry on dataflow.
                 return False
     return True
@@ -892,14 +891,14 @@ def _one_level_expansion(fn: Any, source: str) -> dict[str, tuple[Any, str, bool
 
     Every helper call is expanded for FETCH evidence — a coroutine passed
     to ``await asyncio.gather(...)`` or ``create_task`` does execute, so
-    skipping it would hide its fetches (codex P1, round 6; fail-closed).
+    skipping it would hide its fetches (codex P1; fail-closed).
     GUARD credit from a helper is asymmetric: it flows to the handler only
     when the helper provably executes at the call site — the call is
     directly awaited, a direct argument of an awaited call (the awaited
     ``asyncio.gather(helper())`` idiom), or the helper is a plain sync
     function. Without that restriction an un-awaited
     ``record = _check_record_ownership(...)`` would be credited with the
-    helper's internal awaited guard call (the codex P1, round 4 hole).
+    helper's internal awaited guard call (the codex P1 hole).
     """
     tree = _parse(source)
     if tree is None:
@@ -985,7 +984,7 @@ def _analyze_routes() -> tuple[int, tuple[_HandlerReport, ...]]:
         fn = _unwrap(route.endpoint)
         key = f"{fn.__module__}.{fn.__qualname__}"
         if key in reports:
-            # Dual-shape slash aliases (ROUTE-01) register the same endpoint
+            # Dual-shape slash aliases register the same endpoint
             # twice; analyze it once.
             continue
         source = _source_of(fn)
@@ -1355,19 +1354,19 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     imp_avf = "from app.modules.catalog.authorization import apply_visibility_filter\n"
     imp_bulk = "from app.modules.catalog.maps.service_layers import bulk_check_dataset_access\n"
 
-    # Qualified select: sa.select(Model) is a fetch (codex P2, round 3).
+    # Qualified select: sa.select(Model) is a fetch (codex P2).
     evidence, guarded = _analyze_source(
         _dummy, imp + "def f(db):\n    return db.execute(sa.select(DsX))\n", "t"
     )
     assert evidence and not guarded, "sa.select(Model) must be detected as a fetch"
 
-    # Keyword get: db.get(entity=Model, ident=...) is a fetch (codex P2, round 3).
+    # Keyword get: db.get(entity=Model, ident=...) is a fetch (codex P2).
     evidence, guarded = _analyze_source(
         _dummy, imp + "def f(db, i):\n    return db.get(entity=DsX, ident=i)\n", "t"
     )
     assert evidence and not guarded, "db.get(entity=Model) must be detected as a fetch"
 
-    # AsyncSession.get_one is the same fetch shape (codex P1, round 6).
+    # AsyncSession.get_one is the same fetch shape (codex P1).
     evidence, guarded = _analyze_source(
         _dummy, imp + "async def f(db, i):\n    return await db.get_one(DsX, i)\n", "t"
     )
@@ -1376,7 +1375,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     )
 
     # A bare value-guard statement discards the filtered Select and is NOT a
-    # guard (codex P1, round 3)...
+    # guard (codex P1)...
     evidence, guarded = _analyze_source(
         _dummy,
         imp
@@ -1422,7 +1421,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
 
     # Assigning the filtered statement to a name that is NEVER read again
     # leaves the protection inert — the raw statement is what gets executed
-    # (codex P1, round 8).
+    # (codex P1).
     evidence, guarded = _analyze_source(
         _dummy,
         imp
@@ -1454,7 +1453,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     )
 
     # An UN-AWAITED coroutine guard only creates a coroutine — the check
-    # never runs, so it must not count (codex P1, round 4).
+    # never runs, so it must not count (codex P1).
     evidence, guarded = _analyze_source(
         _dummy,
         imp
@@ -1497,7 +1496,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     )
 
     # A SHADOWED guard name — locally defined, never imported — must not
-    # count: guard credit requires identity resolution (codex P2, round 5).
+    # count: guard credit requires identity resolution (codex P2).
     evidence, guarded = _analyze_source(
         _dummy,
         imp
@@ -1514,7 +1513,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     )
 
     # ProcessingPort accessor: port.get_record(db, id) is a fetch even
-    # though the receiver is a local (codex P1, round 5).
+    # though the receiver is a local (codex P1).
     evidence, guarded = _analyze_source(
         _dummy,
         'async def f(db, i, port: "ProcessingPort"):\n'
@@ -1567,7 +1566,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
     )
 
     # A guard inside a nested def the handler NEVER invokes must not credit
-    # the handler — the callback may never run (codex P2, round 7).
+    # the handler — the callback may never run (codex P2).
     evidence, guarded = _analyze_source(
         _dummy,
         imp
@@ -1647,7 +1646,7 @@ def test_detection_self_checks_on_synthetic_sources() -> None:
 
 @pytest.mark.architecture
 def test_expansion_semantics_on_synthetic_sources() -> None:
-    """Pin the helper-expansion semantics (codex P1 rounds 4 and 6).
+    """Pin the helper-expansion semantics (codex P1).
 
     Dummy functions are built with controlled globals binding REAL app
     helpers, because expansion only follows ``app.*`` functions. The
@@ -1662,7 +1661,7 @@ def test_expansion_semantics_on_synthetic_sources() -> None:
 
     # A helper scheduled through an AWAITED asyncio.gather provably
     # executes — its fetches must be visible and its internal (consumed)
-    # guard is credited (codex P1 round 6 + P2 round 7).
+    # guard is credited (codex P1 + P2).
     # _get_visible_dataset selects Dataset and applies the filter inside.
     fn = _dummy_with({"gather_helper": ogc_router._get_visible_dataset})
     evidence, guarded = _analyze_effective(
@@ -1702,7 +1701,7 @@ def test_expansion_semantics_on_synthetic_sources() -> None:
         "an awaited helper must contribute both its fetches and its guards"
     )
 
-    # Round-4 pin at composition level: an un-awaited (assigned) coroutine
+    # Composition-level pin: an un-awaited (assigned) coroutine
     # helper never runs, so its internal guard must NOT be credited — while
     # its fetch stays visible (fail-closed).
     fn = _dummy_with({"load_visible": ogc_router._get_visible_dataset})
@@ -1829,7 +1828,7 @@ def test_delegated_guards_still_enforce_access() -> None:
 
     # ProcessingPort guard wrappers are credited by method name on provable
     # port receivers, so the default implementation must keep delegating to
-    # the real authorization functions (codex P2, round 5).
+    # the real authorization functions (codex P2).
     from app.platform.extensions.defaults import DefaultProcessingPort
 
     for method_name in sorted(_PORT_GUARD_METHODS):

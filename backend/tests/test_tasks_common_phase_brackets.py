@@ -1,4 +1,4 @@
-"""REMED-03 / ingest-audit P2-05: contract pins for ``_job_phase_session``.
+"""Contract pins for ``_job_phase_session``.
 
 The helper centralizes the two-phase session-bracket pattern shared by
 ``tasks_vector.ingest_file``, ``tasks_vector.ingest_service``, and
@@ -15,7 +15,7 @@ the helper exposes so a future change cannot silently regress them:
 4. ``commit_persists_on_normal_exit`` — explicit ``session.commit()`` inside
    the block persists (caller owns the commit decision; the helper does not
    auto-commit on exit).
-5. ``require_status`` (fix(#1778 audit r11)) — an optional status predicate
+5. ``require_status`` (fix(#1778)) — an optional status predicate
    that joins the attempt fence. Without it, a row the stale sweep already
    failed on a heartbeat timeout, with no retry having rotated the attempt
    token yet, still matched an ``(id, attempt)``-only fence: a worker only
@@ -122,7 +122,7 @@ async def test_phase_session_yields_none_when_job_missing(client):
     test's defunct loop from surfacing ``RuntimeError: Task got Future attached
     to a different loop`` under CI's Python 3.13 xdist scheduling (the
     isolation-only flake exposed when v1039 added ~30 test files and shifted
-    worker distribution). See the TD-06 note on the sibling test.
+    worker distribution). See the note on the sibling test.
     """
     missing_id = _uuid.uuid4()
 
@@ -142,7 +142,7 @@ async def test_phase_session_yields_none_when_job_missing(client):
 
 @pytest.mark.anyio
 async def test_job_phase_session_none_branch_rolls_back_on_exception(client):
-    """WR-02: an exception raised inside the ``async with`` block when job is
+    """An exception raised inside the ``async with`` block when job is
     None triggers ``session.rollback()`` before re-raising.
 
     The None branch previously yielded bare (outside the try/except guard) so
@@ -150,7 +150,7 @@ async def test_job_phase_session_none_branch_rolls_back_on_exception(client):
     an explicit rollback. This pins the corrected behaviour: the helper wraps
     the None-job yield in the same try/except as the found-job branch.
 
-    Full-suite event-loop binding fix (Plan 1081-03 / TD-06):
+    Full-suite event-loop binding fix:
     The helper resolves ``app.core.db.async_session`` via a lazy from-import
     inside its function body (tasks_common.py:215). In isolation, that
     factory is the production singleton — fresh connection bound to the
@@ -158,7 +158,7 @@ async def test_job_phase_session_none_branch_rolls_back_on_exception(client):
     test has already exercised the production factory under a DIFFERENT
     event loop, leaving the engine's pool / asyncpg connections bound to
     a now-defunct loop. When the helper's ``session.rollback()`` fires
-    inside the broad-except at line 232 (justified by Plan 1080-01), asyncpg
+    inside the broad-except at line 232, asyncpg
     raises ``RuntimeError: Task got Future attached to a different loop``.
     Requesting the ``client`` fixture pulls the conftest monkey-patch at
     conftest.py:368-369 (``db_module.async_session = test_session_factory``)
@@ -240,7 +240,7 @@ async def test_phase_session_commit_persists_on_normal_exit(test_db_session):
 
 
 # ---------------------------------------------------------------------------
-# 5. require_status (fix(#1778 audit r11))
+# 5. require_status (fix(#1778))
 # ---------------------------------------------------------------------------
 
 
@@ -325,7 +325,7 @@ def test_every_phase2_site_requires_running() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The row lock (fix(#1778 audit r12))
+# The row lock (fix(#1778))
 # ---------------------------------------------------------------------------
 
 
@@ -334,7 +334,7 @@ def test_every_phase2_site_requires_running() -> None:
 async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
     test_db_session, settle
 ) -> None:
-    """fix(#1778 audit r12): the pin for the TOCTOU round 11 left open. A
+    """fix(#1778): the pin for the TOCTOU left open. A
     plain SELECT is not a lock, so the sweep could still fail a row in the
     window between ``_job_phase_session``'s read and the phase's first
     irreversible write. ``require_status`` now takes ``FOR NO KEY UPDATE``,
@@ -362,7 +362,7 @@ async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
         await session.commit()
     assert await _select_status(test_db_session, job_id) == "running"
 
-    # Phase 2 holding the lock across its first put: acquiring it here and
+    # Holding the lock across its first put: acquiring it here and
     # keeping the transaction open is exactly what `require_status="running"`
     # does inside `_job_phase_session`, for as long as the caller's session
     # stays open.

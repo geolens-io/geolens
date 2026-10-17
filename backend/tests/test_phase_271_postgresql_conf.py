@@ -1,4 +1,4 @@
-"""Static-analysis tests for Phase 271 postgresql.conf and Map index-deferral doc deliverables."""
+"""Static-analysis tests for postgresql.conf and Map index-deferral doc deliverables."""
 
 import re
 
@@ -12,7 +12,7 @@ _MAP_MODEL = (
 
 
 def test_postgresql_conf_sets_hnsw_ef_search_default():
-    """DBM-01: hnsw.ef_search = 100 must be a session default in postgresql.conf."""
+    """hnsw.ef_search = 100 must be a session default in postgresql.conf."""
     text = _POSTGRESQL_CONF.read_text()
     # Allow flexible whitespace around the assignment.
     assert re.search(

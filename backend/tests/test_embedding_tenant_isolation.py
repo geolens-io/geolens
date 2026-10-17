@@ -63,7 +63,7 @@ async def test_embedding_helper_queries_join_rls_visible_records(monkeypatch):
         "resolve_embedding_model_name",
         AsyncMock(return_value="tenant-isolation-model"),
     )
-    # fix(#1580 review r4): the fingerprint resolver too. The anchor read orders
+    # fix(#1580): the fingerprint resolver too. The anchor read orders
     # by "the row search would use", so it asks what the live configuration IS
     # before running its own query — and that resolution goes to the database on
     # a cold persistent-config cache, consuming one of the three results queued
@@ -165,7 +165,7 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
         "records_still_current",
         AsyncMock(side_effect=lambda _session, observed: set(observed)),
     )
-    # fix(#1511 review r3): the force path proves it can embed before it
+    # fix(#1511): the force path proves it can embed before it
     # deletes. This test is about the DELETE's record scoping, so give it a
     # working provider rather than letting the pre-flight abort the run.
     monkeypatch.setattr(
@@ -174,7 +174,7 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
         AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
     )
     backfill_session = AsyncMock()
-    # fix(#1511 review r4): the pre-flight also reads the embedding column's
+    # fix(#1511): the pre-flight also reads the embedding column's
     # declared width off pg_attribute, so a bare AsyncMock hands it a coroutine
     # instead of a number. Return the width the stubbed provider above actually
     # produces — a mismatch here would abort the run before the DELETE this
@@ -436,13 +436,13 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
         monkeypatch.setattr(
             backfill_module.EMBEDDING_DIMS, "get", AsyncMock(return_value=1536)
         )
-        # fix(#1525 review r2): the snapshot reads the dimensions uncached now,
+        # fix(#1525): the snapshot reads the dimensions uncached now,
         # to see past a mid-eviction cache. Same app_settings denial, so the
         # same precondition has to be supplied.
         monkeypatch.setattr(
             backfill_module.EMBEDDING_DIMS, "get_uncached", AsyncMock(return_value=1536)
         )
-        # fix(#1511 review r3): likewise for the AI gate, which force now
+        # fix(#1511): likewise for the AI gate, which force now
         # checks before its delete, and the pre-flight embedding. Either would
         # otherwise abort this run before the DELETE under test — the gate by
         # raising on the same app_settings denial as the keys above.

@@ -302,7 +302,7 @@ def _backup_stage_copy_map() -> dict[str, Path]:
 
 
 def test_backup_stage_bakes_every_script_it_sources():
-    """fix(#1798 review round 7, P2): restore.sh sources
+    """restore.sh sources
     `$SCRIPT_DIR/lib/common.sh` (SCRIPT_DIR=/scripts in this baked
     layout) for get_env_value, but the backup stage's COPY line used to
     bring in only backup-entrypoint.sh and restore.sh — the PUBLISHED

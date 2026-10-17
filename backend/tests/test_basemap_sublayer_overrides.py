@@ -9,10 +9,10 @@ Coverage:
 - _clean_basemap_config rejects invalid override payloads
 
 Security coverage:
-- T-1059A-01: hex validator blocks javascript: URIs, raw names, short/long hex
-- T-1059A-02: numeric bounds on stroke_width, casing_width, zoom, opacity
-- T-1059A-03: extra="forbid" blocks undeclared style axes (halo_blur, dash_pattern, etc.)
-- T-1059A-04: legacy maps without sublayer_overrides deserialize cleanly (sublayer_overrides=None)
+- hex validator blocks javascript: URIs, raw names, short/long hex
+- numeric bounds on stroke_width, casing_width, zoom, opacity
+- extra="forbid" blocks undeclared style axes (halo_blur, dash_pattern, etc.)
+- legacy maps without sublayer_overrides deserialize cleanly (sublayer_overrides=None)
 """
 
 import pytest
@@ -116,7 +116,7 @@ def test_sublayer_override_rejects_opacity_out_of_range():
 
 
 # ---------------------------------------------------------------------------
-# 7. Color validators: reject malformed hex (security: T-1059A-01)
+# 7. Color validators: reject malformed hex (security)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
     "bad_hex",
@@ -147,7 +147,7 @@ def test_sublayer_override_accepts_uppercase_hex():
 
 
 # ---------------------------------------------------------------------------
-# 9. extra="forbid" blocks unknown style axes (D-14 scope guardrail; T-1059A-03)
+# 9. extra="forbid" blocks unknown style axes (scope guardrail)
 # ---------------------------------------------------------------------------
 def test_sublayer_override_rejects_unknown_extra_field():
     with pytest.raises(ValidationError):
@@ -158,7 +158,7 @@ def test_sublayer_override_rejects_unknown_extra_field():
 
 # ---------------------------------------------------------------------------
 # 10. Legacy basemap_config (no sublayer_overrides key) deserializes cleanly
-#     (D-03 zero-migration backward compat; T-1059A-04)
+#     (zero-migration backward compat)
 # ---------------------------------------------------------------------------
 def test_basemap_config_legacy_payload_deserializes_with_no_overrides():
     cfg = BasemapConfig.model_validate(LEGACY_BASEMAP_PAYLOAD)
@@ -213,7 +213,7 @@ def test_clean_basemap_config_rejects_invalid_override():
 
 
 # ---------------------------------------------------------------------------
-# 14. Opaque keyset: unknown sublayer IDs parse cleanly (D-01 forward-compat)
+# 14. Opaque keyset: unknown sublayer IDs parse cleanly (forward-compat)
 # ---------------------------------------------------------------------------
 def test_sublayer_overrides_opaque_keyset():
     cfg = BasemapConfig.model_validate(
@@ -229,10 +229,10 @@ def test_sublayer_overrides_opaque_keyset():
 
 
 # ---------------------------------------------------------------------------
-# 15. Cross-field validator: min_zoom > max_zoom is rejected (WR-02)
+# 15. Cross-field validator: min_zoom > max_zoom is rejected
 # ---------------------------------------------------------------------------
 def test_sublayer_override_rejects_inverted_zoom_range():
-    """min_zoom > max_zoom must raise ValidationError (WR-02).
+    """min_zoom > max_zoom must raise ValidationError.
 
     MapLibre's behavior with an inverted zoom range is undefined and causes
     permanently invisible layers. The cross-field validator surfaces the error
@@ -243,7 +243,7 @@ def test_sublayer_override_rejects_inverted_zoom_range():
 
 
 # ---------------------------------------------------------------------------
-# 16. Cross-field validator: equal min_zoom == max_zoom is accepted (WR-02)
+# 16. Cross-field validator: equal min_zoom == max_zoom is accepted
 # ---------------------------------------------------------------------------
 def test_sublayer_override_accepts_equal_zoom_range():
     """min_zoom == max_zoom is a valid edge case (single-zoom visibility band)."""
@@ -253,7 +253,7 @@ def test_sublayer_override_accepts_equal_zoom_range():
 
 
 # ---------------------------------------------------------------------------
-# 17. Cross-field validator: partial zoom (only min_zoom set) passes (WR-02)
+# 17. Cross-field validator: partial zoom (only min_zoom set) passes
 # ---------------------------------------------------------------------------
 def test_sublayer_override_accepts_partial_zoom_only_min():
     """Partial override with only min_zoom is valid (max_zoom remains None)."""
@@ -263,7 +263,7 @@ def test_sublayer_override_accepts_partial_zoom_only_min():
 
 
 # ---------------------------------------------------------------------------
-# 18. Cross-field validator: partial zoom (only max_zoom set) passes (WR-02)
+# 18. Cross-field validator: partial zoom (only max_zoom set) passes
 # ---------------------------------------------------------------------------
 def test_sublayer_override_accepts_partial_zoom_only_max():
     """Partial override with only max_zoom is valid (min_zoom remains None)."""

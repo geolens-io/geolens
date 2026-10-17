@@ -174,7 +174,7 @@ def test_a_qualified_name_ending_in_the_marker_is_not_a_call(qualified):
     """``public.geolens_buffer(...)`` names some other schema's function, and
     substituting our expression for it would answer a different question.
 
-    fix(#1589 review r2): the rule used to read the character immediately
+    fix(#1589): the rule used to read the character immediately
     before the name, so anything between the dot and the name defeated it —
     a comment (the scan had already skipped it and saw ``/``) or even a plain
     space. All of these are one qualified name to PostgreSQL.
@@ -204,7 +204,7 @@ def test_a_comment_before_an_unqualified_marker_still_reads_as_a_call(prefix):
 def test_the_nested_check_agrees_with_the_top_level_scan_on_qualified_names():
     """A qualified name is not our marker in either place.
 
-    Before fix(#1589 review r2) the two disagreed for
+    Before fix(#1589) the two disagreed for
     ``public./**/geolens_buffer``: the top-level scan expanded it, while the
     same string inside a geometry argument was rejected as nesting. Whichever
     answer is right, one of those was wrong.
@@ -232,7 +232,7 @@ def test_a_comment_between_the_name_and_its_parenthesis_still_reads_as_a_call():
 
 
 # ---------------------------------------------------------------------------
-# Comments inside the call (fix(#1589) review r1)
+# Comments inside the call (fix(#1589) codex)
 # ---------------------------------------------------------------------------
 
 
@@ -274,7 +274,7 @@ def test_a_comment_inside_the_call_does_not_ride_into_the_expression(geom):
     ],
 )
 def test_a_comment_around_the_distance_does_not_refuse_the_call(distance):
-    """fix(#1589 review r2): the distance argument gets the same treatment as
+    """fix(#1589): the distance argument gets the same treatment as
     the geometry one. Leaving it out would have kept half the failure class:
     a correct call, refused with a message nobody sees."""
     expanded = expand_buffer_markers(_wrap(f"geolens_buffer(s.geom_4326, {distance})"))
@@ -290,7 +290,7 @@ def test_a_comment_that_looks_like_one_inside_a_literal_is_kept():
 
 
 # ---------------------------------------------------------------------------
-# Redundant parentheses (fix(#1589) review r2)
+# Redundant parentheses (fix(#1589) codex)
 # ---------------------------------------------------------------------------
 
 
@@ -553,7 +553,7 @@ def test_a_comment_cannot_smuggle_sql_through_the_argument_split():
     What is left is ``s.geom_4326``, and the statement VALIDATES. That is the
     right outcome rather than a lucky one: the attempt failed as an attempt,
     and the query that remains is the ordinary buffer the model asked for.
-    Before fix(#1589 review r1) this was refused instead, which looked like
+    Before fix(#1589) this was refused instead, which looked like
     security and was really the comment breaking the canonical re-render — the
     same collateral damage a plain ``/* the stop */`` took.
     """
@@ -715,7 +715,7 @@ async def test_the_raw_query_endpoint_does_not_expand_a_marker(
 
 
 def test_the_chat_path_rewrites_that_follow_expansion_keep_the_buffer_valid():
-    """fix(#1589 review r1): the two rewrites ``query_data`` applies AFTER
+    """fix(#1589): the two rewrites ``query_data`` applies AFTER
     ``generate_sql`` returns, run over the expanded 3 KB scaffold.
 
     ``ensure_geometry_selected`` parses the statement with sqlglot and prints

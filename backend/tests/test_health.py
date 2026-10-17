@@ -31,7 +31,7 @@ async def test_probe_success():
 async def test_probe_failure():
     """Failed probe reports error status; detail gated by the error flag.
 
-    GAP-016: _probe omits the raw exception by default (so the unauthenticated
+    _probe omits the raw exception by default (so the unauthenticated
     /health response never leaks it) and only embeds it when
     _include_probe_errors is set (the authenticated admin path).
     """
@@ -113,7 +113,7 @@ async def test_check_health_degraded():
 
 @pytest.mark.asyncio
 async def test_check_health_default_omits_provider_error():
-    """GAP-016: default check_health() must NOT embed the raw exception string.
+    """Default check_health() must NOT embed the raw exception string.
 
     The unauthenticated /health endpoint calls check_health() with the default
     include_errors=False, so a failing provider returns only status/latency —
@@ -147,7 +147,7 @@ async def test_check_health_default_omits_provider_error():
 
 @pytest.mark.asyncio
 async def test_check_health_include_errors_keeps_provider_error():
-    """GAP-016: admin path (include_errors=True) keeps the error detail."""
+    """Admin path (include_errors=True) keeps the error detail."""
     secret = "asyncpg: could not connect to host db-internal-1.prod:5432"
 
     async def noop():
@@ -172,7 +172,7 @@ async def test_check_health_include_errors_keeps_provider_error():
 
 @pytest.mark.anyio
 async def test_health_endpoint_does_not_leak_provider_error(client):
-    """GAP-016: the /health HTTP response omits raw provider exception text."""
+    """The /health HTTP response omits raw provider exception text."""
     secret = "boto3 endpoint s3://internal-secret-bucket.prod creds=AKIAXXXX"
 
     async def noop():
@@ -229,7 +229,7 @@ async def test_health_endpoint_reports_version_and_build(client, monkeypatch):
 
 
 def test_health_endpoint_is_rate_limited():
-    """GAP-016: /health carries an explicit rate limit and is not exempt.
+    """/health carries an explicit rate limit and is not exempt.
 
     Before the fix the route was @limiter.exempt (in _exempt_routes, absent
     from _route_limits). After the fix it has its own generous @limiter.limit,

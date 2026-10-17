@@ -1,6 +1,6 @@
-"""SEC-17: GZipMiddleware mount-order vs SecurityHeadersMiddleware is pinned.
+"""GZipMiddleware mount-order vs SecurityHeadersMiddleware is pinned.
 
-Pins the v13.13 closure of L-63. The mount order is significant — flipping
+The mount order is significant — flipping
 it would mean GZip compresses BEFORE the headers are added, which would
 break the security-header guarantee on compressed responses.
 
@@ -85,7 +85,7 @@ def test_compressed_response_still_carries_security_headers():
         "SEC-17: x-frame-options missing — middleware order may be broken."
     )
     # The Referrer-Policy global default must still apply on non-OAuth routes
-    # (this also pins the SEC-13 setdefault semantics).
+    # (this also pins the setdefault semantics).
     assert resp.headers.get("referrer-policy") == "strict-origin-when-cross-origin", (
         "SEC-17/SEC-13: global Referrer-Policy default missing on /health."
     )

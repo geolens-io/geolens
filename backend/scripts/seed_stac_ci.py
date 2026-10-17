@@ -16,7 +16,7 @@ from datetime import date
 
 
 async def main() -> None:
-    import app.modules.auth.models  # noqa: F401 -- register catalog.users so the records FK resolves (same pattern as alembic/env.py); the User symbol itself stays unimported per the IDENT-02 layering guard
+    import app.modules.auth.models  # noqa: F401 -- register catalog.users so the records FK resolves (same pattern as alembic/env.py); the User symbol itself stays unimported per the layering guard
     from app.core.db import async_session
     from app.modules.catalog.collections.models import Collection, CollectionDataset
     from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -24,7 +24,7 @@ async def main() -> None:
     async with async_session() as session:
         # created_by stays NULL: the record is public+published, so the
         # anonymous visibility filter never consults ownership, and importing
-        # the concrete User ORM here would violate the IDENT-02 layering guard.
+        # the concrete User ORM here would violate the layering guard.
         record = Record(
             title="STAC CI raster",
             summary="Fixture record for the stac-api-validator CI gate.",

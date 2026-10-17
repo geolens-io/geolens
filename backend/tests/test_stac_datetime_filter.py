@@ -1,6 +1,6 @@
 """STAC datetime filter — null-temporal records use the created_at fallback.
 
-fix(#430 BA-13 / #430 codex): records with no temporal_start/temporal_end advertise
+fix(#430 / #430 codex): records with no temporal_start/temporal_end advertise
 ``properties.datetime = created_at`` (see test_stac_record_output.py), so the
 search filter must compare that same fallback instant — NOT admit every
 null-temporal record unconditionally (pre-fix, ``datetime=1900-01-01/...``
@@ -110,7 +110,7 @@ async def test_past_interval_excludes_null_temporal_record(
 async def test_interval_spanning_created_at_includes_null_temporal_record(
     client: AsyncClient, test_db_session: AsyncSession
 ):
-    """BA-13 intent preserved: an interval containing created_at still matches."""
+    """Intent preserved: an interval containing created_at still matches."""
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await _create_null_temporal_raster(
         test_db_session, created_by=admin_id, name="Null Temporal Spanning"
@@ -138,7 +138,7 @@ async def test_past_instant_excludes_null_temporal_record(
 async def test_advertised_fallback_instant_matches_null_temporal_record(
     client: AsyncClient, test_db_session: AsyncSession
 ):
-    """fix(#430 codex r2): searching by the record's OWN advertised datetime
+    """fix(#430): searching by the record's OWN advertised datetime
     (created_at) must match. parse_ogc_datetime is day-granular, so any
     created_at within the requested day counts — not just exact midnight."""
     admin_id = await get_user_id(test_db_session, "admin")

@@ -1,4 +1,4 @@
-"""Tests for PERF-002: raster tile metadata caching.
+"""Tests for raster tile metadata caching.
 
 Verifies:
   - _resolve_raster_meta returns the same _RasterMeta object on a second call
@@ -113,7 +113,7 @@ async def _create_private_raster(session, *, created_by: uuid.UUID) -> Dataset:
 
 
 class TestRasterMetaCache:
-    """PERF-002: _resolve_raster_meta populates and hits the TTL cache."""
+    """_resolve_raster_meta populates and hits the TTL cache."""
 
     async def test_cache_populated_on_first_call(self, test_db_session):
         """After the first call, the cache contains an entry for the dataset."""
@@ -167,7 +167,7 @@ class TestRasterMetaCache:
     async def test_auth_still_denied_after_metadata_cached(
         self, client, admin_auth_header, test_db_session
     ):
-        """PERF-002 safety: cached metadata must NOT bypass per-request auth.
+        """Safety: cached metadata must NOT bypass per-request auth.
 
         Scenario:
           1. Admin calls raster-auth-check → metadata is cached.

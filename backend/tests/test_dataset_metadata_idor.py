@@ -1,4 +1,4 @@
-"""Tests for SEC-S02 — dataset metadata mutation IDOR (Phase 1061).
+"""Tests for the dataset metadata mutation IDOR.
 
 Verifies that editor B cannot mutate editor A's private dataset metadata
 via PATCH /datasets/{id}, DELETE /datasets/{id}, or POST /datasets/bulk-delete/.
@@ -16,7 +16,7 @@ from tests.factories import create_dataset
 
 
 # ---------------------------------------------------------------------------
-# SEC-S02: PATCH /datasets/{id} — unauthorized editor B is denied
+# PATCH /datasets/{id} — unauthorized editor B is denied
 # ---------------------------------------------------------------------------
 
 
@@ -78,7 +78,7 @@ async def test_patch_dataset_owner_private_returns_200(
 
 
 # ---------------------------------------------------------------------------
-# SEC-S02: DELETE /datasets/{id} — unauthorized editor B is denied
+# DELETE /datasets/{id} — unauthorized editor B is denied
 # ---------------------------------------------------------------------------
 
 
@@ -201,7 +201,7 @@ async def test_delete_dataset_admin_returns_204(
 
 
 # ---------------------------------------------------------------------------
-# SEC-S02: POST /datasets/bulk-delete/ — unauthorized items yield per-item error
+# POST /datasets/bulk-delete/ — unauthorized items yield per-item error
 # ---------------------------------------------------------------------------
 
 
@@ -246,7 +246,7 @@ async def test_bulk_delete_skips_unauthorized_items(
 
 
 # ---------------------------------------------------------------------------
-# SEC-S02 / CR-01: PATCH /datasets/{id}/status/ and /{id}/target-status/ IDOR
+# PATCH /datasets/{id}/status/ and /{id}/target-status/ IDOR
 # ---------------------------------------------------------------------------
 
 
@@ -258,9 +258,9 @@ async def test_update_publication_status_other_user_private_returns_404(
 ):
     """Editor B cannot promote editor A's private dataset via /status/ endpoint.
 
-    Phase 1061 CR-01 regression: require_permission("edit_metadata") is
-    role-level only.  Without check_dataset_access any editor could publish
-    another user's private dataset.
+    regression: require_permission("edit_metadata") is
+       role-level only.  Without check_dataset_access any editor could publish
+       another user's private dataset.
     """
     session = test_db_session
 
@@ -292,8 +292,8 @@ async def test_set_target_status_other_user_private_returns_404(
 ):
     """Editor B cannot walk editor A's private dataset to published via /target-status/.
 
-    Phase 1061 CR-01 regression: without check_dataset_access the full
-    draft→published chain would execute without ownership verification.
+    regression: without check_dataset_access the full
+       draft→published chain would execute without ownership verification.
     """
     session = test_db_session
 

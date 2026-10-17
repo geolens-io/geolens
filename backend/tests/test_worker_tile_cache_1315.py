@@ -6,11 +6,11 @@ API lifespan.  The worker is a separate process, so ``get_tile_cache()``
 returned ``None`` there and every post-swap MVT purge -- both reupload paths
 and the PostGIS refresh -- was a silent no-op.  Stale tiles kept being served
 for up to ``tile_cache_ttl`` after every re-upload, which is exactly what
-fix(#394) B-019/VT-01 added the purge to prevent.
+fix(#394) added the purge to prevent.
 
 The fix moves ``init_tile_cache()`` into the shared ``bootstrap()`` so both
 entrypoints take it from one place.  The worker deliberately does NOT take the
-PERF-01 in-memory fallback: it never reads tiles, so a per-process LRU there
+ in-memory fallback: it never reads tiles, so a per-process LRU there
 holds nothing, and purging it would evict nothing while logging that it had
 succeeded -- the current no-op with extra steps.  With ``REDIS_URL`` unset the
 worker leaves the singleton unset and says why at boot.
@@ -159,7 +159,7 @@ def test_api_bootstrap_initializes_redis_backed_tile_cache(
 def test_api_bootstrap_keeps_in_memory_fallback_without_redis(
     bootstrappable, restore_tile_cache, monkeypatch
 ):
-    """PERF-01 is unchanged for the API: no REDIS_URL still gets the LRU.
+    """The API is unchanged: no REDIS_URL still gets the LRU.
 
     The API both writes and reads tiles in one process, so a process-local
     cache is a real cache there.

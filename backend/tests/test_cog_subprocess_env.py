@@ -1,8 +1,8 @@
-"""KNOWN-03 (Phase 1071): GDAL CLI subprocess env overlay coverage.
+"""GDAL CLI subprocess env overlay coverage.
 
-v1015 Phase 1068 IA-P1-03 scoped ``_VRT_SAFE_ENV`` (with
+v1015 scoped ``_VRT_SAFE_ENV`` (with
 ``CPL_VSIL_CURL_ALLOWED_EXTENSIONS`` and ``VRT_VIRTUAL_OVERVIEWS``) to
-``gdalbuildvrt`` only via ``_build_vrt``. Phase 1071 extends the same clamp
+``gdalbuildvrt`` only via ``_build_vrt``. extends the same clamp
 to the sibling raster subprocesses in ``cog.py``: ``gdaladdo`` (overview
 generation), ``gdalwarp`` (CRS reprojection), and ``gdal_translate`` (COG
 translation).
@@ -16,9 +16,6 @@ These tests pin the captured ``env=`` kwarg for each subprocess invocation
 so a future refactor cannot silently regress the overlay shape.
 
 Mirrors ``backend/tests/test_vrt_hardening.py::TestGdalBuildVrtSafeEnv``.
-
-Requirement: KNOWN-03
-Phase: 1071
 """
 
 from contextlib import contextmanager
@@ -40,7 +37,7 @@ _NO_OVERVIEWS = {"has_internal_overviews": False, "predictor_supported": True}
 
 
 def _assert_clamps(env: dict) -> None:
-    """The KNOWN-03 clamps must be set on the captured env."""
+    """The clamps must be set on the captured env."""
     assert env is not None, "subprocess.run was invoked without env="
     for key, expected in EXPECTED_CLAMPS.items():
         assert env.get(key) == expected, (
@@ -55,7 +52,7 @@ def _assert_clamps(env: dict) -> None:
 def _capture_subprocess_runs(monkeypatch):
     """Patch ``vrt.subprocess.run`` to capture each (cmd, env) tuple.
 
-    fix(#430 BA-29 / #430): cog.py no longer calls subprocess directly — its GDAL
+    Cog.py no longer calls subprocess directly — its GDAL
     CLIs route through ``run_gdal`` in vrt.py (which adds the kill-on-hang
     timeout), so the patch target moved there.
 
@@ -139,7 +136,7 @@ class TestPrepareWithOverviewsSafeEnv:
 class TestConvertToCogCrsAssignment:
     """fix(#1291): ``assign_crs`` ASSIGNS the CRS and does not reproject.
 
-    This class used to pin the KNOWN-03 clamps on a ``gdalwarp`` subprocess,
+    This class used to pin the clamps on a ``gdalwarp`` subprocess,
     because ``convert_to_cog`` prepended one whenever an EPSG code was
     supplied. The decision on #1291 removed that step: the code now rides on
     the existing ``gdal_translate`` as ``-a_srs``, which relabels the raster
@@ -187,7 +184,7 @@ class TestConvertToCogCrsAssignment:
         # The flag must precede the positional input/output pair, or GDAL reads
         # it as a file name.
         assert cmd.index("-a_srs") < cmd.index(str(dst))
-        # KNOWN-03: the clamps ride on whichever process carries the work.
+        # The clamps ride on whichever process carries the work.
         _assert_clamps(env)
 
     def test_no_assign_crs_leaves_the_argv_alone(self, tmp_path, monkeypatch):
@@ -284,7 +281,7 @@ class TestGdalSafeEnvHelper:
         assert env.get("GDAL_CACHEMAX") == "200"
 
     def test_extras_override_vrt_safe_env_if_collision(self):
-        """CR-01 (Phase 1071 review): passing a security clamp key in extras raises ValueError.
+        """Passing a security clamp key in extras raises ValueError.
 
         The old contract was "extras win" (clobber silently allowed), which is
         the wrong contract for a security-clamping helper. The new contract is
@@ -299,12 +296,12 @@ class TestGdalSafeEnvHelper:
 
 
 # ---------------------------------------------------------------------------
-# fix(#430 codex r15): temp-file cleanup when run_gdal RAISES (BA-29 timeout)
+# fix(#430): temp-file cleanup when run_gdal RAISES (timeout)
 # ---------------------------------------------------------------------------
 
 
 class TestGdalFailureTempCleanup:
-    """run_gdal raises on timeout (BA-29); the returncode-only cleanup paths
+    """run_gdal raises on timeout; the returncode-only cleanup paths
     leaked the staged temp copies. Any raise must remove them."""
 
     def test_prepare_with_overviews_cleans_tmp_on_run_gdal_raise(

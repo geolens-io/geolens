@@ -1,13 +1,13 @@
 """Integration tests for embed token CRUD and tile middleware.
 
 Covers:
-  - EMBED-01: Token creation with SHA-256 hashing
-  - EMBED-02: Scoped dataset tile access
-  - EMBED-03: Default and max expiration
-  - EMBED-04: Tile middleware X-Embed-Token validation before HMAC
-  - EMBED-05: Cache-based validation
-  - EMBED-06: Token revocation
-  - EMBED-07: Token listing
+  - Token creation with SHA-256 hashing
+  - Scoped dataset tile access
+  - Default and max expiration
+  - Tile middleware X-Embed-Token validation before HMAC
+  - Cache-based validation
+  - Token revocation
+  - Token listing
 
 Requirements:
   - Docker database must be running (docker compose up db)
@@ -163,12 +163,12 @@ async def cleanup_data_tables(test_db_session):
 
 
 # ---------------------------------------------------------------------------
-# Tests: Token CRUD (EMBED-01, EMBED-03, EMBED-06, EMBED-07)
+# Tests: Token CRUD
 # ---------------------------------------------------------------------------
 
 
 class TestCreateEmbedToken:
-    """EMBED-01: Token creation."""
+    """Token creation."""
 
     async def test_create_embed_token(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -196,7 +196,7 @@ class TestCreateEmbedToken:
     async def test_create_embed_token_default_expiration(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """EMBED-03: Default expiration is ~30 days."""
+        """Default expiration is ~30 days."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj, _ = await _create_map_with_layer(
@@ -272,7 +272,7 @@ class TestCreateEmbedToken:
         test_db_session,
         enterprise_edition,
     ):
-        """EMBED-03: Expiration is capped at 365 days even if requesting more.
+        """Expiration is capped at 365 days even if requesting more.
         The schema enforces le=365 so 400 is expected.
         """
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
@@ -472,7 +472,7 @@ class TestEmbedTokenServiceGuards:
 
 
 class TestListEmbedTokens:
-    """EMBED-07: Token listing."""
+    """Token listing."""
 
     async def test_list_embed_tokens(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -510,7 +510,7 @@ class TestListEmbedTokens:
 
 
 class TestRevokeEmbedToken:
-    """EMBED-06: Token revocation."""
+    """Token revocation."""
 
     async def test_revoke_embed_token(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -551,17 +551,17 @@ class TestRevokeEmbedToken:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Tile middleware (EMBED-02, EMBED-04, EMBED-05)
+# Tests: Tile middleware
 # ---------------------------------------------------------------------------
 
 
 class TestTileEmbedTokenAccess:
-    """EMBED-02, EMBED-04: Tile access with embed tokens."""
+    """Tile access with embed tokens."""
 
     async def test_tile_access_with_valid_embed_token(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Valid embed token grants tile access for scoped dataset (EMBED-02, EMBED-04)."""
+        """Valid embed token grants tile access for scoped dataset."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_tile_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
@@ -625,7 +625,7 @@ class TestTileEmbedTokenAccess:
     async def test_tile_access_unscoped_dataset(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Embed token for map A rejects access to unscoped dataset (EMBED-02)."""
+        """Embed token for map A rejects access to unscoped dataset."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
 
         # Create two datasets - token will only scope to dataset_a
@@ -666,7 +666,7 @@ class TestTileEmbedTokenAccess:
     async def test_tile_access_expired_token(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Expired embed token is rejected (EMBED-04)."""
+        """Expired embed token is rejected."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_exp_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
@@ -716,7 +716,7 @@ class TestTileEmbedTokenAccess:
     async def test_tile_access_revoked_token(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Revoked embed token is rejected (EMBED-04, EMBED-06)."""
+        """Revoked embed token is rejected."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_rev_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
@@ -757,7 +757,7 @@ class TestTileEmbedTokenAccess:
     async def test_tile_access_no_embed_token_falls_through(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Without X-Embed-Token or a signature, a non-public tile reads as missing (EMBED-04)."""
+        """Without X-Embed-Token or a signature, a non-public tile reads as missing."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_fall_{uuid.uuid4().hex[:8]}"
         await _create_private_dataset(
@@ -776,7 +776,7 @@ class TestTileEmbedTokenAccess:
     async def test_cache_hit_avoids_db_query(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """EMBED-05: Second tile request succeeds via cache path."""
+        """Second tile request succeeds via cache path."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         table_name = f"embed_cache_{uuid.uuid4().hex[:8]}"
         dataset = await _create_private_dataset(
@@ -815,12 +815,12 @@ class TestTileEmbedTokenAccess:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Domain locking (DOMAIN-01 through DOMAIN-04)
+# Tests: Domain locking
 # ---------------------------------------------------------------------------
 
 
 class TestCreateEmbedTokenWithOrigins:
-    """DOMAIN-01: Token creation with allowed_origins."""
+    """Token creation with allowed_origins."""
 
     pytestmark = pytest.mark.usefixtures("enterprise_edition")
 
@@ -845,7 +845,7 @@ class TestCreateEmbedTokenWithOrigins:
 
 
 class TestTileDomainLocking:
-    """DOMAIN-02, DOMAIN-03, DOMAIN-04: Origin validation on tile requests."""
+    """Origin validation on tile requests."""
 
     pytestmark = pytest.mark.usefixtures("enterprise_edition")
 
@@ -994,7 +994,7 @@ class TestTileDomainLocking:
         test_db_session,
         cleanup_data_tables,
     ):
-        """BUG-028: IPv6 loopback Origin 'http://[::1]:8080' resolves the localhost
+        """IPv6 loopback Origin 'http://[::1]:8080' resolves the localhost
         bypass on a domain-locked token.
 
         Before the fix, _LOCALHOST_HOSTS held the bracketed '[::1]' but
@@ -1021,7 +1021,7 @@ class TestTileDomainLocking:
         test_db_session,
         cleanup_data_tables,
     ):
-        """BUG-028: an IPv6 origin in the allowlist byte-matches the request origin.
+        """An IPv6 origin in the allowlist byte-matches the request origin.
 
         The stored allowed_origins (schema normalizer, bracket-preserving) and the
         live request origin (service extraction) previously used DIFFERENT
@@ -1067,7 +1067,7 @@ class TestTileDomainLocking:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Usage tracking (OBS-01)
+# Tests: Usage tracking
 # ---------------------------------------------------------------------------
 
 
@@ -1089,7 +1089,7 @@ async def _drain_embed_token_usage_bump_tasks() -> None:
 
 
 class TestUsageTracking:
-    """OBS-01: use_count and last_used_at tracking on cache miss."""
+    """use_count and last_used_at tracking on cache miss."""
 
     async def test_usage_tracking_on_cache_miss(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -1294,7 +1294,7 @@ class TestUsageTracking:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Admin embed token list (OBS-02, ADMIN-01, ADMIN-02)
+# Tests: Admin embed token list
 # ---------------------------------------------------------------------------
 
 
@@ -1414,7 +1414,7 @@ class TestAdminEmbedTokenList:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Bulk revoke (ADMIN-03)
+# Tests: Bulk revoke
 # ---------------------------------------------------------------------------
 
 
@@ -1509,7 +1509,7 @@ class TestBulkRevokeEmbedTokens:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Update embed token (EMBED-01, EMBED-02, EMBED-03)
+# Tests: Update embed token
 # ---------------------------------------------------------------------------
 
 
@@ -1870,7 +1870,7 @@ class TestUpdateEmbedToken:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Tenant-pinning (EMBED-01/02/03, Phase 1212)
+# Tests: Tenant-pinning
 # ---------------------------------------------------------------------------
 
 
@@ -2010,14 +2010,14 @@ async def _teardown_tenant_map(db_url: str, map_id: uuid.UUID, dataset_ids: list
 
 @pytest.mark.rls
 class TestEmbedTokenTenantPinning:
-    """EMBED-01/02: tenant_id stamped at create; fail-closed cross-tenant equality at validate.
+    """tenant_id stamped at create; fail-closed cross-tenant equality at validate.
 
-    SEC-022 invariant: X-Embed-Token INTENTIONALLY serves PRIVATE datasets.
+    Invariant: X-Embed-Token INTENTIONALLY serves PRIVATE datasets.
     The fix adds ONLY a tenant-equality predicate — no public/published recheck.
     """
 
     async def test_create_stamps_tenant_id_from_map(self, multi_tenant_rls):
-        """EMBED-01: create_embed_token stamps tenant_id from Map.tenant_id (server-side)."""
+        """create_embed_token stamps tenant_id from Map.tenant_id (server-side)."""
         ctx = multi_tenant_rls
         map_id, primary_ds_id, _ = await _setup_tenant_map_and_dataset(
             ctx.db_url, ctx.tenant_a, ctx.user_a_id
@@ -2048,7 +2048,7 @@ class TestEmbedTokenTenantPinning:
         )
 
     async def test_create_single_tenant_leaves_tenant_id_null(self, monkeypatch):
-        """EMBED-01 single_tenant: is_multi_tenant() is False so tenant_id stamp is skipped."""
+        """In single_tenant mode is_multi_tenant() is False so tenant_id stamp is skipped."""
         monkeypatch.setenv("GEOLENS_TENANCY_MODE", "single_tenant")
         import importlib
 
@@ -2069,7 +2069,7 @@ class TestEmbedTokenTenantPinning:
         importlib.reload(ten_mod)
 
     async def test_validate_cross_tenant_deny_db_miss_path(self, multi_tenant_rls):
-        """EMBED-02 DB-miss path: token for tenant_a denies access to tenant_b dataset."""
+        """DB-miss path: token for tenant_a denies access to tenant_b dataset."""
         ctx = multi_tenant_rls
         init_cache()
 
@@ -2124,7 +2124,7 @@ class TestEmbedTokenTenantPinning:
         )
 
     async def test_validate_same_tenant_private_dataset_allowed(self, multi_tenant_rls):
-        """EMBED-02 + SEC-022: token for tenant_a ALLOWS PRIVATE dataset in tenant_a.
+        """Token for tenant_a ALLOWS PRIVATE dataset in tenant_a.
 
         Confirms private-serving is preserved — there is NO public/published recheck.
         """
@@ -2174,7 +2174,7 @@ class TestEmbedTokenTenantPinning:
         )
 
     async def test_validate_cross_tenant_deny_cache_hit_path(self, multi_tenant_rls):
-        """EMBED-02 cache-hit path: cross-tenant deny works even when token is cached."""
+        """Cache-hit path: cross-tenant deny works even when token is cached."""
         ctx = multi_tenant_rls
         init_cache()
         map_id, primary_ds_id, extra_ds_id = await _setup_tenant_map_and_dataset(
@@ -2239,7 +2239,7 @@ class TestEmbedTokenTenantPinning:
 
 @pytest.mark.rls
 class TestAdminEmbedTokenTenantFilter:
-    """EMBED-03: list_admin_embed_tokens tenant filter closes cross-tenant admin leak."""
+    """list_admin_embed_tokens tenant filter closes cross-tenant admin leak."""
 
     async def test_admin_list_filters_by_tenant(self, multi_tenant_rls):
         """list_admin_embed_tokens(tenant_id=tenant_a) excludes tenant_b tokens."""
@@ -2300,28 +2300,28 @@ class TestAdminEmbedTokenTenantFilter:
 
 
 # ---------------------------------------------------------------------------
-# Tests: CR-01 regression — NULL tenant_id fail-closed guard (Phase 1212)
+# Tests: NULL tenant_id fail-closed guard
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.rls
 class TestEmbedTokenNullTenantDeny:
-    """CR-01: NULL tenant_id tokens are denied in multi_tenant mode.
+    """NULL tenant_id tokens are denied in multi_tenant mode.
 
-    Legacy embed tokens created before EMBED-01 (Phase 1207) have tenant_id=NULL.
-    Without the CR-01 guard, `None != None` evaluates to False (i.e. "equal"),
+    Legacy embed tokens created before tenant scoping existed have tenant_id=NULL.
+    Without the guard, `None != None` evaluates to False (i.e. "equal"),
     so a NULL-tenant token could access any NULL-tenant dataset — fail-OPEN.
-    The CR-01 guard adds `if token_tenant is None or dataset_tenant is None: return False`
+    The guard adds `if token_tenant is None or dataset_tenant is None: return False`
     to close this gap.
 
-    single_tenant is unaffected — the EMBED-02 block is never entered when
+    single_tenant is unaffected — the block is never entered when
     is_multi_tenant() is False.
     """
 
     async def test_null_tenant_token_denied_against_null_tenant_dataset(
         self, multi_tenant_rls
     ):
-        """CR-01: a NULL-tenant token is DENIED against a NULL-tenant dataset
+        """A NULL-tenant token is DENIED against a NULL-tenant dataset
         in multi_tenant mode (both None must not pass the equality check).
         """
         ctx = multi_tenant_rls
@@ -2334,7 +2334,7 @@ class TestEmbedTokenNullTenantDeny:
         db_url = ctx.db_url
         user_id = uuid.UUID(ctx.user_a_id)
 
-        # Create a dataset with NULL tenant_id (simulates pre-EMBED-01 data)
+        # Create a dataset with NULL tenant_id (simulates data from before tenant scoping)
         se_engine = create_async_engine(db_url, poolclass=NullPool)
         sm = async_sessionmaker(se_engine, expire_on_commit=False)
         null_ds_id = None
@@ -2382,7 +2382,7 @@ class TestEmbedTokenNullTenantDeny:
             await se_engine.dispose()
 
         # Create a token via the service; because map.tenant_id is NULL and
-        # is_multi_tenant() is True, EMBED-01 stamps NULL — simulating a legacy token.
+        # is_multi_tenant() is True, creation stamps NULL — simulating a legacy token.
         token_engine = create_async_engine(db_url, poolclass=NullPool)
         token_sm = async_sessionmaker(token_engine, expire_on_commit=False)
         raw_token = None
@@ -2400,7 +2400,7 @@ class TestEmbedTokenNullTenantDeny:
         with _tenant_context(ctx.tenant_a):
             await cache.delete(tenant_cache_key(f"embed_token:{token_hash}"))
 
-            # Validate — CR-01 must deny: both token and dataset tenants are None.
+            # Validate — must deny: both token and dataset tenants are None.
             val_engine = create_async_engine(db_url, poolclass=NullPool)
             val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
             try:
@@ -2453,7 +2453,7 @@ class TestEmbedTokenNullTenantDeny:
     async def test_null_tenant_token_denied_against_real_tenant_dataset(
         self, multi_tenant_rls
     ):
-        """CR-01: a NULL-tenant token is DENIED against a real-tenant dataset
+        """A NULL-tenant token is DENIED against a real-tenant dataset
         in multi_tenant mode (NULL on the token side must fail-closed).
         """
         ctx = multi_tenant_rls
@@ -2470,7 +2470,7 @@ class TestEmbedTokenNullTenantDeny:
             db_url, ctx.tenant_a, ctx.user_a_id
         )
 
-        # Manually insert an EmbedToken with NULL tenant_id (legacy pre-EMBED-01 row)
+        # Manually insert an EmbedToken with NULL tenant_id (legacy row from before tenant scoping)
         # Use the ORM directly to avoid JSONB cast syntax issues with asyncpg.
         import secrets
 
@@ -2493,7 +2493,7 @@ class TestEmbedTokenNullTenantDeny:
                         is_active=True,
                         expires_at=datetime.now(timezone.utc) + timedelta(days=30),
                         created_by=user_id,
-                        tenant_id=None,  # legacy NULL-tenant — simulates pre-EMBED-01 row
+                        tenant_id=None,  # legacy NULL-tenant — simulates a pre-tenant-scoping row
                     )
                     session.add(legacy_token)
         finally:
@@ -2538,20 +2538,20 @@ class TestEmbedTokenNullTenantDeny:
 
 
 # ---------------------------------------------------------------------------
-# Tests: WR-01 regression — bulk_revoke tenant filter (Phase 1212)
+# Tests: bulk_revoke tenant filter
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.rls
 class TestBulkRevokeTenantFilter:
-    """WR-01: bulk_revoke_embed_tokens must not allow cross-tenant revocation.
+    """bulk_revoke_embed_tokens must not allow cross-tenant revocation.
 
     A tenant-A admin who supplies a tenant-B token UUID must see count=0 returned
     (the token is silently ignored by the WHERE tenant_id = :tenant_id predicate).
     """
 
     async def test_bulk_revoke_cannot_revoke_other_tenant_token(self, multi_tenant_rls):
-        """WR-01: bulk_revoke with tenant_a filter cannot revoke tenant_b token."""
+        """bulk_revoke with tenant_a filter cannot revoke tenant_b token."""
         ctx = multi_tenant_rls
 
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

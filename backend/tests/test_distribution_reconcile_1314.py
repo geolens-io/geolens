@@ -378,7 +378,7 @@ class TestPrimaryFlag:
     async def test_a_promote_falls_back_to_csv_when_a_user_row_holds_the_template_url(
         self, test_db_session: AsyncSession
     ) -> None:
-        """fix(#1314 review round 1): the record must never end up with none.
+        """The record must never end up with none.
 
         Picking the primary from the modality alone cleared the CSV flag to
         promote a row that was never created. fix(#1370) narrowed the way in —
@@ -814,7 +814,7 @@ class TestTwoRowsForOneFormat:
 
 
 class TestTheStaleProtocolRepair:
-    """fix(#1463, codex round 2): the pair-existence skip can strand a bad row.
+    """The pair-existence skip can strand a bad row.
 
     Migration 0048 relabels the auto-generated vector-tile rows from
     ``OGC:WMTS`` to ``XYZ``. It runs once, and the scripted upgrade path
@@ -824,7 +824,7 @@ class TestTheStaleProtocolRepair:
     in ``generate_distributions`` means the template never rewrites a pair it
     already owns, so without the repair below the row stays wrong for good.
 
-    fix(#1463, codex round 4): what this does NOT do. Both refresh callers gate
+    what this does NOT do. Both refresh callers gate
     ``reconcile_distributions`` on a modality flip, so an ordinary refresh of an
     unchanged dataset never arrives here and the repair is a partial mitigation
     rather than a closer. The reach is a dataset that gains or loses geometry,

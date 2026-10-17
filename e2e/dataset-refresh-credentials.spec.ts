@@ -33,8 +33,8 @@ const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const RAW_SERVICE_TOKEN_MESSAGE =
   "This dataset's source needed a service token the last time it was imported or refreshed, and this request carries none. Send the token again in the request body's `token` field; tokens are request-only and are never stored between runs. If the source is public now, re-import it through the re-upload dialog without a token to clear the requirement.";
 
-// codex #1759 round 3: ArcgisCredentialBlock now schedules a clear for
-// `expires_at` minus a 30s safety margin (round 2), so a mocked `expires_at`
+// #1759: ArcgisCredentialBlock now schedules a clear for
+// `expires_at` minus a 30s safety margin, so a mocked `expires_at`
 // fixed to a literal date goes stale the moment that date is in the past --
 // the credential clears itself right after sign-in and the spec can never
 // observe "Signed in". Derived from the run's own clock instead, mirroring

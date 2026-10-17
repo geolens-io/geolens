@@ -63,7 +63,7 @@ class _FakeS3Storage:
         self.range_reads: list[tuple[str, int, int]] = []
         self.whole_object_reads: list[str] = []
         self.copies: list[tuple[str, str]] = []
-        # Every expiration the doors hand to a signing call (fix(#1235 r3)).
+        # Every expiration the doors hand to a signing call (fix(#1235)).
         self.signed_ttls: list[int] = []
         # Multipart state, modelled the way S3 actually behaves: uploaded
         # parts are NOT visible as an object, and the upload id is spent by a
@@ -75,7 +75,7 @@ class _FakeS3Storage:
     def generate_presigned_put_url(
         self, key: str, content_type: str, expiration: int = 3600
     ) -> str:
-        # fix(#1235 review r3): mirrors the provider signature — the doors now
+        # fix(#1235): mirrors the provider signature — the doors now
         # pass a deadline-anchored expiration.
         self.signed_ttls.append(expiration)
         return f"https://s3.invalid/{key}?signed=1"
@@ -847,9 +847,9 @@ async def test_completion_locks_the_job_row_before_reading_file_path(
 async def test_the_locked_refetch_reads_the_committed_file_path(
     test_db_session,
 ) -> None:
-    """fix(#1202 review r9): the lock must INFORM, not just serialize.
+    """fix(#1202): the lock must INFORM, not just serialize.
 
-    The r5 pin proves a `FOR UPDATE` statement reaches the database. It does
+    The earlier pin proves a `FOR UPDATE` statement reaches the database. It does
     NOT prove the handler then reads the committed value: SQLAlchemy does not
     overwrite already-loaded attributes on an identity-map instance unless
     told to, and the handler's authz fetch loads the row BEFORE the competing
@@ -917,7 +917,7 @@ async def test_the_locked_refetch_reads_the_committed_file_path(
 async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
     client, admin_auth_header, test_db_session, both_doors
 ) -> None:
-    """fix(#1213 review r3): the second one-shot fact, on this door too.
+    """fix(#1213): the second one-shot fact, on this door too.
 
     The upload door never stamps `failed` itself, so it reaches this state by
     a different route: the stale-pending reaper marks an abandoned presigned
@@ -978,7 +978,7 @@ async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
 
 
 class TestFinalizeCleanupContract:
-    """fix(#1213 review r5): the two failure-path holes, at the helper.
+    """fix(#1213): the two failure-path holes, at the helper.
 
     Driven against `finalize_presigned_object` directly rather than through a
     door, because both are about which objects survive which exit — the
@@ -1036,7 +1036,7 @@ class TestFinalizeCleanupContract:
         escaping the first would leave the staging object alive — handing the
         client back the bytes just refused, which is the hole the rejection
         block exists to close. v1.8.0's `_cleanup_saved_upload` swallowed
-        BaseException for exactly this (KISS-N9); the extraction lost it.
+        BaseException for exactly this; the extraction lost it.
         """
         from app.processing.ingest.presigned import finalize_presigned_object
 
@@ -1085,8 +1085,8 @@ async def test_a_cancel_during_assembly_leaves_the_retry_a_way_back(
 
     CompleteMultipartUpload has already consumed the upload id by then, and the
     object's presence is the ONLY record that assembly succeeded — it is what
-    `should_assemble_multipart` reads to let a retry skip re-assembly (#1202
-    r3). Deleting it sent the client's natural retry back into assembly with a
+    `should_assemble_multipart` reads to let a retry skip re-assembly (#1202).
+    Deleting it sent the client's natural retry back into assembly with a
     spent id, which 502s forever with no way back.
 
     A cancellation is not a rejection of the bytes, so the fix is to drain and
@@ -1160,7 +1160,7 @@ async def test_a_cancel_during_assembly_leaves_the_retry_a_way_back(
 async def test_the_door_signs_urls_against_the_job_deadline(
     client, admin_auth_header, both_doors, monkeypatch, multipart
 ) -> None:
-    """fix(#1235 review r3): both URL kinds, through the real door.
+    """fix(#1235): both URL kinds, through the real door.
 
     The helper's arithmetic is unit-tested in test_stale_pending_reaper.py;
     this pins that the door actually PASSES it, for the single-PUT and the
@@ -1197,12 +1197,12 @@ async def test_the_door_signs_urls_against_the_job_deadline(
 async def test_each_part_url_is_signed_against_the_deadline_not_the_first_signature(
     client, admin_auth_header, both_doors, monkeypatch
 ) -> None:
-    """fix(#1235 review r5): the once-before-the-loop computation was the bug
+    """fix(#1235): the once-before-the-loop computation was the bug
     in miniature, not a conservative shortcut.
 
     `ExpiresIn` counts from the moment each signature is created, so reusing
     one remainder across the loop means a part signed d seconds in expires d
-    seconds PAST the job deadline — the same signing-time drift r3 set out to
+    seconds PAST the job deadline — the same signing-time drift the first fix set out to
     remove, scaled down to the loop's duration. Recomputed per signature, each
     successive TTL must be strictly SMALLER, because each one ends at the same
     wall-clock instant.
@@ -1255,7 +1255,7 @@ async def test_each_part_url_is_signed_against_the_deadline_not_the_first_signat
 async def test_a_loop_that_outruns_the_window_answers_409_not_502(
     client, admin_auth_header, both_doors, monkeypatch
 ) -> None:
-    """fix(#1235 review r5): the per-signature refusal has to survive the
+    """fix(#1235): the per-signature refusal has to survive the
     multipart error handler.
 
     Signing inside the loop means the refusal can now fire mid-loop. That code
@@ -1306,9 +1306,9 @@ async def test_a_loop_that_outruns_the_window_answers_409_not_502(
 async def test_scheduler_delay_before_the_thread_runs_does_not_extend_the_url(
     client, admin_auth_header, both_doors, monkeypatch
 ) -> None:
-    """fix(#1235 review r8): the last layer of the same drift.
+    """fix(#1235): the last layer of the same drift.
 
-    r5 recomputed the remaining lifetime per signature, but on the EVENT LOOP,
+    The earlier fix recomputed the remaining lifetime per signature, but on the EVENT LOOP,
     before `run_in_thread_draining` had queued anything. `ExpiresIn` starts
     counting when boto signs, so whatever sat between scheduling and execution
     — a saturated executor, a busy loop — pushed expiry that far past the job
@@ -1375,7 +1375,7 @@ async def test_scheduler_delay_before_the_thread_runs_does_not_extend_the_url(
 
 
 def test_neither_door_computes_an_expiration_before_scheduling() -> None:
-    """fix(#1235 review r8): the reupload door is a mirror, pinned as one.
+    """fix(#1235): the reupload door is a mirror, pinned as one.
 
     The behavioural test above drives the upload door, where the delay can be
     injected. This asserts the reupload twin has the same shape, because the
@@ -1405,12 +1405,12 @@ def test_neither_door_computes_an_expiration_before_scheduling() -> None:
 async def test_a_one_shot_put_that_outruns_the_window_answers_409_not_502(
     client, admin_auth_header, both_doors, monkeypatch
 ) -> None:
-    """fix(#1235 review r9): the single-PUT twin of the multipart case.
+    """fix(#1235): the single-PUT twin of the multipart case.
 
-    Moving the computation into the signing thread (r8) means the lifetime
+    Moving the computation into the signing thread means the lifetime
     refusal now raises through this branch's broad `except Exception`, whose
     job is mapping SDK errors to 502. The multipart branch got its passthrough
-    in r5; this is the fourth and last signing path, and without the same
+    already; this is the fourth and last signing path, and without the same
     re-raise a closed upload window reads as a storage outage.
     """
     from datetime import datetime, timedelta, timezone

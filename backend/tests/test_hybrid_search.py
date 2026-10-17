@@ -267,7 +267,7 @@ async def hybrid_datasets_with_embeddings(
 
 
 # ---------------------------------------------------------------------------
-# Tests: auto-enabled semantic search returns 200 (SRCH-01, SRCH-05)
+# Tests: auto-enabled semantic search returns 200
 # ---------------------------------------------------------------------------
 
 
@@ -297,7 +297,7 @@ async def test_semantic_search_returns_200(
 
 
 # ---------------------------------------------------------------------------
-# Tests: fallback when no embeddings exist (SRCH-03)
+# Tests: fallback when no embeddings exist
 # ---------------------------------------------------------------------------
 
 
@@ -365,7 +365,7 @@ async def test_semantic_fallback_toggle_off(
 
 
 # ---------------------------------------------------------------------------
-# Tests: semantic works when AI_ENABLED is off but embeddings exist (SRCH-04)
+# Tests: semantic works when AI_ENABLED is off but embeddings exist
 # ---------------------------------------------------------------------------
 
 
@@ -435,7 +435,7 @@ async def test_semantic_works_when_ai_disabled(
 
 
 # ---------------------------------------------------------------------------
-# Tests: RRF ranking differs from FTS-only (SRCH-02)
+# Tests: RRF ranking differs from FTS-only
 # ---------------------------------------------------------------------------
 
 
@@ -786,7 +786,7 @@ async def test_semantic_vector_only_pagination(
     client: AsyncClient,
     test_db_session,
 ):
-    """Later pages of semantic-only matches must not be empty (Codex round-3 P2).
+    """Later pages of semantic-only matches must not be empty.
 
     With five vector-only matches and limit=2, page 2 (offset=2) must return
     results distinct from page 1 — the vector fetch must reach skip+limit deep.
@@ -836,7 +836,7 @@ async def test_semantic_vector_only_pagination(
     assert len(page2) >= 1, "second page of semantic-only results must not be empty"
     assert set(page1).isdisjoint(set(page2)), "pages must not overlap"
     # numberMatched must reflect ALL five semantic matches, not just the page window,
-    # or the router omits the `next` link (Codex round-4 count fix).
+    # or the router omits the `next` link.
     assert matched >= 5, (
         f"numberMatched should count all semantic matches, got {matched}"
     )

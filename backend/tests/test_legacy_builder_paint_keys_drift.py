@@ -1,7 +1,7 @@
 """Static-analysis test: the frontend LEGACY_BUILDER_PAINT_KEYS Set must be
 a strict subset of the backend LEGACY_BUILDER_PAINT_KEYS dict.
 
-Contract (GUARD-01):
+Contract:
   The frontend set (`frontend/src/lib/normalize-style-config.ts`) lists the
   `_`-prefixed (and a handful of unprefixed) paint keys that
   `stripLegacyBuilderPaint` removes from the MapLibre paint object before a
@@ -34,7 +34,7 @@ from app.modules.catalog.maps.schemas import LEGACY_BUILDER_PAINT_KEYS
 from tests.repo_paths import repo_root
 
 REPO_ROOT = repo_root(__file__)
-# builder-audit #338 SPEC-08 / DRY-01: the frontend paint-key allowlist is now
+# The frontend paint-key allowlist is now
 # single-sourced as CUSTOM_PAINT_PROPS in layer-adapters/shared.ts;
 # normalize-style-config.ts aliases it (LEGACY_BUILDER_PAINT_KEYS = CUSTOM_PAINT_PROPS).
 SHARED_TS = (
@@ -89,7 +89,7 @@ def _parse_frontend_paint_keys() -> set[str]:
 def test_paint_key_allowlist_parity():
     """Frontend LEGACY_BUILDER_PAINT_KEYS must be a subset of backend dict keys.
 
-    Contract direction (GUARD-01):
+    Contract direction:
       frontend_set ⊆ backend_dict_keys
 
     Every key the frontend strips from paint must be recognised by the backend.
@@ -124,7 +124,7 @@ def test_paint_key_allowlist_parity():
     if only_in_backend:
         # These are intentional (e.g. raster keys the frontend re-injects into
         # in-memory paint rather than stripping). No assertion failure here.
-        pass  # documented in GUARD-01 SUMMARY
+        pass
 
 
 def test_style_sanitizers_imports_not_redefines_paint_keys():

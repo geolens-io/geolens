@@ -1,7 +1,7 @@
 """Integration tests for GET /admin/users/export.csv endpoint.
 
 Tests cover:
-  - Admin can download a CSV with correct headers and user rows (LEADS-01)
+  - Admin can download a CSV with correct headers and user rows
   - A user with auth_provider='oauth' appears in the export (Google signup capture)
   - CSV injection hardening: cells starting with =, +, -, @ are tab-prefixed
   - Non-admin (viewer) request returns 403
