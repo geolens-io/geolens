@@ -24,8 +24,8 @@ class DatasetRetentionResponse:
     """
     Attributes:
         retention (DatasetRetention | None):
-        rows_past_cutoff (int): Rows currently older than the cutoff, which the next retention run deletes. 0 when
-            retention is off.
+        rows_past_cutoff (int): Rows currently older than the cutoff. Hourly runs delete them in batches, so a large
+            backlog can take several runs. 0 when off.
         cutoff (datetime.datetime | None | Unset): Rows older than this UTC instant are past retention; for a date
             column it is UTC midnight of the cutoff date. Null when off.
     """

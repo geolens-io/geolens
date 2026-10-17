@@ -1079,6 +1079,60 @@ class TestAttributeEditsTakeThePairToo:
         assert response.json()["example_values"] == ["seed"]
 
 
+class TestRetentionSettlementHoldsTheTableFirst:
+    async def test_settlement_holds_no_catalog_row_while_waiting_for_the_table(
+        self, locked_dataset, test_db_session
+    ):
+        """Column DDL, deletion and replacement hold the table before the pair,
+        so settlement must reach for the table holding nothing.
+        """
+        import app.core.db as db_module
+        from app.modules.catalog.features import retention
+
+        dataset_id = locked_dataset.id
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            await holder.execute(
+                text(
+                    f"LOCK TABLE data.{locked_dataset.table_name} "
+                    "IN ACCESS EXCLUSIVE MODE"
+                )
+            )
+            settle = asyncio.create_task(retention._settle(dataset_id))
+            try:
+                await _await_relation_waiter(probe, locked_dataset.table_name)
+                assert not await _holds_record_lock(probe, locked_dataset.record_id), (
+                    "retention settlement is parked on the data table while "
+                    "holding the catalog pair, which deadlocks against a DDL "
+                    "holding the table and taking the pair next."
+                )
+                await holder.execute(
+                    select(Dataset.tile_cache_version)
+                    .where(Dataset.id == locked_dataset.id)
+                    .with_for_update(nowait=True)
+                )
+                await holder.execute(
+                    select(Record.id)
+                    .where(Record.id == locked_dataset.record_id)
+                    .with_for_update(nowait=True)
+                )
+                await holder.commit()
+            except BaseException:
+                await holder.rollback()
+                settle.cancel()
+                raise
+            await settle
+
+        assert (
+            await test_db_session.scalar(
+                select(Dataset.feature_count).where(Dataset.id == dataset_id)
+            )
+            == 3
+        )
+
+
 class TestOneAnswerForAContendedRow:
     """409 from every caller, not 409/503/400 by route.
 

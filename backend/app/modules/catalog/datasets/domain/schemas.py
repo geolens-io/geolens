@@ -377,8 +377,8 @@ class DatasetRetentionResponse(BaseModel):
     retention: DatasetRetention | None
     rows_past_cutoff: int = Field(
         description=(
-            "Rows currently older than the cutoff, which the next retention "
-            "run deletes. 0 when retention is off."
+            "Rows currently older than the cutoff. Hourly runs delete them in "
+            "batches, so a large backlog can take several runs. 0 when off."
         )
     )
     cutoff: datetime | None = Field(

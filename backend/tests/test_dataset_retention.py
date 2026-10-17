@@ -48,6 +48,7 @@ async def seed(test_db_session):
         visibility: str = "private",
         record_type: str = "vector_dataset",
         geometry_type: str | None = "POINT",
+        source_format: str = "geojson",
     ) -> Seeded:
         table = f"test_ret_{uuid.uuid4().hex[:8]}"
         tables.append(table)
@@ -66,11 +67,14 @@ async def seed(test_db_session):
                 text(
                     f"INSERT INTO data.{table} "
                     "(geom, geom_4326, seen_at, seen_on, seen_local, name) VALUES ("
-                    "ST_SetSRID(ST_MakePoint(:x, :y), 4326), "
-                    "ST_SetSRID(ST_MakePoint(:x, :y), 4326), "
+                    "COALESCE(ST_GeomFromText(:wkt, 4326), "
+                    "ST_SetSRID(ST_MakePoint(:x, :y), 4326)), "
+                    "COALESCE(ST_GeomFromText(:wkt, 4326), "
+                    "ST_SetSRID(ST_MakePoint(:x, :y), 4326)), "
                     ":seen_at, :seen_on, :seen_local, :name)"
                 ),
                 {
+                    "wkt": row.get("wkt"),
                     "x": row.get("x", 10.5),
                     "y": row.get("y", 10.5),
                     "seen_at": row.get("seen_at"),
@@ -103,7 +107,7 @@ async def seed(test_db_session):
                 {"name": "seen_local", "type": "timestamp without time zone"},
                 {"name": "name", "type": "text"},
             ],
-            source_format="geojson",
+            source_format=source_format,
             retention_column=column,
             retention_days=days,
         )
@@ -343,6 +347,57 @@ class TestRun:
 
         assert dataset.id not in await retention.prune_expired_rows(now=NOW)
         assert await _names(test_db_session, dataset) == {"old"}
+
+    async def test_the_next_run_repairs_what_a_lost_settle_left_behind(
+        self, seed, test_db_session, monkeypatch
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            geometry_type="GEOMETRY",
+            source_format="created",
+            rows=[
+                {"name": "old", "seen_at": NOW - timedelta(days=90), "x": 0, "y": 0},
+                {
+                    "name": "new",
+                    "seen_at": NOW,
+                    "wkt": "POLYGON((10 10, 11 10, 11 11, 10 11, 10 10))",
+                },
+            ],
+        )
+
+        async def geometry_and_west_edge():
+            test_db_session.expire_all()
+            return tuple(
+                (
+                    await test_db_session.execute(
+                        select(
+                            Dataset.geometry_type, func.ST_XMin(Record.spatial_extent)
+                        )
+                        .join(Record, Record.id == Dataset.record_id)
+                        .where(Dataset.id == dataset.id)
+                    )
+                ).one()
+            )
+
+        assert await geometry_and_west_edge() == ("GEOMETRY", 0.0)
+        real_settle = retention._settle
+
+        async def worker_lost(*_args):
+            raise RuntimeError("worker lost")
+
+        monkeypatch.setattr(retention, "_settle", worker_lost)
+        await retention.prune_expired_rows(now=NOW)
+        assert await _names(test_db_session, dataset) == {"new"}
+        assert await geometry_and_west_edge() == ("GEOMETRY", 0.0)
+
+        monkeypatch.setattr(retention, "_settle", real_settle)
+        assert await retention.prune_expired_rows(now=NOW) == {}
+
+        assert await geometry_and_west_edge() == ("POLYGON", 10.0)
+        assert (await _catalog_state(test_db_session, dataset.id)).feature_count == 1
 
     async def test_a_run_stops_at_its_batch_bound_and_the_next_run_goes_on(
         self, seed, test_db_session

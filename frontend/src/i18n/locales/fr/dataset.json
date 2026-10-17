@@ -1255,7 +1255,7 @@
   },
   "retention": {
     "title": "Rétention",
-    "description": "Supprime les lignes dès qu’elles dépassent un nombre de jours donné. Les lignes sans valeur dans la colonne de date sont conservées. Les anciennes lignes sont supprimées une fois par heure.",
+    "description": "Supprime les lignes dès qu’elles dépassent un nombre de jours donné. Les lignes sans valeur dans la colonne de date sont conservées. Les anciennes lignes sont supprimées par lots, une fois par heure.",
     "statusOn_one": "Conservation des lignes du dernier {{count}} jour, selon {{column}}.",
     "statusOn_other": "Conservation des lignes des {{count}} derniers jours, selon {{column}}.",
     "statusOn_many": "Conservation des lignes des {{count}} derniers jours, selon {{column}}.",
@@ -1272,9 +1272,9 @@
     "turnedOff": "Rétention désactivée",
     "saveFailed": "Impossible d’enregistrer la rétention",
     "confirmTitle": "Supprimer les anciennes lignes ?",
-    "confirmDescription_one": "{{formattedCount}} ligne est antérieure au {{cutoff}}. Elle sera supprimée dans l’heure, sans retour possible.",
-    "confirmDescription_other": "{{formattedCount}} lignes sont antérieures au {{cutoff}}. Elles seront supprimées dans l’heure, sans retour possible.",
-    "confirmDescription_many": "{{formattedCount}} lignes sont antérieures au {{cutoff}}. Elles seront supprimées dans l’heure, sans retour possible.",
+    "confirmDescription_one": "{{formattedCount}} ligne est antérieure au {{cutoff}} et sera supprimée lors d’une exécution horaire. Cette action est irréversible.",
+    "confirmDescription_other": "{{formattedCount}} lignes sont antérieures au {{cutoff}}. Les exécutions horaires les suppriment par lots, donc un gros volume peut demander plusieurs exécutions. Cette action est irréversible.",
+    "confirmDescription_many": "{{formattedCount}} lignes sont antérieures au {{cutoff}}. Les exécutions horaires les suppriment par lots, donc un gros volume peut demander plusieurs exécutions. Cette action est irréversible.",
     "confirmAction": "Supprimer et enregistrer"
   }
 }

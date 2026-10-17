@@ -56,10 +56,11 @@ async def set_dataset_retention(
 ) -> DatasetRetentionResponse:
     """Set or clear how many days of rows a feature dataset keeps.
 
-    The worker deletes rows whose retention column is older than the cutoff on
-    its next hourly run; rows where it is null are kept. `rows_past_cutoff`
-    counts what that run would delete as of now. The instance's dataset
-    editing switch does not apply: this is the owner's setting, not an edit.
+    Hourly worker runs delete rows whose retention column is older than the
+    cutoff, in batches, so a large backlog can take several runs; rows where
+    it is null are kept. `rows_past_cutoff` counts the rows past the cutoff
+    now. The instance's dataset editing switch does not apply: this is the
+    owner's setting, not an edit.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:

@@ -4064,7 +4064,7 @@ export type DatasetRetentionResponse = {
     /**
      * Rows Past Cutoff
      *
-     * Rows currently older than the cutoff, which the next retention run deletes. 0 when retention is off.
+     * Rows currently older than the cutoff. Hourly runs delete them in batches, so a large backlog can take several runs. 0 when off.
      */
     rows_past_cutoff: number;
     /**

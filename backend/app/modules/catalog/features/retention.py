@@ -6,9 +6,10 @@ kept. A run deletes older rows in batches of ``BATCH_ROWS`` by ascending gid.
 Each batch commits with the feature count lowered by what it deleted, the tile
 cache version and data revision rolled, and an audit row recording it, so no
 transaction holds a large share of a table's row locks and a committed batch
-needs nothing more. After a dataset's last batch its extent is recomputed;
-until then the stored extent can only be larger than the data. A timestamp
-without time zone is read as UTC.
+is current for tiles, exports and the count. Every run then recomputes the
+extent and the derived geometry type of each dataset it visited, whether or
+not it deleted anything, so a run cut short is repaired by the next. A
+timestamp without time zone is read as UTC.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from app.modules.audit.service import AuditEvent, audit_emit_required
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import DatasetRetention
 from app.modules.catalog.datasets.domain.service import _safe_column_ref, get_dataset
+from app.modules.catalog.features.idempotency import held_table_oid
 from app.modules.catalog.features.service import refresh_dataset_metadata
 from app.platform.catalog_locks import (
     WORKER_LOCK_TIMEOUT,
@@ -239,7 +241,12 @@ async def _record_batch(
 
 
 async def _settle(dataset_id: uuid.UUID) -> None:
-    """Recompute the extent, and the count from the table, after a run's batches."""
+    """Recompute count, extent and derived geometry type from the table.
+
+    The table is held first, then the catalog rows, the order column DDL,
+    deletion and replacement take them, so settlement waits on a held table
+    without holding the pair.
+    """
     from app.core.db import async_session
 
     for attempt in range(SETTLE_ATTEMPTS):
@@ -248,6 +255,8 @@ async def _settle(dataset_id: uuid.UUID) -> None:
             if dataset is None:
                 return
             try:
+                async with worker_lock_budget(session):
+                    await held_table_oid(session, dataset.table_name)
                 await refresh_dataset_metadata(session, dataset)
             except CatalogLockConflict:
                 if attempt + 1 == SETTLE_ATTEMPTS:
@@ -275,6 +284,7 @@ async def prune_dataset(
     from app.core.db import async_session
 
     deleted = 0
+    visited = False
     after = _GID_FLOOR
     try:
         for _ in range(max_batches):
@@ -284,6 +294,7 @@ async def prune_dataset(
                     if due is None:
                         break
                     dataset, window = due
+                    visited = True
                     gids = await _delete_batch(session, window, after, batch_rows)
                     if gids:
                         await _record_batch(session, dataset, window, len(gids))
@@ -299,8 +310,9 @@ async def prune_dataset(
             if len(gids) < batch_rows:
                 break
     finally:
-        # Also after a failed batch, for the batches already committed.
-        if deleted:
+        # Every visit, so a run that died before settling is repaired by the
+        # next even when it has nothing left to delete.
+        if visited:
             await _settle(dataset_id)
     return deleted
 

@@ -1255,7 +1255,7 @@
   },
   "retention": {
     "title": "Aufbewahrung",
-    "description": "Löscht Zeilen, sobald sie älter als eine festgelegte Anzahl von Tagen sind. Zeilen ohne Wert in der Datumsspalte bleiben erhalten. Alte Zeilen werden einmal pro Stunde gelöscht.",
+    "description": "Löscht Zeilen, sobald sie älter als eine festgelegte Anzahl von Tagen sind. Zeilen ohne Wert in der Datumsspalte bleiben erhalten. Alte Zeilen werden stündlich in Stapeln gelöscht.",
     "statusOn_one": "Zeilen des letzten {{count}} Tages werden behalten, gemessen an {{column}}.",
     "statusOn_other": "Zeilen der letzten {{count}} Tage werden behalten, gemessen an {{column}}.",
     "statusOn_many": "Zeilen der letzten {{count}} Tage werden behalten, gemessen an {{column}}.",
@@ -1272,9 +1272,9 @@
     "turnedOff": "Aufbewahrung ausgeschaltet",
     "saveFailed": "Aufbewahrung konnte nicht gespeichert werden",
     "confirmTitle": "Alte Zeilen löschen?",
-    "confirmDescription_one": "{{formattedCount}} Zeile ist älter als {{cutoff}}. Sie wird innerhalb der nächsten Stunde gelöscht. Das kann nicht rückgängig gemacht werden.",
-    "confirmDescription_other": "{{formattedCount}} Zeilen sind älter als {{cutoff}}. Sie werden innerhalb der nächsten Stunde gelöscht. Das kann nicht rückgängig gemacht werden.",
-    "confirmDescription_many": "{{formattedCount}} Zeilen sind älter als {{cutoff}}. Sie werden innerhalb der nächsten Stunde gelöscht. Das kann nicht rückgängig gemacht werden.",
+    "confirmDescription_one": "{{formattedCount}} Zeile ist älter als {{cutoff}} und wird bei einem stündlichen Lauf gelöscht. Das kann nicht rückgängig gemacht werden.",
+    "confirmDescription_other": "{{formattedCount}} Zeilen sind älter als {{cutoff}}. Stündliche Läufe löschen sie in Stapeln, ein großer Rückstand kann daher mehrere Läufe dauern. Das kann nicht rückgängig gemacht werden.",
+    "confirmDescription_many": "{{formattedCount}} Zeilen sind älter als {{cutoff}}. Stündliche Läufe löschen sie in Stapeln, ein großer Rückstand kann daher mehrere Läufe dauern. Das kann nicht rückgängig gemacht werden.",
     "confirmAction": "Löschen und speichern"
   }
 }

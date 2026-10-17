@@ -1255,7 +1255,7 @@
   },
   "retention": {
     "title": "Retention",
-    "description": "Delete rows once they are older than a set number of days. Rows with no value in the date column are kept. Old rows are deleted once an hour.",
+    "description": "Delete rows once they are older than a set number of days. Rows with no value in the date column are kept. Old rows are deleted in hourly batches.",
     "statusOn_one": "Keeping the last {{count}} day of rows, judged by {{column}}.",
     "statusOn_other": "Keeping the last {{count}} days of rows, judged by {{column}}.",
     "statusOn_many": "Keeping the last {{count}} days of rows, judged by {{column}}.",
@@ -1272,9 +1272,9 @@
     "turnedOff": "Retention turned off",
     "saveFailed": "Could not save retention",
     "confirmTitle": "Delete old rows?",
-    "confirmDescription_one": "{{formattedCount}} row is older than {{cutoff}}. It will be deleted within the hour, and this cannot be undone.",
-    "confirmDescription_other": "{{formattedCount}} rows are older than {{cutoff}}. They will be deleted within the hour, and this cannot be undone.",
-    "confirmDescription_many": "{{formattedCount}} rows are older than {{cutoff}}. They will be deleted within the hour, and this cannot be undone.",
+    "confirmDescription_one": "{{formattedCount}} row is older than {{cutoff}} and will be deleted by an hourly run. This cannot be undone.",
+    "confirmDescription_other": "{{formattedCount}} rows are older than {{cutoff}}. Hourly runs delete them in batches, so a large backlog can take several runs. This cannot be undone.",
+    "confirmDescription_many": "{{formattedCount}} rows are older than {{cutoff}}. Hourly runs delete them in batches, so a large backlog can take several runs. This cannot be undone.",
     "confirmAction": "Delete and save"
   }
 }

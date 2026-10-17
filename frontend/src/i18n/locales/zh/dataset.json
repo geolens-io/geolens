@@ -1255,7 +1255,7 @@
   },
   "retention": {
     "title": "保留期限",
-    "description": "行超过设定天数后即被删除。日期列中没有值的行会保留。旧行每小时删除一次。",
+    "description": "行超过设定天数后即被删除。日期列中没有值的行会保留。旧行每小时分批删除。",
     "statusOn_one": "按 {{column}} 保留最近 {{count}} 天的行。",
     "statusOn_other": "按 {{column}} 保留最近 {{count}} 天的行。",
     "statusOn_many": "按 {{column}} 保留最近 {{count}} 天的行。",
@@ -1272,9 +1272,9 @@
     "turnedOff": "保留期限已关闭",
     "saveFailed": "无法保存保留期限",
     "confirmTitle": "删除旧行？",
-    "confirmDescription_one": "{{formattedCount}} 行早于 {{cutoff}}，将在一小时内删除，且无法撤销。",
-    "confirmDescription_other": "{{formattedCount}} 行早于 {{cutoff}}，将在一小时内删除，且无法撤销。",
-    "confirmDescription_many": "{{formattedCount}} 行早于 {{cutoff}}，将在一小时内删除，且无法撤销。",
+    "confirmDescription_one": "{{formattedCount}} 行早于 {{cutoff}}，将由每小时运行删除，且无法撤销。",
+    "confirmDescription_other": "{{formattedCount}} 行早于 {{cutoff}}。每小时运行会分批删除它们，积压较多时可能需要多次运行。此操作无法撤销。",
+    "confirmDescription_many": "{{formattedCount}} 行早于 {{cutoff}}。每小时运行会分批删除它们，积压较多时可能需要多次运行。此操作无法撤销。",
     "confirmAction": "删除并保存"
   }
 }

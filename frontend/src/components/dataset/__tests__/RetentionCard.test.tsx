@@ -99,6 +99,8 @@ describe('RetentionCard', () => {
 
     const dialog = await screen.findByRole('alertdialog');
     expect(dialog).toHaveTextContent('12,345 rows are older than');
+    expect(dialog).toHaveTextContent('Hourly runs delete them in batches, so a large backlog can take several runs.');
+    expect(dialog).not.toHaveTextContent('within the hour');
     expect(setDatasetRetention).toHaveBeenCalledTimes(1);
     expect(setDatasetRetention).toHaveBeenCalledWith('ds-1', { column: 'seen_at', days: 7 }, { dryRun: true });
 
