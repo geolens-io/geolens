@@ -76,8 +76,9 @@ commit:
    publishes.
 4. SDK, CLI and MCP server publishes (including the MCP Registry entry) pause
    for one-click approval before they ship; image and release builds do not.
-5. `verify-published.yml` runs after the publishes complete and confirms every
-   surface matches.
+5. `verify-published.yml` runs after the publishes complete and checks the
+   surfaces it can pull, as described above. It doesn't cover `geolens-worker`
+   or the MCP Registry entry.
 
 The maintainer owns the tag cut and the publish approval. This document does not
 auto-publish or announce anything.

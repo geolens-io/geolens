@@ -1,9 +1,11 @@
 # Third-party data sources
 
 The `scripts/seed-showcase.py` seeder builds the marketing "showcase" maps from
-public, openly-licensed data fetched at seed time. GeoLens does not redistribute
-any of these datasets — the script pulls them live from each provider when you
-run it. The licenses and attribution requirements below belong to their
+public, openly-licensed data. GeoLens does not redistribute any of these
+datasets. Most are fetched live from each provider when the script runs; the
+`--showcase-121` inputs (the canopy archive, the 3D Tiles sample and the COPC
+file) are downloaded first by a preparation script or by you, as each row's
+Retrieved column says, and passed to the seeder. The licenses and attribution requirements below belong to their
 respective providers; consult each source for the authoritative, current terms.
 
 | Dataset | Source / URL | License | Attribution | Version / pin | Retrieved | Transformations |
