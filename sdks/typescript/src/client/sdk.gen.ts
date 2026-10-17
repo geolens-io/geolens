@@ -2492,6 +2492,14 @@ export const listFeaturesDatasetsDatasetIdFeaturesGet = <ThrowOnError extends bo
  * `table_id` and `tile_cache_version` also on the collection. It has no
  * `Location` header since there is no single new resource.
  * `Idempotency-Key` is refused with 422 for a FeatureCollection.
+ *
+ * With `dry_run=true` the request runs every check a real create runs,
+ * database casts and constraints included, and is refused the same way,
+ * but writes nothing. It answers 200 with the feature as it would be
+ * stored, or a FeatureCollection of them in request order, with no `id`,
+ * `table_id`, `tile_cache_version` or `Location` header. A dry run may use
+ * up feature id sequence values, so stored ids can have gaps.
+ * `Idempotency-Key` is refused with 422 for a dry run.
  */
 export const createFeatureDatasetsDatasetIdFeaturesPost = <ThrowOnError extends boolean = false>(options: Options<CreateFeatureDatasetsDatasetIdFeaturesPostData, ThrowOnError>): RequestResult<CreateFeatureDatasetsDatasetIdFeaturesPostResponses, CreateFeatureDatasetsDatasetIdFeaturesPostErrors, ThrowOnError> => (options.client ?? client).post<CreateFeatureDatasetsDatasetIdFeaturesPostResponses, CreateFeatureDatasetsDatasetIdFeaturesPostErrors, ThrowOnError>({
     security: [

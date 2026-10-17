@@ -2395,6 +2395,14 @@ export interface paths {
          *     `table_id` and `tile_cache_version` also on the collection. It has no
          *     `Location` header since there is no single new resource.
          *     `Idempotency-Key` is refused with 422 for a FeatureCollection.
+         *
+         *     With `dry_run=true` the request runs every check a real create runs,
+         *     database casts and constraints included, and is refused the same way,
+         *     but writes nothing. It answers 200 with the feature as it would be
+         *     stored, or a FeatureCollection of them in request order, with no `id`,
+         *     `table_id`, `tile_cache_version` or `Location` header. A dry run may use
+         *     up feature id sequence values, so stored ids can have gaps.
+         *     `Idempotency-Key` is refused with 422 for a dry run.
          */
         post: operations["create_feature_datasets__dataset_id__features__post"];
         delete?: never;
@@ -26618,7 +26626,10 @@ export interface operations {
     };
     create_feature_datasets__dataset_id__features__post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Validate the body without storing it: run every check a create runs, then answer 200 with what would have been stored. */
+                dry_run?: boolean;
+            };
             header?: {
                 /** @description Optional key that makes a retried create safe. Any visible ASCII character (`!` to `~`, no spaces), 1 to 128 characters. The key is compared exactly as sent, so a quoted key and the same key unquoted are different keys. For example `device-42:2026-10-17T16:09:33.123000+00:00`. */
                 "Idempotency-Key"?: string;
@@ -26636,6 +26647,98 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Dry run: the feature or features as they would be stored. Nothing was written. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/geo+json": {
+                        /**
+                         * Type
+                         * @default Feature
+                         * @constant
+                         */
+                        type: "Feature";
+                        /** Geometry */
+                        geometry?: {
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                            /** Geometries */
+                            geometries: {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            }[];
+                        } | {
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            /** Coordinates */
+                            coordinates: unknown[];
+                        } | null;
+                        /** Properties */
+                        properties: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        /**
+                         * Type
+                         * @default FeatureCollection
+                         * @constant
+                         */
+                        type: "FeatureCollection";
+                        /** Features */
+                        features: {
+                            /**
+                             * Type
+                             * @default Feature
+                             * @constant
+                             */
+                            type: "Feature";
+                            /** Geometry */
+                            geometry?: {
+                                /**
+                                 * Type
+                                 * @constant
+                                 */
+                                type: "GeometryCollection";
+                                /** Geometries */
+                                geometries: {
+                                    /**
+                                     * Type
+                                     * @enum {string}
+                                     */
+                                    type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                    /** Coordinates */
+                                    coordinates: unknown[];
+                                }[];
+                            } | {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            } | null;
+                            /** Properties */
+                            properties: {
+                                [key: string]: unknown;
+                            };
+                        }[];
+                    };
+                };
+            };
             /** @description Successful Response */
             201: {
                 headers: {

@@ -1,6 +1,7 @@
 """Feature-serving endpoints: paginated GeoJSON from PostGIS data tables."""
 
 import uuid
+from contextlib import asynccontextmanager
 from typing import NamedTuple
 from urllib.parse import urlencode
 
@@ -77,7 +78,9 @@ from app.modules.catalog.features.schemas import (
     FeatureUpdate,
     GeoJSONFeature,
     GeoJSONFeatureCollection,
+    GeoJSONFeatureCollectionDryRun,
     GeoJSONFeatureCollectionWrite,
+    GeoJSONFeatureDryRun,
     GeoJSONFeatureRead,
     GeoJSONFeatureWrite,
     inline_json_schema,
@@ -215,6 +218,37 @@ def _created_feature_response(
     )
 
 
+@asynccontextmanager
+async def _insert_scope(db: AsyncSession, dry_run: bool):
+    """Run a create's inserts as they are, or in a savepoint rolled back on exit.
+
+    A dry run keeps the real inserts so the database's own casts and
+    constraints refuse a bad value as they would for a real create. The rest
+    of the request's transaction is left as it was.
+    """
+    if not dry_run:
+        yield
+        return
+    async with db.begin_nested() as savepoint:
+        yield
+        await savepoint.rollback()
+
+
+def _dry_run_response(rows: list[dict], collection: bool) -> JSONResponse:
+    features = [
+        GeoJSONFeatureDryRun(geometry=row["geometry"], properties=row["properties"])
+        for row in rows
+    ]
+    content = (
+        GeoJSONFeatureCollectionDryRun(features=features) if collection else features[0]
+    )
+    return JSONResponse(
+        content=content.model_dump(mode="json"),
+        status_code=status.HTTP_200_OK,
+        media_type="application/geo+json",
+    )
+
+
 def _batch_feature_refused(error: FeatureBatchError) -> HTTPException:
     """The refusal a single create would get, naming the feature that failed."""
     cause = error.cause
@@ -246,22 +280,24 @@ async def _create_features(
     user: Identity,
     dataset_id: uuid.UUID,
     body: FeatureCollectionCreate,
+    dry_run: bool,
 ) -> JSONResponse:
     """Insert every feature of a FeatureCollection in this transaction, or none."""
     geometries = [feature.geometry.model_dump() for feature in body.features]
     try:
-        rows = await insert_features(
-            db,
-            dataset.table_name,
-            [
-                (geometry, feature.properties)
-                for geometry, feature in zip(geometries, body.features)
-            ],
-            dataset.column_info or [],
-            await effective_geometry_type(db, dataset),
-            dataset_srid=dataset.srid,
-        )
-        table_oid = await current_table_oid(db, dataset.table_name)
+        async with _insert_scope(db, dry_run):
+            rows = await insert_features(
+                db,
+                dataset.table_name,
+                [
+                    (geometry, feature.properties)
+                    for geometry, feature in zip(geometries, body.features)
+                ],
+                dataset.column_info or [],
+                await effective_geometry_type(db, dataset),
+                dataset_srid=dataset.srid,
+            )
+            table_oid = await current_table_oid(db, dataset.table_name)
     except FeatureBatchError as e:
         await db.rollback()
         raise _batch_feature_refused(e)
@@ -270,6 +306,8 @@ async def _create_features(
     except DBAPIError as exc:
         await db.rollback()
         raise _feature_write_db_error(exc)
+    if dry_run:
+        return _dry_run_response(rows, collection=True)
 
     gids = [row["gid"] for row in rows]
     geometry_types = {feature.geometry.type for feature in body.features}
@@ -938,6 +976,22 @@ async def get_single_feature(
     response_class=JSONResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
+        200: {
+            "description": (
+                "Dry run: the feature or features as they would be stored. "
+                "Nothing was written."
+            ),
+            "content": {
+                "application/geo+json": {
+                    "schema": {
+                        "oneOf": [
+                            inline_json_schema(GeoJSONFeatureDryRun),
+                            inline_json_schema(GeoJSONFeatureCollectionDryRun),
+                        ]
+                    }
+                },
+            },
+        },
         201: {
             "content": {
                 "application/geo+json": {
@@ -982,6 +1036,13 @@ async def create_feature(
             "each time the body is sent again. Counts as 1 when omitted."
         ),
     ),
+    dry_run: bool = Query(
+        False,
+        description=(
+            "Validate the body without storing it: run every check a create "
+            "runs, then answer 200 with what would have been stored."
+        ),
+    ),
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -1013,6 +1074,14 @@ async def create_feature(
     `table_id` and `tile_cache_version` also on the collection. It has no
     `Location` header since there is no single new resource.
     `Idempotency-Key` is refused with 422 for a FeatureCollection.
+
+    With `dry_run=true` the request runs every check a real create runs,
+    database casts and constraints included, and is refused the same way,
+    but writes nothing. It answers 200 with the feature as it would be
+    stored, or a FeatureCollection of them in request order, with no `id`,
+    `table_id`, `tile_cache_version` or `Location` header. A dry run may use
+    up feature id sequence values, so stored ids can have gaps.
+    `Idempotency-Key` is refused with 422 for a dry run.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -1025,13 +1094,18 @@ async def create_feature(
     await require_dataset_editing_enabled(db, dataset_id)
     _require_feature_table(dataset)
 
+    if dry_run and idempotency_key is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Idempotency-Key is not supported with dry_run.",
+        )
     if isinstance(body, FeatureCollectionCreate):
         if idempotency_key is not None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Idempotency-Key is not supported with a FeatureCollection.",
             )
-        return await _create_features(db, dataset, user, dataset_id, body)
+        return await _create_features(db, dataset, user, dataset_id, body, dry_run)
 
     keyed = None
     try:
@@ -1048,17 +1122,18 @@ async def create_feature(
                 db, dataset, keyed, idempotency_attempt or 1, body
             )
         else:
-            row = await insert_feature(
-                db,
-                dataset.table_name,
-                body.geometry.model_dump(),
-                body.properties,
-                dataset.column_info or [],
-                # fix(#430): generic for created datasets — see effective_geometry_type
-                await effective_geometry_type(db, dataset),
-                dataset_srid=dataset.srid,
-            )
-            table_oid = await current_table_oid(db, dataset.table_name)
+            async with _insert_scope(db, dry_run):
+                row = await insert_feature(
+                    db,
+                    dataset.table_name,
+                    body.geometry.model_dump(),
+                    body.properties,
+                    dataset.column_info or [],
+                    # fix(#430): generic for created datasets — see effective_geometry_type
+                    await effective_geometry_type(db, dataset),
+                    dataset_srid=dataset.srid,
+                )
+                table_oid = await current_table_oid(db, dataset.table_name)
             if idempotency_key is not None:
                 # The catalog rows go before the key row: its foreign key
                 # takes a shared lock on the dataset that the metadata
@@ -1094,6 +1169,8 @@ async def create_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
+    if dry_run:
+        return _dry_run_response([row], collection=False)
     if keyed is not None:
         return await _finish_repeat(
             db, dataset, user, dataset_id, body, repeat, keyed.table_oid

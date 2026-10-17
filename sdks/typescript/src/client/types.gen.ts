@@ -19689,7 +19689,14 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostData = {
          */
         dataset_id: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Dry Run
+         *
+         * Validate the body without storing it: run every check a create runs, then answer 200 with what would have been stored.
+         */
+        dry_run?: boolean;
+    };
     url: '/datasets/{dataset_id}/features/';
 };
 
@@ -19735,6 +19742,103 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostErrors = {
 export type CreateFeatureDatasetsDatasetIdFeaturesPostError = CreateFeatureDatasetsDatasetIdFeaturesPostErrors[keyof CreateFeatureDatasetsDatasetIdFeaturesPostErrors];
 
 export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
+    /**
+     * Dry run: the feature or features as they would be stored. Nothing was written.
+     */
+    200: {
+        /**
+         * Type
+         */
+        type?: 'Feature';
+        /**
+         * Geometry
+         */
+        geometry?: {
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
+            /**
+             * Geometries
+             */
+            geometries: Array<{
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+            }>;
+        } | {
+            /**
+             * Type
+             */
+            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
+        } | null;
+        /**
+         * Properties
+         */
+        properties: {
+            [key: string]: unknown;
+        };
+    } | {
+        /**
+         * Type
+         */
+        type?: 'FeatureCollection';
+        /**
+         * Features
+         */
+        features: Array<{
+            /**
+             * Type
+             */
+            type?: 'Feature';
+            /**
+             * Geometry
+             */
+            geometry?: {
+                /**
+                 * Type
+                 */
+                type: 'GeometryCollection';
+                /**
+                 * Geometries
+                 */
+                geometries: Array<{
+                    /**
+                     * Type
+                     */
+                    type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                    /**
+                     * Coordinates
+                     */
+                    coordinates: Array<unknown>;
+                }>;
+            } | {
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+            } | null;
+            /**
+             * Properties
+             */
+            properties: {
+                [key: string]: unknown;
+            };
+        }>;
+    };
     /**
      * Successful Response
      */

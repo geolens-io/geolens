@@ -338,6 +338,21 @@ class GeoJSONFeatureCollectionWrite(BaseModel):
     )
 
 
+class GeoJSONFeatureDryRun(BaseModel):
+    """A feature as a create would store it, from a dry run that stored nothing."""
+
+    type: Literal["Feature"] = "Feature"
+    geometry: GeoJSONGeometryLike | None = None
+    properties: dict
+
+
+class GeoJSONFeatureCollectionDryRun(BaseModel):
+    """The features a FeatureCollection create would store, in request order."""
+
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[GeoJSONFeatureDryRun]
+
+
 class FeatureReplace(BaseModel):
     """Full feature replacement (PUT semantics)."""
 

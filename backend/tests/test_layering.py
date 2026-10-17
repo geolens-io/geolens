@@ -1390,6 +1390,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/analysis/tasks.py": 1454,
     # Map endpoints share response assembly, visibility and ownership checks.
     "backend/app/modules/catalog/maps/router.py": 1543,
+    # Feature writes share the dataset guards, the database error mapping and the
+    # catalog refresh; create also carries idempotent repeats and the dry run.
+    "backend/app/modules/catalog/features/router.py": 1551,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1423,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
