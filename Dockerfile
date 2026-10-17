@@ -49,17 +49,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 
 # ==============================================================================
-# Overlay bake — BUILD-TIME (BUG-003 / BAKE-01)
+# Overlay bake — BUILD-TIME
 # ==============================================================================
 # The runtime container runs with read_only: true rootfs (see docker-compose.yml
 # x-hardened-base anchor).  A runtime `uv add --editable` cannot write into
-# the baked /app/.venv — it silently fails, and BUG-003's startup check then
+# the baked /app/.venv — it silently fails, and the startup check then
 # refuses to boot as OSS when GEOLENS_EDITION=enterprise was set.
 #
 # The architecturally correct solution is to pre-bake overlays INTO the image
 # at BUILD time so the read_only runtime never needs to write.
 #
-# BAKE-01: this block now accepts a SPACE-SEPARATED LIST of overlay dirs so
+# This block accepts a SPACE-SEPARATED LIST of overlay dirs so
 # both an enterprise and a cloud overlay can bake into one image. Each listed
 # dir must already exist inside the build context (staged via COPY in a derived
 # Dockerfile) and must contain a pyproject.toml — the guard fails closed
@@ -74,7 +74,7 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 # worker, and migration services.
 #
 # Back-compat alias: INSTALL_ENTERPRISE_OVERLAY (legacy single-overlay ARG from
-# pre-BAKE-01 distributor-owned Dockerfiles). When their Dockerfile already
+# earlier distributor-owned Dockerfiles). When their Dockerfile already
 # stages /enterprise, the alias still prepends that path. It does not make an
 # unmodified public build capable of copying a private overlay.
 #
@@ -112,9 +112,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #
 # Note: uv is kept in the runtime layer because the entrypoints and CMD use
 # `uv run --no-dev` to launch uvicorn/worker inside the project environment.
-# An overlay is NOT installed at runtime (read_only rootfs prevents it — see
-# BUG-003); supported paid distributions use their overlay-owned immutable
-# Dockerfile to install a locked wheel into this completed runtime image.
+# An overlay is NOT installed at runtime (read_only rootfs prevents it, and the
+# startup check refuses to boot as OSS in that case); supported paid
+# distributions use their overlay-owned immutable Dockerfile to install a locked wheel into this completed runtime image.
 # gcc/dev libs are still excluded from the runtime layer.
 #
 # Pin: see the `FROM python:3.14-slim` line above (Dependabot bumps the exact
@@ -157,7 +157,7 @@ RUN install -d -o appuser -g appgroup \
     /app/staging \
     /home/appuser/.cache/uv
 
-# fix(#441): stamp the build commit for /health `build` reporting. publish.yml
+# Stamp the build commit for /health `build` reporting. publish.yml
 # passes it on release builds; local and dev builds leave it empty. Declared
 # last in this shared stage so a changing SHA invalidates no heavy layers, and
 # as ENV so the api and worker child stages inherit it.
@@ -171,7 +171,7 @@ LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog API"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
-# fix(#1778): liveness, not readiness. /health probes the database, the object
+# This is liveness, not readiness. /health probes the database, the object
 # store and the cache and 503s if any of them is degraded, but the cache path
 # falls back to an in-memory cache by design, so a Valkey outage the API can
 # serve straight through used to mark this container unhealthy -- and the
@@ -207,9 +207,8 @@ CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 # Base: official postgres:18 (multi-arch: amd64 + arm64), pinned by digest.
 # Dependabot tracks Docker digest updates for this file.
 # db/Dockerfile uses postgis/postgis:18-3.6 which is amd64-ONLY — this stage
-# uses the digest-pinned postgres:18 base so publish.yml can build both arches
-# (BKP-01).
-# chore(#704): must match the db server major — pg_dump refuses to dump a
+# uses the digest-pinned postgres:18 base so publish.yml can build both arches.
+# Must match the db server major — pg_dump refuses to dump a
 # server NEWER than itself, so this stage bumps in lockstep with db/Dockerfile.
 # PostGIS is NOT needed client-side: pg_dump streams the raw catalog over the
 # wire and custom-format dumps preserve PostGIS types without PostGIS libs.
@@ -226,17 +225,17 @@ LABEL org.opencontainers.image.description="Automated pg_dump backup service wit
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
-# awscli (SigV4-capable S3 client) for the BKP-02 S3 upload path; procps for the
+# awscli (SigV4-capable S3 client) for the S3 upload path; procps for the
 # compose healthcheck (`pgrep -f backup-entrypoint || pgrep -f sleep`) — pgrep is
 # present in the postgres base today but is installed explicitly so the
 # default-on healthcheck's pgrep dependency survives a base-image change.
-# Installed from Debian apt only — no pip/PyPI (T-1247-SC mitigation).
+# Installed from Debian apt only — no pip/PyPI, which avoids a supply-chain dependency.
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     awscli \
     procps \
     && rm -rf /var/lib/apt/lists/* \
-    # fix(#517): drop the base image's gosu — the backup entrypoint never
+    # Drop the base image's gosu — the backup entrypoint never
     # invokes it, and its Go-built binary trips Trivy's CRITICAL/HIGH gate
     # (Go stdlib CVEs) independently of our own code.
     && rm -f /usr/local/bin/gosu
@@ -245,7 +244,7 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
 # runnable without a host bind-mount. The compose bind-mount
 # (./scripts:/scripts:ro) may override at runtime for local development.
 #
-# fix(#1798 review round 7, P2): restore.sh sources lib/common.sh
+# restore.sh sources lib/common.sh
 # (`. "$SCRIPT_DIR/lib/common.sh"`, SCRIPT_DIR=/scripts in this baked
 # layout) for get_env_value — the COPY below used to bring in only the two
 # top-level scripts, so the PUBLISHED geolens-backup image's baked
@@ -269,13 +268,13 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY frontend/ ./
 
 # ==============================================================================
-# Frontend overlay bake — FEOVL-03 / BAKE-01 extension
+# Frontend overlay bake
 # ==============================================================================
-# Mirrors the backend BAKE-01 block (Dockerfile lines 46-127). The OSS build
+# Mirrors the backend overlay bake block above. The OSS build
 # leaves INSTALL_FRONTEND_OVERLAYS unset so this block is a no-op and the OSS
-# dist is byte-identical to the pre-FEOVL-03 build.
+# dist is byte-identical to a build without the overlay support.
 #
-# CR-03 (Phase 1212): the merged-source path (INSTALL_FRONTEND_OVERLAYS set to
+# The merged-source path (INSTALL_FRONTEND_OVERLAYS set to
 # a cloud overlay dir) is NOT a supported build path for the cloud image.
 # The cloud overlay src-cloud/App.tsx and main.tsx import from '@cloud/*', which
 # has no alias in this OSS vite.config — using this path produces unresolved-
@@ -289,7 +288,7 @@ COPY frontend/ ./
 # The ARG and loop below are preserved so the OSS Dockerfile remains a no-op
 # (INSTALL_FRONTEND_OVERLAYS unset → loop body never runs → byte-identical OSS
 # dist).  Do NOT set INSTALL_FRONTEND_OVERLAYS to a cloud overlay dir unless
-# the overlay vite.config alias issue (CR-03) has been resolved.
+# the overlay vite.config alias issue has been resolved.
 ARG INSTALL_FRONTEND_OVERLAYS=
 ARG GEOLENS_FRONTEND_EDITION=community
 RUN set -e; \

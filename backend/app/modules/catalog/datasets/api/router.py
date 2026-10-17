@@ -108,7 +108,7 @@ router = APIRouter(
 )
 
 
-# ROUTE-01: dual-shape decorator -- both trailing-slash and no-trailing-slash
+# Dual-shape decorator: both trailing-slash and no-trailing-slash
 # variants register against the same handler. Slash form stays canonical
 # (already in OpenAPI); no-slash is a hidden alias closing the 404
 # regression introduced by redirect_slashes=False (api/main.py).
@@ -559,7 +559,7 @@ async def _rollback_failed_item(db: AsyncSession, user) -> None:
         await db.refresh(user)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# Dual-shape decorator: both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
 # the 404 regression introduced by redirect_slashes=False (api/main.py).
@@ -578,7 +578,7 @@ async def bulk_delete_datasets_endpoint(
 
     for item in body.datasets:
         try:
-            # Phase 1061 SEC-S02: per-item resource-level access check.
+            # Per-item resource-level access check.
             item_dataset = await get_dataset(db, item.dataset_id)
             if item_dataset is None:
                 results.append(

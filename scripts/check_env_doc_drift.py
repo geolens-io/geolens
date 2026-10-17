@@ -1,4 +1,4 @@
-"""Environment-contract drift gate (DOC-01).
+"""Environment-contract drift gate.
 
 Keep the operator-facing Settings, Compose, installer, and `.env.example`
 surfaces aligned. The gate is intentionally standard-library only so it can run
@@ -117,7 +117,7 @@ AZURE_TITILER_KEYS = frozenset(
 # uses to persist a value into .env.
 WRITE_RE = re.compile(r"^\s*update_env_value\s+([A-Z][A-Z0-9_]*)\b")
 
-# fix(#950): operator docs prescribed `scripts/prepare-tenant-rls.py`, a script
+# Operator docs prescribed `scripts/prepare-tenant-rls.py`, a script
 # that never existed in any repo — the multi-tenant restore recipe was
 # unrunnable as written and nothing caught it. Every `scripts/<file>` path a
 # doc tells an operator to run must resolve to a real file.
@@ -125,7 +125,7 @@ SCRIPT_DOC_FILES = (
     "RUNBOOK.md",
     "README.md",
     # The translations carry the same operator-facing install/upgrade commands
-    # (codex review on #950's PR), so a path mistyped only in a translation is
+    # so a path mistyped only in a translation is
     # exactly as broken for the reader who follows it.
     "README.de.md",
     "README.es.md",
@@ -136,8 +136,8 @@ SCRIPT_DOC_FILES = (
     ".env.example",
     ".env.test.example",
 )
-# Nested path components and any extension are both in scope (codex review on
-# #950's PR): RUNBOOK references scripts/tests/test-backup-restore-roundtrip.sh
+# Nested path components and any extension are both in scope:
+# RUNBOOK references scripts/tests/test-backup-restore-roundtrip.sh
 # and README references scripts/README.md, and a pattern restricted to
 # single-component .py/.sh/.mjs/.sql paths silently skipped both. A trailing
 # extension is still required so that prose like "the scripts/ directory" and
@@ -220,7 +220,7 @@ def compose_host_keys(compose_files: tuple[Path, ...]) -> set[str]:
             for line in path.read_text().splitlines()
             if not line.lstrip().startswith("#")
         )
-        # fix(#582): (?<!\$) skips $$-escaped references — Compose passes those
+        # (?<!\$) skips $$-escaped references — Compose passes those
         # through as literal ${...} for in-container shells (e.g. the titiler
         # command wrapper), so they are not host inputs.
         keys.update(re.findall(r"(?<!\$)\$\{([A-Z][A-Z0-9_]*)", text))
@@ -328,7 +328,7 @@ def compose_contract_errors(compose_files: tuple[Path, ...]) -> list[str]:
     return errors
 
 
-# fix(#1778 codex r1): DB_* Settings fields that are deliberately not passed to
+# DB_* Settings fields that are deliberately not passed to
 # the containers. Empty on purpose -- every entry here is a documented knob an
 # operator can set and the app will never see, so each one needs a reason.
 DB_KNOBS_NOT_PASSED_TO_CONTAINERS: frozenset[str] = frozenset()
@@ -341,7 +341,7 @@ def db_knobs_absent_from_services(
 ) -> list[str]:
     """Documented DB_* knobs that never reach the api or worker container.
 
-    fix(#1778 codex r1): the gate had no way to catch this. A new Settings
+    The gate had no way to catch this. A new Settings
     field documented in `.env.example` satisfied the two checks that already
     existed -- it is documented, and it has a consumer (the Settings field
     itself) -- while neither manifest listed it and neither uses `env_file`,

@@ -1,4 +1,4 @@
-"""WORK-04: Overlay resolution probe for api and worker image targets.
+"""Overlay resolution probe for api and worker image targets.
 
 This script asserts that the extension registry resolves non-Default ports
 after loading the dummy overlay. It serves two purposes:
@@ -18,8 +18,6 @@ Why a file instead of ``python -c``?
 A script file is: (a) locally runnable and unit-testable without a container;
 (b) auditable in code review; (c) easier to update than an inline ``python -c``
 string embedded in a YAML file.
-
-References: WORK-04
 """
 
 from __future__ import annotations

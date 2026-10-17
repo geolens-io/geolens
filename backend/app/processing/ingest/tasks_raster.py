@@ -127,25 +127,25 @@ async def ingest_raster(
     tmp_dir: str | None = None
     original_file_path = file_path
     final_status: str = "pending"
-    # fix(#1290): False until a conversion is known to have kept every
+    # False until a conversion is known to have kept every
     # sample. Decision 7's delete is licensed by that fact and nothing else, so
     # the default has to be the one that retains.
     source_preserved_in_cog: bool = False
-    # fix(#1290): set when a lossy conversion's original has been copied
+    # Set when a lossy conversion's original has been copied
     # to the durable `originals/` prefix. Until it is true the staged upload is
     # the only faithful copy and nothing may delete it.
     lossy_original_archived: bool = False
-    # fix(#1202): captured in phase 1, swept in the finally.
+    # Captured in phase 1, swept in the finally.
     owned_staging_key: str | None = None
-    # GAP-017: storage keys written BEFORE the terminal DB commit. base_key
+    # Storage keys written BEFORE the terminal DB commit. base_key
     # embeds dataset.id, a flushed-but-uncommitted UUID — if the commit (or any
     # step after the puts) fails the dataset row is rolled back, so delete_dataset
     # never reaps these assets. Track them and clean up on the failure path so a
     # crash mid-ingest doesn't orphan COG/quicklook bytes under rasters/.
     written_storage_keys: list[str] = []
-    # fix(#1778): "the COG and quicklooks are published", set at the terminal
+    # "The COG and quicklooks are published", set at the terminal
     # commit and nowhere else. The reap below keys off THIS rather than off
-    # `final_status`, for the reason fix(#1290) gives in the replace
+    # `final_status`, for the reason given in the replace
     # tail: `final_status` also carries "did anything go wrong afterwards",
     # which is not a question about the objects, and the broad handler sets it
     # to "failed" even when the failure happened after the swap was durable.
@@ -154,8 +154,8 @@ async def ingest_raster(
 
     try:
         # ----------------------------------------------------------------- #
-        # Phase 1 (short-lived session via _job_phase_session — REMED-03 /
-        # P2-05): load job, mark running, validate. Snapshot the values
+        # Phase 1 (short-lived session via _job_phase_session):
+        # load job, mark running, validate. Snapshot the values
         # needed for CPU work into local variables so phase 2 can re-load
         # the job in a fresh session without depending on attached ORM
         # state surviving the asyncio.to_thread calls.
@@ -166,7 +166,7 @@ async def ingest_raster(
             if job is None:
                 return
 
-            # fix(#1202): captured HERE, first thing after the row
+            # Captured HERE, first thing after the row
             # is in hand, so no exit below (heartbeat-claim bail, download
             # failure, validation return) can leave it None and skip
             # reaping the staging object. Reads the DB column, not the
@@ -176,7 +176,7 @@ async def ingest_raster(
             )
 
             # 1. Mark running.
-            # REMED-02 / ingest-audit P2-07: the fresh "validating" stamp rides
+            # The fresh "validating" stamp rides
             # the claim commit (see the helper). Raster ingests are the prime
             # motivator — 10-min COG conversion + quicklook generation
             # otherwise looks like a dead spinner.
@@ -191,7 +191,7 @@ async def ingest_raster(
 
             file_path = await resolve_file_path(file_path, job_id)
 
-            # 3. Validate file content and size (KISS-6). Raster uploads
+            # 3. Validate file content and size. Raster uploads
             # are .tif/.tiff/.vrt so the .zip branch of the helper is a no-op.
             try:
                 await _validate_upload_file_safety(
@@ -276,7 +276,7 @@ async def ingest_raster(
             crs_wkt=source_meta.get("crs_wkt"), srid_override=assign_crs
         )
 
-        # ING-07 / P2-09: strict-mode COG gating. When the user opted in via
+        # Strict-mode COG gating. When the user opted in via
         # RasterCommitRequest.strict_cog=True, reject non-COG TIFFs here
         # instead of silently routing through check_and_prepare_cog
         # conversion. Manifest-VRT jobs are excluded (VRTs are XML, not
@@ -287,11 +287,11 @@ async def ingest_raster(
             strict_cog=bool(um.get("strict_cog")),
         )
 
-        # REMED-02 / ingest-audit P2-07: stamp current_step="cog_convert"
+        # Stamp current_step="cog_convert"
         # before the branch so both paths exit with the same progress
         # checkpoint. Manifest-VRT skips the actual COG work but the UI
         # signal must still advance — keeps the step name consistent.
-        # Brief-session pattern via _job_phase_session (REMED-03) — no
+        # Brief-session pattern via _job_phase_session: no
         # session held open across the asyncio.to_thread CPU work below.
         async with _job_phase_session(
             job_uuid, phase="progress_write_cog_convert", attempt_id=attempt_uuid
@@ -364,7 +364,7 @@ async def ingest_raster(
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
 
-        # fix(#1778): the dataset id is decided HERE rather than by the phase-2
+        # The dataset id is decided HERE rather than by the phase-2
         # INSERT, because the object keys below embed it and the durable job
         # row has to be able to name them before the transaction that could
         # roll that id away ever opens. Nothing else changes: phase 2 hands
@@ -403,7 +403,7 @@ async def ingest_raster(
             job_id=job_id,
             task="ingest_raster",
         ):
-            # fix(#1778): a confirmed fence miss. Phase 2's own
+            # A confirmed fence miss. Phase 2's own
             # attempt-fenced load below would catch this too, but stopping
             # here is what actually keeps the recorder's contract ("do not
             # write what nothing records") rather than depending on a second
@@ -411,10 +411,10 @@ async def ingest_raster(
             # generation this dead attempt no longer needs.
             return
 
-        # REMED-02 / ingest-audit P2-07: quicklook generation is the other
+        # Quicklook generation is the other
         # multi-second hotspot. Brief-session write before the two
-        # generate_quicklook calls so the UI advances. Routed through
-        # _job_phase_session per REMED-03.
+        # generate_quicklook calls so the UI advances, routed through
+        # _job_phase_session.
         async with _job_phase_session(
             job_uuid, phase="progress_write_quicklook", attempt_id=attempt_uuid
         ) as (
@@ -430,12 +430,12 @@ async def ingest_raster(
         ql256 = await asyncio.to_thread(render_quicklook, local_cog_path, 256)
         ql512 = await asyncio.to_thread(render_quicklook, local_cog_path, 512)
 
-        # Phase 2 (short-lived session via _job_phase_session — REMED-03/
-        # P2-05): create DB records, store assets, commit job. Re-loads
+        # Phase 2 (short-lived session via _job_phase_session):
+        # create DB records, store assets, commit job. Re-loads
         # the job fresh (attributes were already snapshotted into
         # ``um``/``source_filename`` above).
         #
-        # fix(#1778): require_status="running" — see
+        # require_status="running"; see
         # `_job_phase_session`'s docstring; this phase puts objects to
         # storage, which no rollback can undo, so a paused-not-dead worker
         # must not resume here.
@@ -448,12 +448,12 @@ async def ingest_raster(
             if job is None:
                 return
 
-            # REMED-02 / ingest-audit P2-07: phase-2 progress signal.
+            # Phase-2 progress signal.
             # Uncommitted — participates in the existing rollback shape
             # so a phase-2 failure cleans up the progress write too.
             # The brief-session "quicklook" write above is the durable
             # mid-flight checkpoint.
-            # REMED-03 / P2-05: _job_phase_session owns the rollback-on-
+            # _job_phase_session owns the rollback-on-
             # exception shape that used to live as a manual try/except.
             job.current_step = "finalize"
             job.progress = 0.8
@@ -545,10 +545,10 @@ async def ingest_raster(
                 ql512_key,
             )
 
-            # GAP-017: record each key so the failure path can delete exactly
+            # Record each key so the failure path can delete exactly
             # what was written.
             #
-            # fix(#1778): registered BEFORE the put, not after — a cancelled
+            # Registered BEFORE the put, not after: a cancelled
             # put can still have COMPLETED (both providers drain their
             # worker thread before re-raising CancelledError, a
             # BaseException), which would skip an append placed after and
@@ -571,12 +571,12 @@ async def ingest_raster(
             raster_asset.quicklook_512_uri = ql512_key
             await session.flush()
 
-            # BUG-041: populate the STAC-aligned dataset_assets table. The read
+            # Populate the STAC-aligned dataset_assets table. The read
             # path (search/STAC/OGC `_build_stac_assets`) was always operating on
             # an empty input because ingest never wrote these rows. Insert them
             # in this same transaction so STAC item assets are advertised
             # (data/vrt + thumbnail + overview). On local storage these still
-            # resolve to None per GAP-031; on S3-published deployments they
+            # resolve to None; on S3-published deployments they
             # become presigned hrefs.
             from app.platform.extensions import (
                 get_catalog_port,
@@ -584,8 +584,7 @@ async def ingest_raster(
             )
 
             # dataset_asset_orm_class lives on the CatalogPort, not the
-            # ProcessingPort — get it from get_catalog_port() (BUG-041 follow-up:
-            # the original fix used the wrong port and crashed every COG ingest).
+            # ProcessingPort, so get it from get_catalog_port().
             DatasetAsset = get_catalog_port().dataset_asset_orm_class()
             for asset_row in _build_dataset_asset_rows(
                 dataset_id=dataset.id,
@@ -608,7 +607,7 @@ async def ingest_raster(
             )
             session.add(distribution)
 
-            # fix(#1290): same policy as the replace tail, through the
+            # Same policy as the replace tail, through the
             # same helper. ADR-002 Decision 7's retained original lives under
             # `originals/<dataset_id>/` — the prefix the vector tails have
             # archived to since #430, which `delete_dataset` reaps and no purge
@@ -661,7 +660,7 @@ async def ingest_raster(
             )
 
             # 12. Finalize job.
-            # REMED-02 / ingest-audit P2-07: stamp terminal progress
+            # Stamp terminal progress
             # alongside status. ``rows_processed`` stays NULL — raster
             # ingests have no rows (the COG and quicklooks ARE the
             # asset). Vector ingests set rows_processed in
@@ -737,9 +736,9 @@ async def ingest_raster(
         )
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
-        # REMED-03 / P2-05: route through _job_phase_session.
+        # Route through _job_phase_session.
         #
-        # fix(#1950): the budget covers the UPDATE below, the statement that
+        # The budget covers the UPDATE below, the statement that
         # blocks on a contended job row. An expiry leaves the job `running` for
         # the stale sweep; the handler below keeps the cause as the outcome.
         try:
@@ -793,7 +792,7 @@ async def ingest_raster(
     finally:
         async with cleanup_step("ingest_raster heartbeat", job_id=job_id):
             await stop_ingest_job_heartbeat(heartbeat_task)
-        # GAP-017: orphan-asset cleanup. If we wrote COG/quicklook bytes to
+        # Orphan-asset cleanup. If we wrote COG/quicklook bytes to
         # storage but did NOT reach a successful terminal commit, the dataset
         # row those keys belong to was rolled back — delete_dataset will never
         # reap them. Remove them here so a crash/commit-failure mid-ingest does
@@ -822,8 +821,8 @@ async def ingest_raster(
                 source_preserved_in_cog or lossy_original_archived
             ):
                 _Path(file_path).unlink(missing_ok=True)
-        # fix(#1202): sweep the presigned staging key — raster
-        # had no equivalent of the vector tail's #430 BA-09 block, so
+        # Sweep the presigned staging key. Raster
+        # had no equivalent of the vector tail's block, so
         # nothing on this path ever deleted an object the client could
         # still overwrite. Shared with the vector tail so they can't drift.
         async with cleanup_step(
@@ -832,13 +831,13 @@ async def ingest_raster(
             await reap_presigned_staging_object(
                 job_id, owned_staging_key, final_status=final_status
             )
-        # fix(#1210), ADR-002 Decision 7: the pre-conversion source object.
-        # Raster's version of the vector tail's #430 BA-09 block.
+        # ADR-002 Decision 7: the pre-conversion source object.
+        # Raster's version of the vector tail's block.
         # `final_status == "complete"` is reached only after the COG is
         # written, read, and committed, so the delete can't race the
         # verification it depends on.
         #
-        # fix(#1290): "losslessly" is a claim about the profile that
+        # "Losslessly" is a claim about the profile that
         # ran — under JPEG/WEBP the COG discards detail the upload
         # carried, making the upload the only lossless copy, so the
         # delete is gated on the resolved conversion (`source_preserved_

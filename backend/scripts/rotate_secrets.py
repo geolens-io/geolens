@@ -5,7 +5,7 @@ GeoLens encrypts ``catalog.oauth_providers.client_secret_encrypted`` and
 ``idp_certificate`` at rest. Reads try every configured key in turn, so a row
 written under an older key keeps working; writes only ever use the newest one.
 This script rewrites every row under the newest key, which is what lets you
-then retire the older ones (#1871). Fernet ciphertext does not say which key
+then retire the older ones. Fernet ciphertext does not say which key
 made it, so a run cannot tell an already-current row from a stale one: it
 rewrites all of them and the count it prints is the whole table.
 
@@ -45,7 +45,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
-# fix(#1882 codex r1): the lock spans the read and the write, so a provider
+# The lock spans the read and the write, so a provider
 # saved between them is never overwritten by ciphertext of the values this
 # SELECT saw. Ordered by id, and oauth_providers is the first table
 # acquire_config_import_lock takes, so the two cannot deadlock.
@@ -59,8 +59,8 @@ def make_engine(database_url: str):
     """Engine for the sweep.
 
     ``hide_parameters`` keeps bound ciphertext out of ``StatementError``
-    messages, which a failed UPDATE would otherwise print (#1778 sets it on
-    the app engine for the same reason). ``connect_args`` carries the SSL
+    messages, which a failed UPDATE would otherwise print (the app engine sets it
+    for the same reason). ``connect_args`` carries the SSL
     settings, without which this cannot reach a managed Postgres at all.
     """
     from app.core.config import settings

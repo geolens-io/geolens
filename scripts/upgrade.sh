@@ -2,7 +2,7 @@
 set -eu
 
 # ==============================================================================
-# GeoLens Prebuilt-Image Upgrade (UPG-01)
+# GeoLens Prebuilt-Image Upgrade
 # ==============================================================================
 # One-command upgrade for a PREBUILT-IMAGE install (COMPOSE_FILE=
 # docker-compose.prod.yml). Ordered, fail-safe steps:
@@ -11,7 +11,7 @@ set -eu
 #      If this is a source-build install (not the prod compose), print the
 #      source-build upgrade instructions and exit 0 — this tool targets prebuilt.
 #   2. Determine the TARGET version (arg $1, else newest remote release tag).
-#   2.5 Refuse to cross a PostgreSQL major (chore(#704)) — abort before any
+#   2.5 Refuse to cross a PostgreSQL major — abort before any
 #      change with a pointer to RUNBOOK section 6.
 #   3. Export GEOLENS_VERSION=<target> for compose (NOT written to .env yet).
 #   4. Sync the on-disk release files to the target tag.
@@ -26,7 +26,7 @@ set -eu
 #      same rollback recipe and exit non-zero — and while the app is still
 #      deliberately stopped, put the PREVIOUS release back first.
 #
-# fix(#1467): steps 3-5 all run before the stop, so the outage is stop -> dump ->
+# Steps 3-5 all run before the stop, so the outage is stop -> dump ->
 # migrate -> start and never includes the download. Everything from step 6 on
 # runs with no application writers, so a data migration may assume it sees the
 # final state of the old data.
@@ -63,23 +63,20 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required."
 REPO_URL="${GEOLENS_REPO_URL:-https://github.com/geolens-io/geolens.git}"
 
 # --- Step 1: read current install state -------------------------------------
-# fix(#1778 review round 6, P2): get_env_value now returns 1 (empty stdout)
-# when a key has no `key=` line in .env at all, distinct from a key present
-# with an empty value — `|| true` keeps that a no-op here, since every use
-# below already treats "" as "not set" via `[ -n "$X" ] || X=default` /
+# get_env_value returns 1 (empty stdout) when a key has no `key=` line in
+# .env at all, distinct from a key present with an empty value. `|| true` keeps that a no-op
+# here, since every use below already treats "" as "not set" via `[ -n "$X" ] || X=default` /
 # `${X:-...}`, and this script has no inherited-process-value case to
 # preserve the way restore.sh/check-env.sh do (nothing here reads these
 # vars before this point). Without the guard, a plain `.env` missing one of
 # these optional keys would abort the whole upgrade under `set -eu`.
 #
-# fix(#1798 review round 15, P2, review 5104520795): assigns straight into
-# each target via env_value_into rather than `VAR="$(get_env_value ...)"` —
-# see restore.sh's own round 15 comment on the same pattern for why plain
+# Assigns straight into each target via env_value_into rather than `VAR="$(get_env_value ...)"` —
+# see restore.sh's own comment on the same pattern for why plain
 # command substitution is not enough on its own (it strips a trailing
 # decoded newline regardless of what get_env_value itself preserves).
 env_value_into COMPOSE_FILE COMPOSE_FILE .env || true
-# fix(#1798 review round 15, P2, review 5104520795): env_value_into
-# leaves the target COMPLETELY unset on failure (unlike the old
+# env_value_into leaves the target COMPLETELY unset on failure (unlike the old
 # `VAR="$(get_env_value ...)" || true`, which always assigned SOMETHING,
 # even ""). Every use of these vars below is already `${VAR:-...}`-
 # guarded EXCEPT the bare `[ -n "$VAR" ]` checks a few lines down —
@@ -127,7 +124,7 @@ if [ "$COMPOSE_IS_PREBUILT" != "1" ]; then
   say "  docker compose -f docker-compose.yml up -d --no-deps migrate  # run migrations"
   say "  docker compose -f docker-compose.yml up -d                    # outage ends"
   say ""
-  # fix(#1467): the stop leads, and it is part of the recipe rather than an
+  # The stop leads, and it is part of the recipe rather than an
   # optimisation. Migrations that backfill existing rows must not run while the
   # old release is still writing, and this compose file bind-mounts
   # ./backend/app into the api container, so checking out the new tag under a
@@ -192,7 +189,7 @@ fi
 say "Upgrading GeoLens: ${CURRENT_VERSION:-unknown} -> ${TARGET_VERSION}"
 say ""
 
-# fix(#1778 review round 6, P2): see the Step 1 comment above — `|| true`
+# See the Step 1 comment above — `|| true`
 # keeps a missing key a no-op, since the next two lines already default an
 # empty result.
 env_value_into POSTGRES_USER POSTGRES_USER .env || true
@@ -204,7 +201,7 @@ env_value_into POSTGRES_DB POSTGRES_DB .env || true
 
 TARGET_TAG="v${TARGET_VERSION}"
 
-# --- Step 2.5: refuse to cross a PostgreSQL major (chore(#704)) --------------
+# --- Step 2.5: refuse to cross a PostgreSQL major --------------
 # A PG N data volume cannot be opened by a PG N+1 server ("database files are
 # incompatible with server"), and this script has no path that migrates one.
 # Left undetected, an upgrade that crosses the boundary either leaves the
@@ -218,11 +215,11 @@ TARGET_TAG="v${TARGET_VERSION}"
 # major, and an unreadable value on either side warns and continues rather than
 # blocking an otherwise valid upgrade.
 #
-# Codex #707: skipped when DATABASE_URL_OVERRIDE points at an external database.
+# Skipped when DATABASE_URL_OVERRIDE points at an external database.
 # A bundled install using the opt-in GEOLENS_RUNTIME_DB_ROLE also sets that
 # override, so distinguish it by the Compose-only `db` hostname rather than by
-# the role flag alone (fix(#1287 review)).
-# fix(#1778 review round 6, P2): see the Step 1 comment above — both are
+# the role flag alone.
+# See the Step 1 comment above: both are
 # optional flags already tested with `[ -n "$X" ]` below, so `|| true`
 # keeps a missing key a no-op instead of aborting the upgrade.
 env_value_into DATABASE_URL_OVERRIDE_VALUE DATABASE_URL_OVERRIDE .env || true
@@ -306,12 +303,11 @@ say ""
 # Export only — the .env pin is deliberately NOT written yet. Compose reads the
 # environment ahead of .env, so this is all the sync, pull and migrate steps
 # below need in order to resolve the target release's images, while .env keeps
-# naming the version that is actually installed until Step 8 says otherwise
-# (fix(#1467)).
+# naming the version that is actually installed until Step 8 says otherwise.
 export GEOLENS_VERSION="$TARGET_VERSION"
 
 # --- Step 4: sync the on-disk release files to the target tag ----------------
-# UPG (Codex P2): `compose pull` refreshes IMAGES only. Without this, the operator
+# `compose pull` refreshes IMAGES only. Without this, the operator
 # would keep the OLD checkout's compose file + container-mounted helper scripts, so
 # a release that changed compose (a new service, mount, or env wiring) would boot
 # new images against stale config. Path-restricted checkout of the target tag
@@ -342,7 +338,7 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
          scripts/lib scripts/minio-setup.sh scripts/backup-entrypoint.sh 2>/dev/null; then
       say "  mounted helper scripts synced to ${TARGET_TAG}"
     fi
-    # fix(#959): db/postgresql.conf is bind-mounted into the db container, so a
+    # db/postgresql.conf is bind-mounted into the db container, so a
     # release that changes a Postgres setting (temp_file_limit, log_temp_files)
     # never reaches an existing install unless this file is synced too. Unlike
     # the files above it is one operators are told to tune (RUNBOOK section 4),
@@ -350,7 +346,7 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
     # customised file is left alone with instructions to merge by hand.
     #
     # Both tests compare file CONTENT against release blobs, never against HEAD
-    # or the index (codex review on #959's PR). A path-restricted checkout
+    # or the index. A path-restricted checkout
     # updates the index and worktree but leaves HEAD at the tag the install was
     # created from, so a HEAD comparison would read the PREVIOUS upgrade's own
     # file as an operator edit and freeze the config forever; an index
@@ -383,7 +379,7 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
       fi
       rm -f "$_db_conf_target" "$_db_conf_installed"
     fi
-    # fix(#1778): db is the ONLY locally-built image in a prebuilt install —
+    # db is the ONLY locally-built image in a prebuilt install —
     # `compose pull --ignore-buildable` at Step 5 skips it by definition, and
     # `docker compose up -d` does not rebuild an existing local image on its
     # own. Left unsynced, a release that bumps the PostGIS/pgvector base
@@ -418,7 +414,7 @@ else
   warn "git unavailable or not a git checkout — skipping release-file sync; keeping the current compose/scripts."
 fi
 
-# fix(#959): git only says what is on DISK. Whether the running database is
+# Git only says what is on DISK. Whether the running database is
 # serving it is a question only the container can answer, and an attempt that
 # synced the config and then failed later (a pull error, say) leaves the
 # release's file on disk and the OLD inode inside the container — a retry that
@@ -442,7 +438,7 @@ compose pull --ignore-buildable \
   || fail "Could not pull prebuilt images for $TARGET_VERSION. Nothing was stopped, .env still pins ${PREVIOUS_VERSION}, and the database is untouched."
 say ""
 
-# fix(#1798 review round 8, P2): this whole block — computing whether the db
+# This whole block, computing whether the db
 # image needs rebuilding, and the `compose build db` call itself — used to
 # sit AFTER Step 6's `compose stop api worker`, i.e. inside the outage
 # window. `compose build db` is the ONLY step compose pull's
@@ -460,7 +456,7 @@ say ""
 # stay up through the dump, and the recreate needs the app already stopped
 # to be worth doing before the migrate step.
 #
-# fix(#1778 review, P1): an earlier version of this fix gated the rebuild on
+# An earlier version of this fix gated the rebuild on
 # a DB_DOCKERFILE_CHANGED flag that only tracked whether THIS run's sync step
 # wrote a new file — not whether the local image was ever actually rebuilt
 # from it. A run that syncs db/Dockerfile and then fails before reaching the
@@ -492,7 +488,7 @@ if [ -f "$DB_DOCKERFILE" ] \
   DB_IMAGE_NEEDS_REBUILD=1
 fi
 
-# fix(#1778 review round 2, P1): the marker alone cannot tell "the on-disk
+# The marker alone cannot tell "the on-disk
 # Dockerfile matches what was built" apart from "and that build is what the
 # CONTAINER is actually running" — those used to be conflated by writing the
 # marker right after `compose build db`, before the separate `compose up
@@ -516,7 +512,7 @@ fi
 # rebuild on every uncertain read would defeat the marker's purpose.
 DB_IMAGE_STALE_CONTAINER=0
 if [ "$DB_IMAGE_NEEDS_REBUILD" = "0" ]; then
-  # fix(#1778 review round 7, P2): every lookup below now has an explicit
+  # Every lookup below now has an explicit
   # `|| printf ''` — without it, `compose ps -q db` / `docker inspect` /
   # `docker image inspect` returning nonzero (the db container vanished
   # between the `compose ps` above and this inspect, or Docker itself
@@ -529,7 +525,7 @@ if [ "$DB_IMAGE_NEEDS_REBUILD" = "0" ]; then
     _db_running_image_id="$(docker inspect --format '{{.Image}}' "$_db_container_id" 2>/dev/null || printf '')"
     _db_built_image_id="$(docker image inspect --format '{{.Id}}' "$_db_image_tag" 2>/dev/null || printf '')"
     if [ -n "$_db_running_image_id" ] && [ -z "$_db_built_image_id" ]; then
-      # fix(#1778 review round 7, P2): the tagged local image `compose
+      # The tagged local image `compose
       # config --images` resolved is gone (pruned) even though a `db`
       # container is currently running from SOME image — we cannot prove
       # it still matches what db/Dockerfile would build, which is exactly
@@ -545,7 +541,7 @@ if [ "$DB_IMAGE_NEEDS_REBUILD" = "0" ]; then
   fi
 fi
 
-# fix(#1798 review round 8, P2): runs here, before Step 6's stop, so a
+# This runs here, before Step 6's stop, so a
 # db/Dockerfile base-layer fetch (the one thing --ignore-buildable above
 # deliberately skips) cannot extend the outage or fail the upgrade after
 # downtime has already begun. Only the container recreate that makes this
@@ -558,7 +554,7 @@ if [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ] || [ "$DB_IMAGE_STALE_CONTAINER" = "1" ];
 fi
 
 # --- Step 6: stop the app, then take the pre-upgrade backup ------------------
-# fix(#1467): this line is the boundary. Everything ABOVE it — the release-file
+# This line is the boundary. Everything ABOVE it — the release-file
 # sync and the image pull — runs with the previous release still serving, which
 # is where the download belongs: on a self-hosted link it is the longest part of
 # an upgrade and it does not need the app to be down. Everything BELOW it runs
@@ -566,10 +562,10 @@ fi
 # state of the old data with no concurrent application writes behind it. A
 # one-shot backfill that ran while the old code was still accepting writes would
 # silently miss every row written in the window, and Alembic never re-runs the
-# revision to repair them (#1467).
+# revision to repair them.
 #
 # Stopping the writers is also what makes the dump a consistent, no-lost-writes
-# snapshot (Codex P1): pg_dump snapshots when it BEGINS and does NOT block
+# snapshot: pg_dump snapshots when it BEGINS and does NOT block
 # writers, so a write acknowledged during the dump would be absent from the
 # backup and lost if a failed migration later triggered the restore recipe.
 #
@@ -596,7 +592,7 @@ restore_previous_app() {
 }
 
 # `compose up -d` returns as soon as the containers are CREATED, which is not
-# the same as the previous release serving again (codex P1 round 2 on #1476).
+# the same as the previous release serving again.
 # The api image runs `alembic upgrade heads` on boot unless
 # GEOLENS_API_RUN_MIGRATIONS=false, and refuses to start when it fails. So if a
 # failed migration already committed a revision the OLD graph has never heard
@@ -640,7 +636,7 @@ report_restore() {
 }
 
 say "Step 2/5: stopping api + worker — the upgrade outage starts here"
-# Hard precondition (Codex P1): if the stop fails, a writer may still be running,
+# Hard precondition: if the stop fails, a writer may still be running,
 # so the no-writers guarantee is NOT established — taking the rollback dump now
 # could miss acknowledged writes, and the migration below could run underneath a
 # live old app. Restart whatever we stopped and abort BEFORE the backup (the
@@ -666,7 +662,7 @@ if [ ! -s "$BACKUP_FILE" ]; then
   fail "Pre-upgrade backup is empty. Aborting before the database was changed."
 fi
 # Read the archive back end-to-end before trusting it as the rollback artifact
-# (fix(#714), same check backup.sh got in #710). A dump truncated by a disk that
+# (the same check backup.sh runs). A dump truncated by a disk that
 # filled mid-write is non-empty and still passes `--list`, because the -Fc table
 # of contents sits at the front — the damage is only visible once every data
 # block is read. Do it here, while the pre-upgrade cluster is still intact and
@@ -681,7 +677,7 @@ say "  backup OK ($(du -h "$BACKUP_FILE" 2>/dev/null | cut -f1) ) — restore wi
 say ""
 
 # From here on, a failure has (potentially) changed the schema, so every failure
-# path must print the rollback recipe. fix(#1467): while the app is still
+# path must print the rollback recipe. While the app is still
 # deliberately stopped, it must also put the previous release back — a failed
 # upgrade never leaves the instance down. Doing it in the trap covers every way
 # out, including a `set -e` abort nobody wrote a message for.
@@ -700,7 +696,7 @@ print_rollback() {
 }
 rollback_trap() {
   rc=$?
-  # fix(#1778 round 20, P1 class): `trap` holds only ONE handler per
+  # `trap` holds only ONE handler per
   # signal — this trap REPLACES common.sh's own EXIT trap (which would
   # otherwise clean up its env-snapshot directory, see scripts/lib/
   # common.sh's own comment near the top of that file), so this cleanup
@@ -718,10 +714,10 @@ rollback_trap() {
 }
 trap rollback_trap EXIT
 
-# fix(#959): the release's db/postgresql.conf needs the container RECREATED,
+# The release's db/postgresql.conf needs the container RECREATED,
 # not restarted or reloaded — `git checkout` writes a new inode and a
 # single-file bind mount keeps resolving the one the container started with.
-# fix(#1778): a rebuilt db image (built earlier, pre-outage — see above) needs
+# A rebuilt db image (built earlier, pre-outage — see above) needs
 # the same recreate to pick it up. Do it before the migrate step, while the
 # app is already stopped and the dump is already taken, and wait for the
 # healthcheck.
@@ -730,7 +726,7 @@ if [ "$DB_CONF_CHANGED" = "1" ] || [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ] || [ "$DB
   compose up -d --force-recreate --no-deps --wait db \
     || fail "Could not recreate the db container after syncing db/Dockerfile and/or ${DB_CONF}."
   say ""
-  # fix(#1778 review round 2, P1): only NOW, after the recreate that makes
+  # Only NOW, after the recreate that makes
   # the running container match db/Dockerfile has actually succeeded, is it
   # true that the built image reflects the current file — record the marker
   # here instead of right after `compose build db`. A build that succeeds
@@ -758,7 +754,7 @@ say "Step 3/5: running database migrations (fail-closed)"
 # The prod compose migrate service is a one-shot. `up -d migrate` waits on db
 # health and runs alembic upgrade heads; since phase 1216 it is fail-closed, so
 # we trust its exit code. Use --exit-code-from to surface the migrate result.
-# fix(#1467): api + worker are stopped for the whole of this step, so a data
+# api + worker are stopped for the whole of this step, so a data
 # migration here sees the final state of the old data — no application write can
 # land behind a one-shot backfill that has already passed the row.
 if ! compose up -d --no-deps migrate; then
@@ -771,7 +767,7 @@ if [ -n "$migrate_cid" ]; then
   # prints the exit code when the container stops — there is NO arbitrary timeout,
   # so a large/long-running migration is never falsely declared failed while it is
   # still applying (which would otherwise tell the operator to restore over a live
-  # migration). (Codex P2)
+  # migration).
   m_exit="$(docker wait "$migrate_cid" 2>/dev/null | head -n 1)"
   [ -n "$m_exit" ] || m_exit="?"
   if [ "$m_exit" != "0" ]; then
@@ -780,7 +776,7 @@ if [ -n "$migrate_cid" ]; then
     fail "Migrations did NOT complete. The database may already hold part of ${TARGET_VERSION}'s migrations, and $TARGET_VERSION was NOT started. The version pin in .env still reads ${PREVIOUS_VERSION}."
   fi
 else
-  # fix(#1798 review round 11 audit, low-confidence item): `compose up -d
+  # `compose up -d
   # --no-deps migrate` just reported success starting this exact
   # container, and `ps -aq` (unlike a bare `ps -q`) includes stopped/
   # exited ones — so an EMPTY migrate_cid here means something already
@@ -799,7 +795,7 @@ say "  migrations applied."
 # (restore the dump, then re-pin) becomes the only correct answer.
 #
 # This has to be the FIRST thing after the migration succeeds, ahead of anything
-# that can fail (codex P1 on #1476). Pinning .env below is fallible — an
+# that can fail. Pinning .env below is fallible — an
 # unwritable file, a full disk — and under `set -e` that abort reaches the EXIT
 # trap. With the flag still armed, the trap would start ${PREVIOUS_VERSION}
 # against a fully migrated schema, which is the state this flag exists to
@@ -809,7 +805,7 @@ APP_DOWN=0
 say ""
 
 # --- Step 8: pin the new version, bring the app up, health gate --------------
-# fix(#1467): the .env pin moves HERE, once the migrations have committed, not
+# The .env pin moves HERE, once the migrations have committed, not
 # before them. While it moved first, a failed upgrade left .env naming a version
 # whose migrations had not run — and re-running this script then read that pin as
 # the installed version, decided there was nothing to upgrade, and exited 0 with
@@ -826,7 +822,7 @@ if ! wait_for_healthy; then
 fi
 
 # Success — defuse the failure trap and print the rollback recipe for reference.
-# fix(#1778 round 20, P1 class): clearing the trap here also removes
+# Clearing the trap here also removes
 # common.sh's own snapshot-cleanup trap (already replaced by rollback_trap
 # above, but that handler is now defused too) — clean up explicitly so the
 # directory does not leak for the remainder of this successful run.

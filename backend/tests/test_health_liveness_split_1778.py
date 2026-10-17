@@ -1,4 +1,4 @@
-"""fix(#1778): the API needs a liveness probe distinct from readiness.
+"""The API needs a liveness probe distinct from readiness.
 
 `/health` gathers a database, an object-store and a cache probe and 503s when
 any of them is degraded. The cache provider is explicitly engineered to survive
@@ -77,10 +77,10 @@ def test_container_liveness_probes_target_the_liveness_route():
 
 
 def test_the_runbook_sends_liveness_to_the_liveness_route():
-    """fix(#1778 codex r6): the docs were still the old contract.
+    """The runbook must send liveness checks to the liveness route.
 
     RUNBOOK.md told operators "Uptime/liveness checks must target
-    `/api/health`" -- the endpoint this PR reclassified as readiness, which
+    `/api/health`" -- the endpoint that is now readiness, which
     fails on a degraded cache and answers 429 under a one-second probe. A
     split the runbook contradicts is not a split.
     """
@@ -106,7 +106,7 @@ def test_the_runbook_sends_liveness_to_the_liveness_route():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r7): the probe must not touch a dependency on the way in
+# The probe must not touch a dependency on the way in
 # ---------------------------------------------------------------------------
 #
 # The handler answering without a dependency is only the last step. Three

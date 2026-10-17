@@ -1,5 +1,5 @@
 #!/bin/sh
-# fix(#1798 review round 11 audit, P1): RUNBOOK.md told operators to
+# RUNBOOK.md told operators to
 # `set -a; . ./.env; set +a` in three places (globals restore, runtime-role
 # verification, role rotation) — exactly the shell-sourcing restore.sh's own
 # header explains get_env_value exists to avoid: `.` executes the file, so
@@ -17,7 +17,7 @@
 # output when the key has no line in the file at all, or the file itself
 # does not exist.
 #
-# fix(#1798 review round 15, P2, review 5104520795): this is deliberately
+# This is deliberately
 # still stdout-based, unlike scripts/lib/common.sh's own env_value_into
 # (which restore.sh/check-env.sh/upgrade.sh now call internally instead of
 # capturing get_env_value's stdout, so a trailing decoded newline in a

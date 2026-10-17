@@ -1,4 +1,4 @@
-"""fix(#1798 review round 11 audit, P1): RUNBOOK.md told operators to
+"""RUNBOOK.md told operators to
 `set -a; . ./.env; set +a` in three places (globals restore, runtime-role
 verification, role rotation) — exactly the shell-sourcing restore.sh's own
 header explains get_env_value exists to avoid: `.` executes the file, so an

@@ -591,7 +591,7 @@ async def main() -> None:
     )
     from app.processing.ingest.tasks import task_app
 
-    # MIG-02: fail closed if the schema heads are skewed from this image's
+    # Fail closed if the schema heads are skewed from this image's
     # migration scripts. The worker doesn't run migrations itself
     # (depends_on: migrate); mirrors the API lifespan guard.
     from app.core.db.schema_skew import assert_schema_in_sync
@@ -602,7 +602,7 @@ async def main() -> None:
     ensure_staging_ready(settings.upload_staging_dir)
     ensure_staging_ready(Path(settings.upload_staging_dir) / "exports")
 
-    # ING-04 (P2-04): sweep orphaned export temp dirs from previous crashes,
+    # Sweep orphaned export temp dirs from previous crashes,
     # only entries older than EXPORTS_SWEEP_AGE_SECONDS (1 hour) — in-flight
     # exports survive a rolling restart instead of being truncated mid-download.
     exports_dir = Path(settings.upload_staging_dir) / "exports"
@@ -613,7 +613,7 @@ async def main() -> None:
     # gdal_header_dir()); boot-time is the only hook, no periodic sweep loop here.
     sweep_stale_gdal_header_files()
 
-    # 2. WORK-01: shared bootstrap (extensions, edition, storage, cache).
+    # 2. Shared bootstrap (extensions, edition, storage, cache).
     # bootstrap(app=None) = worker mode, skipping router/billing (need a
     # FastAPI app). Runs before run_worker_async so all single-slot ports
     # are resolved before any task uses them — closes the split-brain bug
@@ -625,7 +625,7 @@ async def main() -> None:
 
     await bootstrap(app=None)
 
-    # WORK-02: under GEOLENS_EDITION=enterprise every single-slot port must
+    # Under GEOLENS_EDITION=enterprise every single-slot port must
     # be non-Default; fails loud rather than silently running community ports.
     assert_enterprise_ports_resolved()
 

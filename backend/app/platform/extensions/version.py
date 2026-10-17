@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 # on every STAC item/item-page response, including empty pages; an overlay
 # missing it raises AttributeError on the first STAC request.
 #
-# 6 -> 7 (fix(GH-1443)): ProcessingPort gained a required
+# 6 -> 7 (#1443): ProcessingPort gained a required
 # ``get_retired_table_name_orm_class`` method — ``generate_table_name``
 # lives in processing/ and needs this accessor to probe a catalog model it
 # can't import directly. Called on every ingest/analysis-output/layer

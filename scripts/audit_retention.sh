@@ -53,7 +53,7 @@ TS_FORMAT='YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
 # have to agree, because an operator copy-pastes it.
 SINGLE_TENANT_PHRASE="yes, this deployment has no per-tenant host routing"
 
-# fix(#1248): an archive is a verbatim dump of usernames, IP addresses and
+# An archive is a verbatim dump of usernames, IP addresses and
 # activity for a whole retention window, and the id lists below are audit-log
 # primary keys. Under the usual umask 022 `curl -o` creates its output 0644,
 # readable by every local account on the host. Setting the umask up here rather
@@ -266,7 +266,7 @@ if [ -n "$DB_URL" ] || [ -n "${GEOLENS_RETENTION_DB_URL:-}" ]; then
     # suffix, which libpq rejects outright.
     PG_URI="$(printf '%s' "$_url_in" | sed -E 's#^postgresql\+[A-Za-z0-9_]+://#postgresql://#')"
 
-    # fix(#1248): a password in the URI must not reach psql's argv. Command
+    # A password in the URI must not reach psql's argv. Command
     # lines are world-readable (`ps`, /proc/<pid>/cmdline), so a URI handed
     # straight to psql publishes the BYPASSRLS credential to every local
     # account for the life of each query. Environment is the carrier instead:
@@ -290,7 +290,7 @@ if [ -n "$DB_URL" ] || [ -n "${GEOLENS_RETENTION_DB_URL:-}" ]; then
         *)   _uri_user="$_userinfo"; _pw_enc="" ;;
     esac
 
-    # fix(#1248): userinfo is not the only place a password rides in a
+    # Userinfo is not the only place a password rides in a
     # connection URI. Per the libpq URI grammar
     # (https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING-URIS)
     # the query string carries arbitrary connection KEYWORDS, and `password` is
@@ -369,7 +369,7 @@ Remove one of them."
     fi
 
     if [ -n "$_pw_enc" ] && [ "$CONN_DESC" = "--db-url" ]; then
-        # fix(#1248): refused, not warned. Moving the password out of psql's
+        # Refused, not warned. Moving the password out of psql's
         # command line accomplishes nothing while it sits in THIS script's own
         # command line, which is world-readable through `ps` and outlives every
         # psql child it spawns -- making it the longest exposure of the three,
@@ -448,7 +448,7 @@ fi
 psql_value() {
     local sql="$1"
     shift
-    # fix(#1248): `SET row_security = off` on EVERY connection, not once at
+    # `SET row_security = off` on EVERY connection, not once at
     # startup -- each call here is its own psql process and its own session, so
     # a one-time SET elsewhere would not survive to the query that matters.
     #
@@ -536,7 +536,7 @@ else
 fi
 [ -n "$CUTOFF" ] || die "failed to resolve the retention cutoff."
 
-# fix(#1248): the cutoff must lie strictly in the past, and this is a
+# The cutoff must lie strictly in the past, and this is a
 # correctness precondition rather than a nicety. Everything downstream rests on
 # the window being immutable for the length of the run -- rows are only ever
 # inserted with created_at = now(), so nothing new can appear inside a window
@@ -620,7 +620,7 @@ mkdir -p "$ARCHIVE_DIR"
 SAFE_LABEL="$(printf '%s' "$SCOPE_LABEL" | tr -c 'A-Za-z0-9._-' '-')"
 ARCHIVE_TAG="${SAFE_LABEL}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
-# fix(#1248): the bearer token goes to curl in a file, not on its command line.
+# The bearer token goes to curl in a file, not on its command line.
 # `-H "Authorization: Bearer $ADMIN_TOKEN"` publishes an admin credential to
 # every local account via `ps` for as long as the export streams, which on a
 # 100,000-row window is not brief. curl's `-H @file` form reads headers from a
@@ -685,7 +685,7 @@ export_window() {
             'all(.[]; .timestamp[0:19] >= $lo[0:19] and .timestamp[0:19] <= $hi[0:19])' "$out" >/dev/null \
             || die "$out contains a row outside $window_from .. $window_to. Nothing has been deleted."
 
-        # fix(#1248): identity, not size. Pairing --tenant-slug with the wrong
+        # Identity, not size. Pairing --tenant-slug with the wrong
         # tenant's API host returns that tenant's rows, and when both tenants
         # have the same number of rows in the window every check above passes:
         # the count matches, and the other tenant's timestamps legitimately

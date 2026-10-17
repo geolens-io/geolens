@@ -193,11 +193,11 @@ export function OverviewTab({
   const hasFeatureTable = recordTypeCapabilities(dataset.record_type).featureTable;
 
   // VRT derivation -- pass empty string for non-VRT so the hook's enabled:!!datasetId
-  // disables the query. fix(#644): also gate on authentication — the endpoint needs
+  // disables the query. Also gate on authentication — the endpoint needs
   // an authenticated user (visibility-checked server-side, not owner-only), so
-  // firing it for anonymous viewers guaranteed 401s on public VRTs (codex P2
-  // on #649: canEdit was too strict — it hid valid read-only data from
-  // signed-in non-owners).
+  // firing it for anonymous viewers guaranteed 401s on public VRTs
+  // (canEdit was too strict: it hid valid read-only data from signed-in
+  // non-owners).
   const isAuthenticated = useAuthStore((s) => !!s.token);
   const { data: generationsData } = useVrtGenerations(isVrt && isAuthenticated ? dataset.id : '', { limit: 1 });
   const lastGeneration = generationsData?.generations?.[0];

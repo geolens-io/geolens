@@ -1,9 +1,8 @@
 """Dataset visibility enforcement.
 
-SEC-04: all dataset access paths use these shared functions —
+All dataset access paths use these shared functions:
 DatasetVisibility, apply_visibility_filter(), get_user_roles(),
-check_dataset_access() — relocated from the deleted auth visibility
-module (Phase 213).
+check_dataset_access().
 """
 
 import enum

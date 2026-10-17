@@ -1,10 +1,10 @@
-"""fix(#843): backup_staging must tolerate tar's live-write-skew exit (1).
+"""backup_staging must tolerate tar's live-write-skew exit (1).
 
 GNU tar exits 1 ("some files differ", e.g. "file changed as we read it") when
 api/worker write to the staging volume mid-archive; the archive is still fully
 written and every quiescent file in it is sound. Only exit >= 2 is a fatal tar
 error. Before the fix, exit 1 deleted the archive and failed the cycle, so the
-fix(#712) freshness healthcheck sat unhealthy on any busy install.
+freshness healthcheck sat unhealthy on any busy install.
 
 These tests run the REAL backup_staging function — extracted from
 scripts/backup-entrypoint.sh at test time so the harness cannot drift — against
@@ -47,7 +47,7 @@ def _run_cycle(
 
     # Stub tar mirrors real tar's exit-1 behavior: the archive IS written.
     # Invocation shape is `tar czf <archive>.tmp -C <dir> .` for the write and
-    # `tar tzf <archive>.tmp` for the fix(#1778) verification step that runs
+    # `tar tzf <archive>.tmp` for the verification step that runs
     # afterwards — dispatch on $1 so the two calls can be driven independently.
     tar_stub = bin_dir / "tar"
     tar_stub.write_text(
@@ -103,7 +103,7 @@ class TestBackupStagingTarSkew:
         assert "ERROR: object-storage archive failed" in result.stderr
 
     def test_tar_writes_to_tmp_name_before_publishing(self, tmp_path: Path):
-        """fix(#1778): `tar czf` must target `<archive>.tmp`, not the final
+        """`tar czf` must target `<archive>.tmp`, not the final
         name directly — before the fix it wrote straight to `staging-*.tar.gz`,
         so a container killed mid-write (OOM, `compose stop`, disk full) left
         a truncated archive sitting under its final name, indistinguishable
@@ -113,7 +113,7 @@ class TestBackupStagingTarSkew:
         assert 'tar czf "$archive"' not in source
 
     def test_tar_verification_failure_discards_archive_and_fails(self, tmp_path: Path):
-        """fix(#1778): `tar tzf` failing on the freshly written .tmp — a
+        """`tar tzf` failing on the freshly written .tmp — a
         truncated gzip member neither tar exit code above catches — must
         discard the archive and fail the cycle, the tar-side analogue of the
         dump's `pg_restore -f /dev/null` verification."""

@@ -43,14 +43,14 @@ EOF
     exit 1
 fi
 
-# fix(#1882 codex r2): read through the shared parser, never a local one.
+# Read through the shared parser, never a local one.
 # A value may be quoted and may carry a trailing `# comment`, both valid
 # Compose forms; a second parser here read the comment as part of the value
 # and failed a well-formed key. get_env_value still never sources .env.
 # shellcheck source=scripts/lib/common.sh
 . "$PROJECT_ROOT/scripts/lib/common.sh"
 
-# fix(#1886): an exported name overrides its .env line for Compose, so every
+# An exported name overrides its .env line for Compose, so every
 # check below runs on the value the API container will actually receive.
 value_source() {
     if env_is_exported "$1"; then
@@ -60,7 +60,7 @@ value_source() {
     fi
 }
 
-# fix(#1899): Compose loads every line of .env before anything else, so the
+# Compose loads every line of .env before anything else, so the
 # whole file is checked first and the first line it would refuse is named.
 check_env_file() {
     local hit line key reason why

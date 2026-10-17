@@ -259,8 +259,8 @@ async def import_map_style_endpoint(
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
     request type.
     """
-    # builder-audit #338 STYLE-08: MapStyleImportRequest defines no field aliases, so
-    # the prior by_alias=True was a no-op that implied aliasing that doesn't exist.
+    # MapStyleImportRequest defines no field aliases, so by_alias=True would
+    # be a no-op that implies aliasing that doesn't exist.
     style = body.model_dump(exclude_none=True)
     try:
         imported = parse_maplibre_style_import(style)
@@ -654,7 +654,7 @@ async def update_map_endpoint(
 
     if "layers" in kwargs:
         await _reject_non_public_datasets(db, map_obj, user)
-        # builder-audit #338 P0-01: replacing the layer set can drop a dataset an
+        # Replacing the layer set can drop a dataset an
         # embed token is scoped to; revoke any orphaned embed tokens so they
         # stop serving tiles for content the map no longer exposes.
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
@@ -830,7 +830,7 @@ async def patch_map_layers_endpoint(
             summary="Reordered layers",
             details={"order": [str(layer_id) for layer_id in body.order]},
         )
-    # builder-audit #338 P0-01: a diff that removes layers can drop a dataset an embed
+    # A diff that removes layers can drop a dataset an embed
     # token is scoped to; revoke any now-orphaned embed tokens.
     if body.removed:
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
@@ -1451,7 +1451,7 @@ async def remove_layer_endpoint(
             "sort_order": layer.sort_order,
         },
     )
-    # builder-audit #338 P0-01: removing a layer can drop a dataset an embed token is
+    # Removing a layer can drop a dataset an embed token is
     # scoped to; revoke any now-orphaned embed tokens for the map.
     await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     await db.commit()
@@ -1528,7 +1528,7 @@ async def bulk_delete_layers_endpoint(
             },
         )
 
-        # builder-audit #338 P0-01: a bulk delete can drop a dataset an embed token is
+        # A bulk delete can drop a dataset an embed token is
         # scoped to; revoke any now-orphaned embed tokens for the map.
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
 

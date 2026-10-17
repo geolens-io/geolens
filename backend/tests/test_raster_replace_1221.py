@@ -144,7 +144,7 @@ def raster_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.processing.ingest.tasks_common.get_storage", lambda: storage, raising=True
     )
-    # fix(#1813): `tasks_vrt` ALSO binds get_storage at module import (its own
+    # `tasks_vrt` ALSO binds get_storage at module import (its own
     # `from app.platform.storage import get_storage`, used by `regenerate_vrt`).
     # Without this, every VRT-stamp test that drives a real regeneration
     # (`_run_regeneration`) writes and reaps generation objects against
@@ -166,7 +166,7 @@ async def _archived_names(session, dataset_id) -> list[str]:
     """The uploaded filenames of a dataset's kept originals.
 
     Read from the counted rows' ``description``, because object keys are pure
-    content hashes since #1290 round 8 — the filename left object identity so
+    content hashes — the filename left object identity so
     two names for the same bytes could not become two objects.
     """
     rows = (
@@ -368,7 +368,7 @@ async def _run_regeneration(session, *, parent, user_id) -> None:
 async def _run_vrt_creation(session, storage, *, member, user_id):
     """Drive the real ``ingest_vrt`` once. Returns (dataset_id, record_id).
 
-    Exercises the CREATION tail, which round 10 found had no snapshot instant
+    Exercises the CREATION tail, which had no snapshot instant
     at all — so a member replaced during the first build was masked exactly as
     it was on regenerate.
     """
@@ -1197,7 +1197,7 @@ class TestIdempotentReplace:
         previous pointer" then deleted the raster the dataset was serving, and
         the filter on both cleanup paths was what made it a no-op.
 
-        fix(#1778 codex r3): the keys carry an attempt segment now, so the two
+        The keys carry an attempt segment now, so the two
         attempts cannot name one object at all and the collision this test was
         written for is unreachable. What it pins instead is the pair of
         properties that collision threatened: the published COG is readable
@@ -1372,7 +1372,7 @@ class TestVrtMemberStaleness:
 
 
 # ---------------------------------------------------------------------------
-# 7. Round-1 review findings (#1290)
+# 7. Follow-up findings on #1290 (1)
 # ---------------------------------------------------------------------------
 
 
@@ -1398,7 +1398,7 @@ class TestLossyConversionRetainsSource:
         assert cog_preserves_source("converted", compression) is False
 
     def test_lerc_is_judged_on_the_error_bound_we_actually_use(self) -> None:
-        """fix(#1290 review): LERC was on the lossy side out of caution, and the
+        """LERC was on the lossy side out of caution, and the
         caution was misplaced. LERC only discards precision when it is given an
         error bound, that bound is the GTiff creation option ``MAX_Z_ERROR``,
         its default is 0, and ``convert_to_cog`` passes nothing — so the base
@@ -1422,7 +1422,7 @@ class TestLossyConversionRetainsSource:
         this change touches only the codec. A warp resamples every pixel
         whatever it is then compressed with.
 
-        fix(#1291) removed the pipeline's only warp, so nothing sets
+        The pipeline's only warp is gone, so nothing sets
         ``reprojected`` today — the axis is kept, and kept tested, because a
         deliberate reproject-at-ingest field would have to set it, and a
         predicate whose second input has quietly rotted is how the upload gets
@@ -1563,7 +1563,7 @@ class TestLossyConversionRetainsSource:
             ).scalar_one()
             assert asset.asset_uri != live.cog_key, "precondition: the swap ran"
 
-            # The staged copy always goes: round 3 moved the retained original
+            # The staged copy always goes: the retained original is moved
             # out of `staging/` rather than pinning it there, because a
             # permanent artifact under a prefix that means "transient" is
             # reaped by the next purge once a newer job supersedes this one.
@@ -1832,10 +1832,10 @@ class TestPersistedMetadataDescribesTheServedCog:
                 asset.crs_metres_per_unit,
             ) == (False, False, 1.0)
             assert dataset.srid == 3857
-            # round-2 finding 3: the two fields answer different questions.
+            # The two fields answer different questions.
             # `srid` is what the dataset serves; `original_srid` is documented
             # as the SRID of the uploaded file, so it must still report what
-            # arrived. Round 1 collapsed both onto the COG read and lost that.
+            # arrived. Collapsing both onto the COG read would lose that.
             assert dataset.original_srid == 4326, (
                 "original_srid must record the SRID the UPLOAD declared, not "
                 "the override the converted COG carries"
@@ -1845,8 +1845,8 @@ class TestPersistedMetadataDescribesTheServedCog:
 
 
 class TestCrsAssignmentContract:
-    """FINDING 4's contract, pinned in one place so the two tails cannot answer
-    it differently — the drift pattern #1277 paid for three rounds running."""
+    """The CRS-assignment contract, pinned in one place so the two tails cannot answer
+    it differently — the drift pattern the two tails fell into three times."""
 
     def test_override_wins_over_a_declared_crs(self) -> None:
         from app.processing.raster.cog import resolve_crs_assignment
@@ -1947,14 +1947,14 @@ class TestCrsAssignmentContract:
 
 
 # ---------------------------------------------------------------------------
-# 8. Round-2 review findings (#1290)
+# 8. Follow-up findings on #1290 (2)
 # ---------------------------------------------------------------------------
 
 
 async def _make_stac_origin_raster(session, *, created_by: uuid.UUID) -> _LiveRaster:
     """A raster dataset shaped the way ``stac_import`` leaves one.
 
-    The shape is the finding: a remote backend, an external href for an
+    The shape matters: a remote backend, an external href for an
     asset_uri, and NO dataset_assets or record_distributions rows at all —
     the import writes the dataset and the raster asset and stops.
     """
@@ -2028,7 +2028,7 @@ class TestReplacingAStacOriginRaster:
         remote_href = live.cog_key
 
         # Precondition, asserted rather than assumed: this is the shape the
-        # finding is about.
+        # test is about.
         assert (
             await test_db_session.execute(
                 text(
@@ -2311,7 +2311,7 @@ class TestLocalStorageHonoursTheRetentionPromise:
 
 
 # ---------------------------------------------------------------------------
-# 9. Round-3 review findings (#1290)
+# 9. Follow-up findings on #1290 (3)
 # ---------------------------------------------------------------------------
 
 
@@ -2320,7 +2320,7 @@ class TestReprojectionCountsAsSampleAltering:
     reprojection under DEFLATE alters samples exactly as JPEG does. Looking
     only at the codec answered the wrong question.
 
-    fix(#1291) then removed the only warp this pipeline ran: `srid_override`
+    The only warp this pipeline ran is gone: `srid_override`
     assigns a CRS (`gdal_translate -a_srs`) instead of reprojecting to it. The
     finding's REASONING is untouched and still pinned below — a warp is
     sample-altering whatever the codec — but nothing reaches it any more, so
@@ -2412,7 +2412,7 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
         when the dataset is deleted, because `delete_dataset` already cleans the
         whole `originals/<id>/` prefix.
 
-        fix(#1526): the two payloads were seeded `hash(name) % 500`, and `hash`
+        The two payloads were seeded `hash(name) % 500`, and `hash`
         on a str is salted per interpreter, so about one process in 500 drew the
         same seed for both names. Identical bytes are one archive key by design,
         the upsert collapses them into a single row, and the assertion below
@@ -2437,7 +2437,7 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
             # product, and it should say so at the top rather than through the
             # final assert.
             #
-            # fix(#1537 review): inside the try, not before it. `_make_live_raster`
+            # Inside the try, not before it. `_make_live_raster`
             # has already committed the record, dataset and asset, and
             # `test_db_session` has no rollback teardown — isolation on this
             # suite is explicit per-test cleanup. So a precondition that fired
@@ -2485,10 +2485,9 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
 
 
 class TestFirstIngestPersistsTheServedCogToo:
-    """FINDING 3. The round-1 CRS fix made first ingest warp declared-CRS
-    sources, but its metadata still came from the pre-warp read — the same
-    defect the replace tail fixed a round earlier, left behind because that
-    dispatch was scoped to replace only."""
+    """First ingest warps declared-CRS sources, but its metadata used to come
+    from the pre-warp read — the same defect the replace tail had already
+    fixed, left behind because that dispatch was scoped to replace only."""
 
     def test_both_tails_persist_cog_derived_metadata(self) -> None:
         """Structural, and deliberately so: this pins the drift CLASS the way
@@ -2578,7 +2577,7 @@ class TestFirstIngestPersistsTheServedCogToo:
 
 
 # ---------------------------------------------------------------------------
-# 10. Round-4 review findings (#1290)
+# 10. Follow-up findings on #1290 (4)
 # ---------------------------------------------------------------------------
 
 
@@ -2877,7 +2876,7 @@ class TestArchiveCannotDestroyThePreviousOriginal:
         record_id = live.dataset.record_id
 
         try:
-            # fix(#1537 review): inside the cleanup scope. `_make_live_raster`
+            # Inside the cleanup scope. `_make_live_raster`
             # has committed and `test_db_session` has no rollback teardown, so
             # a precondition firing above the `try` would leak those rows into
             # the shared per-worker database.
@@ -2994,7 +2993,7 @@ class TestArchiveCannotDestroyThePreviousOriginal:
 
 
 # ---------------------------------------------------------------------------
-# 11. Round-5 review findings (#1290)
+# 11. Follow-up findings on #1290 (5)
 # ---------------------------------------------------------------------------
 
 
@@ -3640,7 +3639,7 @@ class TestOwnerlessDatasetsAreExemptAtEverySeam:
 
         Structural, because the third admission point is the presigned
         FINALIZER — reached only after a real multipart upload completes, which
-        is why it was the one that drifted in #1290 round 8. Each door has to
+        is why it was the one that drifted. Each door has to
         bill `dataset.record.created_by`, the nullable column the policy is
         about; a door that resolved the REQUESTER instead would both break the
         owner rule and quietly opt out of the exemption.
@@ -3707,7 +3706,7 @@ class TestEveryKeptOriginalIsCounted:
         record_id = live.dataset.record_id
 
         try:
-            # fix(#1537 review): inside the cleanup scope, for the same reason
+            # Inside the cleanup scope, for the same reason
             # as its siblings — the rows are already committed by here and
             # nothing rolls them back if the precondition fires.
             payloads = [_geotiff_bytes(seed=201), _geotiff_bytes(seed=202)]
@@ -3819,7 +3818,7 @@ class TestEveryKeptOriginalIsCounted:
 
 
 # ---------------------------------------------------------------------------
-# 12. Round-6 review findings (#1290)
+# 12. Follow-up findings on #1290 (6)
 # ---------------------------------------------------------------------------
 
 
@@ -4002,9 +4001,8 @@ class TestBothTailsReserveBeforeTheyUpsert:
 
 
 class TestArchiveKeyIsDerivedFromContentAlone:
-    """Round 6 normalized the filename inside the key; round 8 removed the
-    filename from the key entirely, which is the stronger form of the same
-    property — there is no longer an input that could need normalizing."""
+    """The key omits the filename entirely, which is stronger than normalizing
+    it: there is no longer an input that could need normalizing."""
 
     def test_the_key_ignores_the_filename_completely(self) -> None:
         from app.processing.ingest.tasks_raster_swap import archived_original_uri
@@ -4014,7 +4012,7 @@ class TestArchiveKeyIsDerivedFromContentAlone:
         key = archived_original_uri("ds-1", source_sha256="a" * 64)
         assert key == "originals/ds-1/" + "a" * ARCHIVE_HASH_CHARS
         # No extension either: the same bytes as .tif and .tiff must not become
-        # two objects (#1290 round-8 finding 1).
+        # two objects.
         assert "." not in key.rsplit("/", 1)[-1]
 
     def test_the_upload_paths_normalization_still_exists_for_staging(self) -> None:
@@ -4086,7 +4084,7 @@ class TestArchiveKeyIsDerivedFromContentAlone:
 
 
 # ---------------------------------------------------------------------------
-# 13. Round-7 review findings (#1290)
+# 13. Follow-up findings on #1290 (7)
 # ---------------------------------------------------------------------------
 
 
@@ -4302,7 +4300,7 @@ class TestIndeterminateProbeNeverArmsTheReap:
 
 
 # ---------------------------------------------------------------------------
-# 14. Round-8 review findings (#1290)
+# 14. Follow-up findings on #1290 (8)
 # ---------------------------------------------------------------------------
 
 
@@ -4539,7 +4537,7 @@ class TestCompletionAdmitsReplacementsAsReplacements:
 
 
 # ---------------------------------------------------------------------------
-# 15. Round-9 review finding (#1290)
+# 15. Follow-up findings on #1290 (9)
 # ---------------------------------------------------------------------------
 
 
@@ -4713,13 +4711,13 @@ class TestVrtStampNamesTheStateItWasBuiltFrom:
 
 
 # ---------------------------------------------------------------------------
-# 16. Round-10 review findings (#1290)
+# 16. Follow-up findings on #1290 (10)
 # ---------------------------------------------------------------------------
 
 
 class TestSnapshotPrecedesTheReadInBothTails:
-    """FINDINGS 1 and 2. Round 9 got the stamp's MEANING right and its position
-    wrong, and only fixed one tail. Both tails read their members through one
+    """The stamp must be taken before the members are read. Both tails read
+    their members through one
     helper that stamps first, so the ordering cannot drift per-tail."""
 
     async def test_the_stamp_predates_the_member_read_on_regenerate(
@@ -4887,7 +4885,7 @@ class TestSnapshotPrecedesTheReadInBothTails:
 
 
 class TestArchiveIdentityIsWideEnoughToBeAnIdentity:
-    """Round 8 made the truncated hash BE the archive's identity, which is what
+    """The truncated hash IS the archive's identity, which is what
     put the truncation width on the security boundary. A deliberate collision
     at 48 bits is a ~2^24 birthday search — minutes on a laptop — and it buys
     the attacker exactly the invariant the key protects: the later archive
@@ -4943,8 +4941,8 @@ class TestArchiveIdentityIsWideEnoughToBeAnIdentity:
         assert len(archived_original_asset_key("a" * 64)) <= limit
 
     def test_both_derivations_share_one_width(self) -> None:
-        """Two widths would be two identities again, which is the thing round 8
-        removed."""
+        """Two widths would be two identities again, which the single
+        derivation avoids."""
         from app.processing.ingest.tasks_raster_swap import (
             ARCHIVE_HASH_CHARS,
             ARCHIVED_ORIGINAL_KEY_PREFIX,
@@ -4981,7 +4979,7 @@ class TestStalenessIsStateNotTime:
         sessions: what the build READ is the old uri (the parent's built_from
         records it), while the member's committed uri is the new one and its
         `ingested_at` is EARLIER than the parent's stamp — the exact
-        post-commit state codex's interleaving produces. A timestamp comparison
+        post-commit state a lost acknowledgement interleaving produces. A timestamp comparison
         calls this healthy; a state comparison cannot.
         """
         admin_id = (
@@ -5098,7 +5096,7 @@ class TestArchiveFailureFailsThePublish:
     succeed, leaving the only faithful source in job staging where the
     retention purge removes it once a later job supersedes it — a transient
     storage error silently downgrading a dataset-lifetime guarantee to a
-    windowed one. That is the exact trade round 7 refused for the same reason.
+    windowed one. That is the same trade, refused for the same reason.
     """
 
     async def test_a_lossy_replace_fails_when_the_archive_cannot_be_written(
@@ -5349,7 +5347,7 @@ class TestLocalFailurePathsKeepWhatIsDurable:
 
 
 class TestCrsAssignmentPreservesTheSamples:
-    """fix(#1291). `srid_override` relabels; it does not resample.
+    """`srid_override` relabels; it does not resample.
 
     Inverting a "keep the original" into a "delete it" is the direction that
     costs something when it is wrong, so it is argued rather than asserted:
@@ -5481,8 +5479,8 @@ class TestCrsAssignmentPreservesTheSamples:
     def test_neither_tail_asks_for_the_reprojected_verdict(self) -> None:
         """The first-ingest tail's half of the same change.
 
-        Structural for the reason #1290 gave when it pinned its sibling this
-        way: driving a whole successful first ingest — quota, notifications,
+        Structural for the same reason as its sibling test: driving a whole
+        successful first ingest — quota, notifications,
         billing, embeddings — to observe one bit is not worth the runtime, and
         what would actually regress is the keyword coming back with the warp
         long gone, quietly charging every override a second permanent copy.
@@ -5617,7 +5615,7 @@ class TestCrsAssignmentPreservesTheSamples:
 
 
 # ---------------------------------------------------------------------------
-# 10. fix(#1778): commit ambiguity on the raster and VRT publish tails
+# 10. Commit ambiguity on the raster and VRT publish tails
 # ---------------------------------------------------------------------------
 
 
@@ -6031,7 +6029,7 @@ class TestPublishCommitLandedProbe:
 
 
 class TestAckLostCommitDoesNotDeleteThePublishedRaster:
-    """fix(#1778): the audit's only irrecoverable data-loss path.
+    """The only irrecoverable data-loss path.
 
     Every publish tail set its "published" flag on the line AFTER
     ``await session.commit()``, and the terminal cleanup read that flag. A
@@ -6041,7 +6039,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
     restored — the reaper of the OLD keys never ran — so nothing in the
     product can recover the dataset.
 
-    fix(#1778 codex r1): observing the publish now makes the tail STAND DOWN
+    Observing the publish now makes the tail STAND DOWN
     rather than re-raise, so these tasks return normally and no failure write
     runs at all. Gating only the reap left `regenerate_vrt` stamping the
     `completed` VrtGeneration `failed`, which `get_vrt_status` reads as "this
@@ -6058,7 +6056,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         "failure",
         [
             ConnectionResetError("the connection dropped inside COMMIT"),
-            # #1709 delivers this on demand through `abort=True`, and it is a
+            # Procrastinate delivers this on demand through `abort=True`, and it is a
             # BaseException the tails' `except Exception` never sees.
             asyncio.CancelledError(),
         ],
@@ -6093,7 +6091,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         try:
             with _ack_lost_on_publish(job_id, failure=failure) as fired:
                 # Returns rather than raising: the swap is durable, so there is
-                # no failure for the handler to report (#1778 codex r1).
+                # no failure for the handler to report.
                 await reupload_raster.func(
                     job_id=str(job_id),
                     dataset_id=str(dataset_id),
@@ -6145,7 +6143,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 "lost acknowledgement suggested"
             )
 
-            # fix(#1778 codex r2). Standing down from the failure handler is
+            # Standing down from the failure handler is
             # not standing down from the success work: this is the ONLY
             # deletion of the superseded objects, and the committed pointer
             # already names the new ones, so skipping it strands three objects
@@ -6166,7 +6164,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
 
         With the probe answering "not committed" — which is what it really
         answers whenever the row is not ``complete`` for this attempt, pinned
-        above — the tail must reap exactly as it did before, or GAP-017's
+        above — the tail must reap exactly as it did before, or the
         orphaned bytes come back. It is also the shape the assertions above
         would have had before the fix, which is what makes them load-bearing.
         """
@@ -6355,7 +6353,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         ``final_status``, which the broad handler sets to "failed" even when
         the failure happened after the swap was durable. Its handler also
         emails the operator, so standing down is what stops a durable ingest
-        being reported as a failure (#1778 codex r1)."""
+        being reported as a failure."""
         from app.core.config import settings
         from app.platform.notifications import events as events_mod
         from app.processing.ingest.tasks_raster import ingest_raster
@@ -6522,7 +6520,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 "published it — the VRT dataset now serves nothing"
             )
 
-            # fix(#1778 codex r2): the superseded generation's object is the
+            # The superseded generation's object is the
             # mirror obligation. The committed asset already names the new one,
             # so a stand-down that skipped the reap would strand it outside
             # quota accounting.
@@ -6530,7 +6528,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 f"the superseded {prior_key} survived the generation swap"
             )
 
-            # fix(#1778 codex r1). The reap was only the deletion. The failure
+            # The reap was only the deletion. The failure
             # handler this tail used to enter also relabelled the history and
             # the asset, and those have readers.
             assert asset.status == "ready", (
@@ -6553,7 +6551,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 "a completed generation carries no failure reason"
             )
 
-            # The reader codex named: get_vrt_status derives
+            # The reader at risk: get_vrt_status derives
             # `last_generation_at` from the latest COMPLETED generation, so a
             # falsely failed one erases the regeneration from the UI.
             resp = await client.get(
@@ -6807,8 +6805,8 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
     async def test_vrt_creation_keeps_the_artifact_it_published(
         self, test_db_session, raster_storage
     ) -> None:
-        """``ingest_vrt`` shares the tail even though the audit excerpt stopped
-        at the regenerate one: the dataset row and the VRT object become
+        """``ingest_vrt`` shares the tail even though the regenerate tail is the
+        obvious one: the dataset row and the VRT object become
         visible in the same transaction, so a lost acknowledgement deletes
         exactly what the committed row names."""
         from pathlib import Path as _P
@@ -7010,7 +7008,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
     def test_every_publish_tail_stands_down_on_an_observed_publish(self) -> None:
         """Structural, because the finding is a SHAPE.
 
-        Two properties per tail, and the second is fix(#1778 codex r1): the
+        Two properties per tail, and the second is that the
         handler that probes must END the landed branch by returning, not by
         re-raising into a failure handler that writes about a job that
         succeeded, and it must absorb the cancellation it is choosing to stop
@@ -7098,7 +7096,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         )
 
     def test_the_generation_failure_write_is_fenced_at_the_statement(self) -> None:
-        """fix(#1778 codex r1): the rule stated at the write, not only at the
+        """The rule stated at the write, not only at the
         caller.
 
         The handler guard makes this branch unreachable from

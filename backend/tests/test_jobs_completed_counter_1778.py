@@ -1,4 +1,4 @@
-"""fix(#1778): both job counters must move, and only once the row is written.
+"""Both job counters must move, and only once the row is written.
 
 ``geolens_jobs_completed_total`` was derived from a ``SELECT status, COUNT(*)
 ... GROUP BY status`` over ``catalog.procrastinate_jobs``, but the worker runs
@@ -9,14 +9,14 @@ zero -- along with the RUNBOOK entry that documents it and the "Job throughput"
 Grafana panel whose first target is ``rate(geolens_jobs_completed_total[15m])``.
 A healthy ingest burst looked exactly like a crashed worker.
 
-fix(#1778 codex r1): ``geolens_jobs_failed_total`` moves here too. It used to
+``geolens_jobs_failed_total`` moves here too. It used to
 be a delta against a snapshot of a row count, which stops working the moment
 rows can disappear -- and ``purge_expired_terminal_jobs`` makes them disappear.
 ``_prev_counts`` kept the pre-purge figure, so the next failure produced a
 non-positive delta the counter never saw, taking ``GeoLensJobFailures`` with
 it.
 
-fix(#1778 codex r2): both increments hang off the JOB MANAGER rather than a
+Both increments hang off the JOB MANAGER rather than a
 worker middleware. Procrastinate runs worker middleware inside
 ``Worker._process_job``'s ``try``, which is before ``_persist_job_status``, so
 a middleware reported a completion for a job whose terminal row had not been
@@ -122,7 +122,7 @@ async def test_a_persisted_failure_advances_exactly_one_counter():
 
 @pytest.mark.asyncio
 async def test_a_persistence_failure_leaves_both_counters_unchanged():
-    """fix(#1778 codex r2): the ordering a worker middleware could not give.
+    """The ordering a worker middleware could not give.
 
     A middleware runs before `_persist_job_status`, so it reported a completion
     for a job whose terminal row was never written.
@@ -228,7 +228,7 @@ def test_the_worker_installs_the_wrapper_before_it_starts():
 
 @pytest.mark.asyncio
 async def test_a_failure_after_a_purge_still_advances_the_counter():
-    """fix(#1778 codex r1): purge, then a failure, the counter advances by one.
+    """After a purge, a failure still advances the counter by one.
 
     With the old snapshot delta this was the bug: the poll recorded the queue's
     failed row count, the purge deleted those rows, and the next burst came in
@@ -312,7 +312,7 @@ def test_the_stalled_sweep_counts_its_own_failures_after_persisting():
     persist_at = src.index("finish_job_by_id_async(")
     count_at = src.index("count_failed_job(")
     assert persist_at < count_at, "a persistence failure must count nothing"
-    # fix(#1778 codex r5): the queue is read defensively. count_failed_job
+    # The queue is read defensively. count_failed_job
     # guards the registry call, but the attribute read happens at the call site
     # and outside that guard, so `job.queue` on a job object without the
     # attribute raised mid-loop and aborted the rest of the sweep.

@@ -186,7 +186,7 @@ prompt_value() {
 # (return 2): on hosts that emulate amd64 (Apple Silicon and other ARM
 # machines) the database image runs under QEMU and first boot can outlast any
 # reasonable budget while still converging — treating that as a dead stack
-# false-alarmed real installs. fix(#441): budget raised from 90s and the
+# false-alarmed real installs. Budget raised from 90s and the
 # timeout softened to "still starting" guidance.
 wait_for_healthy() {
   attempts=60
@@ -229,7 +229,7 @@ wait_for_healthy() {
 
   printf '\n' >&2
 
-  # fix(#446): distinguish genuinely-still-starting from stuck. A service that is
+  # Distinguish genuinely-still-starting from stuck. A service that is
   # crash-looping (Restarting) or sitting in a non-zero Exited state after the full
   # timeout is not converging (bad image, OOM-kill, broken config) — fail with its
   # logs like the migrate path, instead of the exit-0 "still starting" guidance
@@ -255,7 +255,7 @@ wait_for_healthy() {
   return 2
 }
 
-# GAP-025: the entire imperative install sequence lives in main() and is
+# The entire imperative install sequence lives in main() and is
 # invoked by a single `main "$@"` on the LAST line. `sh` parses the whole
 # function body before executing it, so a truncated `curl ... | sh` download
 # (a connection drop mid-stream) yields a syntax error at EOF instead of
@@ -279,7 +279,7 @@ main() {
   # actually present.
   docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
 
-  # fix(#441): warn when Docker has less memory than the stack's compose
+  # Warn when Docker has less memory than the stack's compose
   # limits assume (worker 4g + api 2g + db 2g + titiler 1g). A low-RAM Docker
   # Desktop otherwise OOM-kills services with no explanation. Warn-only: a
   # light catalog can run smaller. Threshold is 7 GiB so a host that gives
@@ -406,7 +406,7 @@ main() {
     fi
   fi
 
-  # POSTGRES_PASSWORD (SEC-010): .env.example ships the publicly-known default
+  # POSTGRES_PASSWORD: .env.example ships the publicly-known default
   # `geolens`. On a FRESH install replace it with a strong value so the database
   # is initialized with a real password. On a re-run we must NOT rotate it — the
   # pgdata volume is already initialized with the existing value and changing it
@@ -426,7 +426,7 @@ main() {
   generated_admin_pw=false
   if [ -z "$existing_admin_user" ] || [ -z "$existing_admin_pass" ]; then
     admin_user="$(prompt_value 'Admin username' 'admin' false GEOLENS_ADMIN_USERNAME)"
-    # Password (SEC-011): honor an explicitly-provided GEOLENS_ADMIN_PASSWORD;
+    # Password: honor an explicitly-provided GEOLENS_ADMIN_PASSWORD;
     # interactively let the operator type one (blank = generate). Otherwise
     # GENERATE a strong password — never silently default to 'admin', which a
     # headless `curl | sh` install would otherwise do for an internet-facing app.
@@ -465,7 +465,7 @@ main() {
   db_port="$(get_env_value DB_PORT)"
   api_port="$(get_env_value API_PORT)"
   fe_port="$(get_env_value FRONTEND_PORT)"
-  # fix(#444): when a key is missing from .env, defaulting only this shell
+  # When a key is missing from .env, defaulting only this shell
   # variable made the installer probe (and later print) a port compose would
   # never bind — compose falls back to its own no-.env baseline of 5432/8000,
   # which is a deliberate, separately pinned decision. Persist the documented
@@ -500,7 +500,7 @@ main() {
     esac
   fi
 
-  # UPG-02: on a RE-RUN of an existing install, check whether a newer release
+  # On a RE-RUN of an existing install, check whether a newer release
   # tag exists upstream and offer / route to the upgrade. Fresh installs (just
   # cloned at the latest tag) skip this — there is nothing newer to detect.
   if [ "$EXISTING_INSTALL" = "true" ]; then
@@ -618,7 +618,7 @@ main() {
     say "  docker compose ps"
   fi
 
-  # fix(#572): repeat the generated-password hint in the final banner — the
+  # Repeat the generated-password hint in the final banner — the
   # one-time note printed mid-install scrolls away, and a piped `curl | sh`
   # first-timer otherwise dead-ends at the login screen.
   if [ "${generated_admin_pw:-false}" = "true" ]; then
@@ -631,7 +631,7 @@ main() {
     fi
   fi
 
-  # BKP-01 (Phase 1247): backups are DEFAULT-ON. A plain `docker compose up`
+  # Backups are DEFAULT-ON. A plain `docker compose up`
   # runs the backup container (no --profile flag needed). Surface the active
   # mode: S3 offload when BACKUP_S3_ENABLED=true, otherwise local retention.
   _backup_s3="${BACKUP_S3_ENABLED:-false}"

@@ -356,7 +356,7 @@ async def _get_dcat_dataset_for_export(
     return result.unique().scalar_one()
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# Dual-shape decorator: both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
 # the 404 regression introduced by redirect_slashes=False (api/main.py).
@@ -891,7 +891,7 @@ async def get_geodcat_ap_record(
 
 # fix(#1528): a range can be most of a multi-GB COG, so it is read in bounded
 # pieces rather than buffered whole — the same reason the full-object path
-# streams via get_stream() (ING-03). fix(#1540): the chunk size that
+# streams via get_stream(). The chunk size that
 # used to live here belongs to the provider now, along with the loop that used
 # it; see the note where `_iter_storage_range` was.
 
@@ -922,10 +922,10 @@ async def _resolve_download_user(
 
     Accepts standard auth (header JWT, API key) plus a ``token`` query
     param, but the query-param token MUST be a download-scoped JWT
-    (``typ='download'``, <=2-minute TTL), never a session JWT -- SEC-04:
+    (``typ='download'``, <=2-minute TTL), never a session JWT:
     a session JWT in a URL is leak-prone (browser history, logs, referer).
 
-    KNOWN-01: returns ``Identity | None``, not ``User``, since the mint
+    Returns ``Identity | None``, not ``User``, since the mint
     endpoint issues a no-sub download token for anonymous callers on
     public datasets and a VALID no-sub token is a valid auth signal.
     ``download_cog`` enforces public visibility when user is None.
@@ -948,7 +948,7 @@ async def _resolve_download_user(
     # dataset instead of the 401 every other malformed-token case raises.
     qt = request.query_params.get("token")
     if qt is not None:
-        # WR-04 (Phase 1071 review): no audience claim is verified here because
+        # No audience claim is verified here because
         # the mint endpoint (auth/router.py) does not emit an `aud` claim in
         # download-token payloads. If a future change adds `aud` to minted tokens
         # for tenant isolation or scope restriction, this decode MUST also pass
@@ -989,7 +989,7 @@ async def _resolve_download_user(
         # to None -- the anonymous public-dataset case still has a deadline.
         request.state.download_token_exp = payload.get("exp")
 
-        # Per SEC-04: enforce typ='download' on the query-param lane.
+        # Enforce typ='download' on the query-param lane.
         if payload.get("typ") != "download":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1010,7 +1010,7 @@ async def _resolve_download_user(
         user_id = payload.get("sub")
         if user_id:
             # Sub-bearing authenticated download token: look up the user.
-            # CR-02 (Phase 1071 review): narrow the except to only guard the
+            # Narrow the except to only guard the
             # uuid.UUID() conversion, not the db.execute() call. A ValueError
             # from SQLAlchemy (ORM-contract violation) should bubble up rather
             # than being silently swallowed by a broad except ValueError: pass.
@@ -1039,7 +1039,7 @@ async def _resolve_download_user(
                 detail="Authentication required",
             )
         else:
-            # KNOWN-01: no-sub anonymous download token. Token is valid
+            # No-sub anonymous download token. Token is valid
             # (typ/scope/exp all passed); return None and let download_cog
             # enforce public-visibility as defense-in-depth.
             return None
@@ -1110,7 +1110,7 @@ async def download_cog(
     # prose about an operation the schema doesn't carry.
     #
     # Same reasoning: `user` may ALSO be None for a plain anonymous
-    # request with no auth signal at all, not only the KNOWN-01 no-sub
+    # request with no auth signal at all, not only the no-sub
     # token case above -- new with fix(#1693), which stopped 401ing an
     # anonymous caller unconditionally.
     from slugify import slugify
@@ -1186,7 +1186,7 @@ async def download_cog(
         if not_modified is not None:
             return not_modified
 
-    # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01);
+    # 6. Audit log. user_id may be None for anonymous downloads;
     # audit_logs.user_id is nullable to match.
     #
     # fix(#1528): not for HEAD -- nothing transfers, so a row for a probe
@@ -1219,7 +1219,7 @@ async def download_cog(
     # precondition block may already have had to stat the object.
     if raster_asset.storage_backend == "remote":
         # STAC import: asset_uri is the original remote COG URL — redirect.
-        # SEC-06 / M-68: DNS records can change between import time (when
+        # DNS records can change between import time (when
         # validate_url_for_ssrf was last run) and now. Re-run the SSRF check
         # immediately before redirecting to defeat DNS-rebinding TOCTOU.
         # If the hostname now resolves to a private IP (cloud metadata,
@@ -1283,7 +1283,7 @@ def _managed_key(raster_asset) -> str:
 
 
 # fix(#1778): the presigned redirect used to be a flat 3600 seconds,
-# exchanging a 120s revocable capability (SEC-04) for an hour-long
+# exchanging a 120s revocable capability for an hour-long
 # bearer URL that authenticates nobody -- SigV4 is bound to neither
 # caller nor grant, so revoking access does nothing to it, and the URL
 # lands in browser history and access logs. Ceiling is the mint TTL's

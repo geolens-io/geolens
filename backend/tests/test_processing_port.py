@@ -1,14 +1,13 @@
-"""Unit test for the ProcessingPort seam (Phase 225 D-27 / PROCESS-03).
+"""Unit test for the ProcessingPort seam.
 
 Constructs a minimal FakeProcessingPort with canned return values and
 passes it to a service-layer function in app/processing/ai/service.py
-(per D-15 — the function takes `port: ProcessingPort` as keyword-only)
+(the function takes `port: ProcessingPort` as keyword-only)
 to verify the seam is genuinely testable in isolation without a database
 or LLM.
 
-Maps to Phase 225 ROADMAP SC#5: "AI features consume catalog data exclusively
-through the Protocol — verifiable by ... a focused unit test that swaps
-in a fake ProcessingPort."
+AI features consume catalog data exclusively through the Protocol, which a
+focused unit test can verify by swapping in a fake ProcessingPort.
 """
 
 from __future__ import annotations
@@ -110,7 +109,7 @@ class FakeProcessingPort:
         user_id,
         distance_meters=None,
         mask=None,
-        # feat(#683): the protocol carries a mask DATASET for clip-by-layer.
+        # The protocol carries a mask DATASET for clip-by-layer.
         mask_dataset=None,
     ):
         return None
@@ -170,7 +169,7 @@ class FakeProcessingPort:
         return [-74.0, 40.7, -73.9, 40.8]
 
     # -------------------------------------------------------------------------
-    # OQ-3 InstrumentedAttribute encapsulators
+    # InstrumentedAttribute encapsulators
     # -------------------------------------------------------------------------
 
     async def get_records_without_embeddings(self, session, *, force=False):
@@ -238,7 +237,7 @@ class FakeProcessingPort:
     async def reconcile_distributions(
         self, session, dataset_id, record_id, table_name, geometry_type=None
     ):
-        # fix(#1314): reports "nothing changed", the outcome that leaves the
+        # Reports "nothing changed", the outcome that leaves the
         # stored distribution set alone — a double that invented rows would
         # make every caller's test depend on this fake's template table.
         return [], []
@@ -307,7 +306,7 @@ class FakeProcessingPort:
     async def resolve_stac_binding(
         self, *, item_href, item_id, collection_id, asset_href, asset_key
     ):
-        # feat(#1266): the STAC refresh strategy's one crossing of this port.
+        # The STAC refresh strategy's one crossing of this port.
         # A fake that reached the network would make every test using this
         # double depend on a third-party catalog, so it reports the shape and
         # nothing else — "asked, and nothing was established" — which is the
@@ -337,7 +336,7 @@ async def test_fake_processing_port_satisfies_protocol() -> None:
 
     Uses isinstance() on the @runtime_checkable Protocol. This proves
     FakeProcessingPort can stand in for DefaultProcessingPort in tests
-    (D-27 / SC#5 structural check).
+    (structural check).
 
     runtime_checkable on a Protocol only verifies attribute PRESENCE, not
     method signatures (PEP 544). The signature spot-checks below catch the
@@ -412,7 +411,7 @@ async def test_the_shipped_port_implements_the_contract_it_declares() -> None:
 async def test_a_port_missing_reconcile_distributions_does_not_satisfy_the_contract() -> (
     None
 ):
-    """fix(#1314 review round 1): why EXTENSION_API_VERSION went 4 -> 5.
+    """Why EXTENSION_API_VERSION went 4 -> 5.
 
     ``reconcile_distributions`` is a REQUIRED method, not an optional one: the
     registered-PostGIS refresh and the reupload swap call it inside their write
@@ -442,13 +441,12 @@ async def test_a_port_missing_reconcile_distributions_does_not_satisfy_the_contr
 async def test_processing_port_seam_search_tool() -> None:
     """Verify _execute_search_tool runs through FakeProcessingPort without a database.
 
-    Demonstrates the D-15 seam: the AI service function receives `port` via
+    Demonstrates the seam: the AI service function receives `port` via
     keyword-only parameter and invokes port.search_datasets + port.extract_bbox
     entirely without a real database or LLM call.
 
-    This closes Phase 225 ROADMAP SC#5: "AI features consume catalog data
-    exclusively through the Protocol — verifiable by ... a focused unit test
-    that swaps in a fake ProcessingPort."
+    This shows AI features consume catalog data exclusively through the
+    Protocol: a focused unit test can swap in a fake ProcessingPort.
     """
     from app.processing.ai.service import _execute_search_tool
 

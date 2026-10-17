@@ -127,7 +127,7 @@ async def _build_raster_assets(
     user_roles: set[str],
 ) -> dict | None:
     """Fetch raster metadata for a single dataset (column list lives in
-    app/processing/raster/queries.py — KISS-6).
+    app/processing/raster/queries.py).
 
     For VRT datasets, also counts the source rasters the served VRT is made of
     that the caller may read.
@@ -445,7 +445,7 @@ search_router.include_router(saved_search_router)
 
 
 def _semantic_search_rate_limit(_request: Request | None = None) -> str:
-    """SEC-S11: per-IP rate limit for semantic search endpoints (caps OpenAI embedding cost)."""
+    """Per-IP rate limit for semantic search endpoints (caps OpenAI embedding cost)."""
     return f"{get_cached_semantic_search_rate_limit()}/minute"
 
 
@@ -483,7 +483,7 @@ def _finalize_semantic_search_claim(request: Request) -> None:
         record_paired_query_claim(*pending)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — slash form is canonical
+# Dual-shape decorator: slash form is canonical
 # (in OpenAPI); no-slash is a hidden alias closing the 404 regression from
 # redirect_slashes=False (api/main.py).
 @search_router.get(
@@ -576,7 +576,7 @@ async def search_facets_endpoint(
     return result
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /facets above.
+# Dual-shape decorator; see /facets above.
 @search_router.get(
     "/datasets",
     response_model=OGCFeatureCollectionResponse,
@@ -800,7 +800,7 @@ def _build_collection_links(public_api_url: str) -> list[dict]:
     ]
 
 
-# ROUTE-01 (Phase 1092): canonical form is "" (no-slash); trailing-slash is
+# Canonical form is "" (no-slash); trailing-slash is
 # a hidden alias, preventing the 307 + http://api:8000 Location-header leak
 # from redirect_slashes=False (api/main.py; mirrors catalog/maps/router.py).
 @collections_router.get(

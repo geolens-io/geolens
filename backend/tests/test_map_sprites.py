@@ -173,7 +173,7 @@ def test_validate_icon_upload_accepts_svg_and_rejects_scripts():
 
     assert slug == "bus-stop"
     assert media_type == "image/svg+xml"
-    # SEC-09: returned content is the defusedxml-canonicalized form
+    # The returned content is the defusedxml-canonicalized form
     assert b"<svg" in sanitized
     with pytest.raises(ValueError, match="active content"):
         validate_icon_upload("x.svg", "image/svg+xml", b"<svg><script /></svg>")
@@ -220,7 +220,7 @@ def test_validate_icon_upload_accepts_real_png_content():
 
     assert slug == "marker"
     assert media_type == "image/png"
-    # SEC-09: PNG bytes are returned unchanged
+    # PNG bytes are returned unchanged
     assert sanitized == _png_bytes()
 
 
@@ -252,7 +252,7 @@ async def test_create_icon_asset_stores_content(monkeypatch):
 
     assert asset.slug.startswith("bus-")
     assert asset.storage_key in storage.objects
-    # SEC-09: storage holds the defusedxml-canonicalized form (self-closing
+    # Storage holds the defusedxml-canonicalized form (self-closing
     # empty element), not the original upload bytes. size_bytes tracks the
     # canonical length to stay consistent with what's stored.
     stored = storage.objects[asset.storage_key]
@@ -351,7 +351,7 @@ async def test_sprite_png_reuses_cache_until_icon_catalog_changes(monkeypatch):
     assert storage.get_count == 3
 
 
-# builder-audit #338 STYLE-05: the hand-rolled SVG path parser/rasterizer is a
+# The hand-rolled SVG path parser/rasterizer is a
 # deliberate no-native-dependency tradeoff that approximates bezier/arc curves
 # (C/S/Q/T/A) by their endpoint only. The tests below PIN that approximation so
 # it cannot silently regress (or be silently "fixed" without acknowledgement).
@@ -396,7 +396,7 @@ def _deadline(seconds: float = 5):
 
 
 def test_path_points_collapses_bezier_to_endpoints():
-    # builder-audit #338 STYLE-05: cubic (C) + quadratic (Q) commands keep only the
+    # Cubic (C) + quadratic (Q) commands keep only the
     # final endpoint of each curve. Z closes the subpath back to the start.
     assert _path_points("M2 2 C 4 8 8 8 10 2 Q 14 0 18 6 Z") == [
         [(2.0, 2.0), (10.0, 2.0), (18.0, 6.0), (2.0, 2.0)],
@@ -404,7 +404,7 @@ def test_path_points_collapses_bezier_to_endpoints():
 
 
 def test_path_points_collapses_arc_to_endpoint():
-    # builder-audit #338 STYLE-05: an elliptical arc (A) collapses to its endpoint;
+    # An elliptical arc (A) collapses to its endpoint;
     # the 7 arc params are consumed but only the final (x, y) is plotted.
     assert _path_points("M4 12 A 8 8 0 0 1 20 12 L 12 20 Z") == [
         [(4.0, 12.0), (20.0, 12.0), (12.0, 20.0), (4.0, 12.0)],
@@ -412,7 +412,7 @@ def test_path_points_collapses_arc_to_endpoint():
 
 
 def test_path_points_relative_curve_collapses_to_endpoint():
-    # builder-audit #338 STYLE-05: relative curve commands resolve against the
+    # Relative curve commands resolve against the
     # running cursor, still collapsing to the (relative) endpoint.
     assert _path_points("m2 2 c 2 6 6 6 8 0 z") == [
         [(2.0, 2.0), (10.0, 2.0), (2.0, 2.0)],
@@ -492,7 +492,7 @@ async def test_sprite_png_renders_placeholder_for_an_uploaded_malformed_path(
 
 
 def test_render_icon_bezier_matches_straight_line_approximation():
-    # builder-audit #338 STYLE-05 golden image: a path with cubic/quadratic curves
+    # Golden image: a path with cubic/quadratic curves
     # rasterizes pixel-identical to the same path with the curves replaced by
     # straight lines to their endpoints — proving the curve approximation.
     curved = _render_alpha("M2 2 C 4 8 8 8 10 2 Q 14 0 18 6 Z")
@@ -503,7 +503,7 @@ def test_render_icon_bezier_matches_straight_line_approximation():
 
 
 def test_render_icon_arc_matches_straight_line_approximation():
-    # builder-audit #338 STYLE-05 golden image: an elliptical-arc path rasterizes
+    # Golden image: an elliptical-arc path rasterizes
     # pixel-identical to the same path with the arc replaced by a straight line
     # to its endpoint.
     curved = _render_alpha("M4 12 A 8 8 0 0 1 20 12 L 12 20 Z", fill="#0f766e")
@@ -661,7 +661,7 @@ async def test_sprite_png_loads_the_icon_catalog_in_one_query(monkeypatch):
 
     await build_sprite_png(session)
 
-    # fix(#1428 codex r2): the listing query and nothing else — no per-icon
+    # The listing query and nothing else — no per-icon
     # session.get(), and no second lookup binding one parameter per icon
     assert session.execute_count == 1
     assert session.get_count == 0
@@ -704,7 +704,7 @@ async def test_sprite_png_composites_off_the_event_loop(monkeypatch):
 async def test_sprite_png_bounds_icon_reads_in_flight(monkeypatch):
     """A large catalog must not fan out one storage read per icon at once.
 
-    fix(#1428 codex r1): the reads and the icon bytes they return are both held
+    The reads and the icon bytes they return are both held
     a batch at a time — an unbounded gather retained up to MAX_ICON_BYTES per
     uploaded icon before the first cell was drawn.
     """
@@ -764,7 +764,7 @@ async def test_icon_upload_route_rejects_oversized_dimensions(
     assert "dimensions" in resp.json()["detail"]
 
 
-# fix(#1621): the icon catalog is deployment-global, so the icon BYTES have to
+# The icon catalog is deployment-global, so the icon BYTES have to
 # be too. catalog.map_icon_assets carries no tenant_id and no RLS policy, and
 # every tenant's anonymous sprite request loads the same rows, so routing the
 # keys through resolve_current_storage_key (the way maps/thumbnails/ and

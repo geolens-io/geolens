@@ -220,7 +220,7 @@ async def create_share_token(
         # Re-activate if previously revoked
         if not token_obj.is_active:
             token_obj.is_active = True
-            # SEC-10 / L-60: 32-byte (256-bit) entropy parity with embed tokens.
+            # 32-byte (256-bit) entropy parity with embed tokens.
             # Existing 16-byte tokens already in the DB continue to validate
             # — the lookup is by sha256 hash, not raw length.
             raw_token = secrets.token_urlsafe(32)
@@ -228,7 +228,7 @@ async def create_share_token(
             token_obj.token_hint = raw_token[:8]
             token_obj._raw_token = raw_token  # transient, not persisted
         return token_obj
-    # 32 bytes per SEC-10
+    # 32 bytes (256-bit), the same entropy as embed tokens.
     raw_token = secrets.token_urlsafe(32)
     token_obj = MapShareToken(
         map_id=map_id,
@@ -411,7 +411,7 @@ def _build_shared_layer_dict(
         "dem_vertical_units": ds_dem_vertical_units,
         "is_3d": bool(ds_is_3d) if ds_is_3d else None,
         "feature_count": ds_feature_count,
-        # fix(#394) VT-02: `_v=` cache-buster input (viewer parity).
+        # `_v=` cache-buster input (viewer parity).
         "tile_version": ds_tile_version,
         # feat(#1472): credit line for attribution control. Not gated on
         # `is_public` — a layer reaching this builder is already
@@ -437,12 +437,12 @@ async def get_shared_map(
     ``embed_authorized`` is True only when ``embed_token`` resolved to a
     non-empty scope (#1518 fail-closed rule). ``allowed_origins`` is the
     active EmbedToken.allowed_origins (None/[] distinguish no-token vs
-    no-origins); callers emit a CSP frame-ancestors header from it (SEC-S08).
+    no-origins); callers emit a CSP frame-ancestors header from it.
 
     Visibility: anonymous sees public datasets only; authenticated sees
-    what ``apply_visibility_filter()`` allows. fix(#394) SH-01/B-023: a
+    what ``apply_visibility_filter()`` allows. A
     valid ``embed_token`` ADDITIONALLY includes layers in its scoped
-    snapshot — embed tokens are a private-dataset capability (SEC-022).
+    snapshot — embed tokens are a private-dataset capability.
 
     Tile URLs: vector uses /tiles/data.{table_name}/...; raster uses
     /raster-tiles/{dataset_id}/tiles/... (separate router).
@@ -462,7 +462,7 @@ async def get_shared_map(
             session, embed_token, token_obj.map_id, request
         )
 
-    # SEC-S08 (Phase 1062-05): the router emits a per-token frame-ancestors CSP
+    # The router emits a per-token frame-ancestors CSP
     # header from these origins. The query (including why non-expiring tokens
     # need an explicit NULL branch) lives behind the embed-tokens seam.
     allowed_origins: list[str] | None = await get_active_allowed_origins(
@@ -508,7 +508,7 @@ async def get_shared_map(
     layer_rows = list(layer_result.all())
 
     if embed_scope:
-        # fix(#394) SH-01/B-023: union in embed-scoped layers the
+        # Union in embed-scoped layers the
         # visibility filter excluded — the join above still requires
         # current map membership/publicity (fail-closed even with a valid token).
         seen_layer_ids = {row[1].id for row in layer_rows}
@@ -677,7 +677,7 @@ async def list_share_tokens(
     share-link status and active embed-token count, for the admin
     "Published Maps" view.
 
-    #347 (ADM-01): every public map appears even without a share link —
+    Every public map appears even without a share link —
     keyed on ``Map``, LEFT JOINed to the latest share token per map. Maps
     without a link carry null ``id``/``token``/``is_active``, but
     ``created_at``/``created_by`` are still the map's.
@@ -715,7 +715,7 @@ async def list_share_tokens(
     # narrows on the joined share-link state.
     conditions: list[ColumnElement[bool]] = [Map.visibility == "public"]
     if search:
-        # T-2: lower() column + pattern to hit ix_maps_name_trgm (on lower(name)).
+        # lower() column + pattern to hit ix_maps_name_trgm (on lower(name)).
         conditions.append(
             func.lower(Map.name).like(f"%{escape_ilike(search)}%".lower(), escape="\\")
         )

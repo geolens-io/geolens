@@ -102,7 +102,7 @@ def _build_text_filter(q: str):
         ),
     )
 
-    # T-1: catalog.immutable_unaccent (IMMUTABLE) matches the trigram GIN
+    # catalog.immutable_unaccent (IMMUTABLE) matches the trigram GIN
     # indexes; a plain func.unaccent() resolves to public.unaccent (STABLE)
     # via search_path and forces a seq scan instead.
     # escape_ilike() keeps user %, _, \ literal; escape="\\" on every .like()

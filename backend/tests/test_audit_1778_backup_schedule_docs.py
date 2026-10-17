@@ -1,4 +1,4 @@
-"""fix(#1778): RUNBOOK.md and .env.example told operators to set
+"""RUNBOOK.md and .env.example told operators to set
 BACKUP_SCHEDULE to a sub-daily cron expression (a step/range form like
 `0 */12 * * *`), but scripts/backup-entrypoint.sh's validate_cron_expr()
 (pinned by tests/test_1184_backup_schedule_validation.py) rejects anything

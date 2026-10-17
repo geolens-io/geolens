@@ -180,9 +180,7 @@ async def _check_cold_rehydrate(
             table_name=table_name,
             tenant_id=tenant_id,
         )
-    except (
-        Exception
-    ):  # broad: cold-check failure must NEVER fail a tile response (T-1214-17)
+    except Exception:  # broad: cold-check failure must NEVER fail a tile response
         logger.warning(
             "cold_rehydrate_check_failed",
             table_name=table_name,
@@ -212,7 +210,7 @@ router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PU
 # `_TABLE_NAME_RE` is imported from tiles.service rather
 # than re-declared, so the SQL-injection-defense regex has exactly one definition.
 
-# fix(#1927) SEC-OBSV-01: `follow_redirects=True` holds while Titiler is
+# `follow_redirects=True` holds while Titiler is
 # internal-only (no `ports:` in docker-compose.yml) and every URL here is
 # server-derived; otherwise this must move to `make_safe_client`.
 _titiler_client = httpx.AsyncClient(
@@ -239,7 +237,7 @@ class _DatasetMeta(NamedTuple):
     geometry_type: str | None
     column_info: list
     tile_cache_ttl: int | None
-    # Phase 269 H-23: tile column allowlist (None / [] / list[str]).
+    # Tile column allowlist (None / [] / list[str]).
     tile_columns: list[str] | None
     # fix(#1963): the signed scope binds this, so it is as stale as the
     # `record_status` beside it and no staler.
@@ -259,8 +257,8 @@ def _evict_dataset_meta(table_name: str) -> None:
     """Drop every cached meta entry for a table name.
 
     This cache decides authorization — visibility, record_status, and
-    created_by come from the snapshot, not a re-query. GH-1443 retires a
-    freed table name and `generate_table_name` collides against it, so a
+    created_by come from the snapshot, not a re-query. A freed table
+    name is retired (#1443) and `generate_table_name` collides against it, so a
     surviving entry can only describe its own dataset; eviction buys
     freshness, not the authorization boundary.
 
@@ -497,7 +495,7 @@ def _titiler_render_params(band_count: int | None, dtype: str | None) -> str:
 # Colormap / stretch allowlists.
 
 # 8 curated Titiler colormap names from the UI-SPEC. Validated against the
-# running Titiler instance (see 1140-RESEARCH.md Finding 5).
+# running Titiler instance.
 _ALLOWED_COLORMAPS: frozenset[str] = frozenset(
     {"gray", "viridis", "inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"}
 )
@@ -1307,7 +1305,7 @@ async def raster_tile_proxy(
         )
 
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
-    # SEC-002: carry the dataset's public/private cache scope through to the tile
+    # Carry the dataset's public/private cache scope through to the tile
     # response so private rasters are never stored by a shared cache. Default to
     # "private" if the header is somehow absent (fail safe).
     cache_status = auth_resp.headers.get("X-GeoLens-Cache-Status", "private")
@@ -1320,7 +1318,7 @@ async def raster_tile_proxy(
     except (ValueError, TypeError):
         band_count = 1
 
-    # T-1140-01: belt-and-suspenders runtime allowlist check (Literal provides
+    # Belt-and-suspenders runtime allowlist check (Literal provides
     # FastAPI-level validation; this guard catches any code path that bypasses it).
     if colormap_name is not None and colormap_name not in _ALLOWED_COLORMAPS:
         raise HTTPException(
@@ -1394,7 +1392,7 @@ async def raster_tile_proxy(
             resp = await _titiler_client.get(titiler_url)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             if attempt == max_retries:
-                # RES-6: log final failure with context before raising so
+                # Log final failure with context before raising so
                 # operators can distinguish "titiler down" from normal activity.
                 logger.warning(
                     "Raster tile proxy exhausted retries",
@@ -1409,7 +1407,7 @@ async def raster_tile_proxy(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Tile service unavailable",
                 )
-            # RES-N5: log transient failures at debug level so flaky upstream
+            # Log transient failures at debug level so flaky upstream
             # is observable in verbose logs without spamming production.
             logger.debug(
                 "Raster tile proxy transient failure; retrying",
@@ -1442,7 +1440,7 @@ async def raster_tile_proxy(
         # Tile outside raster extent — empty response
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     if resp.status_code != 200:
-        # RES-N2: log non-200 responses before converting to HTTPException so
+        # Log non-200 responses before converting to HTTPException so
         # upstream titiler failures are diagnosable from logs alone.
         logger.warning(
             "Raster tile fetch returned non-200",
@@ -1454,7 +1452,7 @@ async def raster_tile_proxy(
         )
         raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
 
-    # SEC-002: private/restricted rasters must never be retained by the shared
+    # Private/restricted rasters must never be retained by the shared
     # nginx cache (its key carries no auth). Emit `no-store` so nginx skips
     # caching (frontend/nginx.conf honors it); only public datasets are cacheable.
     if cache_status == "public":
@@ -1627,7 +1625,7 @@ async def _enforce_tile_token_access(
         await port.check_dataset_access(db, dataset, dataset_id, user)
         return
 
-    # Public dataset: still block non-published for non-owners (SEC-01).
+    # Public dataset: still block non-published for non-owners.
     if record.record_status != "published":
         if user is None:
             raise HTTPException(
@@ -1766,7 +1764,7 @@ async def get_tile_tokens_batch(
         try:
             await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
         except HTTPException as exc:
-            # fix(#394) SH-04: embed-token capability fallback (fail-closed).
+            # Embed-token capability fallback (fail-closed).
             embed_ok = bool(embed_token) and await validate_embed_token_access(
                 embed_token, dataset_id, db, request
             )
@@ -2442,7 +2440,7 @@ async def _acquire_and_serve_tile(
             await tile_cache.set(
                 cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
             )
-        # fix(#430) V-03: an empty tile reuses the tile's Cache-Control from
+        # An empty tile reuses the tile's Cache-Control from
         # base_headers, minus Content-Encoding, because a 204 has no body.
         return Response(
             status_code=status.HTTP_204_NO_CONTENT,
@@ -2454,9 +2452,9 @@ async def _acquire_and_serve_tile(
     # Emit the usage event through the billing-import-free seam.
     await _emit_tile_usage_event(table_name)
 
-    # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
+    # gzip is CPU-bound, so offload to a thread so the event loop isn't
     # stalled compressing wide low-zoom tiles. mtime=0 makes the gzip stream
-    # deterministic so the MVT-04 content-hash ETag is stable across requests.
+    # deterministic so the content-hash ETag is stable across requests.
     compressed = await asyncio.to_thread(gzip.compress, tile_data, 6, mtime=0)
     if tile_cache is not None:
         await tile_cache.set(
@@ -2591,9 +2589,9 @@ async def cluster_tile_endpoint(
                         cache_ttl,
                         _cluster_cache_control,
                         empty=True,
-                    ),  # fix(#430) V-03
+                    ),
                 )
-            # MVT-04: cache hits also carry an ETag / honor If-None-Match.
+            # Cache hits also carry an ETag / honor If-None-Match.
             return _tile_response(
                 request,
                 cached,
@@ -2784,9 +2782,9 @@ async def tile_endpoint(
                         cache_ttl,
                         _tile_cache_control,
                         empty=True,
-                    ),  # fix(#430) V-03
+                    ),
                 )
-            # MVT-04: cache hits also carry an ETag / honor If-None-Match.
+            # Cache hits also carry an ETag / honor If-None-Match.
             return _tile_response(
                 request,
                 cached,

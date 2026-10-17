@@ -70,7 +70,7 @@ def _collection_to_response(
     )
 
 
-# fix(ROUTE-01): dual-shape decorator so both trailing-slash (canonical) and
+# Dual-shape decorator so both trailing-slash (canonical) and
 # no-slash variants hit this handler, closing the 404 from
 # redirect_slashes=False.
 @router.post(
@@ -125,7 +125,7 @@ async def create_collection_endpoint(
 _CATALOG_CACHE_TTL = 60  # seconds
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see POST above.
+# Dual-shape decorator; see POST above.
 @router.get(
     "",
     response_model=CollectionListResponse,
@@ -333,8 +333,8 @@ async def add_datasets_endpoint(
         )
     await check_collection_ownership(db, collection, user)
 
-    # fix(GAP-014,#1298): authorize each linked dataset at write time (mirrors
-    # the FK-relationship and VRT SEC-C checks, since manage_collections alone
+    # Authorize each linked dataset at write time (mirrors
+    # the FK-relationship and VRT checks, since manage_collections alone
     # doesn't gate link targets); batched via check_datasets_access_bulk.
     user_roles = await get_user_roles(db, user)
     await check_datasets_access_bulk(db, body.dataset_ids, user, user_roles)

@@ -1,10 +1,10 @@
-"""fix(#1778): AI chat hardening from the codebase audit of 2026-08-30.
+"""AI chat hardening.
 
 Five findings, all on the AI chat surface:
 
 1. The blocking tool loop recorded ZERO tokens on every failure exit, so the
    most expensive requests were invisible to MAX_AI_TOKENS_PER_USER_PER_DAY.
-2. query_data reached the sandbox without any of the feat(#565) bounds the
+2. query_data reached the sandbox without any of the sandbox bounds the
    raw-SQL endpoint passes, behind the SAME `use_ai_chat` permission.
 3. ChatHistoryMessage.content had no length bound, so up to 10 MB of client
    text was billed to the provider and re-sent on each tool round.
@@ -162,7 +162,7 @@ class TestTokenUsageOnFailureExits:
     def test_both_default_providers_stamp_every_loop_exit(self, provider_path):
         """The round trip through attach_token_usage covers EVERY exit.
 
-        fix(#1778 round 1): stamping only the exhaustion raises left the
+        Stamping only the exhaustion raises left the
         expensive exits unaccounted. Pinning the wrapper structurally (rather
         than enumerating exception types) is the point: an exit added later
         cannot escape a try/except that already encloses the loop.
@@ -364,9 +364,9 @@ class TestTokenUsageOnFailureExits:
 
 
 class TestUsageSurvivesEveryProviderLoopExit:
-    """The reviewer's pins, driven through the real DefaultAnthropicProvider.
+    """Pins driven through the real DefaultAnthropicProvider.
 
-    fix(#1778 round 1): a provider that answers one round and then raises, and
+    A provider that answers one round and then raises, and
     a tool executor that raises after one successful round, have both already
     been billed for that round. Before the wrapper the original exception was
     rethrown bare, `record_token_usage_from_error` no-oped, and repeated
@@ -525,7 +525,7 @@ class TestUsageSurvivesEveryProviderLoopExit:
 
 
 class TestUntrustedFenceCannotBeForged:
-    """fix(#1778 round 1): the fence is only a boundary if content cannot spell it.
+    """The fence is only a boundary if content cannot spell it.
 
     `</untrusted_dataset_content>` is 28 characters, inside both the
     80-character name cap and the 120-character value cap, so a dataset title
@@ -671,9 +671,9 @@ class TestStreamGenerateMapErrorText:
     async def test_credential_destination_error_gets_the_generic_message(
         self, monkeypatch
     ):
-        """fix(#1778 round 1): OpenAICredentialDestinationError IS a ValueError.
+        """OpenAICredentialDestinationError IS a ValueError.
 
-        The round-0 branch passed every ValueError through, so the one error
+        The earlier branch passed every ValueError through, so the one error
         whose whole message is the configured provider endpoint was emitted
         verbatim: exactly the deployment detail the change meant to hide.
         """
@@ -727,7 +727,7 @@ class TestStreamGenerateMapErrorText:
 
 
 # ---------------------------------------------------------------------------
-# 2. query_data must carry the feat(#565) sandbox bounds
+# 2. query_data must carry the sandbox bounds
 # ---------------------------------------------------------------------------
 
 
@@ -1031,15 +1031,15 @@ class TestDatasetContentSanitization:
 
 
 # ---------------------------------------------------------------------------
-# Round 2: accounting survives cancellation, and tool results are fenced
+# Accounting survives cancellation, and tool results are fenced
 # ---------------------------------------------------------------------------
 
 
 class TestUsageAccountingCoversCancellation:
-    """fix(#1778 round 2): `except Exception` cannot see a CancelledError.
+    """`except Exception` cannot see a CancelledError.
 
     An SSE client that disconnects after a completed provider round cancels the
-    whole task. Round 1 stamped the counts onto that CancelledError, but every
+    whole task. The first fix stamped the counts onto that CancelledError, but every
     caller's accounting block caught `Exception`, so the stamp was never read
     and the spent tokens never advanced the daily quota.
     """
@@ -1166,7 +1166,7 @@ class TestUsageAccountingCoversCancellation:
 
 
 class TestToolResultsAreFenced:
-    """fix(#1778 round 2): a phrase blacklist is a mitigation, not a boundary.
+    """A phrase blacklist is a mitigation, not a boundary.
 
     Catalog tool results carry titles, summaries, column names and rows that
     other users authored, and they were serialized straight into the provider's
@@ -1264,14 +1264,14 @@ class TestToolResultsAreFenced:
 
 
 # ---------------------------------------------------------------------------
-# Round 3: tabular rows get the same normalization as the GeoJSON properties
+# Tabular rows get the same normalization as the GeoJSON properties
 # ---------------------------------------------------------------------------
 
 
 class TestTabularRowsAreNormalized:
-    """fix(#1778 round 3): _safe_value reached only half the payload.
+    """_safe_value reached only half the payload.
 
-    Round 0 fixed the GeoJSON property copy, but `show_query_result` also
+    The first fix covered the GeoJSON property copy, but `show_query_result` also
     carries the plain `rows`, taken straight off the sandbox result. One NaN in
     an ordinary numeric column still put a bare `NaN` token on the wire: the
     browser's JSON.parse rejected it and parseSSEBody dropped the frame with
@@ -1376,7 +1376,7 @@ class TestTabularRowsAreNormalized:
         )
         assert "geojson" in out
         assert out["bbox"] == [1.0, 2.0, 1.0, 2.0]
-        # geometry stripped from the tabular half, per fix(#544)
+        # geometry stripped from the tabular half
         assert out["columns"] == ["id"]
 
     def test_every_rows_payload_goes_through_the_helper(self):

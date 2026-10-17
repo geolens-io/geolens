@@ -5,8 +5,8 @@ data without importing the concrete SQLAlchemy ORM from
 app.modules.catalog.* — ORM classes satisfy them structurally (PEP 544).
 
 Uses only stdlib types (plus AsyncSession) to avoid a core -> modules.catalog
-import edge (Phase 225 PROCESS-01..05); core/ is the lowest layer and never
-imports from modules/ (Phase 214 IDENT-01). SearchFilters and
+import edge; core/ is the lowest layer and never
+imports from modules/. SearchFilters and
 IngestionResult are typed as unresolved forward-reference strings for the
 same reason.
 
@@ -127,12 +127,12 @@ class DatasetGrantProtocol(Protocol):
 
 @runtime_checkable
 class DatasetVersionProtocol(Protocol):
-    """Catalog DatasetVersion surface — only ``id`` is read by reupload finalize path (OQ-2)."""
+    """Catalog DatasetVersion surface — only ``id`` is read by reupload finalize path."""
 
     id: uuid.UUID
 
 
-# Shorter aliases for caller annotations (Phase 225 D-04, mirrors Phase 214 D-05).
+# Shorter aliases for caller annotations.
 # Both names are exported; ``Dataset`` reads cleaner in parameter annotations
 # and ``DatasetProtocol`` is preferred in conformance assertions.
 Dataset = DatasetProtocol
@@ -149,15 +149,15 @@ Attribute = AttributeProtocol
 class ProcessingPort(Protocol):
     """Comprehensive catalog accessor contract used by backend/app/processing/*.
 
-    Mirrors Phase 214 IdentityProtocol's "single comprehensive Protocol"
-    shape (D-01) — every cross-domain catalog accessor processing/* needs
+    Mirrors IdentityProtocol's "single comprehensive Protocol"
+    shape: every cross-domain catalog accessor processing/* needs
     is on this surface. Companion structural Protocols (DatasetProtocol,
     etc.) above type the ORM-shaped return values without leaking
     SQLAlchemy ORM into core/.
 
     SearchFilters and IngestionResult are typed as Any / forward-reference
-    strings — they live in app.modules.* and can't be imported here (Phase
-    214 IDENT-01). DefaultProcessingPort in platform/extensions/defaults.py
+    strings — they live in app.modules.* and can't be imported here.
+    DefaultProcessingPort in platform/extensions/defaults.py
     has full typed access.
     """
 
@@ -412,7 +412,7 @@ class ProcessingPort(Protocol):
 
     # ORM class helpers: let processing/* call sites pass concrete ORM
     # classes to select()/session.add() without importing app.modules.catalog.*
-    # directly — Phase 214 IDENT-01 compliant since the Protocol declares
+    # directly. This respects the core/ layering since the Protocol declares
     # only a `type` return, no modules.* import.
     def get_record_orm_class(self) -> type: ...
 
