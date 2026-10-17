@@ -5318,3 +5318,55 @@ async def test_a_head_after_a_change_is_size_less_again(
     assert "content-length" not in head.headers
     assert "etag" not in head.headers
     assert revalidated.status_code == 200
+
+
+async def test_a_head_never_describes_an_artifact_past_the_sweep_horizon(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """A URL that only sees HEADs is never swept, since the sweep rides a build.
+
+    So the settled answer is bounded by the horizon itself: an artifact the
+    sweep would reclaim no longer lends a HEAD its length or a 304, and one
+    just inside the horizon still does.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Head Past Horizon")
+    url = _url(dataset.id)
+    probe = await client.get(url, headers=admin_auth_header)
+    assert probe.status_code == 200
+    etag = probe.headers["etag"]
+
+    storage = get_storage()
+    prefix = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+    (key,) = await storage.list(prefix)
+
+    async def _age_to(seconds_ago: float) -> None:
+        nonlocal key
+        _, size, digest = cache.parse_artifact_key(key)
+        selection = key.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
+        payload = await storage.get(key)
+        aged = cache._artifact_key(
+            dataset.id, selection, digest, size, time.time() - seconds_ago
+        )
+        await storage.put(aged, payload)
+        when = time.time() - seconds_ago
+        os.utime(Path(storage.base_dir) / aged, (when, when))
+        await storage.delete(key)
+        key = aged
+
+    await _age_to(cache._SWEEP_AGE_SECONDS - 60)
+    inside = await client.head(url, headers=admin_auth_header)
+    assert inside.headers.get("content-length") == str(len(conversions.body))
+
+    await _age_to(cache._SWEEP_AGE_SECONDS + 60)
+    past = await client.head(url, headers=admin_auth_header)
+    revalidated = await client.head(
+        url, headers={**admin_auth_header, "If-None-Match": etag}
+    )
+    assert conversions.count == 1
+    assert "content-length" not in past.headers and "etag" not in past.headers, (
+        "a HEAD described an artifact past the sweep horizon; with no build to "
+        "run the sweep, nothing else bounds how old that description can be"
+    )
+    assert revalidated.status_code == 200

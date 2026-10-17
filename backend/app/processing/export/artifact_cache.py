@@ -203,7 +203,7 @@ async def url_held_only_these_bytes(
 async def settled_artifact(
     dataset_id: uuid.UUID, selection: str, *, filename: str, media_type: str
 ) -> ExportArtifact | None:
-    """The newest stored artifact at any age, if it is the only bytes the URL holds.
+    """The newest artifact inside the sweep horizon, if the URL holds no other bytes.
 
     Lets a HEAD that finds nothing fresh describe the export without building
     it. The GET that follows rebuilds: unchanged data reproduces these bytes
@@ -285,14 +285,15 @@ async def lookup(
 ) -> ExportArtifact | None:
     """Newest usable artifact for this selection, or None.
 
-    "Usable" = published inside the TTL (at any age with ``any_age``), not
+    "Usable" = published inside the TTL (inside the sweep horizon with
+    ``any_age``, so nothing the sweep would reclaim is described), not
     future-stamped, and intact (size verified via one ``size()`` call, so an
     in-place-truncated ``put`` is a miss rather than a served truncation).
     ``contested`` reports >1 distinct digest among siblings. Every failure
     here is a miss.
     """
     now = time.time()
-    cutoff = float("-inf") if any_age else now - _ttl_seconds()
+    cutoff = now - (_SWEEP_AGE_SECONDS if any_age else _ttl_seconds())
     horizon = now + _CLOCK_SLACK_SECONDS
     # fix(#1532): freshness measures from modified time (put
     # completion, via `_published_at`) so a slow upload can't expire early.
