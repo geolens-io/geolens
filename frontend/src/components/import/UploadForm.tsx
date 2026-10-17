@@ -181,8 +181,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
   // isFetching (not just isPending) so drops during the refetchOnMount
   // background refresh are also deferred — otherwise the cached-but-stale
-  // quota would briefly apply on remount before the live GET lands (
-  // on PR #274).
+  // quota would briefly apply on remount before the live GET lands.
   const { data: uploadConfig, isFetching: configFetching } = useUploadConfig();
   const [chosenKind, setChosenKind] = useState<UploadKind | null>(null);
 

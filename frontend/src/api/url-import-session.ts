@@ -198,7 +198,7 @@ export function peekUrlImport(): UrlImportSession | null {
 }
 
 /*
- * `urlImportIsUncancellable` was removed here.
+ * `urlImportIsUncancellable()` was removed here.
  *
  * It was written for the r22 reset guard, never imported, and it could not
  * have served that guard correctly: `commit != null` means "a commit was

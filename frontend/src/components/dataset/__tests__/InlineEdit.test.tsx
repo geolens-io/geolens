@@ -1,5 +1,5 @@
 /**
- * InlineEdit save must wrap onSave in try/catch.
+ * InlineEdit save() must wrap onSave in try/catch.
  * A thrown onSave must NOT strand the editor or produce an unhandled rejection.
  * It MUST call toast.error with a translated key.
  *

@@ -149,7 +149,7 @@ describe('uploadChunks', () => {
     expect(MockXHR.instances).toHaveLength(1);
   });
 
-  // AbortSignal.timeout was a WALL-CLOCK
+  // AbortSignal.timeout() was a WALL-CLOCK
   // deadline (300s flat), not a stall detector — a part actively
   // progressing past that deadline was aborted anyway, forever, on every
   // attempt. The inactivity timer must NOT fire as long as

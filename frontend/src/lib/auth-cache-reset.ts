@@ -56,7 +56,7 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     const userId = state.user?.id ?? null;
     if (userId === lastUserId) return;
     lastUserId = userId;
-    // A full clear on every identity change is safe but
+    // A full clear() on every identity change is safe but
     // refetch-bursty. Kept whole because scoping which keys to drop per identity
     // is error-prone (a missed key leaks the prior user's data); revisit only if
     // the refetch burst is measured to matter.

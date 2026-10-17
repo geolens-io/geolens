@@ -647,7 +647,7 @@ export function useFeatureEditing({
   );
 
   /**
-   * Terra Draw's undo popped the ring back to its
+   * Terra Draw's undo() popped the ring back to its
    * earliest recorded snapshot — the displayed geometry is once again
    * whatever was there when the ring started, so there is no longer a
    * pending edit to confirm away on Cancel/Done/mode-switch. A subsequent

@@ -186,7 +186,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     return false;
   }
 
-  // The expiry timer's own `expire` (and
+  // The expiry timer's own `expire()` (and
   // expireStaleTokenIfPast above) both clear `token` and `tokenExpiresAt`
   // together, so once either has already run, `expireStaleTokenIfPast`
   // can no longer tell "expired" apart from "never had one" (`token` is

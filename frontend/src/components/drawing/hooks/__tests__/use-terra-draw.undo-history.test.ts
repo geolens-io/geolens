@@ -337,7 +337,7 @@ describe('useTerraDraw — onHistoryBaseline (fix round2/round3 #1795)', () => {
   });
 });
 
-// undo's restoring draw.clear drops Terra Draw's
+// undo()'s restoring draw.clear() drops Terra Draw's
 // own select-mode state and edit handles. Without re-selecting afterward,
 // the app's selection store still shows the feature selected, but Terra
 // Draw does not — the user has to click the geometry again before dragging
@@ -451,7 +451,7 @@ describe('useTerraDraw — undo() re-selects the previously selected feature (fi
   });
 });
 
-// On the real selection path, addFeatures and
+// On the real selection path, addFeatures() and
 // draw.selectFeature() synchronously emit `change` events — without a
 // guard, the ring already holds those seed snapshots by the time
 // selectFeature() captures the session's baseline, so canUndo/isEditDirty

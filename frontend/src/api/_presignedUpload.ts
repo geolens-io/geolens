@@ -44,7 +44,7 @@ interface UploadChunksOptions {
 const DEFAULT_MAX_RETRIES = 3;
 
 /**
- * `AbortSignal.timeout` is a WALL-CLOCK
+ * `AbortSignal.timeout()` is a WALL-CLOCK
  * deadline, not a stall detector — it fires at a fixed elapsed time
  * regardless of whether bytes are still moving. A part at the backend's
  * credited minimum upload rate can legitimately take longer than that

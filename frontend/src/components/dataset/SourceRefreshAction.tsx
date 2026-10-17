@@ -105,7 +105,7 @@ export function SourceRefreshAction({
   // comment on the check itself).
   const credentialBlockRef = useRef<ArcgisCredentialBlockHandle>(null);
   const refreshMutation = useRefreshDataset();
-  // _dispatch_postgis_refresh (router_refresh.py)
+  // _dispatch_postgis_refresh() (router_refresh.py)
   // rejects ANY nonempty token with 422 credential_not_applicable — a
   // registered table needs no service credential, and there is nothing else
   // in REFRESHABLE_ORIGINS to authenticate to. Recomputed here rather than

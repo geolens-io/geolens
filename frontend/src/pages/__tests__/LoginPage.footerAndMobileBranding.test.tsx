@@ -141,7 +141,7 @@ describe('LoginPage footer and mobile branding (#1852)', () => {
     expect(sessionStorage.getItem('gl-guest-browse')).toBe('true');
   });
 
-  // useEdition reports isEnterprise === false
+  // useEdition() reports isEnterprise === false
   // (its default) until the edition query resolves, so an enterprise
   // instance with show_badge false briefly rendered the "Powered by
   // GeoLens" badge, then removed it once isEnterprise flipped true.

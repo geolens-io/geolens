@@ -761,7 +761,7 @@ function wrapEntries(
 /**
  * Split `text` into user-perceived characters.
  *
- * The wrapper used to index and `slice` by UTF-16 code
+ * The wrapper used to index and `slice()` by UTF-16 code
  * unit, which splits a surrogate pair down the middle and renders two
  * replacement glyphs instead of the provider's name. Mid-STRING wrapping is the
  * one residual limit we allow; mid-CHARACTER is just truncation wearing a

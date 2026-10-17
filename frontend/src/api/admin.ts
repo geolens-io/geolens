@@ -325,7 +325,7 @@ export async function exportAuditLogs(
 }
 
 /**
- * The users CSV export used to be `window.open`, which
+ * The users CSV export used to be `window.open()`, which
  * cannot carry the Bearer token, so admins got a tab full of
  * `{"detail":"Could not validate credentials"}`. Same refresh-aware raw fetch
  * as the audit-log export above.

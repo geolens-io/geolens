@@ -15,7 +15,7 @@ interface ArcgisCredentialBlockProps {
   disabled?: boolean;
 }
 
-// P2: the ONE margin shared by the scheduled timer
+// The ONE margin shared by the scheduled timer
 // (handleSignIn, below) and this synchronous check -- mirrors lane A2's
 // identical fix in ServiceUrlForm.tsx (EXPIRY_MARGIN_MS)
 // for the same bug shape. The timer used to retire a
@@ -115,7 +115,7 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
     }
   };
 
-  // P2: derived from the parent's `token` prop rather
+  // Derived from the parent's `token` prop rather
   // than tracked in its own state. "Start refresh" (SourceRefreshAction)
   // clears its `token` state before awaiting the refresh request, win or
   // lose -- a separate `signedIn` boolean would go stale the moment that
@@ -227,7 +227,7 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
     try {
       const result = await arcgisSignIn({
         portal_url: portalUrl.trim(),
-        // P2: ArcGISSignInRequest does not strip
+        // ArcGISSignInRequest does not strip
         // whitespace and PortalSignIn.mint forwards the value unchanged,
         // so a pasted username with leading/trailing whitespace would
         // burn one of the ArcGIS account's limited sign-in attempts on a
@@ -280,7 +280,7 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
       );
     } finally {
       if (generationRef.current === generation) {
-        // P2: cleared here, unconditionally on
+        // Cleared here, unconditionally on
         // outcome, not only on a successful mint. A rejected sign-in or a
         // timed-out request used to leave the password sitting in state
         // and in the controlled input until the user edited it or closed

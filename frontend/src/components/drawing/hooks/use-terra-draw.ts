@@ -251,7 +251,7 @@ export function isMultiPartGeometry(geometry: Geometry): boolean {
  * @param map - MapLibre map instance (null until map loads)
  * @param onFinish - callback invoked with the completed GeoJSON Feature after draw
  * @param onEditFinish - callback invoked with tdId and feature after edit (drag/vertex), null when not in editing context
- * @param onHistoryBaseline - callback invoked when undo
+ * @param onHistoryBaseline - callback invoked when undo()
  *   pops the ring back down to its earliest recorded snapshot (canUndo
  *   transitions to false AS A RESULT OF an undo() call, not of a
  *   draw/setMode/clear/resetHistory reset). The editing layer uses this to
@@ -259,7 +259,7 @@ export function isMultiPartGeometry(geometry: Geometry): boolean {
  *   geometry is once again whatever was there when the ring started, so
  *   there is nothing pending to confirm away on Cancel/Done/mode-switch. A
  *   subsequent edit re-dirties normally via onEditFinish.
- * @param onSelectionLost - callback invoked when undo
+ * @param onSelectionLost - callback invoked when undo()
  *   restores a snapshot that no longer contains the feature that was
  *   selected before the undo (the rebuilt canvas has nothing left to
  *   re-select). The editing layer uses this to clear its own selection
@@ -320,7 +320,7 @@ export function useTerraDraw(
   // re-select afterward. null means "nothing selected for this session."
   const selectedFeatureIdRef = useRef<string | number | null>(null);
   const isRestoringRef = useRef(false);
-  // On the real selection path, addFeatures and
+  // On the real selection path, addFeatures() and
   // draw.selectFeature() synchronously emit `change` events — without this
   // guard, the ring already holds those seed snapshots by the time
   // selectFeature() below captures the session's baseline, so Undo reads as
@@ -496,7 +496,7 @@ export function useTerraDraw(
       // bounded ring, so a long drag that later evicts the ring's oldest
       // entries can still undo all the way back to it.
       baselineRef.current = filteredSnapshot(draw);
-      // Remember what's selected so undo's restoring
+      // Remember what's selected so undo()'s restoring
       // draw.clear() (which drops Terra Draw's select-mode state and edit
       // handles) can re-select it afterward.
       selectedFeatureIdRef.current = id;

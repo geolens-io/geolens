@@ -180,7 +180,7 @@ describe('SourceRefreshAction', () => {
     expect(input).toHaveAttribute('data-bwignore');
   });
 
-  // _dispatch_postgis_refresh rejects ANY
+  // _dispatch_postgis_refresh() rejects ANY
   // nonempty token with 422 credential_not_applicable — a registered table
   // needs no service credential. Offering the field here invites a
   // guaranteed failure, so it must not render for this origin.
@@ -898,7 +898,7 @@ describe('SourceRefreshAction', () => {
       });
     });
 
-    // P2: ArcGISSignInRequest does not strip
+    // ArcGISSignInRequest does not strip
     // whitespace and PortalSignIn.mint forwards the value unchanged, so a
     // pasted username with leading/trailing whitespace would burn one of
     // the account's limited sign-in attempts on a value that could never
@@ -944,7 +944,7 @@ describe('SourceRefreshAction', () => {
       );
     });
 
-    // P2: "Start refresh" clears the parent's `token`
+    // "Start refresh" clears the parent's `token`
     // state before awaiting the refresh request, win or lose. Before this
     // fix, the credential block's own `signedIn` flag did not know that --
     // a rejected refresh left it still claiming "Signed in" while the next
@@ -1027,7 +1027,7 @@ describe('SourceRefreshAction', () => {
       expect(mockArcgisSignIn).toHaveBeenCalledTimes(1);
     });
 
-    // P2: a rejected sign-in used to leave the
+    // A rejected sign-in used to leave the
     // password sitting in state and in the controlled input until the
     // user edited it or closed the dialog -- contradicting this block's
     // own request-scoped credential lifetime, and letting a second click
@@ -1113,7 +1113,7 @@ describe('SourceRefreshAction', () => {
       expect(screen.queryByText('raw diagnostic text, never rendered')).not.toBeInTheDocument();
     });
 
-    // P2: ArcGISSignInRequest rejects input -- a
+    // ArcGISSignInRequest rejects input -- a
     // scheme-less portal URL, one carrying credentials, an overlong field --
     // before the route runs. That is a FastAPI/pydantic validation array in
     // err.body, not this endpoint's {code, message} shape, so it has no
@@ -1150,7 +1150,7 @@ describe('SourceRefreshAction', () => {
       ).not.toBeInTheDocument();
     });
 
-    // P1: a late arcgisSignIn response landing after
+    // A late arcgisSignIn response landing after
     // the dialog (and this credential block, which SourceRefreshAction
     // unmounts on close) is dismissed must not resurrect a token the user
     // already dismissed.
@@ -1197,7 +1197,7 @@ describe('SourceRefreshAction', () => {
       expect(screen.getByLabelText('Access token (optional)')).toHaveValue('');
     });
 
-    // P2: a token minted for one set of credentials
+    // A token minted for one set of credentials
     // must not survive editing those credentials or a rejected retry.
     it('clears a previously minted token as soon as a sign-in field changes, before any new attempt', async () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
@@ -1404,7 +1404,7 @@ describe('SourceRefreshAction', () => {
         ).toBeInTheDocument();
       });
 
-      // P2: the synchronous guard used to compare
+      // The synchronous guard used to compare
       // against the raw expires_at, while the scheduled timer retires the
       // token 30s early. A tab resuming inside that last 30-second window
       // -- past the margin cutoff but before the real expiry -- used to

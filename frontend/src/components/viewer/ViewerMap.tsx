@@ -979,7 +979,7 @@ export const ViewerMap = memo(function ViewerMap({
       prevVisibleRef.current = new Set(visibleLayers);
     };
 
-    // A plain early-return on !isStyleLoaded dropped the toggle
+    // A plain early-return on !isStyleLoaded() dropped the toggle
     // permanently — prevVisibleRef wasn't advanced, and nothing in the deps
     // changes when the style finishes transitioning, so the checkbox and the
     // map stayed out of sync until the user toggled again. Mirror the

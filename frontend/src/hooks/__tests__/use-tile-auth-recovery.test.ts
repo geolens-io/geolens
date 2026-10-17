@@ -442,7 +442,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(onCredentialRenewed).toHaveBeenCalledTimes(1);
   });
 
-  // A dead session ends in `logout`, which moves the token to
+  // A dead session ends in `logout()`, which moves the token to
   // null. Treating that as a rotation would refetch every raster tile with no
   // Authorization header — a second 401 burst under the signed-out dialog.
   it('does not treat a logout as a credential renewal', async () => {

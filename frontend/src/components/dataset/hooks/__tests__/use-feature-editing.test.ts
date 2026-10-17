@@ -548,7 +548,7 @@ describe('useFeatureEditing — undo history reset on settle, not on finish (fix
   });
 });
 
-// Terra Draw's undo reverts snapshots and updates
+// Terra Draw's undo() reverts snapshots and updates
 // canUndo, but never touched isEditDirty — undoing all the way back to the
 // original geometry still triggered the unsaved-changes confirmation on
 // Cancel/Done/mode-switch. handleHistoryBaseline is what use-terra-draw's
