@@ -274,7 +274,8 @@ The [API reference](https://docs.getgeolens.com/guides/api/) and the
 - Sign-in uses local accounts or OAuth 2.0/OIDC (Google, Microsoft, GitHub or a generic provider),
   with roles, per-dataset permissions, per-user API keys and an audit log. Self-registration is
   off by default.
-- Everything in this repository is Apache 2.0, and features released here stay free.
+- The code in this repository is Apache 2.0 (the name and logo are not), and features released
+  here stay free.
   [EDITIONS.md](EDITIONS.md) describes the optional paid support and add-ons.
 
 ## Known limitations
