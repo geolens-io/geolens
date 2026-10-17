@@ -148,14 +148,15 @@ disparaît, le jeu importé continue de fonctionner à partir de la copie de Geo
 
 Chaque jeu de données vectoriel est une collection OGC API Features, le catalogue lui-même est
 exposé en OGC API Records et STAC, et chaque couche dispose d’une URL de tuiles. Essayez-le sur la
-démonstration, sans installation ni compte :
+démonstration, sans installation ni compte (la deuxième commande utilise `jq`) :
 
 ```sh
 # Search the catalog (OGC API Records)
-curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcano"
+curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions"
 
-# Read a dataset with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
-curl -G "https://demo.getgeolens.com/api/collections/3b549894-ad65-4fbf-8fe1-9a163a8e8215/items" \
+# Read the top match with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
+ID=$(curl -s "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions&limit=1" | jq -r '.features[0].id')
+curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
   --data-urlencode "filter=vei >= 6" -d limit=3
 ```
 
@@ -284,9 +285,10 @@ La [référence de l’API](https://docs.getgeolens.com/guides/api/) et les
 
 ## Confidentialité dès la conception
 
-- **Aucune télémétrie.** Hormis les tuiles de fond de carte par défaut, GeoLens n’effectue
-  d’appels sortants que pour les fonctions qu’un administrateur active. [EGRESS.md](EGRESS.md)
-  les liste toutes et explique comment fonctionner en réseau isolé.
+- **Aucune télémétrie.** Hormis les tuiles de fond de carte par défaut et les services distants
+  et sources STAC que vos utilisateurs choisissent d’enregistrer, GeoLens n’effectue d’appels
+  sortants que pour les fonctions qu’un administrateur active. [EGRESS.md](EGRESS.md) les liste
+  toutes et explique comment fonctionner en réseau isolé.
 - **Vos données restent lisibles sans GeoLens.** Les jeux de données vectoriels sont de simples
   tables PostGIS dans un schéma `data` de votre base, les rasters sont des Cloud-Optimized GeoTIFF
   dans votre propre stockage (disque local, S3/MinIO ou Azure Blob), et tout le catalogue
