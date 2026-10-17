@@ -24,14 +24,14 @@ class DatasetRetentionResponse:
     """
     Attributes:
         retention (DatasetRetention | None):
-        rows_past_cutoff (int): Rows currently older than the cutoff. Hourly runs delete them in batches, so a large
-            backlog can take several runs. 0 when off.
+        rows_past_cutoff (int | None): On a dry run, rows currently older than the cutoff, 0 when off. Hourly runs
+            delete them in batches, so a large backlog can take several runs. Null on a save, which does not count them.
         cutoff (datetime.datetime | None | Unset): Rows older than this UTC instant are past retention; for a date
             column it is UTC midnight of the cutoff date. Null when off.
     """
 
     retention: DatasetRetention | None
-    rows_past_cutoff: int
+    rows_past_cutoff: int | None
     cutoff: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -44,6 +44,7 @@ class DatasetRetentionResponse:
         else:
             retention = self.retention
 
+        rows_past_cutoff: int | None
         rows_past_cutoff = self.rows_past_cutoff
 
         cutoff: None | str | Unset
@@ -88,7 +89,12 @@ class DatasetRetentionResponse:
 
         retention = _parse_retention(d.pop("retention"))
 
-        rows_past_cutoff = d.pop("rows_past_cutoff")
+        def _parse_rows_past_cutoff(data: object) -> int | None:
+            if data is None:
+                return data
+            return cast(int | None, data)
+
+        rows_past_cutoff = _parse_rows_past_cutoff(d.pop("rows_past_cutoff"))
 
         def _parse_cutoff(data: object) -> datetime.datetime | None | Unset:
             if data is None:

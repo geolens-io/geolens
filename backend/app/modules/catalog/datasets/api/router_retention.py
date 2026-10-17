@@ -58,9 +58,10 @@ async def set_dataset_retention(
 
     Hourly worker runs delete rows whose retention column is older than the
     cutoff, in batches, so a large backlog can take several runs; rows where
-    it is null are kept. `rows_past_cutoff` counts the rows past the cutoff
-    now. The instance's dataset editing switch does not apply: this is the
-    owner's setting, not an edit.
+    it is null are kept. A dry run counts the rows past the cutoff now in
+    `rows_past_cutoff`; a save skips that scan and returns null. The
+    instance's dataset editing switch does not apply: this is the owner's
+    setting, not an edit.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -70,7 +71,7 @@ async def set_dataset_retention(
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
     retention = body.retention
-    rows_past_cutoff = 0
+    rows_past_cutoff = 0 if dry_run else None
     cutoff = None
     if retention is not None:
         try:
@@ -79,9 +80,10 @@ async def set_dataset_retention(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             )
-        rows_past_cutoff = await count_rows_past(
-            db, dataset.table_name, retention.column, cutoff
-        )
+        if dry_run:
+            rows_past_cutoff = await count_rows_past(
+                db, dataset.table_name, retention.column, cutoff
+            )
 
     if not dry_run:
         await lock_dataset_rows_for_write(db, dataset)

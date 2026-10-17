@@ -639,6 +639,36 @@ class TestRun:
         assert pruned == {dataset.id: 12}
         assert await _names(test_db_session, dataset) == set()
 
+    async def test_a_column_typed_by_a_domain_is_pruned_by_its_base_type(
+        self, seed, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[
+                {"name": "old", "seen_at": CUTOFF - timedelta(seconds=1)},
+                {"name": "at", "seen_at": CUTOFF},
+                {"name": "undated", "seen_at": None},
+            ],
+        )
+        domain = f"data.ret_{uuid.uuid4().hex[:8]}"
+        await test_db_session.execute(text(f"CREATE DOMAIN {domain} AS timestamptz"))
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{dataset.table_name} "
+                f"ALTER COLUMN seen_at TYPE {domain}"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
+            assert await _names(test_db_session, dataset) == {"at", "undated"}
+        finally:
+            await test_db_session.execute(text(f"DROP DOMAIN {domain} CASCADE"))
+            await test_db_session.commit()
+
     async def test_a_run_stops_at_its_batch_bound_and_the_next_run_goes_on(
         self, seed, test_db_session
     ):
@@ -1079,6 +1109,41 @@ class TestSetting:
             headers=headers,
         )
 
+    async def test_a_save_does_not_count_rows_again(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, monkeypatch
+    ):
+        from app.modules.catalog.datasets.api import router_retention
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            rows=[
+                {
+                    "name": "old",
+                    "seen_at": datetime.now(timezone.utc) - timedelta(days=90),
+                }
+            ],
+        )
+        counts: list[str] = []
+        real_count = router_retention.count_rows_past
+
+        async def counted(session, table_name, column, cutoff):
+            counts.append(column)
+            return await real_count(session, table_name, column, cutoff)
+
+        monkeypatch.setattr(router_retention, "count_rows_past", counted)
+        body = {"retention": {"column": "seen_at", "days": 30}}
+
+        preview = await self._put(
+            client, dataset.id, body, admin_auth_header, dry_run=True
+        )
+        saved = await self._put(client, dataset.id, body, admin_auth_header)
+
+        assert preview.json()["rows_past_cutoff"] == 1
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["rows_past_cutoff"] is None
+        assert counts == ["seen_at"]
+
     async def test_a_dry_run_counts_rows_and_saves_nothing(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session
     ):
@@ -1200,6 +1265,48 @@ class TestSetting:
         test_db_session.expire_all()
         stored = await test_db_session.get(Dataset, dataset.id)
         assert stored.retention_column is None
+
+    @pytest.mark.parametrize(
+        ("column", "base"),
+        [
+            ("seen_on", "date"),
+            ("seen_local", "timestamp"),
+            ("seen_at", "timestamptz"),
+        ],
+    )
+    async def test_a_column_typed_by_a_domain_takes_retention(
+        self,
+        client: AsyncClient,
+        admin_auth_header,
+        seed,
+        test_db_session,
+        column,
+        base,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, rows=[])
+        domain = f"data.ret_{uuid.uuid4().hex[:8]}"
+        await test_db_session.execute(text(f"CREATE DOMAIN {domain} AS {base}"))
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{dataset.table_name} "
+                f"ALTER COLUMN {column} TYPE {domain}"
+            )
+        )
+        await test_db_session.commit()
+        body = {"retention": {"column": column, "days": 30}}
+        try:
+            preview = await self._put(
+                client, dataset.id, body, admin_auth_header, dry_run=True
+            )
+            saved = await self._put(client, dataset.id, body, admin_auth_header)
+
+            assert preview.status_code == 200, preview.text
+            assert saved.status_code == 200, saved.text
+            assert await _stored_setting(test_db_session, dataset.id) == (column, 30)
+        finally:
+            await test_db_session.execute(text(f"DROP DOMAIN {domain} CASCADE"))
+            await test_db_session.commit()
 
     @pytest.mark.parametrize("dry_run", [True, False], ids=["dry-run", "save"])
     async def test_a_dataset_read_from_a_view_is_refused(

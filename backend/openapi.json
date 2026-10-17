@@ -6915,9 +6915,16 @@
             ]
           },
           "rows_past_cutoff": {
-            "description": "Rows currently older than the cutoff. Hourly runs delete them in batches, so a large backlog can take several runs. 0 when off.",
-            "title": "Rows Past Cutoff",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On a dry run, rows currently older than the cutoff, 0 when off. Hourly runs delete them in batches, so a large backlog can take several runs. Null on a save, which does not count them.",
+            "title": "Rows Past Cutoff"
           },
           "cutoff": {
             "anyOf": [
@@ -42286,7 +42293,7 @@
     },
     "/datasets/{dataset_id}/retention/": {
       "put": {
-        "description": "Set or clear how many days of rows a feature dataset keeps.\n\nHourly worker runs delete rows whose retention column is older than the\ncutoff, in batches, so a large backlog can take several runs; rows where\nit is null are kept. `rows_past_cutoff` counts the rows past the cutoff\nnow. The instance's dataset editing switch does not apply: this is the\nowner's setting, not an edit.",
+        "description": "Set or clear how many days of rows a feature dataset keeps.\n\nHourly worker runs delete rows whose retention column is older than the\ncutoff, in batches, so a large backlog can take several runs; rows where\nit is null are kept. A dry run counts the rows past the cutoff now in\n`rows_past_cutoff`; a save skips that scan and returns null. The\ninstance's dataset editing switch does not apply: this is the owner's\nsetting, not an edit.",
         "operationId": "set_dataset_retention_datasets__dataset_id__retention__put",
         "parameters": [
           {

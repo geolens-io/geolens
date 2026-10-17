@@ -2764,9 +2764,10 @@ export interface paths {
          *
          *     Hourly worker runs delete rows whose retention column is older than the
          *     cutoff, in batches, so a large backlog can take several runs; rows where
-         *     it is null are kept. `rows_past_cutoff` counts the rows past the cutoff
-         *     now. The instance's dataset editing switch does not apply: this is the
-         *     owner's setting, not an edit.
+         *     it is null are kept. A dry run counts the rows past the cutoff now in
+         *     `rows_past_cutoff`; a save skips that scan and returns null. The
+         *     instance's dataset editing switch does not apply: this is the owner's
+         *     setting, not an edit.
          */
         put: operations["set_dataset_retention_datasets__dataset_id__retention__put"];
         post?: never;
@@ -8818,9 +8819,9 @@ export interface components {
             retention: components["schemas"]["DatasetRetention"] | null;
             /**
              * Rows Past Cutoff
-             * @description Rows currently older than the cutoff. Hourly runs delete them in batches, so a large backlog can take several runs. 0 when off.
+             * @description On a dry run, rows currently older than the cutoff, 0 when off. Hourly runs delete them in batches, so a large backlog can take several runs. Null on a save, which does not count them.
              */
-            rows_past_cutoff: number;
+            rows_past_cutoff: number | null;
             /**
              * Cutoff
              * @description Rows older than this UTC instant are past retention; for a date column it is UTC midnight of the cutoff date. Null when off.

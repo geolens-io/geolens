@@ -99,8 +99,9 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
     const retention = { column, days };
     try {
       const preview = await mutation.mutateAsync({ datasetId: dataset.id, retention, dryRun: true });
-      if (preview.rows_past_cutoff > 0) {
-        setConfirm({ retention, rows: preview.rows_past_cutoff, cutoff: preview.cutoff ?? null });
+      const rows = preview.rows_past_cutoff ?? 0;
+      if (rows > 0) {
+        setConfirm({ retention, rows, cutoff: preview.cutoff ?? null });
         return;
       }
     } catch (err) {

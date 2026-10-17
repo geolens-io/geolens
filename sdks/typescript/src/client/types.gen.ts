@@ -4064,9 +4064,9 @@ export type DatasetRetentionResponse = {
     /**
      * Rows Past Cutoff
      *
-     * Rows currently older than the cutoff. Hourly runs delete them in batches, so a large backlog can take several runs. 0 when off.
+     * On a dry run, rows currently older than the cutoff, 0 when off. Hourly runs delete them in batches, so a large backlog can take several runs. Null on a save, which does not count them.
      */
-    rows_past_cutoff: number;
+    rows_past_cutoff: number | null;
     /**
      * Cutoff
      *

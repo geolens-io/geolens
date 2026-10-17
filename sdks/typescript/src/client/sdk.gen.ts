@@ -2932,9 +2932,10 @@ export const createDatasetRelationshipDatasetsDatasetIdRelationshipsPost = <Thro
  *
  * Hourly worker runs delete rows whose retention column is older than the
  * cutoff, in batches, so a large backlog can take several runs; rows where
- * it is null are kept. `rows_past_cutoff` counts the rows past the cutoff
- * now. The instance's dataset editing switch does not apply: this is the
- * owner's setting, not an edit.
+ * it is null are kept. A dry run counts the rows past the cutoff now in
+ * `rows_past_cutoff`; a save skips that scan and returns null. The
+ * instance's dataset editing switch does not apply: this is the owner's
+ * setting, not an edit.
  */
 export const setDatasetRetentionDatasetsDatasetIdRetentionPut = <ThrowOnError extends boolean = false>(options: Options<SetDatasetRetentionDatasetsDatasetIdRetentionPutData, ThrowOnError>): RequestResult<SetDatasetRetentionDatasetsDatasetIdRetentionPutResponses, SetDatasetRetentionDatasetsDatasetIdRetentionPutErrors, ThrowOnError> => (options.client ?? client).put<SetDatasetRetentionDatasetsDatasetIdRetentionPutResponses, SetDatasetRetentionDatasetsDatasetIdRetentionPutErrors, ThrowOnError>({
     security: [

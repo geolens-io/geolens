@@ -64,11 +64,17 @@ _TABLE_KIND = text(
     "SELECT c.relkind::text FROM pg_class c WHERE c.oid = to_regclass(format("
     "'%I.%I', CAST(:schema AS text), CAST(:table AS text)))"
 )
+# A domain resolves to its base type, as the feature table's column info does.
 _COLUMN_TYPE = text(
-    "SELECT a.atttypid::regtype::text FROM pg_attribute a "
+    "WITH RECURSIVE base(oid, typtype, typbasetype) AS ("
+    "SELECT t.oid, t.typtype, t.typbasetype FROM pg_attribute a "
+    "JOIN pg_type t ON t.oid = a.atttypid "
     "WHERE a.attrelid = to_regclass(format('%I.%I', "
     "CAST(:schema AS text), CAST(:table AS text))) "
-    "AND a.attname = :column AND a.attnum > 0 AND NOT a.attisdropped"
+    "AND a.attname = :column AND a.attnum > 0 AND NOT a.attisdropped "
+    "UNION ALL SELECT t.oid, t.typtype, t.typbasetype FROM pg_type t "
+    "JOIN base b ON t.oid = b.typbasetype WHERE b.typtype = 'd') "
+    "SELECT oid::regtype::text FROM base WHERE typtype <> 'd'"
 )
 
 
@@ -100,7 +106,7 @@ def is_feature_dataset(dataset: Dataset) -> bool:
 async def column_type(
     session: AsyncSession, table_name: str, column: str
 ) -> str | None:
-    """The type of ``column`` in the dataset's live table, None when it is absent."""
+    """The base type of ``column`` in the dataset's live table, None when absent."""
     if not _PLAIN_COLUMN.match(column):
         return None
     return await session.scalar(

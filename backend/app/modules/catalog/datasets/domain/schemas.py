@@ -375,10 +375,11 @@ class DatasetRetentionUpdate(BaseModel):
 
 class DatasetRetentionResponse(BaseModel):
     retention: DatasetRetention | None
-    rows_past_cutoff: int = Field(
+    rows_past_cutoff: int | None = Field(
         description=(
-            "Rows currently older than the cutoff. Hourly runs delete them in "
-            "batches, so a large backlog can take several runs. 0 when off."
+            "On a dry run, rows currently older than the cutoff, 0 when off. "
+            "Hourly runs delete them in batches, so a large backlog can take "
+            "several runs. Null on a save, which does not count them."
         )
     )
     cutoff: datetime | None = Field(
