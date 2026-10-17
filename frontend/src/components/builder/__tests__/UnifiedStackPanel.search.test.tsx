@@ -305,7 +305,7 @@ describe('UnifiedStackPanel — ENH-07: layer search/filter', () => {
     expect(document.getElementById('stack-row-x')).not.toBeInTheDocument();
   });
 
-  // fix(v1.6.0 audit D2): a filter matching nothing used to leave a blank panel.
+  // A filter matching nothing used to leave a blank panel.
   it('shows a "no layers match" message when the filter matches nothing', () => {
     render(<UnifiedStackPanel {...threeLayerProps} />);
 

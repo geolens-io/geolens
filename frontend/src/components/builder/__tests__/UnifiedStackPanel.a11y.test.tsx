@@ -284,7 +284,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof UnifiedStac
 }
 
 // ---------------------------------------------------------------------------
-// Stack panel ARIA contract (updated)
+// Stack panel ARIA contract
 // ---------------------------------------------------------------------------
 
 function findStackPanel(): HTMLElement {

@@ -232,7 +232,7 @@ describe('syncLabelLayer', () => {
 
   // The add path and update path consume ONE canonical {layout, paint}
   // object, so symbol-avoid-edges (fill-only) is applied on BOTH paths — the
-  // exact drift the audit flagged (build set it, sync did not).
+  // drift where build set it and sync did not.
   it('applies symbol-avoid-edges for fill geometry on the update path too', () => {
     const map = createMockMap();
     syncLabelLayer(map, 'label-fill', { column: 'x' }, 'fill');

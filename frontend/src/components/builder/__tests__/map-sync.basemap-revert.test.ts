@@ -1,6 +1,5 @@
 /**
- * "applyBasemapConfigToMap's paint diff can never CLEAR a basemap
- * override" (codebase audit 2026-08-30).
+ * applyBasemapConfigToMap's paint diff can never CLEAR a basemap override.
  *
  * applyBasemapConfigToMap reads the LIVE style, so on a revert pass the value
  * `applyBasemapConfigToStyle` produced was the tint the PREVIOUS pass had
@@ -202,10 +201,9 @@ describe('applyBasemapConfigToMap revert passes', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The residual the round-2 note flagged. Per-key
-// equality reconciliation cannot see a swap whose new NATIVE value equals the
-// override the old style was carrying, because nothing changed from the paint's
-// point of view. A style-generation counter closes it, and the counter only
+// A style swap whose new NATIVE value equals the override the old style was
+// carrying. Per-key equality reconciliation cannot see it, because nothing
+// changed from the paint's point of view. A style-generation counter closes it, and the counter only
 // works if its listener is the earliest one registered, which is why
 // registerBasemapStyleGeneration lives in the map-creation path rather than in
 // an appearance pass.

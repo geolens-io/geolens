@@ -1,17 +1,16 @@
 /**
  * EDITOR grep guard (phase-scoped).
  *
- * Asserts that the editor source files modified during
- * the paint-ownership work
+ * Asserts that the editor source files modified for the paint-ownership work
  * (RasterEditor.tsx is not in the set: it was dead code and is deleted)
  * contain ZERO direct `map.setPaintProperty` / `map.setLayoutProperty`
  * callsites. All paint/layout mutations from these files MUST route
- * through the v1026 owned-property contract:
+ * through the owned-property contract:
  *   - paint: `onPaintProp(key, value)` → adapter `syncPaint` → `*_OWNED_PAINT_PROPERTIES`
  *   - layout: `onLayoutChange(layerId, layout)` → reconciler hook `handleLayoutChange`
- *             (documented exception audit)
+ *             (a documented exception)
  *
- * This guard is SCOPED to those phase-1136 files. The broader baseline
+ * This guard is SCOPED to those files. The broader baseline
  * of documented exceptions (label-layer-utils, ViewerMap.tsx, reconciler
  * hooks, basemap-style-mutation.ts) is the responsibility of
  * the documented-exceptions audit, not this guard.

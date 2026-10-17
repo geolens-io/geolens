@@ -101,7 +101,7 @@ export function isStyleCompatible(copied: CopiedStyle, target: MapLayerResponse)
  * left untouched.
  *
  * The merge is what makes a paste collide. A target-only `fill-pattern`
- * survives a copied `fill-color` and vice versa, and paint carrying both breaks:
+ * survives a copied `fill-color` and vice versa, and paint carrying both breaks the fill exclusions:
  * MapLibre gives the pattern precedence while the legend, the editor and the saved JSON
  * all report the colour. Preserving target-only keys is the whole point of the merge
  * (tile params, outline settings), so the fill family is resolved AFTER it, through the

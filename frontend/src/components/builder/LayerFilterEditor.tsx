@@ -165,7 +165,7 @@ export function buildFilterExpression(
       const coerced = values
         .map(v => coerceValue(v, pgType))
         .filter(v => !numericColumn || typeof v === 'number');
-      // A list of only separators (",,,") coerces to
+      // A list of only separators (",, ,") coerces to
       // an empty literal — an always-false filter that silently hides every
       // feature. Drop the condition instead.
       if (coerced.length === 0) continue;

@@ -11,8 +11,8 @@
  * the left-pane BasemapGroupRow + BasemapGroupEditorScene flyout — so the former
  * basemap-tab drag tests were removed when the tab was dropped.
  *
- * File-level vi.mock for transitive deps
- * (sonner, react-router) are minimized. We spy on useDraggable at file scope so
+ * Transitive deps (sonner, react-router) are mocked at file level and kept
+ * minimal. We spy on useDraggable at file scope so
  * the spy is restored via vi.restoreAllMocks() in afterEach.
  */
 

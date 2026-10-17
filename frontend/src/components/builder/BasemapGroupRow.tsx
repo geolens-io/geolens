@@ -68,8 +68,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   });
 
   function handleRowClick(_e: React.MouseEvent) {
-    // Cursor-not-allowed at line 78 + suppressed drag listeners
-    // at line 122 advertise the row as non-interactive during multi-selection.
+    // The cursor-not-allowed class and the suppressed drag listeners
+    // below advertise the row as non-interactive during multi-selection.
     // Without this guard, the click still fires onSelectGroup, unmounting the
     // BulkActionBar mid-selection — a UX contract violation.
     if (isMultiSelectionActive) return;
@@ -115,8 +115,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
     >
       {/* Cell 1: Caret — visible and functional for basemap group.
           h-6 w-6 (24×24 hit target) + -mx-1 extends the visual
-          box 4px past each side of the 16px grid column without altering the grid template
-          (sketch 002 A "A-strict"). ChevronRight Lucide icon at h-4 w-4 (16px visible glyph)
+          box 4px past each side of the 16px grid column without altering the grid template.
+          ChevronRight Lucide icon at h-4 w-4 (16px visible glyph)
           replaces the Unicode ▸ text character. */}
       <button
         type="button"
@@ -137,12 +137,10 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         <ChevronRight className={cn('h-4 w-4', !isExpanded && 'rtl-mirror')} aria-hidden="true" />
       </button>
 
-      {/* Cell 2: Grip: basemap group IS user-draggable
-          for top/bottom reordering. AUD-04's "pinned-at-bottom" decision is reversed
-          per sketch findings (3D maps need basemap rendered above data). When
-          isMultiSelectionActive is true, the listeners are suppressed (drag +
-          multi-select are mutually exclusive per UI-SPEC §"Cross-Plan Visual
-          Conflict Check"). Shared DragGripButton.
+      {/* Cell 2: Grip. The basemap group IS user-draggable
+          for top/bottom reordering (3D maps need the basemap rendered above data).
+          When isMultiSelectionActive is true, the listeners are suppressed (drag +
+          multi-select are mutually exclusive). Shared DragGripButton.
           Reveal the reorder grip on coarse-pointer/touch. */}
       <DragGripButton
         dragHandleProps={dragHandleProps}
@@ -155,7 +153,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       {/* Cell 3: Eye visibility toggle.
           The dead visibilityDisabled locked-eye branch was
           removed — no call site ever passed it (the basemap dock wires a real toggle).
-          Aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
+          aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
       <button
         type="button"
         aria-label={t('stackRow.toggleVisibility', {

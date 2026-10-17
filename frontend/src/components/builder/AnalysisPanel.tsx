@@ -456,7 +456,7 @@ export function AnalysisPanel({
   // arrives in the store later for this map is adopted here. Once per job id:
   // a job this instance itself started is owned by the seq-guarded mutation
   // callbacks, and re-adopting a run the user has since disowned (inputs
-  // changed mid-flight) would resurrect exactly the state the superseded-input guard clears.
+  // changed mid-flight) would resurrect exactly the state a superseded-input guard clears.
   const adoptedJobsRef = useRef(new Set<string>());
   // Adoption is only for an instance whose form still
   // matches the run. Once the user edits ANYTHING after a run starts, a job
@@ -2033,7 +2033,7 @@ export function AnalysisPanel({
                 announced, so the previous conditionally-rendered <p>s kept the
                 first message ("Creating dataset…") silent for AT. Every
                 message now arrives as a mutation inside an existing region.
-                the one-job-per-user cap disables the button — the
+                The one-job-per-user cap disables the button — the
                 "another analysis" branch says so instead of leaving a disabled
                 primary control unexplained (covers a job started before a
                 reload or from another panel). */}
@@ -2054,11 +2054,11 @@ export function AnalysisPanel({
                       'Another analysis is still running — wait for it to finish.',
                   })
                 : job
-                  ? // reuse the watcher's jobFailedDetail template
+                  ? // Reuse the watcher's jobFailedDetail template
                     // rather than concatenating the raw server error onto a
                     // translated prefix, which left half the sentence untranslated.
                     job.status === 'failed'
-                    ? // the coded reason is not a detail worth
+                    ? // The coded reason is not a detail worth
                       // showing; the plain line below already says it failed.
                       job.error_message &&
                       job.error_message !== INTERNAL_FAILURE_REASON
@@ -2071,7 +2071,7 @@ export function AnalysisPanel({
                         })
                     : job.status === 'complete'
                       ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
-                      : // cancel made this a reachable terminal
+                      : // Cancel made this a reachable terminal
                         // status. Without its own branch a cancelled run fell
                         // through to the current_step copy below and sat on
                         // "Saving the dataset…" — `job` is this panel's own

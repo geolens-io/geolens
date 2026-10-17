@@ -96,7 +96,7 @@ describe('useBuilderLayout', () => {
 
   describe('breakpoint constants', () => {
     it('uses 1100 and 800 as locked breakpoints', () => {
-      // These values are locked
+      // These values are locked.
       // We test the boundary: at exactly 1099, isRail should be true
       Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1099 });
       vi.stubGlobal('matchMedia', makeMatchMedia(1099));

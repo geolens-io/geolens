@@ -646,7 +646,7 @@ describe('Phase 1040 catalog drop — onAddDataset wiring', () => {
 
 describe('MAP-16 — rename-group rAF-deferred focus integration', () => {
   // Flush a queued requestAnimationFrame callback synchronously in jsdom.
-  // Mirrors the flushRaf helper in FolderGroupRow.test.tsx (describe).
+  // Mirrors the flushRaf helper in FolderGroupRow.test.tsx.
   async function flushRaf() {
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve());
@@ -716,8 +716,8 @@ describe('MAP-16 — rename-group rAF-deferred focus integration', () => {
 
   it('rename-group input: rAF wraps the focus call — autoFocus is NOT the sole mechanism (source-text pin)', () => {
     // Defense-in-depth source assertion: catches a regression where someone removes
-    // the requestAnimationFrame wrapper from the editing focus effect. That logic now lives in the shared useInlineRename hook, consumed by both
-    // FolderGroupRow and StackRow. The rAF deferral is load-bearing — without it,
+    // the requestAnimationFrame wrapper from the editing focus effect. That logic now lives in the shared useInlineRename hook,
+    // consumed by both FolderGroupRow and StackRow. The rAF deferral is load-bearing — without it,
     // Radix DropdownMenu's restoreFocus wins the focus race in real browsers and the
     // rename input never receives focus. Cross-reference: commit 80bddc14.
     //

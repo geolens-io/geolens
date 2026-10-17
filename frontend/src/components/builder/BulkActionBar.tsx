@@ -317,7 +317,7 @@ export const BulkActionBar = memo(function BulkActionBar({
         // Normal state: inline count + Visibility + Opacity, then overflow menu
         // Group / Ungroup / Delete were previously inline
         // and clipped by the 340px sidebar `<aside class="overflow-hidden">`
-        // (smoke check 2026-05-15). They now live behind a `…` overflow
+        // (seen in a smoke check). They now live behind a `…` overflow
         // trigger so the entire bar fits the sidebar width while Group / Ungroup
         // / Delete remain reachable via keyboard + pointer.
         // ------------------------------------------------------------------

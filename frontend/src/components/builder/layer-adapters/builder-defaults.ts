@@ -82,7 +82,7 @@ export const DEFAULT_LINE_PAINT = {
   'line-width': 2,
 } as const;
 
-/* Arrow render-mode defaults (size 14, spacing 80 px). */
+/** Arrow render-mode defaults (size 14, spacing 80 px). */
 export const DEFAULT_ARROW_SIZE = 14;
 export const DEFAULT_ARROW_SPACING = 80;
 

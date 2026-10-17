@@ -1,5 +1,5 @@
 // The #755 double-log shape was still live for raster/DEM tiles.
-// `isHandledTileAuthError` excludes `/raster-tiles/` (audit w3-maps A1) because a
+// `isHandledTileAuthError` excludes `/raster-tiles/` because a
 // fresh tile sig cannot fix raster auth — that rides the Authorization header —
 // but BuilderMap's own error handler reported a suppressed "re-mint requested"
 // row anyway (`reminted` is true even though resignVectorSourceForRetry returned
@@ -10,7 +10,7 @@
 // The handler now agrees with the predicate: a raster/DEM 401/403 is reported
 // ONCE, unsuppressed, and surfaces the session-expired toast. The re-mint itself
 // still runs — its apiFetch renews an expiring JWT, which IS what a raster 401
-// needs (on this PR) — it just no longer counts as recovery. The vector
+// needs — it just no longer counts as recovery. The vector
 // path (re-sign + #621 re-mint) is unchanged.
 
 import type { ReactNode } from 'react';
@@ -299,7 +299,7 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
   // 5xx tile error already was — one unsuppressed `maplibre` row from the handler
   // plus the wrapper's console.error (which initReportCapture turns into a
   // `console` row). That pairing is the buffer's shape for EVERY error no
-  // surface recovers, and it predates this PR; the #755 bug was a suppressed
+  // surface recovers; the #755 bug was a suppressed
   // "recovered" row sitting next to it, not the pairing. Dropping either half
   // for raster would cost the sourceId (the console row has none) or the devtools
   // log (the surfaces without their own row have nothing else). This pins the

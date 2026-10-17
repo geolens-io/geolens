@@ -22,7 +22,7 @@ export const LABEL_FONT_STACK = [
  */
 export const DEFAULT_POINT_LABEL_OFFSET: [number, number] = [0, -1.5];
 
-/* Resolve symbol-placement, enforcing point-only for fill geometries. */
+/** Resolve symbol-placement, enforcing point-only for fill geometries. */
 function resolvePlacement(
   lc: Pick<LabelConfig, 'placement'>,
   geomType: string,

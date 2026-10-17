@@ -4,8 +4,8 @@
  *
  * READ-ONLY API: queryRenderedFeatures is not covered by the editor guard
  * in `pitfall-9-editor-polish.test.ts`, which forbids only write APIs
- * (setPaintProperty / setLayoutProperty / setFilter). This hook is allowed to call queryRenderedFeatures because
- * it never mutates the map — it only inspects rendered state.
+ * (setPaintProperty / setLayoutProperty / setFilter). This hook is allowed to
+ * call queryRenderedFeatures because it never mutates the map — it only inspects rendered state.
  *
  * Returns null when:
  *   - map is null (no instance yet)

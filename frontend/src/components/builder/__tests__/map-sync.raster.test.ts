@@ -908,7 +908,7 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 
-  // raster/hillshade layers now reapply their saved custom zoom
+  // Raster/hillshade layers now reapply their saved custom zoom
   // range on (re)sync — previously only vector paths called syncLayerZoomRange,
   // so a saved _minzoom/_maxzoom silently stopped applying after reload.
   it('applies the saved custom zoom range to the hillshade layer', () => {

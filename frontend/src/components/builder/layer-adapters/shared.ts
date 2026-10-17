@@ -68,7 +68,7 @@ type RasterBounds = [number, number, number, number];
  * matches NO tile, so the layer renders blank rather than misplaced. There is
  * no way to express two boxes on one source, so the span form is the only
  * option here: over-broad (it stops constraining tile requests) but visible.
- * This is the keystone consumer named in the issue; the four call sites in
+ * This is the keystone consumer: the four call sites in
  * map-sync and hillshade-adapter inherit the guard from here.
  */
 export function normalizeRasterBounds(bounds: number[] | null | undefined): RasterBounds | undefined {
@@ -421,8 +421,8 @@ type VectorGeomType = 'fill' | 'line' | 'circle';
 // property names, so they can carry the real key union instead of `string[]`. That
 // keeps the `get*Property` reads below statically valid under v6's generics, and it
 // makes a typo'd or non-existent property name a compile error at the tuple — the
-// failure mode that hid `circle-stroke-blur` in CIRCLE_OWNED_PAINT_PROPERTIES until
-// because setPaintProperty's try/catch swallowed it silently.
+// failure mode that hid `circle-stroke-blur` in CIRCLE_OWNED_PAINT_PROPERTIES until it was
+// noticed, because setPaintProperty's try/catch swallowed it silently.
 interface OwnedPaintSyncOptions {
   ownedProperties: readonly PaintPropertyName[];
   geomType?: VectorGeomType;

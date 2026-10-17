@@ -5,7 +5,7 @@
  * left dangling (it points at a dataset that no longer has a backing DEM layer).
  * Auto-clear terrain_config + surface a NON-BLOCKING toast on that delete.
  *
- * Advisory A2 (critical): the teardown MUST key on DATASET IDENTITY, not "a DEM
+ * Critical: the teardown MUST key on DATASET IDENTITY, not "a DEM
  * layer was deleted." Only clear terrain_config (and toast) when the deleted
  * layer's dataset_id matches terrain_config.source_dataset_id. In a multi-DEM
  * map, deleting a DIFFERENT DEM layer must NOT clear terrain_config and must NOT
@@ -114,7 +114,7 @@ async function waitForInit() {
 }
 
 // ---------------------------------------------------------------------------
-// handleRemove (single-layer delete) — + A2
+// handleRemove (single-layer delete)
 // ---------------------------------------------------------------------------
 describe('useBuilderLayers — terrain teardown on handleRemove (D-05/A2)', () => {
   it('clears terrain_config + non-blocking toast when the terrain-source DEM is deleted', async () => {
@@ -232,7 +232,7 @@ describe('useBuilderLayers — terrain teardown on handleRemove (D-05/A2)', () =
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkDelete — + A2
+// handleBulkDelete
 // ---------------------------------------------------------------------------
 describe('useBuilderLayers — terrain teardown on handleBulkDelete (D-05/A2)', () => {
   it('clears terrain_config + toast when the terrain-source DEM is in the bulk-delete set', async () => {

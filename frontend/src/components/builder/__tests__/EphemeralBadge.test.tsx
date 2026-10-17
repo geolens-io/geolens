@@ -61,7 +61,7 @@ describe('EphemeralBadge', () => {
     expect(screen.getByText('Result · 500 of 10,651 features')).toBeInTheDocument();
   });
 
-  // The honest-partial-result state this issue exists to fix — a
+  // The honest-partial-result state: a
   // capped preview reads as a failed operation unless the badge (and the
   // stack row it shares copy with, via ephemeral-preview.ts) discloses BOTH
   // that it is partial and what it is partial AGAINST. A viewport-scoped

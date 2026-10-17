@@ -38,9 +38,9 @@ interface CompanionLayerIds {
   cluster: string;
   /** Cluster count label companion (`layer-${id}-cluster-count`). */
   clusterCount: string;
-  /* Mixed-geometry line-family companion (`layer-${id}-lines`). */
+  /** Mixed-geometry line-family companion (`layer-${id}-lines`). */
   mixedLines: string;
-  /* Mixed-geometry point-family companion (`layer-${id}-points`). */
+  /** Mixed-geometry point-family companion (`layer-${id}-points`). */
   mixedPoints: string;
 }
 

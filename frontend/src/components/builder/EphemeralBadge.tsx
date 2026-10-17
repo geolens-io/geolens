@@ -11,9 +11,9 @@ import {
 // The builder's full stack panel now surfaces the preview as a row
 // (EphemeralPreviewRow), so this badge no longer renders there. It survives as
 // the surface for the two places that have NO layer stack to put a row in:
-// - the public viewer (ViewerChatPanel — the viewer's overlay has no legend entry,
-//     badge, or dismissal otherwise), and
-// - the builder below 1100px, where the sidebar collapses to SidebarRail.
+//   - the public viewer (ViewerChatPanel; the viewer's overlay has no legend
+//     entry, badge, or dismissal otherwise), and
+//   - the builder below 1100px, where the sidebar collapses to SidebarRail.
 // One ephemeral object still gets exactly one surface; which surface depends on
 // whether a stack exists to host the row.
 interface EphemeralBadgeProps {
@@ -23,7 +23,7 @@ interface EphemeralBadgeProps {
   truncated?: boolean;
   /** Total feature count before truncation. */
   totalCount?: number;
-  /* totalCount was computed against the map's viewport. */
+  /** totalCount was computed against the map's viewport. */
   viewportScoped?: boolean;
   /** Opens the Analysis panel prefilled with the operation behind
    *  this preview, or the save-as-dataset dialog for a plain chat

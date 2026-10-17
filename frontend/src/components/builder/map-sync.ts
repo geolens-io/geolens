@@ -265,8 +265,8 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     // no explicit <AttributionControl> to hand `customAttribution` to (and
     // react-maplibre reads the <Map attributionControl> option once at mount),
     // so the builder credits through MapLibre's native source-level mechanism —
-    // the field built here and left unfed. MapLibre recomputes the
-    // control from sources whose `used` flag is live, so hiding every layer on
+    // the `attribution` field this input already had and nothing fed. MapLibre
+    // recomputes the control from sources whose `used` flag is live, so hiding every layer on
     // a source drops its credit without any code of ours running.
     //
     // Deliberately NOT mirrored in toViewerSyncInput: the viewer owns an
@@ -368,7 +368,7 @@ const generationListenerAttached = new WeakSet<MaplibreMap>();
  * earliest-registered `style.load` listener, so it has already bumped the
  * counter by the time BuilderMap's own persistent handler triggers an
  * appearance pass on the new style. Registering it lazily would reproduce the
- * round-2 ordering bug exactly.
+ * ordering bug exactly.
  *
  * Idempotent: a second call for the same map is a no-op, so a remount that
  * reuses the instance cannot double-count.
@@ -645,7 +645,7 @@ function tileUrlSignatureStore(map: MaplibreMap) {
 }
 
 /**
- * + token-refresh: refresh a vector source's tiles ONLY
+ * Refresh a vector source's tiles ONLY
  * when the signed URL actually changed, honoring the per-source tile-url
  * signature. Both the in-pass sync (`syncVectorTiles`) and the BuilderMap
  * token-refresh effect call this, so a paint/visibility edit that does not
@@ -660,7 +660,7 @@ export function refreshVectorSourceTiles(map: MaplibreMap, sourceId: string, til
   if (store.get(sourceId) === tileUrl) return false;
   source.setTiles([tileUrl]);
   store.set(sourceId, tileUrl);
-  // Maplibre 5.x silently drops setTiles' tile reload when the
+  // MapLibre 5.x silently drops setTiles' tile reload when the
   // source's TileManager is paused (any same-pass layer update pauses it):
   // the 'content' data event returns early without setting the
   // reload-on-resume flag, so loaded tiles keep serving the pre-edit cols=
@@ -1135,7 +1135,7 @@ export function syncLayersToMap(
   }
 
   try {
-    // layer-aware prune first, so an orphan on a still-shared
+    // Layer-aware prune first, so an orphan on a still-shared
     // deduped source is reclaimed. Ordered before the source prune because the
     // source prune's removeLayersUsingSource depends on the layer set only for
     // sources it is about to drop.

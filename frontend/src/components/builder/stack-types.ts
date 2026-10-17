@@ -17,6 +17,6 @@ export interface BasemapGroupInfo {
   visible: boolean;
   opacity: number;
   sublayers: BasemapSublayerInfo[];
-  /* Raw basemap_config is non-null → "Reset appearance" has work to do. */
+  /** Raw basemap_config is non-null → "Reset appearance" has work to do. */
   hasCustomAppearance?: boolean;
 }

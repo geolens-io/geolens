@@ -18,9 +18,9 @@ interface MockMap {
   once: (event: string, cb: () => void) => void;
   on: (event: string, cb: () => void) => void;
   off: (event: string, cb: () => void) => void;
-  /* Registered style.load handlers — call to simulate a basemap/style reload. */
+  /** Registered style.load handlers — call to simulate a basemap/style reload. */
   styleLoadHandlers: Array<() => void>;
-  /* One-shot idle handlers — call to simulate the map settling. */
+  /** One-shot idle handlers — call to simulate the map settling. */
   idleHandlers: Array<() => void>;
   fitBounds: (bounds: unknown, options: unknown) => void;
 }

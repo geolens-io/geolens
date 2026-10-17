@@ -367,7 +367,7 @@ describe('ShareDialog edition gates', () => {
 // measured end to end, the viewer rendered "Map not found" for a valid share
 // token because every /api/ call was cross-origin with `Origin: null`.
 //
-// The sandbox-escape feared needs the frame to be same-origin with its
+// The sandbox escape it guarded against needs the frame to be same-origin with its
 // EMBEDDER, which a third-party embed never is. See the generateEmbedCode
 // docstring.
 //
@@ -936,7 +936,7 @@ describe('SHARE-04 expiration presets', () => {
   });
 
   /**
-   * regression pin (rawShareToken survival).
+   * Regression pin (rawShareToken survival).
    *
    * Contract: selecting a preset fires updateShareToken but does NOT touch
    * rawShareToken or embedTokenRaw state. The "Copy Link" button is gated on
@@ -967,7 +967,7 @@ describe('SHARE-04 expiration presets', () => {
   });
 
   /**
-   * mirror (embedTokenRaw survival).
+   * Mirror pin (embedTokenRaw survival).
    *
    * Both rawShareToken and embedTokenRaw are independent of expiration mutations.
    * The embed code textarea is gated on embedTokenRaw being non-null.

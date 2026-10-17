@@ -342,7 +342,7 @@ export function DatasetSearchPanel({
     staleTime: 30_000,
   });
 
-  // The `record_type` query param at line ~215 already constrains
+  // The `record_type` query param already constrains
   // the backend query. The previous client-side isRasterRecord filter was a bug that
   // capped raster discovery to whatever appeared in the all-types page-20 result.
   // isRasterRecord() is still used by typeMeta() for display purposes.

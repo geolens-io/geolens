@@ -248,7 +248,7 @@ export function BuilderRail({
               disabled={btn.disabled}
               data-unavailable={btn.unavailable || undefined}
               title={btn.label}
-              // Rework: the notes-presence state lives in the BUTTON's
+              // The notes-presence state lives in the BUTTON's
               // accessible name — aria-label replaces the subtree, so a label
               // on the dot span was never exposed (and aria-label on a
               // role-less span is invalid ARIA anyway).
@@ -280,7 +280,7 @@ export function BuilderRail({
               {/* Presence dot — non-whitespace notes render a 6px primary-color dot
                   at the button's top-right corner. Purely decorative: the state is
                   announced via the button's conditional aria-label above.
-                  No animation (static state indicator per UI-SPEC). */}
+                  No animation (static state indicator). */}
               {btn.id === 'notes' && notes.trim().length > 0 && (
                 <span
                   aria-hidden="true"

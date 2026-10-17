@@ -373,7 +373,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
 
   function openAdvanced() {
     const expr = paint['line-gradient'] ?? null;
-    // Empty paint -> empty textarea (don't show literal "null")..
+    // Empty paint -> empty textarea (don't show literal "null").
     setAdvancedText(expr == null ? '' : JSON.stringify(expr, null, 2));
     setAdvancedError(null);
     setAdvancedOpen(true);

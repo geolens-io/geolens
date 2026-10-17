@@ -343,7 +343,7 @@ describe('BasemapGroupRow', () => {
       // Hit target dimensions
       expect(caretBtn!.className).toContain('h-6');
       expect(caretBtn!.className).toContain('w-6');
-      // Negative horizontal margin extends visual box within 16px grid column (sketch 002 A "A-strict")
+      // Negative horizontal margin extends visual box within 16px grid column
       expect(caretBtn!.className).toContain('-mx-1');
       // Flex centering for icon alignment within hit target
       expect(caretBtn!.className).toContain('flex');

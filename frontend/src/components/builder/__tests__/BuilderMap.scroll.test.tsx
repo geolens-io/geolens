@@ -11,9 +11,6 @@
  * Live behavior (page body scrollY === 0 during canvas pan/zoom) is verified
  * in a Playwright MCP run at 800×600 and 414×896 viewports.
  *
- * Source: todo.md L136 ("map is scrollable") + audit classifies
- * this as a `genuine-new-gap` requiring static + live verification.
- *
  * Uses Vite ?raw imports — same pattern as preserve-drawing-buffer.test.ts
  * (no node:fs / @types/node dependency in tsconfig.app.json).
  */

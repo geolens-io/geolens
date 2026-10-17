@@ -32,15 +32,15 @@ type PreviewSaveMode =
   /** Hand off to the Analysis panel, which re-runs the operation
    *  server-side. */
   | 'analysis'
-  /* Snapshot the client's FeatureCollection through ingest. */
+  /** Snapshot the client's FeatureCollection through ingest. */
   | 'snapshot'
-  /* Offered but not actionable — see `previewSaveMode`. */
+  /** Offered but not actionable — see `previewSaveMode`. */
   | 'truncated'
   /** Nothing to offer. */
   | 'none';
 
 interface PreviewSaveInput {
-  /* Set when an Analysis operation is behind this preview. */
+  /** Set when an Analysis operation is behind this preview. */
   analysis?: unknown;
   /** Whether the server capped the result. */
   truncated?: boolean;
@@ -104,7 +104,7 @@ export function ephemeralCountLabel(
   if (totalCount != null) {
     // A viewport-scoped total is honest about "of WHAT" — without
     // naming the extent, "180 of 22,324" reads exactly like the pre-fix
-    // capped-in-ingest-order case this issue exists to stop looking like a
+    // capped-in-ingest-order case, which looked like a
     // failed operation, even though the 180 now really is what's on screen
     // AT THE TIME OF THE REQUEST.
     //

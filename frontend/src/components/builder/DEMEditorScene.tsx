@@ -220,7 +220,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* 1. RELIEF SHADING section — the visible 2D overlay (hillshade + tint).
-          an independent switch, not a radio against 3D terrain —
+          The overlay is an independent switch, not a radio against 3D terrain —
           both outputs can be active on one DEM at the same time. */}
       <section
         aria-labelledby={`section-appearance-dem-${layer.id}`}

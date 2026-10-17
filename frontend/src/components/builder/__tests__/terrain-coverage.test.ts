@@ -168,8 +168,8 @@ describe('shouldWarnSmallDemCoverage across the antimeridian', () => {
   });
 });
 
-// The issue's own table, pinned to the number. A Fiji-shaped DEM
-// and a globe-spanning one are THE SAME VALUE in the tile token's span form
+// The Fiji-shaped vs globe-spanning bounds table, pinned to the number. A
+// Fiji-shaped DEM and a globe-spanning one are THE SAME VALUE in the tile token's span form
 // ([-180, s, 180, n]), which is why the guard went silent for the first; the
 // spec form separates them. Both rows are pinned, because a fix that only
 // stops the false negative could regress into warning about the DEM that

@@ -86,7 +86,7 @@ interface UnifiedStackPanelProps {
   // Authoring actions threaded to the kebab
   // + bulk bar.
   onZoomToLayer?: (id: string) => void;
-  /* Opens the Analysis panel prefilled with this layer. */
+  /** Opens the Analysis panel prefilled with this layer. */
   onAnalyzeLayer?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
@@ -95,13 +95,13 @@ interface UnifiedStackPanelProps {
    *  to enable "Paste style" only on geometry-compatible rows. */
   copiedStyleGeometryClass?: GeometryStyleClass | null;
   onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
-  /* Shared aria-live announcer for the keyboard reorder mode. */
+  /** Shared aria-live announcer for the keyboard reorder mode. */
   onAnnounce?: (text: string) => void;
   onAddDataClick: (initialQuery?: string) => void;
   onAddDataset?: (datasetId: string) => void;
   onSettingsClick: () => void;
   isSettingsOpen?: boolean;
-  /* Id of the item currently being dragged (from the lifted drag context in MapBuilderPage) */
+  /** Id of the item currently being dragged (from the lifted drag context in MapBuilderPage) */
   activeDragId?: string | null;
   // New props
   groupMeta?: Record<string, { expanded: boolean }>;
@@ -114,7 +114,7 @@ interface UnifiedStackPanelProps {
   onSublayerOpacityChange?: (sublayerId: string, opacity: number) => void;
   onSwapBasemap?: () => void;
   onResetBasemapAppearance?: () => void;
-  /* Session-local basemap show/hide toggle (no backend change). */
+  /** Session-local basemap show/hide toggle (no backend change). */
   onToggleBasemapVisibility?: () => void;
   onRenameGroup?: (groupId: string, name: string) => void;
   onAddLayerToGroup?: (groupId: string) => void;
@@ -124,7 +124,7 @@ interface UnifiedStackPanelProps {
   onCreateGroupWithLayer?: (layerId: string) => void;
   onMoveLayerOutOfGroup?: (layerId: string) => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
-  // Multi-selection props (lifted to MapBuilderPage — see decision in SUMMARY)
+  // Multi-selection props (lifted to MapBuilderPage)
   selectedIds?: Set<string>;
   isMultiSelectionActive?: boolean;
   selectableRowIds?: string[];
@@ -148,7 +148,7 @@ interface UnifiedStackPanelProps {
   onBulkGroup: (ids: Set<string>) => void;
   onBulkUngroup: (ids: Set<string>) => void;
   onBulkDelete: (ids: Set<string>) => void;
-  /* Forwarded from useBuilderLayers.isDeleting */
+  /** Forwarded from useBuilderLayers.isDeleting */
   isDeleting?: boolean;
   /** fix(v1.6.0 audit A5): in-flight bulk-delete batch size, forwarded from
    *  useBuilderLayers.deletingCount for the bar's "Deleting N layers…" label. */
@@ -385,7 +385,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const { active } = useDndContext();
 
   // Ref for the scrollable stack panel element — used for outside-click guard
-  // and Shift+Arrow focus management. (was the listbox; now a labelled scroll
+  // and Shift+Arrow focus management. (Previously the listbox; now a labelled scroll
   // region after listbox/option pattern was dropped per axe nested-interactive.)
   const stackPanelRef = useRef<HTMLDivElement>(null);
 

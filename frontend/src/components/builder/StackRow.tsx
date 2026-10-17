@@ -60,14 +60,14 @@ interface StackRowProps {
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
   // Kebab authoring actions.
-  /* Frames the map to this layer's extent. */
+  /** Frames the map to this layer's extent. */
   onZoomToLayer?: (id: string) => void;
   /** Opens the Analysis panel prefilled with this layer. Rendered
    *  only for analysable (vector dataset) layers. */
   onAnalyzeLayer?: (id: string) => void;
-  /* Stashes this layer's geometry-compatible style in the session clipboard. */
+  /** Stashes this layer's geometry-compatible style in the session clipboard. */
   onCopyStyle?: (id: string) => void;
-  /* Applies the clipboard style to this layer; disabled when !canPasteStyle. */
+  /** Applies the clipboard style to this layer; disabled when !canPasteStyle. */
   onPasteStyle?: (id: string) => void;
   /** True when a style is copied AND its geometry class matches THIS row's layer. */
   canPasteStyle?: boolean;

@@ -197,7 +197,7 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
   // (leaving style_config.builder.folderGroupId intact), the duplicate would
   // be persisted with the stale pointer — and the next server resync would
   // silently re-group it via hydrateFolderGroupLayers, which reads
-  // style_config, not parent_group_id. This test fails on pre-fix code. (second facet)
+  // style_config, not parent_group_id. This test fails on pre-fix code.
   it('Test 5: duplicating a layer just moved out of a group does not resurrect the stale folderGroupId in the outgoing style_config', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const childLayer = {

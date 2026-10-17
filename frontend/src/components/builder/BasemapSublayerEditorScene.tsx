@@ -16,8 +16,7 @@ import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
 import { InlineDeleteConfirm } from '@/components/builder/row-chrome';
 import { formatNumber } from '@/lib/format';
 
-// DETAIL LEVEL pill strip REMAINS REMOVED.
-// Do not resurrect it.
+// The DETAIL LEVEL pill strip stays removed; do not resurrect it.
 // The activeDetailLevel/isCustomized/onDetailLevelChange props were always
 // passed hardcoded defaults from MapBuilderPage; no consumer ever implemented
 // sublayer detail-level style mutation.

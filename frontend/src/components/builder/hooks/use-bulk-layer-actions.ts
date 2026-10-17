@@ -82,7 +82,7 @@ interface UseBulkLayerActionsParams {
   copiedStyleRef: React.RefObject<CopiedStyle | null>;
 }
 
-// fix(v1.6.0 audit B6): failure-path restore that does NOT clobber concurrent
+// Failure-path restore that does NOT clobber concurrent
 // edits. Restoring the pre-delete snapshot wholesale discarded anything that
 // landed during the await (e.g. a handleAddDataset onSuccess), and the next
 // save's removed-computation then asked the server to DELETE the just-added
@@ -153,7 +153,7 @@ export function useBulkLayerActions({
 
   // Tracks in-flight bulk-delete to gate BulkActionBar spinner
   const [isDeleting, setIsDeleting] = useState(false);
-  // fix(v1.6.0 audit A5): batch size captured synchronously in handleBulkDelete
+  // Batch size captured synchronously in handleBulkDelete
   // BEFORE the optimistic removal commits. Once that removal lands, the bar's
   // selection-derived deletableCount is 0, so the deleting state must render
   // this count instead ("Deleting 0 layers…" regression).
@@ -326,7 +326,7 @@ export function useBulkLayerActions({
     });
     setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
     setHasUnsavedChanges(true);
-    // fix(v1.6.0 audit D13): the group action only toasted its skip paths —
+    // The group action only toasted its skip paths —
     // success was silent while delete and apply-style both confirm.
     toast.success(t('toasts.bulkGrouped', { count: groupableLayers.length, name: groupName }));
     return true;
@@ -362,7 +362,7 @@ export function useBulkLayerActions({
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setHasUnsavedChanges(true);
-    // fix(v1.6.0 audit D13): ungroup had no success feedback at all.
+    // Ungroup had no success feedback at all.
     toast.success(t('toasts.bulkUngrouped', { count: selectedGroups.length }));
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, t]);
 
@@ -426,7 +426,7 @@ export function useBulkLayerActions({
     removePerLayerCompanions(mapInstanceRef.current, idsToDelete);
 
     // One batched call replaces N sequential DELETEs
-    // fix(v1.6.0 audit A5): capture the batch size for the bar's deleting label
+    // Capture the batch size for the bar's deleting label
     // BEFORE isDeleting flips — the optimistic removal above already emptied
     // the selection-derived count the bar would otherwise render.
     setDeletingCount(idsToDelete.length);
@@ -453,7 +453,7 @@ export function useBulkLayerActions({
       }
 
       if (result.deleted.length === 0) {
-        // Full failure — restore the failed batch. fix(v1.6.0 audit B6): NOT a
+        // Full failure — restore the failed batch. NOT a
         // wholesale snapshot write — a concurrent edit (e.g. handleAddDataset
         // landing during the await) must survive the rollback, otherwise the
         // next save diff would DELETE the just-added layer.
@@ -471,7 +471,7 @@ export function useBulkLayerActions({
       // Partial failure: keep deleted layers removed, restore failed layers.
       // Survivors return at their previous relative positions, not
       // interleaved between two numbering schemes.
-      // fix(v1.6.0 audit B6): recompute from CURRENT state instead of writing a
+      // Recompute from CURRENT state instead of writing a
       // stale previousLayers-derived array — a concurrent edit that landed
       // during the await (e.g. handleAddDataset) must survive; only the rows
       // whose deletes FAILED are re-inserted, and confirmed-deleted rows are
@@ -550,7 +550,7 @@ export function useBulkLayerActions({
     handleBulkUngroup,
     handleBulkDelete,
     isDeleting,
-    // fix(v1.6.0 audit A5): batch size for the bar's "Deleting N layers…" label.
+    // Batch size for the bar's "Deleting N layers…" label.
     deletingCount,
   };
 }

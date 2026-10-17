@@ -659,7 +659,7 @@ export function ChatPanel({
         if (layerId) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
           if (layer) {
-            // validate/clamp before checking for a mutation — an
+            // Validate/clamp before checking for a mutation — an
             // action whose paint is reduced to empty by validation must not
             // apply, and must not be treated as a mutation via a bare
             // replace_paint:true either.
@@ -1295,7 +1295,7 @@ export function ChatPanel({
                     </div>
                   );
                 })()}
-                {/* Applied-N nit: a pure query-result turn mutates nothing, so it
+                {/* A pure query-result turn mutates nothing, so it
                     must not render "Applied N changes". Count only non-query actions.
                     add_layer/remove_layer are staged, not yet applied, until
                     the user accepts them in the tray — exclude them too so "Applied N changes"

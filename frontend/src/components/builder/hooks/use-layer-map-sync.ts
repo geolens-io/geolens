@@ -246,7 +246,7 @@ export function useLayerMapSync(
   // Mirror current layers in a ref so the memoized callbacks can read fresh
   // state without having `localLayers` in their dependency list. Without this
   // ref, every layer mutation would invalidate all callbacks, tearing down
-  // React.memo() on StackRow and re-rendering every layer for every tweak
+  // React.memo() on StackRow and re-rendering every layer for every tweak.
   const layersRef = useRef(localLayers);
   useLayoutEffect(() => {
     layersRef.current = localLayers;
@@ -286,7 +286,7 @@ export function useLayerMapSync(
       // snapshot. The existence gate above (ref-based) still guards the
       // dirty-flag; the actual mutation moves inside prev.map() so React's
       // functional update queue accumulates correctly.
-      // Is enforced HERE, at the one boundary every
+      // The fill exclusion rule is enforced HERE, at the one boundary every
       // handler in this hook commits through, instead of inside each handler. The
       // handlers are an open set — the style-config funnel, paint-only writes, and
       // whatever is added next — and a rule inlined per handler is only ever as

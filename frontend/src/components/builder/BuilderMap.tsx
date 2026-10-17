@@ -718,7 +718,7 @@ export const BuilderMap = memo(function BuilderMap({
                 return;
               }
             }
-            // don't tell the user to reload the page for a raster
+            // Don't tell the user to reload the page for a raster
             // 401 that a renewal already in flight is seconds from healing.
             if (rasterAuthDuringRenewal) return;
             // Once the session is conclusively dead the global

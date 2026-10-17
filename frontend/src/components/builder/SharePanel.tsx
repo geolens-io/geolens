@@ -67,7 +67,8 @@ function isDomainLockUnenforceable(err: unknown): err is ApiError {
 }
 
 /**
- * Build the embedded-viewer iframe `src` URL for a shared map. Single source of truth shared by generateEmbedCode (full iframe
+ * Build the embedded-viewer iframe `src` URL for a shared map.
+ * Single source of truth shared by generateEmbedCode (full iframe
  * snippet) and EmbedPreviewPane (live preview) so the viewer URL shape — path,
  * `embed` flag, `et` token param — cannot drift between the two.
  *
@@ -101,19 +102,19 @@ function escapeHtmlAttribute(value: string): string {
  * Generate the iframe embed snippet for a shared map.
  *
  * Emits `sandbox="allow-scripts allow-same-origin"`. The old value
- * omitted `allow-same-origin` on reasoning, and the snippet could
+ * omitted `allow-same-origin` to limit sandbox escape, and the snippet could
  * not boot. Without that flag the frame gets an OPAQUE origin, so the shell's
  * `<script type="module" crossorigin>` fetch and every later `/api/` call are
  * cross-origin with `Origin: null`. Measured end to end against a real share
  * token: the viewer rendered "Map not found" while the api answered the very
  * same request 200 and the browser discarded it for want of a CORS header.
  *
- * The escape hatch that reasoning feared is real, and it does not reach here.
+ * The escape hatch that restriction guarded against is real, and it does not reach here.
  * A frame strips its own sandbox by reaching `parent.document`, which requires
  * being same-origin with its EMBEDDER. A third-party page embedding a GeoLens
  * map never is, so the pair cannot be used to escape from there. That warning
  * belongs to a FIRST-PARTY frame of your own origin. (FeaturePopup.tsx already
- * ships the same pair for YouTube; threat model.)
+ * ships the same pair for YouTube.)
  *
  * Narrower than the usual case, too: an iframe with no `sandbox` attribute at
  * all, which is what most embed snippets ship and what worked before this bug
@@ -259,7 +260,7 @@ function ShareLinkSettings({
   /**
    * Save the expiration value typed into the Custom date Input.
    *
-   * contract: this handler does NOT modify rawShareToken or
+   * Contract: this handler does NOT modify rawShareToken or
    * embedTokenRaw state. Expiration is updated on the share token only via
    * useUpdateShareToken — those raw tokens survive across dialog open/close
    * cycles and across expiration changes per the 3ed5ceb3 separation.
@@ -286,7 +287,7 @@ function ShareLinkSettings({
   /**
    * Apply an expiration preset and let the server calculate the deadline.
    *
-   * contract: does NOT modify rawShareToken or embedTokenRaw — those
+   * Contract: does NOT modify rawShareToken or embedTokenRaw — those
    * survive independently per the 3ed5ceb3 separation. Expiration is updated on
    * the share token only via the useUpdateShareToken mutation.
    *
@@ -776,7 +777,7 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   const [rawShareToken, setRawShareToken] = useState<string | null>(null);
 
   // Single-flight guard for concurrent createEmbedToken invocations.
-  // Mirrors ChatPanel.tsx inflightRef pattern (v1010.2 lift).
+  // Mirrors ChatPanel.tsx inflightRef pattern.
   const inflightEmbedCreate = useRef<Promise<{ raw_token: string }> | null>(null);
 
   // Queries as source of truth — only fetch when dialog is open
@@ -815,14 +816,14 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   /**
    * Create an embed token if one does not already exist.
    *
-   * contract: deduplicates concurrent invocations via
+   * Contract: deduplicates concurrent invocations via
    * inflightEmbedCreate ref. Two callers racing through this function (e.g.,
    * React StrictMode double-mount, or rapid double-click on Generate Share
    * Link) share the same in-flight promise instead of firing parallel
    * createEmbedToken mutations that would both succeed and orphan one of the
    * resulting tokens in the DB.
    *
-   * Mirror of ChatPanel.tsx inflightRef pattern lifted in v1010.2.
+   * Mirrors the ChatPanel.tsx inflightRef pattern.
    *
    * This is also the explicit create-embed-token path that
    * lets a fully-public map (no non-public layers) mint a token so the owner can

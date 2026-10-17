@@ -308,7 +308,7 @@ describe('getVisibleLayerBounds across the antimeridian (fix #903)', () => {
     ]);
   });
 
-  // on #903: shifting on the west edge alone pushed a contained
+  // Shifting on the west edge alone pushed a contained
   // layer a whole turn away from a world-wide one, fitting a 530 degree span.
   it('leaves a contained layer inside a world-wide one', () => {
     expect(getVisibleLayerBounds([layer([-180, -85, 180, 85]), layer([10, 0, 20, 5])])).toEqual([
@@ -324,7 +324,7 @@ describe('getVisibleLayerBounds across the antimeridian (fix #903)', () => {
       .toEqual([[-182, -20], [-177, -14]]);
   });
 
-  // on #903: no planar placement expresses "already contained"
+  // No planar placement expresses "already contained"
   // for a crossing layer inside a world-spanning one, so the search returned a
   // span WIDER than the world it started from.
   it('leaves world bounds alone when a crossing layer is added inside them', () => {

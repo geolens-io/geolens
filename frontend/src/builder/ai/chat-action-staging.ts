@@ -16,8 +16,7 @@
  * is byte-equal to pre-prompt after rejectAll().
  *
  * `BuilderActionSource` is NOT widened. No `'ai-pending'` or `'ai-committed'`
- * source values are introduced. The v1027 typed action boundary is unchanged.
- * See v1030 hard invariant #5.
+ * source values are introduced. The typed action boundary is unchanged.
  *
  * ## Destructive vs Non-Destructive Actions
  *

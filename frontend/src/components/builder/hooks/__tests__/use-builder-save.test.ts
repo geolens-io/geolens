@@ -528,7 +528,7 @@ describe('buildLayerDiff', () => {
     ]);
   });
 
-  // collapse→save→expand→save round-trip. The post-save
+  // A collapse→save→expand→save round-trip. The post-save
   // baseline used to be a verbatim copy of localLayers, whose markers still
   // said "expanded" from load — so the collapse-save left a baseline the
   // following expand-save could not diff against, and reload restored the
@@ -3176,7 +3176,7 @@ describe('useBuilderSave', () => {
   });
 });
 
-/* ──: export PNG composition regression pins ── */
+/* ── export PNG composition regression pins ── */
 
 describe('SHARE-09 export PNG composition', () => {
   let fillTextSpy: ReturnType<typeof vi.fn>;

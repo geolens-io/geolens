@@ -198,7 +198,7 @@ export function BuilderDialogs({
       </Dialog>
 
       {/* Unsaved changes leave warning.
-          a modal AlertDialog with the canonical Cancel-then-Action
+          Rendered as a modal AlertDialog with the canonical Cancel-then-Action
           footer, matching the DatasetPage / AdminSettingsPage navigation guards
           — was a dismissible Dialog with a hand-rolled footer.
           Note on the blocker callbacks: AlertDialogAction/Cancel ALSO close

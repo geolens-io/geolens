@@ -23,7 +23,7 @@ describe('buildElevationExpression', () => {
     expect(expr.length).toBe(HEADER + (GUARD_PAIRS + 7) * 2);
   });
 
-  // no-data pixels read as the -10000 m encoding floor and used to
+  // No-data pixels read as the -10000 m encoding floor and used to
   // clamp to the first ramp color, painting a solid fringe beyond the DEM
   // footprint. The ramp must hold fully transparent through the guard band.
   it('holds transparent from the encoding floor to below the lowest land', () => {
@@ -81,7 +81,7 @@ describe('buildElevationExpression', () => {
   });
 
   it('falls back to a valid expression for an unknown ramp name', () => {
-    // getRampColors falls back to YlOrRd for unknown names (Threat)
+    // getRampColors falls back to YlOrRd for unknown names
     const expr = buildElevationExpression('NotARealRamp');
     expect(expr[0]).toBe('interpolate');
     expect(expr.length).toBe(HEADER + (GUARD_PAIRS + 7) * 2);

@@ -16,13 +16,13 @@ interface SortableStackRowProps {
   onDuplicate: (id: string) => void;
   // Kebab authoring actions threaded to StackRow.
   onZoomToLayer?: (id: string) => void;
-  /* Opens the Analysis panel prefilled with this layer. */
+  /** Opens the Analysis panel prefilled with this layer. */
   onAnalyzeLayer?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   canPasteStyle?: boolean;
   onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
-  /* Shared aria-live announcer for the keyboard reorder mode. */
+  /** Shared aria-live announcer for the keyboard reorder mode. */
   onAnnounce?: (text: string) => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
   parentGroupId?: string | null;

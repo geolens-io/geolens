@@ -126,7 +126,7 @@ describe('buildColormapTileUrl', () => {
     expect(absolutized).toBe('https://example.com/api/raster-tiles/abc/tiles/{z}/{x}/{y}.png?colormap_name=plasma');
   });
 
-  // ──: pmin / pmax / sigma forwarding ──────────────────
+  // ── pmin / pmax / sigma forwarding ──────────────────
 
   it('forwards pmin/pmax for non-default percentile (5/95)', () => {
     const result = buildColormapTileUrl(BASE, { _stretch: 'percentile', _pmin: 5, _pmax: 95 });

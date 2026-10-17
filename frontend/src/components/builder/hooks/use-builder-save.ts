@@ -202,7 +202,7 @@ export function isEffectivelyBlank(canvas: HTMLCanvasElement): boolean {
  *  The OG upload is fire-and-forget with its own catch so an OG failure does
  *  not prevent the thumbnail save. */
 /** Who asked for this capture. The blank-frame guard applies ONLY to 'auto'
- *  : auto-capture fires on first open, where a uniform
+ *  captures, which fire on first open, where a uniform
  *  frame means the unpainted-canvas race. On an explicit save the map is
  *  loaded and painted — a uniform frame is the map's true appearance (the
  *  user removed its content), and skipping the upload would leave a stale
@@ -222,7 +222,8 @@ type CaptureTrigger = 'auto' | 'save';
  *  appearance at its aspect ratio and must upload.
  *
  *  WebGL pixels are unreadable through 2D APIs on the source itself, so the
- *  frame is copied into a 2D canvas — BOUNDED to ~1M pixels: a native copy on a 2560×1440 display is ~14.7M pixels and
+ *  frame is copied into a 2D canvas — BOUNDED to ~1M pixels: a native copy
+ *  on a DPR-2 2560×1440 display is ~14.7M pixels and
  *  over 110 MiB of transient RGBA inside the render callback, and an
  *  allocation failure would fail open into exactly the blank upload this
  *  guard prevents. The downscale is safe for both classifications: an
@@ -529,7 +530,7 @@ const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
  *  Vite-dev StrictMode (unmount → remount → guard cleared → second PUT fires
  *  after the first's debounce has already settled).
  *
- *  (20260626): the guard is now a bounded LRU instead of
+ *  The guard is a bounded LRU rather than
  *  an unbounded write-only Set. The just-captured map's key stays resident (so
  *  StrictMode remount is still deduped), but the structure no longer accumulates
  *  one entry per visited map for the lifetime of the tab, and old maps age out
@@ -1007,7 +1008,7 @@ interface SaveState {
   terrainConfig: MapTerrainConfig | null;
   localName: string;
   localDescription: string;
-  /* Custom map-level legend title. Null = no override. */
+  /** Custom map-level legend title. Null = no override. */
   legendTitle: string | null;
   dockNotes: string;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
@@ -1465,7 +1466,7 @@ export function useBuilderSave(state: SaveState) {
             cursorY += 12 * dpr;
             ctx.fillStyle = MAP_COLORS.exportImage.text;
             ctx.font = `600 ${14 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
-            // D5: honor the custom map-level legend title like the
+            // Honor the custom map-level legend title like the
             // on-screen legend; fall back to the localized default header.
             const legendHeaderText = state.legendTitle?.trim()
               ? state.legendTitle.trim()

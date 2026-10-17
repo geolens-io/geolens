@@ -73,7 +73,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
         // (empty column = non-functional config). That made the Switch appear
         // dead from the user's perspective. Bail out early instead so the Switch
         // stays off until columns are available — caller can show a toast or
-        // disabled state if needed (LB-DEBUG: audit).
+        // disabled state if needed.
         if (!firstColumn) {
           return;
         }

@@ -316,7 +316,7 @@ describe('Phase 1051 Plan 10 — RESP-03 duplicate close button (Sheet overlays)
 // Exhaustive SheetContent grep guard
 // ===========================================================================
 /**
- * enforcement gate.
+ * Enforcement gate for the single-close-button contract.
  *
  * If a future engineer adds a new `<SheetContent>` to MapBuilderPage.tsx
  * without `showCloseButton={false}`, this test fails. The negative-control
