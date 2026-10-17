@@ -127,6 +127,7 @@ jobs:
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: ".trivyignore.yaml"
 
       - name: Build arm64 image for scanning
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7
@@ -147,6 +148,7 @@ jobs:
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: ".trivyignore.yaml"
 
       # Push multi-arch images — only on a tag push, or a manual run with
       # push_images=true. Skipped on the scan-only dry run (both scans above

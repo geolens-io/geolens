@@ -1,4 +1,5 @@
-# Trivy ignore policy (enforcing config + image scans — see .github/workflows/dep-audit.yml).
+# Trivy ignore policy (enforcing config + image scans in .github/workflows/dep-audit.yml and the
+# release image scans in .github/workflows/publish.yml).
 # Scoped, justified suppressions only. Everything not listed here is still enforced.
 vulnerabilities:
   - id: CVE-2026-59873
@@ -22,3 +23,13 @@ misconfigurations:
       process. A Dockerfile-level `USER postgres` would break first-boot
       initialization; the running database is non-root. Accepted as
       postgres-family by design. DS-0002 stays enforced on all other Dockerfiles.
+secrets:
+  - id: gcp-service-account
+    paths:
+      - "/app/.venv/lib/python3.*/site-packages/anthropic/**"
+    statement: >-
+      False positive in the Anthropic SDK. Since anthropic 1.15 the docstrings
+      for the beta Managed Agents `execution_identity` field show the literal
+      example `{"type": "service_account"}`, which matches the GCP
+      service-account key rule. The files hold no key material. Scoped to this
+      rule inside the anthropic package; the rule stays enforced everywhere else.
