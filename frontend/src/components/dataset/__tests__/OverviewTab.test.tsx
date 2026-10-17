@@ -147,6 +147,29 @@ describe('OverviewTab Table Name row', () => {
     if (shown) expect(screen.getByText(String(count))).toBeInTheDocument();
   });
 
+  it('shows N/A for a mosaic whose size is withheld', () => {
+    renderOverview(
+      makeDataset({
+        record_type: 'vrt_dataset',
+        raster: { vrt_type: 'mosaic', width: null, height: null } as DatasetResponse['raster'],
+      }),
+    );
+
+    expect(screen.queryByText(/ x .* px$/)).not.toBeInTheDocument();
+    expect(screen.getByText('Dimensions').nextElementSibling).toHaveTextContent('N/A');
+  });
+
+  it('shows the size of a mosaic the reader can see in full', () => {
+    renderOverview(
+      makeDataset({
+        record_type: 'vrt_dataset',
+        raster: { vrt_type: 'mosaic', width: 1100, height: 100 } as DatasetResponse['raster'],
+      }),
+    );
+
+    expect(screen.getByText('1100 x 100 px')).toBeInTheDocument();
+  });
+
   it('hides the row for a 3D Tiles dataset', () => {
     renderOverview(makeDataset({ record_type: 'tiles3d_dataset', table_name: 'tiles3d_a1b2c3' }));
 

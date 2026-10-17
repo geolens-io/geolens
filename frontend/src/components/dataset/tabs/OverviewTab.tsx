@@ -488,7 +488,9 @@ export function OverviewTab({
                     {t('overview.dimensions', { defaultValue: 'Dimensions' })}
                   </span>
                   <p className="font-medium">
-                    {dataset.raster.width} x {dataset.raster.height} px
+                    {dataset.raster.width != null && dataset.raster.height != null
+                      ? `${dataset.raster.width} x ${dataset.raster.height} px`
+                      : notAvailableLabel}
                   </p>
                 </div>
               </div>
