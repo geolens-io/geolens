@@ -252,7 +252,7 @@ To load the demo's maps and datasets (public open data) into your install, run t
 Use your own admin username if you changed it.
 
 ```sh
-pip install httpx
+pip install httpx                                     # the seed script needs Python 3.10+
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
   python scripts/seed-showcase.py --username admin
 ```
