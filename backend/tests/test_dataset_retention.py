@@ -614,6 +614,43 @@ class TestRun:
             await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{child}"))
             await test_db_session.commit()
 
+    async def test_rows_without_a_gid_are_pruned_too(
+        self, seed, test_db_session, monkeypatch
+    ):
+        old = NOW - timedelta(days=90)
+        dataset = await self._registered_table_without_a_gid_key(
+            seed, test_db_session, []
+        )
+        table = dataset.table_name
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{table} ALTER COLUMN gid DROP NOT NULL")
+        )
+        for gid, name, seen_at in (
+            (None, "old_a", old),
+            (None, "old_b", old),
+            (None, "recent_null", NOW),
+            (5, "old_5", old),
+            (6, "recent_6", NOW),
+        ):
+            await self._insert_with_gid(test_db_session, table, gid, name, seen_at)
+        await test_db_session.commit()
+        statements: list[int] = []
+        real_delete = retention._delete_batch
+
+        async def counted(session, window, after, limit):
+            gids = await real_delete(session, window, after, limit)
+            statements.append(len(gids))
+            return gids
+
+        monkeypatch.setattr(retention, "_delete_batch", counted)
+
+        assert await retention.prune_expired_rows(now=NOW, batch_rows=2) == {
+            dataset.id: 3
+        }
+
+        assert statements == [2, 1]
+        assert await _names(test_db_session, dataset) == {"recent_null", "recent_6"}
+
     async def test_a_batch_of_shared_gids_stays_within_its_limit(
         self, seed, test_db_session, monkeypatch
     ):
@@ -638,6 +675,33 @@ class TestRun:
         assert statements == [5, 5, 2]
         assert pruned == {dataset.id: 12}
         assert await _names(test_db_session, dataset) == set()
+
+    async def test_column_info_reports_a_domain_column_by_its_base_type(
+        self, seed, test_db_session
+    ):
+        """The card offers columns by their column_info type; a domain's is its base."""
+        from app.platform.extensions import get_catalog_port
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, rows=[])
+        domain = f"data.ret_{uuid.uuid4().hex[:8]}"
+        await test_db_session.execute(text(f"CREATE DOMAIN {domain} AS timestamptz"))
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{dataset.table_name} "
+                f"ALTER COLUMN seen_at TYPE {domain}"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            columns = await get_catalog_port().get_column_info(
+                test_db_session, dataset.table_name
+            )
+            types = {column["name"]: column["type"] for column in columns}
+            assert types["seen_at"] == "timestamp with time zone"
+        finally:
+            await test_db_session.execute(text(f"DROP DOMAIN {domain} CASCADE"))
+            await test_db_session.commit()
 
     async def test_a_column_typed_by_a_domain_is_pruned_by_its_base_type(
         self, seed, test_db_session

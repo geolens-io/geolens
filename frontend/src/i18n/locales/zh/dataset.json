@@ -1261,6 +1261,7 @@
     "statusOn_many": "按 {{column}} 保留最近 {{count}} 天的行。",
     "statusOff": "已关闭。保留所有行。",
     "noTemporalColumns": "此数据集没有日期或时间戳列，因此无法使用保留期限。",
+    "notFeatureDataset": "此数据集已不再包含几何数据，因此保留期限不会运行。请将其关闭以清除此设置。",
     "columnLabel": "日期列",
     "columnPlaceholder": "选择列",
     "daysLabel": "保留天数",

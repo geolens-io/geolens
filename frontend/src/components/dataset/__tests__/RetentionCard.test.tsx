@@ -41,11 +41,15 @@ describe('RetentionCard', () => {
     expect(screen.queryByText('Retention')).not.toBeInTheDocument();
     unmount();
 
-    const raster = render(<RetentionCard dataset={feed({ record_type: 'raster_dataset' })} canEdit />);
+    const raster = render(
+      <RetentionCard dataset={feed({ record_type: 'raster_dataset', retention: null })} canEdit />,
+    );
     expect(screen.queryByText('Retention')).not.toBeInTheDocument();
     raster.unmount();
 
-    const noGeometry = render(<RetentionCard dataset={feed({ record_type: 'table', geometry_type: null })} canEdit />);
+    const noGeometry = render(
+      <RetentionCard dataset={feed({ record_type: 'table', geometry_type: null, retention: null })} canEdit />,
+    );
     expect(screen.queryByText('Retention')).not.toBeInTheDocument();
     noGeometry.unmount();
 
@@ -101,6 +105,19 @@ describe('RetentionCard', () => {
 
     expect(screen.getByText(/no date or timestamp column/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Turn off for a setting left on a dataset that lost its geometry', async () => {
+    const user = userEvent.setup();
+    vi.mocked(setDatasetRetention).mockResolvedValue({ retention: null, rows_past_cutoff: null, cutoff: null });
+    render(<RetentionCard dataset={feed({ record_type: 'table', geometry_type: null })} canEdit />);
+
+    expect(screen.getByText(/no longer has geometry/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Days to keep')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Turn off' }));
+
+    await waitFor(() => expect(setDatasetRetention).toHaveBeenCalledWith('ds-1', null, { dryRun: undefined }));
   });
 
   it('still offers Turn off when the retention column is gone', async () => {

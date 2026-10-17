@@ -1261,6 +1261,7 @@
     "statusOn_many": "Zeilen der letzten {{count}} Tage werden behalten, gemessen an {{column}}.",
     "statusOff": "Aus. Alle Zeilen bleiben erhalten.",
     "noTemporalColumns": "Dieser Datensatz hat keine Datums- oder Zeitstempelspalte, daher ist die Aufbewahrung nicht verfügbar.",
+    "notFeatureDataset": "Dieser Datensatz hat keine Geometrie mehr, daher läuft die Aufbewahrung nicht. Schalten Sie sie aus, um die Einstellung zu entfernen.",
     "columnLabel": "Datumsspalte",
     "columnPlaceholder": "Spalte wählen",
     "daysLabel": "Aufzubewahrende Tage",

@@ -1261,6 +1261,7 @@
     "statusOn_many": "Keeping the last {{count}} days of rows, judged by {{column}}.",
     "statusOff": "Off. Every row is kept.",
     "noTemporalColumns": "This dataset has no date or timestamp column, so retention is not available.",
+    "notFeatureDataset": "This dataset no longer has geometry, so retention does not run. Turn it off to clear the setting.",
     "columnLabel": "Date column",
     "columnPlaceholder": "Choose a column",
     "daysLabel": "Days to keep",

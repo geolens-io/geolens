@@ -73,7 +73,9 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
 
   const isFeatureDataset =
     FEATURE_RECORD_TYPES.has(dataset.record_type ?? 'vector_dataset') && dataset.geometry_type != null;
-  if (!canEdit || !isFeatureDataset) return null;
+  // A setting left on a dataset that no longer qualifies still needs Turn off.
+  if (!canEdit || (!isFeatureDataset && !current)) return null;
+  const pickable = isFeatureDataset ? temporalColumns : [];
 
   const days = parseDays(daysInput);
   const canSave = column !== '' && days !== null && !mutation.isPending;
@@ -123,7 +125,9 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
             ? t('retention.statusOn', { count: current.days, column: current.column })
             : t('retention.statusOff')}
         </p>
-        {temporalColumns.length === 0 ? (
+        {!isFeatureDataset ? (
+          <p className="text-sm text-muted-foreground">{t('retention.notFeatureDataset')}</p>
+        ) : pickable.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('retention.noTemporalColumns')}</p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -135,7 +139,7 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {temporalColumns.map((option) => (
+                    {pickable.map((option) => (
                       <SelectItem key={option.name} value={option.name}>{option.name}</SelectItem>
                     ))}
                   </SelectGroup>
@@ -161,9 +165,9 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
             </div>
           </div>
         )}
-        {(temporalColumns.length > 0 || current) && (
+        {(pickable.length > 0 || current) && (
           <div className="flex gap-2">
-            {temporalColumns.length > 0 && (
+            {pickable.length > 0 && (
               <Button size="sm" onClick={handleSave} disabled={!canSave}>
                 {mutation.isPending ? t('retention.saving') : t('retention.save')}
               </Button>

@@ -1261,6 +1261,7 @@
     "statusOn_many": "Conservation des lignes des {{count}} derniers jours, selon {{column}}.",
     "statusOff": "Désactivée. Toutes les lignes sont conservées.",
     "noTemporalColumns": "Ce jeu de données n’a aucune colonne de date ou d’horodatage, la rétention n’est donc pas disponible.",
+    "notFeatureDataset": "Ce jeu de données n’a plus de géométrie, la rétention ne s’exécute donc pas. Désactivez-la pour effacer le réglage.",
     "columnLabel": "Colonne de date",
     "columnPlaceholder": "Choisir une colonne",
     "daysLabel": "Jours à conserver",

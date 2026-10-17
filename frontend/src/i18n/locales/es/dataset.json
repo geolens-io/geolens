@@ -1261,6 +1261,7 @@
     "statusOn_many": "Se conservan los últimos {{count}} días de filas, según {{column}}.",
     "statusOff": "Desactivada. Se conservan todas las filas.",
     "noTemporalColumns": "Este conjunto de datos no tiene ninguna columna de fecha o marca de tiempo, por lo que la retención no está disponible.",
+    "notFeatureDataset": "Este conjunto de datos ya no tiene geometría, así que la retención no se ejecuta. Desactívala para borrar la configuración.",
     "columnLabel": "Columna de fecha",
     "columnPlaceholder": "Elige una columna",
     "daysLabel": "Días que se conservan",

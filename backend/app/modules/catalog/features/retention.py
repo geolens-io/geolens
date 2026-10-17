@@ -234,8 +234,9 @@ async def _delete_batch(
     # unique. Locked rows cannot move before the delete.
     sql = (
         f"WITH batch AS MATERIALIZED (SELECT tableoid, ctid FROM {quoted} "
-        f"WHERE {column} < :cutoff AND gid >= CAST(:after AS bigint) "
-        "ORDER BY gid LIMIT :limit FOR UPDATE SKIP LOCKED) "
+        f"WHERE {column} < :cutoff "
+        "AND (gid >= CAST(:after AS bigint) OR gid IS NULL) "
+        "ORDER BY gid NULLS FIRST LIMIT :limit FOR UPDATE SKIP LOCKED) "
         f"DELETE FROM {quoted} WHERE (tableoid, ctid) IN "
         f"(SELECT tableoid, ctid FROM batch) AND {column} < :cutoff RETURNING gid"
     )
@@ -243,8 +244,9 @@ async def _delete_batch(
     async with worker_lock_budget(session):
         # codeql[py/sql-injection] column matched _PLAIN_COLUMN, exists in the table and is quoted by _safe_column_ref; table via quote_table; values are bound
         result = await session.execute(text(sql), params)
-    # One gid per deleted row, repeats included. The caller pages from the
-    # max inclusively, so expired rows sharing it are picked up next batch.
+    # One gid per deleted row, repeats and NULLs included. The caller pages
+    # from the largest gid inclusively, so expired rows sharing it are picked
+    # up next batch; rows without a gid come first in every batch.
     return list(result.scalars())
 
 
@@ -388,7 +390,7 @@ async def prune_dataset(
                 break
             if gids:
                 deleted += len(gids)
-                after = max(gids)
+                after = max((gid for gid in gids if gid is not None), default=after)
             if len(gids) < batch_rows:
                 break
     finally:
