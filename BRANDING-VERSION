@@ -2,3 +2,5 @@ Brand assets synced from geolens-io/branding v0.2.0
 Sync date: 2026-07-01
 Source: geolens-io/branding @ tag v0.2.0
 Managed mapping: frontend/public/og-image.png = social/geolens-og-card.png (unmanaged before v0.2.0)
+Managed mapping: .github/assets/geolens-emblem.svg = logos/reticle/geolens-emblem.svg
+Managed mapping: .github/assets/geolens-emblem-dark.svg = logos/reticle/geolens-emblem-dark.svg

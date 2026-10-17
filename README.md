@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="frontend/public/app-icon-dark.png" alt="GeoLens logo: a magnifying glass over a globe with crosshair ticks" width="96">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-emblem-dark.svg">
+    <img src=".github/assets/geolens-emblem.svg" alt="GeoLens logo: a magnifying glass over a globe with crosshair ticks" width="96">
+  </picture>
 </p>
 
 <h1 align="center">GeoLens</h1>

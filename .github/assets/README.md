@@ -7,7 +7,7 @@ tooling* out of this public repo (see "Where the tooling lives" below).
 
 ## Current set
 
-`README.md` shows 15 images: the hero, a ten-tile grid under "A closer look", and
+Besides the logo, `README.md` shows 15 images: the hero, a ten-tile grid under "A closer look", and
 full-width shots for provenance, QGIS and Ask AI. All are 1600×900 except the
 provenance crop. The browser shots come in light and dark pairs wired through
 `<picture>` + `prefers-color-scheme`, so GitHub serves the variant that matches
@@ -30,6 +30,10 @@ and imagery (smaller).
 | `geolens-provenance{,-dark}.png` | Provenance | Source tab of a live service import: owned copy, refresh and check times, Healthy, Fresh, No drift | A dataset imported from the USGS Recent Earthquakes ArcGIS service, update frequency set to daily, after one refresh and one source check |
 | `geolens-qgis.png` | Use the data | QGIS 4 reading the demo over OGC API Features, with the connection open in the Browser panel | `https://demo.getgeolens.com/api/` with Recent Earthquakes, Significant Volcanic Eruptions, Tectonic Plate Boundaries and World Countries loaded |
 | `geolens-ask-ai{,-dark}.png` | AI | Dataset Q&A with a count table, the stated assumption and Open in builder | **Major Hurricane Tracks** dataset, Ask AI: `How many of these hurricanes made landfall?` |
+
+The logo is the reticle emblem from `geolens-io/branding`, as light and dark SVGs
+(`geolens-emblem{,-dark}.svg`). `BRANDING-VERSION` records the release they came
+from; update them by syncing a newer release rather than editing them here.
 
 The other images here are not in `README.md`. The translated READMEs, announcement
 posts and older release notes link to them, so they stay until nothing does.
