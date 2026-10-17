@@ -73,7 +73,7 @@ _WIDE_VOCABULARY_TOKEN = "aaaa+bbbb/cccc="
 _TOKEN_MAX_LENGTH = 1000
 
 # The rule is printable and whitespace-free, so these are what it refuses.
-# CR and LF are the header-smuggling primitive SEC-021 named.
+# CR and LF are the header-smuggling primitive named.
 _REFUSED_TOKENS = {
     "carriage return": "tok\rX-Injected: yes",
     "line feed": "tok\nX-Injected: yes",

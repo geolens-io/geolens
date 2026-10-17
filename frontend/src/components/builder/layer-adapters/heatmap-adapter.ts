@@ -2,14 +2,14 @@ import type { StyleConfig } from '@/types/api';
 import type { AdapterLayerInput, LayerAdapter, LayerDrawing } from './types';
 import { filterSpec, getBuilderStyleConfig, sourceLayerSpec } from './shared';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
-// builder-audit #338 ADAPT-05: the radius/weight/intensity/opacity defaults come from the
+// The radius/weight/intensity/opacity defaults come from the
 // single builder-defaults source of truth (radius 30 / weight 1) instead of the magic
 // literals that previously diverged from renderAs's heatmap default (radius 18 / weight 0.5).
 import { DEFAULT_HEATMAP_PAINT as HEATMAP_PAINT_DEFAULTS } from './builder-defaults';
 import { getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
 
-/** builder-audit #338 ADAPT-11: typed coercion so an out-of-range / string / expression
+/** Typed coercion so an out-of-range / string / expression
  *  heatmap-opacity cannot flow through a bare `as number` cast into NaN math
  *  (storedHeatmapOpacity * masterOpacity). Mirrors fill-adapter's finiteNumber. */
 function finiteNumber(value: unknown): number | null {

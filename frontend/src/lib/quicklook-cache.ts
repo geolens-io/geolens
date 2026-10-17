@@ -1,5 +1,5 @@
 /**
- * SP-07: session-scoped negative cache for quicklook fetch() 404s.
+ * Session-scoped negative cache for quicklook fetch() 404s.
  *
  * Datasets whose quicklook file is missing on disk return 404 from
  * GET /api/datasets/<id>/quicklook even with a valid JWT (the backend sets

@@ -202,7 +202,7 @@ describe('logUnhandledMapError during a session renewal (fix #907)', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  // codex on #907: Titiler and its object store pass a genuine 403 through, and
+  // Titiler and its object store pass a genuine 403 through, and
   // a fresh JWT cannot cure that. Suppressing it would leave the preview blank
   // with no overlay once the window closed.
   it('still logs a raster 403 during a renewal', () => {

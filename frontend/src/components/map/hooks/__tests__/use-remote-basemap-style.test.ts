@@ -1,7 +1,7 @@
 // chore(#835): shared remote-basemap-style fetch path for BuilderMap and
 // ViewerMap. Pins the parameterized divergence: the viewer falls back to the
 // raw style URL on fetch failure; the builder keeps the placeholder and
-// surfaces a notice via onFetchError (Phase 1051 WR-06).
+// surfaces a notice via onFetchError.
 import { renderHook, waitFor } from '@testing-library/react';
 import type { RefObject } from 'react';
 import type { Map as MaplibreMap, StyleSpecification } from 'maplibre-gl';

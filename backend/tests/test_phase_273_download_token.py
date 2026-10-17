@@ -1,8 +1,8 @@
-"""SEC-04: Download endpoint requires a download-scoped JWT on ?token=.
+"""Download endpoint requires a download-scoped JWT on ?token=.
 
-Pins the v13.13 closure of M-66. The session JWT continues to work via the
-Authorization header — only the URL-borne ?token= lane is restricted to
-typ='download' tokens with explicit dataset scope and ≤2-minute TTL.
+The session JWT continues to work via the Authorization header — only the
+URL-borne ?token= lane is restricted to typ='download' tokens with explicit
+dataset scope and ≤2-minute TTL.
 """
 
 import uuid

@@ -1,6 +1,6 @@
-"""Tests for tenant session GUC wiring (ISO-01).
+"""Tests for tenant session GUC wiring.
 
-Plan 1208-01: ContextVar + after_begin engine hook + dual-entrypoint wiring.
+ContextVar + after_begin engine hook + dual-entrypoint wiring.
 
 Test coverage:
   A — current_tenant_var exists with default None; exported from app.core.db
@@ -225,7 +225,7 @@ async def test_guc_never_set_in_single_tenant(fresh_engine):
 async def test_guc_refuses_a_tenant_id_that_is_not_a_uuid(fresh_engine):
     """A value with a single quote must not raise, and must not reach the GUC.
 
-    fix(#1778 codex r5): the hook issues ``SET LOCAL app.current_tenant = '...'``
+    fix(#1778): the hook issues ``SET LOCAL app.current_tenant = '...'``
     rather than ``SELECT set_config(..., true)``, because the SELECT form takes
     the transaction's first snapshot and locks out SET TRANSACTION ISOLATION
     LEVEL / DEFERRABLE. ``SET`` accepts no bind parameter, so the guard moved
@@ -310,7 +310,7 @@ class TestMiddlewareBridge:
     def test_middleware_resolves_slug_and_bridges_uuid_in_multi_tenant(self):
         """multi_tenant: the slug signal is resolved to a UUID, which is bridged.
 
-        Regression for the Gap-A Codex finding (PR #256): the middleware must
+        Regression for PR #256: the middleware must
         hand current_tenant_var a tenant UUID, not the raw subdomain slug — the
         RLS GUC casts ::uuid. We patch the resolver to keep this a fast unit
         test and assert (a) the extracted slug reaches the resolver and (b) the

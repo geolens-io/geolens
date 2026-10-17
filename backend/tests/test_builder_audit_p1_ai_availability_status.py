@@ -1,11 +1,11 @@
-"""builder-audit #338 P1-11 + P1-12: AI availability signal for non-admin editors,
+"""AI availability signal for non-admin editors,
 and admin AI status built from the SELECTED LLM provider.
 
-P1-11: a ``use_ai_chat`` editor can read ``GET /ai/availability/`` (a
+A ``use_ai_chat`` editor can read ``GET /ai/availability/`` (a
 public-safe boolean) while a viewer cannot, and missing provider keys yield a
 graceful ``available=false`` rather than a 403/503.
 
-P1-12: admin status ``configured`` reflects the SELECTED ``LLM_PROVIDER`` key,
+Admin status ``configured`` reflects the SELECTED ``LLM_PROVIDER`` key,
 not "any key exists", so admin status and chat readiness agree for crossed
 provider/key combinations.
 """
@@ -21,7 +21,7 @@ from app.processing.ai import router as ai_router
 
 
 # ---------------------------------------------------------------------------
-# P1-12: admin AI status keyed off the SELECTED provider
+# Admin AI status keyed off the SELECTED provider
 # ---------------------------------------------------------------------------
 
 
@@ -66,7 +66,7 @@ def test_status_openai_selected_but_only_anthropic_key_unconfigured(monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# P1-12: admin status and chat readiness AGREE for crossed combos
+# Admin status and chat readiness AGREE for crossed combos
 # ---------------------------------------------------------------------------
 
 
@@ -136,7 +136,7 @@ async def test_availability_false_when_ai_disabled(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# P1-11: /ai/availability/ permission boundary (editor allowed, viewer denied)
+# /ai/availability/ permission boundary (editor allowed, viewer denied)
 # ---------------------------------------------------------------------------
 
 

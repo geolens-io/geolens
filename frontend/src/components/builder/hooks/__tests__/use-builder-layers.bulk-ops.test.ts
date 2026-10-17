@@ -1,12 +1,12 @@
 /**
- * Phase 1041 — Bulk operation handler tests (POL-09).
- * Phase 1047-04 — Extended with bulkDeleteLayersApi tests (PERF-03).
+ * Bulk operation handler tests.
+ * Extended with bulkDeleteLayersApi tests.
  *
  * Tests handleBulkVisibility, handleBulkOpacity, handleBulkGroup, handleBulkUngroup,
  * and handleBulkDelete (including rollback on failure) in use-builder-layers.ts.
  *
  * Worker-safety:
- *   - No file-level vi.mock('@dnd-kit/core', ...) — this is the POL-20 anti-pattern
+ *   - No file-level vi.mock('@dnd-kit/core', ...) — this is the anti-pattern
  *     that caused worker exits in use-builder-layers.add-dataset.test.ts.
  *   - We use vi.mock with vi.importActual for @/api/maps (single-export override pattern).
  *   - Non-empty layers fixture passed to the hook (avoids the empty-array microtask loop).
@@ -119,7 +119,7 @@ function renderBuilderLayers(
   // Double-cast the mock mapRef to satisfy the MaplibreMap RefObject type
   const typedRef = mapRef as unknown as React.RefObject<import('maplibre-gl').Map | null>;
 
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff
+  // 6th positional param bridging into useBuilderSave's Save-diff
   // baseline — a plain no-op ref is sufficient for tests that don't assert on it.
   const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
 
@@ -142,7 +142,7 @@ async function waitForInit() {
 }
 
 // ---------------------------------------------------------------------------
-// handleBulkVisibility (POL-09)
+// handleBulkVisibility
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleBulkVisibility (POL-09)', () => {
@@ -230,7 +230,7 @@ describe('useBuilderLayers — handleBulkVisibility (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// STATE-01 (builder-audit #338 20260626) — bulk visibility must not drift from the
+// Bulk visibility must not drift from the
 // single-layer side-effect: it enumerates the colorrelief companion and honors
 // the strokeDisabled gate on the fill outline.
 // ---------------------------------------------------------------------------
@@ -325,7 +325,7 @@ describe('useBuilderLayers — toggle_group_visibility (P1-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkOpacity (POL-09)
+// handleBulkOpacity
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleBulkOpacity (POL-09)', () => {
@@ -405,7 +405,7 @@ describe('useBuilderLayers — handleBulkOpacity (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkGroup (POL-09)
+// handleBulkGroup
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
@@ -440,7 +440,7 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(updatedC?.parent_group_id).toBe(groupId);
   });
 
-  // fix(#525 B-040): a non-contiguous selection must compact the grouped block
+  // A non-contiguous selection must compact the grouped block
   // adjacent to the group row. Stamping parent_group_id in place stranded any
   // non-selected layer between selected ones below the group — stack order and
   // map draw order diverged for it, and it persisted through save/reload.
@@ -468,8 +468,8 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(updated.find((l) => l.id === 'b')?.parent_group_id ?? null).toBeNull();
   });
 
-  // fix(#392): a single loose layer selection
-  // returns false, toasts the "need two" reason, and does not mutate localLayers. (audit B-004d/LM-04)
+  // A single loose layer selection
+  // returns false, toasts the "need two" reason, and does not mutate localLayers.
   it('Test A: single loose layer returns false, toasts bulkGroupNeedTwo, and does not mutate localLayers', async () => {
     const infoSpy = vi.spyOn(toast, 'info');
     const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset' });
@@ -509,7 +509,7 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(result.current.localLayers.length).toBe(before);
   });
 
-  // fix(#585): mixed vector + raster selection groups successfully — the
+  // Mixed vector + raster selection groups successfully — the
   // vector-only restriction disagreed with StackRow's "Add to group…" and
   // drag-and-drop membership, which have always accepted raster/DEM rows.
   it('Test 11: mixed selection including a raster layer creates a group containing both', async () => {
@@ -531,8 +531,8 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(updated.find((l) => l.id === 'r')?.parent_group_id).toBe(groupRow!.id);
   });
 
-  // fix(#392): a group row in the selection must toast the
-  // GROUP-ROW-specific reason, not the generic "already grouped" message. (audit WR-01)
+  // A group row in the selection must toast the
+  // GROUP-ROW-specific reason, not the generic "already grouped" message.
   it('Test B (ineligible — group:folder row in selection): returns false, toasts bulkGroupSkippedGroupRow', async () => {
     const infoSpy = vi.spyOn(toast, 'info');
     const groupRow = makeMockLayer({ id: 'g1', sort_order: 0, layer_type: 'group:folder' });
@@ -555,7 +555,7 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkUngroup (POL-09)
+// handleBulkUngroup
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleBulkUngroup (POL-09)', () => {
@@ -598,7 +598,7 @@ describe('useBuilderLayers — handleBulkUngroup (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkDelete (POL-09) — updated for Phase 1047-04 batched API
+// handleBulkDelete — updated for batched API
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
@@ -617,7 +617,7 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
       ok = await result.current.handleBulkDelete(new Set(['a', 'b', 'c']));
     });
 
-    // Phase 1047-04: exactly 1 batched call instead of N individual DELETEs
+    // Exactly 1 batched call instead of N individual DELETEs
     expect(mockedBulk).toHaveBeenCalledTimes(1);
     expect(mockedBulk).toHaveBeenCalledWith(MAP_ID, expect.arrayContaining(['a', 'b', 'c']));
     expect(ok).toBe(true);
@@ -745,7 +745,7 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkDelete — batched endpoint (Phase 1047-04 PERF-03)
+// handleBulkDelete — batched endpoint
 // These tests cover the new bulkDeleteLayersApi path that replaces the
 // Promise.allSettled(removeLayerFromMapApi × N) pattern.
 // ---------------------------------------------------------------------------
@@ -889,12 +889,12 @@ describe('useBuilderLayers — handleBulkDelete batched (PERF-03)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkDelete — fix(#805) survivor position + fix(#767) empty-group prune
-// + fix(#771) zero-deletable feedback
+// handleBulkDelete — survivor position + empty-group prune
+// + zero-deletable feedback
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleBulkDelete survivor position and group rows', () => {
-  // fix(#805): the old partial-failure path merged the already-renumbered
+  // The old partial-failure path merged the already-renumbered
   // optimistic array with failed rows still carrying their ORIGINAL sort_order,
   // interleaving two numbering schemes. With [a,b,c,d,e], deleting {a,b} where
   // only 'a' succeeds used to restore 'b' AFTER c and d — and that wrong order

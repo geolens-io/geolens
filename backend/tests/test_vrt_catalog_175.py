@@ -1,11 +1,11 @@
-"""Tests for VRT catalog API extension (Phase 175-02).
+"""Tests for VRT catalog API extension.
 
 Covers:
 - TestRasterMetadataVrtFields: _build_raster_metadata returns vrt_type, source_count, resolution_strategy for VRT assets
 - TestDatasetToResponseVrt: dataset_to_response populates raster sub-object for vrt_dataset record_type
 - TestQuicklookVrt: quicklook guard accepts vrt_dataset (200), rejects vector_dataset (400)
 - TestVrtSourcesEndpoint: list_vrt_sources returns ordered source list; 404 for non-VRT/non-existent datasets
-- TestTileTokenVrt: raster_auth_check accepts vrt_dataset record_type (CAT-04 regression)
+- TestTileTokenVrt: raster_auth_check accepts vrt_dataset record_type (regression)
 - TestSearchEnrichmentVrt: search enrichment includes vrt_dataset in band_count batch fetch
 
 All tests are pure unit tests -- no DB, no real files, no network.
@@ -81,6 +81,8 @@ def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMo
     ds.source_health = None
     ds.source_health_detail = None
     ds.schema_drift_status = None
+    ds.retention_column = None
+    ds.retention_days = None
     # fix(#1372): _build_raster_metadata reads this into the tile URL's `v=`.
     ds.tile_cache_version = 1
     # fix(#2007): and this into its `pv=`.
@@ -422,7 +424,7 @@ class TestVrtSourcesEndpoint:
 
     @pytest.fixture(autouse=True)
     def _stub_vrt_member_authz(self):
-        """SEC-E (Phase 1172): list_vrt_sources now drops members the caller
+        """list_vrt_sources now drops members the caller
         cannot access via get_permission_extension().can_access_dataset(per
         member). These unit tests mock the SQL rows and ``check_dataset_access``
         (which they set to return None), then assert the FULL returned list, so

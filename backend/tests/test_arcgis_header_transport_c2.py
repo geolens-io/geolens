@@ -1,4 +1,4 @@
-"""The ArcGIS token travels as an X-Esri-Authorization header (lane C2).
+"""The ArcGIS token travels as an X-Esri-Authorization header.
 
 Measured live on 2026-09-04 before any of this was written, against
 ``Cons_Map_WFL1/FeatureServer/0`` on services6.arcgis.com with a token minted
@@ -13,7 +13,7 @@ a wrong or absent ``Referer``           no difference on any of the above
 ======================================  ==================================
 
 Hosted ArcGIS Online takes either name. ``X-Esri-Authorization`` is what is
-sent (fix(#1840 codex round 1)), because Esri documents that name precisely
+sent (fix(#1840)), because Esri documents that name precisely
 for the case AGOL cannot show: on ArcGIS Enterprise behind a Web Adaptor, or
 with web-tier authentication (IWA/PKI in IIS), the front end consumes the
 standard ``Authorization`` header and answers 401/403 before ArcGIS produces
@@ -282,7 +282,7 @@ class TestEveryReadSendsTheHeaderAndNoQueryToken:
             # feat(C2) sends no Referer: measured, and not needed even for a
             # referer-bound token.
             assert "referer" not in {name.lower() for name in request.headers}
-            # fix(#1840 codex round 1): the Esri-specific name, NOT the
+            # The Esri-specific name, NOT the
             # standard one -- a web tier in front of ArcGIS Enterprise
             # consumes `Authorization` and refuses before ArcGIS runs.
             assert "authorization" not in {name.lower() for name in request.headers}
@@ -475,7 +475,7 @@ class TestThePreTenFiveOneFallback:
 
 
 class TestTheWebTierRefusalFallback:
-    """fix(#1840 codex round 1): the case AGOL cannot demonstrate.
+    """The case AGOL cannot demonstrate.
 
     On ArcGIS Enterprise behind a Web Adaptor, or with web-tier authentication
     (IWA or PKI in IIS), the front end consumes the credential header and
@@ -772,13 +772,8 @@ class TestTheTokenCannotReachTheHttpxRequestLog:
         assert any("token=" in line for line in lines)
 
 
-# ---------------------------------------------------------------------------
-# Audit round 1
-# ---------------------------------------------------------------------------
-
-
 class TestARefusedRedirectHopStillReachesTheDoor:
-    """fix(#1840 audit round 1).
+    """A malformed body must not be read as an SSRF refusal.
 
     ``SSRFError`` subclasses ``ValueError`` (``platform/security.py``), and the
     first cut of this lane folded ``json.loads`` into the request's own ``try``
@@ -816,10 +811,10 @@ class TestARefusedRedirectHopStillReachesTheDoor:
 
 
 class TestTheQueryFallbackRegistersItsSecret:
-    """fix(#1840 audit round 1).
+    """The header transport is scrubbed from logs.
 
     ``build_credential_header`` registers the line it composes, so the header
-    transport is covered by the exact-value scrub #1770 round 43 introduced.
+    transport is covered by the exact-value scrub #1770 introduced.
     The query fallback composes no header and so registered nothing -- on
     exactly the branch that puts the token in a URL, and where this module
     logs the server's own ``message`` at WARNING (``ArcGIS error response:
@@ -837,7 +832,7 @@ class TestTheQueryFallbackRegistersItsSecret:
         assert _TOKEN not in scrubbed
 
     def test_the_unusable_value_fallback_does_not_register(self) -> None:
-        """fix(#1840 audit round 2): a value that could not have been a header
+        """A value that could not have been a header
         credential is not registered either. It still reaches the origin in
         the query; only the log-scrub registration is gated."""
         reset_registered_credential_secrets()
@@ -847,7 +842,7 @@ class TestTheQueryFallbackRegistersItsSecret:
 
     @pytest.mark.parametrize("short", ["json", "abc", "a", "tok"])
     def test_a_short_token_is_not_registered(self, short: str) -> None:
-        """fix(#1840 audit round 2): exact-value scrubbing is a substring
+        """exact-value scrubbing is a substring
         replacement over every log line in the request's context, so a short
         value corrupts ordinary text instead of protecting a credential.
         ArcGIS is the one transport that never meets ``HEADER_TOKEN_CHARSET``
@@ -929,10 +924,10 @@ def test_the_depth_bomb_premise() -> None:
 
 
 class TestAJsonDepthBombIsACodedRefusalNotACrash:
-    """fix(#1858, backend audit 2026-09-04 P2-2).
+    """fix(#1858).
 
     ``_parsed_json`` in ``platform/service_endpoints.py`` was written for this
-    exact body in #1770 round 44; ``read_arcgis_json`` and its query-form
+    exact body in #1770; ``read_arcgis_json`` and its query-form
     fallback never adopted it. A balanced nesting 300,000 deep costs two bytes
     a level, so the document is ~600 KB: under ``MAX_DOCUMENT_BYTES`` by two
     orders of magnitude, and under ``MAX_DOCUMENT_TOKENS`` because

@@ -2,7 +2,7 @@
 // effects early-returned on !isStyleLoaded() with no idle retry, so on a cold
 // hard load — exactly how a share link opens — map.on('click') was never
 // attached and popups were inert for every geometry family. The fix mirrors
-// the BUG-037 idle-retry used by the layer-sync/visibility effects.
+// the idle-retry used by the layer-sync/visibility effects.
 import type { ReactNode } from 'react';
 import { render, waitFor } from '@/test/test-utils';
 import { ViewerMap } from '../ViewerMap';

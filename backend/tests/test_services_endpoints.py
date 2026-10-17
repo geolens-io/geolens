@@ -251,7 +251,7 @@ class TestProbeEndpoint:
     async def test_probe_mid_probe_redirect_ssrf_does_not_echo_the_host(
         self, client: AsyncClient, admin_auth_header: dict, mock_validate_ssrf
     ) -> None:
-        """fix(#1770 round 49 P3, `sources/router.py` mid-probe `SSRFError`).
+        """fix(#1770 P3, `sources/router.py` mid-probe `SSRFError`).
 
         `SSRFResolutionError` (`platform/security.py`) interpolates the raw,
         unresolved hostname into its own message -- every other `SSRFError`
@@ -341,7 +341,7 @@ class TestProbeEndpoint:
         mock_validate_ssrf,
         test_db_session,
     ) -> None:
-        """fix(#1858 audit P2-2, `adapters/ogcapi.py` `/collections` step).
+        """fix(#1858, `adapters/ogcapi.py` `/collections` step).
 
         That clause caught `SSRFError` and returned None, which is
         `probe_ogcapi` saying "not an OGC API service". The probe then tried
@@ -996,7 +996,7 @@ class TestPreviewEndpoint:
         mock_validate_ssrf,
         test_db_session,
     ):
-        """fix(#1858 audit P2-1, `sources/router.py` ArcGIS preview branch).
+        """fix(#1858, `sources/router.py` ArcGIS preview branch).
 
         `fetch_arcgis_layer_preview`'s metadata read has no local `except`, so
         an `SSRFError` from the redirect revalidation hook or the guard
@@ -1088,7 +1088,7 @@ class TestPreviewEndpoint:
         mock_validate_ssrf,
         test_db_session,
     ):
-        """fix(#1858, backend audit 2026-09-04 P2-2).
+        """fix(#1858).
 
         `read_arcgis_json` parsed the layer metadata document with a bare
         `json.loads`. A balanced nesting 300,000 deep is a ~600 KB body, so it
@@ -1135,8 +1135,7 @@ class TestPreviewEndpoint:
         """An embedded-layer ArcGIS URL (.../FeatureServer/0) with no explicit
         layer_id must persist the NORMALIZED base URL + effective layer id on
         the pending job, so the commit/ingest step targets the right layer
-        instead of rebuilding ".../FeatureServer/0/0/query" or a None layer
-        (Codex P2 regression).
+        instead of rebuilding ".../FeatureServer/0/0/query" or a None layer.
         """
         import uuid as _uuid
         from types import SimpleNamespace
@@ -1219,17 +1218,17 @@ class TestPreviewEndpoint:
 
         # Mock the OGC API collection metadata response with URI-form CRS84.
         #
-        # fix(#1770 round 44): `_fetch_ogcapi_collection_srid` reads through
-        # `bounded_probe_read` (round 43 P1), which calls `client.stream(...)`
+        # `_fetch_ogcapi_collection_srid` reads through
+        # `bounded_probe_read` (P1), which calls `client.stream(...)`
         # rather than `client.get(...)`. A bare `MagicMock` for the client and
-        # a `MagicMock` response (this test's shape before round 43) supports
+        # a `MagicMock` response (this test's earlier shape) supports
         # neither the async-context-manager protocol `.stream()` returns nor a
         # real streaming read, so this is now a real `httpx.AsyncClient` over
         # `httpx.MockTransport`, with the response body served from a
         # generator so `aiter_raw()` can actually stream it rather than
         # raising `StreamConsumed` on an already-read double (see
         # `_as_stream`'s docstring in `test_service_auth_transport_1746.py`
-        # for the same fix applied there in round 41).
+        # for the same fix applied there).
         collection_body = httpx.Response(
             200,
             json={
@@ -1712,7 +1711,7 @@ class TestDuplicateSourceDetection:
     ):
         """fix(#1286): a respelled origin_uri can no longer open the hole.
 
-        Reproduces the PR #1277 round-11 class of bug: a writer (e.g. a
+        Reproduces the PR #1277 class of bug: a writer (e.g. a
         refresh) rewrites ``origin_uri`` to a different spelling of the same
         origin — here a bare base URL instead of ``base_url/layer_id`` —
         while ``origin_ref`` still names the identical (service_type, url,

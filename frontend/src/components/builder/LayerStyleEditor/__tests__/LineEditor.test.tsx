@@ -198,7 +198,7 @@ describe('LineEditor', () => {
   });
 
 
-  // Phase 1136-02: line-cap / line-join Selects (EDITOR-LINE-01, EDITOR-LINE-02)
+  // Line-cap / line-join Selects
   it('renders a "Line ends" section heading after the dash pattern row', () => {
     render(<LineEditor {...makeProps(makeLineLayer(), {
       t: (key: string) => {

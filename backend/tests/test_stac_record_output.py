@@ -188,7 +188,7 @@ class TestStacAssetsRemoved:
 
 class TestBuildStacAssets:
     def test_build_stac_assets_local_returns_empty(self):
-        """GAP-031: local storage rows produce no href (no dead /assets/ proxy route)."""
+        """Local storage rows produce no href (no dead /assets/ proxy route)."""
         rows = [
             {
                 "key": "data",
@@ -206,7 +206,7 @@ class TestBuildStacAssets:
         )
 
     def test_build_stac_assets_local_minimal_returns_empty(self):
-        """GAP-031: local storage minimal rows also produce empty dict."""
+        """Local storage minimal rows also produce empty dict."""
         rows = [{"key": "raw", "href": "/storage/raw.dat"}]
         result = _build_stac_assets(rows, public_api_url="http://localhost:8080/api")
         assert result == {}, "GAP-031: local storage assets must be omitted"

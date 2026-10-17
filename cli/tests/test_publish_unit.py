@@ -1,8 +1,8 @@
-"""OCCLI-04: publish unit tests with mocked SDK.
+"""Publish unit tests with mocked SDK.
 
-Plan 04 Task 1 covers the publish.py module surface (MIME guesser,
+Covers the publish.py module surface (MIME guesser,
 multipart upload, CommitRequest builder, dataset URL construction, 409
-handler). Plan 04 Task 2 covers the publish command body wired into
+handler) and the publish command body wired into
 main.py and the rich.Progress UI.
 
 Hand-maintained — NOT regenerated.
@@ -20,7 +20,7 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Task 1 — publish.py module surface
+# publish.py module surface
 # ---------------------------------------------------------------------------
 
 
@@ -152,7 +152,7 @@ class TestBuildCommitRequest:
         from geolens_cli.publish import build_commit_request
 
         req = build_commit_request(title="cities", description="my dataset")
-        # Plan 04 Task 0 Q2: description→summary mapping (CommitRequest has
+        # description→summary mapping (CommitRequest has
         # `summary`, not `description`).
         assert req.summary == "my dataset"
 
@@ -245,7 +245,7 @@ class TestIsDuplicateCommitResponse:
 
 
 class TestUploadFile:
-    """upload_file uses the SDK-owned httpx client (OCCLI-06 invariant)."""
+    """upload_file uses the SDK-owned httpx client (invariant)."""
 
     def test_upload_file_calls_sdk_get_httpx_client(self, tmp_path: Path) -> None:
         from geolens_cli.publish import upload_file
@@ -337,7 +337,7 @@ class TestUploadFile:
 
 
 # ---------------------------------------------------------------------------
-# Task 2 — geolens publish CLI command body
+# Geolens publish CLI command body
 # ---------------------------------------------------------------------------
 
 
@@ -370,7 +370,7 @@ def patch_sdk_for_publish(monkeypatch):
     """
 
     def _install(*, upload, preview, commit, job_status=None):
-        # BUG-034: publish now invokes upload_file via call_sdk with keyword
+        # Publish now invokes upload_file via call_sdk with keyword
         # args (client=, path=); accept both positional and keyword shapes.
         monkeypatch.setattr("geolens_cli.publish.upload_file", lambda *a, **k: upload)
         monkeypatch.setattr(
@@ -508,7 +508,7 @@ class TestPublishCli:
         instance = "https://x.example.com"
         _seed_login(instance, mock_keyring)
 
-        # Backend actually returns 400 for already-processed (per Task 0 Q3)
+        # Backend actually returns 400 for already-processed
         # but we exercise the 409 branch defensively here.
         commit_dup = MagicMock()
         commit_dup.status_code = HTTPStatus.CONFLICT
@@ -538,7 +538,7 @@ class TestPublishCli:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """Task 0 Q3: backend actually emits 400 (not 409) for duplicate commits."""
+        """Backend actually emits 400 (not 409) for duplicate commits."""
         from geolens_cli.main import app
         from geolens.models.problem_detail import ProblemDetail
 
@@ -727,10 +727,10 @@ class TestPublishCli:
 
 
 class TestPublishStage2PreviewIsBounded:
-    """fix(#1778 review round 6): the Stage 2 preview step runs the
+    """The Stage 2 preview step runs the
     backend's run_ogrinfo_preview() probe (OGRINFO_TIMEOUT_SECONDS =
     300s, backend/app/processing/ingest/ogr.py) — a request with no file
-    body, so round 5's files=-keyed structural gate missed it. Stage 2
+    body, so a files=-keyed structural gate missed it. Stage 2
     must wrap the preview call in long_request_timeout()."""
 
     def test_publish_stage2_preview_captures_the_extended_timeout(
@@ -816,7 +816,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 1 P2): a failed/cancelled/timed-out job
+        """A failed/cancelled/timed-out job
         never resolves a dataset_id, so --tags/--collection are never
         attempted against it. The output must carry only the terminal
         failure line, not a "Dataset created, but: ... not applied" line
@@ -925,7 +925,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 2 P2): fanned_out is TERMINAL and a
+        """fanned_out is TERMINAL and a
         SUCCESS — the parent job of a multi-layer commit lands here the
         moment each layer's own import is queued, and it never gets a
         dataset_id of its own. Reporting "still fanned_out ... has not
@@ -981,11 +981,11 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 9): --tags/--collection cannot be applied
+        """--tags/--collection cannot be applied
         to a fanned-out job — there is no single dataset id, since every
         layer became its own dataset. That omission must exit non-zero and
         say so: recording only a note in the success message (the
-        pre-round-9 behavior) left extras_failures empty, so the command
+        earlier behavior) left extras_failures empty, so the command
         exited 0 despite a requested operation never running."""
         from geolens_cli._sdk_helpers import EXIT_GENERIC
         from geolens_cli.main import app
@@ -1015,8 +1015,8 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """One extras_failures entry per requested extra (fix(#1778, codex
-        round 9)): both --tags and --collection here, both skipped."""
+        """One extras_failures entry per requested extra: both --tags and --collection
+        here, both skipped."""
         from geolens_cli._sdk_helpers import EXIT_GENERIC
         from geolens_cli.main import app
 
@@ -1130,7 +1130,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 3): the bug this fix closes. A transient
+        """The bug this fix closes. A transient
         poll failure (HTTP 500) followed by a job_snapshot() follow-up read
         that happens to succeed and report "running" must NOT be reported
         as a false "still running after 120s" timeout — nothing timed out;
@@ -1157,7 +1157,7 @@ class TestPublishWaitTerminalOutcomes:
         )
 
         result = runner.invoke(app, ["publish", str(sample_geojson)])
-        # fix(#1778, codex round 7): 500 is a 5xx, so this now maps to
+        # 500 is a 5xx, so this now maps to
         # EXIT_SERVER rather than the old hard-coded EXIT_GENERIC — see
         # TestPublishPollFailedExitCodes below for the dedicated coverage.
         from geolens_cli._sdk_helpers import EXIT_SERVER
@@ -1192,7 +1192,7 @@ class TestPublishWaitTerminalOutcomes:
         )
 
         result = runner.invoke(app, ["--json", "publish", str(sample_geojson)])
-        # fix(#1778, codex round 7): 500 is a 5xx, so this now maps to
+        # 500 is a 5xx, so this now maps to
         # EXIT_SERVER rather than the old hard-coded EXIT_GENERIC.
         from geolens_cli._sdk_helpers import EXIT_SERVER
 
@@ -1210,7 +1210,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 4): the poll timed out, but the follow-up
+        """The poll timed out, but the follow-up
         read shows the job has SINCE become failed — that definitive
         answer must win over the stale "still running after 120s"
         wording, which the previous implementation used to report."""
@@ -1280,7 +1280,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 4): the poll itself failed (a transient
+        """The poll itself failed (a transient
         500), but the follow-up read shows the job has SINCE been
         cancelled — that definitive answer must win over the "status
         could not be read" wording."""
@@ -1316,7 +1316,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 4): only a DEFINITIVE terminal snapshot
+        """Only a DEFINITIVE terminal snapshot
         (failed/cancelled/fanned_out) overrides the original outcome — a
         pending/running snapshot leaves the job's fate genuinely
         unresolved, so the original timeout wording stands."""
@@ -1351,7 +1351,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 5): sdk.client's generated transport
+        """sdk.client's generated transport
         defaults to timeout=None (unbounded), so a stalled connection on
         the follow-up diagnostic read could hang the command forever
         instead of reporting the timeout it already reached. The read is
@@ -1400,7 +1400,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778, codex round 6): `with_timeout()` MUTATES the shared
+        """`with_timeout()` MUTATES the shared
         transport's timeout in place before returning an "evolved" client
         that is really a decoy (sdks/python/geolens/client.py) — Stage 5
         (--tags/--collection) reuses sdk.client, so binding the follow-up
@@ -1410,7 +1410,7 @@ class TestPublishWaitTerminalOutcomes:
         its ORIGINAL value by the time Stage 5 runs.
 
         The httpx.Client is force-constructed before the command runs
-        (via ``.get_httpx_client()``) because the pre-round-6 bug only
+        (via ``.get_httpx_client()``) because the earlier bug only
         mutates an ALREADY-CONSTRUCTED transport in place — a lazily
         constructed one (the normal case, since every earlier stage is
         mocked at the SDK-function level here) would not have exposed it.
@@ -1473,7 +1473,7 @@ class TestPublishWaitTerminalOutcomes:
     ) -> None:
         """A token that expires mid-poll makes every job-status call 401.
 
-        fix(#1778, codex round 3): resolve_dataset_id detects the 401/403
+        resolve_dataset_id detects the 401/403
         itself now (PollOutcome.stopped_because == "token_expired") instead
         of returning a bare None for the caller to reinterpret via a second
         job_snapshot() read; the command exits EXIT_AUTH directly off that,
@@ -1572,7 +1572,7 @@ class TestPublishWaitTerminalOutcomes:
 
 
 class TestPublishPollFailedExitCodes:
-    """fix(#1778, codex round 7): a poll_failed outcome must select the
+    """A poll_failed outcome must select the
     CLI's established exit code for the HTTP status that caused it — a
     5xx (server outage) is EXIT_SERVER, anything else is the pre-existing
     EXIT_GENERIC — matching the matrix `_sdk_helpers.unwrap()` already
@@ -1638,7 +1638,7 @@ class TestResolveDatasetIdTerminalStatuses:
     """Unit-level: resolve_dataset_id stops polling as soon as the job status
     is terminal, rather than sleeping and re-polling until timeout, and
     reports it via PollOutcome.stopped_because == "terminal"
-    (fix(#1778, codex round 3))."""
+    (#1778)."""
 
     def test_cancelled_stops_polling_immediately(self, monkeypatch) -> None:
         from geolens_cli import publish as _publish
@@ -1684,7 +1684,7 @@ class TestResolveDatasetIdTerminalStatuses:
 class TestResolveDatasetIdPollOutcomeShape:
     """Unit-level: resolve_dataset_id's PollOutcome for the other three
     stopped_because reasons — "timeout", "poll_failed", "token_expired" —
-    added in fix(#1778, codex round 3) so a caller never has to guess why
+    added in #1778 so a caller never has to guess why
     the poll gave up from a bare None."""
 
     def test_timeout_preserves_the_last_known_status(self, monkeypatch) -> None:
@@ -1701,7 +1701,7 @@ class TestResolveDatasetIdPollOutcomeShape:
             MagicMock(),
             "00000000-0000-0000-0000-000000000001",
             sleep=lambda *_: None,
-            # fix(#1778 review round 16): poll_until now checks the
+            # poll_until now checks the
             # deadline (a monotonic() call) BEFORE every fetch, not just
             # after a timeout, and resolve_dataset_id's own outer sleep
             # now caps to the time remaining (another monotonic() call)
@@ -1740,7 +1740,7 @@ class TestResolveDatasetIdPollOutcomeShape:
             MagicMock(),
             "00000000-0000-0000-0000-000000000001",
             sleep=sleeps.append,
-            # fix(#1778 review round 16): one more clock value per poll
+            # one more clock value per poll
             # iteration than before -- poll_until now checks the
             # deadline before every fetch (not just after a timeout),
             # and the outer sleep between iterations now caps to the
@@ -1785,12 +1785,12 @@ class TestResolveDatasetIdPollOutcomeShape:
 
 
 # ---------------------------------------------------------------------------
-# BUG-034 — network failures during upload / job-status poll map to EXIT_NETWORK
+# Network failures during upload / job-status poll map to EXIT_NETWORK
 # ---------------------------------------------------------------------------
 
 
 class TestPublishNetworkErrors:
-    """BUG-034: httpx network errors in the upload and poll stages exit 4 cleanly."""
+    """Httpx network errors in the upload and poll stages exit 4 cleanly."""
 
     def test_upload_network_error_exits_network(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
@@ -1870,7 +1870,7 @@ class TestPublishNetworkErrors:
 
 
 class TestResolveDatasetIdNetworkError:
-    """BUG-034 unit-level: the poll's sync_detailed is routed through call_sdk."""
+    """Unit-level: the poll's sync_detailed is routed through call_sdk."""
 
     def test_resolve_propagates_network_exit(self, monkeypatch) -> None:
         import httpx
@@ -1892,7 +1892,7 @@ class TestResolveDatasetIdNetworkError:
                 MagicMock(),
                 "00000000-0000-0000-0000-000000000001",
                 sleep=lambda *_: None,
-                # fix(#1778 review round 16): poll_until now checks the
+                # poll_until now checks the
                 # deadline (a monotonic() call) immediately before every
                 # fetch, including the first -- one more value needed.
                 monotonic=iter([0.0, 1.0, 2.0]).__next__,
@@ -1901,7 +1901,7 @@ class TestResolveDatasetIdNetworkError:
 
 
 class TestResolveDatasetIdRetriesOnPerRequestTimeout:
-    """fix(#1778 review round 7): the per-request 5s snapshot bound
+    """The per-request 5s snapshot bound
     (_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) used to turn one slow
     GET /jobs/{job_id} (a busy DB pool, say) into an immediate
     typer.Exit(EXIT_NETWORK) via call_sdk, aborting --wait even though
@@ -1934,7 +1934,7 @@ class TestResolveDatasetIdRetriesOnPerRequestTimeout:
             "00000000-0000-0000-0000-000000000001",
             timeout=120.0,
             sleep=lambda *_: None,
-            # fix(#1778 review round 16): poll_until now checks the
+            # poll_until now checks the
             # deadline before every fetch (not just after a timeout),
             # consuming one more monotonic() call per iteration.
             monotonic=iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).__next__,
@@ -2013,7 +2013,7 @@ class TestResolveDatasetIdBoundsEachRequest:
             "00000000-0000-0000-0000-000000000001",
             timeout=120.0,
             sleep=lambda *_: None,
-            # fix(#1778 review round 16): one more clock value per poll
+            # one more clock value per poll
             # iteration -- poll_until's pre-fetch deadline check and the
             # outer sleep's remaining-time cap each consume a
             # monotonic() call. See test_timeout_preserves_the_last_

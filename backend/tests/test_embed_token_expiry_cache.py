@@ -1,4 +1,4 @@
-"""Regression tests for SEC-014: embed-token positive-cache expiry re-check.
+"""Regression tests: embed-token positive-cache expiry re-check.
 
 Without the fix, a token whose expires_at has passed is still allowed on
 cache-hit because the cached dict does not include expires_at and the
@@ -33,10 +33,10 @@ def _minter_reads_every_dataset(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-# fix(#1778 codex r3): validate_embed_token_access now compares each positive
+# fix(#1778): validate_embed_token_access now compares each positive
 # entry's generation stamp against the cluster-global revocation generation, and
 # an entry that carries no stamp (or a stale one) is treated as a miss. These
-# cases are about the SEC-014 expiry re-check, so they pin the generation and
+# cases are about the expiry re-check, so they pin the generation and
 # stamp the entries they prime with it.
 _TEST_GENERATION = 11
 
@@ -75,7 +75,7 @@ class FakeCache:
         return True
 
     async def set_authoritative(self, key: str, value, ttl: int = 300) -> None:
-        """fix(#1778 codex r1): one store here, so this is set."""
+        """fix(#1778): one store here, so this is set."""
         self._store[key] = value
 
     async def delete(self, key: str) -> None:
@@ -93,12 +93,12 @@ class FakeCache:
 
 
 # ---------------------------------------------------------------------------
-# SEC-014 regression: expired token denied even on cache hit
+# Regression: expired token denied even on cache hit
 # ---------------------------------------------------------------------------
 
 
 class TestEmbedTokenExpiryCacheHit:
-    """SEC-014: expired token must be denied on the positive-cache-hit path."""
+    """Expired token must be denied on the positive-cache-hit path."""
 
     async def _run(
         self,
@@ -249,13 +249,13 @@ class TestEmbedTokenExpiryCacheHit:
 
 
 # ---------------------------------------------------------------------------
-# SEC-014: end-to-end service flow — cache miss populates expires_at, then
+# End-to-end service flow — cache miss populates expires_at, then
 # second call (cache hit) still enforces expiry after time advances.
 # ---------------------------------------------------------------------------
 
 
 class TestEmbedTokenExpiryEndToEnd:
-    """SEC-014 end-to-end: verify the full cache-miss→prime→hit cycle."""
+    """End-to-end: verify the full cache-miss→prime→hit cycle."""
 
     async def test_cache_miss_then_expired_hit_denied(self):
         """

@@ -33,7 +33,7 @@ async def test_api_sweeper_scopes_each_tenant_and_continues_after_failure():
     registry_session = _session_context(tenant_ids=[tenant_a, tenant_b])
     tenant_a_session = _session_context()
     tenant_b_session = _session_context()
-    # fix(#1746 codex r1): the fleet-level token purge opens the first session
+    # The fleet-level token purge opens the first session
     # of the pass, before any tenant scope is entered.
     session_factory = MagicMock(
         side_effect=[
@@ -62,7 +62,7 @@ async def test_api_sweeper_scopes_each_tenant_and_continues_after_failure():
             "app.platform.jobs.router.fail_stale_jobs",
             side_effect=fake_fail_stale_jobs,
         ),
-        # fix(#1746 codex r1): stubbed so this test keeps stating only the
+        # Stubbed so this test keeps stating only the
         # per-tenant scoping it is about — the purge writes to a table that
         # has nothing to do with tenant scope, and has its own tests below.
         patch("app.platform.jobs.sweep.purge_terminal_job_tokens", AsyncMock()),
@@ -88,7 +88,7 @@ async def test_api_sweeper_aggregates_detailed_tenant_outcomes():
     registry_session = _session_context(tenant_ids=[tenant_a, tenant_b])
     tenant_a_session = _session_context()
     tenant_b_session = _session_context()
-    # fix(#1746 codex r1): the purge's session comes first — see the test above.
+    # The purge's session comes first — see the test above.
     session_factory = MagicMock(
         side_effect=[
             _session_context(),
@@ -130,7 +130,7 @@ async def test_api_sweeper_aggregates_detailed_tenant_outcomes():
         # fix(#909): sweep_stale_jobs_once late-binds from app.core.db
         patch("app.core.db.async_session", session_factory),
         patch("app.platform.jobs.router.fail_stale_jobs", cleanup),
-        # fix(#1746 codex r1): see the note in the test above.
+        # See the note in the test above.
         patch("app.platform.jobs.sweep.purge_terminal_job_tokens", AsyncMock()),
     ):
         details = await main_module.sweep_stale_jobs_once(detailed=True)
@@ -152,7 +152,7 @@ async def test_api_sweeper_preserves_single_tenant_one_shot():
     from app.api import main as main_module
 
     session = _session_context()
-    # fix(#1746 codex r1): two sessions per pass now — the fleet-level token
+    # Two sessions per pass now — the fleet-level token
     # purge's, then the sweep's. The one-shot property this test is about is
     # `fail_stale_jobs` being awaited exactly once, asserted below.
     session_factory = MagicMock(side_effect=[_session_context(), session])
@@ -163,7 +163,7 @@ async def test_api_sweeper_preserves_single_tenant_one_shot():
         # fix(#909): sweep_stale_jobs_once late-binds from app.core.db
         patch("app.core.db.async_session", session_factory),
         patch("app.platform.jobs.router.fail_stale_jobs", fail_stale_jobs),
-        # fix(#1746 codex r1): see the note two tests above.
+        # See the note two tests above.
         patch("app.platform.jobs.sweep.purge_terminal_job_tokens", AsyncMock()),
     ):
         assert await main_module.sweep_stale_jobs_once() == (4, 5)
@@ -173,7 +173,7 @@ async def test_api_sweeper_preserves_single_tenant_one_shot():
 
 
 class TestTheTokenPurgeBelongsToThePassNotTheTenant:
-    """fix(#1746 codex r1): `catalog.procrastinate_jobs` has no tenant column.
+    """`catalog.procrastinate_jobs` has no tenant column.
 
     The purge started life inside ``fail_stale_jobs``, which hosted mode calls
     once per tenant — so one unscoped, unindexed UPDATE ran tenants-many times

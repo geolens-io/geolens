@@ -1305,7 +1305,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/ogc/filtering.py": 1122,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1706,
+    "backend/app/api/main.py": 1705,
     # Map request validation and published response contracts share this module.
     "backend/app/modules/catalog/maps/schemas.py": 1396,
     # Metadata facade preserves the import and patch surface used by extensions and
@@ -1326,7 +1326,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table and records
     # the version it keeps.
-    "backend/app/processing/ingest/tasks_common.py": 1903,
+    "backend/app/processing/ingest/tasks_common.py": 1904,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
@@ -1384,7 +1384,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1803,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1854,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1454,
@@ -1414,13 +1414,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 620,
     # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
-    "backend/app/modules/embed_tokens/service.py": 1019,
+    "backend/app/modules/embed_tokens/service.py": 1016,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, and the create dry run checks
     # the table's kind, insert triggers and rules, and the shapes that run user
     # code on insert, with the same catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1610,
+    "backend/app/modules/catalog/features/service.py": 1611,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
     "backend/app/modules/catalog/authorization.py": 1176,

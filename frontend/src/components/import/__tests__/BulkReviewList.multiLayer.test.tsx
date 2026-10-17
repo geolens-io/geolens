@@ -1,5 +1,5 @@
 /**
- * GPKG-03 Phase 1058 — BulkReviewList multi-layer "Ingest all layers" button tests.
+ * BulkReviewList multi-layer "Ingest all layers" button tests.
  *
  * Tests:
  * (a) Renders button when entry has > 1 layer and onIngestAllLayers is provided.

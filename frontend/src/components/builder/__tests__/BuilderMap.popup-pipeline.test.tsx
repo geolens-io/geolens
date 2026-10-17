@@ -1,4 +1,4 @@
-// fix(#943): the BuilderMap click/mousemove hit-test path had no unit test in
+// The BuilderMap click/mousemove hit-test path had no unit test in
 // any of the seven BuilderMap.* files, and #729's consumer half was equally
 // unpinned — the suppression suite covered only the store-flag producer, never
 // the two refs the handlers actually read (`measureActiveRef`, `drawActiveRef`).
@@ -278,7 +278,7 @@ describe('BuilderMap popup pipeline (fix #943)', () => {
   });
 });
 
-// fix(#729): a draw mode (the analysis clip mask) owns the pointer while it
+// A draw mode (the analysis clip mask) owns the pointer while it
 // runs. The producer side — the store flag — was already pinned; these cover
 // the two refs the click/mousemove handlers actually read.
 describe('BuilderMap draw and measure guards (fix #943, consumer half of #729)', () => {

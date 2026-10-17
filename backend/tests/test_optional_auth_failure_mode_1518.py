@@ -1136,7 +1136,7 @@ def test_401_capability_sentence_matches_the_allowlist() -> None:
 
 
 class TestEveryNoCapabilityExitAppliesTheRule:
-    """One row per no-capability EXIT CLASS, not per handler (codex P2 round 3).
+    """One row per no-capability EXIT CLASS, not per handler (codex P2).
 
     The first two rounds applied the rule at one exit point per handler and
     tested the success and plain-invalid rows, so whole classes of exit went
@@ -1155,7 +1155,7 @@ class TestEveryNoCapabilityExitAppliesTheRule:
     5. resource REVOKED           — expired share link            (EXEMPT, see below)
     6. dataset SHAPE refused      — cluster tiles on a non-point  (cluster tiles)
 
-    Round 4 filled in the two handlers the table named but never exercised —
+    Filled in the two handlers the table named but never exercised —
     the class-1 row claimed "tiles" while only features and the shared map were
     asserted, and no row touched the raster routes at all even though the
     raster proxy is one of the two sites codex reported. Class 4 on the vector
@@ -1163,9 +1163,9 @@ class TestEveryNoCapabilityExitAppliesTheRule:
     ``_authorize_vector_tile_request``, so the rule never reached them, and the
     raster sibling already answered 401 for the same request shape.
 
-    Round 4 also took the shared map back OUT of classes 4 and 5, which round 3
-    had put in. The test for an exit has to ask whether a credential could have
-    changed that exit's answer, and on a missing or revoked share link it could
+    The shared map was also taken back OUT of classes 4 and 5, where an
+    earlier revision had put it. The test for an exit has to ask whether a
+    credential could have changed that exit's answer, and on a missing or revoked share link it could
     not: the lookup takes no user at all. Turning those into 401s refused a
     caller for a failure that was not theirs and cost the viewer the one error
     message that tells them what to do about it. The rule still applies to that
@@ -1554,7 +1554,7 @@ def test_capability_declines_route_through_the_helper() -> None:
     The previous structural test could only require that a CAPABILITY handler
     CALLS ``reject_unresolvable_credentials`` somewhere reachable — it could not
     check that the call is on every no-capability path, which is exactly how
-    three exit classes shipped uncovered (codex P2 round 3).
+    three exit classes shipped uncovered (codex P2).
 
     Routing the declines through ``capability_declined`` makes that checkable:
     the ordering is a property of the call rather than of where a line sits, so

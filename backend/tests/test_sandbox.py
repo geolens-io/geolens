@@ -1,11 +1,11 @@
 """Tests for SQL sandbox validation, RBAC table allowlist, and execution safety.
 
 Covers:
-- SAND-01: SQL validation (unit tests)
-- SAND-02: READ ONLY transaction enforcement (integration)
-- SAND-03: Row limit truncation (integration)
-- SAND-04: RBAC table access (unit + integration)
-- SAND-05: Error sanitization and timeout handling (unit + integration)
+- SQL validation (unit tests)
+- READ ONLY transaction enforcement (integration)
+- Row limit truncation (integration)
+- RBAC table access (unit + integration)
+- Error sanitization and timeout handling (unit + integration)
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ async def tiles3d_table(test_db_session):
 
 
 # ---------------------------------------------------------------------------
-# SAND-01: SQL validation (unit tests, no DB needed)
+# SQL validation (unit tests, no DB needed)
 # ---------------------------------------------------------------------------
 
 
@@ -307,7 +307,7 @@ class TestCteAliasNotRejected:
 
 
 # ---------------------------------------------------------------------------
-# SAND-04: check_table_access (unit tests, no DB needed)
+# check_table_access (unit tests, no DB needed)
 # ---------------------------------------------------------------------------
 
 
@@ -384,7 +384,7 @@ class TestCheckTableAccessNonDataSchema:
 
 
 # ---------------------------------------------------------------------------
-# SAND-04: build_table_allowlist (integration test, needs DB)
+# build_table_allowlist (integration test, needs DB)
 # ---------------------------------------------------------------------------
 
 
@@ -465,7 +465,7 @@ class TestBuildTableAllowlist:
 
 
 # ---------------------------------------------------------------------------
-# SAND-02: READ ONLY transaction enforcement (integration, needs DB)
+# READ ONLY transaction enforcement (integration, needs DB)
 # ---------------------------------------------------------------------------
 
 
@@ -536,7 +536,7 @@ class TestReadOnlyTransaction:
 
 
 # ---------------------------------------------------------------------------
-# SAND-03: Row limit truncation (integration, needs DB)
+# Row limit truncation (integration, needs DB)
 # ---------------------------------------------------------------------------
 
 
@@ -588,7 +588,7 @@ class TestRowLimitTruncation:
 
 
 # ---------------------------------------------------------------------------
-# SAND-05: Error sanitization and timeout handling (unit + integration)
+# Error sanitization and timeout handling (unit + integration)
 # ---------------------------------------------------------------------------
 
 

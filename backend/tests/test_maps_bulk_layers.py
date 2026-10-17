@@ -8,8 +8,7 @@ Requirements:
   - Docker database must be running (docker compose up db)
   - Alembic migrations must be applied
 
-Milestone exception note: This test file covers the single additive backend
-endpoint permitted in Phase 1047 per REQUIREMENTS.md Out-of-Scope (PB-03).
+This test file covers the single additive backend endpoint for bulk layers.
 """
 
 import uuid
@@ -305,7 +304,7 @@ class TestBulkDeleteAudit:
             "Expected at least one layer.bulk_remove history entry"
         )
         latest = history_rows[0]
-        # WR-02 fix: bulk operations use target_type="map" since there is no
+        # bulk operations use target_type="map" since there is no
         # single layer target. This matches the layer.replace recording pattern
         # and prevents broken "jump to layer" links in history viewers.
         assert latest.target_type == "map"

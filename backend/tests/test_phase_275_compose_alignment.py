@@ -1,13 +1,12 @@
-"""Phase 275 / API-05 + API-08 + API-10 regression: compose alignment locks.
+"""Regression: compose alignment locks.
 
-Pinned by Phase 275 Plan 06. These tests enforce three invariants that the
+These tests enforce three invariants that the
 inline comments in docker-compose.yml + Dockerfile
 encode but cannot self-verify:
 
 1. The compose-vs-.env.example dual-default for DB_PORT / API_PORT is
    intentional and documented.
-2. The titiler / valkey image pins are not stuck at their original (M-25
-   era) tags.
+2. The titiler / valkey image pins are not stuck at their original tags.
 3. The uv installer pin is byte-aligned across every Dockerfile stage.
 4. Deferred commercial-overlay material is not documented in the public
    repository surfaces.
@@ -31,12 +30,12 @@ def _exists(path: str) -> bool:
 
 
 def test_compose_dual_default_documented() -> None:
-    """API-05 / M-25: docker-compose.yml port fallbacks differ from .env.example by design."""
+    """docker-compose.yml port fallbacks differ from .env.example by design."""
     body = _read("docker-compose.yml")
-    # NOTE: the original ">=2 'API-05 (Phase 275)' inline-comment" assertion was
-    # dropped after commit fec874a6 ("docs(compose): replace long Phase-ID
-    # archaeology with one-line pointers") intentionally removed per-line phase
-    # citations from docker-compose.yml. The load-bearing invariant is the
+    # NOTE: an earlier assertion counted per-line phase citations in
+    # docker-compose.yml; it was dropped after commit fec874a6
+    # ("docs(compose): replace long Phase-ID archaeology with one-line
+    # pointers") intentionally removed them. The load-bearing invariant is the
     # functional fallback below (no-.env baseline still binds 5432 / 8000), not
     # the comment archaeology.
     # The fallback values themselves must remain unchanged so `docker compose up`
@@ -50,7 +49,7 @@ def test_compose_dual_default_documented() -> None:
 
 
 def test_titiler_image_pinned() -> None:
-    """API-08 / L-19: titiler must NOT be pinned at 2.0.0 (the floor of the 2.x line)."""
+    """Titiler must NOT be pinned at 2.0.0 (the floor of the 2.x line)."""
     body = _read("docker-compose.yml")
     assert "ghcr.io/developmentseed/titiler:2.0.0" not in body, (
         "titiler is still pinned at 2.0.0 — bump to a current 2.x tag (L-19)"
@@ -68,7 +67,7 @@ def test_titiler_image_pinned() -> None:
 
 
 def test_valkey_image_pinned() -> None:
-    """API-08 / L-20: valkey must NOT be pinned at 8.1.6-alpine."""
+    """Valkey must NOT be pinned at 8.1.6-alpine."""
     body = _read("docker-compose.yml")
     assert "valkey/valkey:8.1.6-alpine" not in body, (
         "valkey is still pinned at 8.1.6-alpine — bump (L-20)"
@@ -80,7 +79,7 @@ def test_valkey_image_pinned() -> None:
 
 
 def test_uv_installer_pins_are_aligned() -> None:
-    """API-08 / L-21: all numeric uv installer pins must agree on a single version.
+    """All numeric uv installer pins must agree on a single version.
 
     Only matches numeric `vMAJOR.MINOR.PATCH`-style pins. `python3.x-bookworm-slim`
     convenience tags are a different pin namespace and are out of scope.
@@ -102,12 +101,12 @@ def test_uv_installer_pins_are_aligned() -> None:
 
 
 def test_deferred_overlay_not_documented_in_public_surfaces() -> None:
-    """API-10 / M-53: the private Enterprise *implementation* must not leak into
+    """The private Enterprise *implementation* must not leak into
     public surfaces.
 
     The open-core Editions boundary itself (Community vs. Enterprise) IS
     intentionally documented publicly in EDITIONS.md and the README Editions
-    section (v1048 REL-01) — open-core transparency is the goal, so naming the
+    section — open-core transparency is the goal, so naming the
     "Enterprise" edition in the README is expected. What must stay private is the
     enterprise *implementation*: the overlay compose file and the private
     repo/image name. `.env.example` is a config template and stays free of
@@ -122,5 +121,5 @@ def test_deferred_overlay_not_documented_in_public_surfaces() -> None:
     for body in (readme, env_example):
         assert "docker-compose.enterprise.yml" not in body
         assert "geolens-enterprise" not in body
-    # README documents the Editions boundary (REL-01); .env.example must not.
+    # README documents the Editions boundary; .env.example must not.
     assert "Enterprise" not in env_example

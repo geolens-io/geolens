@@ -1,4 +1,4 @@
-"""Static-analysis tests for Phase 271 / DBM-08: 0001_baseline downgrade error."""
+"""Static-analysis tests: 0001_baseline downgrade error."""
 
 import importlib.util
 from pathlib import Path

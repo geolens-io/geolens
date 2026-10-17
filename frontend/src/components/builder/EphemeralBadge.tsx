@@ -8,11 +8,11 @@ import {
   type PreviewSaveDisabledReason,
 } from '@/components/builder/ephemeral-preview';
 
-// fix(#1009): the builder's full stack panel now surfaces the preview as a row
+// The builder's full stack panel now surfaces the preview as a row
 // (EphemeralPreviewRow), so this badge no longer renders there. It survives as
 // the surface for the two places that have NO layer stack to put a row in:
-//   - the public viewer (ViewerChatPanel — fix(#542) added it precisely because
-//     the viewer's overlay had no legend entry, badge, or dismissal), and
+//   - the public viewer (ViewerChatPanel; the viewer's overlay has no legend
+//     entry, badge, or dismissal otherwise), and
 //   - the builder below 1100px, where the sidebar collapses to SidebarRail.
 // One ephemeral object still gets exactly one surface; which surface depends on
 // whether a stack exists to host the row.
@@ -23,14 +23,14 @@ interface EphemeralBadgeProps {
   truncated?: boolean;
   /** Total feature count before truncation. */
   totalCount?: number;
-  /** fix(#727): totalCount was computed against the map's viewport. */
+  /** totalCount was computed against the map's viewport. */
   viewportScoped?: boolean;
-  /** feat(#675): opens the Analysis panel prefilled with the operation behind
-   *  this preview. feat(#1241): or the save-as-dataset dialog for a plain chat
+  /** Opens the Analysis panel prefilled with the operation behind
+   *  this preview, or the save-as-dataset dialog for a plain chat
    *  result. Builder-only — the viewer has neither rail nor upload rights, so
    *  it never passes this. */
   onSaveAsDataset?: () => void;
-  /** feat(#1241): parity with EphemeralPreviewRow — set instead of
+  /** Parity with EphemeralPreviewRow — set instead of
    *  `onSaveAsDataset` when the save belongs on this preview but cannot be
    *  honoured, so the narrow layout states the reason instead of quietly
    *  dropping the affordance. */
@@ -48,13 +48,13 @@ export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount,
   // Row parity: a stated reason wins over a handler.
   const onSave = saveDisabledText ? undefined : onSaveAsDataset;
 
-  // fix(#1009): the count sentence and the announced-label pattern moved to
+  // The count sentence and the announced-label pattern moved to
   // ephemeral-preview.ts so this badge and the stack row cannot drift apart.
   const counts = { featureCount, truncated, totalCount, viewportScoped };
   const statusLabel = ephemeralStatusLabel(t, counts);
   const announcedLabel = useAnnouncedLabel(statusLabel);
 
-  // fix(#787 item 1): z-20, above the z-10 PluginHost slots. The bottom-left slot
+  // z-20, above the z-10 PluginHost slots. The bottom-left slot
   // is offset to clear this badge, but a panel taller than that offset overlaps it
   // and the z-index decided — the badge lost.
   return (
@@ -62,7 +62,7 @@ export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount,
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full bg-warning shrink-0" />
         <span role="status" className="sr-only">{announcedLabel}</span>
-        {/* fix(#784): aria-hidden so browse mode doesn't read the badge text
+        {/* aria-hidden so browse mode doesn't read the badge text
             twice — the sr-only status region above carries the same string. */}
         <span aria-hidden="true" className="text-muted-foreground">
           {statusLabel}
@@ -88,7 +88,7 @@ export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount,
           <X className="h-3 w-3" />
         </button>
       </div>
-      {/* feat(#1241): row parity — a disabled save states why. The status line
+      {/* Row parity — a disabled save states why. The status line
           above already carries the "N of M". */}
       {saveDisabledText && (
         <p id={saveDisabledId} className="mt-0.5 text-2xs text-muted-foreground">

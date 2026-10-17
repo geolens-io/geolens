@@ -19,7 +19,7 @@ const REMINT_SETTLE_MS = 10_000;
 
 /**
  * fix(#621): shared vector-tile auth recovery for every map surface (builder,
- * viewer, dataset preview). The builder's GUARD-03 re-sign only reuses the
+ * viewer, dataset preview). The builder's re-sign only reuses the
  * token already in hand — when the signature itself has expired, the only fix
  * is a re-mint. Each surface passes its own `remint` (invalidate the
  * tile-token queries, or the viewer's imperative refetch); the fresh token
@@ -186,7 +186,7 @@ function reloadOnTokenRotation(reload: () => void): void {
  * 403 burst. Tile sigs are minted on `round_expiry()` 900 s boundaries, so a
  * tab backgrounded for a few minutes routinely crosses one; MapLibre then
  * resumes its fetches with the stale `sig` and every visible tile 403s before
- * the reactive GUARD-03 / #621 handler heals the map.
+ * the reactive #621 handler heals the map.
  *
  * Deliberately the SAME `recover` callback the 403 handler uses, so this only
  * pulls the existing re-mint forward: its 30 s cooldown / 10 s settle window
@@ -225,7 +225,7 @@ export function useVisibleTileTokenRefresh(
       const sessionExpiring = hasExpiringSession(useAuthStore.getState().expiresAt);
       if (!hasExpiringVectorToken(getTokensRef.current()) && !sessionExpiring) return;
       if (sessionExpiring) {
-        // fix(#907) (codex P1): renewing the credential is not enough on its
+        // Renewing the credential is not enough on its
         // own — MapLibre resumes its fetches as soon as the tab is visible and
         // races the refresh, and a raster descriptor does not change across
         // one, so nothing in the token→setTiles plumbing retries the tiles that

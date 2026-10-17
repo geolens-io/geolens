@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@/test/test-utils';
 import { SettingsEditorScene } from '../SettingsEditorScene';
 import type { SettingsEditorSceneProps } from '../SettingsEditorScene';
 
-// Phase 1051 Plan 07 (UX-04): regression suite covering the refined
+// Regression suite covering the refined
 // Map Settings → Plugins section. The Switch row is the SINGLE source
 // of truth for plugin availability; on-map controls (e.g., MapToolbar
 // Measure / Legend buttons) remain functional for live interaction but

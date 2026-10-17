@@ -1,6 +1,6 @@
 """Per-user daily AI token budget — `_check_ai_budget` (demo cost audit §3).
 
-Complements the PERF-009 per-*request* loop budget: this caps a user's
+Complements the per-*request* loop budget: this caps a user's
 *cumulative* input+output tokens over a rolling 24h window across many requests,
 so an editor can't sustain heavy tool loops indefinitely. Defaults to 0
 (unlimited); an operator opts in via ``MAX_AI_TOKENS_PER_USER_PER_DAY``.
@@ -161,7 +161,7 @@ def test_max_ai_tokens_validator_rejects_negative():
 
 
 async def test_metadata_path_records_usage(monkeypatch):
-    """codex P1 #402 (round 2): metadata-assist must count toward the cap.
+    """Codex P1 #402: metadata-assist must count toward the cap.
 
     The 4 /ai/metadata/* endpoints are budget-gated but previously recorded no
     usage, so the cap was bypassable through them. _generate_structured now

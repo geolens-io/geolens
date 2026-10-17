@@ -161,7 +161,7 @@ async def test_put_refuses_the_dataset_because_replace_nulls_every_column(
 async def test_an_unknown_property_is_still_a_400(
     client: AsyncClient, unwritable_dataset: Dataset, admin_auth_header
 ):
-    """The pre-existing unknown-key contract (fix(#458 E-25)) is unchanged."""
+    """The pre-existing unknown-key contract is unchanged."""
     resp = await client.post(
         f"/datasets/{unwritable_dataset.id}/features/",
         json={"geometry": POINT, "properties": {"nosuchcolumn": "x"}},

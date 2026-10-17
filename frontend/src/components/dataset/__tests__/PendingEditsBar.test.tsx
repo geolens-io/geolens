@@ -63,7 +63,7 @@ describe('PendingEditsBar', () => {
 
     expect(screen.getByTestId('pending-edits-save')).toBeDisabled();
     expect(screen.getByTestId('pending-edits-save')).toHaveTextContent('Saving...');
-    // fix(#458 E-16): Discard must be disabled mid-save so it can't fire a
+    // Discard must be disabled mid-save so it can't fire a
     // misleading "discarded" toast after the PATCH has already committed.
     expect(screen.getByTestId('pending-edits-cancel')).toBeDisabled();
   });

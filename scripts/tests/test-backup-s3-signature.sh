@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regression guard for BKP-02: the backup S3 uploader must sign with AWS
+# Regression guard: the backup S3 uploader must sign with AWS
 # Signature V4 (awscli / s3v4) and surface upload failures as a visible
 # non-zero error — not a swallowed "(non-fatal)" warning.
 #

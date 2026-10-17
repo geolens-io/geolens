@@ -180,7 +180,7 @@ def test_every_codeql_marker_in_backend_app_binds_to_the_line_it_covers() -> Non
     )
 
 
-# fix(#1770 round 43): alert #113 (py/full-ssrf, critical). Round 41 moved
+# Alert #113 (py/full-ssrf, critical). The change moved
 # the probe adapters' actual sink -- a `client.stream(` call -- out of each
 # adapter (`adapters/ogcapi.py`, `adapters/wfs.py`, `adapters/arcgis.py`,
 # `adapters/stac.py`) and into one shared helper, `bounded_probe_read`
@@ -198,7 +198,7 @@ def test_every_codeql_marker_in_backend_app_binds_to_the_line_it_covers() -> Non
 SSRF_MARKER_RE = re.compile(r"\bcodeql\s*\[\s*py/full-ssrf\s*\]", re.IGNORECASE)
 
 # The two modules whose sinks a caller-validated URL is expected to reach
-# today: `probe_bounds.py`'s single `bounded_probe_read` (round 41-43, the
+# today: `probe_bounds.py`'s single `bounded_probe_read` (the
 # probe adapters' own shared read) and `service_endpoints.py`'s single
 # `fetch_document` (#1746, the door's own description read). A genuinely new
 # sink gets its own marker and its own entry here, not a marker that merely

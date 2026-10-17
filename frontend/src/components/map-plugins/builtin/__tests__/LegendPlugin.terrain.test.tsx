@@ -42,7 +42,7 @@ const activeTerrain: MapTerrainConfig = {
 const demTerrainStyle = { render_mode: 'terrain' } as MapLayerResponse['style_config'];
 const demHillshadeStyle = { render_mode: 'hillshade' } as MapLayerResponse['style_config'];
 
-// 999.17 MD-01: the synthetic "3D terrain" entry only renders when a
+// 999.17 the synthetic "3D terrain" entry only renders when a
 // terrain-capable DEM layer backing terrain_config.source_dataset_id ('dem-1')
 // is actually present. This is that backing layer (terrain render_mode → also
 // suppressed from per-layer entries, exactly as on a real terrain map).
@@ -86,7 +86,7 @@ describe('LegendPlugin terrain consistency (Fix 1)', () => {
     render(<LegendPlugin ctx={ctx} />);
 
     expect(screen.getAllByTestId('legend-terrain-synthetic')).toHaveLength(1);
-    // fix(HT-08): the synthetic entry keeps the bound DEM's name.
+    // The synthetic entry keeps the bound DEM's name.
     expect(screen.getByText('Elevation (terrain)')).toBeInTheDocument();
   });
 
@@ -100,7 +100,7 @@ describe('LegendPlugin terrain consistency (Fix 1)', () => {
     expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
   });
 
-  // 999.17 MD-01: dangling terrain_config (enabled + source, but NO backing DEM
+  // 999.17 dangling terrain_config (enabled + source, but NO backing DEM
   // layer for that dataset) must NOT render a phantom synthetic entry.
   it('does NOT show the synthetic entry for a dangling terrain_config (no backing DEM layer)', () => {
     const ctx = createCtx({

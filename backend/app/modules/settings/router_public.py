@@ -35,7 +35,7 @@ router = APIRouter(prefix="/settings", tags=["Admin"])
 
 
 def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
-    """SEC-S10: per-IP rate limit for the public basemap endpoint (caps key replay)."""
+    """Per-IP rate limit for the public basemap endpoint (caps key replay)."""
     return f"{get_cached_basemap_proxy_rate_limit()}/minute"
 
 
@@ -76,7 +76,7 @@ async def get_feature_flags(
 
 
 @router.get("/branding", response_model=BrandingResponse, include_in_schema=False)
-# PRIV-1: privacy_url rides this endpoint even though its PersistentConfig
+# privacy_url rides this endpoint even though its PersistentConfig
 # lives on the "general" tab — GET /settings/branding/ is already the one
 # public, pre-auth config bundle (login/register need it before a session
 # exists). Re-checks the shape here rather than trusting the admin-write or

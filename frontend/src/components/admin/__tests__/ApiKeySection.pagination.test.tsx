@@ -1,7 +1,7 @@
 // fix(#1778): listApiKeys fetched `total` and then discarded it, capping the
 // visible list at the backend default limit=50 with no indication more keys
 // existed — a key an admin needed to revoke could be permanently invisible.
-// fix(#1805 review round 3 P2): the flat limit=200 fetch that replaced it
+// The flat limit=200 fetch that replaced it
 // was itself the backend's hard cap (`le=200`) — a user with 201+ keys
 // still had no way to reach the rest. useApiKeys now returns
 // {items, total, isLoading, hasMore} for a given pageCount, and the

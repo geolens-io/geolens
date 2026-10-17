@@ -485,7 +485,7 @@ async def test_a_failed_run_marks_the_job_failed_without_leaking_the_error(
     test_db_session: AsyncSession,
     monkeypatch,
 ):
-    """RES-2 survives the move: the provider's error text stays in the log."""
+    """The error-text redaction survives the move: the provider's error text stays in the log."""
     secret = "provider-secret-token=do-not-expose"
 
     async def _explode(session, *, force=False, should_continue=None, on_progress=None):
@@ -1193,7 +1193,7 @@ async def test_a_partly_failed_run_still_completes(
 
 
 # ---------------------------------------------------------------------------
-# One guarded terminal exit (#1550 review round 3)
+# One guarded terminal exit
 # ---------------------------------------------------------------------------
 #
 # This class of defect was fixed four times — the dispatch failure, the lost
@@ -1331,7 +1331,7 @@ async def test_a_late_cancellation_does_not_contradict_a_committed_success(
 
 
 # ---------------------------------------------------------------------------
-# Recovery observes the row, it does not infer from the fence (#1550 round 4)
+# Recovery observes the row, it does not infer from the fence
 # ---------------------------------------------------------------------------
 #
 # In-process state cannot describe what the database did. "My fenced update

@@ -143,7 +143,7 @@ async def _dataset(session, name: str, **kwargs):
 async def _seed_aged_artifact(storage, dataset_id, selection, digest, payload, age):
     """Put an artifact and make it genuinely that old, mtime included.
 
-    fix(#1532 review r10): reclamation ages from `max(key stamp, last_modified)`,
+    fix(#1532): reclamation ages from `max(key stamp, last_modified)`,
     so backdating only the key stamp seeds a state production cannot reach — an
     object whose bytes landed seconds ago but whose name claims otherwise. The
     file's modified time has to move too, or the test is describing a fiction and
@@ -561,14 +561,14 @@ async def test_a_storage_failure_still_serves_the_download(
 
 
 # ---------------------------------------------------------------------------
-# Review r1: a client that names what it is resuming
+# A client that names what it is resuming
 # ---------------------------------------------------------------------------
 
 
 async def test_a_resume_naming_the_previous_artifact_is_not_sliced(
     client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
 ):
-    """fix(#1532 review r1): `If-Range` is evaluated before the artifact is sliced.
+    """fix(#1532): `If-Range` is evaluated before the artifact is sliced.
 
     The artifact publishes a strong validator now, so a careful client CAN name
     the representation it is resuming — curl -C does, browsers do, and GDAL may
@@ -601,7 +601,7 @@ async def test_a_resume_naming_the_previous_artifact_is_not_sliced(
     assert resumed.status_code == 200, (
         f"a resume naming the previous artifact returned {resumed.status_code}. "
         f"A 206 here is ten bytes of the new export at offsets measured against "
-        f"the old one, which is the splice this PR exists to prevent."
+        f"the old one, which is the splice the cache exists to prevent."
     )
     assert resumed.content == conversions.body
     assert "content-range" not in resumed.headers
@@ -665,18 +665,18 @@ async def test_a_weak_if_range_never_authorizes_a_resume(
 
 
 # ---------------------------------------------------------------------------
-# Review r1: the read path on every provider
+# The read path on every provider
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("method", ["get_stream", "get_range_stream", "size", "exists"])
 def test_no_provider_stubs_out_a_method_the_read_path_calls(method):
-    """fix(#1532 review r1): every provider must really implement the read path.
+    """fix(#1532): every provider must really implement the read path.
 
     ``AzureBlobStorageProvider.get_stream`` raised ``NotImplementedError`` behind
     a docstring asserting "the router returns a SAS-signed redirect for the azure
     storage backend, so this method is unreachable". It was reachable, and the
-    claim was already stale before this PR — fix(#1540) established that no
+    claim was already stale — fix(#1540) established that no
     ingest path writes ``storage_backend="azure"`` at all, so managed assets take
     the LOCAL branch, whose whole-object GET calls exactly that method. The
     cached export made a second caller.
@@ -740,7 +740,7 @@ async def test_a_provider_without_presigning_serves_cold_and_hit(
 
     Cold (the request that builds and stores) and hit (a later request with no
     usable Range) both end in ``get_stream``. Asserting them together is the
-    point: the cold path was reachable before this PR too, and a change that
+    point: the cold path was reachable before the cache too, and a change that
     fixed one while leaving the other would pass a test that checked one.
     """
     from app.platform.storage import get_storage
@@ -766,23 +766,23 @@ async def test_a_provider_without_presigning_serves_cold_and_hit(
 
 
 # ---------------------------------------------------------------------------
-# Review r1: two publishers
+# Two publishers
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
-# Review r3: nothing is rewritten, so nothing races
+# Nothing is rewritten, so nothing races
 # ---------------------------------------------------------------------------
 
 
 async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypatch):
     """Two builders racing a selection publish side by side and readers take the newer.
 
-    This started as fix(#1532 review r1)'s bug: an eviction-on-build step deleted
+    This started as fix(#1532)'s bug: an eviction-on-build step deleted
     "everything but mine and the one I superseded", so interleaved builders each
     removed the other's object and the surviving pointer could name a key that
-    was already gone. r2 found the same shape in the sweep. r3 removed the last
-    piece of mutable state, and the property now holds because publishing is one
+    was already gone. The sweep had the same shape. The last piece of
+    mutable state is gone, and the property now holds because publishing is one
     ``put`` to a key nothing else can be using — there is no flip to race and
     nothing deletes on the publish path at all.
 
@@ -790,7 +790,7 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
     their pre-publish re-check and before publishing, and the test asserts both
     arrived; a sequence of two ``store`` calls proves nothing about concurrency.
 
-    fix(#1532 review r29) made the barrier's placement matter: a builder whose
+    fix(#1532) made the barrier's placement matter: a builder whose
     re-check finds a fresh incumbent is handed that incumbent instead of
     publishing, so a barrier at the hash let the second builder's re-check land
     after the first's put and the two came back with ONE key — the lost-race
@@ -876,7 +876,7 @@ async def test_a_truncated_artifact_is_skipped_rather_than_served(test_db_sessio
     Free, too: the response needs the length anyway, so verifying it costs the
     call that was already being made. Without the check a truncated export is
     served to every reader until the horizon — a persistent version of exactly
-    the corrupt download this PR exists to prevent.
+    the corrupt download the cache exists to prevent.
     """
     from app.platform.storage import get_storage
     from app.processing.export import artifact_cache as cache
@@ -904,7 +904,7 @@ async def test_a_truncated_artifact_is_skipped_rather_than_served(test_db_sessio
 
 
 # ---------------------------------------------------------------------------
-# Review r3: reclamation
+# Reclamation
 # ---------------------------------------------------------------------------
 
 
@@ -943,7 +943,7 @@ async def test_the_sweep_reclaims_aged_artifacts_and_keeps_young_ones(test_db_se
 
 
 async def test_a_publish_racing_the_sweep_survives(test_db_session, monkeypatch):
-    """The sweep must not delete on the strength of a snapshot (review r2, r3).
+    """The sweep must not delete on the strength of a snapshot.
 
     An earlier revision read a selection's pointer, found it past the horizon,
     declared the whole PREFIX stale and removed every key under it — including
@@ -1015,7 +1015,7 @@ async def test_one_off_selections_do_not_accumulate(
 ):
     """Storage is bounded by build rate times horizon, not by all-time selections.
 
-    fix(#1532 review r3): the previous design left a ``current.json`` per
+    fix(#1532): the previous design left a ``current.json`` per
     selection forever, and a selection is (dataset, format, filters) — anonymous
     callers can export a public dataset with arbitrary ``bbox`` and ``where``, so
     the set is caller-controlled and unbounded. Storage grew without limit after
@@ -1052,7 +1052,7 @@ async def test_one_off_selections_do_not_accumulate(
 
 
 # ---------------------------------------------------------------------------
-# Review r3: cancellation
+# Cancellation
 # ---------------------------------------------------------------------------
 
 
@@ -1114,13 +1114,8 @@ async def test_a_cancel_during_publication_does_not_strand_the_conversion(
     )
 
 
-# ---------------------------------------------------------------------------
-# Review r4
-# ---------------------------------------------------------------------------
-
-
 async def test_a_full_store_reclaims_and_then_succeeds(test_db_session, monkeypatch):
-    """fix(#1532 review r4): a full store must not deadlock the cache.
+    """fix(#1532): a full store must not deadlock the cache.
 
     ``_sweep_occasionally`` ran AFTER the upload, and it is the only production
     call to it. A ``put`` that raised on a full volume therefore exited ``store``
@@ -1187,7 +1182,7 @@ async def test_a_full_store_reclaims_and_then_succeeds(test_db_session, monkeypa
 
 
 def test_the_sweep_horizon_matches_the_temp_export_sweeper():
-    """fix(#1532 review r4): one horizon, imported rather than restated.
+    """fix(#1532): one horizon, imported rather than restated.
 
     ``staging.py`` already worked this hazard out for the temp-export sweeper:
     at one hour, "an in-flight export survives a restart" becomes "any export
@@ -1213,7 +1208,7 @@ def test_the_sweep_horizon_matches_the_temp_export_sweeper():
 async def test_a_cached_parquet_probe_does_not_replan_per_range(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):
-    """fix(#1532 review r4): the expensive plan is behind the cache, not in front.
+    """fix(#1532): the expensive plan is behind the cache, not in front.
 
     ``plan_parquet_export`` introspects the live table and runs a bounded count
     up to a million rows, and it sat ABOVE the artifact lookup — so every HEAD
@@ -1276,15 +1271,10 @@ async def test_a_cached_parquet_probe_does_not_replan_per_range(
     shutil.rmtree(root, ignore_errors=True)
 
 
-# ---------------------------------------------------------------------------
-# Review r5
-# ---------------------------------------------------------------------------
-
-
 async def test_an_enospc_mid_write_leaves_no_partial_object(
     test_db_session, monkeypatch
 ):
-    """fix(#1532 review r5): a failed write must not hold the volume it filled.
+    """fix(#1532): a failed write must not hold the volume it filled.
 
     ``LocalStorageProvider.put`` opened the FINAL path with ``wb`` and streamed
     into it, so an ENOSPC mid-copy left a truncated file under the name every
@@ -1518,7 +1508,7 @@ async def test_a_second_publisher_does_not_add_to_a_fresh_selection(
     rare rather than merely handled: a builder that started before a sibling
     finished re-checks on the way out and adds no second artifact.
 
-    fix(#1532 review r29): and it is handed the INCUMBENT to serve, not None. It
+    fix(#1532): and it is handed the INCUMBENT to serve, not None. It
     used to serve its own bytes, which put its client on a representation no
     later Range would resolve; see
     `test_a_builder_that_loses_the_race_serves_the_incumbent`.
@@ -1559,7 +1549,7 @@ async def test_a_future_stamped_artifact_is_not_served(test_db_session):
     Candidates are ordered by the stamp in the key, so a future one beats every
     honest sibling for as long as the skew lasts.
 
-    fix(#1532 review r9) narrowed this without removing it. Freshness now comes
+    fix(#1532) narrowed this without removing it. Freshness now comes
     from the object's own modified time, which the BACKEND stamps, so a bad
     worker clock can no longer keep an artifact alive past its TTL. What it can
     still do is win the sort — and reclamation, which must stay portable, still
@@ -1595,9 +1585,8 @@ async def test_publication_stops_at_the_byte_budget(test_db_session, monkeypatch
     the volume `export_dataset` converts on and every ingest stages uploads on.
     Before #1532 those export bytes were transient; retaining a copy of every
     distinct selection for a horizon means a handful of large ones blocks every
-    conversion and upload on the instance. The reclaim-and-retry added in review
-    r4 only frees AGED artifacts, so a volume full of FRESH ones has nothing to
-    give back.
+    conversion and upload on the instance. The reclaim-and-retry only frees AGED
+    artifacts, so a volume full of FRESH ones has nothing to give back.
     """
     import tempfile
 
@@ -1789,7 +1778,7 @@ async def test_a_cancel_during_the_first_write_discards_its_attempt(
 async def test_an_exhausted_budget_reclaims_and_then_publishes(
     test_db_session, monkeypatch
 ):
-    """fix(#1532 review r6): the budget check must not sit above the sweep.
+    """fix(#1532): the budget check must not sit above the sweep.
 
     It was an early return placed before the only thing that reclaims, so once
     claimed sizes reached the ceiling every later publication left without
@@ -1797,8 +1786,8 @@ async def test_an_exhausted_budget_reclaims_and_then_publishes(
     going to reclaim them. Misses then rebuilt and served whole forever, until an
     operator cleaned storage by hand.
 
-    The same deadlock r4 fixed for ENOSPC, re-created by a new early exit above
-    the same sweep. The artifacts here are past the horizon, so a sweep frees the
+    The same deadlock the reclaim-and-retry fixed for ENOSPC, re-created by a
+    new early exit above the same sweep. The artifacts here are past the horizon, so a sweep frees the
     room; the point is whether one runs at all.
     """
     import tempfile
@@ -1844,7 +1833,7 @@ async def test_two_publishers_may_overshoot_and_the_horizon_reclaims_it(
     reclamation horizon.
 
     A post-write re-check that dropped the writer's own artifact lived here for
-    one round (fix(#1532 review r6)) and is withdrawn (r7): once `put` returns,
+    one round (fix(#1532)) and is withdrawn: once `put` returns,
     `lookup` can hand that key to another request, which has already declared a
     Content-Length and is about to open its stream — so the delete truncates a
     download. An overshoot that expires is a better failure than a truncated
@@ -1927,7 +1916,7 @@ async def test_two_publishers_may_overshoot_and_the_horizon_reclaims_it(
 
 
 # ---------------------------------------------------------------------------
-# Review r7: the scratch files this PR introduced, everywhere
+# The scratch files the cache introduced, everywhere
 # ---------------------------------------------------------------------------
 
 
@@ -2057,11 +2046,6 @@ async def test_the_sweep_prunes_its_own_empty_selection_dirs(test_db_session):
         f"{[p.name for p in leftover[:3]]}. Filters are caller-controlled, so "
         f"they accumulate without limit and every later listing walks them."
     )
-
-
-# ---------------------------------------------------------------------------
-# Review r8
-# ---------------------------------------------------------------------------
 
 
 async def test_a_staggered_sibling_still_refuses_ranges_after_it_expires(
@@ -2246,11 +2230,6 @@ def test_both_remote_puts_drain_their_upload_thread():
         )
 
 
-# ---------------------------------------------------------------------------
-# Review r9
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize("accept_encoding", ["gzip", "x-gzip", "br, gzip;q=0.9"])
 async def test_the_export_route_is_never_gzipped_and_others_still_are(
     client: AsyncClient,
@@ -2261,8 +2240,8 @@ async def test_the_export_route_is_never_gzipped_and_others_still_are(
 ):
     """A compressed 200 and a raw 206 must not share one ETag — on THIS route only.
 
-    Parametrized over the spellings that trip ``GZipMiddleware`` (fix(#1532
-    review r17)): it engages on a SUBSTRING test, ``"gzip" in Accept-Encoding``,
+    Parametrized over the spellings that trip ``GZipMiddleware`` (fix(#1532)): it
+    engages on a SUBSTRING test, ``"gzip" in Accept-Encoding``,
     so ``x-gzip`` — which RFC 9110 section 8.4.1.3 makes equivalent to gzip —
     compresses too. The opt-out used to drop members that STARTED with gzip and
     let that one through; it now applies the same predicate the middleware does.
@@ -2544,17 +2523,12 @@ async def test_a_matching_if_match_still_serves_the_export(
     )
 
 
-# ---------------------------------------------------------------------------
-# Review r10
-# ---------------------------------------------------------------------------
-
-
 async def test_a_slow_upload_is_not_reclaimed_the_moment_it_appears(
     test_db_session, monkeypatch
 ):
     """Reclamation ages from publication too, not from the pre-upload stamp.
 
-    Once freshness moved onto `last_modified` (review r9) the two clocks
+    Once freshness moved onto `last_modified` the two clocks
     diverged by however long the push took. The sweep still read the key's
     stamp, which is taken BEFORE the upload — so an S3 or Azure upload that
     consumed most of the four-hour horizon could be reclaimed shortly after
@@ -2568,13 +2542,13 @@ async def test_a_slow_upload_is_not_reclaimed_the_moment_it_appears(
     The double reports a key stamped past the horizon and a modified time of
     now, which is exactly the slow-upload shape.
 
-    fix(#1532 review r23/r24): the upload is five minutes, not five hours. The
+    fix(#1532): the upload is five minutes, not five hours. The
     sweep ages through `_published_at` now, which caps publication at the stamp
     plus `_MAX_PUBLISH_SECONDS` — the longest an upload can take with a client
     still waiting — so a "push" that outlived that ceiling is not a publication
     anyone can be streaming, and IS reclaimed once the stamp plus the ceiling
     passes the horizon (`test_the_sweep_does_not_let_a_future_mtime_pin_an_artifact`
-    pins that side). Inside the ceiling, the r10 property holds unchanged.
+    pins that side). Inside the ceiling, the slow-upload property holds unchanged.
     """
     from app.platform.storage import get_storage
     from app.platform.storage.provider import StoredObject
@@ -2665,11 +2639,6 @@ async def test_the_build_path_answers_validators_too(
     )
 
 
-# ---------------------------------------------------------------------------
-# Review r12
-# ---------------------------------------------------------------------------
-
-
 def test_two_gpkg_conversions_of_unchanged_data_are_byte_identical(tmp_path):
     """GeoPackage must hash the same twice, or ranges never work for it.
 
@@ -2752,7 +2721,7 @@ def test_two_gpkg_conversions_of_unchanged_data_are_byte_identical(tmp_path):
 
 
 def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
-    """fix(#1633): the counter that r12's test above cannot force by editing.
+    """fix(#1633): the counter that the test above cannot force by editing.
 
     #1633's evidence capture (#1637) caught a real merge-group flake and
     proved the two builds differed in EXACTLY two bytes, both in the SQLite
@@ -2762,7 +2731,7 @@ def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
     one build under CI load, so the counter pair diverged even though every
     row and every timestamp column already matched.
 
-    r12's test above deliberately does NOT force a difference by editing a
+    The test above deliberately does NOT force a difference by editing a
     file, because a content edit ALSO bumps the counter and would make the
     pair "differ forever however the timestamps were normalized" (see its
     comment) — that was a false positive from the wrong tool, not evidence of
@@ -2770,7 +2739,7 @@ def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
     against a copy of the first build: two reversible UPDATE transactions
     that leave every row exactly as they found it, but commit twice.
 
-    fix(#1633 review, codex P2): the fix stamps a DERIVED value now, not a
+    fix(#1633): the fix stamps a DERIVED value now, not a
     fixed constant (see `test_normalize_derives_distinct_counters_for_different_content`
     below for why), so this only checks the two header fields agree with
     each other and land on the same value for the same content — not that
@@ -2864,7 +2833,7 @@ def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
 
 
 def test_normalize_derives_distinct_counters_for_different_content(tmp_path):
-    """fix(#1633 review, codex P2): the derived counter must vary with content.
+    """fix(#1633): the derived counter must vary with content.
 
     The first version of this fix stamped both header fields to a FIXED
     constant. That made #1633's determinism property hold, but it also meant
@@ -2935,7 +2904,7 @@ def test_normalize_derives_distinct_counters_for_different_content(tmp_path):
 
 
 def test_the_streamed_header_derivation_matches_a_naive_whole_file_hash(tmp_path):
-    """fix(#1633 review, codex P1): streaming must not change what gets stamped.
+    """fix(#1633): streaming must not change what gets stamped.
 
     `_stamp_gpkg_header_counters` reads and hashes the file in fixed-size
     chunks rather than loading it whole, because the naive version's
@@ -3114,10 +3083,10 @@ async def test_a_matching_if_range_resumes_even_on_a_contested_selection(
 
 
 # ---------------------------------------------------------------------------
-# Review r13 — byte-determinism, enumerated per format
+# Byte-determinism, enumerated per format
 # ---------------------------------------------------------------------------
 #
-# r12 fixed GeoPackage in isolation. That was the wrong shape of fix: the
+# The first fix covered GeoPackage in isolation. That was the wrong shape of fix: the
 # property "two conversions of unchanged data produce identical bytes" is what
 # #1532's whole safety model rests on, and it has to hold for EVERY format the
 # route can emit, not for the one that happened to be reported. Shapefile was
@@ -3584,7 +3553,7 @@ def test_no_export_format_escapes_the_determinism_check():
     Written as "every format in FORMAT_MAP is covered here" rather than as a
     list of the ones known to be broken. A predicate that enumerates the known
     failures is a blocklist: it answers "no problem" for everything it has not
-    heard of, which is precisely how shapefile survived r12.
+    heard of, which is precisely how shapefile survived the GeoPackage-only fix.
     """
     from app.processing.export.ogr import PARQUET_MEDIA_TYPE
 
@@ -3597,11 +3566,6 @@ def test_no_export_format_escapes_the_determinism_check():
     assert PARQUET_MEDIA_TYPE and "parquet" in covered, (
         "the route emits parquet outside FORMAT_MAP, so it has to be named"
     )
-
-
-# ---------------------------------------------------------------------------
-# Review r14
-# ---------------------------------------------------------------------------
 
 
 def test_the_scratch_sweep_walks_once_per_horizon_not_once_per_cycle(tmp_path):
@@ -3703,11 +3667,6 @@ def test_the_scratch_sweep_interval_follows_the_horizon_it_is_given(tmp_path):
         )
     finally:
         staging._last_scratch_sweep_at = 0.0
-
-
-# ---------------------------------------------------------------------------
-# Review r16
-# ---------------------------------------------------------------------------
 
 
 async def test_an_oversize_artifact_is_refused_on_an_empty_cache(monkeypatch):
@@ -3888,27 +3847,22 @@ async def test_a_rebuild_that_does_transfer_is_still_audited(
     )
 
 
-# ---------------------------------------------------------------------------
-# Review r17
-# ---------------------------------------------------------------------------
-
-
 async def test_a_rebuild_answering_416_releases_its_directory_and_is_not_audited(
     client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
 ):
     """A 416 on the REBUILD path leaves no conversion directory and no audit row.
 
-    A matching ``If-Range`` outranks ``may_serve_range`` (review r12), and the
+    A matching ``If-Range`` outranks ``may_serve_range``, and the
     export is byte-deterministic, so a client resuming with the ETag it holds
     is proven against what a rebuild just produced. If its Range then names no
     byte — ``bytes=<size>-`` is what a resumer sends for a file it already has
     whole — ``read_response`` raises the 416 as an ``HTTPException``.
 
-    Two things went wrong on that exit before r17. The conversion directory was
+    Two things went wrong on that exit originally. The conversion directory was
     owned by a ``BackgroundTask`` that was never attached to a response, so it
     outlived the request until the orphan sweep. And the audit row had already
     been written above the call, so a request that transferred nothing was
-    recorded as a download — the exact inconsistency r16 closed for 412 and
+    recorded as a download — the exact inconsistency already closed for 412 and
     304, still open one branch further down.
 
     Driven through a real expiry, and ``conversions.count == 2`` pins that the
@@ -3974,11 +3928,6 @@ async def test_a_rebuild_answering_416_releases_its_directory_and_is_not_audited
     )
 
 
-# ---------------------------------------------------------------------------
-# Review r18
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "header,value,expected",
     [
@@ -3999,9 +3948,9 @@ async def test_the_fallback_path_carries_and_evaluates_the_validator(
 ):
     """When publication does not happen, preconditions are still answered.
 
-    fix(#1532 review r18): `store()` returns None on a full store, a lost race
+    fix(#1532): `store()` returns None on a full store, a lost race
     or an outage, and the route then streams the conversion it has in hand.
-    r10 put `If-Match`/`If-None-Match` on the STORED branch only, so on this one
+    The earlier version put `If-Match`/`If-None-Match` on the STORED branch only, so on this one
     an expired-but-byte-identical export with a matching `If-None-Match` was
     retransmitted whole, and a stale `If-Match` was ignored rather than
     refused. The validator is now the digest of the built file, computed once
@@ -4068,11 +4017,6 @@ async def test_the_fallback_path_carries_and_evaluates_the_validator(
         if os.path.isdir(os.path.join(conversions.root, name))
     ]
     assert leftovers == [], f"the conversion directory {leftovers} was stranded"
-
-
-# ---------------------------------------------------------------------------
-# Review r19
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -4168,11 +4112,6 @@ async def test_the_fallback_honours_a_proven_if_range_with_a_local_slice(
     assert leftovers == [], f"the conversion directory {leftovers} was stranded"
 
 
-# ---------------------------------------------------------------------------
-# Review r20
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize("header,expected", [("If-None-Match", 304), ("If-Match", 200)])
 async def test_a_hash_that_fails_here_and_succeeds_in_store_still_yields_the_validator(
     client: AsyncClient,
@@ -4185,7 +4124,7 @@ async def test_a_hash_that_fails_here_and_succeeds_in_store_still_yields_the_val
 ):
     """The precondition validator is the published artifact's when there is one.
 
-    fix(#1532 review r20): the route hashes the file itself and hands the result
+    fix(#1532): the route hashes the file itself and hands the result
     to `store`, which recomputes it if handed None. A hash that failed on the
     route and succeeded inside `store` therefore left the route's `etag` None
     while the response advertised `stored.etag`: a matching `If-Match` was
@@ -4233,11 +4172,6 @@ async def test_a_hash_that_fails_here_and_succeeds_in_store_still_yields_the_val
     assert resp.headers.get("etag") == etag
 
 
-# ---------------------------------------------------------------------------
-# Review r21
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "header,value,expected",
     [
@@ -4258,7 +4192,7 @@ async def test_a_cold_head_evaluates_preconditions_without_building(
 ):
     """A cold HEAD answers conditionals the same way a warm one does — minus the tag.
 
-    fix(#1532 review r21): the cold HEAD returned above the precondition checks
+    fix(#1532): the cold HEAD returned above the precondition checks
     that run on a hit and after a rebuild, so `HEAD If-None-Match: *` was 200
     when the cache was cold and 304 when it was warm, and a specific `If-Match`
     was accepted cold and refused warm. Conditional behaviour depended on cache
@@ -4292,7 +4226,7 @@ async def test_a_cold_get_with_if_none_match_star_answers_304_without_building(
 ):
     """`GET If-None-Match: *` on a cold cache is a 304 that converts nothing.
 
-    fix(#1532 review r21): the wildcard asks "does the resource have a
+    fix(#1532): the wildcard asks "does the resource have a
     representation at all", which is answerable without producing one. Before
     this the cold GET converted the whole export and then answered 304 from the
     freshly built validator — the correct status, reached by doing all the work
@@ -4316,11 +4250,6 @@ async def test_a_cold_get_with_if_none_match_star_answers_304_without_building(
     assert conversions.count == 1, "a specific tag must reach the build to be evaluated"
 
 
-# ---------------------------------------------------------------------------
-# Review r22
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize("method,expected_conversions", [("HEAD", 0), ("GET", 1)])
 async def test_a_stale_if_match_beats_a_wildcard_if_none_match_on_a_cold_cache(
     client: AsyncClient,
@@ -4332,9 +4261,9 @@ async def test_a_stale_if_match_beats_a_wildcard_if_none_match_on_a_cold_cache(
 ):
     """`If-Match: "stale"` + `If-None-Match: *` is a 412 cold, as it is warm.
 
-    fix(#1532 review r22): RFC 9110 section 13.2.2 evaluates If-Match before
+    fix(#1532): RFC 9110 section 13.2.2 evaluates If-Match before
     If-None-Match, so a failed If-Match is authoritative. The cold wildcard
-    shortcut (r21) returned 304 first, which made the answer depend on cache
+    shortcut returned 304 first, which made the answer depend on cache
     state: the hit and rebuild paths already gave 412. HEAD refuses the
     unverifiable tag without building; GET builds — the only place a specific
     tag can be evaluated exactly — and then refuses it, in order.
@@ -4369,7 +4298,7 @@ async def test_a_stale_if_match_beats_a_wildcard_if_none_match_on_a_cold_cache(
         # at the stamp.
         (0, -500, "hit"),
         # store clock BEHIND by more than the allowance plus the TTL: the stamp
-        # is clamped to the mtime plus the allowance (r28) and that is expired.
+        # is clamped to the mtime plus the allowance and that is expired.
         # A store this far behind the fleet is a cache that does not serve.
         (0, -1300, "miss"),
         # store clock AHEAD, on an artifact that really is stale: a future
@@ -4379,7 +4308,7 @@ async def test_a_stale_if_match_beats_a_wildcard_if_none_match_on_a_cold_cache(
         # store clock AHEAD, on a fresh artifact: falls back to the stamp,
         # which is fresh.
         (0, +600, "hit"),
-        # controls: honest clocks, stale; and r9's slow upload — stamp old,
+        # controls: honest clocks, stale; and the slow upload — stamp old,
         # published recently — still fresh.
         (1200, -1200, "miss"),
         (700, -10, "hit"),
@@ -4390,7 +4319,7 @@ async def test_freshness_is_bounded_by_the_workers_own_clock(
 ):
     """`last_modified` is the store's clock; the cutoff and the stamp are ours.
 
-    fix(#1532 review r22): freshness compared the two directly. A store clock
+    fix(#1532): freshness compared the two directly. A store clock
     behind by more than the TTL made every artifact expired the moment it
     appeared — every probe reconverted and uploaded, and the cache was silently
     dead. A store clock ahead reported a publication this worker had not
@@ -4399,7 +4328,7 @@ async def test_freshness_is_bounded_by_the_workers_own_clock(
     a modified time beyond `now` plus the jitter allowance is not trusted at
     all — the stamp answers instead.
 
-    fix(#1532 review r23): the bound is a pure function of the object — the
+    fix(#1532): the bound is a pure function of the object — the
     stamp as the floor, the stamp plus the publish ceiling as the cap — and
     reads no clock of its own, so the verdict cannot go expired → fresh later.
 
@@ -4447,7 +4376,7 @@ async def test_freshness_is_bounded_by_the_workers_own_clock(
 def test_publication_is_a_pure_function_of_the_object(modified_offset):
     """`_published_at` reads no clock, so an artifact can only go fresh → expired.
 
-    fix(#1532 review r23): the r22 rule distrusted a modified time beyond
+    fix(#1532): the earlier rule distrusted a modified time beyond
     `now` plus the jitter allowance and fell back to the stamp — correct at
     first, and then wrong: as `now` moved on, the same immutable object crossed
     back to fresh the moment its future mtime came within reach, and stale
@@ -4479,15 +4408,10 @@ def test_publication_is_a_pure_function_of_the_object(modified_offset):
     )
 
 
-# ---------------------------------------------------------------------------
-# Review r24
-# ---------------------------------------------------------------------------
-
-
 async def test_the_sweep_does_not_let_a_future_mtime_pin_an_artifact(test_db_session):
     """Reclamation ages through the same bound freshness uses.
 
-    fix(#1532 review r24): the sweep took `max(stamp, last_modified)` with no
+    fix(#1532): the sweep took `max(stamp, last_modified)` with no
     ceiling, so a store clock running ahead placed the age origin in the
     future and the object lived a full horizon past a time that had not
     happened yet — the byte inventory pinned at its ceiling and every later
@@ -4496,7 +4420,7 @@ async def test_the_sweep_does_not_let_a_future_mtime_pin_an_artifact(test_db_ses
     worst an ahead store can do to reclamation is the same allowance, once.
 
     Seeded past the horizon by the stamp, with an mtime an hour in the future:
-    reclaimed. The counterfactual keeps the r10 property — a stamp past the
+    reclaimed. The counterfactual keeps the slow-upload property — a stamp past the
     horizon whose honest mtime is recent (a slow upload) is NOT reclaimed.
     """
     from app.platform.storage import get_storage
@@ -4537,11 +4461,6 @@ async def test_the_sweep_does_not_let_a_future_mtime_pin_an_artifact(test_db_ses
     )
 
 
-# ---------------------------------------------------------------------------
-# Review r25
-# ---------------------------------------------------------------------------
-
-
 async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -4551,7 +4470,7 @@ async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
 ):
     """The key's stamp is taken BEFORE the conversion reads the data.
 
-    fix(#1532 review r25): it was minted just before the upload, after the
+    fix(#1532): it was minted just before the upload, after the
     conversion had finished. A mutation that misses `tile_cache_version` and
     lands during a long conversion makes an artifact stale at birth, and a
     stamp taken after the build let it age from after the staleness began —
@@ -4622,7 +4541,7 @@ async def test_an_artifact_whose_snapshot_is_older_than_the_ceiling_is_not_serve
 ):
     """Build plus upload past the ceiling yields an artifact no request uses.
 
-    fix(#1532 review r25): with the stamp on the snapshot, `_published_at`
+    fix(#1532): with the stamp on the snapshot, `_published_at`
     places publication no later than the stamp plus `_MAX_PUBLISH_SECONDS`, so
     an artifact whose data is older than TTL plus that ceiling at publication is
     expired the moment it exists. That is the promise, stated in the module
@@ -4662,17 +4581,12 @@ async def test_an_artifact_whose_snapshot_is_older_than_the_ceiling_is_not_serve
         )
 
 
-# ---------------------------------------------------------------------------
-# Review r28
-# ---------------------------------------------------------------------------
-
-
 async def test_a_far_future_stamp_cannot_pin_an_artifact_past_reclamation(
     test_db_session,
 ):
     """A writer clock a month ahead does not keep its object for a month.
 
-    fix(#1532 review r28): `lookup` refused a future-stamped key, but the sweep
+    fix(#1532): `lookup` refused a future-stamped key, but the sweep
     floored publication at that future stamp, so the object could not be
     reclaimed until then plus the horizon — its size counting against the
     budget and its digest keeping the selection contested the whole time.
@@ -4681,7 +4595,7 @@ async def test_a_far_future_stamp_cannot_pin_an_artifact_past_reclamation(
     other way, so a stamp far ahead of the bytes ages from when the bytes
     actually appeared plus that allowance.
 
-    The counterfactual keeps the r22 store-behind property: a stamp inside the
+    The counterfactual keeps the store-behind property: a stamp inside the
     allowance ahead of a recent mtime is not reclaimed.
     """
     from app.platform.storage import get_storage
@@ -4727,11 +4641,6 @@ async def test_a_far_future_stamp_cannot_pin_an_artifact_past_reclamation(
     )
 
 
-# ---------------------------------------------------------------------------
-# Review r29
-# ---------------------------------------------------------------------------
-
-
 async def test_a_builder_that_loses_the_race_serves_the_incumbent(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -4741,7 +4650,7 @@ async def test_a_builder_that_loses_the_race_serves_the_incumbent(
 ):
     """Two overlapping builders with DIFFERENT bytes: both clients get the same ones.
 
-    fix(#1532 review r29, P1): when a builder found a fresh incumbent at
+    fix(#1532, P1): when a builder found a fresh incumbent at
     publish time, `store` returned None and the route streamed the builder's
     OWN conversion whole. If the two conversions had taken different snapshots
     (a mutation that missed `tile_cache_version` landing between them), that
@@ -4968,7 +4877,7 @@ async def test_a_leading_range_after_a_change_is_whole_when_old_bytes_are_still_
 async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_whole(
     client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
 ):
-    """#1585 review r3: the hit path honours the URL's history too, for one TTL.
+    """#1585 codex: the hit path honours the URL's history too, for one TTL.
 
     Client A reads the leading block (a fresh build, 206). The data changes and
     the version moves. Client B fetches the export, building the new version's
@@ -5017,7 +4926,7 @@ async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_who
     # bytes is a v1 publication plus a TTL, and the client that took it gets a
     # TTL to come back — so a v1 publication 700 s old (TTL 600: served until
     # 100 s ago) still holds bare ranges whole, and one 1300 s old releases
-    # them (#1585 review r5). Re-keyed each time, since the stamp in the name
+    # them (#1585). Re-keyed each time, since the stamp in the name
     # floors publication.
     storage = get_storage()
     prefix = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"

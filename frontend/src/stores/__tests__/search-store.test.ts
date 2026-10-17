@@ -138,15 +138,14 @@ describe('useSearchStore', () => {
     expect(state.collection_id).toBe('');
     expect(state.keywords).toEqual([]);
     expect(state.geometry).toBe('');
-    // fix(#1761 review round 2 P2): srid shapes the query too — reset,
-    // where round 1 wrongly left it alone.
+    // srid shapes the query too, so it is reset.
     expect(state.srid).toBe('');
     // Presentation preference: survives.
     expect(state.sort_by).toBe('name');
   });
 
   /**
-   * fix(#1761 review round 2 P2): round 1's partial reset left
+   * A partial reset leaves
    * geometry_type, source_organization, record_type, the date/vintage
    * fields, srid, spatial_predicate, exclude_synthetic and the pagination
    * offset untouched — all query-shaping, all exposed to the next identity
@@ -186,7 +185,7 @@ describe('useSearchStore', () => {
     }
   });
 
-  // fix(#1761 review P2): SearchBar keys its local input/debounce state on
+  // SearchBar keys its local input/debounce state on
   // resetEpoch precisely because clearIdentityScopedFilters can leave `q`
   // unchanged (already ''), so the counter has to move on every call.
   it('clearIdentityScopedFilters bumps resetEpoch even when q is already empty', () => {

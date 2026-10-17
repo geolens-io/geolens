@@ -166,7 +166,7 @@ export function DatasetChatPanel({
                 // same accepted action, so "Open in builder" never carries
                 // geometry from an earlier result than the table shown (#533).
                 queryResult = qr;
-                // feat(#1241 codex r1): carry the completeness pair and the
+                // Carry the completeness pair and the
                 // question with the geometry. The builder can now save a
                 // carried result as a dataset, so a handoff that arrives
                 // without them looks like a complete answer to every guard on
@@ -349,7 +349,7 @@ export function DatasetChatPanel({
           </div>
 
           <div className="flex items-end gap-2 border-t px-3 py-2">
-            {/* Raw textarea kept for the auto-growing chat composer (fix(#438) DS-03). */}
+            {/* Raw textarea kept for the auto-growing chat composer. */}
             <textarea
               ref={inputRef}
               value={input}

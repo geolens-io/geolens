@@ -510,7 +510,7 @@ class TestNodata:
 
 
 class TestReconcileEpsg:
-    """fix(#1334 review, round 3): the two questions this function tells
+    """The two questions this function tells
     apart. "The probe returned no EPSG" and "the probe established no CRS
     at all" look the same from ``epsg is None`` alone, but only one of them
     means the declared value is trustworthy."""
@@ -524,7 +524,7 @@ class TestReconcileEpsg:
         assert reconcile_epsg(probe, 4326) == 32621
 
     def test_a_probed_crs_with_no_mappable_epsg_stays_unset(self) -> None:
-        """The exact case round 3 caught: a real, successfully-probed WKT
+        """The exact case this guards: a real, successfully-probed WKT
         that PROJ cannot map to an authority code must not fall back to the
         item's declared EPSG — that would pair the probed WKT with a
         DECLARED code that may name a different projection, reproducing the

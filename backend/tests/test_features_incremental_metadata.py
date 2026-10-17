@@ -505,7 +505,7 @@ def test_the_geometry_type_merge_matches_the_scan_it_replaces(current, added, ex
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 review r1): the prior envelope must come from the mutation itself.
+# fix(#1778): the prior envelope must come from the mutation itself.
 # ---------------------------------------------------------------------------
 
 # Far outside the seeded extent, so an extent computed with this row present

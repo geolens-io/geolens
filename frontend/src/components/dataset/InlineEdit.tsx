@@ -17,7 +17,7 @@ interface InlineEditProps {
   onDirtyChange?: (isDirty: boolean) => void;
   /** Start in edit mode immediately (e.g. after clicking "Add" CTA). */
   initialEditing?: boolean;
-  /** fix(#458 E-04): emit an emptied value so the consumer can stage a clear.
+  /** Emit an emptied value so the consumer can stage a clear.
    * Off by default — non-clearable fields (title) must never save empty. */
   allowClear?: boolean;
   /** Input type of the single-line editor; `date` yields and expects ISO `YYYY-MM-DD`. */
@@ -90,7 +90,7 @@ export function InlineEdit({
     const incompleteInput = inputRef.current?.validity.badInput === true;
     try {
       if (!incompleteInput && (trimmed || allowClear) && trimmed !== value) {
-        // BUG-040: wrap onSave in try/catch so a rejected mutation never
+        // Wrap onSave in try/catch so a rejected mutation never
         // strands the editor open or produces an unhandled rejection.
         await onSave(trimmed);
       }
@@ -135,7 +135,7 @@ export function InlineEdit({
     [cancel, save, multiline],
   );
 
-  // fix(#458 E-32): clear the dirty flag on true unmount ONLY. Depending on
+  // Clear the dirty flag on true unmount ONLY. Depending on
   // [emitDirtyChange] re-ran this cleanup whenever the onDirtyChange prop
   // identity changed — which the dirty change itself triggers when the parent
   // passes an inline arrow — instantly self-reverting the flag, so the
@@ -183,14 +183,14 @@ export function InlineEdit({
             value={draft}
             onChange={(e) => handleDraftChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            // fix(#438): DS-03 — deliberately shares inputClasses with its
+            // Deliberately shares inputClasses with its
             // sibling <input> so the inline editor looks identical in both modes;
             // that's why it doesn't use the ui/textarea primitive.
             className={cn(inputClasses, 'resize-none min-h-[3rem]')}
             rows={3}
             title={t('common:inlineEdit.hint', { defaultValue: 'Ctrl+Enter to save, Escape to cancel' })}
           />
-          {/* fix(#458 E-32): Ctrl+Enter was the ONLY save path, hinted solely
+          {/* Ctrl+Enter was the ONLY save path, hinted solely
               by a hover tooltip — click-away cancels, so edits were silently
               lost. Visible buttons; mousedown is prevented so the textarea's
               blur→cancel doesn't fire before the click lands. */}

@@ -1,6 +1,6 @@
-"""SEC-12: Map thumbnail upload validates payload via PIL.Image.verify().
+"""Map thumbnail upload validates payload via PIL.Image.verify().
 
-Pins the v13.13 closure of L-65. Without the gate, an authenticated user
+Without the gate, an authenticated user
 with edit_metadata permission could upload arbitrary bytes labeled
 data:image/png and have them served back as image/png by the GET
 endpoint — a stored-content tampering primitive.

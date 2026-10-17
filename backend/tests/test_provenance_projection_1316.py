@@ -1,7 +1,7 @@
 """Single provenance projection across dataset reads, /versions/, and
 collection dataset listings (#1316, ADR-002 amendment).
 
-Decided 2026-08-09: the refresh-runs redaction model (ADR-002 Decision 4e) is
+Decided 2026-08-09: the refresh-runs redaction model (ADR-002) is
 the single provenance projection everywhere it applies. The dataset owner and
 any admin see raw provenance in full; every other reader of an accessible
 dataset — a named signed-in third party or an anonymous reader — gets
@@ -207,7 +207,7 @@ class TestVersionsProjection:
     """GET /datasets/{id}/versions/: file_hash/uploaded_by are owner-or-admin only.
 
     Unredacted, a PUBLIC dataset's version history enumerates its editors —
-    the exact leak ADR-002 Decision 4e closed for refresh-runs.
+    the exact leak ADR-002 closed for refresh-runs.
     """
 
     @staticmethod

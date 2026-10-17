@@ -57,7 +57,7 @@ def test_formula_shaped_cells_are_escaped(value: str) -> None:
     ["-12", "+12", "-0.5", "+.5", "-1.5e-3", "+2E10", "-0"],
 )
 def test_the_default_escapes_numbers_too(value: str) -> None:
-    """fix(#1778 codex r2): strict is the default, and the audit and admin
+    """fix(#1778): strict is the default, and the audit and admin
     exports keep it. A username of `+123` or an account id of `-001` is a
     string that happens to look like a number, and a security log should not
     trade its protection for right-alignment."""
@@ -133,7 +133,7 @@ def test_hardening_rewrites_a_csv_in_place(tmp_path: Path) -> None:
 
 
 def test_the_exemption_follows_the_column_not_the_value(tmp_path: Path) -> None:
-    """fix(#1778 codex r2): the same characters, two columns, two answers."""
+    """fix(#1778): the same characters, two columns, two answers."""
     target = tmp_path / "typed.csv"
     target.write_text(
         "elevation,label\n-1,-1\n+2.5,+2.5\n-12+A1,-12+A1\n",
@@ -202,7 +202,7 @@ def test_the_export_runs_the_pass_only_for_csv_and_only_on_success() -> None:
 
 
 def test_the_export_runs_the_pass_off_the_event_loop_and_under_the_deadline() -> None:
-    """fix(#1778 codex r1): inline, this stalled every concurrent request."""
+    """fix(#1778): inline, this stalled every concurrent request."""
     src = inspect.getsource(run_ogr2ogr_export)
     assert "run_in_thread_draining(" in src, (
         "the pass must go through the draining thread helper its sibling "
@@ -224,7 +224,7 @@ def test_all_three_csv_writers_share_one_rule() -> None:
 
 
 def test_the_admin_and_audit_exports_stay_strict() -> None:
-    """fix(#1778 codex r2): neither may pass allow_numeric.
+    """fix(#1778): neither may pass allow_numeric.
 
     They call the shared helper positionally, so the default governs; this
     fails if someone opts either of them into the dataset export's exemption.
@@ -244,7 +244,7 @@ def test_the_admin_and_audit_exports_stay_strict() -> None:
 
 @pytest.mark.anyio
 async def test_a_large_pass_does_not_block_a_concurrent_request(tmp_path: Path) -> None:
-    """fix(#1778 codex r1): the loop stays responsive while the pass runs.
+    """fix(#1778): the loop stays responsive while the pass runs.
 
     The pass is driven the way `run_ogr2ogr_export` drives it. A cooperating
     task that only needs the loop to turn must complete while the rewrite is
@@ -287,7 +287,7 @@ async def test_a_large_pass_does_not_block_a_concurrent_request(tmp_path: Path) 
 def test_an_expired_deadline_fails_the_export_instead_of_finishing_late(
     tmp_path: Path,
 ) -> None:
-    """fix(#1778 codex r1): the budget the subprocess had now covers the pass."""
+    """fix(#1778): the budget the subprocess had now covers the pass."""
     target = tmp_path / "late.csv"
     original = "a,b\n=1,2\n=3,4\n"
     target.write_text(original, encoding="utf-8")

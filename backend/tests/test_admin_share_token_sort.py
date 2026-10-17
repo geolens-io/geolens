@@ -17,7 +17,7 @@ from httpx import AsyncClient
 
 from tests.factories import create_map_via_api
 
-PASSWORD = "TestPass1234!"  # SEC-S16: meets 12-char + 3-class policy
+PASSWORD = "TestPass1234!"  # Meets 12-char + 3-class policy
 
 
 async def _publish(client: AsyncClient, headers: dict, name: str) -> str:

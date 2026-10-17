@@ -1,5 +1,5 @@
 /**
- * BUG-040: InlineEdit save() must wrap onSave in try/catch.
+ * InlineEdit save() must wrap onSave in try/catch.
  * A thrown onSave must NOT strand the editor or produce an unhandled rejection.
  * It MUST call toast.error with a translated key.
  *
@@ -156,7 +156,7 @@ describe('InlineEdit allowClear (#458 E-04)', () => {
 });
 
 /**
- * fix(#458 E-32): multiline drafts had no working save affordance —
+ * Multiline drafts had no working save affordance
  * (1) the unmount cleanup re-ran whenever the parent passed a new inline-arrow
  *     onDirtyChange, instantly self-reverting the dirty flag (so the
  *     pending-edits bar never appeared), and
@@ -249,7 +249,7 @@ describe('InlineEdit multiline (E-32)', () => {
 });
 
 /**
- * fix(#528 review): Tab from the textarea to the editor's own Save/Cancel
+ * Tab from the textarea to the editor's own Save/Cancel
  * buttons must not blur-cancel — keyboard users need to reach the buttons.
  */
 describe('InlineEdit multiline keyboard reachability (#528 review)', () => {

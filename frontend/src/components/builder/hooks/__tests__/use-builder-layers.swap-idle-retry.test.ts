@@ -1,5 +1,5 @@
 /**
- * BUG-018 regression: swapLayerOnMap idle-retry during style transitions.
+ * Regression: swapLayerOnMap idle-retry during style transitions.
  *
  * Pre-fix: swapLayerOnMap did `if (!map || !map.isStyleLoaded()) return;`
  * which silently dropped render-mode switches while the style was transitioning.
@@ -57,7 +57,7 @@ function renderBuilderLayersHook(
   const removeLayerMutation = {
     mutate: vi.fn(),
   } as unknown as Parameters<typeof useBuilderLayers>[4];
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  // 6th positional param bridging into useBuilderSave's Save-diff baseline.
   const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
   return renderHook(() =>
     useBuilderLayers(
@@ -146,7 +146,7 @@ function makeLoadedMapStub(existingLayerIds: string[] = []): MaplibreMap {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — BUG-018
+// Tests
 // ---------------------------------------------------------------------------
 
 describe('swapLayerOnMap — idle-retry during style transition (BUG-018)', () => {
@@ -167,7 +167,7 @@ describe('swapLayerOnMap — idle-retry during style transition (BUG-018)', () =
       result.current.handleRenderAsChange(LAYER_ID, 'heatmap');
     });
 
-    // once('idle', ...) must have been registered (BUG-018 fix)
+    // once('idle', ...) must have been registered
     expect(mapStub.once).toHaveBeenCalledWith('idle', expect.any(Function));
     // No immediate swap — addLayer NOT called yet (deferred to idle)
     expect(mapStub.addLayer).not.toHaveBeenCalled();

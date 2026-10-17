@@ -48,7 +48,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useUpdateAttribute: () => ({ mutateAsync: vi.fn() }),
   useDatasetHistory: () => ({ data: { history: [], total: 0 }, isLoading: false }),
   useDatasetRows: () => ({ data: { rows: [], total: 0 }, isLoading: false }),
-  // fix(#1285 codex round 4): mounted at the page level now.
+  // Mounted at the page level now.
   useDatasetRefreshWatch: () => ({ latestRun: undefined, isBusy: false, trackDispatchedRun: vi.fn() }),
 }));
 
@@ -309,7 +309,7 @@ describe('DatasetPage editable affordance integration', () => {
 
     expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
 
-    // DetailPanel is React.lazy (Phase 276 CODE-06) — wait for the chunk
+    // DetailPanel is React.lazy — wait for the chunk
     // to resolve before querying its child fields synchronously. Under
     // coverage load the chunk can take longer than findBy's 1s default.
     await user.click(await screen.findByText('Original summary', undefined, { timeout: 10_000 }));
@@ -409,7 +409,7 @@ describe('DatasetPage editable affordance integration', () => {
     });
   });
 
-  // fix(#1851 review P1): resetting useDraftEditing's own state (the test
+  // Resetting useDraftEditing's own state (the test
   // above) is not enough — InlineEdit keeps its OWN local editing/draft
   // state, and it deliberately ignores prop-value changes while `editing` is
   // true (see InlineEdit.tsx's sync effect). Typed-but-uncommitted text in an
@@ -461,7 +461,7 @@ describe('DatasetPage editable affordance integration', () => {
 
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    // DetailPanel is React.lazy (Phase 276 CODE-06) — wait for the chunk
+    // DetailPanel is React.lazy — wait for the chunk
     // to resolve before querying its child fields synchronously.
     const summaryShell = await screen.findByTestId('editable-field-shell-summary');
     expect(summaryShell).toHaveAttribute('data-editable', 'false');
@@ -484,7 +484,7 @@ describe('DatasetPage editable affordance integration', () => {
       expect(window.location.hash).toBe('#metadata');
     });
 
-    // DetailPanel is React.lazy (Phase 276 CODE-06) — wait for the chunk
+    // DetailPanel is React.lazy — wait for the chunk
     // to resolve before querying tab roles synchronously.
     expect(await screen.findByRole('tab', { name: 'Metadata' })).toHaveAttribute('aria-selected', 'true');
   });

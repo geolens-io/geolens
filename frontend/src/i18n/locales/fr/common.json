@@ -357,7 +357,16 @@
     "mapMessage": "Erreur de carte — certains calques pourraient ne pas s'afficher correctement.",
     "networkUnavailable": "Réseau indisponible. Vérifiez votre connexion.",
     "requestTimeout": "La requête a pris trop de temps. Réessayez.",
-    "unauthorized": "Votre session a expiré. Reconnectez-vous."
+    "unauthorized": "Votre session a expiré. Reconnectez-vous.",
+    "retentionUnsupportedRelation": "La rétention exige que les données du jeu soient dans une table ordinaire. Ce jeu les lit depuis une vue, une table partitionnée ou un autre type de relation ; la rétention ne peut donc pas être activée ici.",
+    "retentionHasChildren": "La rétention ne peut pas s’exécuter sur une table dont d’autres tables héritent, car une suppression pourrait atteindre leurs lignes. Retirez les tables héritières pour utiliser la rétention.",
+    "retentionReferenced": "Une clé étrangère pointe vers cette table : supprimer ses anciennes lignes modifierait aussi les lignes qui y font référence. Retirez la clé étrangère pour utiliser la rétention.",
+    "retentionDeleteRule": "Cette table a une règle DELETE qui change l’effet d’une suppression. Retirez la règle pour utiliser la rétention.",
+    "retentionNotFeatureDataset": "La rétention ne fonctionne que sur les jeux de données dont les entités ont une géométrie.",
+    "retentionColumnMissing": "La colonne {{column}} n’existe plus. Choisissez une autre colonne de date ou d’horodatage.",
+    "retentionColumnNotTemporal": "La colonne {{column}} n’est pas une colonne de date ou d’horodatage. Choisissez une colonne de date ou d’horodatage.",
+    "retentionGidUnusable": "La rétention parcourt la table par sa colonne gid de nombres entiers, que cette table n’a plus. Rétablissez une colonne gid entière pour utiliser la rétention.",
+    "retentionDeleteTrigger": "La rétention ne peut pas s’exécuter sur une table qui a un déclencheur de suppression, car il peut conserver des lignes ou en modifier d’autres quand les anciennes sont supprimées. Retirez le déclencheur pour utiliser la rétention."
   },
   "settings": {
     "apiKeys": {

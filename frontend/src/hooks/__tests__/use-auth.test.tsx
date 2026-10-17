@@ -277,7 +277,7 @@ describe('useAuth', () => {
     expect(result.current.isEditor).toBe(true);
   });
 
-  // BUG-021: query cache must be cleared on logout and invalidated on login
+  // Query cache must be cleared on logout and invalidated on login
   // so a new login never shows the previous user's stale identity.
   describe('BUG-021: auth query cache management', () => {
     /** Helper — renders useAuth with a shared, observable queryClient. */

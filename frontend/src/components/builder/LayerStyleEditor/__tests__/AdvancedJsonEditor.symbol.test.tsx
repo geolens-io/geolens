@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@/test/test-utils';
 import { AdvancedJsonEditor } from '../AdvancedJsonEditor';
 
 /**
- * fix(#916): symbol mode keeps the layer's circle paint (renderAs.ts swaps only
+ * Symbol mode keeps the layer's circle paint (renderAs.ts swaps only
  * heatmap's paint object), but the editor validated BOTH blocks against the
  * resolved 'symbol' type. Every stored circle-* key was rejected, so an
  * edit-free Apply on the Paint block always errored and the block was a dead

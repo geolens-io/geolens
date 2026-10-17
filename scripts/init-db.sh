@@ -43,7 +43,7 @@ psql "${psql_args[@]}" <<-'EOSQL'
     -- FRESH pgdata volume -- init-db.sh is a Postgres docker-entrypoint init
     -- script and never re-runs against an existing volume (see header comment).
     --
-    -- E-1 runbook -- adding pg_stat_statements to an EXISTING (pre-existing) volume:
+    -- Runbook: adding pg_stat_statements to an EXISTING (pre-existing) volume:
     --   1. Ensure the library is preloaded. The bundled image sets this via
     --      db/postgresql.conf (shared_preload_libraries = 'pg_stat_statements').
     --      For an external/managed Postgres, set it in postgresql.conf (or the

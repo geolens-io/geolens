@@ -1,5 +1,5 @@
 /**
- * rAF-based paint-write coalescing (PERF-04).
+ * rAF-based paint-write coalescing.
  *
  * `coalesceFrame(key, fn)` queues `fn` under `key` for the next animation
  * frame. If `coalesceFrame` is called again with the same `key` before the
@@ -17,7 +17,7 @@
  * and keeps SSR rendering correct.
  */
 
-// builder-audit #338 SYNC-09 (single-builder-instance assumption): `pending` is a
+// Single-builder-instance assumption: `pending` is a
 // process-global map keyed ONLY by the coalesce key (e.g. `paint:${layerId}`),
 // with no map-instance discriminator. This is intentional for the current
 // single-live-builder use case — exactly one BuilderMap is mounted at a time and
@@ -124,7 +124,7 @@ export function __resetForTest(): void {
 }
 
 // ---------------------------------------------------------------------------
-// HMR dispose hook (WR-06)
+// HMR dispose hook
 // During Vite hot-module-replacement, cancel any pending rAF so the old
 // module's flush() does not fire stale callbacks after the module is replaced.
 // This is a no-op in production builds (import.meta.hot is undefined).

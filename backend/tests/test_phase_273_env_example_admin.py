@@ -1,6 +1,5 @@
-"""SEC-15: .env.example admin/admin defaults replaced with required-empty.
+""".env.example admin/admin defaults replaced with required-empty.
 
-Pins the v13.13 closure of M-69 (paired with H-28 JWT_SECRET_KEY pattern).
 Operators who copy .env.example to .env without changes get a clear boot
 failure ("required environment variables not set"), not a silent
 admin/admin foothold.
@@ -81,7 +80,7 @@ def test_admin_password_block_has_required_marker(env_example_text):
 
 
 def test_jwt_secret_key_pattern_preserved(env_example_text):
-    """Regression: the existing JWT_SECRET_KEY required-empty line is unchanged (H-28 from Phase 268)."""
+    """Regression: the existing JWT_SECRET_KEY required-empty line is unchanged."""
     lines = [
         line
         for line in env_example_text.splitlines()

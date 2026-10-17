@@ -1,5 +1,5 @@
-// fix(#890): the #755 double-log shape was still live for raster/DEM tiles.
-// `isHandledTileAuthError` excludes `/raster-tiles/` (audit w3-maps A1) because a
+// Raster/DEM tile auth failures were still logged twice after the vector fix.
+// `isHandledTileAuthError` excludes `/raster-tiles/` because a
 // fresh tile sig cannot fix raster auth — that rides the Authorization header —
 // but BuilderMap's own error handler reported a suppressed "re-mint requested"
 // row anyway (`reminted` is true even though resignVectorSourceForRetry returned
@@ -10,8 +10,8 @@
 // The handler now agrees with the predicate: a raster/DEM 401/403 is reported
 // ONCE, unsuppressed, and surfaces the session-expired toast. The re-mint itself
 // still runs — its apiFetch renews an expiring JWT, which IS what a raster 401
-// needs (codex P1 on this PR) — it just no longer counts as recovery. The vector
-// path (GUARD-03 re-sign + #621 re-mint) is unchanged.
+// needs — it just no longer counts as recovery. The vector
+// path (re-sign + #621 re-mint) is unchanged.
 
 import type { ReactNode } from 'react';
 import { act, render } from '@/test/test-utils';
@@ -226,7 +226,7 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
     reportState.remint.mockClear();
     vi.mocked(toast.error).mockClear();
     // A live session: the auth toast is gated on the session existing
-    // (fix #628). fix(#1446): keyed on the ACCESS token — the refresh token is
+    // Keyed on the ACCESS token — the refresh token is
     // an httpOnly cookie now and reads as null for every cookie-mode user, so
     // seeding only refreshToken here would assert against a state real
     // sessions no longer reach.
@@ -261,7 +261,7 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
       mapState.onError?.(event);
     });
 
-    // fix(#890) (codex P1): the re-mint still runs — its apiFetch renews an
+    // The re-mint still runs — its apiFetch renews an
     // expiring JWT, the one thing that can fix a raster 401 — but nothing about
     // it recovers the tile, so no recovery may be CLAIMED.
     expect(tileTokenState.invalidate).toHaveBeenCalledTimes(1);
@@ -295,11 +295,11 @@ describe('BuilderMap raster/DEM tile auth errors (fix #890)', () => {
     expect(mapState.setTiles).not.toHaveBeenCalled();
   });
 
-  // fix(#890): a raster auth failure is now recorded the same way an unrecovered
+  // A raster auth failure is now recorded the same way an unrecovered
   // 5xx tile error already was — one unsuppressed `maplibre` row from the handler
   // plus the wrapper's console.error (which initReportCapture turns into a
   // `console` row). That pairing is the buffer's shape for EVERY error no
-  // surface recovers, and it predates this PR; the #755 bug was a suppressed
+  // surface recovers; the #755 bug was a suppressed
   // "recovered" row sitting next to it, not the pairing. Dropping either half
   // for raster would cost the sourceId (the console row has none) or the devtools
   // log (the surfaces without their own row have nothing else). This pins the

@@ -1,4 +1,4 @@
-"""Migration round-trip + ORM drift-gate regression for Phase 1231 (email verification).
+"""Migration round-trip + ORM drift-gate regression for email verification.
 
 Verifies the 0009_email_verification migration is reversible (downgrade is a NO-OP
 per the 0008 precedent) and leaves the schema in the exact state the ORM expects
@@ -58,7 +58,7 @@ class TestMigrationRoundTripExitCodes:
     without the in-test restore this worker's DB stays one revision behind for
     every later test — with a destructive head downgrade (e.g. 0025 drops
     datasets.tile_cache_version) that poisons unrelated tests with
-    UndefinedColumnError. fix(#525 B-038)
+    UndefinedColumnError.
     """
 
     def test_upgrade_head_exits_zero(self):

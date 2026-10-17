@@ -215,7 +215,7 @@ class TestSqlPrompt:
 
 
 # ------------------------------------------------------------------
-# Tests for query_data tool integration (Plan 02)
+# Tests for query_data tool integration
 # ------------------------------------------------------------------
 
 
@@ -632,7 +632,7 @@ class TestToolDefinitions:
         assert "question" in tool["input_schema"]["properties"]
 
     def test_query_data_in_openai_tools(self):
-        # Phase 226 D-08: CHAT_TOOLS_OPENAI removed (callers pass Anthropic shape;
+        # CHAT_TOOLS_OPENAI removed (callers pass Anthropic shape;
         # provider converts internally). Derive OpenAI format algorithmically.
         chat_tools_openai = [
             {

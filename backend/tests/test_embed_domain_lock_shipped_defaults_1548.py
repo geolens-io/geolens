@@ -112,7 +112,7 @@ def _browser_at(origin: str) -> MagicMock:
     """A request from a browser sitting on ``origin``.
 
     ``client.host`` is a container bridge IP, not loopback: in the shipped
-    stack nginx proxies to the api service, so the H-31 loopback bypass is out
+    stack nginx proxies to the api service, so the loopback bypass is out
     of reach for every real browser request.
     """
     request = MagicMock()
@@ -398,7 +398,7 @@ async def test_patch_404s_a_missing_token_instead_of_naming_public_app_url(
     public_app_url,
     enterprise_edition,
 ):
-    """fix(#1548 review r2): the gate answers a question about the DEPLOYMENT,
+    """The gate answers a question about the DEPLOYMENT,
     not about this token. Asked before existence, it told the owner of a stale
     token id to go and reconfigure their server, when the real answer is that
     their token is gone. A stale id in an open builder tab and a concurrent
@@ -610,14 +610,14 @@ async def test_neither_status_is_reachable_without_ownership(
 
 
 # ---------------------------------------------------------------------------
-# r9: a value that passes validation but is not what the browser will present
+# A value that passes validation but is not what the browser will present
 # ---------------------------------------------------------------------------
 
 
 async def test_an_api_derived_app_url_cannot_authorize_a_domain_lock(
     test_db_session: AsyncSession, public_app_url, enterprise_edition, monkeypatch
 ):
-    """fix(#1548 review r9): a split app/API deployment.
+    """A split app/API deployment.
 
     With only ``PUBLIC_API_URL`` set, ``get_public_app_url`` derives an app URL
     from it by stripping the ``/api`` suffix. That is a real, non-loopback host
@@ -671,7 +671,7 @@ async def test_tile_config_reports_only_an_explicitly_configured_app_url(
 async def test_a_unicode_hostname_is_refused_rather_than_translated(
     test_db_session: AsyncSession, public_app_url, enterprise_edition
 ):
-    """fix(#1548 review r10): IDN is refused, not approximated.
+    """IDN is refused, not approximated.
 
     An earlier round converted the host with Python's built-in ``idna`` codec so
     it would match what the browser sends. That codec is IDNA2003: it maps
@@ -702,7 +702,7 @@ async def test_a_unicode_hostname_is_refused_rather_than_translated(
 async def test_a_backslash_cannot_smuggle_a_second_host(
     test_db_session: AsyncSession, public_app_url, enterprise_edition
 ):
-    """fix(#1548 review r10): origin confusion, not a formatting nit.
+    """Origin confusion, not a formatting nit.
 
     ``https://maps.example.com\\@evil.com`` is host ``maps.example.com\\`` to
     urlsplit and host ``evil.com`` to a browser. Whichever reading is "right",
@@ -750,7 +750,7 @@ async def test_userinfo_never_reaches_a_stored_origin(
 async def test_a_non_canonical_numeric_host_is_refused(
     test_db_session: AsyncSession, public_app_url, enterprise_edition
 ):
-    """fix(#1548 review r11): the IDN finding in different clothes.
+    """The IDN finding in different clothes.
 
     Python and the browser disagree about how a numeric host is spelled, and we
     store Python's. Measured: ``192.168.1`` stays ``192.168.1`` through urlsplit
@@ -813,12 +813,12 @@ def test_the_canonical_host_check_is_not_a_round_trip_test():
 
 
 # ---------------------------------------------------------------------------
-# r10 P1: "derived" names two things, and only one of them is untrustworthy
+# "derived" names two things, and only one of them is untrustworthy
 # ---------------------------------------------------------------------------
 
 
 class TestHostedTenantKeepsItsOwnOrigin:
-    """fix(#1548 review r10): requiring the EXPLICIT fleet setting broke hosted.
+    """Requiring the EXPLICIT fleet setting broke hosted.
 
     ``PUBLIC_APP_URL`` is fleet-wide and cannot represent a tenant host, so
     demanding it made share and embed URLs on ``acme.geolens.example`` come out

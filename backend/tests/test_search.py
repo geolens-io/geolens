@@ -535,7 +535,7 @@ async def test_search_filter_by_vintage(
 
 
 # ---------------------------------------------------------------------------
-# Child-table search tests (SEARCH-02)
+# Child-table search tests
 # ---------------------------------------------------------------------------
 
 
@@ -545,7 +545,7 @@ async def test_search_by_keyword(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """Searching for a keyword stored only in record_keywords returns the record (SEARCH-02).
+    """Searching for a keyword stored only in record_keywords returns the record.
 
     The keyword 'hydrogeology' does NOT appear in title or summary, so the
     match must come from the EXISTS subquery on record_keywords.
@@ -578,7 +578,7 @@ async def test_search_by_contact_name(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """Searching for a contact name stored in record_contacts returns the record (SEARCH-02)."""
+    """Searching for a contact name stored in record_contacts returns the record."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
 
@@ -617,7 +617,7 @@ async def test_search_by_contact_organization(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """Searching for a contact organization returns the record (SEARCH-02, Rec 1)."""
+    """Searching for a contact organization returns the record."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
 
@@ -650,7 +650,7 @@ async def test_search_by_contact_organization(
 
 
 # ---------------------------------------------------------------------------
-# theme_category camelCase + lineage_summary FTS tests (SEARCH-01)
+# theme_category camelCase + lineage_summary FTS tests
 # ---------------------------------------------------------------------------
 
 
@@ -660,7 +660,7 @@ async def test_search_by_theme_category_camelcase(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """Searching 'climatology' matches theme_category=['climatologyMeteorologyAtmosphere'] (SEARCH-01).
+    """Searching 'climatology' matches theme_category=['climatologyMeteorologyAtmosphere'].
 
     The camelCase normalizer splits 'climatologyMeteorologyAtmosphere' into
     'climatology Meteorology Atmosphere' for FTS indexing.
@@ -693,7 +693,7 @@ async def test_search_by_lineage_summary(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """Searching 'LiDAR' matches a record with lineage_summary containing 'LiDAR' (SEARCH-01)."""
+    """Searching 'LiDAR' matches a record with lineage_summary containing 'LiDAR'."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
 
@@ -1565,7 +1565,7 @@ async def test_search_datasets_raster_properties_survive_response_model(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """fix(#1805 review round 3 P2): /search/datasets/ validates its response
+    """/search/datasets/ validates its response
     through OGCFeatureCollectionResponse (unlike the OGC Records / STAC
     routers, which return a raw dict), so a field service_records.py
     serializes but OGCRecordProperties does not declare is silently
@@ -1624,7 +1624,7 @@ async def test_search_datasets_raster_band_nodata_presence(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """fix(#1805 review round 4 P2): service_records.py only ever emitted a
+    """service_records.py only ever emitted a
     band's nodata key when it had a value, so a band with no nodata info
     always looked identical on the wire whether the asset's NoData was
     confirmed absent or simply never recorded for that band -- until round
@@ -1722,7 +1722,7 @@ async def test_search_datasets_raster_res_x_res_y_survive_response_model(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
+    """``gsd`` is a lossy min(abs(res_x), abs(res_y)) --
     two sources at (res_x=10, res_y=20) and (res_x=10, res_y=30) collapse to
     the identical gsd=10 and, if both share dimensions, look grid-aligned to
     a client comparing gsd alone. _check_grid_alignment (backend/app/

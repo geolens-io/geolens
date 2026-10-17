@@ -32,12 +32,12 @@ def _request_with(exp) -> object:
 
 
 def test_the_ceiling_is_on_the_order_of_the_mint_ttl():
-    """120s minted, 300s ceiling. 3600 was 30x the window SEC-04 enforces."""
+    """120s minted, 300s ceiling. 3600 was 30x the minted lifetime."""
     assert _COG_PRESIGN_CEILING_SECONDS <= 300
 
 
 def test_there_is_no_floor_only_sigv4s_own_minimum():
-    """fix(#1778 codex r8): a floor mints a URL that outlives its credential.
+    """fix(#1778): a floor mints a URL that outlives its credential.
 
     `require_signable_job_lifetime` settled this for the upload doors: there is
     no `ExpiresIn` value meaning "already dead", so the only way not to hand
@@ -68,7 +68,7 @@ def test_a_long_lived_deadline_is_still_capped():
     "remaining", [30.0, 5.0, 2.0, 1.9, 1.0, 0.9, 0.5, 0.0, -0.5, -120.0]
 )
 def test_the_signature_never_outlives_the_token(remaining: float) -> None:
-    """fix(#1778 codex r8): the invariant, across the boundary.
+    """fix(#1778): the invariant, across the boundary.
 
     Signed now for N seconds, the URL dies at now+N, and that must land at or
     before the token's own expiry. The 60-second floor broke this for every

@@ -1,4 +1,4 @@
-"""DB-backed regression tests for VRT source authorization (Phase 1172).
+"""DB-backed regression tests for VRT source authorization.
 
 SEC-C (HIGH) — write-time hole: an editor (default ``upload`` permission) could
 mosaic ANOTHER user's PRIVATE raster into a VRT they own, then read the victim's

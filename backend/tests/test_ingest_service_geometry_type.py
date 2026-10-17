@@ -1,4 +1,4 @@
-"""Regression tests for WFS-04 (Phase 1057): constraint-free geometry column
+"""Regression tests for the constraint-free geometry column
 on the service-ingest path.
 
 Root cause: ogr2ogr was invoked with ``-nlt PROMOTE_TO_MULTI`` on the service
@@ -11,7 +11,7 @@ post-ingest bounds-clip UPDATE in ``clip_to_mercator_bounds`` failed with:
     asyncpg.exceptions.InvalidParameterValueError:
         Geometry type (MultiPolygon) does not match column type (MultiSurface)
 
-D-01 (Phase 1057) fixes this by replacing ``-nlt PROMOTE_TO_MULTI`` with
+The fix replaces ``-nlt PROMOTE_TO_MULTI`` with
 ``-nlt GEOMETRY`` on the service path only.  ``-nlt GEOMETRY`` instructs
 ogr2ogr to emit a generic ``geometry(Geometry, 4326)`` PostGIS column with no
 subtype constraint, so any concrete geometry subtype can be stored freely.
@@ -21,8 +21,8 @@ The concrete subtype for ``Dataset.geometry_type`` is derived post-ingest via
 ``SELECT GeometryType(geom) … LIMIT 1``.  The file-ingest sibling
 ``run_ogr2ogr()`` is unaffected and continues to use ``PROMOTE_TO_MULTI``.
 
-Live MCP re-verify against ``ahocevar.com/geoserver/wfs → Countries of the
-World`` is deferred to the Phase 1060 close gate.
+Live MCP re-verification against ``ahocevar.com/geoserver/wfs → Countries of the
+World`` is not part of this test.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -59,7 +59,7 @@ _DUMMY_CONN = "PG:host=localhost dbname=geolens_test"
 
 
 class TestRunOgr2ogrServiceArgv:
-    """Pin the ogr2ogr argv shape for the service-ingest path (D-01 regression guard)."""
+    """Pin the ogr2ogr argv shape for the service-ingest path (regression guard)."""
 
     @pytest.fixture()
     def captured_argv(self) -> list[list[str]]:
@@ -85,14 +85,14 @@ class TestRunOgr2ogrServiceArgv:
             yield
 
     # ------------------------------------------------------------------
-    # D-01 regression pin
+    # Regression pin
     # ------------------------------------------------------------------
 
     @pytest.mark.anyio
     async def test_wfs_spatial_branch_omits_promote_to_multi(
         self, patch_subprocess, captured_argv
     ):
-        """PROMOTE_TO_MULTI must NOT appear in the service-path argv (D-01)."""
+        """PROMOTE_TO_MULTI must NOT appear in the service-path argv."""
         await run_ogr2ogr_service(
             gdal_source=_DUMMY_GDAL_SOURCE,
             layer_name=_DUMMY_LAYER,
@@ -132,14 +132,14 @@ class TestRunOgr2ogrServiceArgv:
         )
 
     # ------------------------------------------------------------------
-    # Preserved tokens (D-01 only changes the -nlt flag)
+    # Preserved tokens (only the -nlt flag changes)
     # ------------------------------------------------------------------
 
     @pytest.mark.anyio
     async def test_wfs_spatial_branch_includes_geometry_name(
         self, patch_subprocess, captured_argv
     ):
-        """GEOMETRY_NAME=_geolens_geom must still be present after D-01."""
+        """GEOMETRY_NAME=_geolens_geom must still be present after the -nlt change."""
         await run_ogr2ogr_service(
             gdal_source=_DUMMY_GDAL_SOURCE,
             layer_name=_DUMMY_LAYER,
@@ -222,14 +222,14 @@ class TestRunOgr2ogrServiceArgv:
 
 
 # ---------------------------------------------------------------------------
-# TestNormalizeGeometryType — Phase 1060 layer-2 fix
+# TestNormalizeGeometryType — layer-2 fix
 # ---------------------------------------------------------------------------
 
 
 class TestNormalizeGeometryType:
     """Regression pins for the abstract-OGC-type → concrete-subtype mapping.
 
-    Phase 1057's ``-nlt GEOMETRY`` fix relaxed the column-type constraint,
+    The ``-nlt GEOMETRY`` fix relaxed the column-type constraint,
     but PostGIS GeometryType() still returns the abstract subtype
     (MULTISURFACE / MULTICURVE / COMPOUND…) when the WFS source stores
     abstract GML 3 geometries (e.g. GeoServer's opengeo:countries).  Without
@@ -237,7 +237,7 @@ class TestNormalizeGeometryType:
     chk_datasets_geometry_type CHECK constraint, which only allows the 7
     concrete OGC simple-features types.
 
-    Phase 1060 close-gate fix: map abstract → closest concrete equivalent
+    The fix maps abstract → closest concrete equivalent
     before persisting Dataset.geometry_type.
     """
 

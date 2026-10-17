@@ -1,4 +1,4 @@
-"""Regression tests for SEC-024: private DEM dataset_id disclosure in shared map.
+"""Regression tests: private DEM dataset_id disclosure in shared map.
 
 get_shared_map used to pass terrain_config verbatim even when the referenced
 source_dataset_id was private (not visible in the shared/public response).
@@ -109,7 +109,7 @@ async def _set_map_terrain_config(
 
 
 class TestSec024TerrainConfigPrivacy:
-    """SEC-024: terrain_config.source_dataset_id must not leak private DEM ids."""
+    """terrain_config.source_dataset_id must not leak private DEM ids."""
 
     async def test_private_dem_terrain_config_stripped_for_anon(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -181,7 +181,7 @@ class TestSec024TerrainConfigPrivacy:
 
         data = resp.json()
         terrain = data.get("terrain_config")
-        # SEC-024: the private DEM id must not be disclosed.
+        # The private DEM id must not be disclosed.
         assert terrain is None or terrain.get("source_dataset_id") is None, (
             f"SEC-024 FAIL: terrain_config discloses private DEM id: {terrain}"
         )

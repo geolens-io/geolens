@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fix(#1778 round 19, P2): scripts/backup-entrypoint.sh's S3 retention pruning
+# scripts/backup-entrypoint.sh's S3 retention pruning
 # (prune_s3_prefix, s3_newest_complete_ts) extracted a dump/companion's
 # embedded timestamp by piping the S3 object key through `sed -nE '...p'`.
 # The key for a dump is `${POSTGRES_DB}_<timestamp>.dump`, and a POSTGRES_DB

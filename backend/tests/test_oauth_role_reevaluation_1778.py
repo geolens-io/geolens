@@ -289,7 +289,7 @@ async def test_community_ignores_the_mapping(client, test_db_session):
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r1): the reconciliation must be the SAME role change every
+# fix(#1778): the reconciliation must be the SAME role change every
 # other route makes, not a weaker copy of it.
 #
 # Counterfactuals, each run: assign user.roles directly instead of calling
@@ -515,7 +515,7 @@ async def test_the_first_email_linked_login_applies_the_new_provider_mapping(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r4): two OAuth callbacks for the same account can arrive
+# fix(#1778): two OAuth callbacks for the same account can arrive
 # together. Both used to enter set_role_from_identity_provider's PROMOTION
 # branch unserialized, and _update_user_role deletes and re-inserts
 # catalog.user_roles, whose primary key is (user_id, role_id) -- so the two
@@ -590,7 +590,7 @@ async def test_concurrent_mapped_promotions_do_not_collide(
     assert len(rows.scalars().all()) == 1
     assert await _role_names(test_db_session, user_id) == {"admin"}
 
-    # fix(#1778 codex r5): exactly ONE of the two actually changed anything, and
+    # fix(#1778): exactly ONE of the two actually changed anything, and
     # the other must say so rather than reporting a transition that had already
     # happened. The loser used to return True and its caller emitted a second
     # oauth.role.changed carrying a previous_roles snapshot taken before the

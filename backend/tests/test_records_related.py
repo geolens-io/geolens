@@ -1336,7 +1336,7 @@ class TestMigrationData:
 
 
 # ---------------------------------------------------------------------------
-# Record-write authorization + downstream propagation (fix #458 E-14/E-15)
+# Record-write authorization + downstream propagation
 # ---------------------------------------------------------------------------
 
 
@@ -1347,7 +1347,7 @@ class TestRecordWriteContracts:
         editor_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """E-14: an editor who can't SEE a private, non-owned record 404s (no leak)."""
+        """An editor who can't SEE a private, non-owned record 404s (no leak)."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(
             test_db_session, created_by=admin_id, visibility="private"
@@ -1365,7 +1365,7 @@ class TestRecordWriteContracts:
         editor_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """E-14: a record the editor CAN see but doesn't own is an honest 403."""
+        """A record the editor CAN see but doesn't own is an honest 403."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(
             test_db_session, created_by=admin_id, visibility="public"
@@ -1384,7 +1384,7 @@ class TestRecordWriteContracts:
         test_db_session: AsyncSession,
         monkeypatch,
     ):
-        """E-15: record sub-resource writes bust the catalog cache; keyword writes
+        """Record sub-resource writes bust the catalog cache; keyword writes
         (embedding text) also re-embed, contact/distribution writes do not."""
         import app.modules.catalog.records.router as rr
 

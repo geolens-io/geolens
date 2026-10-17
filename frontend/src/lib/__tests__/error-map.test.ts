@@ -5,6 +5,22 @@ import {
 } from '@/lib/error-map';
 
 describe('API error localization boundary', () => {
+  it.each([
+    ['retention_unsupported_relation', 'errors.retentionUnsupportedRelation', 'needs the dataset\'s data in an ordinary table'],
+    ['retention_has_children', 'errors.retentionHasChildren', 'other tables inherit from'],
+    ['retention_referenced', 'errors.retentionReferenced', 'Remove the foreign key'],
+    ['retention_delete_trigger', 'errors.retentionDeleteTrigger', 'delete trigger'],
+    ['retention_delete_rule', 'errors.retentionDeleteRule', 'DELETE rule'],
+    ['retention_gid_unusable', 'errors.retentionGidUnusable', 'whole-number gid column'],
+    ['retention_not_feature_dataset', 'errors.retentionNotFeatureDataset', 'features have geometry'],
+    ['retention_column_missing', 'errors.retentionColumnMissing', 'The column seen_at no longer exists'],
+    ['retention_column_not_temporal', 'errors.retentionColumnNotTemporal', 'The column seen_at isn\'t a date'],
+  ])('maps the retention refusal %s to its own message', (code, key, text) => {
+    const detail = { code, message: 'English diagnostic', column: 'seen_at' };
+    expect(classifyApiError(detail, 422).key).toBe(key);
+    expect(translateApiErrorDetail(detail, 422)).toContain(text);
+  });
+
   it('maps known backend details to stable keys', () => {
     expect(classifyApiError('Dataset not found', 404)).toEqual({
       key: 'errors.datasetNotFound',
@@ -292,8 +308,7 @@ describe('API error localization boundary', () => {
     );
   });
 
-  // Lane A2 (service-auth wave): POST /services/arcgis/signin/'s refusal
-  // taxonomy (plan 2026-09-01-service-auth-PLAN.md section 3.2).
+  // POST /services/arcgis/signin/'s refusal taxonomy.
   it('maps the ArcGIS sign-in refusal taxonomy to distinct static keys', () => {
     expect(
       classifyApiError(
@@ -339,8 +354,7 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.rateLimited' });
   });
 
-  // fix(service-auth wave, lane A1 contract update, head 85c5fc282): the
-  // limiter's own message names the ArcGIS account, not GeoLens or the
+  // The limiter's own message names the ArcGIS account, not GeoLens or the
   // portal (the limit is keyed on the target account: three attempts per
   // fifteen minutes per ArcGIS account shared across all GeoLens users,
   // plus three per GeoLens user and portal). The fallback below does not
@@ -359,7 +373,6 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.rateLimited' });
   });
 
-  // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
   // arcgis_signin_in_progress replaced a 429 rate_limited response for the
   // same-account-concurrency case (one ArcGIS sign-in per account at a
   // time, distinct from the attempt-count limiter above).
@@ -376,7 +389,6 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.arcgisSigninInProgress' });
   });
 
-  // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
   // arcgis_portal_not_https is a 422 with the SAME structured
   // {code, message, field} shape as the rest of this taxonomy, not
   // FastAPI's list-shaped validation 422 handled by validationDescriptor,
@@ -395,7 +407,7 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.arcgisPortalNotHttps' });
   });
 
-  // fix(service-auth wave, post-merge rebase onto #1758): the sixth and
+  // The sixth and
   // final caller-facing code (backend/app/modules/catalog/sources/
   // arcgis_signin.py, HOST_INVALID), a 422 for a portal hostname that
   // cannot be canonicalized, anchored to the same field: 'url' as
@@ -680,7 +692,7 @@ describe('API error localization boundary', () => {
     ).toContain('Flood Risk');
   });
 
-  // fix(#931 codex r5): `MapCreate.name` is length-bounded and NFC-normalized,
+  // `MapCreate.name` is length-bounded and NFC-normalized,
   // nothing more, so a newline in a map name is valid input. Without the `s`
   // flag `.` stopped at it and the whole list fell back to the generic 422 —
   // losing exactly the part that makes the refusal actionable.
@@ -707,7 +719,7 @@ describe('API error localization boundary', () => {
       ),
     ).toBe('These layers were not found in the uploaded file: roads, rivers.');
   });
-  // fix(#1548 review P2): the embed domain-lock refusal. Both compose files
+  // The embed domain-lock refusal. Both compose files
   // ship PUBLIC_APP_URL defaulted to localhost, so a self-hoster reached at a
   // real hostname hits this on a stock install — and its whole value is the
   // remediation. Unmapped it collapses to the generic 422 and the domain lock

@@ -1,4 +1,4 @@
-"""The embedding backfill's cooperative per-batch stop (#1709 review r6).
+"""The embedding backfill's cooperative per-batch stop (#1709).
 
 The cancel endpoint's CAS frees `uq_ingest_jobs_active_embedding_backfill`
 immediately (deliberately — a cancelled-but-slot-holding job breaks the

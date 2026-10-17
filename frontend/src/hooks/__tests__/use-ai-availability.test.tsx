@@ -7,7 +7,7 @@ vi.mock('@/api/admin', () => ({
   getAIStatus: vi.fn(),
 }));
 
-// builder-audit #338 P1-11: non-admin editors read the public-safe availability endpoint.
+// Non-admin editors read the public-safe availability endpoint.
 vi.mock('@/api/maps', () => ({
   getAIAvailability: vi.fn(),
 }));
@@ -183,7 +183,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
 
   it('authed viewer WITHOUT use_ai_chat: fires NEITHER endpoint — query stays idle, reason=permission', async () => {
     // A genuine viewer lacks use_ai_chat → no admin status probe AND no public
-    // availability probe (P1-11: no 403 console noise for viewers).
+    // availability probe (no 403 console noise for viewers).
     mocks.capabilities = new Set();
     useAuthStore.setState({
       token: 'viewer-token',
@@ -308,7 +308,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 1135 AI-02: reason field taxonomy
+// Reason field taxonomy
 // ---------------------------------------------------------------------------
 
 describe('useAIAvailability — reason field (Phase 1135 AI-02)', () => {

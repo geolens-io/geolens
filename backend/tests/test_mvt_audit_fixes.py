@@ -1,10 +1,10 @@
-"""Unit tests for the builder-audit #338 MVT remediation (service/router pure helpers).
+"""Unit tests for the MVT remediation (service/router pure helpers).
 
 Covers (no DB / no asyncpg pool):
-  - MVT-07: continuous simplification-tolerance schedule across the z5->z6 boundary.
-  - MVT-01: the MVT source-layer name stays schema-qualified for client parity.
-  - MVT-09: the table-name regex has a single shared definition.
-  - MVT-04: ETag generation + conditional-request (If-None-Match -> 304) helpers.
+  - Continuous simplification-tolerance schedule across the z5->z6 boundary.
+  - The MVT source-layer name stays schema-qualified for client parity.
+  - The table-name regex has a single shared definition.
+  - ETag generation + conditional-request (If-None-Match -> 304) helpers.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from app.processing.tiles.service import (
 
 
 # ---------------------------------------------------------------------------
-# MVT-07: simplification-tolerance continuity
+# Simplification-tolerance continuity
 # ---------------------------------------------------------------------------
 
 
@@ -75,9 +75,9 @@ def test_tile_query_uses_single_continuous_simplify_basis():
 
 
 # ---------------------------------------------------------------------------
-# MVT-01: the source-layer name stays schema-qualified.
+# The source-layer name stays schema-qualified.
 #
-# builder-audit #338 MVT-01 flagged that the multi_tenant MVT layer name
+# The multi_tenant MVT layer name
 # (data_t_<tid>.table) diverged from the client's hardcoded data.table. The
 # tile-config contract now gives clients the resolved physical prefix while tile
 # signing retains its logical data.table route. This server regression keeps the
@@ -101,7 +101,7 @@ def test_tile_query_from_clause_is_schema_qualified():
 
 
 # ---------------------------------------------------------------------------
-# MVT-09: single source of truth for the table-name regex
+# Single source of truth for the table-name regex
 # ---------------------------------------------------------------------------
 
 
@@ -111,7 +111,7 @@ def test_table_name_regex_is_single_source():
 
 
 # ---------------------------------------------------------------------------
-# MVT-04: ETag + conditional request helpers
+# ETag + conditional request helpers
 # ---------------------------------------------------------------------------
 
 
@@ -156,12 +156,12 @@ def test_tile_response_returns_304_on_matching_if_none_match():
 
 
 # ---------------------------------------------------------------------------
-# fix(#394) VT-05 / VT-06 / VT-07: 2026-07-03 builder-audit query-shape fixes
+# Query-shape fixes
 # ---------------------------------------------------------------------------
 
 
 def test_tile_query_makevalid_guards_simplify_only():
-    """VT-05: ST_MakeValid wraps the simplify input; the z>=cutoff branch is untouched."""
+    """ST_MakeValid wraps the simplify input; the z>=cutoff branch is untouched."""
     query = _build_tile_query("places", [])
     assert "ST_MakeValid(t.geom_4326)" in query
     # The unsimplified branch must still serve the original geometry.
@@ -169,13 +169,13 @@ def test_tile_query_makevalid_guards_simplify_only():
 
 
 def test_tile_query_drops_null_geometry_features():
-    """VT-06: the vector query filters NULL post-clip geometries like the cluster query."""
+    """The vector query filters NULL post-clip geometries like the cluster query."""
     query = _build_tile_query("places", [])
     assert "WHERE mvtgeom.geom IS NOT NULL" in query
 
 
 def test_cluster_query_emits_positive_offset_gid():
-    """VT-07: cluster feature ids are positive (ST_AsMVT drops non-positive ids)
+    """Cluster feature ids are positive (ST_AsMVT drops non-positive ids)
     and offset out of the realistic serial-gid range."""
     query = _build_cluster_tile_query("places")
     assert "-row_number()" not in query
@@ -211,30 +211,30 @@ def test_cluster_query_buckets_on_absolute_3857_grid():
     assert "ST_Y(candidates.geom_3857)" in query
     # The degenerate-size guard must survive the rework.
     assert "GREATEST(bounds.width * $6::float8" in query
-    # codex P2 rounds (#872): straddling cells — expanded candidate scan,
+    # #872: straddling cells — expanded candidate scan,
     # deterministic membership under the cap, and cell-ORIGIN anchor
     # ownership (pure grid geometry, never dependent on the scanned subset).
     assert "ST_Expand(" in query
     assert "ORDER BY t.gid" in query
     assert "anchored.anchor_x >= ST_XMin(bounds.geom)" in query
-    # codex round 3 (#872): the grid anchors to the WORLD MINIMUM, so every
+    # #872: the grid anchors to the WORLD MINIMUM, so every
     # in-world point yields an in-world cell origin (a 0-anchored grid lost
     # cells straddling lon -180 to ownership rejection).
     assert "ST_XMin(ST_TileEnvelope(0, 0, 0)) AS world_min_x" in query
     assert "(ST_X(candidates.geom_3857) - grid.world_min_x)" in query
     assert "grid.world_min_x + bucketed.bucket_x * grid.bucket_w" in query
-    # codex round 3 (#872): no scan expansion past cluster max zoom — ring
+    # #872: no scan expansion past cluster max zoom — ring
     # rows would only burn the candidate cap before ownership drops them.
     assert "ELSE 0.0" in query
     # World-edge tiles own boundary anchors via inclusive upper bounds.
     assert "(1 << $1::integer) - 1" in query  # east edge: x = 2^z - 1
     assert "$3::integer = 0" in query  # north edge: y = 0
-    # codex round 4 (#872): ownership must filter BEFORE the feature cap so
+    # #872: ownership must filter BEFORE the feature cap so
     # neighbor-owned cells cannot consume the output budget.
     assert query.index("anchored.anchor_x >= ST_XMin(bounds.geom)") < query.index(
         "GROUP BY bucket_x, bucket_y"
     )
-    # codex round 4 (#872): emitted geometry is clamped into the owning
+    # #872: emitted geometry is clamped into the owning
     # tile — an out-of-tile centroid would be invisible to a client whose
     # viewport never requests the owner tile.
     assert "LEAST(GREATEST(ST_X(grouped.geom_3857)" in query
@@ -256,7 +256,7 @@ def test_cluster_query_derives_expansion_zoom_from_member_spread():
 
 
 # ---------------------------------------------------------------------------
-# fix(#394) B-019/VT-01: reupload purges the MVT tile cache post-commit
+# Reupload purges the MVT tile cache post-commit
 # ---------------------------------------------------------------------------
 
 

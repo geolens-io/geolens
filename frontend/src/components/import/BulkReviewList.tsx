@@ -227,7 +227,7 @@ interface BulkReviewListProps {
   onCommitAllAsVrt?: () => void;
   onRemove: (entryId: string) => void;
   onSheetChange?: (entryId: string, layerName: string) => void;
-  // GPKG-03 Phase 1058: optional fan-out prop — single-layer-only consumers can omit
+  // Optional fan-out prop — single-layer-only consumers can omit
   onIngestAllLayers?: (entryId: string) => void;
   isCommitting: boolean;
 }
@@ -457,7 +457,7 @@ export function BulkReviewList({
                         <Label htmlFor={`sheet-${entry.id}`}>
                           {t(isSpreadsheetExt(ext) ? 'bulk.sheetLabel' : 'bulk.layerLabel')}
                         </Label>
-                        {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                        {/* Native <select> → themed ui/select. */}
                         {/* fix(#1778): mirrors UrlImportForm.tsx's handleLayerChange
                             guard (#1708 r24): the layer picker stayed live during a
                             commit, so changing it re-enabled the commit button
@@ -481,7 +481,7 @@ export function BulkReviewList({
                       </div>
                     )}
 
-                  {/* GPKG-03 Phase 1058: "Ingest all layers" button for multi-layer files */}
+                  {/* "Ingest all layers" button for multi-layer files */}
                   {isFilePreview(entry.previewData) &&
                     entry.previewData.layers &&
                     entry.previewData.layers.length > 1 &&

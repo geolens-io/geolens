@@ -1,8 +1,8 @@
 #!/bin/sh
-# fix(#1778 round 21, extended round 22): permanent lint gate against
+# fix(#1778): permanent lint gate against
 # reintroducing a GNU-only flag on a tool whose BSD-shipped build (macOS,
-# and other non-Linux operator hosts) diverges. Round 21 found ONE live
-# instance: `env -0` in scripts/lib/common.sh's environment-snapshot
+# and other non-Linux operator hosts) diverges. One live
+# instance was found: `env -0` in scripts/lib/common.sh's environment-snapshot
 # capture, which some `/usr/bin/env` builds do not accept, combined with
 # a `2>/dev/null ... || true` that swallowed the failure and left an
 # apparently-valid but EMPTY snapshot -- every inherited environment
@@ -10,8 +10,8 @@
 # mechanism and the fix: bash builtins / a POSIX `export -p` name scan,
 # no external tool for the snapshot at all).
 #
-# Round 21's sweep also checked scripts/ for the rest of the class below
-# and found nothing live at the time; round 22 turns that sweep into a
+# A sweep of scripts/ for the rest of the class below found nothing live
+# at the time; this turns that sweep into a
 # permanent, per-pattern gate (each with its own self-proving positive
 # control) so none of them can silently come back either:
 #   - `sed -i` with no backup-suffix argument (BSD sed requires one; GNU

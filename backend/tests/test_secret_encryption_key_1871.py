@@ -172,7 +172,7 @@ class TestBootGuard:
         assert settings.secret_encryption_key is not None
 
     def test_blank_value_means_unset(self):
-        """A verbatim-template .env line reaches the app as "" (INST-01 class)."""
+        """A verbatim-template .env line reaches the app as "" (class)."""
         settings = _make_settings(
             secret_encryption_key="", secret_encryption_key_previous="   "
         )
@@ -460,7 +460,7 @@ class TestRotationScript:
     async def test_a_provider_saved_mid_sweep_is_not_overwritten(
         self, monkeypatch, test_db_session, secret_settings, empty_oauth_providers
     ):
-        """fix(#1882 codex r1): rotation serialises with provider writers.
+        """Rotation serialises with provider writers.
 
         The concurrent write is fired after the locking SELECT and before the
         first UPDATE, which is the window that used to lose it.

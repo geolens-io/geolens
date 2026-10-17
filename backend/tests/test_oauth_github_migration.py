@@ -1,4 +1,4 @@
-"""Migration round-trip + constraint-state regression for Phase 1237 (GitHub provider type).
+"""Migration round-trip + constraint-state regression for the GitHub provider type.
 
 Verifies the 0010_oauth_github_provider_type migration:
   - Adds 'github' to the chk_oauth_providers_type CHECK constraint

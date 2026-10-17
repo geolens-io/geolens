@@ -1,4 +1,4 @@
-"""SEC-FU-01: STAC 5xx-mutation regression tests.
+"""STAC 5xx-mutation regression tests.
 
 Verifies that when apply_visibility_filter raises an unexpected exception
 (forcing a 5xx response path), the STAC item-read and search endpoints
@@ -84,7 +84,7 @@ async def _create_raster_dataset_5xx(
 
 
 # ---------------------------------------------------------------------------
-# SEC-FU-01: Test 1 — GET /stac/items/{id} returns 5xx, no private context in body
+# Test 1 — GET /stac/items/{id} returns 5xx, no private context in body
 # ---------------------------------------------------------------------------
 
 
@@ -134,7 +134,7 @@ async def test_stac_item_5xx_does_not_leak_private_context(
 
 
 # ---------------------------------------------------------------------------
-# SEC-FU-01: Test 2 — GET /stac/search?ids=... returns 5xx, no private context
+# Test 2 — GET /stac/search?ids=... returns 5xx, no private context
 # ---------------------------------------------------------------------------
 
 
@@ -178,7 +178,7 @@ async def test_stac_search_5xx_does_not_leak_private_context(
 
 
 # ---------------------------------------------------------------------------
-# SEC-FU-01: Test 3 (control) — Without fixture, GET /stac/items/{id} returns 200
+# Test 3 (control) — Without fixture, GET /stac/items/{id} returns 200
 # ---------------------------------------------------------------------------
 
 

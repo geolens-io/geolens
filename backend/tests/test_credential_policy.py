@@ -147,7 +147,7 @@ class TestHeaderNameRejection:
     def test_the_denylist_is_the_two_groups_and_nothing_else(self) -> None:
         """Names GeoLens sets, and names that change the transport.
 
-        fix(#1756 codex round 7): the second group was missing, so a caller
+        The second group was missing at first, so a caller
         could send ``Transfer-Encoding: chunked`` as their API key header and
         re-frame the request body, or ``Proxy-Authorization``, which a
         configured forward proxy reads rather than the service.
@@ -205,7 +205,7 @@ class TestHeaderNameRejection:
         assert header_name_rejection_reason("AUTHORIZATION") != HEADER_NAME_POLICY
 
     def test_accept_encoding_is_refused(self) -> None:
-        """fix(#1770 round 49 P2, `service_tokens.py` `RESERVED_HEADER_NAMES`).
+        """Regression for #1770 in `service_tokens.py` `RESERVED_HEADER_NAMES`.
 
         `service_endpoints.py::credential_headers` and `probe_bounds.py::
         bounded_probe_read` both build `{name: value, "Accept-Encoding":
@@ -226,7 +226,7 @@ class TestHeaderNameRejection:
         "name", [":authority", ":method", ":Path", ":SCHEME", ":status"]
     )
     def test_pseudo_headers_are_refused_as_reserved(self, name: str) -> None:
-        """fix(#1756 codex round 7): protocol framing, not a header field.
+        """Protocol framing, not a header field.
 
         The charset rule would refuse these anyway, for the colon. The reason
         matters: a caller told their colon is an invalid character will try
@@ -250,7 +250,7 @@ class TestHeaderNameRejection:
         ],
     )
     def test_transport_headers_are_refused(self, name: str) -> None:
-        """fix(#1756 codex round 7): these reframe the request, not its body.
+        """These reframe the request, not its body.
 
         ``Transfer-Encoding: chunked`` is honoured by httpx and by the libcurl
         header file GDAL reads, and ``Proxy-Authorization`` is read by a
@@ -390,7 +390,7 @@ class TestBuildCredentialHeaderReturnsNone:
         An ArcGIS token is judged as a header VALUE (printable ASCII, no
         whitespace) rather than by ``HEADER_TOKEN_CHARSET``, so ``+``, ``/``
         and a token shorter than the WFS/OAPIF floor all compose. The header
-        NAME is Esri's own (fix(#1840 codex round 1)): a Web Adaptor or
+        NAME is Esri's own: a Web Adaptor or
         web-tier authentication in front of ArcGIS Enterprise consumes the
         standard one and refuses before ArcGIS runs. Those rules
         exist for a credential written into a file libcurl parses; an ArcGIS

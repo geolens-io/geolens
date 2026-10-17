@@ -1,6 +1,6 @@
 /**
  * Unit tests for the representative-fraction formatter.
- * SP-12 — closes the last v1009.1 followup.
+ * Closes the last v1009.1 followup.
  *
  * Locks Rule A: trailing ".0" is dropped.
  *   1000 → "1k"  (not "1.0k")

@@ -712,7 +712,7 @@ class Api:
         """This account's OWN maps, name -> id, newest-created match winning.
 
         A map name is not a key, and three separate things follow from that
-        (fix(#1404 review)):
+        (fix(#1404)):
 
         * Keep the FIRST match and only maps this account created. `--force`
           creates a SECOND map with the same name rather than replacing the
@@ -762,7 +762,7 @@ class Api:
         reuse/refresh path.
 
         Scoped to `created_by` for the same reason list_maps is scoped
-        (fix(#1404 review)): a title is not a key, an admin token sees every
+        (fix(#1404)): a title is not a key, an admin token sees every
         user's datasets, and all three callers here MUTATE what they resolve.
         Unscoped, _get_or_analyze would publish and rewrite the summary of a
         stranger's same-titled dataset and then build the showcase chain on it,
@@ -1841,7 +1841,7 @@ def _keep_existing_map(
     reads this True as "keep the ROW", not "do nothing": it runs the whole
     force path and rebinds the existing map's layers in place
     (_replace_map_layers), which is the only shape that repairs the scenes
-    without minting the new uuid --force-pinned would (fix(#1607 review r2)).
+    without minting the new uuid --force-pinned would (fix(#1607)).
     """
     if not exists:
         return False
@@ -1858,7 +1858,7 @@ def _announce_kept_map(name: str, force: bool, note: str = "") -> str:
     and an ordinary skip is "(skipped)". They read the same to a builder and
     differently to the operator, which is the point - "use --force to recreate"
     is the opposite of what --force does to a pinned map
-    (fix(#1607 review r2)).
+    (fix(#1607)).
 
     Separate from the decision so that stays pure. The force case has to name
     the flag that lifts the pin: an operator who typed --force and watched
@@ -1900,7 +1900,7 @@ def _rename_map_if_needed(api: Api, name: str, legacy: str) -> None:
 def _replace_map_layers(api: Api, map_id: str, layers: list[dict]) -> int:
     """Swap a map's whole layer stack, leaving the map ROW alone.
 
-    fix(#1607 review r2). This is what lets build_sentinel2 repair a pinned map
+    fix(#1607). This is what lets build_sentinel2 repair a pinned map
     under plain --force: a layer points at a dataset id, the scene re-import
     mints new ids, and the map's uuid and share tokens have to survive because
     geolens-examples addresses them. Delete-then-add is the only shape that
@@ -1925,7 +1925,7 @@ def _replace_map_layers(api: Api, map_id: str, layers: list[dict]) -> int:
 def _rows_to_rebind(newest: str | None, retained: list[str]) -> list[str]:
     """Every map row a pinned repair has to rebind, primary first, deduped.
 
-    fix(#1607 review r4). `retained` is every same-named row the force path
+    fix(#1607). `retained` is every same-named row the force path
     kept instead of deleting; `newest` is the one list_maps() resolves, which
     is what the seeder's other passes target and therefore the primary. They
     overlap in the ordinary case and must not be rebound twice.
@@ -1950,7 +1950,7 @@ def _rebind_pinned_rows(
 ) -> str:
     """Give every row in `rows` the same fresh layer stack and view.
 
-    fix(#1607 review r4). Returns the primary (rows[0]) - the id the builder
+    fix(#1607). Returns the primary (rows[0]) - the id the builder
     reports and the rest of the seeder resolves. Rebinding is deliberately not
     conditional on a row being a duplicate: an empty map and a stale map fail
     the same way for whoever follows the link, and the work is one small
@@ -2585,7 +2585,7 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     # Ownership is still worth SHOWING for the expected-foreign pins: they are
     # trusted, but a cleanup audit that never mentions a kept dataset belongs
     # to another account would be hiding the one fact the pin class encodes.
-    # fix(#1487 review): a NULL owner is a deleted creator account, not a
+    # fix(#1487): a NULL owner is a deleted creator account, not a
     # visitor - label it as the unknown it is instead of calling it expected.
     # It stays hard-kept either way; only the words change.
     pinned_foreign = [
@@ -5044,7 +5044,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     by REUSING the row: the force preflight, the scene deletion and the STAC
     import all run exactly as they do without a pin, and only create_map is
     skipped, in favour of rebinding the existing map's layers in place
-    (fix(#1607 review r2))."""
+    (fix(#1607))."""
     name = "New York From Orbit - Sentinel-2, by Reference"
     keep_pinned_row = _keep_existing_map(
         name, _map_exists(api, name), force, force_pinned
@@ -5065,18 +5065,18 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     # href -> own dataset id for holdings the force preflight proved the
     # skip-fallback can use; consulted before the by-title fallback because
     # titles are NOT unique (see datasets_by_title) and the newest same-titled
-    # row is not necessarily the row holding the asset (round 8).
+    # row is not necessarily the row holding the asset.
     resolved_by_href: dict[str, str] = {}
     # Same-named rows the loop below kept instead of deleting. Every one of
     # them loses its layers to the scene cascade, so every one is rebound
-    # (fix(#1607 review r4)).
+    # (fix(#1607)).
     retained_rows: list[str] = []
     if force:
-        # fix(#1493 review round 8): the shared-scene and conflict scans
+        # The shared-scene and conflict scans
         # below must see EVERY map and dataset. --username can select a
         # non-admin account, and non-admin listings are visibility-filtered -
         # a stranger's PRIVATE map layering one of these public scenes would
-        # be invisible to the round-5 sweep and its imagery silently
+        # be invisible to the sweep and its imagery silently
         # cascaded away by the delete.
         if "admin" not in api.roles:
             raise RuntimeError(
@@ -5084,14 +5084,14 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                 "listing cannot see other users' private maps, so the "
                 "shared-scene protection would be blind"
             )
-        # fix(#1493 review): --force must REBUILD, not duplicate - the import
+        # fix(#1493): --force must REBUILD, not duplicate - the import
         # endpoint dedupes on source_url and returns status="skipped" WITHOUT
         # updating origin_ref, so a rerun over existing scenes could never
         # record fresh bindings. Deleting the SCENES first is what makes
         # `--only sentinel2 --force` the supported repair for instances seeded
         # before item_href was sent.
         #
-        # fix(#1607 review r2): the map ROW is a separate question from the
+        # fix(#1607): the map ROW is a separate question from the
         # scenes, and since the name is pinned the two now part company. The
         # scene deletion and re-import below are what the repair actually is,
         # and they run unchanged; the map row is kept and rebound in place
@@ -5103,20 +5103,20 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         #
         # Three deliberate shapes here:
         #
-        # * Runs AFTER the catalog search succeeded (round 3): a flaky
+        # * Runs AFTER the catalog search succeeded: a flaky
         #   Element84 must fail this builder BEFORE it destroys a working
         #   showcase, not after.
-        # * Enumerates ALL owned maps under the name via list_all_maps()
-        #   (round 2): list_maps() collapses a name to the newest id, and the
+        # * Enumerates ALL owned maps under the name via list_all_maps():
+        #   list_maps() collapses a name to the newest id, and the
         #   old --force behavior could stack duplicates; deleting only the
         #   newest would cascade the survivors' layers away and leave husks.
         # * Deletes only scene datasets ATTACHED to those maps, intersected
-        #   with own+prefix+raster (round 3): a bare title-prefix sweep would
+        #   with own+prefix+raster: a bare title-prefix sweep would
         #   destroy an operator's unrelated same-prefixed import, and a bare
         #   attached-layer sweep would destroy a shared context dataset if a
         #   styling pass ever adds one to this map.
         # * Aborts BEFORE deleting when a selected asset is held by a dataset
-        #   the rebuild can neither delete nor resolve (rounds 4+6): the
+        #   the rebuild can neither delete nor resolve: the
         #   import dedupe is instance-wide on asset href, and the
         #   skip-fallback below resolves own datasets by seeder title only.
         #   A holding survives the rebuild unless it is in the deletion set,
@@ -5126,7 +5126,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         #   dedupe-skip into a missing scene or an all-conflict raise after
         #   the maps were already gone. Keyed the same way the backend guard
         #   is (fix(#1286)): origin_ref.asset_href, source_url as fallback.
-        # * Deletes datasets BEFORE maps (round 7): a scene serving a
+        # * Deletes datasets BEFORE maps: a scene serving a
         #   committed VRT or an in-progress generation makes its DELETE 409
         #   DependentVrtError, and that check is server-side only (origin_ref
         #   and derived_from expose no VRT sources client-side) - the delete
@@ -5151,7 +5151,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                 ):
                     doomed[ds_id] = title
         if doomed:
-            # fix(#1493 review round 5): a scene someone layered into ANY
+            # A scene someone layered into ANY
             # other map is not ours to cascade away - keep it and say so. The
             # kept scene then rides the dedupe skip-fallback below if the
             # fresh search reselects its asset (reattached, still
@@ -5172,7 +5172,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                             f"also layered in map {m.get('name', m['id'])!r}"
                         )
                         doomed.pop(ds_id)
-        # Preflight (rounds 4+6) - runs on the FINAL doomed set, after the
+        # Preflight - runs on the FINAL doomed set, after the
         # shared-scene exclusions, and before anything is deleted.
         href_to_title = {it["data_asset_href"]: it["title"] for it in items}
         conflicts = []
@@ -5193,7 +5193,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                 # Own + seeder-titled: resolvable. Record WHICH row holds the
                 # href so the skipped-result resolution below can bind to it
                 # directly - a newer same-titled own row would win the
-                # by-title lookup and attach the wrong data (round 8).
+                # by-title lookup and attach the wrong data.
                 resolved_by_href[held] = d["id"]
                 continue
             conflicts.append(d)
@@ -5239,7 +5239,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
             # this back into a delete-and-recreate, and this delete is why the
             # --force-pinned help singles this map out: for the other three
             # pinned maps the override leaves the old row standing, and here it
-            # does not (fix(#1607 review r3)).
+            # does not (fix(#1607)).
             if _keep_existing_map(name, True, force, force_pinned):
                 retained_rows.append(map_id)
                 print(f"  [pinned] keeping map {map_id} - rebound in place below")
@@ -5259,7 +5259,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     # to the row the force preflight proved holds the asset, falling back to
     # the title we assigned. The href binding comes first because titles are
     # not unique: a newer same-titled own row would win the by-title lookup
-    # and attach the wrong data to the map (round 8).
+    # and attach the wrong data to the map.
     id_to_title = {it["id"]: it["title"] for it in items}
     id_to_label = {it["id"]: _sentinel2_layer_label(it) for it in items}
     id_to_href = {it["id"]: it["data_asset_href"] for it in items}
@@ -5321,7 +5321,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         }
         for i, (ds_id, label) in enumerate(scenes)
     ]
-    # fix(#1607 review r2): under a pinned repair the row the examples link is
+    # fix(#1607): under a pinned repair the row the examples link is
     # reused instead of created. Resolved through list_maps(), which is what
     # every other pass in this seeder already targets (the globe projection,
     # the styling pass and the prune classifier all read it) - repairing a
@@ -6618,7 +6618,7 @@ def _builder_outcome_line(bname: str, result: str | None) -> str | None:
     main() so the wording is testable and so the pinned case cannot drift back
     to the generic line, which tells the operator to do the one thing that
     would break the examples: "use --force to recreate" is exactly what --force
-    declines to do to a pinned map (fix(#1607 review r2)).
+    declines to do to a pinned map (fix(#1607)).
 
     A falsy result keeps the generic line it has always had - a builder that
     returned nothing built nothing.

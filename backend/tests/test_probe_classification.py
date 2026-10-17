@@ -1,10 +1,9 @@
-"""Tests for classify_layer_kind helper (Phase 1057, CLASS-07 D-09).
+"""Tests for classify_layer_kind helper.
 
 Covers:
   - TestClassifyLayerKind: unit tests for the pure classify_layer_kind function
   - TestProbeOrchestratorNoEnrichment: integration tests verifying that
     detect_service_type no longer calls enrich_ogcapi_layers or enrich_wfs_layers
-    (PROBE-05 fix, per D-04 / D-05).
 """
 
 import json
@@ -22,7 +21,7 @@ def _streaming_response(
     headers: dict | None = None,
 ) -> httpx.Response:
     """A response whose body supports the streaming read the probe adapters
-    now use (fix(#1770 round 41 P1)).
+    now use (#1770).
 
     `httpx.Response(200, json=...)`/`text=...` materialise the body at
     construction, so `client.stream(...)`'s `aiter_raw()` over one raises
@@ -40,9 +39,9 @@ def _streaming_response(
 
 
 class TestClassifyLayerKind:
-    """Pin the D-09 classification rule for classify_layer_kind.
+    """Pin the classification rule for classify_layer_kind.
 
-    D-09: layer is 'raster' IFF:
+    Layer is 'raster' IFF:
       1. adapter_type == 'stac'
       2. geometry_type lowercased contains 'raster'
       3. layer has coverage_format key
@@ -52,12 +51,12 @@ class TestClassifyLayerKind:
     """
 
     def test_stac_adapter_always_raster(self):
-        """D-09 rule 1: STAC adapter is always raster regardless of other fields."""
+        """Rule 1: STAC adapter is always raster regardless of other fields."""
         result = classify_layer_kind({}, adapter_type="stac")
         assert result == "raster"
 
     def test_stac_adapter_always_raster_even_with_geometry_type(self):
-        """D-09 rule 1: STAC adapter is raster even if geometry_type suggests vector."""
+        """Rule 1: STAC adapter is raster even if geometry_type suggests vector."""
         result = classify_layer_kind(
             {"geometry_type": "MultiPolygon"}, adapter_type="stac"
         )
@@ -74,7 +73,7 @@ class TestClassifyLayerKind:
         ],
     )
     def test_geometry_type_containing_raster_is_raster(self, geometry_type: str):
-        """D-09 rule 2: geometry_type lowercased containing 'raster' → raster."""
+        """Rule 2: geometry_type lowercased containing 'raster' → raster."""
         result = classify_layer_kind(
             {"geometry_type": geometry_type}, adapter_type="ogcapi"
         )
@@ -101,7 +100,7 @@ class TestClassifyLayerKind:
         ],
     )
     def test_raster_signal_fields_trigger_raster(self, layer_dict: dict):
-        """D-09 rules 3-5: coverage_format/bands/image/* mediaType signal → raster.
+        """Rules 3-5: coverage_format/bands/image/* mediaType signal → raster.
 
         Note: empty string coverage_format is falsy so the empty-string case should
         return 'vector'. The parametrize includes it to document the edge case.
@@ -115,7 +114,7 @@ class TestClassifyLayerKind:
             assert result == "raster"
 
     def test_null_geometry_type_ogcapi_is_vector(self):
-        """D-09: OGC API Features collection with no geometry_type → vector (D-05 post-drop default)."""
+        """OGC API Features collection with no geometry_type → vector (post-drop default)."""
         result = classify_layer_kind(
             {"name": "rivers", "title": "Natural Rivers", "crs": None},
             adapter_type="ogcapi",
@@ -123,7 +122,7 @@ class TestClassifyLayerKind:
         assert result == "vector"
 
     def test_wfs_layer_is_always_vector(self):
-        """D-09: WFS layers are always vector by OGC spec."""
+        """WFS layers are always vector by OGC spec."""
         result = classify_layer_kind(
             {"name": "topp:countries", "title": "Countries", "crs": "EPSG:4326"},
             adapter_type="wfs",
@@ -131,7 +130,7 @@ class TestClassifyLayerKind:
         assert result == "vector"
 
     def test_arcgis_featureserver_layer_is_vector(self):
-        """D-09: ArcGIS FeatureServer layer with no raster signals → vector."""
+        """ArcGIS FeatureServer layer with no raster signals → vector."""
         result = classify_layer_kind(
             {
                 "name": "0",
@@ -143,14 +142,14 @@ class TestClassifyLayerKind:
         assert result == "vector"
 
     def test_layerinfo_kind_defaults_to_vector(self):
-        """D-09: LayerInfo Pydantic model default for kind is 'vector' (additive backward-compat)."""
+        """LayerInfo Pydantic model default for kind is 'vector' (additive backward-compat)."""
         from app.modules.catalog.sources.schemas import LayerInfo
 
         layer = LayerInfo(name="test_layer")
         assert layer.kind == "vector"
 
     def test_layerinfo_kind_rejects_invalid_value(self):
-        """D-09: LayerInfo.kind is a Literal — only 'vector' and 'raster' are valid."""
+        """LayerInfo.kind is a Literal — only 'vector' and 'raster' are valid."""
         from pydantic import ValidationError
 
         from app.modules.catalog.sources.schemas import LayerInfo
@@ -159,7 +158,7 @@ class TestClassifyLayerKind:
             LayerInfo(name="test_layer", kind="invalid")
 
     def test_non_image_link_type_is_vector(self):
-        """D-09: Links with non-image/ type do not trigger raster classification."""
+        """Links with non-image/ type do not trigger raster classification."""
         result = classify_layer_kind(
             {
                 "links": [
@@ -172,7 +171,7 @@ class TestClassifyLayerKind:
         assert result == "vector"
 
     def test_links_not_a_list_is_handled_defensively(self):
-        """D-09: classify_layer_kind handles malformed links defensively (not a list)."""
+        """classify_layer_kind handles malformed links defensively (not a list)."""
         # A malformed response with links as a dict instead of a list
         result = classify_layer_kind(
             {"links": {"rel": "self", "type": "image/png"}},
@@ -185,8 +184,8 @@ class TestClassifyLayerKind:
 class TestProbeOrchestratorNoEnrichment:
     """Verify detect_service_type no longer calls ogrinfo enrichment for OGC API / WFS.
 
-    Phase 1057 PROBE-05 fix per D-04 (real root cause: per-layer ogrinfo, not orchestrator)
-    and D-05 (drop enrichment from probe phase; lazy-enrich at preview time).
+    The root cause was per-layer ogrinfo, not the orchestrator, so enrichment
+    is dropped from the probe phase and done lazily at preview time.
     """
 
     def _make_response(
@@ -216,7 +215,7 @@ class TestProbeOrchestratorNoEnrichment:
 
     @pytest.mark.anyio
     async def test_ogcapi_probe_never_invokes_ogrinfo(self):
-        """PROBE-05: a 17-collection OGC API probe never launches ogrinfo.
+        """A 17-collection OGC API probe never launches ogrinfo.
 
         fix(#1859): asserts the short-circuit itself (no subprocess) rather
         than a wall-clock ceiling. Patches asyncio.create_subprocess_exec,
@@ -237,7 +236,7 @@ class TestProbeOrchestratorNoEnrichment:
             ]
         }
 
-        # fix(#1770 round 41 P1): a real transport, not a mocked `.get` --
+        # Use a real transport, not a mocked `.get` --
         # the probe adapters read via `client.stream` now.
         def handle(request: httpx.Request) -> httpx.Response:
             if "collections" in str(request.url):
@@ -269,7 +268,7 @@ class TestProbeOrchestratorNoEnrichment:
 
     @pytest.mark.anyio
     async def test_ogcapi_probe_layers_have_null_geometry_and_count(self):
-        """PROBE-05 + CLASS-07: OGC API probe layers have geometry_type=None, feature_count=None, kind='vector'."""
+        """OGC API probe layers have geometry_type=None, feature_count=None, kind='vector'."""
         import httpx
         from unittest.mock import AsyncMock, patch
 
@@ -314,7 +313,7 @@ class TestProbeOrchestratorNoEnrichment:
 
     @pytest.mark.anyio
     async def test_wfs_probe_layers_have_null_geometry_and_count_with_vector_kind(self):
-        """PROBE-05 + CLASS-07: WFS probe layers have geometry_type=None, feature_count=None, kind='vector'."""
+        """WFS probe layers have geometry_type=None, feature_count=None, kind='vector'."""
         import httpx
 
         capabilities_xml = """<?xml version="1.0" encoding="UTF-8"?>
@@ -357,11 +356,11 @@ class TestProbeOrchestratorNoEnrichment:
             assert layer.kind == "vector", f"Expected kind='vector' for {layer.name}"
 
     def test_enrich_ogcapi_layers_not_called(self):
-        """PROBE-05 D-05: detect_service_type must NOT call enrich_ogcapi_layers.
+        """detect_service_type must NOT call enrich_ogcapi_layers.
 
         Verifies by structural assertion: enrich_ogcapi_layers is not importable
         from probe.py (it was deleted). If the function exists in the probe module
-        namespace it would be patchable; its absence confirms D-05 compliance.
+        namespace it would be patchable; its absence confirms compliance.
         """
         import app.modules.catalog.sources.probe as probe_module
 
@@ -372,7 +371,7 @@ class TestProbeOrchestratorNoEnrichment:
 
     @pytest.mark.anyio
     async def test_enrich_arcgis_feature_counts_still_called(self):
-        """PROBE-05 D-05: ArcGIS enrichment (HTTP-based, fast) is preserved — not dropped."""
+        """ArcGIS enrichment (HTTP-based, fast) is preserved — not dropped."""
         import httpx
         from unittest.mock import AsyncMock, patch
 

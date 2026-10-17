@@ -32,7 +32,7 @@ class TestUnadoptedAnalysisOutput:
         source = _source("processing/analysis/tasks.py")
         assert "job.user_metadata = append_analysis_output_record(" in source
         lines = source.splitlines()
-        # fix(#1778 codex r7/r10): the name is resolved (scoped by job AND
+        # fix(#1778): the name is resolved (scoped by job AND
         # attempt, collision-checked as scoped) after `generate_table_name`
         # chooses its readable half, so the assignment this ordering hangs
         # off is the resolving call.
@@ -60,7 +60,7 @@ class TestUnadoptedAnalysisOutput:
             ({}, ()),
             ({"analysis_out_table": ""}, ()),
             ({"analysis_out_table": 7}, ()),
-            # fix(#1778 codex r10): a plain string is what a row written
+            # fix(#1778): a plain string is what a row written
             # before this commit still holds, and is read as a one-element
             # list so its pointer survives.
             ({"analysis_out_table": "parcels_buffered"}, ("parcels_buffered",)),
@@ -166,14 +166,14 @@ class TestUnadoptedAnalysisOutput:
         with patch("app.platform.jobs.sweep._reap_unadopted_analysis_outputs", reap):
             outcome = await fail_stale_jobs(test_db_session, detailed=True)
 
-        # fix(#1778 codex r7): (job, table), so the drop can verify ownership.
+        # fix(#1778): (job, table), so the drop can verify ownership.
         assert (job_uuid, "parcels_buffered") in outcome._unadopted_analysis_tables
         (dropped,) = reap.await_args.args
         assert (job_uuid, "parcels_buffered") in dropped
 
 
 class TestOnlyASettledArtifactLosesItsRecord:
-    """fix(#1778 codex r6): "it did not raise" is not "it is done".
+    """fix(#1778): "it did not raise" is not "it is done".
 
     `drop_unadopted_analysis_output` catches its own probe and DROP failures,
     so it returned the same `None` whether it dropped the table or failed to.
@@ -285,7 +285,7 @@ class TestOnlyASettledArtifactLosesItsRecord:
         ):
             await _reap_unadopted_analysis_outputs(((job_uuid, self.TABLE),))
 
-        # fix(#1778 codex r10): settled by VALUE, not by owning job id -- the
+        # fix(#1778): settled by VALUE, not by owning job id -- the
         # record accumulates across attempts now, so clearing "the field for
         # this job" would forget a name this pass never answered for.
         clear.assert_awaited_once_with(
@@ -354,7 +354,7 @@ class TestOnlyASettledArtifactLosesItsRecord:
     async def test_a_legacy_string_shaped_record_clears_on_settle(
         self, test_db_session
     ) -> None:
-        """fix(#1778 codex r10): a pre-PR row still holds a plain JSONB
+        """fix(#1778): a pre-PR row still holds a plain JSONB
         string, not a list. `unadopted_analysis_tables_from_metadata` already
         reads it as a one-element list, so the table gets dropped either way
         -- but the clearing SQL originally kept its `jsonb_typeof(...) =
@@ -481,7 +481,7 @@ def _output_name_for(job_uuid, attempt_uuid=None) -> str:
 
 
 class TestAnalysisOutputNamesAreJobScoped:
-    """fix(#1778 codex r7): two jobs could hold one physical table name.
+    """fix(#1778): two jobs could hold one physical table name.
 
     An old failed analysis keeps `analysis_out_table` on its row until the reap
     succeeds. Once its table is gone the name is free again -- nothing retires
@@ -491,7 +491,7 @@ class TestAnalysisOutputNamesAreJobScoped:
     sweep destroyed the NEW job's table, and the name-keyed record clearing
     then erased the new job's recovery pointer along with the old one's.
 
-    fix(#1778 codex r10): job scoping alone left one gap open -- `/jobs/{id}/
+    fix(#1778): job scoping alone left one gap open -- `/jobs/{id}/
     retry` keeps `IngestJob.id` and mints a new attempt token, so every retry
     of one job derived the SAME name. A stale sweep could capture attempt 1's
     name, settle the job `failed`, and then probe and drop while attempt 2
@@ -513,7 +513,7 @@ class TestAnalysisOutputNamesAreJobScoped:
         assert second.startswith("parcels_buffered_")
 
     def test_two_attempts_of_one_job_never_derive_the_same_name(self) -> None:
-        """fix(#1778 codex r10): the gap job scoping alone left open."""
+        """fix(#1778): the gap job scoping alone left open."""
         from app.processing.analysis.tasks import analysis_output_table_name
 
         job_uuid = uuid.uuid4()
@@ -545,7 +545,7 @@ class TestAnalysisOutputNamesAreJobScoped:
     def test_the_materialize_path_scopes_the_generated_name(self) -> None:
         """`generate_table_name` still chooses the readable half; the scoped
         collision walk happens separately, in `resolve_analysis_output_table`
-        (fix(#1778 codex r10))."""
+        (fix(#1778))."""
         source = _source("processing/analysis/tasks.py")
         assert "out_table = await resolve_analysis_output_table(" in source
         assert "out_table, collision_warning = await generate_table_name" not in source
@@ -619,7 +619,7 @@ class TestAnalysisOutputNamesAreJobScoped:
         old_table = analysis_output_table_name(base, old_id, old_job.attempt_id)
         new_table = analysis_output_table_name(base, new_id, new_job.attempt_id)
         assert old_table != new_table, "the whole point of the scope"
-        # List-shaped, the current writer's shape (fix(#1778 codex r10)).
+        # List-shaped, the current writer's shape (fix(#1778)).
         old_job.user_metadata = {"analysis_out_table": [old_table]}
         new_job.user_metadata = {"analysis_out_table": [new_table]}
         # Only the NEW job's table exists: the old one's was already dropped,
@@ -666,7 +666,7 @@ class TestAnalysisOutputNamesAreJobScoped:
 
 
 class TestAttemptScopingPins:
-    """fix(#1778 codex r10): the three scenarios named in the round-10
+    """fix(#1778): the three scenarios named in the
     review, each pinned against real Postgres.
     """
 
@@ -699,7 +699,7 @@ class TestAttemptScopingPins:
         )
 
         # The retry: same job row, a new attempt, its own table, appended --
-        # never overwriting -- onto the same field (fix(#1778 codex r10)).
+        # never overwriting -- onto the same field (fix(#1778)).
         attempt_2 = uuid.uuid4()
         job.attempt_id = attempt_2
         table_2 = analysis_output_table_name(base, job.id, attempt_2)
@@ -841,7 +841,7 @@ class TestAttemptScopingPins:
             await test_db_session.commit()
 
     def test_a_long_base_still_yields_distinct_collision_suffixes(self) -> None:
-        """fix(#1778 audit r11): the identifier-length bug, at the unit
+        """fix(#1778): the identifier-length bug, at the unit
         level. Before this fix, `analysis_output_table_name` reserved room
         for the scope but not for a collision tag applied afterward, so the
         walk's `f"{base}_{suffix}"` pre-pend got trimmed away entirely once
@@ -866,7 +866,7 @@ class TestAttemptScopingPins:
     async def test_a_long_base_with_an_existing_table_self_heals_to_a_suffix(
         self, test_db_session
     ) -> None:
-        """fix(#1778 audit r11): the same bug, end to end against real
+        """fix(#1778): the same bug, end to end against real
         Postgres. Before this fix, the walk inside
         `resolve_analysis_output_table` re-trimmed an already-trimmed
         candidate on every iteration, so a 60-char base with its scoped
@@ -922,7 +922,7 @@ def _mock_db_for_fail_stale(
     top to bottom: unbound pending UPDATE, bound pending UPDATE, running
     UPDATE, childless fan-out UPDATE, VRT generation UPDATE, two RasterAsset
     UPDATEs, two refresh-run UPDATEs, the retention purge DELETE, the
-    artifact-carrying SELECT (fix(#1778 codex r10): unconditional, outside the
+    artifact-carrying SELECT (fix(#1778): unconditional, outside the
     retention block -- see that query's own docstring), and the post-expiry
     presigned SELECT.
     """
@@ -957,7 +957,7 @@ def _mock_db_for_fail_stale(
     purge.all.return_value = []
     results.append(purge)
 
-    # fix(#1778 codex r10): the artifact-carrying SELECT, unconditional and
+    # fix(#1778): the artifact-carrying SELECT, unconditional and
     # run after the retention block. (id, user_metadata) pairs.
     artifact = MagicMock()
     artifact.all.return_value = list(artifact_rows or [])

@@ -1,7 +1,7 @@
 """Unit tests for the shared MapLibre filter validator/normalizer.
 
-builder-audit #338 P1-04 (filter grammar), STYLE-01/SPEC-08 (builder alias single
-source of truth), and P2-05 (LabelConfig schema). These exercise the schema
+Covers the filter grammar, the builder alias single source of truth and the
+LabelConfig schema. These exercise the schema
 contract directly without a DB so the orchestrator's serial suite stays cheap.
 """
 
@@ -26,7 +26,7 @@ from app.modules.catalog.maps.schemas import (
 
 
 # --------------------------------------------------------------------------- #
-# P1-04: filter grammar — valid editable subset                               #
+# Filter grammar — valid editable subset                                      #
 # --------------------------------------------------------------------------- #
 
 
@@ -62,12 +62,12 @@ def test_validate_filter_none_passes_through():
 
 
 def test_validate_filter_empty_array_clears():
-    # EDIT-03: [] is not a valid MapLibre filter — treat as clear (None).
+    # [] is not a valid MapLibre filter — treat as clear (None).
     assert validate_filter([]) is None
 
 
 # --------------------------------------------------------------------------- #
-# P1-04: legacy-form normalization                                            #
+# Legacy-form normalization                                                   #
 # --------------------------------------------------------------------------- #
 
 
@@ -93,7 +93,7 @@ def test_validate_filter_preserves_legacy_pseudo_field():
 
 
 # --------------------------------------------------------------------------- #
-# P1-04: rejection of malformed recognized forms                              #
+# Rejection of malformed recognized forms                                     #
 # --------------------------------------------------------------------------- #
 
 
@@ -130,7 +130,7 @@ def test_validate_filter_rejects_structurally_invalid(value):
 
 
 # --------------------------------------------------------------------------- #
-# P1-04: opaque unsupported filters are preserved verbatim                    #
+# Opaque unsupported filters are preserved verbatim                           #
 # --------------------------------------------------------------------------- #
 
 
@@ -148,7 +148,7 @@ def test_validate_filter_preserves_opaque(expr):
 
 
 # --------------------------------------------------------------------------- #
-# P1-04: wired into MapLayerInput / MapLayerPatch                             #
+# Wired into MapLayerInput / MapLayerPatch                                    #
 # --------------------------------------------------------------------------- #
 
 
@@ -176,7 +176,7 @@ def test_map_layer_patch_validates_filter():
 
 
 # --------------------------------------------------------------------------- #
-# STYLE-01 / SPEC-08: builder alias single source of truth                    #
+# Builder alias single source of truth                                        #
 # --------------------------------------------------------------------------- #
 
 
@@ -201,7 +201,7 @@ def test_builder_inverse_includes_folder_group_keys():
 
 
 # --------------------------------------------------------------------------- #
-# P2-05: LabelConfig schema                                                   #
+# LabelConfig schema                                                          #
 # --------------------------------------------------------------------------- #
 
 

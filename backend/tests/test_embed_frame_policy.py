@@ -1,4 +1,4 @@
-"""builder-audit #338 P0-02 regression: per-token frame-ancestors on the /m/{token}
+"""Regression: per-token frame-ancestors on the /m/{token}
 embed HTML shell.
 
 Domain restrictions previously protected only the tile/data calls, not the

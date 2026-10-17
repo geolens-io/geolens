@@ -1,13 +1,10 @@
-"""Unit tests for IA-P0-02: chunked size enforcement in save_upload_file.
+"""Unit tests for chunked size enforcement in save_upload_file.
 
 Pins the new max_size_bytes parameter behavior, including:
 - Local mode: 413 raised once cumulative chunk total exceeds the limit
 - Local mode: partial file cleaned up on 413
 - S3 mode: 413 raised before storage.put() is called
 - Both modes: no max_size_bytes → no enforcement (backwards compatible)
-
-Requirement: IA-P0-02
-Phase: 1066
 """
 
 import asyncio
@@ -202,7 +199,7 @@ async def test_presigned_multipart_url_failure_aborts_initialized_session():
     from app.processing.ingest import router
     from app.processing.ingest.schemas import PresignedUploadRequest
 
-    # fix(#1235 review r4): a real created_at. The presign path now derives the
+    # A real created_at. The presign path now derives the
     # URL TTL from it and refuses (409) when too little of the job's lifetime is
     # left, and a MagicMock attribute silently makes int() of the remainder 1 —
     # so the door would answer 409 before ever reaching the part-URL failure

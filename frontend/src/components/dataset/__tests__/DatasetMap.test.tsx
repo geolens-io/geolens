@@ -57,7 +57,7 @@ const drawingState = vi.hoisted(() => ({
   setEditDirty: vi.fn(),
   setHasUnsavedMapWork: vi.fn(),
   isEditDirty: false,
-  // fix(#1761 review round 3 P1): identity-change session counter. Real
+  // Identity-change session counter. Real
   // usage never resets this to 0 mid-life, so tests that bump it use a high
   // starting value to avoid colliding with any other test's leftover state.
   sessionEpoch: 0,
@@ -127,7 +127,7 @@ vi.mock('@/hooks/use-tile-token', () => ({
 
 vi.mock('@/stores/drawing-store', () => {
   const useDrawingStore = (selector: (state: typeof drawingState) => unknown) => selector(drawingState);
-  // fix(#1761 review round 3 P1): finishDrawingSession reads
+  // finishDrawingSession reads
   // useDrawingStore.getState() directly (not via the selector hook), the
   // same static-access pattern the real zustand store supports.
   useDrawingStore.getState = () => drawingState;
@@ -135,7 +135,7 @@ vi.mock('@/stores/drawing-store', () => {
   return { useDrawingStore };
 });
 
-// fix(#1761 review round 3 P1): a stable hoisted object (not a fresh
+// A stable hoisted object (not a fresh
 // literal per render) so a test can hold onto `terraDrawState.clear` and
 // assert it was invoked by the identity-change cleanup effect.
 const terraDrawState = vi.hoisted(() => ({
@@ -167,7 +167,7 @@ vi.mock('@/components/drawing/hooks/use-terra-draw', () => ({
 
 import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 
-// fix(#1761 review round 4): a stable hoisted mutateAsync (not a fresh
+// A stable hoisted mutateAsync (not a fresh
 // vi.fn() per render) so a test can control WHEN the update mutation
 // resolves, to simulate an identity change while it is in flight.
 const updateFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
@@ -184,7 +184,7 @@ vi.mock('@/api/features', () => ({
   getFeature: vi.fn(),
 }));
 
-// fix(#1761 review round 3 P1): keep useFeatureEditing's real implementation
+// Keep useFeatureEditing's real implementation
 // (performDeselect etc. are exercised elsewhere in this file) but replace
 // showAllFeaturesInTiles with a spy, so the identity-change cleanup test
 // below can assert the tile-filter restore ran without needing a real
@@ -2020,7 +2020,7 @@ describe('DatasetMap antimeridian extent (fix #1004)', () => {
   });
 });
 
-// fix(#1761 review round 3 P1): the identity-change choke point
+// The identity-change choke point
 // (lib/auth-cache-reset.ts) only resets Zustand fields. DatasetMap's own
 // finishDrawingSession is what tears down Terra Draw's drawn geometry, the
 // map's hidden-tile filters, and this component's own open dialogs — none
@@ -2028,7 +2028,7 @@ describe('DatasetMap antimeridian extent (fix #1004)', () => {
 // (a sessionEpoch bump) drives that cleanup even though nothing in the
 // choke point itself knows this component exists.
 describe('DatasetMap identity-change cleanup (fix #1761 review round 3 P1)', () => {
-  // fix(#1761 review round 4): spy-able 'drawn-overlay' source, so the
+  // The map mock exposes a spy-able 'drawn-overlay' source, so the
   // "tears down..." test below can also assert resetOverlay() actually
   // reaches the map (not just that finishDrawingSession's OTHER cleanup
   // steps ran).
@@ -2111,14 +2111,14 @@ describe('DatasetMap identity-change cleanup (fix #1761 review round 3 P1)', () 
     expect(showAllFeaturesInTilesMock).toHaveBeenCalled();
     expect(drawingState.clearDrawing).toHaveBeenCalled();
     expect(screen.queryByText('Edit Feature Attributes')).not.toBeInTheDocument();
-    // fix(#1761 review round 4): a create in progress can leave a
+    // A create in progress can leave a
     // not-yet-committed shape in the drawn-overlay source; the
     // identity-change cleanup must empty it too.
     expect(overlaySetData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] });
   });
 });
 
-// fix(#1761 review round 4): the attribute-edit dialog's onSubmit used to
+// The attribute-edit dialog's onSubmit used to
 // close unconditionally once handleEditAttributeSubmit resolved, even when
 // its own epoch check had refused the write as stale — discarding a SECOND
 // identity's own now-open editor for their feature.

@@ -102,8 +102,8 @@ describe('LineGradientControls — UI', () => {
     // UAT regression-lock: onBuilderChange MUST receive nextPaint that includes
     // the new line-gradient expression, otherwise upstream save reads stale paint
     // (closure capture) and shadows the gradient.
-    // Phase 258 POLISH-06: stops now carry id fields (optional); use objectContaining
-    // so the assertion accepts the extra `id` field without breaking GRAD-04.
+    // Stops now carry id fields (optional); use objectContaining
+    // so the assertion accepts the extra `id` field without breaking.
     expect(onBuilderChange).toHaveBeenCalledWith(
       {
         lineGradient: {
@@ -416,7 +416,7 @@ describe('LineGradientControls — UI', () => {
     const positionInputs = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
     // Type an out-of-range pending value into idx=1 (1.5). Out-of-range values are NOT
     // committed upstream (so they persist in pendingPositionEdits and feed displayedPos).
-    // idx=1 will show invalidPosition. The IN-03 fix means idx=2's monotonic check now
+    // idx=1 will show invalidPosition. The fix means idx=2's monotonic check now
     // uses displayed positions: prevDisplayedPos (idx=1) = 1.5, displayedPos (idx=2) = 1
     // (committed) -> 1 > 1.5 is false -> duplicatePosition surfaces immediately on idx=2.
     fireEvent.change(positionInputs[1], { target: { value: '1.5' } });

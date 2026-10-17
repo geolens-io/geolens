@@ -78,7 +78,7 @@ describe('StyleJsonDialog', () => {
     expect(screen.queryByText(/more warnings omitted/)).not.toBeInTheDocument();
   });
 
-  // fix(#1778): the backend stops listing warnings after 100, so a document
+  // The backend stops listing warnings after 100, so a document
   // with thousands of unmatched sources used to look like it had exactly 100
   // problems.
   it('reports how many warnings the backend stopped listing', async () => {

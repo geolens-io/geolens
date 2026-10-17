@@ -502,7 +502,7 @@ def validate_public_api_url(v: Any) -> str:
 
 
 def validate_privacy_url(v: Any) -> str:
-    """PRIV-1: the login/register privacy-policy link. Unset clears it.
+    """The login/register privacy-policy link. Unset clears it.
 
     Deliberately NOT ``_normalize_absolute_url`` (above): that helper rejects
     a query string or fragment, but a real policy page (Google Docs, Notion,

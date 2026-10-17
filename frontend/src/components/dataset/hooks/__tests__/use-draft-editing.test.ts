@@ -163,7 +163,7 @@ describe('useDraftEditing', () => {
   });
 
   it('savePendingDrafts includes a draft staged after the callback was captured (E-17)', async () => {
-    // fix(#458 E-17): savePendingDrafts blurs the focused input, which stages its
+    // savePendingDrafts blurs the focused input, which stages its
     // edit mid-call. The old code read `pendingDrafts` from the callback closure
     // and dropped that field; the ref-based read captures it. Capturing `save`
     // BEFORE staging reproduces the stale-closure condition.

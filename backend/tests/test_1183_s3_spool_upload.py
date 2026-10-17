@@ -1,6 +1,4 @@
-"""Regression tests for PERF-001: S3 upload spool-to-disk instead of full in-memory buffer.
-
-Phase 1183 — Plan 01.
+"""Regression tests for S3 upload spool-to-disk instead of full in-memory buffer.
 
 RED test: before fix, the S3 branch uses io.BytesIO which never rolls to disk.
 GREEN test: after fix, SpooledTemporaryFile spills large files to disk past threshold.
@@ -33,7 +31,7 @@ def _fake_upload(name: str, content: bytes) -> UploadFile:
 
 
 class TestS3SpoolUpload:
-    """PERF-001: S3 upload path spools to disk for large files."""
+    """S3 upload path spools to disk for large files."""
 
     @pytest.mark.asyncio
     async def test_large_s3_upload_spills_to_disk(self):

@@ -139,7 +139,7 @@ describe('useDrawingStore', () => {
     });
 
     it('setSelectedFeature refuses and clears when there is no active target', () => {
-      // fix(#1761 review P1): the second, independent guard — refuses even
+      // The second, independent guard — refuses even
       // when nothing has adopted a target yet, so a caller that reaches
       // setSelectedFeature without ever calling setDrawing cannot attach a
       // feature to nothing. Nothing is active to preserve here, so a full
@@ -166,9 +166,9 @@ describe('useDrawingStore', () => {
       expect(state.targetDatasetId).toBe('ds-1');
     });
 
-    // fix(#1761 review round 2 P1): the race round 1's design missed.
-    // Round 1 stored the adopting epoch ON THE TARGET and compared it to
-    // the live counter, which broke once a SECOND identity adopted its own
+    // The race a target-stored epoch misses.
+    // Storing the adopting epoch ON THE TARGET and comparing it to
+    // the live counter breaks once a SECOND identity adopts its own
     // fresh target: that adoption re-stamped the stored epoch to the (now
     // current) live value, so a stale write from the FIRST identity's
     // still-pending mutation compared the live epoch to itself and was
@@ -191,7 +191,7 @@ describe('useDrawingStore', () => {
       useAuthStore.setState({ user: { id: 'user-b' } as UserResponse });
       // ...and user B adopts their OWN new target and selection. Its epoch
       // is current by construction, which is exactly what let the stale
-      // write through in round 1.
+      // write through under that design.
       useDrawingStore.getState().setDrawing('ds-2', 'other_table', 'Point');
       useDrawingStore
         .getState()

@@ -1,4 +1,4 @@
-"""STOR-05 seam lint: no /vsis3/ or /vsiaz/ construction literals outside the storage seam.
+"""Seam lint: no /vsis3/ or /vsiaz/ construction literals outside the storage seam.
 
 The single source of truth for VSI prefix construction is
   backend/app/platform/storage/titiler_url.py::resolve_open_path
@@ -14,7 +14,7 @@ Allowlist reasoning:
   DATA (str.startswith allowlist), not VSI-path construction. Filtered by pattern.
 - this test file itself (its subprocess grep + strings reference the patterns).
 
-Pattern mirrors test_vrt_vsi_allowlist.py (Phase 1071 KNOWN-04).
+Pattern mirrors test_vrt_vsi_allowlist.py.
 
 Run:
     cd backend && uv run pytest tests/test_stor_vsi_seam_lint.py -x -q
@@ -34,7 +34,7 @@ _APP_ROOT = Path(__file__).parents[1] / "app"
 _SEAM_FILE = _APP_ROOT / "platform/storage/titiler_url.py"
 
 # vrt_rewrite.py uses a regex to STRIP VSI prefixes, not to construct them.
-# May not exist yet (Wave 3) — allowlisted defensively.
+# May not exist yet — allowlisted defensively.
 _VRT_REWRITE_FILE = _APP_ROOT / "processing/raster/vrt_rewrite.py"
 
 # This test file contains the literal patterns as grep targets.
@@ -106,7 +106,7 @@ def _find_violations(literal: str) -> list[str]:
 
 
 class TestVsiSeamLint:
-    """STOR-05: no VSI construction literals outside app.platform.storage.titiler_url."""
+    """No VSI construction literals outside app.platform.storage.titiler_url."""
 
     def test_no_vsis3_literal_outside_seam(self):
         """No /vsis3/ construction literal exists outside the storage seam."""

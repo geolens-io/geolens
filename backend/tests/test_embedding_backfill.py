@@ -62,7 +62,7 @@ def _written_rows(session) -> list[dict]:
 def _patch_backfill_gates(stack: ExitStack, *, ai_enabled=True):
     """Patch the run-level PersistentConfig gates the backfill reads once.
 
-    fix(#1511 review r2): the model and dimensions are now captured as one
+    fix(#1511): the model and dimensions are now captured as one
     snapshot that re-reads both and aborts if either moved, so a stubbed run
     has to answer both keys and answer them consistently. EMBEDDING_MODEL is
     patched on `persistent_config` because backfill reaches it through
@@ -166,7 +166,7 @@ class TestBackfillEmbeddings:
 
     @pytest.mark.asyncio
     async def test_failed_batch_retries_per_record(self):
-        """fix(#449, codex P2): one rejected input must not sink its batchmates —
+        """fix(#449): one rejected input must not sink its batchmates —
         the failed batch is retried per record and only the bad one errors."""
         from app.processing.embeddings.backfill import backfill_embeddings
 

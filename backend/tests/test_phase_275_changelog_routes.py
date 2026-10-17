@@ -1,4 +1,4 @@
-"""Phase 275 / API-02 regression: CHANGELOG [Unreleased] routes match OpenAPI.
+"""Regression: CHANGELOG [Unreleased] routes match OpenAPI.
 
 Locks in the contract that the v1.1.0-ready CHANGELOG block lists every
 new route, and that every route it lists actually exists in the public
@@ -99,7 +99,7 @@ def test_changelog_unreleased_routes_exist_in_openapi() -> None:
 
 
 def test_changelog_unreleased_lists_at_least_10_distinct_routes() -> None:
-    """Sanity-check that the API-02 block was not partially trimmed."""
+    """Sanity-check that the block was not partially trimmed."""
     block = _read_added_map_builder_block()
     cited = _ROUTE_RE.findall(block)
     unique = {(m, p) for m, p in cited}
@@ -114,8 +114,8 @@ def test_phase_269_breaking_change_block_intact() -> None:
 
     The on-disk format wraps method+path in a single pair of backticks
     (`PUT /maps/{id}/thumbnail/`). The signature below matches the
-    Phase 269 wording verbatim so any rewrite of the breaking-change
-    paragraph will fail this test.
+    wording verbatim so any rewrite of the breaking-change paragraph will
+    fail this test.
     """
     unreleased = _read_unreleased() + "\n" + _read_release("1.1.0")
     signature = "`PUT /maps/{id}/thumbnail/` request body changed from `text/plain`"

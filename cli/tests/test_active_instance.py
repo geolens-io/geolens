@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""BUG-033: --instance / GEOLENS_INSTANCE are normalized at resolution.
+"""--instance / GEOLENS_INSTANCE are normalized at resolution.
 
 A trailing-slash or missing-/api override must canonicalize to the same key
 login stored, so credential lookups hit instead of silently falling back to an
@@ -74,7 +74,7 @@ class TestTrailingSlashOverrideFindsStoredCredential:
         state = _make_state(instance_override="https://x.example.com/api/")
         resolved = state.active_instance()
         assert resolved == CANONICAL
-        # The credential is found under the normalized key (BUG-033).
+        # The credential is found under the normalized key.
         token = _auth.load_bearer_token(resolved)
         assert token is not None
         assert token.value == "tok-xyz"
@@ -107,7 +107,7 @@ class TestSdkHasADefaultHttpTimeout:
 
 
 class TestMakeClientBindsTheDefaultTimeout:
-    """fix(#1778 review round 2): _sdk_helpers.make_client() is the single
+    """_sdk_helpers.make_client() is the single
     construction point for every GeolensClient in this package (see
     tests/test_client_construction.py for the structural gate). This pins
     what it actually does: bind the request to DEFAULT_HTTP_TIMEOUT_SECONDS."""
@@ -139,7 +139,7 @@ class TestMakeClientBindsTheDefaultTimeout:
 
 
 class TestActiveCredentialKindMarkerPrecedence:
-    """fix(#1778 review round 10): AppState.sdk() now consults the
+    """AppState.sdk() now consults the
     active-credential-kind marker login writes unconditionally (see
     auth.load_active_credential_kind), so a stale competing credential
     surviving in the OTHER backend can never outrank the credential
@@ -149,20 +149,20 @@ class TestActiveCredentialKindMarkerPrecedence:
     def test_api_key_login_wins_over_a_stale_bearer_once_the_keyring_is_readable_again(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """The regression this round fixes: an API-key login that fell
-        back to the file while the keyring was unavailable (round 9
-        tolerates that rather than failing the login) leaves an old
+        """The regression: an API-key login that fell
+        back to the file while the keyring was unavailable (the
+        cleanup step tolerates that rather than failing the login) leaves an old
         bearer token untouched in the keyring. Once the keyring is
         readable again, the marker -- not the old bearer-first
         precedence -- decides.
 
-        fix(#1778 review round 12): this test briefly needed an explicit
+        This test briefly needed an explicit
         --no-keyring flag here, because replace_credentials() had
         started refusing outright whenever it could not read the
         account it was about to overwrite -- a PLAIN login's automatic
         file fallback was gone for that case.
 
-        fix(#1778 review round 13): round 12's refusal broke the
+        fix(#1778): the earlier refusal broke the
         documented automatic fallback for a real headless install, so
         it forces the keyring-free file path instead of aborting (see
         TestSnapshotUnknownForcesFileBackend in test_exit_codes.py).
@@ -171,7 +171,7 @@ class TestActiveCredentialKindMarkerPrecedence:
         cannot read the keyring falls back to the file on its own.
         _delete_stale_credentials' cleanup read of the bearer account
         still hits the broken keyring, and is still tolerated (not
-        raised) because keep_backend == "file" -- round 9's behavior
+        raised) because keep_backend == "file" -- the earlier behavior
         for that part is unchanged, which is the point of this test."""
         import keyring
         from keyring.errors import KeyringError
@@ -198,7 +198,7 @@ class TestActiveCredentialKindMarkerPrecedence:
 
         # The keyring becomes readable again -- the stale bearer token
         # is still sitting there, untouched (cleanup never ran, per
-        # round 9's tolerance for an unreadable keyring).
+        # the tolerance for an unreadable keyring).
         monkeypatch.setattr("keyring.set_password", original_set)
         monkeypatch.setattr("keyring.get_password", original_get)
         assert _auth.load_bearer_token(canonical) is not None
@@ -240,7 +240,7 @@ class TestActiveCredentialKindMarkerPrecedence:
 
 
 class TestMarkerIsAuthoritativeEvenWhenItsOwnCredentialCannotBeRead:
-    """fix(#1778 review round 27): AppState.sdk() consulted the
+    """AppState.sdk() consulted the
     active_kind marker, but still read BOTH `bearer` and `api_key`
     tolerantly up front -- so when the marker named `api_key` and
     reading it raised an account-specific KeyringError,
@@ -249,7 +249,7 @@ class TestMarkerIsAuthoritativeEvenWhenItsOwnCredentialCannotBeRead:
     match, and execution fell through to the tolerant bearer-first
     fallback a few lines down. Every command then silently ran as the
     OLD (bearer) principal -- exactly the stale credential the
-    round-14/23/25 _UNKNOWN cleanup gate deliberately left behind.
+    _UNKNOWN cleanup gate deliberately left behind.
 
     A PRESENT marker is now authoritative: its named kind is read with
     a STRICT reader that tells "unreadable" (raises -- resolution
@@ -284,7 +284,7 @@ class TestMarkerIsAuthoritativeEvenWhenItsOwnCredentialCannotBeRead:
         _auth.replace_credentials(CANONICAL, "api_key", "the-api-key")
         assert _auth.load_active_credential_kind(CANONICAL) == "api_key"
         # A stale bearer credential sits in the keyring, however it got
-        # there (round 14's _UNKNOWN cleanup gate is one real way) --
+        # there (the _UNKNOWN cleanup gate is one real way) --
         # written directly since this test only cares what is
         # PHYSICALLY present, not the mechanism.
         mock_keyring[("geolens", CANONICAL)] = "stale-bearer-token"
@@ -371,7 +371,7 @@ class TestMarkerIsAuthoritativeEvenWhenItsOwnCredentialCannotBeRead:
         """Pin: no marker + api-key unreadable + bearer readable ->
         the existing tolerant bearer-first precedence still applies,
         pinned explicitly so a future change cannot silently drift
-        this (the ONLY case round 27 leaves unchanged, since there is
+        this (the ONLY case that stays unchanged, since there is
         no marker to be authoritative about)."""
         monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
         # No login at all -- written directly so no active_kind marker

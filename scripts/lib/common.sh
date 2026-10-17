@@ -9,18 +9,18 @@
 # boot under QEMU emulation), while this copy keeps a 90s budget for the
 # upgrade path where images and volumes already exist locally.
 #
-# fix(#1778 round 20, P1; relocated round 21): this file has ONE side
+# fix(#1778): this file has ONE side
 # effect on source — see the snapshot block below `fail()`'s definition,
 # which needs `fail` to exist before it runs and so cannot sit this early
 # in the file. Everything else here still only defines functions.
 #
-# fix(#1778 round 22, P2): COMPOSE_FILE's own default assignment (below,
+# COMPOSE_FILE's own default assignment (below,
 # after the snapshot block) moved from HERE, right after this comment, to
 # AFTER the snapshot -- see that block's own comment for why a
 # pre-snapshot assignment of any kind is exactly the class of bug this
-# round closed. The caller sets COMPOSE_FILE before invoking compose().
+# ordering closes. The caller sets COMPOSE_FILE before invoking compose().
 
-# fix(#1798 review round 16, P2, review 5104847831): a caller must tell
+# A caller must tell
 # Compose where the PROJECT lives for its OWN purposes -- reading `.env` to
 # populate COMPOSE_PROJECT_NAME/COMPOSE_PROFILES/etc, and interpolating
 # ${VAR} references inside the compose file -- and that used to depend on
@@ -118,7 +118,7 @@ need_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required but was not found"
 }
 
-# fix(#1778 round 21, P1) at scripts/lib/common.sh:89: round 20's capture
+# fix(#1778): the original capture
 # was `env -0 | xargs -0 sh -c '...' ... 2>/dev/null || true` -- an
 # EXTERNAL, GNU-flavored `env -0` that is not guaranteed everywhere these
 # scripts run (measured, not assumed: some `/usr/bin/env` builds do not
@@ -130,7 +130,7 @@ need_command() {
 # as absent. With POSTGRES_USER=production exported and .env holding
 # POSTGRES_DB=${POSTGRES_USER:-fallback}, restore.sh would resolve
 # "fallback" and could run `pg_restore --clean` against the wrong
-# database -- exactly the class round 20 exists to close, reopened by its
+# database -- exactly the class of bug this snapshot exists to close, reopened by its
 # own capture mechanism's failure mode.
 #
 # Fixed two ways:
@@ -145,7 +145,7 @@ need_command() {
 #      expansion) reads each one straight out of the shell's own
 #      variable table -- no serialization step exists for a naive parser
 #      to misread, so an inherited value's embedded newline is not even
-#      a question here (unlike round 20's approach, which had to reason
+#      a question here (unlike the earlier approach, which had to reason
 #      about it at all).
 #
 #      This file is genuinely dash-compatible too, not just
@@ -172,7 +172,8 @@ need_command() {
 #      could be misread as a second, phantom name -- a deliberately
 #      narrow, low-severity edge (a fabricated NAME entry, not a
 #      security-relevant misresolution of a real one) accepted the same
-#      way round 20 accepted awk's RS='\0' portability gap, rather than
+#      way the earlier approach accepted awk's RS='\0' portability gap,
+#      rather than
 #      building a full shell-quoting-grammar parser for a case this
 #      unlikely.
 #
@@ -219,7 +220,7 @@ if [ -z "${_ENV_SNAPSHOT_DIR:-}" ]; then
           *[!A-Za-z0-9_]*) continue ;;
           "") continue ;;
         esac
-        # fix(#1778 round 22, P2): a NAME is identified per PHYSICAL line
+        # a NAME is identified per PHYSICAL line
         # of `export -p`'s output, so an inherited value containing a
         # real embedded newline immediately followed by text that itself
         # looks like "export SOMENAME=" produces a PHANTOM name that was
@@ -247,7 +248,7 @@ if [ -z "${_ENV_SNAPSHOT_DIR:-}" ]; then
     } || fail "could not enumerate the process environment (export -p failed)"
   fi
 
-  # Positive control (round 21): PATH is set in every process this file
+  # Positive control: PATH is set in every process this file
   # will ever run in. Its absence here means the capture above is
   # broken -- never proceed with a snapshot that might just be empty.
   [ -f "${_ENV_SNAPSHOT_DIR}/PATH" ] \
@@ -268,9 +269,9 @@ fi
 # a bare source still works. Always relative to PROJECT_ROOT (Compose's own
 # convention for this variable), never an absolute path a caller might set.
 #
-# fix(#1778 round 22, P2): this default assignment must run AFTER the
+# This default assignment must run AFTER the
 # snapshot block above, never before it. It used to sit at the very top
-# of the file (before the snapshot existed at all, in round 20/21) --
+# of the file (before the snapshot existed at all) --
 # meaning by the time the snapshot was captured, COMPOSE_FILE was already
 # a locally-set (never exported) shell variable. On the dash branch, a
 # phantom name discovered from a mis-split multi-line value (see that
@@ -310,7 +311,7 @@ _env_snapshot_value() {
   printf '%s' "${_esv_raw%x}"
 }
 
-# fix(#1778 review round 3, P2): Compose-compatible ${VAR} interpolation for
+# Compose-compatible ${VAR} interpolation for
 # unquoted and double-quoted .env values, without executing the file (the
 # whole point of get_env_value existing). A valid Compose .env may write
 # `COMPOSE_FILE="${DEPLOY_FILE}"`, and the plain awk extraction returned that
@@ -318,7 +319,7 @@ _env_snapshot_value() {
 # would resolve there.
 #
 # Supports ${VAR}, $VAR, ${VAR:-default}, ${VAR-default}, ${VAR:?msg},
-# ${VAR?msg}, ${VAR:+alt}, and ${VAR+alt} (round 14, review 5104197320) —
+# ${VAR?msg}, ${VAR:+alt}, and ${VAR+alt} —
 # see _env_interp_resolve's own doc comment for the full grammar and how
 # each form was verified against real `docker compose config`.
 #
@@ -336,10 +337,10 @@ _env_snapshot_value() {
 # than leaving the operator's literal, greppable `${TYPO}` in the value read
 # back — the same "don't guess at malformed input" policy the quote parsing
 # above already follows. `${VAR:?msg}`/`${VAR?msg}` do NOT follow this
-# policy (round 14): Compose itself hard-fails loading a file shaped like
+# policy: Compose itself hard-fails loading a file shaped like
 # that, so get_env_value fails closed too — see _env_interp_resolve.
 #
-# fix(#1798 review round 13, P2, review 5103870781): _env_interpolate used to
+# _env_interpolate used to
 # be a FLAT multi-pass loop over a single mutable `before_line`, re-derived
 # after each substitution from whichever key was substituted LAST. That
 # meant a SIBLING token later in the same value inherited a bound narrowed
@@ -356,7 +357,7 @@ _env_snapshot_value() {
 # keep scanning against the outer, unnarrowed `bound`, because they were
 # never introduced by any substitution.
 #
-# fix(#1798 review round 15, P2, review 5104520795): a reference CHAIN
+# a reference CHAIN
 # (A references B references C ...) used to be bounded by a fixed
 # `_ENV_INTERP_MAX_PASSES` pass count (5) — which silently truncated a
 # perfectly valid, ACYCLIC chain longer than that (a chain of 8 returned
@@ -394,7 +395,7 @@ _env_snapshot_value() {
 # form. A chain has no fixed length limit now — it resolves to any depth,
 # the way a genuinely acyclic reference chain always should.
 
-# fix(#1798 CI on round 11, P2): the raw 3-byte UTF-8 BOM (EF BB BF),
+# The raw 3-byte UTF-8 BOM (EF BB BF),
 # computed ONCE here via a shell printf octal escape — always exactly
 # those 3 bytes regardless of the invoking shell's own locale. Passed
 # into every `^KEY=` awk scan below via `-v bom="$_ENV_BOM"`, with the
@@ -412,7 +413,7 @@ _env_snapshot_value() {
 # locale-aware `%c`/string handling entirely.
 _ENV_BOM="$(printf '\357\273\277')"
 
-# fix(#1798 review round 17, P2s, review 5105248083): a raw carriage
+# A raw carriage
 # return and a raw tab, built the same shell-printf-octal way as the BOM
 # above and for the same reason (locale-independent, always exactly one
 # byte). _ENV_CR strips a trailing \r from every physical line the
@@ -423,20 +424,20 @@ _ENV_BOM="$(printf '\357\273\277')"
 # and after an `export ` prefix.
 _ENV_CR="$(printf '\r')"
 _ENV_TAB="$(printf '\t')"
-# fix(#1798 review round 17, P2s, review 5105248083): a literal newline
+# A literal newline
 # character, for splitting file content into physical lines. Built with
 # the SAME sentinel technique used throughout this file for a decoded
 # value that might end in a real newline: plain `$(printf '\n')` would
 # strip its own trailing newline via command substitution, leaving an
 # EMPTY string instead of the single byte this constant needs to be —
-# exactly the bug class round 13 fixed for decoded .env VALUES, hit again
+# exactly the bug class fixed for decoded .env VALUES, hit again
 # here for a shell CONSTANT. `x` survives the strip (it is not a
 # newline), then parameter expansion removes it, which does not re-trigger
 # command substitution's own trailing-newline stripping.
 _ENV_NL="$(printf '\nx')"
 _ENV_NL="${_ENV_NL%x}"
 
-# fix(#1798 review round 10, P2): decodes the escape sequences Compose's
+# Decodes the escape sequences Compose's
 # own env-file reference documents for a double-quoted value —
 # https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax
 # ("`.env` file syntax": "Common shell escape sequences including `\n`,
@@ -482,7 +483,7 @@ _env_unescape_double_quoted() {
     | tr "${_s_nl}${_s_cr}" '\n\r'
 }
 
-# fix(#1798 review round 17, P2s, review 5105248083): the WHOLE dotenv
+# The WHOLE dotenv
 # LINE grammar now lives in exactly two places: _env_parse_assignment_line
 # (what does ONE physical line mean, in isolation — a comment, blank, an
 # `export`-prefixed or plain assignment, a bare inherit-from-environment
@@ -522,33 +523,32 @@ _env_unescape_double_quoted() {
 #   - a comment line may have leading whitespace before its `#`.
 #   - `#` immediately after an unquoted value with NO preceding space is
 #     literal, not a comment (`FOO=bar#baz` -> `bar#baz`) — the space
-#     before `#` is required, matching the round-3 policy already
+#     before `#` is required, matching the policy already
 #     documented on get_env_value below.
 #   - trailing whitespace on an UNQUOTED value is trimmed; a QUOTED
 #     value's trailing whitespace is content and kept (both already
-#     documented on get_env_value below; unaffected by this round).
+#     documented on get_env_value below; unaffected by the line grammar).
 #   - `KEY=` (nothing after `=`) is a present, empty value — rc 0, "".
 #   - duplicate definitions: the LAST one wins, whether or not either is
 #     `export`-prefixed, and REGARDLESS of whether an earlier series of
 #     physical lines happened to be inside a completely unrelated key's
-#     multiline value (the P2 bug this round fixes) or a genuine
+#     multiline value (a case the tokenizer handles) or a genuine
 #     later top-level redefinition (which must still win — the fix must
 #     not overcorrect into ignoring real duplicates).
 #   - a key name that is a literal prefix of another (`DB=` vs
 #     `DB_NAME=`) never cross-matches — key extraction stops at the
 #     first non-identifier character, so `DB_NAME` is never mistaken for
 #     `DB` followed by literal text.
-# fix(#1798 review round 16, P2, review 5104847831; escape-widened round
-# 18, P2, review 5105652413): scans $1 for the first UNESCAPED occurrence
+# Scans $1 for the first UNESCAPED occurrence
 # of quote character $2. Escape-aware for BOTH quote types now — ANY
 # backslash unconditionally pairs with whatever character follows it,
 # consumed together, so a paired quote character never closes the string
 # early — verified against the oracle that this DISAGREES with the docs
-# summary this round started from (which claimed single-quoted `\'` does
+# summary (which claimed single-quoted `\'` does
 # not escape): a real `docker compose config` on `'geo\'lens'` returns
 # `geo'lens` — the backslash is CONSUMED and the apostrophe becomes
 # literal content, the string does NOT close at that point. Matching the
-# oracle, not the docs summary, per this round's own instruction. Also
+# oracle, not the docs summary. Also
 # verified: `\\` (backslash-backslash) in a single-quoted value stays as
 # TWO literal backslashes — single-quoted escaping recognizes ONLY `\'`
 # as special; a backslash before anything else (including another
@@ -567,9 +567,9 @@ _env_unescape_double_quoted() {
 # validate or extract a multi-line quoted value as ONE logical unit the
 # way this function needs to. A plain character scan has no such
 # limitation: it works identically whether $1 is one line or several.
-# Used both by _env_tokenize (round 17, deciding whether a value's quote
+# Used both by _env_tokenize (deciding whether a value's quote
 # closes on its own line or needs to gather more) and by
-# _env_dequote/get_env_value's own dequoting dispatch (round 16).
+# _env_dequote/get_env_value's own dequoting dispatch.
 #
 # Sets three globals: _eqs_found (1 if a close was located, 0 if $1 ran
 # out first), _eqs_before (the quoted CONTENT, exclusive of both quote
@@ -926,7 +926,7 @@ _env_raw_before() {
     2) return 2 ;;
   esac
   if [ "$_esr_type" = "B" ]; then
-    # fix(#1778 round 20, P1 class): checks the frozen snapshot, not the
+    # Checks the frozen snapshot, not the
     # live "${key+set}" — see the snapshot block's own comment near the
     # top of this file for why a live check is unsafe here.
     if _env_snapshot_has "$key"; then
@@ -957,8 +957,7 @@ _env_dequote() {
       fi
       ;;
     \'*)
-      # fix(#1798 review round 9, P2; superseded by round 16's
-      # _env_quote_scan): a single-quoted value has no escaping at all, so
+      # A single-quoted value has no escaping at all, so
       # a literal `'` can never legally appear inside one — scanning for
       # the FIRST `'` (not a greedy regex) is always the real close,
       # comment or no comment, multi-line or not.
@@ -975,7 +974,7 @@ _env_dequote() {
   esac
 }
 
-# fix(#1798 review round 13, P2, review 5103870781): substitution used to be
+# Substitution used to be
 # built as a sed program from DATA (`_env_sed_escape_pattern`/
 # `_env_sed_escape_replacement` escaping the token/replacement for use
 # inside `sed "s/${pat}/${rep}/"`). A REPLACEMENT containing a literal
@@ -1009,7 +1008,7 @@ _env_split_on_token() {
   _env_split_after="${_est_text#*"$_est_token"}"
 }
 
-# Resolves NAME per Compose's own precedence (round 13b: process
+# Resolves NAME per Compose's own precedence (process
 # environment first — even set-but-empty counts as "set" here — falling
 # back to an earlier line in FILE strictly before BOUND only when the
 # environment has no NAME at all). Sets three globals: _ern_have_value (1
@@ -1024,7 +1023,7 @@ _env_split_on_token() {
 # how to handle (literal token, a fallback, or its own hard error for
 # `:?`/`?`).
 #
-# fix(#1798 review round 15, P2, review 5104520795): CHAIN is the
+# CHAIN is the
 # space-delimited list of names whose value is CURRENTLY being expanded
 # somewhere up the call stack (seeded with the top-level key itself — see
 # _env_interpolate). If NAME is already in CHAIN, this is a cycle
@@ -1040,9 +1039,9 @@ _env_split_on_token() {
 # function stop early; every operator already knows what to do with
 # have_value=0.
 #
-# fix(#1798 review round 18, P2, review 5105652413): the process
-# environment check MUST run before the cycle check, not after — round
-# 13b's own precedence rule ("process environment first, no exception")
+# The process
+# environment check MUST run before the cycle check, not after — the
+# precedence rule ("process environment first, no exception")
 # applies to EVERY name, including one that is CURRENTLY being expanded.
 # `POSTGRES_DB="${POSTGRES_DB:-geolens}"` with `POSTGRES_DB=production`
 # exported is not actually a cycle Compose ever has to break: the shell
@@ -1063,7 +1062,7 @@ _env_resolve_name() {
   _ern_ref_bound=0
   _ern_from_env=0
 
-  # fix(#1778 round 20, P1): checks the frozen snapshot, not the live
+  # Checks the frozen snapshot, not the live
   # "${_ern_name+set}" — see the snapshot block's own comment near the
   # top of this file. A live check here is exactly what let a PRIOR
   # env_value_into call in the SAME script (assigning some OTHER key)
@@ -1074,7 +1073,7 @@ _env_resolve_name() {
     _ern_resolved="${_ern_resolved%x}"
     _ern_have_value=1
     _ern_ref_bound=0
-    # fix(#1798 review round 18, P2, review 5105652413): a value sourced
+    # a value sourced
     # from the PROCESS ENVIRONMENT is used VERBATIM, never recursively
     # re-interpolated — verified against the oracle: an exported
     # OUTER='${INNER}' referenced as ${OUTER}, with INNER ALSO exported to
@@ -1093,7 +1092,7 @@ _env_resolve_name() {
     *" ${_ern_name} "*) return 0 ;;
   esac
 
-  # fix(#1798 review round 17, P2s, review 5105248083): calls
+  # Calls
   # _env_tokenize/_env_select_record directly (rather than going through
   # _env_raw_before) so _esr_type is read in THIS function's own process
   # — _env_raw_before runs inside a `$(...)` subshell at its call site,
@@ -1121,7 +1120,7 @@ _env_resolve_name() {
     # this as "inherit from the process environment", but we already
     # checked the snapshot above and it did not have NAME.
     #
-    # fix(#1778 round 22, P2): a bare line with nothing to inherit is
+    # a bare line with nothing to inherit is
     # genuinely UNSET, not "set to empty" — verified against the oracle:
     # POSTGRES_DB=${SOMEBARE-fallback} with SOMEBARE a bare, uninherited
     # line resolves to "fallback" (the `-` operator, which only
@@ -1134,7 +1133,7 @@ _env_resolve_name() {
     return 0
   fi
 
-  # fix(#1798 review round 13, P2, review 5103870781): a value decoded
+  # a value decoded
   # from a double-quoted `\n`/`\r`/`\t` escape can end in a real,
   # trailing control byte — `$(...)` unconditionally strips trailing
   # newlines, so capturing _env_dequote's output directly would silently
@@ -1156,7 +1155,7 @@ _env_resolve_name() {
   return 0
 }
 
-# fix(#1798 review round 14, review 5104197320): finds the `}` that closes
+# Finds the `}` that closes
 # a `${...}` expression whose content (everything between the opening `${`
 # and that close) begins at $1, counting EVERY literal `{`/`}` toward a
 # depth that starts at 1 (already representing the consumed opening `${`)
@@ -1232,13 +1231,13 @@ _env_brace_match() {
 # `bound` is the line strictly before which a reference may resolve
 # against THIS file (the referencing key's own line, from _env_line_of, so
 # a key can never resolve a reference against itself or a later line);
-# `chain` (round 15, review 5104520795, replacing a fixed depth cap — see
+# `chain` (replacing a fixed depth cap — see
 # the doc comment near the top of this file) is the space-delimited list
 # of names currently being expanded, threaded down so _env_resolve_name
 # can detect a name recurring in its own resolution and treat that as
 # unresolved instead of looping forever.
 #
-# fix(#1798 review round 13, P2, review 5103870781): resolves each token IN
+# Resolves each token IN
 # PLACE by scanning `text` left to right, rather than a flat loop that
 # re-scanned the WHOLE value for "the first token" after every single
 # substitution. Critically, `bound` is passed UNCHANGED to every sibling
@@ -1252,7 +1251,7 @@ _env_brace_match() {
 # recursively resolved the SAME way, but against the outer `bound` too —
 # it sits in the referencing key's own value, not the referenced name's.
 #
-# fix(#1798 review round 14, review 5104197320): the previous version
+# The previous version
 # found a whole `${...}`/`$VAR` token with a single `grep -oE` regex whose
 # fallback/error-message class was `[^}]*` — a single non-nesting run that
 # cannot support `${A:-${B:-x}}`, and had no `+`/`:+` alternative-value
@@ -1262,7 +1261,7 @@ _env_brace_match() {
 # _env_split_on_token — safe with an embedded real newline either side),
 # and dispatches on what follows it, entirely per real Compose's own
 # behavior (verified empirically, never assumed — see the oracle test's
-# corpus for every case this round closed):
+# corpus for every case covered):
 #   $$          -> a literal single $, consumed whole; nothing after it is
 #                  re-scanned as a fresh reference (verified: `docker
 #                  compose config --format json` does NOT resolve `$$` at
@@ -1330,7 +1329,7 @@ _env_interp_resolve() {
         _eir_inside="$_ebm_inside"
         _eir_remaining="$_ebm_after"
 
-        # fix(#1798 review round 14, review 5104197320): a name must START
+        # a name must START
         # with [A-Za-z_] — verified empirically: `${5abc}` (digit-leading)
         # is a hard "Invalid template" failure on real `docker compose
         # config`, the SAME failure class as `${}` (empty name) and
@@ -1370,7 +1369,7 @@ _env_interp_resolve() {
         esac
 
         if [ -z "$_eir_iname" ] || [ "$_eir_op" = "_unrecognized" ]; then
-          # fix(#1798 review round 14, review 5104197320): verified against
+          # verified against
           # real `docker compose config` — `${}`, `${5abc}`, and `${A!x}`
           # are ALL hard "Invalid template" failures (the same class as a
           # genuinely unterminated `${VAR`), not literal-unchanged
@@ -1456,20 +1455,19 @@ _env_interp_resolve() {
             ;;
         esac
 
-        # fix(#1798 review round 15, P2, review 5104520795): extends a
+        # Extends a
         # SEPARATE chain variable for the recursive call — never mutates
         # `_eir_chain` itself, which stays the OUTER call's own chain for
         # every remaining SIBLING token in this same `while` loop (the
         # same "never mutate the shared parameter outward" rule `bound`
-        # already follows — see the round 13 doc comment above).
+        # already follows — see the doc comment above).
         #
-        # fix(#1798 review round 18, P2, review 5105652413): a
-        # process-environment-sourced replacement (_eir_rep_from_env=1) is
+        # A process-environment-sourced replacement (_eir_rep_from_env=1) is
         # used VERBATIM, never fed back through _env_interp_resolve — see
         # _env_resolve_name's own doc comment for why (Compose itself does
         # not recursively re-interpolate a shell env var's value). This is
-        # what makes the round 18 P2 #1 fix (checking the environment
-        # BEFORE the cycle chain) safe: an env-sourced value can never
+        # what makes checking the environment
+        # BEFORE the cycle chain safe: an env-sourced value can never
         # trigger further recursion, so a genuine multi-hop cycle sourced
         # entirely from EXPORTED variables (each one found via the env
         # check, never the file) still terminates after exactly one
@@ -1526,7 +1524,7 @@ _env_interp_resolve() {
   printf '%s' "$_eir_result"
 }
 
-# fix(#1798 review round 15, P2, review 5104520795): $4 seeds the
+# $4 seeds the
 # cycle-detection chain with the TOP-LEVEL key's own name (get_env_value's
 # `$key`) — so a value that references its own key directly
 # (`POSTGRES_DB="${POSTGRES_DB}_suffix"`) is caught as a cycle from the
@@ -1538,7 +1536,7 @@ _env_interpolate() {
 # Read a value from .env. Handles values containing `=` correctly (returns the
 # full remainder after the first `=`). Reads from "$1" if given, else ./.env.
 #
-# fix(#1778 review round 6, P2): returns 1 (and prints nothing) when the file
+# Returns 1 (and prints nothing) when the file
 # does not exist or the key has no `key=` line in it at all — DISTINCT from
 # printing an empty string with exit 0, which means the key IS defined with
 # an empty value. Before this, both shapes were indistinguishable: a key a
@@ -1555,7 +1553,7 @@ _env_interpolate() {
 # conditions are exempt from `set -e`, so this does not abort the caller
 # even though the function itself may `return 1`.
 #
-# fix(#1778 review round 6, P2): the top-level scan used to `exit` on the
+# The top-level scan used to `exit` on the
 # FIRST `key=` line it found. Compose reads an env file top-to-bottom and
 # lets a later definition of the same key win — the interpolation helpers
 # above (_env_line_of, _env_raw_before) already implement that "last
@@ -1570,7 +1568,7 @@ _env_interpolate() {
 # ITSELF appears in the file, not about resolving a ${VAR} reference nested
 # inside a value that does.
 #
-# fix(#1778 review, P2): the awk extraction returns everything after the
+# The awk extraction returns everything after the
 # first `=` VERBATIM — but Docker Compose's own .env parser (the one
 # `docker compose` itself uses to fill ${COMPOSE_FILE} etc. in the compose
 # files) does not treat that text as a bare string. A `.env` an operator
@@ -1591,7 +1589,7 @@ _env_interpolate() {
 #     Compose's own "inline comments for unquoted values must be preceded
 #     by a space" rule. A quoted value's `#` is always literal; comment
 #     stripping never applies once a value is quoted — BUT the comment may
-#     still follow the closing quote (fix(#1778 review round 2, P2)):
+#     still follow the closing quote:
 #     `COMPOSE_FILE="docker-compose.prod.yml" # production` is valid Compose
 #     syntax. The raw text does not END in a quote (it ends in the comment),
 #     so the original "starts and ends with a quote" dispatch took the
@@ -1610,14 +1608,14 @@ get_env_value() {
 
   [ -f "$file" ] || return 1
 
-  # fix(#1798 review round 17, P2s, review 5105248083): selects among the
+  # Selects among the
   # records _env_tokenize already identified for the WHOLE file in one
   # pass, instead of a standalone `^key=` scan blind to multiline
-  # continuations (round 16's P2 #1 — a key-shaped line inside another
+  # continuations (a key-shaped line inside another
   # key's multiline value could win the "last definition" lookup) and
-  # blind to `export`/bare-key/CRLF/whitespace-around-`=` lines (P2 #2 and
-  # the rest of this round's grammar sweep — see _env_tokenize's own doc
-  # comment for the full list, each verified against the oracle).
+  # blind to `export`/bare-key/CRLF/whitespace-around-`=` lines (see
+  # _env_tokenize's own doc comment for the full list, each verified against
+  # the oracle).
   # fix(#1899): BEFORE ($3, default 0) keeps only records that start before
   # that line, as _env_select_record does; RECORDS ($4) is _env_tokenize's
   # stream for FILE when the caller already holds it, so FILE is read once.
@@ -1634,11 +1632,11 @@ get_env_value() {
     # A bare `KEY` line (no `=` at all) — Compose treats this as "inherit
     # from the process environment" — no quoting/escaping/interpolation
     # applies, since the value never came from this file's own text at
-    # all. fix(#1778 round 20, P1 class): checks the frozen snapshot, not
+    # all. Checks the frozen snapshot, not
     # the live "${key+set}" — see the snapshot block's own comment near
     # the top of this file.
     #
-    # fix(#1778 round 22, P2): when the snapshot has nothing to inherit,
+    # When the snapshot has nothing to inherit,
     # this is genuinely ABSENT (rc 1), not "present with an empty string"
     # (rc 0) — verified against the oracle directly: with no process
     # value at all, ${KEY-fallback} AND ${KEY:-fallback} both resolve to
@@ -1663,13 +1661,13 @@ get_env_value() {
   # _env_extract_record_raw). The unterminated-quote case (_esr_found=2)
   # was already caught above, before ever reaching here — Compose's own
   # .env load hard-fails on that shape, so get_env_value fails closed to
-  # match, the same policy round 14 established for an unterminated
+  # match, the same policy established for an unterminated
   # `${VAR` interpolation reference.
   raw="$(_env_extract_record_raw "$file" "$_esr_start" "$_esr_end")" || return 1
 
   case "$raw" in
     \"*)
-      # fix(#1798 review round 16, P2, review 5104847831): _env_quote_scan
+      # _env_quote_scan
       # (character-scanning, not a `grep -qE`/`sed -E` regex) replaces the
       # old `([^"\\]|\\.)*"[[:space:]]*(#.*)?$` pattern — regex `^`/`$`
       # anchor to PHYSICAL lines by default, which cannot validate or
@@ -1680,7 +1678,7 @@ get_env_value() {
       # alone as malformed, same policy as before.
       _env_quote_scan "${raw#?}" '"'
       if [ "$_eqs_found" -eq 1 ] && printf '%s\n' "$_eqs_after" | grep -qE '^[[:space:]]*(#.*)?$'; then
-        # fix(#1798 review round 13, P2, review 5103870781): a value whose
+        # a value whose
         # `\n`/`\r`/`\t` escape decodes to a TRAILING control byte (e.g.
         # `DB_NAME="prod\n"`) would silently lose that byte here — plain
         # `$(...)` always strips trailing newlines regardless of whether
@@ -1692,7 +1690,7 @@ get_env_value() {
         # value — this function fails closed via `|| return 1` instead.
         _env_value="$(_env_unescape_double_quoted "$_eqs_before" && printf x)" || return 1
         _env_value="${_env_value%x}"
-        # fix(#1778 review round 3, P2): double-quoted values interpolate
+        # double-quoted values interpolate
         # ${VAR}/$VAR references, matching Compose (only single-quoted
         # values are literal there).
         _env_interpolate "$_env_value" "$file" "$_gev_line" "$key"
@@ -1703,8 +1701,7 @@ get_env_value() {
     \'*)
       # Single-quoted values are literal in Compose — no escaping and no
       # interpolation, so a single quote cannot appear inside one at all.
-      # fix(#1798 review round 9, P2; superseded by round 16's
-      # _env_quote_scan): scanning for the FIRST `'` (not a greedy regex)
+      # Scanning for the FIRST `'` (not a greedy regex)
       # is always the real close, comment or no comment, multi-line or not.
       _env_quote_scan "${raw#?}" "'"
       if [ "$_eqs_found" -eq 1 ] && printf '%s\n' "$_eqs_after" | grep -qE '^[[:space:]]*(#.*)?$'; then
@@ -1717,18 +1714,18 @@ get_env_value() {
       _env_value="$(
         printf '%s' "$raw" | sed -E -e 's/ #.*$//' -e 's/[[:space:]]+$//' -e 's/^[[:space:]]+//'
       )"
-      # fix(#1778 review round 3, P2): unquoted values interpolate too.
+      # Unquoted values interpolate too.
       _env_interpolate "$_env_value" "$file" "$_gev_line" "$key"
       ;;
   esac
 }
 
-# fix(#1798 review round 15, P2, review 5104520795): get_env_value's own
+# get_env_value's own
 # doc comment above already notes callers "assign only inside the `if`",
 # but every existing caller does that assignment via
 # `_v="$(get_env_value KEY FILE)"` — and PLAIN command substitution
 # ALWAYS strips a trailing newline, independent of anything get_env_value
-# itself does. Since round 13's P2 fix, get_env_value correctly PRESERVES
+# itself does. get_env_value correctly PRESERVES
 # a trailing decoded newline (`POSTGRES_DB="geo\n"`) all the way to its
 # own return — but every caller's `$(...)` assignment silently threw it
 # away again, one layer up, outside get_env_value's own control. That
@@ -2044,15 +2041,15 @@ iso_to_epoch() {
 # launched just inside start_period may run `timeout` past the boundary)
 # PLUS retries consecutive failing probes, each taking up to interval +
 # timeout (a service stays `starting` through that whole streak — Codex P2
-# rounds 1+3 on #867). A service
+# on #867). A service
 # whose container age (now - .State.StartedAt — NOT the wait budget, which
 # overstates the age of a restart-policy container that restarted mid-wait
-# with a freshly reset health clock; Codex P2 round 2) exceeds that entire
+# with a freshly reset health clock) exceeds that entire
 # window has outlived every verdict Docker could still be working on and
 # fails the wait. The tolerance math only applies while the LIVE
 # .State.Health.Status (read in the same inspect) still says `starting` —
 # a container that flipped to (un)healthy between the compose ps snapshot
-# and the inspect is judged by that verdict instead (round 4). Anything
+# and the inspect is judged by that verdict instead. Anything
 # (unhealthy), restarting, or exited non-zero fails as before; an unreadable
 # healthcheck config, StartedAt, or live status fails open (treated as
 # converging), matching this script's other best-effort probes.
@@ -2113,14 +2110,14 @@ wait_for_healthy() {
     # `retries` consecutive failing probes (each taking up to interval +
     # timeout) before flipping to (unhealthy), and the service honestly
     # reports `starting` for that whole streak. Plus one in-flight probe's
-    # timeout (Codex P2 round 3): moby grace-ignores a probe by its START
+    # timeout (Codex P2): moby grace-ignores a probe by its START
     # time, so one launched just inside start_period can run up to `timeout`
     # beyond the grace boundary before the counted retry cycles even begin.
     # So the full allowance is start_period + timeout + retries x (interval +
     # timeout); zero config values mean the daemon defaults (interval/timeout
     # 30s, retries 3).
     #
-    # Codex P2 round 2 (#867): compare that allowance against the container's
+    # Codex P2 (#867): compare that allowance against the container's
     # ACTUAL age (now - .State.StartedAt), not the spent budget. A
     # restart-policy service that crashed and restarted mid-wait is seconds
     # old with a freshly reset health clock — legitimately inside its
@@ -2128,7 +2125,7 @@ wait_for_healthy() {
     # started before its life did. Unparseable StartedAt fails open, same as
     # unreadable healthcheck config.
     #
-    # Codex P2 round 4 (#867): the `remaining` table is a SNAPSHOT — a probe
+    # Codex P2 (#867): the `remaining` table is a SNAPSHOT — a probe
     # can complete between that `compose ps` and this inspect and flip the
     # container out of `starting`. Read the LIVE .State.Health.Status in the
     # same inspect and apply the tolerance math only while it still says
@@ -2167,7 +2164,7 @@ wait_for_healthy() {
         if (to <= 0) to = 30
         if (rt <= 0) rt = 3
         # + to: a probe started just inside start_period is grace-ignored by
-        # its START time and may run `timeout` past the boundary (round 3)
+        # its START time and may run `timeout` past the boundary
         print sp + to + rt * (iv + to)
       }')
       age=""

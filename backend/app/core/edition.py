@@ -182,16 +182,14 @@ def check_tenancy_mode_supported(loaded_extensions: list[str]) -> None:
     """GUARD-01 edition-half: fail loudly when GEOLENS_TENANCY_MODE=multi_tenant
     but no tenancy-providing overlay is loaded.
 
-    Phase 1207: multi_tenant without an overlay means the isolation layer
-    (RLS + session GUC, Phase 1208) cannot be present — serving requests
-    without it is an elevation-of-privilege risk (T-1207-06). The full
-    RLS-present assertion is deferred to Phase 1208; this check is
-    minimal-but-correct for Phase 1207's surface.
+    multi_tenant without an overlay means the isolation layer (RLS + session
+    GUC) cannot be present, and serving requests without it is an
+    elevation-of-privilege risk. This check does not assert that RLS is
+    present; it only requires a loaded extension.
 
     Raises ``RuntimeError`` when multi_tenant mode is set but
     ``loaded_extensions`` is empty.
 
-    References: GUARD-01, TSEAM-03, T-1207-06
     """
     raw_mode = os.environ.get("GEOLENS_TENANCY_MODE")
     if raw_mode is None:
@@ -210,11 +208,10 @@ def check_tenancy_mode_supported(loaded_extensions: list[str]) -> None:
         "GEOLENS_TENANCY_MODE=multi_tenant is set but no overlay extension "
         "was loaded (the geolens.extensions entry-point group is empty). "
         "Multi-tenant mode requires the cloud overlay which provides the "
-        "per-tenant isolation layer (RLS + session GUC, Phase 1208). "
+        "per-tenant isolation layer (RLS + session GUC). "
         "Without the overlay the app would serve ALL tenants from a single "
         "unscoped database session — a critical isolation failure. "
         "Use the cloud overlay repository's immutable image build. "
         "The app is refusing to start in multi_tenant mode without the "
-        "required tenancy isolation layer. "
-        "References: GUARD-01, TSEAM-03, T-1207-06."
+        "required tenancy isolation layer."
     )

@@ -16,7 +16,7 @@ interface RampEntry {
   readonly cvdSafe: boolean;
 }
 
-// PERF-N15: Ramp arrays are static — hoist to module scope instead of
+// Ramp arrays are static — hoist to module scope instead of
 // allocating fresh arrays in each render via useMemo(..., []).
 const GRADUATED_RAMPS: RampEntry[] = [...SEQUENTIAL_RAMPS, ...DIVERGING_RAMPS];
 const CATEGORICAL_RAMPS: RampEntry[] = [...QUALITATIVE_RAMPS];

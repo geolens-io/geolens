@@ -1,10 +1,10 @@
-"""Domain-enforcement tests for Phase 1236 Plan 01 (DOMAIN-02/03/04).
+"""Domain-enforcement tests.
 
 Covers the four identity touch-points:
-  - POST /auth/register  (signup, DOMAIN-02)
-  - POST /auth/login     (password login, DOMAIN-04, break-glass)
-  - SSO callback path    (find_or_create_oauth_user, DOMAIN-03)
-  - POST /admin/users    (admin-create, DOMAIN-04, break-glass)
+  - POST /auth/register (signup)
+  - POST /auth/login (password login, break-glass)
+  - SSO callback path (find_or_create_oauth_user)
+  - POST /admin/users (admin-create, break-glass)
 
 Each path is tested for:
   - disallowed-domain email → rejected
@@ -100,7 +100,7 @@ def _unique(prefix: str = "u") -> str:
 
 
 # ---------------------------------------------------------------------------
-# Signup tests (DOMAIN-02)
+# Signup tests
 # ---------------------------------------------------------------------------
 
 
@@ -194,7 +194,7 @@ class TestSignupDomainEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# Password-login tests (DOMAIN-04)
+# Password-login tests
 # ---------------------------------------------------------------------------
 
 
@@ -320,7 +320,7 @@ class TestLoginDomainEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# SSO callback tests (DOMAIN-03)
+# SSO callback tests
 # ---------------------------------------------------------------------------
 
 
@@ -420,7 +420,7 @@ class TestSSODomainEnforcement:
         domain must NOT satisfy the allowlist. Otherwise a provider where the
         caller controls the claim could assert attacker@allowed (email_verified
         false/absent), pass the domain check, and still get provisioned with
-        email=None via the H-30 branch — bypassing the allowlist. Expect
+        email=None via the no-email branch — bypassing the allowlist. Expect
         rejection + no user created, for both `email_verified: false` and an
         omitted claim.
         """
@@ -529,7 +529,7 @@ class TestSSODomainEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# Admin-create tests (DOMAIN-04)
+# Admin-create tests
 # ---------------------------------------------------------------------------
 
 
@@ -700,12 +700,12 @@ class TestAdminCreateDomainEnforcement:
 
 
 # ---------------------------------------------------------------------------
-# Refresh-token domain enforcement tests (CR-01)
+# Refresh-token domain enforcement tests
 # ---------------------------------------------------------------------------
 
 
 class TestRefreshDomainEnforcement:
-    """CR-01: POST /auth/refresh respects allowed_email_domains allowlist."""
+    """POST /auth/refresh respects allowed_email_domains allowlist."""
 
     async def _login_and_get_refresh_token(
         self, client: AsyncClient, username: str, password: str
@@ -723,7 +723,7 @@ class TestRefreshDomainEnforcement:
         client: AsyncClient,
         admin_auth_header: dict,
     ) -> None:
-        """CR-01: User logs in (allowed), admin tightens allowlist, refresh → 403."""
+        """User logs in (allowed), admin tightens allowlist, refresh → 403."""
         username = _unique("refresh_bad")
         password = "TestPass1234!"
         disallowed_email = f"{username}@{_DISALLOWED_DOMAIN}"
@@ -769,7 +769,7 @@ class TestRefreshDomainEnforcement:
         client: AsyncClient,
         admin_auth_header: dict,
     ) -> None:
-        """CR-01: With empty allowlist (allow-all) refresh always works."""
+        """With empty allowlist (allow-all) refresh always works."""
         username = _unique("refresh_any")
         password = "TestPass1234!"
 
@@ -804,7 +804,7 @@ class TestRefreshDomainEnforcement:
         client: AsyncClient,
         admin_auth_header: dict,
     ) -> None:
-        """CR-01: manage_settings admin refresh succeeds even when domain is disallowed."""
+        """manage_settings admin refresh succeeds even when domain is disallowed."""
         from app.core.config import settings as app_settings
 
         admin_username = app_settings.geolens_admin_username
@@ -835,12 +835,11 @@ class TestRefreshDomainEnforcement:
 
 # ---------------------------------------------------------------------------
 # SSO returning-admin break-glass and missing-email fallback tests
-# (WR-01 / WR-02)
 # ---------------------------------------------------------------------------
 
 
 class TestSSOReturningUserDomainEnforcement:
-    """WR-01 / WR-02: find_or_create_oauth_user domain check for returning users."""
+    """find_or_create_oauth_user domain check for returning users."""
 
     async def _make_provider(self, db: AsyncSession) -> OAuthProvider:
         """Insert a minimal OAuthProvider for tests."""
@@ -866,7 +865,7 @@ class TestSSOReturningUserDomainEnforcement:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """WR-02: returning user whose IdP omits email claim uses stored User.email for check."""
+        """Returning user whose IdP omits email claim uses stored User.email for check."""
         from app.modules.auth.oauth.service import find_or_create_oauth_user
 
         provider = await self._make_provider(test_db_session)
@@ -911,7 +910,7 @@ class TestSSOReturningUserDomainEnforcement:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """WR-01: a returning manage_settings admin gets through even when domain disallowed."""
+        """A returning manage_settings admin gets through even when domain disallowed."""
         from app.modules.auth.oauth.service import find_or_create_oauth_user
 
         provider = await self._make_provider(test_db_session)
@@ -969,7 +968,7 @@ class TestSSOReturningUserDomainEnforcement:
 
 # ---------------------------------------------------------------------------
 # FIX-A: new JIT identity with no email claim and non-empty allowlist
-# (Codex P1 — DOMAIN-03 no-email bypass)
+# (no-email bypass)
 # ---------------------------------------------------------------------------
 
 

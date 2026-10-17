@@ -544,7 +544,7 @@ class TestSeamFrameOrigin:
 class TestSeamDecisionOpensNothing:
     """The seam decision comes from the built XML, never from opening sources.
 
-    fix(#887), codex round 9: an earlier cut probed every source with
+    An earlier cut probed every source with
     ``rasterio.open`` before the build. ``build_vrt`` runs inside
     ``asyncio.to_thread`` and Python threads are not killable, so a stalled
     ``/vsis3/`` read pinned a pool thread with none of ``run_gdal``'s wall-clock
@@ -1248,7 +1248,7 @@ class TestSeamFrameRewriteAgainstRealGdal:
         assert "<DstRect" in Path(raw).read_text()
 
     def test_nodata_and_pixels_survive_a_seam_build(self, tmp_path):
-        """The assertion that would have caught the round-2 P1."""
+        """The assertion that would have caught the original bug."""
         sources = [
             self._nodata_tile(
                 tmp_path / "w.tif", bounds=(175.0, 0.0, 180.0, 5.0), value=7
@@ -1382,7 +1382,7 @@ class TestSeamFrameRewriteAgainstRealGdal:
             assert set(ds.read(2)[:, 50:].ravel().tolist()) == {9}
 
     def test_rewritten_vrt_still_accepts_the_stor03_source_rewrite(self, tmp_path):
-        """``rewrite_vrt_sources`` runs after this at the store site (STOR-03)."""
+        """``rewrite_vrt_sources`` runs after this at the store site."""
         sources = [
             self._nodata_tile(
                 tmp_path / "sw.tif", bounds=(175.0, 0.0, 180.0, 5.0), value=7

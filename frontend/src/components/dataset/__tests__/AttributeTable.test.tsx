@@ -1,11 +1,11 @@
 /**
- * PERF-07 (Phase 274): regression-lock that AttributeTable uses
+ * regression-lock that AttributeTable uses
  * @tanstack/react-virtual for row windowing and that the virtualizer is wired
  * against the parent scroll element.
  *
  * Uses Vite's `?raw` query suffix to load the source as a string at build time
  * — no node fs needed, runs purely in the browser test environment. Same
- * pattern used by `DatasetMap.lazy.test.tsx` for PERF-06.
+ * pattern used by `DatasetMap.lazy.test.tsx`.
  *
  * jsdom does not compute layout (getBoundingClientRect returns zeros), so a
  * full DOM render test cannot meaningfully assert that virtualization renders
@@ -15,7 +15,7 @@
  * Render-correctness is exercised manually + via Playwright in the existing
  * dataset E2E spec.
  *
- * GLUX-002 (Phase 1248): accessible-name regression gate — a separate DOM
+ * Accessible-name regression gate — a separate DOM
  * render suite below asserts that filter inputs are queryable by accessible
  * name. The filter row lives in <thead> (not virtualized), so jsdom can render
  * and interrogate it without layout computation.
@@ -23,7 +23,7 @@
 import { describe, it, expect } from 'vitest';
 import attributeTableSrc from '@/components/dataset/AttributeTable.tsx?raw';
 
-// ── GLUX-002 DOM render gate ─────────────────────────────────────────────────
+// ── DOM render gate ─────────────────────────────────────────────────
 import { render, screen } from '@/test/test-utils';
 import { vi } from 'vitest';
 import { AttributeTable, features } from '@/components/dataset/AttributeTable';
@@ -148,9 +148,9 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
   });
 });
 
-// ── fix(#458 E-35/E-39/E-51) source contracts ────────────────────────────────
+// ── source contracts ────────────────────────────────
 // The body rows are virtualized, and jsdom computes no layout, so the cell
-// editor can't be rendered here (same constraint as PERF-07 above). Lock the
+// editor can't be rendered here (same constraint above). Lock the
 // contracts against the source instead; the live flow is covered by
 // e2e/feature-editing.spec.ts.
 describe('AttributeTable editing contracts (E-35/E-39/E-51)', () => {
@@ -188,7 +188,7 @@ describe('AttributeTable editing contracts (E-35/E-39/E-51)', () => {
 // there doesn't fail typecheck or build — a column with an unregistered
 // auto-detected name silently falls back to the `basic` comparator (or a
 // dev-only console.warn), which is exactly the kind of regression the v8→v9
-// migration (GH-1407) needed live verification for. This exercises the real
+// migration needed live verification for. This exercises the real
 // useTable()/features config end-to-end against synthetic rows shaped like
 // the Postgres column families the table actually renders — no mocking of
 // react-table itself.

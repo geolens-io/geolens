@@ -16,7 +16,7 @@ function formatViolations(violations: any[]): string {
     .join('\n\n');
 }
 
-// fix(review #1792 round 4): `waitForLoadState('networkidle')` covers the
+// `waitForLoadState('networkidle')` covers the
 // document/asset load, not a subsequent React Query fetch -- a scan that
 // runs right after it can land mid-loading-state (a skeleton or spinner)
 // instead of the populated page, and axe never sees the real content. Every
@@ -43,7 +43,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
   let collectionName: string;
 
   test.beforeAll(async () => {
-    // fix(review #1792 round 3): seedDataset alone can poll for up to 60s
+    // seedDataset alone can poll for up to 60s
     // (helpers/catalog.ts's seedFixtureDataset), which is Playwright's
     // default hook timeout with nothing left over for the collection/map/
     // layer/share calls this hook also makes. Give this hook real margin.
@@ -190,7 +190,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
         test('public search page has no accessibility violations', async ({ page }) => {
           await page.goto('/');
           await page.waitForLoadState('networkidle');
-          // fix(review #1792 round 4): SearchPage renders a DatasetCardSkeleton
+          // SearchPage renders a DatasetCardSkeleton
           // grid while `isLoading && !data`, before this scan waited for it
           // to clear -- see waitForLoadingIndicatorsToClear's comment.
           await waitForLoadingIndicatorsToClear(page);
@@ -389,7 +389,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
         expect(results.violations, formatViolations(results.violations)).toEqual([]);
       });
 
-      // fix(#438): A11Y-12 — the audit found Import, Settings, and Collections
+      // The audit found Import, Settings, and Collections
       // uncovered. Same wcagTags contract as the routes above.
       //
       // fix(#1778): the admin overview scan above only ever covered
@@ -416,7 +416,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
         test(`${name} page has no accessibility violations`, async ({ page }) => {
           await page.goto(path);
           await page.waitForLoadState('networkidle');
-          // fix(review #1792 round 4): several of these routes (the admin
+          // Several of these routes (the admin
           // list pages especially) fetch their own data after mount and
           // render a skeleton/spinner until it resolves -- see
           // waitForLoadingIndicatorsToClear's comment. Applied to the whole
@@ -446,7 +446,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
             page.getByRole('heading', { name: datasetTitle, exact: true }),
           ).toBeVisible();
           await page.waitForLoadState('networkidle');
-          // fix(review #1792 round 4): the data tab's AttributeTable fetches
+          // The data tab's AttributeTable fetches
           // rows independently of the dataset payload the heading above
           // proves loaded, and shows its own Loader2 spinner until that
           // settles -- see waitForLoadingIndicatorsToClear's comment.
@@ -486,7 +486,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
         const dialog = page.getByRole('dialog', { name: 'Share' });
         await expect(dialog).toBeVisible();
 
-        // fix(review #1792 round 4): SharePanel's useMapShareToken query is
+        // SharePanel's useMapShareToken query is
         // still loading the instant the dialog mounts, so `hasShareToken`
         // reads false and the dialog renders the "Get share link" button --
         // scanning immediately raced that query and covered the wrong

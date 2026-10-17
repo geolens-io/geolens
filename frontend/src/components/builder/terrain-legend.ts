@@ -6,7 +6,7 @@ import { resolveTerrainSourceLayer } from './map-stack';
 /**
  * Single source of truth for "this DEM layer is suppressed because it powers
  * active 3D terrain." Re-exported here so BOTH legend surfaces (builder
- * LegendPlugin + viewer LayerLegend) consume ONE predicate (D-02) and never
+ * LegendPlugin + viewer LayerLegend) consume ONE predicate and never
  * re-derive the render_mode/is_dem check independently.
  */
 export { isDemTerrainVisualSuppressed };
@@ -14,7 +14,7 @@ export { isDemTerrainVisualSuppressed };
 /**
  * Synthetic "3D terrain" legend descriptor. Mirrors the shape/id of the stack's
  * synthetic `relief:terrain` row (`map-stack.ts` makeTerrainReliefEntry) so the
- * legend and the layer stack visually agree (D-01). Surface-agnostic: carries an
+ * legend and the layer stack visually agree. Surface-agnostic: carries an
  * i18n label KEY, never literal text, so each surface resolves it in its own
  * namespace (builder: `plugins.legend.terrain3d`; viewer: `viewer.legend.terrain3d`).
  */
@@ -55,10 +55,10 @@ type TerrainBackingLayer = {
  * is active, else null. "Active" uses the SAME truth map-stack uses to emit its
  * synthetic `relief:terrain` row: terrain_config is enabled, a source dataset is
  * selected, AND a terrain-capable DEM layer for that dataset is actually present
- * in the layer set (999.17 MD-01). Without the backing-layer check, a dangling
+ * in the layer set. Without the backing-layer check, a dangling
  * terrain_config (legacy maps whose source layer was deleted) would render a
  * phantom "3D terrain" legend entry while the stack reports it missing and no
- * mesh paints — the exact legend<->map disagreement this phase eliminates.
+ * mesh paints, which is the legend<->map disagreement this check prevents.
  * Mirrors the stack's `sourceStatus: 'active'` condition (map-stack.ts).
  */
 export function deriveTerrainLegendEntry(
@@ -70,7 +70,7 @@ export function deriveTerrainLegendEntry(
   if (!sourceDatasetId) return null;
 
   // Resolve the backing DEM the SAME way BuilderMap/useViewerTerrain do (prefer
-  // a visible rendering). codex(#451): the renderers apply no mesh when the
+  // a visible rendering). The renderers apply no mesh when the
   // resolved DEM is saved-hidden, so a hidden source must not list a phantom
   // "3D terrain" legend entry using that hidden layer's name.
   const backingLayer = resolveTerrainSourceLayer(layers ?? [], terrainConfig);

@@ -11,11 +11,10 @@ type AdapterStyleConfig = Partial<StyleConfig> & {
 /**
  * Detection rule for source-level `lineMetrics: true` (see map-sync.ts `lineGradientNeededFor`):
  *   1. `paint['line-gradient']` is set (any non-null/non-undefined value).
- *   2. `style_config.builder.lineGradient` is a non-empty plain object (Phase 256 authoring intent).
+ *   2. `style_config.builder.lineGradient` is a non-empty plain object (authoring intent).
  *      Arrays are explicitly rejected — both frontend and backend require dict-shape for parity
  *      across the export/import boundary.
- * The flag is sticky once set — the source is not torn down on gradient removal mid-session
- * (see .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-02).
+ * The flag is sticky once set — the source is not torn down on gradient removal mid-session.
  */
 export interface AdapterLayerInput {
   id: string;
@@ -43,7 +42,7 @@ export interface AdapterLayerInput {
   minzoom?: number;
   maxzoom?: number;
   bounds?: number[] | null;
-  /** fix(#1472 review): the dataset's required credit line, for the raster and
+  /** The dataset's required credit line, for the raster and
    *  raster-dem source specs. The vector path sets the same MapLibre source
    *  property directly in map-sync; without it here a raster or DEM layer was
    *  the one builder layer kind that rendered uncredited. */

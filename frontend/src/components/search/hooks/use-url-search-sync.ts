@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useSearchStore } from '@/stores/search-store';
 
-// CLEAN-N6: the search workspace lives at the root path after the landing
+// The search workspace lives at the root path after the landing
 // page was removed. Previously this was "/search" with a redirect shim.
 const SEARCH_WORKSPACE_PATH = '/';
 

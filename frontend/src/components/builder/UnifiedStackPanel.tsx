@@ -15,20 +15,20 @@ import { Eye, EyeOff, GripVertical, Plus, Search, Settings } from 'lucide-react'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StackRow } from '@/components/builder/StackRow';
-// builder-audit #338 STACK-05: sortable wrappers + the catalog drag ghost moved to
+// Sortable wrappers + the catalog drag ghost moved to
 // sibling files so this panel module stays focused on the list orchestration.
 import { SortableStackRow } from '@/components/builder/SortableStackRow';
 import { BasemapGroupRowWrapper } from '@/components/builder/BasemapGroupRowWrapper';
 import { FolderGroupRowWrapper } from '@/components/builder/FolderGroupRowWrapper';
 import { CatalogDragGhost } from '@/components/builder/CatalogDragGhost';
-// fix(#1009): the ephemeral analysis/chat preview as a non-persisting stack row.
+// The ephemeral analysis/chat preview as a non-persisting stack row.
 import { EphemeralPreviewRow, type EphemeralPreviewRowProps } from '@/components/builder/EphemeralPreviewRow';
 import { EmptyStackState, eyebrowClassName } from '@/components/builder/EmptyStackState';
 import { BulkActionBar } from '@/components/builder/BulkActionBar';
-// builder-audit #338 STACK-01: use the single typed helper instead of a local
+// Use the single typed helper instead of a local
 // `as unknown as` re-implementation.
 import { getParentGroupId } from '@/components/builder/folder-groups';
-// fix(#771): single source of truth for which rows the stack renders — the
+// Single source of truth for which rows the stack renders — the
 // same helper MapBuilderPage uses to derive selectableRowIds, so range
 // selection can never disagree with what is on screen.
 import { computeSelectableRowIds } from '@/components/builder/selection-utils';
@@ -39,7 +39,7 @@ import type { BasemapGroupInfo, BasemapSublayerInfo } from '@/components/builder
 import { computeDisambiguationLabels, isLayerHiddenFromMapAudience } from './map-stack';
 import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-style-clipboard';
 
-// builder-audit #338 STACK-05: re-exported so existing imports
+// Re-exported so existing imports
 // (`import { CatalogDragGhost } from '@/components/builder/UnifiedStackPanel'`)
 // keep working after the component moved to its own file.
 export { CatalogDragGhost };
@@ -58,7 +58,7 @@ const NOOP = () => {};
 interface UnifiedStackPanelProps {
   layers: MapLayerResponse[];
   /**
-   * fix(#430 V-17): the map's own visibility, used to compute per-layer
+   * The map's own visibility, used to compute per-layer
    * audience-hidden badges (a private dataset added to a public/shared map is
    * silently filtered out for anonymous/other-audience viewers). Optional so
    * existing call sites (and tests) that don't care about this warning keep
@@ -66,7 +66,7 @@ interface UnifiedStackPanelProps {
    * safest no-warning default.
    */
   mapVisibility?: 'private' | 'internal' | 'public';
-  /** codex(#451): ids of DEM layers whose 2D overlay is off and that aren't the
+  /** Ids of DEM layers whose 2D overlay is off and that aren't the
    *  active 3D terrain source — they paint nothing despite the eye being on.
    *  Computed by MapBuilderPage (needs terrain_config); optional so other call
    *  sites/tests keep compiling. */
@@ -74,19 +74,19 @@ interface UnifiedStackPanelProps {
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
   onToggleVisibility: (id: string) => void;
-  /** @deprecated builder-audit #338 STACK-05: inert in this component (drag-reorder is
+  /** @deprecated: inert in this component (drag-reorder is
    *  lifted to MapBuilderPage). Retained only for call-site compatibility. */
   onReorder: (layers: MapLayerResponse[]) => void;
-  /** @deprecated builder-audit #338 STACK-05: inert in this component (opacity editing
+  /** @deprecated: inert in this component (opacity editing
    *  moved to the LayerEditorPanel flyout). Retained only for call-site compatibility. */
   onOpacityChange: (layerId: string, opacity: number) => void;
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
-  // Phase 1201-01 (ENH-01/ENH-02/ENH-03): authoring actions threaded to the kebab
+  // Authoring actions threaded to the kebab
   // + bulk bar.
   onZoomToLayer?: (id: string) => void;
-  /** ux(#772): opens the Analysis panel prefilled with this layer. */
+  /** Opens the Analysis panel prefilled with this layer. */
   onAnalyzeLayer?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
@@ -95,26 +95,26 @@ interface UnifiedStackPanelProps {
    *  to enable "Paste style" only on geometry-compatible rows. */
   copiedStyleGeometryClass?: GeometryStyleClass | null;
   onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
-  /** fix(#759): shared aria-live announcer for the keyboard reorder mode. */
+  /** Shared aria-live announcer for the keyboard reorder mode. */
   onAnnounce?: (text: string) => void;
   onAddDataClick: (initialQuery?: string) => void;
   onAddDataset?: (datasetId: string) => void;
   onSettingsClick: () => void;
   isSettingsOpen?: boolean;
-  /** Phase 1040: id of the item currently being dragged (from the lifted drag context in MapBuilderPage) */
+  /** Id of the item currently being dragged (from the lifted drag context in MapBuilderPage) */
   activeDragId?: string | null;
-  // Phase 1035 new props
+  // New props
   groupMeta?: Record<string, { expanded: boolean }>;
   onToggleGroupExpand?: (groupId: string) => void;
   basemapGroup?: BasemapGroupInfo | null;
   isBasemapExpanded?: boolean;
   onToggleSublayerVisibility?: (sublayerId: string) => void;
-  /** @deprecated builder-audit #338 STACK-05: inert in this component (per-sublayer
+  /** @deprecated: inert in this component (per-sublayer
    *  opacity moved to the LayerEditorPanel flyout). Retained for call-site compatibility. */
   onSublayerOpacityChange?: (sublayerId: string, opacity: number) => void;
   onSwapBasemap?: () => void;
   onResetBasemapAppearance?: () => void;
-  /** Phase 1199 STACK-02: session-local basemap show/hide toggle (no backend change). */
+  /** Session-local basemap show/hide toggle (no backend change). */
   onToggleBasemapVisibility?: () => void;
   onRenameGroup?: (groupId: string, name: string) => void;
   onAddLayerToGroup?: (groupId: string) => void;
@@ -124,11 +124,11 @@ interface UnifiedStackPanelProps {
   onCreateGroupWithLayer?: (layerId: string) => void;
   onMoveLayerOutOfGroup?: (layerId: string) => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
-  // Phase 1041: multi-selection props (lifted to MapBuilderPage — see decision in SUMMARY)
+  // Multi-selection props (lifted to MapBuilderPage)
   selectedIds?: Set<string>;
   isMultiSelectionActive?: boolean;
   selectableRowIds?: string[];
-  /** fix(#771): controlled layer-search query. When provided (with
+  /** Controlled layer-search query. When provided (with
    *  onLayerSearchChange), MapBuilderPage owns the query so it can derive
    *  selectableRowIds from the RENDERED row set via computeSelectableRowIds —
    *  range selection must never sweep rows the search has hidden. Omit both
@@ -140,26 +140,26 @@ interface UnifiedStackPanelProps {
   onCheckboxClick?: (id: string) => void;
   /** Called when outside-click or Escape should clear the multi-selection set */
   onClearSelection?: () => void;
-  // Phase 1041-02: bulk action handlers (no-op stubs in MapBuilderPage until Plan 03 wires real ops)
-  // Phase 1051 WR-02: required so a partial wiring at the call site fails at
+  // Bulk action handlers (no-op stubs in MapBuilderPage until real ops are wired)
+  // Required so a partial wiring at the call site fails at
   // compile-time instead of silently unmounting the BulkActionBar at runtime.
   onBulkVisibility: (ids: Set<string>) => void;
   onBulkOpacity: (ids: Set<string>, opacity: number) => void;
   onBulkGroup: (ids: Set<string>) => void;
   onBulkUngroup: (ids: Set<string>) => void;
   onBulkDelete: (ids: Set<string>) => void;
-  /** Phase 1047-04 (PERF-03): forwarded from useBuilderLayers.isDeleting */
+  /** Forwarded from useBuilderLayers.isDeleting */
   isDeleting?: boolean;
   /** fix(v1.6.0 audit A5): in-flight bulk-delete batch size, forwarded from
    *  useBuilderLayers.deletingCount for the bar's "Deleting N layers…" label. */
   deletingCount?: number;
-  // Phase 1042 POL-15: freshLayerId — id of most recently added layer for entry animation
+  // freshLayerId — id of most recently added layer for entry animation
   freshLayerId?: string | null;
-  /** Phase 1051 UX-03: basemap position in the unified stack. 'top' renders
+  /** Basemap position in the unified stack. 'top' renders
    *  basemap row above data layers; 'bottom' (default) renders below. Persisted
    *  via MapBasemapConfig.basemap_position. */
   basemapPosition?: 'top' | 'bottom';
-  /** fix(#1009): the live ephemeral preview, rendered as a non-persisting row
+  /** The live ephemeral preview, rendered as a non-persisting row
    *  pinned at the very top of the stack. Null/omitted when no preview is on
    *  the map. It is NOT a layer: it never enters `layers`, never enters
    *  `sortableIds`, and carries no sort_order — see the render site. */
@@ -167,7 +167,7 @@ interface UnifiedStackPanelProps {
 }
 
 // ---------------------------------------------------------------------------
-// builder-audit #338 STACK-05: SortableStackRow, BasemapGroupRowWrapper, and
+// SortableStackRow, BasemapGroupRowWrapper, and
 // FolderGroupRowWrapper were extracted to sibling files (imported above).
 // ---------------------------------------------------------------------------
 
@@ -234,7 +234,7 @@ const SublayerRow = memo(function SublayerRow({
         <GripVertical className="h-3.5 w-3.5" />
       </span>
 
-      {/* Cell 3: Eye visibility toggle (SP-10: aria-pressed reflects state) */}
+      {/* Cell 3: Eye visibility toggle (aria-pressed reflects state) */}
       <button
         type="button"
         aria-label={t('unifiedStack.toggleSublayerVisibility', {
@@ -282,7 +282,7 @@ const SublayerRow = memo(function SublayerRow({
       {/* Cell 6: intentionally empty; keeps the grid column. */}
       <div className="flex items-center" aria-hidden="true" />
 
-      {/* Cell 7: Kebab — hidden for basemap sublayers (per UI-SPEC) */}
+      {/* Cell 7: Kebab — hidden for basemap sublayers */}
       <span aria-hidden="true" style={{ visibility: 'hidden' }} className="h-[22px] w-[22px]" />
     </div>
   );
@@ -293,7 +293,7 @@ const SublayerRow = memo(function SublayerRow({
 // Main panel
 // ---------------------------------------------------------------------------
 
-// fix(#438): PERF-03 — the layer stack is intentionally NOT virtualized. Real
+// The layer stack is intentionally NOT virtualized. Real
 // maps run well under ~100 layers, where a plain map() out-performs a windowed
 // list (no scroll math, no measurement churn). Upgrade path: swap to a virtual
 // list only if a map is observed to exceed ~100 layers.
@@ -304,7 +304,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   selectedLayerId,
   onSelectLayer,
   onToggleVisibility,
-  // builder-audit #338 STACK-05: onReorder / onOpacityChange / onSublayerOpacityChange
+  // onReorder / onOpacityChange / onSublayerOpacityChange
   // are deliberately NOT destructured here — drag-reorder is lifted to
   // MapBuilderPage and all opacity editing moved to the LayerEditorPanel flyout.
   // The props remain on UnifiedStackPanelProps only for call-site compatibility
@@ -364,11 +364,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
-  // Phase 1201-02 (ENH-07): search/filter state. An empty query shows all rows
+  // Search/filter state. An empty query shows all rows
   // and preserves drag/reorder. A non-empty query narrows visible rows to those
   // whose display name contains the query (case-insensitive substring) and
   // disables drag so reordering a filtered subset cannot corrupt sort_order.
-  // fix(#771): hybrid controlled — when the layerSearch prop is provided the
+  // Hybrid controlled — when the layerSearch prop is provided the
   // parent owns the query (so it can derive selectableRowIds from the rendered
   // row set); the internal state remains for standalone usage.
   const [localLayerSearch, setLocalLayerSearch] = useState('');
@@ -378,29 +378,29 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     onLayerSearchChange?.(query);
   };
 
-  // Phase 1040 Plan 04: read the active drag item from the lifted DndContext so the
+  // Read the active drag item from the lifted DndContext so the
   // DragOverlay can branch between an intra-stack StackRow ghost and a catalog drag pill.
   // This is a second call to useDndContext — the first lives inside FolderGroupRowWrapper.
   // Both coexist safely; @dnd-kit supports multiple consumers of the same context.
   const { active } = useDndContext();
 
-  // Phase 1041: ref for the scrollable stack panel element — used for outside-click guard
-  // and Shift+Arrow focus management. (Phase 1052: was the listbox; now a labelled scroll
+  // Ref for the scrollable stack panel element — used for outside-click guard
+  // and Shift+Arrow focus management. (Previously the listbox; now a labelled scroll
   // region after listbox/option pattern was dropped per axe nested-interactive.)
   const stackPanelRef = useRef<HTMLDivElement>(null);
 
-  // Phase 1041 POL-10: outside-click clears selection.
+  // Outside-click clears selection.
   // Guard: stackPanelRef.contains so row clicks (handled by row onClick) are
   // NOT cleared here.
   //
-  // SP-01 (Phase 1045): also skip the clear when the click lands inside the
+  // Also skip the clear when the click lands inside the
   // BulkActionBar overflow DropdownMenu — Radix portals that content out of
   // the panel subtree, so without this guard a menuitem click would clear
   // the selection before the click's onSelect handler reads it (which would
   // unmount the BulkActionBar via the `selectedIds.size >= 2` gate before
   // Delete's confirmation dialog can appear).
   //
-  // SF-01 (Phase 1049): also skip the clear when the click lands inside the
+  // Also skip the clear when the click lands inside the
   // BulkActionBar itself. stackPanelRef points to the inner listbox only; the
   // BulkActionBar is rendered as a sticky sibling below it. Without this guard,
   // mousedown on the inline "Delete N layers" confirm button clears selection
@@ -425,7 +425,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [selectedIds.size, onClearSelection]);
 
-  // Phase 1041 POL-10 + POL-06: Escape clears selection; Shift+ArrowUp/Down extends selection.
+  // Escape clears selection; Shift+ArrowUp/Down extends selection.
   // Both listeners are scoped to the stack panel element (stackPanelRef) so that Escape
   // pressed outside the panel (e.g. inside a flyout input or a Radix dropdown) does NOT
   // clear the selection. Only keyboard events that bubble up through the listbox div fire.
@@ -465,15 +465,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     return () => el.removeEventListener('keydown', handleKeyDown);
   }, [selectedIds.size, selectableRowIds, onClearSelection, onShiftClick]);
 
-  // fix(HT-03): terrain-mode (overlay-off) DEM rows are NO LONGER filtered out
+  // Terrain-mode (overlay-off) DEM rows are NO LONGER filtered out
   // of the stack. Suppressing the row made the DEM unmanageable the moment the
   // editor closed — its only controls live in the DEM editor this row opens —
-  // and let rebinding orphan invisible render_mode:"terrain" layers (HT-11).
+  // and let rebinding orphan invisible render_mode:"terrain" layers.
   // The map still paints nothing for them (map-sync suppression is unchanged);
   // the row just stays reachable, like any other hidden-from-view layer.
   const visibleStackLayers = layers;
 
-  // Phase 1199 STACK-01: per-layer "Copy N of M" disambiguation labels for the
+  // Per-layer "Copy N of M" disambiguation labels for the
   // LIVE stack rows. map-stack.ts already computes these for the derived/legend
   // path; this reuses the same exported helper so the live badge and the legend
   // badge can never drift. Computed over `layers` sorted by sort_order to match
@@ -483,7 +483,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     return computeDisambiguationLabels(ordered, t);
   }, [layers, t]);
 
-  // fix(#430 V-17): per-layer audience-visibility mismatch — a private/unpublished
+  // Per-layer audience-visibility mismatch — a private/unpublished
   // dataset added to a public/shared map is silently filtered out for
   // anonymous/other-audience viewers server-side. Flag it on the stack row.
   const audienceHiddenLayerIds = useMemo(() => {
@@ -495,7 +495,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   }, [layers, mapVisibility]);
 
   // SortableContext items: all layer ids + the basemap-group id.
-  // UX-03 (Phase 1051 Plan 06): basemap is no longer excluded — it participates
+  // Basemap is no longer excluded — it participates
   // in the sortable list so the user can drag it between 'top' and 'bottom'
   // positions. Insert order matches the render order: basemap at position 0 when
   // basemap_position='top' (renders first), at end when 'bottom' (renders last).
@@ -524,10 +524,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // Noop fallbacks for optional handlers — use module-level NOOP so references
   // are stable and do not defeat memo() on children.
   const safeToggleSublayerVisibility = onToggleSublayerVisibility ?? NOOP;
-  // safeSublayerOpacityChange removed — Phase 1051 UX-02 (see destructure comment above).
+  // safeSublayerOpacityChange removed (see destructure comment above).
   const safeSwapBasemap = onSwapBasemap ?? NOOP;
   const safeResetBasemapAppearance = onResetBasemapAppearance ?? NOOP;
-  // Phase 1199 STACK-02: session-local basemap visibility toggle.
+  // Session-local basemap visibility toggle.
   const safeToggleBasemapVisibility = onToggleBasemapVisibility ?? NOOP;
   const safeRenameGroup = onRenameGroup ?? NOOP;
   const safeAddLayerToGroup = onAddLayerToGroup ?? NOOP;
@@ -538,18 +538,18 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const safeMoveLayerOutOfGroup = onMoveLayerOutOfGroup ?? NOOP;
   const safeToggleGroupExpand = onToggleGroupExpand ?? NOOP;
 
-  // fix(HT-03): emptiness now counts every layer — a map whose only layer is a
+  // Emptiness now counts every layer — a map whose only layer is a
   // terrain-mode DEM has a manageable data row (its editor holds the terrain
   // controls), so it must not show the "add data" empty state.
   const isEmpty = visibleStackLayers.length === 0;
 
-  // Phase 1201-02 (ENH-07): whether a search query is currently active.
+  // Whether a search query is currently active.
   // When true, drag is disabled for all rows so reordering a filtered subset
   // cannot corrupt sort_order. The count Badge always reflects the total (not
   // the filtered count) to avoid confusion — the filtered view is transient.
   const isSearchActive = layerSearch.trim() !== '';
 
-  // fix(#771): the row-skip decisions below consume the SAME helper that
+  // The row-skip decisions below consume the SAME helper that
   // MapBuilderPage uses to derive selectableRowIds, so what is rendered and
   // what is range-selectable cannot drift (search matching + group collapse
   // + child filtering all live in computeSelectableRowIds).
@@ -590,9 +590,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           group={basemapGroup}
           selected={basemapGroup.id === selectedLayerId}
           isExpanded={isBasemapExpanded}
-          // Phase 1199 STACK-02: the eye is a real, enabled toggle wired to the
-          // session-local basemap-visibility state in MapBuilderPage. (builder-audit
-          // STACK-06 removed the dead visibilityDisabled locked-eye branch.)
+          // The eye is a real, enabled toggle wired to the
+          // session-local basemap-visibility state in MapBuilderPage.
           onSelectGroup={onSelectLayer}
           onToggleExpand={safeToggleGroupExpand}
           onToggleVisibility={safeToggleBasemapVisibility}
@@ -670,7 +669,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             className="h-8 gap-1 px-2 text-xs"
             onClick={() => onAddDataClick()}
           >
-            {/* SP-17: Lucide <Plus /> replaces the full-width U+FF0B character that
+            {/* Lucide <Plus /> replaces the full-width U+FF0B character that
                 lived inside the i18n default. The literal "＋" has been stripped
                 from the locale strings; the icon is the sole visual plus. */}
             <Plus className="h-4 w-4" aria-hidden="true" />
@@ -679,7 +678,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         </div>
       </div>
 
-      {/* Phase 1201-02 (ENH-07): search/filter input — shown only when there are
+      {/* Search/filter input — shown only when there are
           stack rows to filter. Empty query shows all rows; non-empty narrows by
           display_name / dataset_name (case-insensitive substring). Drag is
           disabled while a query is active to prevent sort_order corruption. */}
@@ -706,7 +705,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
       )}
 
       {/* Scrollable layer list or empty state */}
-      {/* Phase 1052: dropped role="listbox" + role="option" from rows — they don't
+      {/* Dropped role="listbox" + role="option" from rows — they don't
           match the WAI-ARIA listbox/option contract because each row contains
           focusable controls (drag handle, eye toggle, kebab menu). axe flags
           this as nested-interactive + aria-required-children. Container is now
@@ -717,7 +716,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         className="flex-1 overflow-y-auto"
         aria-label={t('unifiedStack.listboxLabel', { defaultValue: 'Map layers' })}
       >
-        {/* fix(#1009): the ephemeral preview, pinned at the very top — the
+        {/* The ephemeral preview, pinned at the very top — the
             overlay paints above every layer on the map, so any other position
             would have the stack lying about what covers what. Rendered HERE,
             before the SortableContext opens, so its id is structurally
@@ -756,7 +755,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
               items={sortableIds}
               strategy={verticalListSortingStrategy}
             >
-              {/* 1. Basemap group — UX-03: position controlled by basemapPosition.
+              {/* 1. Basemap group: position controlled by basemapPosition.
                   When 'top' (default historically 'bottom' was hard-coded), the
                   basemap row renders FIRST (visually above all data layers in
                   the stack); when 'bottom', it renders LAST (below all data
@@ -776,16 +775,16 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
 
                 if (isFolderGroupLayer(layer)) {
                   // Folder group row with children container when expanded.
-                  // Phase 1201-02 (ENH-07): show the group if its own name
+                  // Show the group if its own name
                   // matches the query OR any of its children match.
                   const expanded = groupMeta[layer.id]?.expanded ?? false;
                   const children = childrenByGroup[layer.id] ?? [];
-                  // fix(#771): the skip decision comes from the shared
+                  // The skip decision comes from the shared
                   // rendered-row set so selection can never target a row the
                   // search has hidden.
                   if (!renderedRowIds.has(layer.id)) return null;
 
-                  // fix(#394) LM-04: the group eye reflects the children
+                  // The group eye reflects the children
                   // AGGREGATE (on while ANY child is visible) — the synthetic
                   // row's own `visible` merely mirrors whichever child was
                   // first at hydration and goes stale on per-child toggles.
@@ -821,7 +820,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                           role="list"
                         >
                           {children.map((child) => {
-                            // fix(#771): child visibility under search comes
+                            // Child visibility under search comes
                             // from the shared rendered-row set (a group-name
                             // match still shows every child).
                             if (!renderedRowIds.has(child.id)) return null;
@@ -878,7 +877,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                   );
                 }
 
-                // fix(#771): loose-row visibility under search comes from the
+                // Loose-row visibility under search comes from the
                 // shared rendered-row set.
                 if (!renderedRowIds.has(layer.id)) return null;
 
@@ -926,8 +925,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                   (default + legacy behaviour). */}
               {basemapPosition === 'bottom' && renderBasemapDockRow(false)}
             </SortableContext>
-            {/* DragOverlay: ghost follows pointer during drag (BSR-24 VIS-01) */}
-            {/* Plan 04: branched — catalog drags render CatalogDragGhost pill;
+            {/* DragOverlay: ghost follows pointer during drag */}
+            {/* Branched — catalog drags render CatalogDragGhost pill;
                 intra-stack drags render the existing StackRow ghost. */}
             <DragOverlay dropAnimation={null}>
               {(() => {
@@ -970,10 +969,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         )}
       </div>
 
-      {/* Phase 1041-02: BulkActionBar — sticky footer, visible only when 2+ rows selected.
-          SP-15: also hide when the global Settings scene is open. Selection state persists
+      {/* BulkActionBar — sticky footer, visible only when 2+ rows selected.
+          Also hide when the global Settings scene is open. Selection state persists
           in the parent (selectedIds), so when Settings closes the bar reappears unchanged. */}
-      {/* Phase 1051 WR-02: handler props are now required (see interface above),
+      {/* Handler props are now required (see interface above),
           so the runtime presence checks have been dropped — TypeScript enforces
           that the call site wires all five handlers. */}
       {!isSettingsOpen && selectedIds.size >= 2 && (

@@ -55,7 +55,7 @@ DASHBOARD_PATH = REPO_ROOT / "infra" / "monitoring" / "grafana-dashboard.json"
 # `max by (queue)` is right for them.
 PER_PROCESS_JOB_COUNTERS = ("geolens_jobs_completed_total", "geolens_jobs_failed_total")
 
-# fix(#1778 codex r8): the gauges in the same family, which need the OTHER
+# The gauges in the same family, which need the OTHER
 # aggregator. Every replica polls the same procrastinate_jobs rows and reports
 # the same number, so `max by (queue)` reads one queue's depth while
 # `sum by (queue)` would multiply it by the replica count. Bare, they draw N
@@ -541,7 +541,7 @@ def test_the_reference_scrape_config_discovers_every_worker_replica():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r8): the dashboard reads the same per-replica series
+# The dashboard reads the same per-replica series
 # ---------------------------------------------------------------------------
 
 
@@ -562,7 +562,7 @@ def _dashboard_targets() -> list[tuple[str, str]]:
 def test_dashboard_aggregates_the_per_replica_job_counters():
     """A bare rate() draws one partial line per worker replica.
 
-    Round 4 made the worker scrape job discover every replica, so each exports
+    The worker scrape job discovers every replica, so each exports
     its own completed/failed series for the same queue. The alert sums them;
     the panel showed several identically named partial rates until it did too.
     """

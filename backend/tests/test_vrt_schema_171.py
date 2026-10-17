@@ -1,4 +1,4 @@
-"""Integration tests for Phase 171 VRT schema changes.
+"""Integration tests for VRT schema changes.
 
 Verifies:
   - record_type accepts 'vrt_dataset' value

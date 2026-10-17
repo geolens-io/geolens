@@ -53,25 +53,17 @@ function defaultProps(
 }
 
 describe('BasemapSublayerEditorScene', () => {
-  // Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip removed — dead wiring.
+  // DETAIL LEVEL pill strip removed — dead wiring.
   // Tests 1-4 (DETAIL LEVEL pill rendering, active pill styling, click dispatch,
   // customized hint) deleted alongside the production surface they pinned. The
   // regression guard for the REMOVE disposition is Test 13 below — asserts no
   // radiogroup, no `DETAIL LEVEL` heading, and no `currently customized` hint
   // text are rendered.
   //
-  // Phase 1052 Plan 03 (EMRG-FN-01): STROKE section + zoom range inputs
-  // removed — Tests 5-7 (STROKE field rendering, color picker / slider
-  // counts, width slider → onStrokeWidthChange) and the zoom-input
-  // assertions in Test 8 deleted alongside their production surface.
-  //
-  // Phase 1059 BSE-01 (Path B FIX): Test 14 is INVERTED from its
-  // v1011.1 EMRG-FN-01 form. The STROKE / CASING / ZOOM controls are now
-  // live with a real persistence path. See backend Plan 1059-01 (Pydantic
-  // SublayerOverride) and frontend Plan 1059-02 (applySublayerOverrides
-  // helper). Tests 15-21 cover the 6 new callbacks + back-compat.
-  // Test 13 (DETAIL LEVEL absence) is UNCHANGED — that disposition stands
-  // per Phase 1059 CONTEXT.md D-18.
+  // The STROKE / CASING / ZOOM controls are live with a real persistence
+  // path (backend SublayerOverride model, frontend applySublayerOverrides
+  // helper). Tests 15-21 cover the 6 callbacks + back-compat.
+  // Test 13 (DETAIL LEVEL absence) stays: that pill strip is not coming back.
 
   it('Test 8: VISIBILITY section renders opacity slider', () => {
     render(<BasemapSublayerEditorScene {...defaultProps()} />);
@@ -108,7 +100,7 @@ describe('BasemapSublayerEditorScene', () => {
     // Click to show confirm
     fireEvent.click(resetBtn);
 
-    // fix(#788): the shared inline confirm is a role="group" (non-modal),
+    // The shared inline confirm is a role="group" (non-modal),
     // labelled by its role="alert" message — no longer an alertdialog.
     const confirm = screen.getByRole('group', { name: /This will remove all custom appearance for Roads/ });
     expect(confirm).toBeInTheDocument();
@@ -134,7 +126,7 @@ describe('BasemapSublayerEditorScene', () => {
     const resetBtn = screen.getByRole('button', { name: /Reset to default/i });
     fireEvent.click(resetBtn);
 
-    // Check the inline confirm is shown (fix(#788): role="group", not alertdialog)
+    // Check the inline confirm is shown (role="group", not alertdialog)
     expect(screen.getByRole('group', { name: /This will remove all custom appearance/ })).toBeInTheDocument();
 
     // Click "Keep customization" — cancels
@@ -155,7 +147,7 @@ describe('BasemapSublayerEditorScene', () => {
     expect(onResetSublayer).toHaveBeenCalledOnce();
   });
 
-  // fix(#833): the inline confirm owns focus (autofocused Cancel) — both
+  // The inline confirm owns focus (autofocused Cancel) — both
   // exits must hand focus back to the reappearing "Reset to default" button
   // (next animation frame; it remounts) instead of dropping it on <body>.
   it('dismissing the reset confirm returns focus to the Reset to default button', async () => {
@@ -193,7 +185,7 @@ describe('BasemapSublayerEditorScene', () => {
   });
 
   it('Test 13: DETAIL LEVEL section is removed (Phase 1051 INV-01 REMOVE disposition pin)', () => {
-    // Regression guard for the REMOVE disposition shipped in Phase 1051 Plan 11:
+    // Regression guard for the removed DETAIL LEVEL section:
     // the dead-wired DETAIL LEVEL pill strip and customized-hint paragraph must
     // not be reintroduced without a real consumer for sublayer detail-level
     // style mutation. If a future feature needs this surface, it should re-add
@@ -207,18 +199,15 @@ describe('BasemapSublayerEditorScene', () => {
     expect(screen.queryByText(/currently customized/i)).not.toBeInTheDocument();
   });
 
-  // Phase 1059 BSE-01 (Path B FIX) — Test 14 is INVERTED from its previous
-  // v1011.1 EMRG-FN-01 form. The STROKE / CASING / ZOOM controls are now
-  // live with a real persistence path. See backend Plan 1059-01 (Pydantic
-  // SublayerOverride) and frontend Plan 1059-02 (applySublayerOverrides
-  // helper). Test 13 (DETAIL LEVEL absence) is UNCHANGED — that disposition
-  // stands per Phase 1059 CONTEXT.md D-18.
+  // The STROKE / CASING / ZOOM controls are live with a real persistence
+  // path (backend SublayerOverride model, frontend applySublayerOverrides
+  // helper). Test 13 (DETAIL LEVEL absence) stays: that pill strip is not
+  // coming back.
   it('Test 14: STROKE + CASING + ZOOM RANGE sections render (Phase 1059 BSE-01 Path B FIX)', () => {
-    // Phase 1059 BSE-01 RESTORATION: the v1011.1 EMRG-FN-01 REMOVE disposition
-    // is reversed. The STROKE / CASING / ZOOM sections must render with their
+    // The STROKE / CASING / ZOOM sections must render with their
     // controls + working callbacks. Backend persistence: SublayerOverride
-    // Pydantic model + MapBasemapConfig.sublayer_overrides jsonb (Plan 1059-01).
-    // MapLibre mutation: applySublayerOverrides helper (Plan 1059-02).
+    // Pydantic model + MapBasemapConfig.sublayer_overrides jsonb.
+    // MapLibre mutation: applySublayerOverrides helper.
     render(<BasemapSublayerEditorScene {...defaultProps({ sublayerName: 'Roads' })} />);
 
     expect(screen.getByText('STROKE')).toBeInTheDocument();
@@ -238,7 +227,7 @@ describe('BasemapSublayerEditorScene', () => {
     // is wired) — the color picker popover itself uses Radix portal which is
     // not testable in jsdom without act+portal interaction. The callback
     // wire-up is end-to-end verified via the existing basemap-style-mutation
-    // tests (Plan 1059-02) and live MCP smoke in Phase 1060.
+    // tests.
     const onStrokeColorChange = vi.fn();
     render(<BasemapSublayerEditorScene {...defaultProps({ onStrokeColorChange, strokeColor: '#888888' })} />);
     // The stroke swatch button has aria-label="Color" (basemapSublayer.strokeColor key)
@@ -268,7 +257,7 @@ describe('BasemapSublayerEditorScene', () => {
     // Same jsdom-portal constraint as Test 15. Verifies the casing swatch renders
     // with the correct aria-label (basemapSublayer.casingColor key = "Casing color")
     // and title matching the casingColor value. Callback wire-up end-to-end
-    // verified via basemap-style-mutation tests (Plan 1059-02) + Phase 1060 MCP.
+    // verified via basemap-style-mutation tests.
     const onCasingColorChange = vi.fn();
     render(<BasemapSublayerEditorScene {...defaultProps({ onCasingColorChange, casingColor: '#cccccc' })} />);
     const casingSwatchBtn = screen.getAllByRole('button').find(
@@ -328,7 +317,7 @@ describe('BasemapSublayerEditorScene', () => {
     expect(screen.getByText('ZOOM RANGE')).toBeInTheDocument();
   });
 
-  // builder-audit #338 MAINT-02: STROKE/CASING only mutate line sublayers
+  // STROKE/CASING only mutate line sublayers
   // (roads/boundaries). For label (symbol) and building (fill-extrusion)
   // sublayers those sections write override fields that have no visible effect,
   // so the editor must hide them and only surface ZOOM + opacity.
@@ -366,13 +355,8 @@ describe('BasemapSublayerEditorScene', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // EDITOR-BASEMAP-03 — v1011 INV-01 DETAIL LEVEL stays-gone regression pin
-  //
-  // Disposition history:
-  //  - v1011 Phase 1051 Plan 11 (INV-01): REMOVED DETAIL LEVEL pill strip
-  //  - Phase 1059 CONTEXT.md D-18: disposition reaffirmed (do not resurrect)
-  //  - Phase 1133 WALK-B-02: live MCP audit confirmed surface ABSENT (PASS)
-  //  - Phase 1136 EDITOR-BASEMAP-03: positive-form regression pin (this block)
+  // DETAIL LEVEL stays-gone regression pin: the pill strip was removed and
+  // must not come back.
   //
   // These tests fail loudly if anyone re-introduces the DETAIL LEVEL pill
   // strip, the status hint, or a radiogroup-shaped detail control to this

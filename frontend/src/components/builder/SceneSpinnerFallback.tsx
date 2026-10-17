@@ -6,8 +6,8 @@ import { useTranslation } from 'react-i18next';
  * Used inside LayerEditorPanel flyout and BuilderDialogs — lighter than the
  * full-page LoadingState since the surrounding chrome is already visible.
  *
- * UI-SPEC PERF-05: centered Loader2 spinner, role="status".
- * fix(#394) UX-06: aria-label is localized (was hardcoded English).
+ * Centered Loader2 spinner, role="status".
+ * Aria-label is localized (was hardcoded English).
  */
 export function SceneSpinnerFallback() {
   const { t } = useTranslation('builder');

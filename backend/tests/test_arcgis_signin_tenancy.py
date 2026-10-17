@@ -1,4 +1,4 @@
-"""fix(#1758 codex r4): the ArcGIS sign-in lockout budget crosses tenants.
+"""fix(#1758): the ArcGIS sign-in lockout budget crosses tenants.
 
 Esri locks an ArcGIS account after five failed sign-ins in fifteen minutes and
 counts them per ACCOUNT. GeoLens allows three, so it can never be what locks

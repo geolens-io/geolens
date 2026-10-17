@@ -1,4 +1,4 @@
-"""SEC-FU-06: parse_bbox must reject NaN and Inf coordinates.
+"""parse_bbox must reject NaN and Inf coordinates.
 
 Python's float() accepts 'nan', 'inf', '-inf' and returns the IEEE 754
 special values. PostGIS / PostgreSQL handle these inconsistently — some

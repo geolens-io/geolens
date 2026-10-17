@@ -1,4 +1,4 @@
-"""Credential renewal runs per tenant, under real RLS (#1277 review round 3).
+"""Credential renewal runs per tenant, under real RLS.
 
 The renewal sweep used to open one session AFTER ``sweep_stale_jobs_once`` had
 exited every ``tenant_job_context`` block, so in multi-tenant mode its query
@@ -265,7 +265,7 @@ async def test_every_tenants_queued_credential_is_renewed(
             "both tenants' queued credentials must be re-armed; a renewal that "
             "runs outside a tenant context sees neither"
         )
-        # fix(#1277 review round 4): 2 as one-each, not two tenants x two
+        # Expect 2 as one-each, not two tenants x two
         # keys. The explicit tenant filter is what makes the total equal the
         # number of tenants rather than its square.
         per_tenant = []
@@ -282,7 +282,7 @@ async def test_every_tenants_queued_credential_is_renewed(
             "the iteration is crossing the boundary it exists to respect"
         )
 
-        # fix(#1277 review round 4): and the FILTER is what narrows it, not
+        # The FILTER is what narrows it, not
         # RLS. This is today's configuration — RLS is off everywhere, so
         # tenant_job_context sets a GUC nothing enforces and the predicate in
         # the query is the only thing keeping tenants apart. Asserted on the

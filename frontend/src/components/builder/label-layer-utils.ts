@@ -15,14 +15,14 @@ export const LABEL_FONT_STACK = [
 ] as const;
 
 /**
- * fix(#438): BLD-02 — the offset a point label renders at when the user hasn't
+ * The offset a point label renders at when the user hasn't
  * set one. The renderer applied this implicitly while the editor showed 0/0, so
  * the first X-drag silently discarded the -1.5 Y. Both sides now read this
  * constant, so the editor shows what the map renders.
  */
 export const DEFAULT_POINT_LABEL_OFFSET: [number, number] = [0, -1.5];
 
-/** Phase 20260526-builder-audit #338 BLD-20260526-11: resolve symbol-placement, enforcing point-only for fill geometries. */
+/** Resolve symbol-placement, enforcing point-only for fill geometries. */
 function resolvePlacement(
   lc: Pick<LabelConfig, 'placement'>,
   geomType: string,
@@ -33,7 +33,7 @@ function resolvePlacement(
 }
 
 /**
- * builder-audit #338 LABEL-01: the single canonical {layout, paint} mapping for a
+ * The single canonical {layout, paint} mapping for a
  * label layer, derived from `LabelConfig` + geometry. Both `buildLabelLayerSpec`
  * (add path) and `syncLabelLayer` (update path) consume this ONE object so the
  * GL property list and its defaults exist exactly once and cannot drift — a new
@@ -108,10 +108,10 @@ export function buildLabelLayerSpec(opts: {
  * Apply label layout/paint properties to an existing label layer.
  * Shared update logic across map-sync.ts, use-builder-layers.ts, and ViewerMap.tsx.
  * Iterates the SAME canonical {layout, paint} object that `buildLabelLayerSpec`
- * spreads, so add and update stay byte-for-byte in lockstep (LABEL-01).
+ * spreads, so add and update stay byte-for-byte in lockstep.
  */
 export function syncLabelLayer(
-  // fix(#846): derived from the real Map type instead of hand-written signatures.
+  // Derived from the real Map type instead of hand-written signatures.
   // maplibre-gl v6 made setPaintProperty/setLayoutProperty generic, and a generic
   // method is not assignable to a plain one, so a live Map stopped satisfying the
   // old shape. `Pick` keeps the contract exactly as narrow as what this function

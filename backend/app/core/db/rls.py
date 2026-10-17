@@ -10,10 +10,10 @@ installs byte-for-byte by default. multi_tenant: for each tenant-shared
 table, reads ``pg_class.relrowsecurity``/``relforcerowsecurity`` first and
 only issues ``ALTER TABLE ... ENABLE/FORCE ROW LEVEL SECURITY`` when unset —
 steady-state boots are a cheap catalog read, no ``ACCESS EXCLUSIVE`` lock or
-multi-worker contention (T-1208-08).
+multi-worker contention.
 
 FORCE is required: table owners bypass non-FORCE RLS, and ``FORCE ROW LEVEL
-SECURITY`` subjects a non-superuser owner to the policy too (T-1208-05). A
+SECURITY`` subjects a non-superuser owner to the policy too. A
 safe runtime role is mandatory: superusers and ``BYPASSRLS`` roles ignore
 even FORCE RLS, so multi-tenant bootstrap verifies both ``session_user`` and
 ``current_user`` (plus privileged role membership) and refuses to serve when
@@ -275,12 +275,12 @@ async def assert_multi_tenant_runtime_role(conn) -> None:
 async def apply_tenancy_rls(conn) -> None:
     """Enable + FORCE RLS on every tenant-shared table (multi_tenant only).
 
-    single_tenant: returns immediately, zero SQL, zero planner cost
-    (T-1208-07). multi_tenant: for each table, queries ``pg_class`` for the
+    single_tenant: returns immediately, zero SQL, zero planner cost.
+    multi_tenant: for each table, queries ``pg_class`` for the
     current ``relrowsecurity``/``relforcerowsecurity`` flags and issues
     ``ALTER TABLE ... ENABLE``/``FORCE ROW LEVEL SECURITY`` only for the flag
     that is false. Steady-state boots skip both ALTERs — one cheap catalog
-    read per table, no ACCESS EXCLUSIVE lock (T-1208-08).
+    read per table, no ACCESS EXCLUSIVE lock.
 
     ``conn`` must be AUTOCOMMIT or a writable transaction so DDL takes effect
     immediately — never an in-flight read-only transaction.

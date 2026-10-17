@@ -29,7 +29,7 @@ What these tests pin, beyond "the header is present":
 - the reach. ``dispatch`` returns from four places, and only two of them
   write a CORS policy. All four declare the variance, because all four produce
   a cacheable representation of a URL that answers some other origin
-  differently (fix(#1602 codex r1)). The two that carry no policy assert that
+  differently (fix(#1602)). The two that carry no policy assert that
   absence in the same test, so "it varies" cannot quietly become "it has
   headers".
 """
@@ -224,7 +224,7 @@ async def test_the_route_sets_a_vary_this_test_is_not_inventing(
 # ---------------------------------------------------------------------------
 # (d) the responses that get no CORS policy at all
 #
-# fix(#1602 codex r1): these two used to assert the opposite. A response
+# fix(#1602): these two used to assert the opposite. A response
 # produced for a rejected origin, or for a request carrying no Origin header,
 # is still origin-dependent: it is the SAME URL that answers an allowed origin
 # with Access-Control-Allow-Origin. A CDN that stores the header-less variant
@@ -363,7 +363,7 @@ async def test_every_dispatch_outcome_declares_the_variance(
     cacheable representation of a URL whose policy depends on ``Origin``.
 
     Driven through the app rather than by calling the writers directly. After
-    fix(#1602 codex r1) the merge no longer lives in the writers at all, so a
+    fix(#1602) the merge no longer lives in the writers at all, so a
     writer-level test would assert against the wrong layer and would pass while
     the pass-through branch, the one the finding was about, stayed broken.
 

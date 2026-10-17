@@ -116,7 +116,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // fix(#785): mirror MapBuilderPage's DndContext accessibility wiring —
+  // Mirror MapBuilderPage's DndContext accessibility wiring —
   // without it dnd-kit falls back to hardcoded-English announcements built
   // from the draggable id. Field ids ARE the human-readable column names here,
   // so they can be announced directly.

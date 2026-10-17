@@ -2,7 +2,7 @@
 // event unconditionally and, when the <Map> component has no `onError` prop,
 // falls back to `console.error(e.error)` for every event — in parallel with
 // each surface's own `map.on('error')` handler. For the 401/403 vector-tile
-// case that handler already recovers (GUARD-03 cached-token re-sign and/or
+// case that handler already recovers (cached-token re-sign and/or
 // the #621 throttled token re-mint), the raw AJAXError therefore still hits
 // the console and lands as an unsuppressed red row in the problem-report
 // buffer next to the suppressed recovery warnings, making a recovered

@@ -2,7 +2,7 @@
 
 SQLAlchemy defaults ``hide_parameters`` to False, so every StatementError
 carries ``[SQL: ...] [parameters: (...)]`` in its message. The DB error
-handler logs that message with a traceback, and the SEC-03 redactor in
+handler logs that message with a traceback, and the redactor in
 ``core/logging_config.py`` only rewrites top-level event_dict keys by name --
 it is documented as shallow and cannot reach values embedded in the
 ``exception`` string. A connection reset or statement timeout mid-INSERT on

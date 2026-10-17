@@ -1,4 +1,4 @@
-// builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
+// Extracted from UnifiedStackPanel.tsx into a sibling
 // file. Sortable wrapper for a loose layer or a folder-group child row.
 import { memo, useCallback, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
@@ -14,41 +14,41 @@ interface SortableStackRowProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
-  // Phase 1201-01 (ENH-01/ENH-02): kebab authoring actions threaded to StackRow.
+  // Kebab authoring actions threaded to StackRow.
   onZoomToLayer?: (id: string) => void;
-  /** ux(#772): opens the Analysis panel prefilled with this layer. */
+  /** Opens the Analysis panel prefilled with this layer. */
   onAnalyzeLayer?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   canPasteStyle?: boolean;
   onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => boolean | void;
-  /** fix(#759): shared aria-live announcer for the keyboard reorder mode. */
+  /** Shared aria-live announcer for the keyboard reorder mode. */
   onAnnounce?: (text: string) => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
   parentGroupId?: string | null;
   onAddToGroup?: (layerId: string, groupId: string) => void;
   onCreateGroupWithLayer?: (layerId: string) => void;
   onMoveLayerOutOfGroup?: (layerId: string) => void;
-  // Phase 1041: multi-selection
+  // Multi-selection
   isMultiSelected?: boolean;
   isMultiSelectionActive?: boolean;
   onCmdClick?: (id: string) => void;
   onShiftClick?: (id: string) => void;
   onCheckboxClick?: (id: string) => void;
-  // Phase 1042 POL-15: entry animation
+  // Entry animation
   isFresh?: boolean;
-  // Phase 1199 STACK-01: "Copy N of M" duplicate label, null when not a duplicate
+  // "Copy N of M" duplicate label, null when not a duplicate
   disambiguationLabel?: string | null;
   /** fix(v1.6.0 audit): non-null when this row is the LAST child of the named
    *  group — deleting it or moving it out dissolves the group (#767 prune), so
    *  the row's confirms must say so. */
   dissolvesGroupName?: string | null;
-  // fix(#430 V-17): true when this layer's dataset would be filtered out for the
+  // True when this layer's dataset would be filtered out for the
   // map's audience (private/unpublished dataset on a public/shared map).
   audienceHidden?: boolean;
-  // codex(#451): DEM overlay off + not the active terrain source → draws nothing.
+  // DEM overlay off + not the active terrain source → draws nothing.
   drawsNothing?: boolean;
-  // Phase 1201-02 (ENH-07): disable drag while search is active to prevent
+  // Disable drag while search is active to prevent
   // sort_order corruption when only a filtered subset is visible.
   dragDisabled?: boolean;
 }

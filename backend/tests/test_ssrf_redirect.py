@@ -1,6 +1,6 @@
-"""Tests for SEC-S04 — per-hop SSRF revalidation on httpx redirects.
+"""Tests for per-hop SSRF revalidation on httpx redirects.
 
-Phase 1061: validate_url_for_ssrf runs at submission time but not per-hop.
+validate_url_for_ssrf runs at submission time but not per-hop.
 _revalidate_redirect closes the gap by intercepting every 3xx response
 in the httpx event_hooks pipeline.
 
@@ -108,17 +108,17 @@ async def test_revalidate_redirect_blocks_rfc1918_10x_redirect():
 
     Behavioral test for the SSRF revalidation contract — supersedes the
     pre-2026-05-24 identity check (which was brittle to module-level
-    mock.patch contamination from sibling tests). v1023 Phase 1098 OOS-03.
+    mock.patch contamination from sibling tests).
 
-    WR-01/WR-02 fix (2026-05-24): the original rewrite was byte-overlap
+    Fix (2026-05-24): the original rewrite was byte-overlap
     with test_redirect_to_private_ip_blocked (lines 20-29, same 127.0.0.1
     target), and was named for make_safe_client() without exercising it.
     This revision uses RFC-1918 10.0.0.5 to fill the address-class gap and
     renames to match the function actually exercised (_revalidate_redirect).
 
-    Per D-10 the leaker hunt is deferred indefinitely; this test exercises
-    _revalidate_redirect directly to remain immune to sibling-test
-    contamination of httpx.AsyncClient at the make_safe_client() layer.
+    This test exercises _revalidate_redirect directly to remain immune to
+    sibling-test contamination of httpx.AsyncClient at the
+    make_safe_client() layer.
     """
     response = httpx.Response(
         302,

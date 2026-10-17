@@ -1,4 +1,4 @@
-// builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
+// Extracted from UnifiedStackPanel.tsx into a sibling
 // file. Sortable wrapper for folder group rows.
 import { memo, useCallback, useMemo } from 'react';
 import { useDndContext } from '@dnd-kit/core';
@@ -18,13 +18,13 @@ interface FolderGroupRowWrapperProps {
   onAddLayer: (id: string) => void;
   onUngroup: (id: string) => void;
   onDeleteGroup: (id: string) => void;
-  // Phase 1041: multi-selection
+  // Multi-selection
   isMultiSelected?: boolean;
   isMultiSelectionActive?: boolean;
   onCmdClick?: (id: string) => void;
   onShiftClick?: (id: string) => void;
   onCheckboxClick?: (id: string) => void;
-  // Phase 1201-02 (ENH-07): disable drag while search is active.
+  // Disable drag while search is active.
   dragDisabled?: boolean;
 }
 
@@ -57,7 +57,7 @@ export const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
     isOver,
   } = useSortable({ id: layer.id, disabled: dragDisabled });
 
-  // Phase 1040 POL-03: folder group is a drop target for catalog drags.
+  // Folder group is a drop target for catalog drags.
   // data-group-drop-target activates only when a catalog drag is in flight,
   // so intra-stack reorder visuals (insertion line) remain the affordance for
   // intra-stack drags.

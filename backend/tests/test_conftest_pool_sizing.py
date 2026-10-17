@@ -105,7 +105,7 @@ def test_pool_sizing_with_worker_id_unset(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# CR-02: NullPool branch coverage — verifies _make_test_async_engine()
+# NullPool branch coverage — verifies _make_test_async_engine()
 # actually uses NullPool under xdist (not just that the sentinel returns (1,0))
 # ---------------------------------------------------------------------------
 

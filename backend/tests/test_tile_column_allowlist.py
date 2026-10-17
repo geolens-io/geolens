@@ -1,4 +1,4 @@
-"""Tests for the Phase 269 H-23 tile column allowlist.
+"""Tests for the tile column allowlist.
 
 `_select_tile_columns` resolves the per-zoom default + per-dataset
 override rules without touching the database, so these tests stay as

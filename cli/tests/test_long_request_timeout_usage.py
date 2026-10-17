@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""fix(#1778 review round 6): structural gate — every call to a generated
+"""Structural gate — every call to a generated
 SDK function the backend documents as long-running before it responds must
 be made inside a ``with long_request_timeout(client):`` block.
 
-Round 5's structural gate keyed on ``files=`` (a multipart body), which
+The first version of this structural gate keyed on ``files=`` (a multipart body), which
 missed the ingest/reupload preview requests: they carry no file, but the
 backend runs a synchronous ``run_ogrinfo_preview()`` probe bounded by
 ``OGRINFO_TIMEOUT_SECONDS = 300`` before responding

@@ -30,7 +30,7 @@ function renderWithAddDatasetIntent(
   const mapRef = {
     current: startWithMapLoaded ? map : null,
   } as React.RefObject<MaplibreMap | null>;
-  // fix(#1863 P2): mirrors MapBuilderPage's OWN pair — mapInstanceRef (read
+  // Mirrors MapBuilderPage's OWN pair — mapInstanceRef (read
   // imperatively) and a reactive `mapInstance` state, both flipped together
   // in handleMapRef. `mapInstance` here is a plain mutable binding (not
   // React state) because this hook is rendered directly with renderHook, not
@@ -73,7 +73,7 @@ function renderWithAddDatasetIntent(
     { wrapper: Wrapper },
   );
 
-  // fix(#1863 P2): simulates BuilderMap's onLoad -> MapBuilderPage's
+  // Simulates BuilderMap's onLoad -> MapBuilderPage's
   // handleMapRef, which sets mapInstanceRef.current synchronously BEFORE
   // calling setMapInstance — so the ref is always in sync by the time a
   // render sees the new mapInstance value.
@@ -123,7 +123,7 @@ describe('add-dataset entry intent', () => {
       onSuccess(createdLayer);
     });
 
-    // The layer landed in localLayers (P1-08 optimistic merge)...
+    // The layer landed in localLayers (optimistic merge)...
     expect(hook.result.current.localLayers.map((l) => l.id)).toContain('new-layer-id');
     // ...and the auto-zoom watcher fired against the COMMITTED layer, so the
     // lookup inside handleZoomToLayer actually found dataset_extent_bbox.
@@ -134,7 +134,7 @@ describe('add-dataset entry intent', () => {
     ]);
   });
 
-  // fix(#1863 P2, codex round 1): on a cold builder entry the add-layer POST
+  // On a cold builder entry the add-layer POST
   // can resolve — landing the layer in localLayers — before the lazily
   // loaded BuilderMap has finished mounting and firing onLoad. The old
   // watcher effect cleared pendingAutoZoomLayerIdRef as soon as the layer
@@ -191,7 +191,7 @@ describe('add-dataset entry intent', () => {
     expect(fitBounds).not.toHaveBeenCalled();
   });
 
-  // fix(#1867): "fresh map" means no PRIOR layers, not just no saved
+  // "fresh map" means no PRIOR layers, not just no saved
   // center — a centerless map with an existing layer keeps BuilderMap's
   // own combined-bounds auto-fit, not this single-layer zoom.
   it('does not auto-zoom a centerless map that already has an existing layer', () => {
@@ -213,7 +213,7 @@ describe('add-dataset entry intent', () => {
     expect(fitBounds).not.toHaveBeenCalled();
   });
 
-  // fix(#1877): a cold-entry add (BuilderMap not yet mounted) lands in
+  // A cold-entry add (BuilderMap not yet mounted) lands in
   // BuilderMap's own first-render baseline, so its auto-fit never detects
   // the change — this hook must take charge with the COMBINED bounds fit.
   it('runs a combined-bounds fit for a cold-entry add on a centerless map with an existing layer', () => {
@@ -258,7 +258,7 @@ describe('add-dataset entry intent', () => {
     expect(setZoom).not.toHaveBeenCalled();
   });
 
-  // fix(#1877): BuilderMap's own auto-fit clamps a wide fit to zoom 2+
+  // BuilderMap's own auto-fit clamps a wide fit to zoom 2+
   // (complex vector tiles fail to render below it) — the cold-entry
   // combined fit must apply the same clamp.
   it('clamps a wide cold-entry combined fit to zoom 2, mirroring BuilderMap', () => {
@@ -287,7 +287,7 @@ describe('add-dataset entry intent', () => {
     });
 
     expect(fitBounds).toHaveBeenCalledTimes(1);
-    // fix(#1877): duration: 0 is what makes this fit settle synchronously —
+    // Duration: 0 is what makes this fit settle synchronously —
     // without it the mock (like real MapLibre's flyTo) would not have
     // applied zoomAfterFit yet, and the clamp below would read stale zoom.
     expect(fitBounds.mock.calls[0][1]).toMatchObject({ duration: 0 });

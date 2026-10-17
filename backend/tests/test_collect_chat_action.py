@@ -1,11 +1,11 @@
-"""Phase 1135 AI-08 carry-forward fix: _collect_chat_action regression pins.
+"""_collect_chat_action regression pins.
 
 Ensures show_query_result actions emit columns+rows for non-spatial query_data
 results so the frontend inline data-analysis card can render. Previously only
 spatial results (with geojson) generated an action; non-spatial query results
 silently dropped on the floor.
 
-Discovered during Phase 1135 Plan 06 live MCP smoke (SF-MCP-01).
+Discovered during live MCP smoke.
 Fix: chat_actions.py _collect_chat_action — emit action for all successful
 query_data results, with optional geojson+bbox on spatial path.
 """
@@ -15,7 +15,7 @@ from app.processing.ai.schemas import ChatAction
 
 
 def test_non_spatial_query_emits_show_query_result_with_rows() -> None:
-    """AI-08: query_data returning columns+rows (no geometry) MUST emit
+    """query_data returning columns+rows (no geometry) MUST emit
     show_query_result so the frontend inline data card can render."""
     result = {
         "columns": ["county_name", "feature_count"],
@@ -38,7 +38,7 @@ def test_non_spatial_query_emits_show_query_result_with_rows() -> None:
 
 
 def test_spatial_query_emits_show_query_result_with_geojson_and_rows() -> None:
-    """AI-08: spatial query_data results emit both rows AND geojson+bbox so
+    """Spatial query_data results emit both rows AND geojson+bbox so
     the frontend can flyover-zoom the map AND render the inline table."""
     result = {
         "columns": ["geom", "name"],
@@ -71,7 +71,7 @@ def test_spatial_query_missing_bbox_does_not_raise_key_error() -> None:
     `bbox` (the pairing is an unenforced invariant on this plain dict, not
     encoded in any type), _collect_chat_action must degrade gracefully — omit
     both fields from the action — rather than raise an uncaught KeyError
-    inside the action-collector callback. (audit WR-03)"""
+    inside the action-collector callback."""
     result = {
         "columns": ["geom", "name"],
         "rows": [[{"type": "Point", "coordinates": [-73.9, 40.7]}, "NYC"]],
@@ -95,7 +95,7 @@ def test_query_error_emits_no_action() -> None:
 
 
 def test_empty_result_still_emits_action_with_zero_rows() -> None:
-    """AI-08 empty-state: row_count=0 still emits an action so the frontend
+    """Empty-state: row_count=0 still emits an action so the frontend
     can show the 'The AI query returned no rows' empty-state card."""
     result = {
         "columns": ["county_name", "feature_count"],
@@ -120,7 +120,7 @@ def test_non_query_tool_emits_no_action() -> None:
 
 
 def test_chat_action_round_trip_preserves_query_result_fields() -> None:
-    """Regression (builder-audit #338 B-001): the inline data-table fields are built
+    """Regression: the inline data-table fields are built
     by _collect_chat_action but were absent from the ChatAction model, so
     ``ChatAction(**a).model_dump(exclude_none=True)`` silently dropped them and
     the frontend data card never rendered."""
@@ -140,7 +140,7 @@ def test_chat_action_round_trip_preserves_query_result_fields() -> None:
 
 
 def test_chat_action_round_trip_preserves_add_layer_dataset_name() -> None:
-    """Regression (builder-audit #338 B-002): add_layer carried dataset_name but the
+    """Regression: add_layer carried dataset_name but the
     ChatAction model dropped it, so staging chips showed the raw UUID."""
     action = {"type": "add_layer", "dataset_id": "ds-1", "dataset_name": "Parks"}
     dumped = ChatAction(**action).model_dump(exclude_none=True)
@@ -153,7 +153,7 @@ def test_set_style_emits_backend_validated_paint_not_raw_tool_input() -> None:
     `next_input` and returned), but _collect_chat_action previously re-emitted
     the raw `tool_input['paint']` fn_args unchanged. The emitted action's paint
     must reflect the validated `result` value, not the raw invalid/unclamped
-    one the model produced. (audit B-002/CH-02)"""
+    one the model produced."""
     raw_tool_input = {
         "layer_id": "layer-1",
         # Raw AI output: circle-radius is invalid for a fill layer and would be
@@ -213,7 +213,7 @@ def test_set_style_without_validation_falls_back_to_tool_input_unchanged() -> No
 
 
 # ---------------------------------------------------------------------------
-# fix(#394) CH-02: set_label validation
+# set_label validation
 # ---------------------------------------------------------------------------
 
 
@@ -253,7 +253,7 @@ def test_set_label_valid_text_colors_pass_through() -> None:
 
 
 def test_set_label_junk_named_and_functional_colors_fall_back() -> None:
-    """fix(#394) codex round 2: 'notacolor' / 'rgb(foo)' must not pass the
+    """'notacolor' / 'rgb(foo)' must not pass the
     shape check — junk still reached MapLibre paint validation before."""
     from app.processing.ai.chat_actions import _build_label_action
 
@@ -285,7 +285,7 @@ def test_set_label_halo_contrasts_text_color() -> None:
 
 
 # ---------------------------------------------------------------------------
-# fix(#525 B-037): set_opacity server-side clamp + per-item action building
+# Server-side set_opacity clamp + per-item action building
 # ---------------------------------------------------------------------------
 
 
@@ -317,7 +317,7 @@ def test_set_opacity_clamps_out_of_range_values() -> None:
 
 
 def test_build_chat_actions_drops_invalid_items_per_action() -> None:
-    """fix(#525 B-037): one Pydantic-invalid action must drop with a note —
+    """One Pydantic-invalid action must drop with a note —
     the previous ``[ChatAction(**a) for a in actions]`` raised through the
     caller's broad except, discarding every valid action in the turn."""
     from app.processing.ai.chat_validation import _build_chat_actions

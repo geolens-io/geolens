@@ -1,6 +1,6 @@
-"""SEC-02: SessionMiddleware uses https_only=True in production.
+"""SessionMiddleware uses https_only=True in production.
 
-Pins the v13.13 closure of M-64. The OAuth state cookie travels via this
+The OAuth state cookie travels via this
 middleware; without https_only=True, a proxy fronting the API in cleartext
 could leak the cookie. Gated on settings.log_json (the production indicator
 already used at main.py:407 for _is_production).
@@ -78,7 +78,7 @@ def test_real_app_session_middleware_present():
 
     mw = _find_session_mw(app.user_middleware)
     assert mw is not None, "SessionMiddleware must be mounted on the API app"
-    # SEC-02: the kwarg must be passed explicitly, not omitted.
+    # The kwarg must be passed explicitly, not omitted.
     # In test env (log_json=False), kwargs.get('https_only') is False.
     assert "https_only" in mw.kwargs, (
         "SEC-02: SessionMiddleware must be mounted with explicit https_only kwarg "

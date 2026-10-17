@@ -4,7 +4,7 @@ import { DetailPanel } from '../panels/DetailPanel';
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import type { DatasetResponse, RecordType } from '@/types/api';
 
-// fix(#1285 codex round 4): SourcePanel is fully mocked below and never
+// SourcePanel is fully mocked below and never
 // actually renders SourceRefreshAction, so this stub's values are never
 // read — it exists only to satisfy DetailPanel's required prop (owned for
 // real by the dataset page via useDatasetRefreshWatch).
@@ -76,7 +76,7 @@ function makeDataset(recordType: RecordType): DatasetResponse {
 
 // feat(#1285): DetailPanel now wires the "Refresh from source" action into
 // SourcePanel's `actions` slot, gated on canEdit AND REFRESHABLE_ORIGINS
-// (fix, codex round 1: origin presence alone was too broad — an upload,
+// (origin presence alone is too broad — an upload,
 // created, or STAC origin resolves just fine but the refresh door refuses
 // all three). These synthetic datasets all set source_format: null, which
 // datasetOrigin() reads as a registered-table (postgis) origin — allowlisted

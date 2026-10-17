@@ -56,7 +56,7 @@ export function clusterFeatureCoordinates(feature: ClusterFeatureLike): [number,
 }
 
 function sourceLabel(kind: ClusterSourceStrategyKind) {
-  // fix(#438): I18N-02 — these strings render in the cluster popup ('source'
+  // These strings render in the cluster popup ('source'
   // field); they were hardcoded English.
   if (kind === 'server-tile') return i18n.t('builder:cluster.sourceServerTile');
   if (kind === 'bounded-geojson') return i18n.t('builder:cluster.sourceBoundedGeojson');
@@ -86,7 +86,7 @@ export function clusterAggregateFeatureInfo(
   return {
     properties: aggregateProperties,
     layerName: options.layerName,
-    // fix(#438): I18N-02 — was `Cluster: N feature(s)` with manual English
+    // Was `Cluster: N feature(s)` with manual English
     // pluralization; now an i18next plural key.
     title: i18n.t('builder:cluster.popupTitle', { count, countLabel }),
     // fix(#586): only list keys actually present — the popup's
@@ -154,7 +154,7 @@ export async function activateClusterFeature(
   map.easeTo({
     center,
     zoom,
-    // fix(#438): A11Y-08 — instant under prefers-reduced-motion.
+    // Instant under prefers-reduced-motion.
     duration: motionDuration(500),
   });
   return true;

@@ -291,7 +291,7 @@ def test_fallback_does_not_out_redact_the_parsed_path(
     This is the invariant the whole fallback is defined against, and it cuts both
     ways. If the primary path is ever tightened to redact fragments or
     port-position material, this test fails and the fallback must follow rather
-    than quietly diverge. Contrast the round-3 case, which WAS a real leak: there
+    than quietly diverge. Contrast the earlier case, which WAS a real leak: there
     ＠ normalises to a genuine `@`, so an NFKC-normalising client resolves real
     userinfo, which is precisely why `_checknetloc` refuses the string.
     """
@@ -418,7 +418,7 @@ def test_has_url_credentials_detects_userinfo() -> None:
     ],
 )
 def test_has_url_credentials_detects_userinfo_behind_gdal_prefix(url: str) -> None:
-    # fix(#430 BA-04): urlsplit sees scheme 'esrijson'/'wfs' with no netloc, so
+    # urlsplit sees scheme 'esrijson'/'wfs' with no netloc, so
     # .username/.password were None and the credential slipped through. The
     # validator must strip the GDAL prefix before inspecting userinfo.
     assert has_url_credentials(url)
@@ -433,7 +433,7 @@ def _urlsplit_rejects(value: str) -> bool:
 
 
 # fix(#1132): has_url_credentials carried the identical unguarded urlsplit — the
-# mirror #430 BA-04 established between these two functions never reached the
+# mirror #430 established between these two functions never reached the
 # error path. It is therefore measured against the SAME inputs as its sibling
 # rather than a fresh list, so the two cannot drift apart again silently.
 #

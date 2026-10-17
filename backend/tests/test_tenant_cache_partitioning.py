@@ -103,7 +103,7 @@ class _MemoryCache:
         return True
 
     async def set_authoritative(self, key: str, value: object, ttl: int = 300) -> None:
-        """fix(#1778 codex r1): one store here, so this is set."""
+        """One store here, so this is set."""
         self.values[key] = value
 
     async def delete(self, key: str):
@@ -411,7 +411,7 @@ async def test_embed_token_negative_cache_cannot_poison_another_tenant(
             return _Result()
 
         async def scalar(self, *_args, **_kwargs):
-            # fix(#1778 codex r5): validate_embed_token_access now reads the
+            # Validate_embed_token_access now reads the
             # revocation generation before deciding whether to cache a positive
             # at all (an unusable generation is never written). A stub lacking
             # this method makes every read look unusable and the positive branch

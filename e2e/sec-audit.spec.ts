@@ -49,7 +49,7 @@ function adminHeaders(): Record<string, string> {
 }
 
 test.beforeAll(async () => {
-  // fix(review #1792 round 2): this hook used to seed five fixtures
+  // This hook used to seed five fixtures
   // sequentially. The two ingest-backed ones alone (raster + private
   // vector) can each poll for up to 60s (helpers/catalog.ts's
   // seedFixtureDataset), so a slow worker could blow past Playwright's
@@ -192,7 +192,7 @@ test('S01 STAC visibility — anonymous cannot read a private raster STAC item',
 test('S01 STAC visibility — anonymous /stac/search does not return private rasters', async ({ request }) => {
   const recordId = privateRasterId;
   const res = await request.get(`${apiBase}/stac/search?ids=${recordId}`);
-  // fix(review #1792 round 3): this `if` had no `else` -- any non-200 status
+  // This `if` had no `else` -- any non-200 status
   // (including a 500) fell through with no assertion at all, so a broken
   // endpoint passed silently. Either denied (401/403/404) or an empty
   // features list -- never the private item back.
@@ -230,7 +230,7 @@ test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async
 });
 
 test('S02 IDOR — editor B cannot DELETE another user\'s private dataset', async ({ request }) => {
-  // fix(review #1792 round 3): the positive control below calls
+  // The positive control below calls
   // seedDataset(), which alone can poll for up to 60s (helpers/catalog.ts's
   // seedFixtureDataset) -- the same 60s as Playwright's default TEST
   // timeout, with nothing left over for the denial request, the owner
@@ -398,13 +398,13 @@ test('S06 — admin user with known-public password "demodemo" cannot log in', a
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S08 — embed frame-policy endpoint reflects the actual embed-token state', async ({ request }) => {
-  // fix(review #1792 round 2): the edge reads the embed token from the `et`
+  // The edge reads the embed token from the `et`
   // query param, not the share token in the path (frontend/nginx.conf's
   // `location ~ ^/m/` forwards $arg_et to /embed/frame-policy). Without
   // `et`, embed_frame_policy (public_router.py) always emits NO
   // frame-ancestors directive at all -- so the old assertion passed only
   // because X-Frame-Options is intentionally omitted on this route (see the
-  // nginx SEC-S08 comment), never because a real per-token policy was
+  // nginx comment), never because a real per-token policy was
   // exercised.
   //
   // Implementing that fix surfaced a further problem: the nginx `auth_request`
@@ -499,7 +499,7 @@ test('S08 — embed frame-policy endpoint reflects the actual embed-token state'
     // create_embed_token_endpoint -- confirmed against the live endpoint.
     expect(restrictedRes.status()).toBe(422);
     const body = (await restrictedRes.json()) as { detail?: unknown };
-    // fix(review #1792 round 3): a vanilla FastAPI 422 body has `detail` as
+    // A vanilla FastAPI 422 body has `detail` as
     // an array of {loc, msg, type} objects, and `expect(array).toContain(
     // 'a substring')` compares array ELEMENTS for equality -- against
     // objects, that never matches, so the check would always pass or always
@@ -555,7 +555,7 @@ test('S09 — dataset export -where rejects UNION / subqueries', async ({ reques
   const res = await request.get(
     `${apiBase}/datasets/${datasetId}/export?format=csv&where=${encodeURIComponent(malicious)}`,
   );
-  // fix(review #1792 round 9): 403 dropped from the accepted set -- with the
+  // 403 dropped from the accepted set -- with the
   // positive control above proving the route is reachable anonymously, a
   // 403 here can only mean the malicious `where` never reached
   // validate_where_clause() at all (e.g. an authorization regression that
@@ -572,11 +572,11 @@ test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ reques
   const longQ = 'a'.repeat(5000);
   const res = await request.get(`${apiBase}/search/facets/?q=${encodeURIComponent(longQ)}`);
   // After fix: 422 (Pydantic validation). Pre-fix: 200 with seq-scan.
-  // fix(review #1792 round 3): dropped 429 tolerance -- it was only ever
+  // Dropped 429 tolerance -- it was only ever
   // defensive against the S11 burst test running before this one and
   // saturating the rate limiter; S11 now runs last in this file (see its
   // section below), and /search/facets/ carries no semantic-search
-  // per-route limit of its own (WR-02, search/router.py) to begin with.
+  // per-route limit of its own (search/router.py) to begin with.
   expect([400, 422]).toContain(res.status());
 });
 
@@ -584,18 +584,17 @@ test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ reques
 // Hygiene regression — ensure SQL injection sentinels remain blocked
 // ─────────────────────────────────────────────────────────────────────────────
 
-// fix(review #1792 round 5): the four tests below all hit the rate-limited
+// The four tests below all hit the rate-limited
 // /search/datasets/ route (malformed-bbox included -- same endpoint, a
 // `bbox` param rather than `q`), so their combined request count competes
 // for the same per-route bucket as every other test in this file that hits
 // it.
 //
-// fix(review #1792 round 9): round 5's "accept a 429 only when the
-// configured limit is below this describe block's own request count" logic
-// assumed this describe block is the only source of traffic against the
-// bucket. It is not: in a full nightly run, search.spec.ts also hits
-// /search/datasets/ against the same server (and, if the limiter keys on
-// IP rather than per-user, the same bucket), so a configured limit that
+// An earlier "accept a 429 only when the configured limit is below this
+// describe block's own request count" rule assumed this describe block is
+// the only source of traffic against the bucket. It is not: in a full
+// nightly run, search.spec.ts also hits /search/datasets/ against the same
+// server (and, if the limiter keys on IP rather than per-user, the same bucket), so a configured limit that
 // comfortably covers these four requests ALONE can still be exhausted by
 // the time they run, and an unconditional `expect(200)` would then fail a
 // perfectly healthy rate limiter. There is no configured-limit threshold
@@ -704,15 +703,14 @@ test('S11 — /search/datasets/ has semantic-search rate limiting wired (smoke)'
   // shipped (search/router.py's search_datasets_endpoint carries
   // @limiter.limit(_semantic_search_rate_limit)) -- gate on it.
   //
-  // fix(review #1792 round 5): this test spent four rounds trying to pin the
-  // actual discriminating behavior (is a 429 really from the per-route
-  // limiter and not the global one? does it fire exactly at the configured
-  // threshold?) against a live, shared, admin-configurable dev stack --
-  // structurally unreliable there, since this suite can neither set
+  // Pinning the actual discriminating behavior (is a 429 really from the
+  // per-route limiter and not the global one? does it fire exactly at the
+  // configured threshold?) against a live, shared, admin-configurable dev
+  // stack is structurally unreliable, since this suite can neither set
   // semantic_search_rate_limit or global_rate_limit nor isolate itself from
-  // other concurrent traffic hitting the same stack (rounds 1-4 tried
-  // reading the config, pacing bursts below the global limit, and retrying
-  // through DB-pool contention, and still could not fully close the gap).
+  // other concurrent traffic hitting the same stack. Reading the config,
+  // pacing bursts below the global limit and retrying through DB-pool
+  // contention did not fully close the gap.
   // That pin now lives in backend/tests/test_semantic_search_rate_limit_1778.py,
   // against an isolated app instance with both limits set to known values --
   // it also covers the "decorator still present" structural check. This is a

@@ -24,7 +24,7 @@ export function parseStepOrInterpolate(expr: unknown): { values: unknown[]; brea
   if (expr[0] === 'step') {
     const values: unknown[] = [expr[2]];
     const breaks: number[] = [];
-    // DRY-04: pair-walk via the shared low-level walker; stop at the first
+    // Pair-walk via the shared low-level walker; stop at the first
     // non-number stop position (malformed tail).
     for (const { first, second, hasSecond } of walkExpressionPairs(expr, 3)) {
       if (typeof first !== 'number') break;
@@ -36,7 +36,7 @@ export function parseStepOrInterpolate(expr: unknown): { values: unknown[]; brea
 
   if (expr[0] === 'interpolate') {
     // ["interpolate", interpolation, input, stop0, val0, stop1, val1, ...]
-    // SPEC-05: only LINEAR interpolation yields uniform legend breaks. For
+    // Only LINEAR interpolation yields uniform legend breaks. For
     // exponential / cubic-bezier (and interpolate-hcl / interpolate-lab, which use
     // a different operator and never match here) the stop positions are NOT uniform
     // breaks, so fall back to opaque (null) rather than mislabel the curve as linear.
@@ -63,7 +63,7 @@ interface NormalizedLayerStyleState {
   paint: Record<string, unknown>;
 }
 
-// builder-audit #338 SPEC-08 / DRY-01 (cross-cutting): the legacy builder-private
+// The legacy builder-private
 // paint-key set and the snake->camel builder-key alias map are now single-sourced
 // from layer-adapters/shared.ts (CUSTOM_PAINT_PROPS / BUILDER_STYLE_KEY_ALIASES)
 // so the two frontend copies can no longer drift. The raster re-hydration block in
@@ -74,7 +74,7 @@ const LEGACY_BUILDER_KEY_ALIASES = BUILDER_STYLE_KEY_ALIASES;
 
 export const RENDER_MODES = new Set(['heatmap', 'hillshade', 'symbol', 'arrow', 'cluster', 'terrain', 'image']);
 
-// builder-audit #338 CPLX-01: data-driven table for the repetitive "read the first
+// Data-driven table for the repetitive "read the first
 // typed paint key, else fall back to the normalized builder value" chains.
 type BuilderFieldType = 'string' | 'number' | 'boolean';
 
@@ -137,7 +137,7 @@ function normalizeBuilderStyleConfig(
   }, {});
   delete normalizedRawBuilder.render_mode;
 
-  // builder-audit #338 CPLX-01: table-driven "typed paint key (try each in order),
+  // Table-driven "typed paint key (try each in order),
   // else normalized builder value" resolution — replaces nine near-identical
   // ternary ladders. Heatmap fields keep a bespoke chain below because they also
   // fall back to legacy top-level raw.* keys.
@@ -208,7 +208,7 @@ function normalizedRawStyleBase(
 }
 
 /**
- * builder-audit #338 CPLX-01: early-return ladder replacing the prior 3-level nested
+ * Early-return ladder replacing the prior 3-level nested
  * ternary. Picks the base StyleConfig shape: legacy field-name mapping, canonical
  * mode+column passthrough, or a builder/render-mode-only shell — else null.
  */
@@ -279,7 +279,7 @@ export function normalizeStyleConfig(
     (raw.column_name && !raw.column) ||
     (raw.value_field && !raw.column);
 
-  // Start from canonical schema or map legacy field names (CPLX-01: early-return
+  // Start from canonical schema or map legacy field names (early-return
   // ladder lives in resolveNormalizedBase).
   const normalized = resolveNormalizedBase(raw, Boolean(isLegacy), builder, renderMode);
   if (!normalized) return null;

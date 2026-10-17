@@ -1,4 +1,4 @@
-"""Side-by-side load gate: cloud + enterprise in the CORE venv (CLOUD-01..05 blocker).
+"""Side-by-side load gate: cloud + enterprise in the CORE venv (blocker).
 
 This test module is the integration gate that catches failure modes individual
 per-plan unit tests miss:
@@ -6,11 +6,11 @@ per-plan unit tests miss:
   A. **Side-by-side load (no SLOT conflict):** with enterprise AND cloud
      entry points both present, load_extensions() must succeed with zero
      ExtensionSlotConflictError — the cloud wrappers compose over enterprise
-     ports via __slot_inner__ (CLOUD-04, SLOT-01/02).
+     ports via __slot_inner__.
 
   B. **Wrap-composes, not widens (security):** an enterprise permission DENIAL
      must still fire THROUGH the cloud wrapper after side-by-side load — the
-     wrapper must NOT widen access (T-1211-19).
+     wrapper must NOT widen access.
 
   C. **Cloud-absent byte-identical (runtime-primary):** with cloud NOT in the
      active overlay/entry-point set (enterprise-only and community-only cases),
@@ -23,11 +23,9 @@ per-plan unit tests miss:
      for the side-by-side tests). That is expected; the RUNTIME overlay-load set
      — not import availability — is the boundary.
 
-  D. **Supplementary (image boundary):** the Dockerfile BAKE-01 INSTALL_OVERLAYS
+  D. **Supplementary (image boundary):** the Dockerfile INSTALL_OVERLAYS
      ARG defaults to empty (cloud not baked) AND .dockerignore default-denies
      the cloud dir. This is explicitly marked supplementary to the runtime proof.
-
-References: CLOUD-01..05, SLOT-01, SLOT-02, OCG-01, T-1211-18..20, BAKE-01
 """
 
 from __future__ import annotations
@@ -189,7 +187,7 @@ def _cloud_loader_factory():
 
 @_requires_cloud
 class TestSideBySideLoad:
-    """CLOUD-01/04: enterprise + cloud both load without SLOT conflict."""
+    """Enterprise + cloud both load without SLOT conflict."""
 
     @pytest.mark.parametrize("reverse_discovery", [False, True])
     def test_cloud_and_enterprise_load_side_by_side(self, reverse_discovery: bool):
@@ -203,8 +201,6 @@ class TestSideBySideLoad:
           - _extensions["identity"].__slot_inner__ is the enterprise identity
             instance.
           - No ExtensionSlotConflictError raised.
-
-        References: CLOUD-01, CLOUD-04, SLOT-01, SLOT-02
         """
         import app.platform.extensions as ext_mod
         from app.platform.extensions import (
@@ -324,15 +320,15 @@ class TestSideBySideLoad:
 
 @_requires_cloud
 class TestWrapComposeSecurity:
-    """CLOUD-04 / T-1211-19: enterprise denial must fire through cloud wrapper.
+    """Enterprise denial must fire through cloud wrapper.
 
-    The cloud wrapper is a pure delegate in Phase 1211. An enterprise permission
+    The cloud wrapper is a pure delegate. An enterprise permission
     denial must reach the caller unchanged — the wrapper must NOT widen access.
     """
 
     @pytest.mark.anyio
     async def test_enterprise_denial_fires_through_cloud_permission(self):
-        """With side-by-side registry, enterprise denial propagates (T-1211-19).
+        """With side-by-side registry, enterprise denial propagates.
 
         1. Load enterprise + cloud entry points.
         2. Extract _extensions["permission"] — the CloudPermission wrapper.
@@ -409,7 +405,7 @@ class TestWrapComposeSecurity:
 
 @_requires_cloud
 class TestCloudAbsentRuntimePrimary:
-    """CLOUD-01 / T-1211-20: cloud must be completely absent from the runtime
+    """Cloud must be completely absent from the runtime
     when NOT in the loaded overlay set.
 
     The runtime boundary (not import availability) is what matters. In the dev
@@ -556,12 +552,12 @@ class TestCloudAbsentRuntimePrimary:
 
 
 # ---------------------------------------------------------------------------
-# Test D: Supplementary — image boundary (BAKE-01 Dockerfile + .dockerignore)
+# Test D: Supplementary — image boundary (Dockerfile + .dockerignore)
 # ---------------------------------------------------------------------------
 
 
 class TestBake01ImageBoundary:
-    """BAKE-01 supplementary: Dockerfile + .dockerignore default-exclude /cloud.
+    """Supplementary: Dockerfile + .dockerignore default-exclude /cloud.
 
     This is SUPPLEMENTARY to the runtime proofs above (Tests C). The image
     boundary check proves the build mechanism is correct — the cloud dir is
@@ -571,12 +567,10 @@ class TestBake01ImageBoundary:
 
     A failure here is a build-mechanism bug (deploy risk), not a runtime bug —
     the runtime Tests C are the primary proof.
-
-    References: BAKE-01, T-1211-20
     """
 
     def test_dockerfile_install_overlays_arg_defaults_empty(self):
-        """BAKE-01: INSTALL_OVERLAYS ARG must default to empty string (not /cloud).
+        """INSTALL_OVERLAYS ARG must default to empty string (not /cloud).
 
         The OSS Dockerfile must default-exclude cloud. Cloud inclusion is an
         legacy distributor-owned builds may still pass INSTALL_OVERLAYS, while
@@ -617,7 +611,7 @@ class TestBake01ImageBoundary:
         )
 
     def test_dockerignore_default_denies_cloud_dir(self):
-        """BAKE-01: .dockerignore must deny the cloud/ dir by default.
+        """.dockerignore must deny the cloud/ dir by default.
 
         The OSS build context must not include cloud/ by default. The
         .dockerignore uses a '**' default-deny pattern and requires an

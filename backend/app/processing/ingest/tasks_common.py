@@ -239,10 +239,11 @@ task_app = App(
         "app.processing.ingest.tasks_reupload",
         "app.processing.embeddings.tasks",
         "app.processing.analysis.tasks",
-        # fix(#1542): the queued admin embedding backfill. It lives under
-        # modules/admin/ because it emits the run's audit events, which
-        # processing/ may not import; this list is how the worker finds it.
+        # The embedding backfill and dataset retention. They live under
+        # modules/admin/ because they emit audit events, which processing/
+        # may not import; this list is how the worker finds them.
         "app.modules.admin.backfill_jobs",
+        "app.modules.admin.retention_jobs",
     ],
 )
 

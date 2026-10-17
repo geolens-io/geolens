@@ -68,7 +68,7 @@ def test_request_shaped_errors_are_not_retryable(code) -> None:
 
 
 def test_invalid_schema_name_is_not_a_benign_absent_table() -> None:
-    """fix(#435 codex r1): 3F000 must never degrade to a 200 empty page.
+    """3F000 must never degrade to a 200 empty page.
 
     Postgres raises it from DDL paths, where it means the schema is gone. A SELECT
     against a missing schema reports 42P01 instead, so 3F000 never described the
@@ -136,7 +136,7 @@ async def test_permission_failure_propagates(test_db_session, monkeypatch) -> No
 async def test_missing_data_schema_raises_instead_of_returning_empty(
     test_db_session,
 ) -> None:
-    """fix(#435 codex r1): an unprovisioned tenant schema is drift, not empty data.
+    """An unprovisioned tenant schema is drift, not empty data.
 
     Postgres answers a SELECT against a missing schema with 42P01, the same code a
     raster dataset's synthetic table produces inside a schema that does exist. Without

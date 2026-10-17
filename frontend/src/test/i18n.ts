@@ -14,7 +14,7 @@ import type { SupportedLng } from '@/i18n/config';
  * switches language, including back to English.
  */
 export async function changeTestLanguage(lng: SupportedLng): Promise<void> {
-  // fix(#1866 codex r2): the fallback locale's bundles are already loaded
+  // The fallback locale's bundles are already loaded
   // (and frozen), so registering them again throws; just switch to it.
   if (lng === fallbackLng) {
     await i18n.changeLanguage(lng);

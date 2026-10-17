@@ -6,7 +6,7 @@
 // `/raster-tiles/` URLs — a blank raster layer with no user-visible reason.
 //
 // The re-mint still runs (its apiFetch renews an expiring JWT, which IS what a
-// raster 401 needs — codex P1 on this PR), but a raster failure no longer counts
+// raster 401 needs), but a raster failure no longer counts
 // as recovered: it surfaces the tile-error toast. The vector path is unchanged.
 import type { ReactNode } from 'react';
 import { render, waitFor } from '@/test/test-utils';
@@ -166,7 +166,7 @@ describe('ViewerMap raster/DEM tile auth errors (fix #890)', () => {
 
     mapState.fakeMap.emit('error', { error: { status: 403, url: RASTER_URL } });
 
-    // fix(#890) (codex P1): the re-mint still runs — its apiFetch renews an
+    // The re-mint still runs — its apiFetch renews an
     // expiring JWT, which is what a raster 401/403 actually needs — but its
     // `true` must not silence the surface the way it does for a vector tile.
     expect(tokenState.refreshTokens).toHaveBeenCalledTimes(1);

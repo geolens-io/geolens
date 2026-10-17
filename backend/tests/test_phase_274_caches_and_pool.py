@@ -1,4 +1,4 @@
-"""PERF-04 / PERF-05 / PERF-10 regression tests (Phase 274).
+"""Regression tests.
 
 Static + behavior tests that run without a database or Redis. Each test
 that touches a global cache resets the relevant module-level state via
@@ -30,15 +30,15 @@ def _reset_has_embeddings_cache() -> None:
     helpers._has_embeddings_cache.clear()
 
 
-# --- PERF-05: postgresql.conf max_connections --------------------------------
+# --- postgresql.conf max_connections --------------------------------
 
 
 def test_postgresql_conf_max_connections_is_80():
-    """PERF-05 + v1039 PERF-003 + db-audit #529 CONN-1: max_connections = 80.
+    """max_connections = 80.
 
-    v1039 PERF-003 found the old budget (30) undercounted the asyncpg tile pool
-    + procrastinate connectors and raised it to 70. db-audit #529 CONN-1
-    found that 70 still omitted the API-side Procrastinate connector (each
+    An earlier audit found the old budget (30) undercounted the asyncpg tile pool
+    + procrastinate connectors and raised it to 70. A later
+    audit found that 70 still omitted the API-side Procrastinate connector (each
     uvicorn worker opens task_app for enqueueing, max_size=3), putting the
     worst case at 68 > 67 non-reserved slots. Raised to 80 with itemized math
     in db/postgresql.conf.
@@ -61,7 +61,7 @@ def test_postgresql_conf_max_connections_is_80():
 
 
 def test_postgresql_conf_no_longer_says_50():
-    """PERF-05: ensure the old `max_connections = 50` directive is gone."""
+    """Ensure the old `max_connections = 50` directive is gone."""
     conf = (_REPO_ROOT / "db" / "postgresql.conf").read_text()
     non_comment_lines = [
         line for line in conf.splitlines() if not line.strip().startswith("#")
@@ -74,7 +74,7 @@ def test_postgresql_conf_no_longer_says_50():
 
 
 def test_env_example_dbm04_comment_references_80():
-    """PERF-05 + db-audit #529: .env.example DBM-04 comment matches the live budget."""
+    """.env.example comment matches the live budget."""
     env_example = (_REPO_ROOT / ".env.example").read_text()
     assert (
         "max_connections=80" in env_example or "max_connections = 80" in env_example
@@ -84,7 +84,7 @@ def test_env_example_dbm04_comment_references_80():
     )
 
 
-# --- PERF-04: schema cache partitions on (map_id, content_hash) --------------
+# --- schema cache partitions on (map_id, content_hash) ---------------------
 
 
 class _StubLayer:
@@ -106,7 +106,7 @@ class _StubLayer:
 
 
 def test_schema_cache_partitions_on_map_id():
-    """PERF-04: different maps with identical layers get separate cache entries."""
+    """Different maps with identical layers get separate cache entries."""
     from app.processing.ai.sql_generator import _schema_cache_key
 
     k1 = _schema_cache_key([_StubLayer()], "map-1")
@@ -118,7 +118,7 @@ def test_schema_cache_partitions_on_map_id():
 
 
 def test_schema_cache_key_handles_none_map_id():
-    """PERF-04: backward-compat - None map_id uses sentinel."""
+    """Backward-compat - None map_id uses sentinel."""
     from app.processing.ai.sql_generator import _schema_cache_key
 
     k = _schema_cache_key([_StubLayer()], None)
@@ -127,7 +127,7 @@ def test_schema_cache_key_handles_none_map_id():
 
 
 def test_schema_cache_key_returns_tuple():
-    """PERF-04: cache key is now a tuple (map_key, content_hash)."""
+    """Cache key is now a tuple (map_key, content_hash)."""
     from app.processing.ai.sql_generator import _schema_cache_key
 
     k = _schema_cache_key([_StubLayer()], "map-1")
@@ -139,7 +139,7 @@ def test_schema_cache_key_returns_tuple():
 
 
 def test_build_sql_schema_context_signature_includes_map_id():
-    """PERF-04: function signature exposes map_id parameter."""
+    """Function signature exposes map_id parameter."""
     from app.processing.ai.sql_generator import build_sql_schema_context
 
     sig = inspect.signature(build_sql_schema_context)
@@ -149,14 +149,14 @@ def test_build_sql_schema_context_signature_includes_map_id():
 
 
 def test_schema_cache_max_bumped_to_64():
-    """PERF-04: cache size bound is 64 (per CONTEXT.md sane-bound constraint)."""
+    """Cache size bound is 64."""
     from app.processing.ai import sql_generator
 
     assert sql_generator._SCHEMA_CACHE_MAX == 64
 
 
 def test_schema_cache_partition_yields_independent_results():
-    """PERF-04: cache stores independent entries for two different map_ids."""
+    """Cache stores independent entries for two different map_ids."""
     from app.processing.ai.sql_generator import build_sql_schema_context
 
     _reset_schema_cache()
@@ -175,7 +175,7 @@ def test_schema_cache_partition_yields_independent_results():
 
 
 def test_schema_cache_eviction_at_64():
-    """PERF-04: cache evicts oldest entry when at _SCHEMA_CACHE_MAX capacity."""
+    """Cache evicts oldest entry when at _SCHEMA_CACHE_MAX capacity."""
     from app.processing.ai import sql_generator
     from app.processing.ai.sql_generator import build_sql_schema_context
 
@@ -193,11 +193,11 @@ def test_schema_cache_eviction_at_64():
 
 
 def test_chat_service_call_site_passes_map_id():
-    """PERF-04: chat-edit threads map_id into the schema_context call.
+    """Chat-edit threads map_id into the schema_context call.
 
-    Phase 276 CODE-02: chat_service was split into a facade + chat_*.py
+    chat_service was split into a facade + chat_*.py
     sub-modules; the actual ``build_sql_schema_context`` call now lives in
-    ``chat_actions._handle_query_data``. The PERF-04 contract still holds
+    ``chat_actions._handle_query_data``. The contract still holds
     (map_id is threaded through), so this test checks both modules and
     accepts the call in either source — preserving the original intent
     after the facade decomposition.
@@ -213,7 +213,7 @@ def test_chat_service_call_site_passes_map_id():
 
 
 def test_handle_query_data_signature_accepts_map_id():
-    """PERF-04: _handle_query_data exposes map_id keyword."""
+    """_handle_query_data exposes map_id keyword."""
     from app.processing.ai.chat_service import _handle_query_data
 
     sig = inspect.signature(_handle_query_data)
@@ -223,7 +223,7 @@ def test_handle_query_data_signature_accepts_map_id():
 
 
 def test_execute_chat_tool_signature_accepts_map_id():
-    """PERF-04: _execute_chat_tool exposes map_id keyword to thread it down."""
+    """_execute_chat_tool exposes map_id keyword to thread it down."""
     from app.processing.ai.chat_service import _execute_chat_tool
 
     sig = inspect.signature(_execute_chat_tool)
@@ -231,11 +231,11 @@ def test_execute_chat_tool_signature_accepts_map_id():
     assert sig.parameters["map_id"].default is None
 
 
-# --- PERF-10: has_embeddings cache partitions on model name ------------------
+# --- has_embeddings cache partitions on model name ---------------------------
 
 
 def test_has_embeddings_cache_is_dict_keyed_on_model():
-    """PERF-10: cache is a dict, not a single global tuple."""
+    """Cache is a dict, not a single global tuple."""
     from app.processing.embeddings import helpers
 
     assert isinstance(helpers._has_embeddings_cache, dict)
@@ -255,7 +255,7 @@ def test_has_embeddings_docstring_documents_model_partitioning():
 
 
 def test_has_embeddings_cache_bounded():
-    """PERF-10: cache has a documented max-entries bound."""
+    """Cache has a documented max-entries bound."""
     from app.processing.embeddings import helpers
 
     assert hasattr(helpers, "_HAS_EMBEDDINGS_MAX")
@@ -265,7 +265,7 @@ def test_has_embeddings_cache_bounded():
 
 
 def test_has_embeddings_resolver_is_async():
-    """PERF-10: resolve_embedding_model_name is async (matches PersistentConfig.get)."""
+    """resolve_embedding_model_name is async (matches PersistentConfig.get)."""
     from app.processing.embeddings import helpers
 
     assert inspect.iscoroutinefunction(helpers.resolve_embedding_model_name)
@@ -273,7 +273,7 @@ def test_has_embeddings_resolver_is_async():
 
 @pytest.mark.anyio
 async def test_has_embeddings_resolver_falls_back_safely(monkeypatch):
-    """PERF-10: model accessor errors fall back to the sentinel."""
+    """Model accessor errors fall back to the sentinel."""
     from app.platform.cache import provider as cache_provider_module
     from app.platform.cache.memory import InMemoryCacheProvider
     from app.processing.embeddings import helpers
@@ -299,7 +299,7 @@ async def test_has_embeddings_resolver_falls_back_safely(monkeypatch):
 
 @pytest.mark.anyio
 async def test_has_embeddings_partitions_cache_per_model(monkeypatch):
-    """PERF-10: switching the active model produces a fresh cache entry."""
+    """Switching the active model produces a fresh cache entry."""
     from app.processing.embeddings import helpers
 
     _reset_has_embeddings_cache()
@@ -351,7 +351,7 @@ async def test_has_embeddings_partitions_cache_per_model(monkeypatch):
 
 @pytest.mark.anyio
 async def test_has_embeddings_eviction_bounded(monkeypatch):
-    """PERF-10: cache evicts oldest entry when at _HAS_EMBEDDINGS_MAX capacity."""
+    """Cache evicts oldest entry when at _HAS_EMBEDDINGS_MAX capacity."""
     from app.processing.embeddings import helpers
 
     _reset_has_embeddings_cache()

@@ -725,7 +725,7 @@ def _line_arrow_companion_layer(
 
 # builder-audit #338 P1-06: backend color-relief (hypsometric tint)
 # support, 7-stop ramps mirroring the frontend palettes; unknown ramp
-# names fall back to YlOrRd, matching frontend `getRampColors` (T-1140-05).
+# names fall back to YlOrRd, matching frontend `getRampColors`.
 _COLOR_RELIEF_RAMPS: dict[str, list[str]] = {
     "Viridis": [
         "#440154",

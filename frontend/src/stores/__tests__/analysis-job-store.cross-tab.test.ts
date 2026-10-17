@@ -141,7 +141,7 @@ describe('analysis-job-store completion claim', () => {
     ).resolves.toBe(true);
   });
 
-  // fix(#1008 codex P2): a throttled tab resuming after the run it holds was
+  // A throttled tab resuming after the run it holds was
   // cleared, and a later one already reported. Overwriting the newer claim
   // would re-report a finished run AND re-arm the newer one for a second
   // claim by whichever tab is still observing it.
@@ -209,7 +209,7 @@ describe('analysis-job-store claim atomicity', () => {
     vi.restoreAllMocks();
   });
 
-  // fix(#1008 codex P2): the read/write/read sequence is not atomic by itself.
+  // The read/write/read sequence is not atomic by itself.
   // `A reads empty, B reads empty, A writes, A reads back A, B writes, B reads
   // back B` leaves both tabs holding a winning claim, and localStorage
   // serializing individual operations does not prevent it. Web Locks is what
@@ -264,7 +264,7 @@ describe('analysis-job-store guarded clear', () => {
     expect(useAnalysisJobStore.getState().job).toBeNull();
   });
 
-  // fix(#1008 codex P1): the clear propagates now, so an unconditional one is
+  // The clear propagates now, so an unconditional one is
   // no longer this tab's own business. A backgrounded tab whose timers were
   // throttled can process a terminal response long after another tab started
   // the NEXT run.
@@ -293,7 +293,7 @@ describe('analysis-job-store guarded clear', () => {
   });
 });
 
-// fix(#1008 codex P1): every write to this store persists the WHOLE snapshot,
+// Every write to this store persists the WHOLE snapshot,
 // so a write meaning to change one field silently republishes this tab's copy
 // of the other. Harmless in one tab; corrupting across several.
 describe('analysis-job-store write merging', () => {
@@ -341,7 +341,7 @@ describe('analysis-job-store write merging', () => {
   });
 });
 
-// fix(#1008 codex P2): the watcher awaits these, so a rejection would leave a
+// The watcher awaits these, so a rejection would leave a
 // finished job neither reported nor cleared, with Create disabled until a
 // reload. Storage that throws on write is the realistic trigger — a disabled
 // storage partition, or an exhausted quota.
@@ -376,7 +376,7 @@ describe('analysis-job-store storage failure', () => {
   });
 });
 
-// fix(#1008 codex P2): the identity-change clear propagates now, so a dormant
+// The identity-change clear propagates now, so a dormant
 // tab processing a stale auth event must not reach past the account it is
 // cleaning up after and delete the one that replaced it.
 describe('analysis-job-store identity-scoped clear', () => {
@@ -417,7 +417,7 @@ describe('analysis-job-store identity-scoped clear', () => {
   });
 });
 
-// fix(#1008 codex P2): the lock callback can wait behind another tab's write,
+// The lock callback can wait behind another tab's write,
 // so reading the identity inside it would stamp the run as belonging to
 // whoever signed in during the wait — and the scoped clear would then
 // dutifully preserve the previous account's run for them.

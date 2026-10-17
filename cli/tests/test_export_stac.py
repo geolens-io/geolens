@@ -1,8 +1,8 @@
-"""OCCLI-05: export stac unit tests with mocked SDK.
+"""Export stac unit tests with mocked SDK.
 
-Plan 05 Task 1 covers the export_stac.py module surface (record-type
+Covers the export_stac.py module surface (record-type
 pre-flight, raster classifier, STAC fetch unwrap, JSON renderer, atomic
-file write). Plan 05 Task 2 covers the export stac CLI command body
+file write) and the export stac CLI command body
 wired into main.py.
 
 Hand-maintained — NOT regenerated.
@@ -36,7 +36,7 @@ SAMPLE_STAC: dict = {
 
 
 # ---------------------------------------------------------------------------
-# Task 1 — render_stac_json (D-27 output formatting)
+# render_stac_json (output formatting)
 # ---------------------------------------------------------------------------
 
 
@@ -73,7 +73,7 @@ class TestRenderStacJson:
 
 
 # ---------------------------------------------------------------------------
-# Task 1 — is_raster classifier (D-26 vector guard)
+# is_raster classifier (vector guard)
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +97,7 @@ class TestIsRaster:
 
 
 # ---------------------------------------------------------------------------
-# Task 1 — vector_rejection_message (D-26 user-facing message)
+# vector_rejection_message (user-facing message)
 # ---------------------------------------------------------------------------
 
 
@@ -111,7 +111,7 @@ class TestVectorRejectionMessage:
 
 
 # ---------------------------------------------------------------------------
-# Task 1 — write_stac_to_file (D-27 atomic write, mode 0o644)
+# write_stac_to_file (atomic write, mode 0o644)
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +147,7 @@ class TestWriteStacToFile:
 
 
 # ---------------------------------------------------------------------------
-# Task 2 — geolens export stac CLI command body
+# `geolens export stac` CLI command body
 # ---------------------------------------------------------------------------
 
 

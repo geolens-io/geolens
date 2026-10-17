@@ -125,14 +125,14 @@ async def _rows_for(
 async def _blank_title(session, record_id: uuid.UUID) -> None:
     """Make a record's emptiness REAL in the database, not just at the stub.
 
-    fix(#1584 review r3): the reclamation's row snapshot is narrowed to records
+    fix(#1584): the reclamation's row snapshot is narrowed to records
     with no title, because a record with one can never be skipped and its rows
     can never be reclaimed. A test that fakes the emptiness only in what the
     port returns leaves a titled row in the database, so the snapshot would not
     cover it and the reclamation would find nothing to do — passing, for the
     wrong reason, whatever the code did.
 
-    fix(#1584 review r4): the summary and lineage go too. The reclamation now
+    fix(#1584): the summary and lineage go too. The reclamation now
     re-reads each record before deleting and spares one that is no longer
     empty, and `create_dataset` seeds a summary — so a record blanked in title
     only would be spared, and every reclamation test would fail for a reason
@@ -151,7 +151,7 @@ async def _blank_title(session, record_id: uuid.UUID) -> None:
 async def _ingest_write(session, record_id: uuid.UUID, title: str) -> None:
     """Write a vector the way the INGEST PATH does, mid-run.
 
-    fix(#1584 review r2, codex P2): this calls the real writer rather than
+    fix(#1584): this calls the real writer rather than
     UPDATEing `updated_at` by hand. The reclamation compares stored stamps
     against a cutoff read from the DATABASE, so the guarantee only holds while
     the writer stamps from the database clock too. A hand-rolled UPDATE with
@@ -192,7 +192,7 @@ async def _assert_untouched(session, record_id: uuid.UUID, *, marker: str) -> No
 def _pin_run(monkeypatch, records, *, batch_size: int = 1):
     """Point the run at exactly `records`, one per batch."""
     monkeypatch.setattr(backfill_module, "_BATCH_SIZE", batch_size)
-    # fix(#1584 review r4): the reclamation re-reads each record it is about to
+    # fix(#1584): the reclamation re-reads each record it is about to
     # reclaim, through the REAL loader — the stubbed record list says what the
     # run observed, the database says what is true at the end.
     port = SimpleNamespace(
@@ -319,7 +319,7 @@ async def test_a_short_provider_response_is_counted_and_retried(
     under a valid content hash and a valid stamp, which nothing downstream can
     detect.
 
-    fix(#1581 review): so a length mismatch is a batch FAILURE now
+    fix(#1581): so a length mismatch is a batch FAILURE now
     (`zip(..., strict=True)`), and the batch goes to the per-record retry where
     `[vector] = ...` cannot pair a text with another text's vector. This test
     drives the short answer and asserts the outcome that matters either way:
@@ -471,7 +471,7 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1549 review): the end-of-run pass acts on a start-of-run observation.
+    """fix(#1549): the end-of-run pass acts on a start-of-run observation.
 
     A record with no embeddable text is noted as skipped when the run reads the
     catalog, and its stale vector is reclaimed at the END so an aborted run does
@@ -487,7 +487,7 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
 
     Two intervals need covering, and one cutoff guards both:
 
-    - fix(#1584 review r1, codex P2): between the RECORD FETCH and the batch
+    - fix(#1584): between the RECORD FETCH and the batch
       loop. The fetch is what decides a record is empty, and materialising the
       catalog takes as long as it takes, so a cutoff read after it would leave
       that whole span unguarded. `edited_during_fetch` lands its write from
@@ -570,7 +570,7 @@ async def test_a_written_row_is_stamped_when_it_was_written_not_when_the_run_beg
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1583 review): `updated_at` has to be wall-clock, not transaction-start.
+    """fix(#1583): `updated_at` has to be wall-clock, not transaction-start.
 
     PostgreSQL's `now()` is the start of the enclosing TRANSACTION. A batch
     opens one, spends the length of a provider call inside it, and only then
@@ -630,7 +630,7 @@ async def test_a_stale_row_stamped_in_the_future_is_still_reclaimed(
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1584 review r3): the reclamation cannot be decided by a clock.
+    """fix(#1584): the reclamation cannot be decided by a clock.
 
     Rows written before this release were stamped by the ingest writer from the
     APPLICATION clock. A worker running ahead of PostgreSQL — or an older worker
@@ -901,7 +901,7 @@ async def test_a_run_over_no_records_deletes_nothing(
 def test_a_titled_record_is_never_empty_so_the_snapshot_superset_holds():
     """Pins the assumption the reclamation snapshot's narrowing rests on.
 
-    fix(#1584 review r3): the end-of-run reclamation snapshots `(record_id,
+    fix(#1584): the end-of-run reclamation snapshots `(record_id,
     updated_at)` pairs for TITLELESS records only, on the argument that a record
     is skipped only when `build_content_text` returns "" and a title alone makes
     it non-empty — so title-empty is a strict superset of what reclamation can
@@ -929,7 +929,7 @@ async def test_a_record_whose_content_is_restored_mid_run_keeps_its_vector(
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1584 review r4): an unchanged row is not proof of an unchanged record.
+    """fix(#1584): an unchanged row is not proof of an unchanged record.
 
     A titleless record is observed as empty; during the run an editor restores
     EXACTLY the content its existing vector was computed from. The ingest writer
@@ -994,9 +994,9 @@ async def test_a_restore_that_lands_between_the_recheck_and_the_delete_is_not_lo
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1584 review r5): the re-read and the delete hold the record.
+    """fix(#1584): the re-read and the delete hold the record.
 
-    Round 4 re-read each record before reclaiming it. That left a gap: an
+    Re-read each record before reclaiming it. That left a gap: an
     editor restoring the exact original content AFTER the re-read and BEFORE
     the delete had the ingest writer skip on an unchanged hash while the row
     still existed, and then the delete took it — a valid vector gone, and no

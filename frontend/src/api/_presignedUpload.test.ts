@@ -1,7 +1,7 @@
 import { uploadChunks } from './_presignedUpload';
 
 /**
- * fix(review #1800 P2 round 3): the per-part PUT moved from `fetch` to XHR
+ * The per-part PUT moved from `fetch` to XHR
  * (see _presignedUpload.ts for why — `fetch` exposes no upload-progress
  * signal, so a wall-clock AbortSignal.timeout() could not tell a genuine
  * stall from a slow-but-live transfer). This mock stands in for
@@ -154,7 +154,7 @@ describe('uploadChunks', () => {
     await expect(promise).rejects.toThrow(/ETag/);
   });
 
-  // fix(review #1800 P2 round 3): S3 already accepted this part (a 2xx PUT
+  // S3 already accepted this part (a 2xx PUT
   // response) before the missing ETag was noticed — throwing straight away
   // left the multipart upload open server-side, consuming storage on every
   // retry, because the completion endpoint's own abort path was never

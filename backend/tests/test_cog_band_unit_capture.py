@@ -1,4 +1,4 @@
-"""RHYD-01 (v1041 follow-up): band unit capture in extract_raster_metadata.
+"""Band unit capture in extract_raster_metadata.
 
 COG ingest was writing band_info entries without a ``unit`` key, so
 ``_extract_dem_vertical_units`` always returned None even for rasters that

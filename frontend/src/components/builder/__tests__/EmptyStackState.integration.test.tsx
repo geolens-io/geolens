@@ -10,8 +10,8 @@
  *   - Browse all → onOpenAddData() with no pre-fill
  *   - stopPropagation: ＋ does NOT also trigger card-body
  *
- * Requirement: BSR-17 (inline search → modal pre-fill) and BSR-18
- * (suggest-card ＋ → direct add → flyout open).
+ * Covers inline search → modal pre-fill, and
+ * suggest-card ＋ → direct add → flyout open.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -24,7 +24,7 @@ import { SUGGESTED_DATASETS } from '@/components/builder/suggested-datasets';
 
 // Override the shipped (empty) SUGGESTED_DATASETS with a populated fixture so
 // the suggest-card flow can be exercised here. The real module ships an empty
-// array by default (per Phase 1037 commit 4a5ee284) — operators populate it
+// array by default, and operators populate it
 // per deployment. The IDs MUST be valid UUID v4 (8-4-4-4-12 hex) or
 // SuggestCard's UUID_RE gate (EmptyStackState.tsx:46-59) hides the cards
 // before they reach the DOM.

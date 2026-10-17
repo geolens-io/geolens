@@ -1,4 +1,4 @@
-"""Phase 275 / API-11 + API-12 regression: public docs stay externalized."""
+"""Regression: public docs stay externalized."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def _read(rel_path: str) -> str:
 
 
 def test_deferred_runbooks_are_not_linked_from_readme() -> None:
-    """API-11 / L-51: deferred runbooks are absent from launch README."""
+    """Deferred runbooks are absent from launch README."""
     body = _read("README.md")
     assert "Edition deactivation" not in body
     assert "Edition reactivation" not in body
@@ -25,11 +25,11 @@ def test_deferred_runbooks_are_not_linked_from_readme() -> None:
 
 
 def test_backup_service_is_default_on() -> None:
-    """BKP-01: automated backups run by default (no --profile gate)."""
+    """Automated backups run by default (no --profile gate)."""
     readme = _read("README.md")
     compose = _read("docker-compose.yml")
     # The backup service is first-class and default-on, not opt-in behind a
-    # Compose profile (the pre-BKP-01 model). Guard against the profile gate
+    # Compose profile (the earlier opt-in model). Guard against the profile gate
     # being reintroduced.
     assert "backup:" in compose
     assert "pg_dump" in compose
@@ -38,14 +38,14 @@ def test_backup_service_is_default_on() -> None:
 
 
 def test_oc_audit_methodology_doc_exists() -> None:
-    """API-12 / L-53: internal audit methodology stays out of public docs."""
+    """Internal audit methodology stays out of public docs."""
     readme = _read("README.md")
     assert "oc-audit-methodology.md" not in readme
     assert "docs-internal/audits" not in readme
 
 
 def test_shipping_source_does_not_cite_docs_internal() -> None:
-    """GAP-015: no ``backend/app/`` source cites unpublished ``docs-internal/``.
+    """No ``backend/app/`` source cites unpublished ``docs-internal/``.
 
     ``docs-internal/`` is gitignored, so any such reference in shipping source
     is a dangling pointer for public readers and leaks internal audit naming

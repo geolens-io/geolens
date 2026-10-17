@@ -1,21 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
-"""fix(#1778 round 30): the class-closing test for the credential-
+"""The class-closing test for the credential-
 resolution state matrix.
 
-Round 30's finding: if credentials.toml becomes malformed after a
+The finding: if credentials.toml becomes malformed after a
 successful kind switch, load_active_credential_kind() used to treat
 the marker as absent and resolution fell back to legacy bearer-first
 precedence. In the supported case where an API-key login left an old
-bearer in the keyring (round 14's best-effort cleanup gate skips an
+bearer in the keyring (the best-effort cleanup gate skips an
 unverifiable delete), repairing the keyring while the file stayed
 corrupt made later commands silently authenticate with the stale
 bearer instead of the active API key.
 
-Every round since 22 patched one CELL of the same underlying decision
+Earlier fixes each patched one CELL of the same underlying decision
 ("given the marker and the keyring, which credential is active?").
 This file pins the WHOLE table instead, against
 auth.resolve_active_credential() (the one precedence implementation
-round 30 introduced -- see its own docstring in auth.py) exercised
+-- see its own docstring in auth.py) exercised
 through AppState.sdk(), so it also proves main.py's exception-to-exit-
 code translation is right.
 
@@ -25,7 +25,7 @@ Axes:
     env     in {unset, set}
 
 marker=corrupt/unreadable/unknown_value are the three concrete shapes
-of "unreadable" named in the round-30 brief (a TOML parse error, an
+of "unreadable" (a TOML parse error, an
 OS-level permission error, and a value that is neither "bearer" nor
 "api_key") -- each must produce the identical KeyringCredentialUnreadable
 failure, never silently collapse to "absent".
@@ -127,14 +127,14 @@ def _setup_keyring(mock_keyring: dict, keyring_state: str) -> None:
 
 MATRIX_ENV_UNSET = {
     # marker=absent: legacy bearer-over-api_key precedence applies
-    # ONLY when at most one kind is genuinely present (round 30) --
+    # ONLY when at most one kind is genuinely present --
     # both present with nothing to disambiguate is now an error, not
     # a silent bearer-first guess.
     ("absent", "none"): ("ok", "anonymous", None),
     ("absent", "bearer_only"): ("ok", "bearer", "kr-bearer-token"),
     ("absent", "api_key_only"): ("ok", "api_key", "kr-api-key"),
     ("absent", "both"): ("error", _auth.CredentialAmbiguous, EXIT_AUTH),
-    # marker=bearer: authoritative (round 27) -- api_key in the
+    # marker=bearer: authoritative -- api_key in the
     # keyring is NEVER consulted, present or not.
     ("bearer", "none"): ("error", _auth.ActiveCredentialMissing, EXIT_AUTH),
     ("bearer", "bearer_only"): ("ok", "bearer", "kr-bearer-token"),
@@ -145,8 +145,8 @@ MATRIX_ENV_UNSET = {
     ("api_key", "bearer_only"): ("error", _auth.ActiveCredentialMissing, EXIT_AUTH),
     ("api_key", "api_key_only"): ("ok", "api_key", "kr-api-key"),
     ("api_key", "both"): ("ok", "api_key", "kr-api-key"),
-    # marker=corrupt / unreadable / unknown_value: round 30's own
-    # finding -- NEVER collapses to "absent", regardless of what the
+    # marker=corrupt / unreadable / unknown_value: the
+    # original finding -- NEVER collapses to "absent", regardless of what the
     # keyring holds. All three unreadable shapes behave identically.
     ("corrupt", "none"): ("error", _auth.KeyringCredentialUnreadable, EXIT_NETWORK),
     ("corrupt", "bearer_only"): ("error", _auth.KeyringCredentialUnreadable, EXIT_NETWORK),
@@ -206,7 +206,7 @@ class TestCredentialResolutionMatrixEnvUnset:
 
 class TestCredentialResolutionMatrixEnvSet:
     """The other 24 rows: GEOLENS_TOKEN always wins outright, regardless
-    of marker or keyring state -- D-35's top precedence, already
+    of marker or keyring state -- the top precedence, already
     ratified, pinned here across the SAME 24 (marker, keyring) cells so
     the env axis is proven independent of the rest of the matrix."""
 
@@ -302,7 +302,7 @@ class TestRefreshPairingBackendFallbackRow:
 
     def _setup(self, mock_keyring, monkeypatch) -> tuple[_FakeAuthServer, dict]:
         # A keyring-backed interactive session: bearer + refresh token
-        # + the fingerprint pairing them (round 31).
+        # + the fingerprint pairing them.
         mock_keyring[("geolens", INSTANCE)] = OLD_BEARER
         mock_keyring[("geolens", f"{INSTANCE}:refresh")] = RETAINED_REFRESH
         mock_keyring[("geolens", f"{INSTANCE}:refresh_fp")] = _auth._fingerprint_bearer(
@@ -399,7 +399,7 @@ class TestRefreshPairingBackendFallbackRow:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1807 round 2): the row above's mirror -- the backend does NOT move,
+# The row above's mirror -- the backend does NOT move,
 # and the retained refresh token's own keyring account is the one refusing
 # writes (readable, and paired to a bearer that just rotated; the bearer and
 # fingerprint accounts still accept writes) with no usable credentials.toml
@@ -416,7 +416,7 @@ class TestRefreshPairingBackendFallbackRow:
 
 
 class TestRefreshPairingRefreshAccountWriteRejectedRow:
-    """fix(#1807 round 2): a retained refresh token whose backend did not
+    """A retained refresh token whose backend did not
     move must not be rewritten -- only the fingerprint pairing it to the
     new bearer is stale, and the account holding the token may well
     refuse the write."""

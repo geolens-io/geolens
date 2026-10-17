@@ -44,7 +44,7 @@ export function KeywordsEditor({ recordId, canEdit }: KeywordsEditorProps) {
       await deleteKeyword.mutateAsync(keywordId);
       toast.success(t('keywords.removed'));
     } catch {
-      // fix(#438): UX-07 — useKeywords raises the error toast.
+      // useKeywords raises the error toast.
     }
   };
 
@@ -56,7 +56,7 @@ export function KeywordsEditor({ recordId, canEdit }: KeywordsEditorProps) {
     );
   }
 
-  // GAP-034: surface fetch failures instead of collapsing into the empty
+  // Surface fetch failures instead of collapsing into the empty
   // 'noKeywords' state (which would mislead the editor into re-adding dupes).
   if (isError) {
     return (

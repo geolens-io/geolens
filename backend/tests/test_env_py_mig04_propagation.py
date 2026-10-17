@@ -1,11 +1,11 @@
-"""fix(#1778): MIG-04 propagation must refuse, not just log, on failure.
+"""fix(#1778): propagation must refuse, not just log, on failure.
 
 ``_propagate_extra_paths_to_live_script()`` in alembic/env.py pushes the
 discovered enterprise (overlay) migration version directories onto the LIVE
 ``ScriptDirectory`` an already-running ``alembic upgrade heads`` built before
 this env.py ran. Before this fix, a failure here was caught and logged at
 ERROR, and execution fell through to ``run_migrations_online()`` and exited
-0 — the exact anti-pattern the file's own GAP-013 docstring says it was
+0 — the exact anti-pattern the file's own docstring says it was
 rewritten to prevent ("An ERROR log is not enough when the process goes on
 to claim success"). This function only ever runs when the caller has already
 confirmed an overlay is installed (``extra_paths`` is non-empty), so failing

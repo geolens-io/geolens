@@ -552,7 +552,7 @@ async def test_raster_collection_metadata_has_tiles_link(
     assert f"/raster-tiles/{raster_dataset.id}/tiles/" in tiles_link["href"]
     # tiles are served at the app origin, not /api (which has no such route)
     assert "/api/raster-tiles/" not in tiles_link["href"]
-    # fix(#1372 codex r2): the advertised template carries the tile cache
+    # The advertised template carries the tile cache
     # version, so a refetching client rolls the shared nginx cache on replace.
     assert f"?v={raster_dataset.tile_cache_version}" in tiles_link["href"]
 
@@ -560,7 +560,7 @@ async def test_raster_collection_metadata_has_tiles_link(
 async def test_collections_list_raster_tiles_link_is_versioned(
     client: AsyncClient, raster_dataset: Dataset
 ):
-    """fix(#1372 codex r2): the collections LIST advertises the same versioned
+    """The collections LIST advertises the same versioned
     raster template as the collection detail.
 
     fix(#1372 flake): the list defaults to limit=50 with unordered offset

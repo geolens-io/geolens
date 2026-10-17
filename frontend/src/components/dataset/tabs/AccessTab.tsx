@@ -72,7 +72,7 @@ interface AccessTabProps {
  * the import pickers deliberately stay at private/public. */
 const SELECTABLE_VISIBILITIES = ['private', 'internal', 'public'] as const;
 
-/** fix(#1178 r3): the full ladder in widening order, for deciding whether a
+/** The full ladder in widening order, for deciding whether a
  * visibility move ADDS readers. `restricted` sits between private and
  * internal even though this control cannot move TO it — a stored restricted
  * dataset can still be moved FROM it, and that move's direction matters. */
@@ -282,7 +282,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
     visibility: DatasetVisibility;
     keywords: string[];
   } | null>(null);
-  // fix(#1178 r4): probe sequence. Two quick selections leave both probes in
+  // Probe sequence. Two quick selections leave both probes in
   // flight, and whichever resolved LAST wrote pendingChange — possibly for
   // the earlier, no-longer-intended value. Each invocation takes a fresh id;
   // a response whose id is no longer current is discarded outright.
@@ -294,7 +294,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
       {
         onSuccess: (result) => {
           toast.success(t('metadataEdit.visibilityUpdated'));
-          // fix(#1178 review): when the preflight probe failed, the PATCH
+          // When the preflight probe failed, the PATCH
           // response is the only warning surface left — reading it is what
           // makes "a failed probe never blocks" a fallback instead of a hole.
           if (result?.metadata_warnings?.length) {
@@ -316,7 +316,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
     if (value === dataset.visibility) return;
     const visibility = value as DatasetVisibility;
     const seq = ++probeSeq.current;
-    // fix(#1178 r3): only a move that ADDS readers warrants the dialog. The
+    // Only a move that ADDS readers warrants the dialog. The
     // probe asks an absolute question ("does this audience exceed the
     // source?"), so running it on a narrowing move (public -> internal on an
     // output already wider than its source) blocked the REMEDIATION behind a
@@ -337,10 +337,10 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
         const kw = await listKeywords(dataset.record_id, {
           audienceVisibility: visibility,
         });
-        // fix(#1178 r4): superseded by a newer selection while awaiting —
+        // Superseded by a newer selection while awaiting
         // this response must produce nothing, not even the fall-through.
         if (seq !== probeSeq.current) return;
-        // fix(#1178 r3): the gap flag is authoritative (computed server-side
+        // The gap flag is authoritative (computed server-side
         // over ALL keyword rows); the fetched page only supplies display
         // names. Keying the dialog on the page's inherited entries let a page
         // boundary skip the confirmation entirely.
@@ -352,7 +352,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
           return;
         }
       } catch {
-        // fix(#1178 r4): a superseded FAILED probe must not fire the direct
+        // A superseded FAILED probe must not fire the direct
         // PATCH for its stale value either.
         if (seq !== probeSeq.current) return;
         // fall through to the plain mutate
@@ -515,7 +515,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
               {t('keywords.inheritedConfirmBody')}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {/* fix(#1178 r3): the fetched page supplies display names only; a
+          {/* The fetched page supplies display names only; a
               gap with no inherited names on the page still gets the dialog,
               with a generic line in place of the badges. */}
           {pendingChange && pendingChange.keywords.length > 0 ? (

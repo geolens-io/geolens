@@ -1,14 +1,15 @@
-"""Tests for SEC-S08 — embed-token frame-ancestors CSP on the shared-map response.
+"""Tests for the embed-token frame-ancestors CSP on the shared-map response.
 
-Phase 1062-05: the shared-map endpoint must emit a per-token
+The shared-map endpoint must emit a per-token
 Content-Security-Policy: frame-ancestors header derived from the active
 EmbedToken.allowed_origins. SecurityHeadersMiddleware must skip X-Frame-Options
 when a route already set CSP with frame-ancestors.
 
-Task 1 tests: API response CSP header (default and dynamic allowed_origins).
-Task 2 tests: Middleware coexistence (XFO dropped when route sets CSP).
-Task 3 test:  E2E file-presence assertion (documents that the nginx test exists in
-              sec-audit.spec.ts and requires SEC_AUDIT_SHARE_TOKEN).
+Covers:
+- API response CSP header (default and dynamic allowed_origins).
+- Middleware coexistence (XFO dropped when route sets CSP).
+- E2E file-presence assertion (documents that the nginx test exists in
+  sec-audit.spec.ts and requires SEC_AUDIT_SHARE_TOKEN).
 """
 
 import hashlib
@@ -99,14 +100,14 @@ async def _create_non_expiring_embed_token(
 ) -> EmbedToken:
     """Insert an EmbedToken with a far-future expires_at (community-edition long-lived token).
 
-    CR-04 regression helper: the original service_public.py CSP query used
+    Regression helper: the original service_public.py CSP query used
     `expires_at > now()` which is correct for non-null values, but the service
     also adds `is_(None)` support for hypothetical NULL rows. This helper creates
     a long-lived token (100 years) to verify the CSP query works for all active
     tokens, including those with distant expiry dates.
 
-    Note: The EmbedToken schema has expires_at NOT NULL. The CR-04 fix added
-    IS NULL support as a defensive measure. We use a far-future date here to
+    Note: The EmbedToken schema has expires_at NOT NULL. The query also handles
+    IS NULL as a defensive measure. We use a far-future date here to
     verify the CSP lookup works end-to-end without hitting the schema constraint.
     """
     raw = secrets.token_urlsafe(32)
@@ -128,7 +129,7 @@ async def _create_non_expiring_embed_token(
 
 
 # ---------------------------------------------------------------------------
-# Task 1 — API response CSP header
+# API response CSP header
 # ---------------------------------------------------------------------------
 
 
@@ -219,7 +220,7 @@ async def test_shared_map_with_embed_token_empty_origins_returns_frame_ancestors
 
 
 # ---------------------------------------------------------------------------
-# CR-04 regression — non-expiring embed tokens must contribute allowed_origins
+# Regression — non-expiring embed tokens must contribute allowed_origins
 # ---------------------------------------------------------------------------
 
 
@@ -227,12 +228,12 @@ async def test_shared_map_with_non_expiring_embed_token_uses_allowed_origins(
     client: AsyncClient,
     test_db_session: AsyncSession,
 ):
-    """CR-04 regression: GET /maps/shared/{token} with an active EmbedToken
+    """Regression: GET /maps/shared/{token} with an active EmbedToken
     (long-lived / far-future expires_at) must return allowed_origins in CSP.
 
     The original query used `EmbedToken.expires_at > func.now()` which is
     correct for non-null expiry values. The service_public.py CSP query was
-    updated (Phase 1062 CR-04) to also include `is_(None)` support for
+    updated to also include `is_(None)` support for
     hypothetical legacy NULL rows. This test verifies that the CSP lookup
     works end-to-end for long-lived tokens with allowed_origins set.
     """
@@ -260,7 +261,7 @@ async def test_shared_map_with_non_expiring_embed_token_uses_allowed_origins(
 
 
 # ---------------------------------------------------------------------------
-# Task 2 — Middleware coexistence: XFO dropped when route sets CSP
+# Middleware coexistence: XFO dropped when route sets CSP
 # ---------------------------------------------------------------------------
 
 
@@ -303,12 +304,12 @@ async def test_other_endpoint_still_has_xfo_deny(
 
 
 # ---------------------------------------------------------------------------
-# Task 3 — E2E documentation: S08 test exists in sec-audit.spec.ts
+# E2E documentation: S08 test exists in sec-audit.spec.ts
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
-# Plan 1137-02 — SHARE-06 defense-in-depth: CSP header never contains '*'
+# Defense-in-depth: CSP header never contains '*'
 # ---------------------------------------------------------------------------
 
 
@@ -316,7 +317,7 @@ async def test_shared_map_csp_header_drops_wildcard_origin(
     client: AsyncClient,
     test_db_session: AsyncSession,
 ):
-    """CSP frame-ancestors NEVER '*' — defense-in-depth pin (Phase 1137-02, SHARE-06).
+    """CSP frame-ancestors NEVER '*' — defense-in-depth pin.
 
     Creates an EmbedToken with allowed_origins=['*'] directly via SQLAlchemy
     (bypassing schema validation — simulating a stale DB row that somehow holds

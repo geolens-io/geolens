@@ -73,7 +73,7 @@ function skyMap(initialSky?: Sky) {
 }
 
 // A map holding a real container element, so the space backdrop can be read
-// back the way the stylesheet selects it (feat(#1479)).
+// back the way the stylesheet selects it.
 function containerMap() {
   const container = document.createElement('div');
   container.className = 'maplibregl-map';
@@ -166,7 +166,7 @@ describe('map composition sync', () => {
       expect.anything(),
       basemapConfig.sublayer_overrides,
       'viewer-source-',
-      1, // builder-audit #338 CORR-01: master opacity (config.opacity undefined → 1)
+      1, // Master opacity (config.opacity undefined → 1)
     );
     expect(reorderDataLayersMock).toHaveBeenCalledWith(expect.anything(), layers, 'viewer-');
     expect(callOrder).toEqual([
@@ -197,7 +197,7 @@ describe('map composition sync', () => {
 
     // setProjection is attempted even while isStyleLoaded() is false — it
     // only needs the style parsed, and gating on idle left a saved globe map
-    // visibly in mercator during slow tile loads (Codex P2 round 2 on #848).
+    // visibly in mercator during slow tile loads.
     setProjection.mockClear();
     applyMapBasemapAppearance({
       map: { isStyleLoaded: vi.fn(() => false), setProjection } as unknown as MaplibreMap,
@@ -224,7 +224,7 @@ describe('map composition sync', () => {
     const globeRetry = once.mock.calls[0][1] as () => void;
 
     // A newer application cancels the stale retry, so a projection change
-    // during the load window can't be reverted (Codex P2 round 1 on #848).
+    // during the load window can't be reverted.
     applyMapBasemapAppearance({
       map: loading,
       basemapConfig: { projection: 'mercator' } as MapBasemapConfig,
@@ -509,7 +509,7 @@ describe('map composition sync', () => {
       expect.anything(),
       basemapConfig.sublayer_overrides,
       'viewer-source-',
-      1, // builder-audit #338 CORR-01: master opacity (config.opacity undefined → 1)
+      1, // Master opacity (config.opacity undefined → 1)
     );
     expect(applyBasemapConfigToMapMock).not.toHaveBeenCalled();
     expect(reorderBasemapLabelsMock).not.toHaveBeenCalled();

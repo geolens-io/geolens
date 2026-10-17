@@ -1,11 +1,11 @@
-"""Phase 279 ADMIN-03 + ADMIN-04 regression tests.
+"""Regression tests for admin settings gating and audit export.
 
-ADMIN-03 (M-03): Lock the single-source-of-truth contract for enterprise-only
+Lock the single-source-of-truth contract for enterprise-only
 Settings tab keys. Without this gate, future drift between backend
 ``ENTERPRISE_ONLY_TABS`` and frontend ``AdminSidebar`` enterpriseOnly flags
 can re-emerge silently.
 
-ADMIN-04 (M-04): Lock the Community audit-export format dispatcher.
+Lock the Community audit-export format dispatcher.
 
 These are pure static-analysis / import-level tests; no DB fixtures are
 required so they remain stable across CI environments where the test DB may
@@ -20,17 +20,18 @@ from app.modules.settings.schemas import EnterpriseTabsResponse
 
 
 # ---------------------------------------------------------------------------
-# ADMIN-03 — Enterprise-tabs single source of truth
+# Enterprise-tabs single source of truth
 # ---------------------------------------------------------------------------
 
 
 def test_enterprise_only_tabs_constant_includes_branding_and_appearance():
     """Backend frozenset matches the frontend's prior hardcoded enterpriseOnly flags.
 
-    Pre-Phase-279: backend had {'branding'}; frontend had branding+appearance.
-    The two drifted silently — community callers could write `appearance`
-    settings because `_require_enterprise_for_key` only blocked branding.
-    Phase 279 ADMIN-03 reconciles them and this test gates against regression.
+    Previously the backend had {'branding'} while the frontend had
+    branding+appearance. The two drifted silently — community callers could
+    write `appearance` settings because `_require_enterprise_for_key` only
+    blocked branding. The constant now reconciles them and this test gates
+    against regression.
     """
     assert "branding" in ENTERPRISE_ONLY_TABS
     assert "appearance" in ENTERPRISE_ONLY_TABS
@@ -63,7 +64,7 @@ def test_enterprise_tabs_endpoint_registered():
 
 
 # ---------------------------------------------------------------------------
-# ADMIN-04 — Audit-export unified format dispatcher
+# Audit-export unified format dispatcher
 # ---------------------------------------------------------------------------
 
 
@@ -88,7 +89,7 @@ def test_audit_router_no_501_branch_remains():
         if not line.lstrip().startswith("#")
     )
     # The status-code constant is what triggered the old branch. If a future
-    # ADMIN-04 walkback restores 501, this gate fails loudly.
+    # walkback restores 501, this gate fails loudly.
     assert "HTTP_501_NOT_IMPLEMENTED" not in text, (
         "audit/router.py must not raise 501 — Phase 279 ADMIN-04 unified the "
         "format dispatcher. Re-introducing 501 violates the single-source-"

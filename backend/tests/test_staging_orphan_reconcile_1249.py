@@ -1,6 +1,6 @@
 """fix(#1249): staging objects with no ingest_jobs row are reconciled away.
 
-#1236 review r5 left a residual orphan window that no time-based margin can
+The #1236 fix left a residual orphan window that no time-based margin can
 close: S3 validates a presigned signature when a request STARTS, so an
 accepted single-part PUT can still be transferring after every deadline
 derived from its URL has passed, and a sweep that inferred "the transfer must
@@ -244,7 +244,7 @@ class TestReconciliationDecision:
     async def test_a_fan_out_childs_shared_input_survives_its_purged_parent(
         self, test_db_session: AsyncSession
     ) -> None:
-        """fix(#1249 review r3, codex P1): the key's job segment is not ownership.
+        """fix(#1249, codex P1): the key's job segment is not ownership.
 
         ``create_fan_out_jobs`` clones the parent's ``file_path`` onto every
         child, so a child's only input is the PARENT's staging object. The
@@ -281,7 +281,7 @@ class TestReconciliationDecision:
     async def test_a_complete_childs_inherited_reference_does_not_shield_forever(
         self, test_db_session: AsyncSession
     ) -> None:
-        """fix(#1249 review r4, codex P2): the sibling of the r3 fix.
+        """fix(#1249, codex P2): the sibling of the earlier fix.
 
         A fan-out child stays `complete` forever and is exempt from retention
         indefinitely as a dataset's latest complete job. Counting its inherited
@@ -338,7 +338,7 @@ class TestReconciliationDecision:
     async def test_a_finally_reaped_owner_no_longer_shields_a_recreated_upload(
         self, test_db_session: AsyncSession
     ) -> None:
-        """fix(#1249 review r6, codex P2): #1249's own scenario, end to end.
+        """fix(#1249, codex P2): #1249's own scenario, end to end.
 
         A single-part PUT that lands after the post-expiry sweep's FINAL delete
         recreates the object. That sweep never looks at the key again once its
@@ -501,13 +501,13 @@ class TestReconciliationDecision:
         assert outcome.delete_failures == 0
         # Once per completed delete, not once per pass: a pass that fails
         # after partial progress must not take the count with it, since the
-        # objects are already gone and nothing can recover it (review r5).
+        # objects are already gone and nothing can recover it.
         counter.inc.assert_called_once_with()
 
     async def test_deletes_already_done_are_counted_when_the_pass_then_fails(
         self, test_db_session: AsyncSession
     ) -> None:
-        """fix(#1249 review r5, codex P2): the object is gone either way.
+        """fix(#1249, codex P2): the object is gone either way.
 
         A pass that dies after partial progress used to discard its tally
         before the end-of-pass increment ran, so the counter permanently
@@ -668,7 +668,7 @@ class TestReconciliationDecision:
     async def test_the_pass_stops_paging_once_its_delete_budget_is_spent(
         self, test_db_session: AsyncSession, monkeypatch
     ) -> None:
-        """fix(#1249) review r1: a large `staging/` prefix is not materialized.
+        """fix(#1249): a large `staging/` prefix is not materialized.
 
         The pass holds a transaction (and its connection) open for the advisory
         lock, so both budgets are checked BETWEEN pages — it must stop asking
@@ -709,7 +709,7 @@ class TestReconciliationDecision:
 
 
 class TestScanCursor:
-    """fix(#1249) review r2: a capped walk without a cursor is a blind spot.
+    """fix(#1249): a capped walk without a cursor is a blind spot.
 
     Without one, every pass re-walks the same lexicographically first window,
     and an orphan sorting after a window full of tracked, recent, or
@@ -737,7 +737,7 @@ class TestScanCursor:
     async def test_a_pass_that_starts_mid_prefix_wraps_to_the_front(
         self, test_db_session: AsyncSession
     ) -> None:
-        """fix(#1249 review r7, codex P2): a one-directional scan is a sample.
+        """fix(#1249, codex P2): a one-directional scan is a sample.
 
         Starting at a random point and never wrapping means a worker recycled
         before its next pass only ever sees suffixes, so an orphan near the
@@ -841,7 +841,7 @@ class TestScanCursor:
     async def test_local_storage_is_declined_outright(
         self, test_db_session: AsyncSession, monkeypatch
     ) -> None:
-        """fix(#1249 review r8, codex P1): `staging/` is only ours in a BUCKET.
+        """fix(#1249, codex P1): `staging/` is only ours in a BUCKET.
 
         On the local backend the same prefix sits inside `upload_staging_dir`,
         where an operator also stages manifest seed files — legitimately, and
@@ -990,7 +990,7 @@ class TestProviderIterObjectPages:
     async def test_local_does_not_walk_past_the_page_the_consumer_took(
         self, tmp_path, monkeypatch
     ) -> None:
-        """fix(#1249 review r5): the walk itself is lazy, not just its slicing.
+        """fix(#1249): the walk itself is lazy, not just its slicing.
 
         Counted in ``scandir`` calls rather than results, because a walk that
         materializes everything and then hands back one page returns the same
@@ -1024,7 +1024,7 @@ class TestProviderIterObjectPages:
     async def test_s3_pages_and_stops_when_the_consumer_does(self) -> None:
         """Real ListObjectsV2 continuation, and a consumer that breaks early.
 
-        The second assertion is the one review r1 asked for: abandoning the
+        The second assertion is the one that matters: abandoning the
         generator must abandon the round trips too, not just the results.
         """
         from app.platform.storage.s3 import S3StorageProvider

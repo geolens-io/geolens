@@ -56,7 +56,7 @@ export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Enterprise overlay — runtime install path (legacy / dev only).
 #
-# WARNING (BUG-003): This runtime `uv add --editable` CANNOT succeed when the
+# WARNING: This runtime `uv add --editable` CANNOT succeed when the
 # container runs with read_only: true rootfs (the default hardened deployment).
 # The baked /app/.venv is on the read-only layer and uv cannot write into it.
 # If this block runs and the install fails, the app will boot as community
@@ -70,7 +70,7 @@ export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 # This block is retained for dev/CI scenarios where the container runs without
 # read_only (e.g. `docker compose up` for local development with a mounted
 # enterprise directory).  It will fail silently under read_only — the startup
-# check added in BUG-003 will then refuse to boot as OSS.
+# check will then refuse to boot as OSS.
 ENTERPRISE_PATH="${GEOLENS_ENTERPRISE_PATH:-/enterprise}"
 if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; then
     echo "Installing enterprise extensions (runtime path — only works without read_only rootfs)..."
@@ -92,7 +92,7 @@ fi
 # to execute DDL. Any value other than the exact strings "true" and "false" is
 # rejected: a typo must never silently disable the safety net.
 #
-# MIG-01: `alembic upgrade heads` is idempotent — re-running against an
+# `alembic upgrade heads` is idempotent — re-running against an
 # already-migrated DB is a no-op that exits 0. So a NON-zero exit is a REAL
 # error (migration failure, DB unreachable, broken chain), not a benign
 # "already applied" case. Booting the API on top of a failed/partial

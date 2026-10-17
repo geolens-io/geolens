@@ -4,10 +4,10 @@ Tests prove that:
   - Each rate-limited surface returns 429 after exhausting its per-IP budget.
   - A single normal call does NOT return 429 (limit is not too tight).
   - Both the slash and no-slash alias forms of a dual-shape endpoint share
-    one rate-limit bucket (T-1238-03 alias-bypass guard).
+    one rate-limit bucket (alias-bypass guard).
   - Tests are order-independent and deterministic under ``pytest -n 4`` via
     the autouse ``reset_limiter_storage`` fixture in conftest.py and explicit
-    per-test storage resets in finally blocks (HARDEN-01/02, T-1238-04).
+    per-test storage resets in finally blocks.
 
 Payload note: FastAPI body validation runs before the rate-limit middleware
 counts the request, so payloads must satisfy the endpoint's Pydantic schema
@@ -36,7 +36,7 @@ def _reset_storage() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Admin mutation surface (HARDEN-01)
+# Admin mutation surface
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +97,7 @@ async def test_admin_mutation_429(client: AsyncClient, admin_auth_header: dict) 
 
 
 # ---------------------------------------------------------------------------
-# Settings mutation surface (HARDEN-02)
+# Settings mutation surface
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +147,7 @@ async def test_settings_update_429(
 
 
 # ---------------------------------------------------------------------------
-# OAuth-provider mutation surface (HARDEN-02)
+# OAuth-provider mutation surface
 # ---------------------------------------------------------------------------
 
 
@@ -209,7 +209,7 @@ async def test_oauth_provider_create_429(
 
 
 # ---------------------------------------------------------------------------
-# Alias-bypass guard (T-1238-03)
+# Alias-bypass guard
 # ---------------------------------------------------------------------------
 
 
@@ -221,8 +221,8 @@ async def test_alias_bypass_guard(client: AsyncClient, admin_auth_header: dict) 
     of the dual-shape decorator key on the one handler they share and draw on a
     single 30/minute bucket. They used to be keyed by URL, giving each alias its
     own allowance. Either way the guarantee this test states holds, and it is
-    the guarantee that matters: the no-slash form is NOT an unlimited bypass
-    (T-1238-03). Sharing one bucket is the stricter of the two.
+    the guarantee that matters: the no-slash form is NOT an unlimited bypass.
+    Sharing one bucket is the stricter of the two.
 
     Strategy: exhaust the limit via the no-slash form (POST /admin/users), then
     assert that further calls to the same no-slash alias return 429.

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.processing.embeddings.helpers import embedding_config_fingerprint
 
-# fix(#1546 review r3, codex P2): `generate_and_store_embedding` resolves its
+# `generate_and_store_embedding` resolves its
 # whole pin through ONE call now, so that call is the seam these unit tests
 # stub. Patching `EMBEDDING_MODEL` no longer reaches it, and patching the three
 # reads separately would rebuild in the test the very composition the fix
@@ -201,7 +201,7 @@ class TestGenerateAndStoreEmbedding:
                 lineage=None,
             )
             assert result is False
-            # fix(#1546 review r3, codex P2): the configuration IS resolved now,
+            # The configuration IS resolved now,
             # before the row lookup, because the model this call writes and the
             # model it looks the row up by have to come from one verified read.
             # An earlier revision skipped the resolution on this path to keep it

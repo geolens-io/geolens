@@ -280,7 +280,7 @@ class TestDisclosureWarning:
     async def test_no_warning_for_actor_without_source_access(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1178 review r2): the warning must not be a membership oracle.
+        """fix(#1178): the warning must not be a membership oracle.
 
         An output owner whose access to the now-private source was revoked
         adds a GUESSED keyword to their own record and sends a no-op
@@ -519,7 +519,7 @@ class TestKeywordsEndpointShape:
 
 
 class TestStatusEndpointWarningSurface:
-    """fix(#1178 review): the publication-status endpoints bypass
+    """fix(#1178): the publication-status endpoints bypass
     update_user_metadata, so they must run the same resolved-state check."""
 
     async def test_target_status_publish_carries_the_warning(

@@ -1,9 +1,9 @@
-"""Static-analysis tests for Phase 272 docker-compose.yml hardening.
+"""Static-analysis tests for docker-compose.yml hardening.
 
-Pins every invariant added by Plans 272-02, 272-03, 272-04 (security_opt,
+Pins every invariant added for hardening (security_opt,
 cap_drop, cap_add, read_only, tmpfs, healthchecks, port bindings, restart
 policy). The original ``resource limits`` invariant was removed (see the
-INF-01 note below) after commit 90919990 deleted the deploy.resources blocks.
+note below) after commit 90919990 deleted the deploy.resources blocks.
 Static analysis only — no docker daemon required.
 """
 
@@ -29,7 +29,7 @@ def services(compose):
 
 
 # ---------------------------------------------------------------------------
-# INF-01: deploy.resources.limits — INTENTIONALLY REMOVED
+# deploy.resources.limits — INTENTIONALLY REMOVED
 # ---------------------------------------------------------------------------
 #
 # Commit 90919990 ("refactor(compose): remove deploy.resources caps and VPS
@@ -42,7 +42,7 @@ def services(compose):
 
 
 # ---------------------------------------------------------------------------
-# INF-02: security_opt no-new-privileges
+# security_opt no-new-privileges
 # ---------------------------------------------------------------------------
 
 
@@ -60,7 +60,7 @@ class TestInf02SecurityOpt:
 
 
 # ---------------------------------------------------------------------------
-# INF-03: cap_drop ALL on stateless services
+# cap_drop ALL on stateless services
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +93,7 @@ class TestInf03CapDrop:
 
 
 # ---------------------------------------------------------------------------
-# INF-04: healthchecks
+# Healthchecks
 # ---------------------------------------------------------------------------
 
 
@@ -111,7 +111,7 @@ class TestInf04Healthchecks:
 
 
 # ---------------------------------------------------------------------------
-# INF-05: cloud-dev port bindings to 127.0.0.1
+# cloud-dev port bindings to 127.0.0.1
 # ---------------------------------------------------------------------------
 
 
@@ -136,7 +136,7 @@ class TestInf05PortBindings:
 
 
 # ---------------------------------------------------------------------------
-# INF-07: read_only filesystems with tmpfs mounts
+# read_only filesystems with tmpfs mounts
 # ---------------------------------------------------------------------------
 
 
@@ -165,7 +165,7 @@ class TestInf07ReadOnlyFilesystem:
 
 
 # ---------------------------------------------------------------------------
-# INF-08: UVICORN_* env plumbing
+# UVICORN_* env plumbing
 # ---------------------------------------------------------------------------
 
 
@@ -190,7 +190,7 @@ class TestInf08UvicornEnv:
 
 
 # ---------------------------------------------------------------------------
-# INF-13: migrate restart: "no"
+# Migrate restart: "no"
 # ---------------------------------------------------------------------------
 
 
@@ -202,7 +202,7 @@ class TestInf13MigrateRestart:
 
 
 # ---------------------------------------------------------------------------
-# GAP-021: every host-file bind mount on db is read-only
+# Every host-file bind mount on db is read-only
 # ---------------------------------------------------------------------------
 
 
@@ -232,7 +232,7 @@ class TestGap021DbBindMountsReadOnly:
 
 
 # ---------------------------------------------------------------------------
-# GAP-022: shared-staging contract — UPLOAD_STAGING_DIR is pinned, not a knob
+# Shared-staging contract — UPLOAD_STAGING_DIR is pinned, not a knob
 # ---------------------------------------------------------------------------
 
 

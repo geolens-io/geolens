@@ -6,7 +6,7 @@ import type { AnalysisOperation } from '@/types/api';
  *  conditional unmount — a rail-panel switch, Escape, or crossing the 800px
  *  breakpoint all unmount it, and losing a hand-drawn clip mask or a typed
  *  dataset name to a stray click is data loss. One snapshot PER MAP
- *  (fix(#793 review): a single shared slot let map B's save overwrite map
+ *  (a single shared slot let map B's save overwrite map
  *  A's draft within the same session). Deliberately NOT persisted: a reload
  *  starts the form fresh; the tracked JOB is what survives reloads, via
  *  analysis-job-store. */
@@ -18,7 +18,7 @@ export interface SavedAnalysisForm {
   mask: GeoJSON.Polygon | null;
   maskLayerId: string;
   byField: string;
-  /** fix(#1097 review): the spatial-join inputs persist for the same reason
+  /** The spatial-join inputs persist for the same reason
    *  maskLayerId does. Without them, closing the rail (or crossing the
    *  responsive breakpoint, which unmounts the panel) reset both to their
    *  sentinels, and a restored spatial-join form came back unrunnable with
@@ -26,7 +26,7 @@ export interface SavedAnalysisForm {
   joinLayerId: string;
   joinField: string;
   outputTitle: string;
-  /** fix(#793 review): true when the form was edited AFTER the last run
+  /** True when the form was edited AFTER the last run
    *  started — the run (and its completion) no longer owns these fields, so
    *  a late-landing job must stay ambient and a finishing run must not clear
    *  the title, even one that coincidentally reuses the same name. */
@@ -36,7 +36,7 @@ export interface SavedAnalysisForm {
 interface AnalysisFormState {
   forms: Record<string, SavedAnalysisForm>;
   save: (mapId: string, form: SavedAnalysisForm) => void;
-  /** fix(#793 review): called by AnalysisJobWatcher when a tracked job completes
+  /** Called by AnalysisJobWatcher when a tracked job completes
    *  (or its status becomes unreadable) — the remembered title must not
    *  survive into the next mount, or Create re-enables with the finished
    *  run's name and one click creates an identically-named dataset. Guarded
@@ -59,7 +59,7 @@ export const useAnalysisFormStore = create<AnalysisFormState>()((set) => ({
     }),
 }));
 
-// fix(#793 review): the slot is per-tab module state — without this it survives a
+// The slot is per-tab module state — without this it survives a
 // logout and restores one account's dataset name, parameters, and drawn mask
 // to whoever signs in next on the same map. Keyed on user identity, not
 // token: routine refresh-token rotation must not wipe an in-progress form.

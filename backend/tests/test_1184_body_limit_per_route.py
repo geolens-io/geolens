@@ -1,6 +1,6 @@
-"""Regression tests for Phase 1184 — GAP-001: per-route body cap.
+"""Regression tests for the per-route body cap.
 
-GAP-001: Non-upload routes must enforce a small default cap (10 MB);
+Non-upload routes must enforce a small default cap (10 MB);
          upload/reupload routes must allow up to the configured upload max.
 
 Design:
@@ -51,7 +51,7 @@ class TestIsUploadRoute:
     sub-routes, non-POST methods, trailing-slash or wrong-case variants, and
     non-UUID dataset segments — stays on the default 10 MB cap. The match mirrors
     FastAPI routing exactly so the large cap never reaches a request routing will
-    reject (PR #249 review rounds).
+    reject.
     """
 
     # --- the two real file-upload endpoints get the large cap ---
@@ -141,7 +141,7 @@ class TestIsUploadRoute:
 class TestIsUploadRouteProxyStripped:
     """The /api prefix is stripped by both proxies before the app sees the path.
 
-    Regression for the GAP-001 fix: prod nginx (`rewrite ^/api/(.*) /$1`) and the
+    Regression for the fix: prod nginx (`rewrite ^/api/(.*) /$1`) and the
     dev Vite proxy (`rewrite: p.replace(/^\\/api/, '')`) both remove `/api`, so
     in every real deployment scope["path"] is the un-prefixed form. Matching only
     the `/api/...` prefix never fired, silently capping uploads at 10 MB. The
@@ -247,7 +247,7 @@ class TestGetUploadLimitRouteOverride:
 
 
 class TestGap001PerRouteBodyCap:
-    """GAP-001: non-upload POST over 10 MB → 413; upload path → allowed.
+    """Non-upload POST over 10 MB → 413; upload path → allowed.
 
     Pre-fix (uniform 500 MB limit): an 11 MB body to /health passed through.
     Post-fix (10 MB default + per-route override): 11 MB to /health → 413.
@@ -257,7 +257,7 @@ class TestGap001PerRouteBodyCap:
     async def test_non_upload_over_10mb_is_413(self, client: AsyncClient):
         """An 11 MB POST to a non-upload route must return 413.
 
-        GAP-001 RED case: previously this passed through (500 MB global limit).
+        RED case: previously this passed through (500 MB global limit).
         """
         resp = await client.post(
             "/health",
@@ -273,7 +273,7 @@ class TestGap001PerRouteBodyCap:
     async def test_upload_route_over_10mb_is_not_413(self, client: AsyncClient):
         """An 11 MB body to an upload route must NOT be blocked by the 10 MB cap.
 
-        GAP-001 GREEN case: upload routes use UPLOAD_MAX_SIZE_MB (500 MB),
+        GREEN case: upload routes use UPLOAD_MAX_SIZE_MB (500 MB),
         so an 11 MB upload body passes the middleware (downstream may still reject
         it for auth/other reasons, but not 413 from the body limit).
 
@@ -307,7 +307,7 @@ class TestGap001PerRouteBodyCap:
     ):
         """The /api-stripped upload path must ALSO get the large upload limit.
 
-        Deployment regression for the GAP-001 fix: both the prod nginx and the
+        Deployment regression for the fix: both the prod nginx and the
         dev Vite proxy strip /api, so the app receives /ingest/upload (not
         /api/ingest/upload). Before the fix this missed the upload allowlist and
         an 11 MB body → 413, silently capping every real-deployment upload at
@@ -416,7 +416,7 @@ class TestGap001PerRouteBodyCap:
 
 
 class TestGap032ProblemDetailShape:
-    """GAP-032: the 413 body-limit response must be RFC 7807 ProblemDetail.
+    """The 413 body-limit response must be RFC 7807 ProblemDetail.
 
     The body-limit middleware fires before register_error_handlers installs the
     shared exception handlers, so it builds the error body itself. It must match

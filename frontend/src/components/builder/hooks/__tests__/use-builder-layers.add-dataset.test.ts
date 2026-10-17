@@ -1,5 +1,5 @@
 /**
- * Focused tests for handleAddDataset — BSR-18.
+ * Focused tests for handleAddDataset.
  *
  * Tests: sort_order=0 (prepend), onSuccessCb chain, error handling, and
  * backward-compat (handler still callable without the optional onSuccessCb).
@@ -9,7 +9,7 @@
  * the contract under test needs.
  *
  * ----------------------------------------------------------------------
- * Worker-exit root cause (POL-20, Phase 1039):
+ * Worker-exit root cause:
  *
  *   The previous version of this file shipped with two compounding
  *   problems that together produced `Worker exited unexpectedly` /
@@ -44,7 +44,7 @@
  *   records the call without invoking any onSuccess/onError unless the
  *   test explicitly drives it. Direct contract checks
  *   (`mutate.mock.calls[0]`) verify the same behaviour the original
- *   tests asserted (BSR-18: sort_order=0 prepend + onSuccessCb chain).
+ *   tests asserted (sort_order=0 prepend + onSuccessCb chain).
  *
  *   Alternatives attempted and rejected:
  *   - `afterEach(cleanup); afterEach(vi.clearAllMocks)` — does NOT
@@ -87,7 +87,7 @@ function renderBuilderLayers(
   const mutate = vi.fn();
   const addLayerMutation = { mutate } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  // 6th positional param bridging into useBuilderSave's Save-diff baseline.
   const saveBaselineSync = vi.fn();
   const saveBaselineSyncRef = { current: { add: saveBaselineSync, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
 
@@ -235,7 +235,7 @@ describe('handleAddDataset (BSR-18)', () => {
   });
 });
 
-// Phase 1040 Plan 03: extended signature tests (parentGroupId + datasetName)
+// Extended signature tests (parentGroupId + datasetName)
 describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
   it('Test E: parentGroupId wires created layer into group via handleAddLayerToExistingGroup', () => {
     // Pre-populate localLayers with the group AND a child-layer so
@@ -255,7 +255,7 @@ describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
     const updated = result.current.localLayers.find((l) => l.id === 'child-layer-id');
     expect(updated).toBeDefined();
     expect((updated as { parent_group_id?: string } | undefined)?.parent_group_id).toBe('group-1');
-    // fix(#394) LM-01/B-021: assert POSITION too — the row must sit inside the
+    // Assert POSITION too — the row must sit inside the
     // group's block (immediately after the group row here), not merely carry
     // parent_group_id from wherever it happened to be.
     const ids = result.current.localLayers.map((l) => l.id);
@@ -309,7 +309,7 @@ describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
     const [, { onSuccess }] = mutate.mock.calls[0];
     act(() => { onSuccess({ id: 'new-layer-id' }); });
 
-    // WR-04: verify the dataset-specific key is used (not the generic layerAdded fallback)
+    // Verify the dataset-specific key is used (not the generic layerAdded fallback)
     // The i18n key toasts.datasetAdded interpolates to "My Dataset added to map"
     expect(successSpy).toHaveBeenCalledWith(
       expect.stringContaining('My Dataset'),
@@ -334,7 +334,7 @@ describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
   });
 });
 
-// Phase 1042 Plan 04 POL-15: freshLayerId lifecycle tests
+// freshLayerId lifecycle tests
 describe('freshLayerId lifecycle (Phase 1042 POL-15)', () => {
   it('Test I: freshLayerId is set synchronously to new layer id after successful handleAddDataset', () => {
     vi.useFakeTimers();
@@ -405,15 +405,15 @@ describe('freshLayerId lifecycle (Phase 1042 POL-15)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#392): dropping a dataset onto a folder group must insert
+// Dropping a dataset onto a folder group must insert
 // adjacent to the group's existing block, not at array index 0 — otherwise
 // hydrateFolderGroupLayers (which anchors the group at its FIRST child) drags
-// the whole group to the stack top after a save/reload round-trip. (audit B-004c/LM-03)
+// the whole group to the stack top after a save/reload round-trip.
 // ---------------------------------------------------------------------------
 describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
   it('Test 1: inserts the new child adjacent to the group block, not at index 0', () => {
     const before = makeMockLayer({ id: 'before', sort_order: 0 });
-    // fix(#392): 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
+    // 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
     const groupRow = { ...makeMockLayer({ id: 'group-1', sort_order: 1 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const child1 = {
       ...makeMockLayer({ id: 'child1', sort_order: 2 }),
@@ -444,7 +444,7 @@ describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
 
   it('Test 2: the group anchor survives a prepareLayersForPersistence -> hydrateFolderGroupLayers round-trip', () => {
     const before = makeMockLayer({ id: 'before', sort_order: 0 });
-    // fix(#392): 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
+    // 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
     const groupRow = { ...makeMockLayer({ id: 'group-1', sort_order: 1 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const child1 = {
       ...makeMockLayer({ id: 'child1', sort_order: 2 }),
@@ -474,8 +474,8 @@ describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
     expect(groupIdxAfterRoundTrip).toBe(groupIdxBeforeDrop);
   });
 
-  // Test 3 (loose add unchanged, no regression to the P1-08 top-of-stack UX)
-  // is already covered by 'Test A: posts with sort_order: 0' and the P1-08
+  // Test 3 (loose add unchanged, no regression to the top-of-stack UX)
+  // is already covered by 'Test A: posts with sort_order: 0' and the
   // optimistic-merge test above — both exercise handleAddDataset with
   // parentGroupId omitted/undefined and assert the created layer prepends at
   // array index 0. No new test needed; re-asserted here for traceability.
@@ -494,11 +494,11 @@ describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
     expect(ids[0]).toBe('new-loose');
   });
 
-  // fix(#392): a loose (non-group) add renumbers every existing layer's sort_order
+  // A loose (non-group) add renumbers every existing layer's sort_order
   // locally, but the backend does not renumber sibling rows on this path
   // (maps/service_layers.py:106-120) — so that renumber is an unpersisted diff
   // the apiLayers resync effect could silently clobber before Save unless the
-  // map is marked dirty. Fails on pre-fix code (hasUnsavedChanges stayed false). (audit WR-02)
+  // map is marked dirty. Fails on pre-fix code (hasUnsavedChanges stayed false).
   it('Test 4 (WR-02): non-grouped add-dataset that renumbers sibling sort_order marks the map dirty', () => {
     const existingA = makeMockLayer({ id: 'existing-a', sort_order: 0 });
     const existingB = makeMockLayer({ id: 'existing-b', sort_order: 1 });

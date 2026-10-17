@@ -1,4 +1,4 @@
-"""BUG-003: Enterprise overlay startup check — loud failure when requested but inactive.
+"""Enterprise overlay startup check — loud failure when requested but inactive.
 
 If ``GEOLENS_EDITION=enterprise`` is set but no overlay extensions are loaded
 (e.g. because the overlay cannot be installed under read_only rootfs), the
@@ -115,7 +115,7 @@ class TestEnterpriseCheckWiredIntoLifespan:
     """Structural regression: check_enterprise_overlay_requested is called from
     the app lifespan so a misconfigured deploy never silently boots OSS.
 
-    WORK-01: the lifespan now delegates to bootstrap() which owns the full
+    The lifespan now delegates to bootstrap() which owns the full
     extension-load + enterprise-check sequence. The lifespan must call
     bootstrap() and bootstrap() must call check_enterprise_overlay_requested().
     """
@@ -123,15 +123,15 @@ class TestEnterpriseCheckWiredIntoLifespan:
     def test_check_called_from_lifespan(self):
         """main.py lifespan must call bootstrap() which calls check_enterprise_overlay_requested.
 
-        WORK-01: the lifespan delegates to the shared bootstrap() helper.
+        The lifespan delegates to the shared bootstrap() helper.
         bootstrap() calls check_enterprise_overlay_requested() internally so
-        the enterprise loud-failure guarantee (BUG-003) is preserved via the
+        the enterprise loud-failure guarantee is preserved via the
         call chain: lifespan → bootstrap → check_enterprise_overlay_requested.
         """
         import app.platform.extensions.bootstrap as bootstrap_mod
         from app.api import main as main_module
 
-        # Lifespan must reference bootstrap (WORK-01 drift guard)
+        # Lifespan must reference bootstrap (drift guard)
         lifespan_src = inspect.getsource(main_module.lifespan)
         assert "bootstrap" in lifespan_src, (
             "BUG-003 / WORK-01: lifespan must call bootstrap() — the shared "

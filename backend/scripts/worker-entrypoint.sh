@@ -42,7 +42,7 @@ export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Enterprise overlay — runtime install path (legacy / dev only).
 #
-# WARNING (BUG-003): This runtime `uv add --editable` CANNOT succeed when the
+# WARNING: This runtime `uv add --editable` CANNOT succeed when the
 # container runs with read_only: true rootfs (the default hardened deployment).
 # The baked /app/.venv is on the read-only layer and uv cannot write into it.
 # If this block runs and the install fails, the app will boot as community
@@ -56,7 +56,7 @@ export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 # This block is retained for dev/CI scenarios where the container runs without
 # read_only (e.g. `docker compose up` for local development with a mounted
 # enterprise directory).  It will fail silently under read_only — the startup
-# checks (BUG-003: check_enterprise_overlay_requested + WORK-02:
+# checks (check_enterprise_overlay_requested and
 # assert_enterprise_ports_resolved) now run inside the WORKER bootstrap as well
 # as the API lifespan, so a GEOLENS_EDITION=enterprise worker that cannot load
 # the overlay will refuse to boot rather than silently running community ports.
@@ -73,13 +73,13 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
     fi
 fi
 
-# MIG-01: the worker does NOT run database migrations here. It relies on
+# The worker does NOT run database migrations here. It relies on
 # `depends_on: migrate (service_completed_successfully)` in docker-compose so
 # the dedicated migrate service has already upgraded the schema before the
 # worker starts. There is therefore no migration step to fail-close on in this
 # entrypoint (the fail-closed guard lives in api-entrypoint.sh's migration
-# step). The worker's own fail-loud startup guards (BUG-003 overlay check,
-# WORK-02 port-resolution assertion, and MIG-02 schema-skew guard) run inside
+# step). The worker's own fail-loud startup guards (overlay check,
+# port-resolution assertion, and schema-skew guard) run inside
 # the Python bootstrap in app/platform/jobs/worker.py:main().
 if [ "$#" -eq 0 ]; then
     set -- sh -c "uv run --no-dev python -m app.worker"

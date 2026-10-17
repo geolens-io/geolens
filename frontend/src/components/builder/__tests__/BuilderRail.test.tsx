@@ -53,7 +53,7 @@ vi.mock('@/stores/auth-store', async () => {
   return { useAuthStore: store };
 });
 
-// fix(#816): the Settings CTA gates on can('manage_settings') — the
+// The Settings CTA gates on can('manage_settings') — the
 // capability the /admin/settings route enforces — not the isAdmin flag.
 const permMocks = vi.hoisted(() => ({ capabilities: new Set<string>() }));
 vi.mock('@/hooks/use-permissions', () => ({
@@ -62,7 +62,7 @@ vi.mock('@/hooks/use-permissions', () => ({
   }),
 }));
 
-// fix(#817): the CTA gate goes through useSettingsAdmin, which composes
+// The CTA gate goes through useSettingsAdmin, which composes
 // usePermissions with useEdition — mock the edition side too.
 const editionMocks = vi.hoisted(() => ({ isMultiTenant: false }));
 vi.mock('@/hooks/use-edition', () => ({
@@ -362,7 +362,7 @@ describe('BuilderRail — disabled-state taxonomy (Phase 1135 AI-02)', () => {
     render(<BuilderRail activePanel="ai" onPanelChange={vi.fn()} aiAvailable={false} notes="" onNotesChange={vi.fn()} />);
     expect(screen.getByText(/AI is disabled/i)).toBeInTheDocument();
     const cta = screen.getByRole('link', { name: /go to settings/i });
-    // fix(#816): the ?tab=ai form bounced to the General tab via the bare-path redirect.
+    // The ?tab=ai form bounced to the General tab via the bare-path redirect.
     expect(cta).toHaveAttribute('href', '/admin/settings/ai');
   });
 
@@ -379,7 +379,7 @@ describe('BuilderRail — disabled-state taxonomy (Phase 1135 AI-02)', () => {
     expect(screen.queryByRole('link', { name: /go to settings/i })).not.toBeInTheDocument();
   });
 
-  // fix(#817): in multi-tenant mode the /admin/settings route (and the
+  // In multi-tenant mode the /admin/settings route (and the
   // settings API behind it) requires manage_tenants, not manage_settings —
   // the CTA must follow the same mode-aware gate.
   it('multi-tenant: NO CTA for a manage_settings-only per-tenant admin', () => {

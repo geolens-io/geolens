@@ -68,7 +68,7 @@ export function fillPatternFromPaint(paint: Record<string, unknown> | undefined)
  * fix(#914): the colour a built-in fill pattern draws in — the layer's own fill
  * colour, wherever it currently lives.
  *
- * A pattern deletes `fill-color` from paint (EDIT-05), so for any layer patterned
+ * A pattern deletes `fill-color` from paint, so for any layer patterned
  * through the picker the colour is in the `fillColorSaved` stash (#910). `paint`
  * still wins when it holds a string, which covers maps saved by older clients that
  * carry both keys. Returns undefined when there is nothing to tint with, and every

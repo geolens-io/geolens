@@ -882,7 +882,7 @@ class TestApiPathMustMatchCookieScope:
 
 
 class TestSecureFlagFollowsProductionPosture:
-    """SEC-005: same switch that hides the docs and sets SessionMiddleware's
+    """Same switch that hides the docs and sets SessionMiddleware's
     https_only. Dev/test have no TLS terminator, so a Secure cookie there would
     be dropped silently."""
 

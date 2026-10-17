@@ -1,4 +1,4 @@
-"""Regression tests for the shared exports temp-dir sweep (ING-04 / P2-04, fix(#435)).
+"""Regression tests for the shared exports temp-dir sweep (fix(#435)).
 
 The sweeper lives in ``app.core.runtime.staging`` so the API lifespan and the
 worker share one age-aware implementation; entries younger than 1 hour survive.
@@ -68,7 +68,7 @@ def test_sweep_handles_subdirectories(tmp_path: Path) -> None:
     data_file.write_bytes(b"x")
 
     now = time.time()
-    # fix(#1435 codex round 2): age the contained file too, not just the
+    # Age the contained file too, not just the
     # directory — sweep_orphaned_exports now takes the most recent of the
     # two (see _latest_mtime), so a freshly-written file inside an
     # old-looking directory would otherwise read as still-active.
@@ -182,7 +182,7 @@ def test_stale_jobs_sweeper_also_sweeps_orphaned_exports() -> None:
     `_sweep_orphaned_exports_and_log` helper (kept out of the nested closure
     so the extra branch does not push `lifespan`'s McCabe complexity over its
     gate), which threads the blocking work through `_sweep_orphaned_exports_
-    periodic` (fix #1435 codex round 5 — sweep_orphaned_exports does
+    periodic` (fix #1435 — sweep_orphaned_exports does
     synchronous directory traversal + shutil.rmtree, and this loop now runs
     it every few minutes on a live server, not just once at boot). This pins
     the whole chain: the loop calls the async helper, and the helper's
@@ -224,7 +224,7 @@ def test_stale_jobs_sweeper_also_sweeps_orphaned_exports() -> None:
 
 
 async def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
-    """fix(#1435 codex round 1): the periodic sweeper runs continuously
+    """The periodic sweeper runs continuously
     (every CREDENTIAL_RENEWAL_INTERVAL_SECONDS), unlike the boot-time
     callers, which only fire on a restart. A directory's mtime is set once
     at export creation and does not advance while ogr2ogr keeps writing the
@@ -249,7 +249,7 @@ async def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
     export_file.write_bytes(b"x")
     now = time.time()
     # Age both the directory AND the file inside it — sweep_orphaned_exports
-    # takes the most recent of the two (fix #1435 codex round 2), so a
+    # takes the most recent of the two (fix #1435), so a
     # freshly-written file would otherwise mask the aged directory.
     os.utime(slow_export, (now - 2 * 3600, now - 2 * 3600))  # 2 hours old
     os.utime(export_file, (now - 2 * 3600, now - 2 * 3600))
@@ -272,7 +272,7 @@ async def test_periodic_sweep_survives_a_slow_export(tmp_path: Path) -> None:
 def test_sweep_skips_a_directory_whose_file_is_still_being_written(
     tmp_path: Path,
 ) -> None:
-    """fix(#1435 codex round 2): a directory's OWN mtime is bumped only by an
+    """A directory's OWN mtime is bumped only by an
     entry being added/removed/renamed inside it, not by writes to an
     already-created file's contents — so it freezes at file-creation time
     while ogr2ogr keeps writing. A directory whose own mtime looks stale
@@ -305,7 +305,7 @@ def test_sweep_skips_a_directory_whose_file_is_still_being_written(
 
 
 def test_latest_mtime_falls_back_when_directory_cannot_be_listed() -> None:
-    """fix(#1435 codex round 3): a directory that cannot be listed (e.g.
+    """A directory that cannot be listed (e.g.
     root-owned residue left behind by a container UID change across a
     deploy) must not crash the sweep. Both boot-time callers
     (api/main.py, worker.py) invoke sweep_orphaned_exports with no

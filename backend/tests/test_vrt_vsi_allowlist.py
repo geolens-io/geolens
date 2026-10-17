@@ -1,4 +1,4 @@
-"""KNOWN-04 (Phase 1071): VRT VSI allow-list single source of truth.
+"""VRT VSI allow-list single source of truth.
 
 Pins:
 - VRT_VSI_ALLOWED_PREFIXES exports from raster/vrt.py with the expected

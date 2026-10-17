@@ -1,5 +1,5 @@
 /**
- * builder-audit #338 DUP-04: shared typed paint accessors.
+ * Shared typed paint accessors.
  *
  * These two trivial readers were previously copy-pasted verbatim in
  * RasterLayerControls and DEMEditorScene. They live here as the single

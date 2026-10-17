@@ -404,7 +404,7 @@ def test_unsafe_methods_are_refused_off_the_exempt_list():
 # to resolve in the live route table, which is what makes the spelling of a
 # real entry verifiable instead of self-asserted.
 #
-# fix(#875 codex r2): the original entries were spelled `/api/query/`. The app
+# The original entries were spelled `/api/query/`. The app
 # sets `root_path="/api"` and a route template never includes an ASGI
 # root_path, so those could never match — and because the check fails closed,
 # a read_only key would have been refused on the one endpoint the maintainer
@@ -519,7 +519,7 @@ def test_565_route_is_mounted_in_both_shapes():
 
     Replaces the pre-landing ``test_565_route_is_not_mounted_yet`` hook, per
     its own instructions. The trailing-slash form is the canonical
-    registration; the bare form is ROUTE-01's hidden alias.
+    registration; the bare form is the hidden alias.
     """
     mounted = _mounted_route_pairs()
     assert ("POST", "/query/") in mounted
@@ -566,7 +566,7 @@ async def test_read_only_key_carve_out_works_in_both_directions(
 
 
 # ---------------------------------------------------------------------------
-# fix(#875 codex r1): "safe method" is not the same as "no side effect"
+# "safe method" is not the same as "no side effect"
 # ---------------------------------------------------------------------------
 
 # GET handlers that touch a write marker but are NOT writes a read_only key

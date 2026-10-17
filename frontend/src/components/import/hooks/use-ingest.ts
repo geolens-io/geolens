@@ -29,7 +29,7 @@ export function isTerminalJobStatus(status: string | undefined): boolean {
 }
 
 /**
- * fix(review #1800 P2 round 2): a definitive job error is one retrying
+ * A definitive job error is one retrying
  * cannot fix — the job is gone (404) or the caller's identity no longer has
  * access to it (401/403). Exported so JobProgress's render guard checks
  * EXACTLY the signal that stops the poll below, rather than a second copy
@@ -78,7 +78,7 @@ export function useDatasetJobStatus(datasetId: string | null) {
     enabled: !!datasetId && hasToken,
     // The ingest job's warning metadata is immutable once the dataset
     // exists, so cache forever and hold it in memory across tab switches.
-    // PERF-2: Infinity staleTime avoids refetch-on-mount; gcTime keeps
+    // Infinity staleTime avoids refetch-on-mount; gcTime keeps
     // 404 ("no job") responses in cache so repeat navigations don't
     // re-hit the endpoint.
     staleTime: Infinity,
@@ -95,7 +95,7 @@ export function useDatasetJobStatus(datasetId: string | null) {
 }
 
 /**
- * fix(#438): DATA-01 — retrying used to leave the cached status on 'failed'.
+ * Retrying used to leave the cached status on 'failed'.
  * `useJobStatus`'s `refetchInterval` treats 'failed' as terminal and returns
  * false, so polling never restarted: the job re-ran on the worker while the UI
  * sat frozen on "failed" forever. Invalidating the job's status query forces a
@@ -136,7 +136,7 @@ export function useDiscoverTables() {
 }
 
 /**
- * For IMPORT-05: distinguish 'all registered' (success framing) from
+ * For distinguish 'all registered' (success framing) from
  * 'no tables exist' (absence framing) in the Register Table empty state.
  *
  * Cheap GET with limit=1 — backend returns numberMatched in the response.
@@ -155,7 +155,7 @@ export function useDatasetCountHint(enabled: boolean) {
 }
 
 /**
- * fix(#438): DATA-07 — newly registered datasets were missing from the catalog
+ * Newly registered datasets were missing from the catalog
  * for up to 30s (the `search` staleTime) because nothing invalidated after the
  * register call.
  */
@@ -174,7 +174,7 @@ export function useBulkRegister() {
 export function useUploadConfig() {
   // The payload carries per-user `remaining_dataset_quota`, which changes on any
   // import or delete — so it is NOT static config and must not be cached like
-  // it. (Codex P2 on PR #274)
+  // it.
   //   - key scoped by user id: a stale per-user value can't leak across an
   //     account switch (logout only clears auth.me).
   //   - staleTime 0 + refetchOnMount 'always': returning to Import after a
@@ -193,7 +193,7 @@ export function useCreateVrt() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (request: VrtCreateRequest) => createVrt(request),
-    // REMED-01 (ingest-audit P2-06): VrtCreateResponse exposes `job_id`
+    // VrtCreateResponse exposes `job_id`
     // only (no `dataset_id` — the VRT dataset row is created later as
     // part of the ingest job). Invalidate the jobStatus cache for the
     // new job so any subscribed UI (e.g., the polling job-status

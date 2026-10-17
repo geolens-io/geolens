@@ -1,4 +1,4 @@
-"""Integration tests for PROV-03 provenance attribution across edit paths."""
+"""Integration tests for provenance attribution across edit paths."""
 
 import uuid
 

@@ -270,7 +270,7 @@ def test_compact_error_redacts_a_credential_in_an_endpoint():
     the redactor's actual output, which a containment check does not, and it
     keeps the endpoint visible without writing `"…example.com" in compact` —
     a shape CodeQL flags as incomplete URL sanitization wherever it appears
-    (fix(#1577 review)).
+    (fix(#1577)).
     """
     from app.processing.embeddings.backfill import _compact_error
 
@@ -361,7 +361,7 @@ def test_compact_error_redacts_userinfo_the_truncation_point_would_have_entered(
 def test_compact_error_redacts_a_credential_whitespace_would_have_split(
     template, whitespace
 ):
-    """Collapsing whitespace before redacting hides the credential (#1577 review r2).
+    """Collapsing whitespace before redacting hides the credential (#1577).
 
     `URL_LIKE_RE` stops at whitespace, so turning a tab, CR or LF inside a URL
     into a space ends the match early. Split the userinfo and the terminating

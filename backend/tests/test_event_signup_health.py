@@ -1,6 +1,6 @@
-"""Phase 1230 Plan 02 — EVENT-01 signup emit + EVENT-04 health alert tests.
+"""Signup emit and health alert tests.
 
-Covers Task 1 (EVENT-01 — signup emit):
+Signup emit:
   - With notify_on_signup ON + notifications_enabled ON + a stubbed channel, a
     successful POST /register results in one notify() call carrying event_type
     "signup", the new username/email in body/data, and the recipient in data["to"].
@@ -10,7 +10,7 @@ Covers Task 1 (EVENT-01 — signup emit):
   - If notify raises, POST /register still returns 201 and the user row is
     still committed (fail-safe).
 
-Covers Task 2 (EVENT-04 — health alert):
+Health alert:
   - When the health check reports a degraded/unhealthy dependency AND
     notify_on_health_alert is ON, exactly one health_alert notify() fires carrying
     the failing component name in body/data.
@@ -39,7 +39,7 @@ from app.modules.auth.router import REGISTRATION_ENABLED
 
 
 # ===========================================================================
-# Task 1: EVENT-01 — signup emit (integration tests via `client` fixture)
+# signup emit (integration tests via `client` fixture)
 # ===========================================================================
 
 
@@ -173,7 +173,7 @@ class TestSignupEmit:
             "/auth/register/",
             json={"username": username, "password": "TestPass1234!"},
         )
-        # Collision returns same 201 (SEC-012 enumeration-safe)
+        # Collision returns same 201 (enumeration-safe)
         assert resp.status_code == 201
         assert notify_calls == [], (
             f"Collision path must NOT emit; got {len(notify_calls)} call(s) "
@@ -220,14 +220,14 @@ class TestSignupEmit:
 
 
 # ===========================================================================
-# Task 2: EVENT-04 — health alert (unit tests — health handler is easily stubbed)
+# health alert (unit tests — health handler is easily stubbed)
 # ===========================================================================
 
 
 async def _run_health(request):
     """Call ``health()`` and run its post-response BackgroundTask.
 
-    EVENT-04's emit is deferred to a Starlette BackgroundTask (WR-01) so the
+    The health alert emit is deferred to a Starlette BackgroundTask so the
     /health response returns before the notification fires. A direct function
     call does not run the background automatically, so the tests run it
     explicitly to observe the emit. No-op when the response carries no task

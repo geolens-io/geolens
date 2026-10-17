@@ -1,4 +1,4 @@
-"""OCG-02: ci.yml paths-filter guard tests.
+"""ci.yml paths-filter guard tests.
 
 Parses the alembic filter list from .github/workflows/ci.yml and asserts:
 1. Every glob in the alembic filter matches at least one real file on disk
@@ -19,9 +19,7 @@ noticing. Both halves now share one scanner (``_referenced_by_backend_tests``)
 parameterized by pattern.
 
 These tests run locally (filesystem + YAML parse only; no Docker, no DB).
-They are the locally-verifiable proof of the CI fix (OCG-02).
-
-References: OCG-02, #1088
+They are the locally-verifiable proof of the CI fix.
 """
 
 from __future__ import annotations
@@ -168,7 +166,7 @@ class TestAlembicFilterGlobs:
         """backend/app/models/** must NOT be in the alembic filter.
 
         This directory was deleted in b63803c1. Its continued presence silently
-        lets model-only PRs bypass the alembic drift check (OCG-02 root cause).
+        lets model-only PRs bypass the alembic drift check (root cause).
         """
         globs = _parse_alembic_filter_globs()
         dead = "backend/app/models/**"
@@ -182,7 +180,7 @@ class TestAlembicFilterGlobs:
         """Every path glob in the alembic filter must match ≥1 existing file.
 
         A glob that matches nothing means no PR touching those files will trigger
-        the alembic drift check — a silent CI gap (the original OCG-02 bug).
+        the alembic drift check — a silent CI gap.
         """
         globs = _parse_alembic_filter_globs()
         missing: list[str] = []

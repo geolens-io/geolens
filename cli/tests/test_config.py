@@ -47,7 +47,7 @@ class TestConfigRoundTrip:
         assert "username" not in data["default"]
 
     def test_config_toml_never_contains_token(self, tmp_xdg_home) -> None:
-        """D-11: tokens never appear in config.toml."""
+        """Tokens never appear in config.toml."""
         write_default_instance("https://x.example.com", username="alice")
         text = config_path().read_text()
         assert "token" not in text.lower()
@@ -67,7 +67,7 @@ class TestFileModes:
         assert actual_mode == 0o700, f"got {oct(actual_mode)}"
 
     def test_non_secret_write_does_not_tighten_parent(self, tmp_path: Path) -> None:
-        """BUG-014: atomic_write_text for non-secret outputs must NOT chmod the parent."""
+        """atomic_write_text for non-secret outputs must NOT chmod the parent."""
         # Pre-set the parent to a wide-open mode so we can detect any narrowing.
         tmp_path.chmod(0o755)
         target = tmp_path / "output.json"
@@ -103,7 +103,7 @@ class TestEnvOverrides:
 
 class TestNormalizeInstanceUrl:
     def test_strips_trailing_slash(self) -> None:
-        # Trailing slash stripped; /api auto-appended (GAP-019).
+        # Trailing slash stripped; /api auto-appended.
         assert (
             normalize_instance_url("https://x.example.com/")
             == "https://x.example.com/api"
@@ -125,7 +125,7 @@ class TestNormalizeInstanceUrl:
 
 
 class TestNormalizeInstanceUrlApiPrefix:
-    """GAP-019: bare origin auto-gains /api; existing /api configs are stable."""
+    """Bare origin auto-gains /api; existing /api configs are stable."""
 
     def test_bare_origin_appends_api(self) -> None:
         assert (
@@ -153,14 +153,14 @@ class TestNormalizeInstanceUrlApiPrefix:
         )
 
     def test_trailing_slash_and_bare_origin_resolve_to_same_key(self) -> None:
-        # BUG-033/GAP-019: slash variant and bare origin canonicalize identically.
+        # Slash variant and bare origin canonicalize identically.
         assert normalize_instance_url(
             "https://x.example.com/"
         ) == normalize_instance_url("https://x.example.com")
 
 
 class TestLoginStoresApiCanonicalInstance:
-    """GAP-019: `geolens login <bare-origin>` stores the /api-suffixed URL."""
+    """`geolens login <bare-origin>` stores the /api-suffixed URL."""
 
     def test_login_bare_origin_stores_api_suffix(
         self, runner, tmp_xdg_home, mock_keyring

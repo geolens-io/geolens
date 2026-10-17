@@ -65,7 +65,7 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
       await deleteContact.mutateAsync(contactId);
       toast.success(t('contacts.removed'));
     } catch {
-      // fix(#438): UX-07 — useContacts raises the error toast.
+      // useContacts raises the error toast.
     }
   };
 
@@ -77,7 +77,7 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
     );
   }
 
-  // GAP-034: a fetch failure must NOT collapse into the empty 'noContacts'
+  // A fetch failure must NOT collapse into the empty 'noContacts'
   // state — that misleads the editor into thinking the record has none and
   // re-adding duplicates. Surface a distinct error with a retry instead.
   if (isError) {

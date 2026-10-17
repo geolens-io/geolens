@@ -13,7 +13,7 @@ Object.defineProperty(window, 'location', {
 
 function createMockMap() {
   const sources = new Map<string, { type: string; tiles?: string[] }>();
-  // fix(#1778): record the whole spec, not just the id. getStyle() on a real
+  // Record the whole spec, not just the id. getStyle() on a real
   // map reports each layer's `source`, and the orphan prune reads it to tell a
   // managed data layer apart from a basemap layer that happens to be named
   // `layer-*`.
@@ -234,9 +234,9 @@ describe('syncLayersToMap dedupes addSource by dataset_table_name', () => {
     expect(map.removeSource).not.toHaveBeenCalledWith('source-data-reefs');
   });
 
-  // fix(#1778): the source prune is keyed on the SOURCE, and the whole prune
+  // The source prune is keyed on the SOURCE, and the whole prune
   // body sits behind `if (desiredSources.has(sourceId)) continue`. Under the
-  // SF-04 dedupe the deleted layer's source is still desired by its sibling, so
+  // dedupe the deleted layer's source is still desired by its sibling, so
   // nothing ever reclaimed the orphan layer rows. They kept rendering with no
   // stack row, no legend entry and no way to remove them short of a reload.
   // Counterfactual: on main the three assertions below all find the layers

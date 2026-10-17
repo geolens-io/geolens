@@ -84,7 +84,7 @@ describe('buildLabelLayerSpec', () => {
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['symbol-placement']).toBe('line');
-    // LABEL-01: text-anchor/text-offset are now always present (pinned to the
+    // Text-anchor/text-offset are now always present (pinned to the
     // neutral center/[0,0] for non-point placement) so the add path and the
     // update path derive from one canonical object. center/[0,0] equal
     // MapLibre's defaults, so line labels render identically.
@@ -103,7 +103,7 @@ describe('buildLabelLayerSpec', () => {
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['symbol-placement']).toBe('line-center');
-    // LABEL-01: non-point placement pins text-anchor to the neutral default.
+    // Non-point placement pins text-anchor to the neutral default.
     expect(layout['text-anchor']).toBe('center');
   });
 
@@ -230,9 +230,9 @@ describe('syncLabelLayer', () => {
     expect(map.setLayerZoomRange).toHaveBeenCalledWith('label-4', 0, 22);
   });
 
-  // LABEL-01: the add path and update path consume ONE canonical {layout, paint}
+  // The add path and update path consume ONE canonical {layout, paint}
   // object, so symbol-avoid-edges (fill-only) is applied on BOTH paths — the
-  // exact drift the audit flagged (build set it, sync did not).
+  // drift where build set it and sync did not.
   it('applies symbol-avoid-edges for fill geometry on the update path too', () => {
     const map = createMockMap();
     syncLabelLayer(map, 'label-fill', { column: 'x' }, 'fill');

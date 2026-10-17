@@ -33,9 +33,9 @@ router = APIRouter(
 )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator -- trailing-slash is
-# canonical (in OpenAPI); no-slash is a hidden alias closing the 404
-# regression from redirect_slashes=False (api/main.py).
+# Dual-shape decorator -- trailing-slash is canonical (in OpenAPI); no-slash
+# is a hidden alias closing the 404 regression from redirect_slashes=False
+# (api/main.py).
 @router.get("", response_model=AdminEmbedTokenListResponse, include_in_schema=False)
 @router.get("/", response_model=AdminEmbedTokenListResponse)
 async def list_all_embed_tokens(
@@ -49,7 +49,7 @@ async def list_all_embed_tokens(
     db: AsyncSession = Depends(get_db),
 ) -> AdminEmbedTokenListResponse:
     """List basic embed-token inventory across maps; no quota or domain-policy controls (admin only)."""
-    # EMBED-03 (Phase 1212): pass the request-scoped tenant so a tenant-A admin
+    # Pass the request-scoped tenant so a tenant-A admin
     # cannot enumerate tenant-B tokens. Inert (None) in single_tenant.
     from app.core.db.tenant_session import current_tenant_var
 
@@ -82,7 +82,7 @@ async def list_all_embed_tokens(
     return AdminEmbedTokenListResponse(tokens=tokens, total=total)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see GET / above.
+# Dual-shape decorator — see GET / above.
 @router.post("/bulk-revoke", response_model=BulkRevokeResponse, include_in_schema=False)
 @router.post("/bulk-revoke/", response_model=BulkRevokeResponse)
 async def bulk_revoke(
@@ -92,8 +92,8 @@ async def bulk_revoke(
     db: AsyncSession = Depends(get_db),
 ) -> BulkRevokeResponse:
     """Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only)."""
-    # WR-01 (Phase 1212): scope by tenant so a tenant-A admin cannot revoke
-    # tenant-B tokens by UUID (mirrors the EMBED-03 filter above).
+    # Scope by tenant so a tenant-A admin cannot revoke tenant-B tokens by
+    # UUID (mirrors the list filter above).
     from app.core.db.tenant_session import current_tenant_var
 
     request_tenant = current_tenant_var.get()

@@ -1,10 +1,9 @@
-"""SEC-09: SVG icon validator re-serializes via defusedxml so attribute-encoded
+"""SVG icon validator re-serializes via defusedxml so attribute-encoded
 bypasses are rejected.
 
-Pins the v13.13 closure of M-71. The original denylist (script tag,
+Pins the closure of an SVG bypass. The original denylist (script tag,
 foreignObject, javascript:, on*=) matched literal byte strings only; entity
-encodings like &lt;script&gt; or &#106;avascript: slipped through. After this
-plan, defusedxml re-serializes the SVG, normalizing entities into canonical
+encodings like &lt;script&gt; or &#106;avascript: slipped through. Now defusedxml re-serializes the SVG, normalizing entities into canonical
 bytes BEFORE the denylist runs.
 """
 
@@ -46,7 +45,7 @@ def test_text_encoded_script_is_serialized_as_text_not_active_tag():
     """An SVG with &lt;script&gt;...&lt;/script&gt; as text content (NOT a real
     tag) is re-serialized as text by defusedxml, so the denylist does not
     fire — this documents the residual: the denylist alone would not catch a
-    text-encoded payload, which is why Task 2's CSP sandbox header is the
+    text-encoded payload, which is why the CSP sandbox header is the
     second defense layer."""
     payload = (
         b'<svg xmlns="http://www.w3.org/2000/svg">'
@@ -57,7 +56,7 @@ def test_text_encoded_script_is_serialized_as_text_not_active_tag():
     )
     # The entity-encoded text remains entity-encoded after re-serialization
     # (text content is not auto-converted into a tag). This is the documented
-    # residual closed by the CSP sandbox in Task 2.
+    # residual closed by the CSP sandbox.
     assert media_type == "image/svg+xml"
     assert b"&lt;script&gt;" in sanitized
 
@@ -65,7 +64,7 @@ def test_text_encoded_script_is_serialized_as_text_not_active_tag():
 def test_numeric_entity_in_attribute_normalized_then_rejected():
     """href="&#106;avascript:alert(1)" — numeric entity for 'j' — is
     normalized by defusedxml into literal `javascript:`, then the denylist
-    rejects it. This is the real bypass vector closed by SEC-09."""
+    rejects it. This is the real bypass vector it closes."""
     payload = (
         b'<svg xmlns="http://www.w3.org/2000/svg" '
         b'xmlns:xlink="http://www.w3.org/1999/xlink">'

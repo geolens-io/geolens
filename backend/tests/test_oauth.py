@@ -1,4 +1,4 @@
-"""Tests for OAuth/OIDC integration (Phase 118)."""
+"""Tests for OAuth/OIDC integration."""
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,7 +28,7 @@ _PAID_IDP_MAPPING_SERVICE_INPUTS = (
 
 
 # ---------------------------------------------------------------------------
-# Edition-state isolation (D-10)
+# Edition-state isolation
 # Mirrors backend/tests/test_edition.py:11-22. Local autouse fixture so
 # edition mutations in tests do not leak across the module.
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ def _clean_edition():
 
 
 # ---------------------------------------------------------------------------
-# Phase 1099 / OAUTH-01/02/03: client_session fixture override (D-04a)
+# client_session fixture override
 #
 # test_db_session opens a SEPARATE asyncpg connection from client's
 # override_get_db (each NullPool session_factory() call yields a fresh
@@ -60,12 +60,8 @@ def _clean_edition():
 #
 # client_session resolves the SAME override_get_db factory client uses, so
 # commit() is immediately visible to the subsequent client.get(...). This is
-# the smallest-blast-radius fix per D-04a (test-isolation layer only; no
-# production-code change per D-02 + D-07c; no broader fixture refactor
-# per D-07b).
-#
-# See .planning/phases/1099-oauth-parallel-mode-stabilization/1099-01-SUMMARY.md
-# for the T2 diagnostic findings + verify-gate evidence.
+# the smallest-blast-radius fix (test-isolation layer only; no
+# production-code change and no broader fixture refactor).
 # ---------------------------------------------------------------------------
 
 
@@ -75,11 +71,11 @@ async def client_session(client):
 
     Forces single-factory writes-then-reads so commit() is immediately
     visible to subsequent client.get() calls under -n 4 / -n auto. Replaces
-    test_db_session for OAUTH-01/02/03 (Phase 1099) where direct DB writes
+    test_db_session where direct DB writes
     and HTTP requests in the same test body race the connection-pool
     snapshot under parallel mode.
 
-    Per D-04a (Phase 1099 CONTEXT.md): smallest blast radius — only this
+    Smallest blast radius: only this
     file changes; sibling tests in test_oauth.py keep test_db_session.
 
     Implementation note: httpx AsyncClient does not expose .app directly;
@@ -97,11 +93,11 @@ async def client_session(client):
 
 
 # ---------------------------------------------------------------------------
-# Phase 1099 T3-iter-2 / OAUTH-01/02/03: ensure public_app_url is configured
+# Ensure public_app_url is configured
 #
 # The OAuth login + callback handlers call get_public_app_url(..., for_external_use=True)
 # which raises PublicUrlNotConfiguredError when settings.public_app_url is None
-# (the v13.12 SEC-13 / H-27 hardening — refuses to fall back to request-origin
+# (the v13.12 hardening — refuses to fall back to request-origin
 # for external-use URLs to prevent X-Forwarded-Host hijacking).
 #
 # In full sequential pytest, these 3 OAuth tests "accidentally" passed because
@@ -112,10 +108,8 @@ async def client_session(client):
 #
 # `_ensure_public_app_url` fixture pins settings.public_app_url for the duration
 # of the 3 OAuth callback/login tests, making them self-contained regardless
-# of test-order or worker scheduling. This is the Rule 1 inline iteration over
-# the initial D-04a-only fix (commit f57f1a76), since the T4 verify gate
-# surfaced that the snapshot gap was NOT the actual root cause — the actual
-# root cause is the order-dependent public_app_url priming.
+# of test-order or worker scheduling. The connection-snapshot gap alone did not
+# explain the failures; the order-dependent public_app_url priming did.
 # ---------------------------------------------------------------------------
 
 
@@ -124,10 +118,9 @@ def _ensure_public_app_url(monkeypatch):
     """Set settings.public_app_url so OAuth login/callback handlers don't 500.
 
     OAuth's get_public_app_url(for_external_use=True) requires explicit
-    PUBLIC_APP_URL configuration per Phase 268 H-27 / SEC-13. This fixture
+    PUBLIC_APP_URL configuration. This fixture
     pins it to a test URL for the 3 OAuth callback/login tests so they are
-    deterministic across sequential, -n 4, and -n auto modes (Phase 1099
-    OAUTH-01/02/03).
+    deterministic across sequential, -n 4, and -n auto modes.
     """
     import app.core.public_urls as public_urls
     from app.core.config import settings
@@ -144,7 +137,7 @@ def _ensure_public_app_url(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# OAUTH-02: Encryption roundtrip
+# Encryption roundtrip
 # ---------------------------------------------------------------------------
 
 
@@ -255,7 +248,7 @@ class TestUserAuthProviderColumn:
 
 
 # ---------------------------------------------------------------------------
-# OAUTH-01: CRUD service tests
+# CRUD service tests
 # ---------------------------------------------------------------------------
 
 
@@ -680,7 +673,7 @@ class TestOAuthSchemas:
 
 
 # ---------------------------------------------------------------------------
-# OAUTH-04 through OAUTH-07: OAuth flow tests
+# OAuth flow tests
 # ---------------------------------------------------------------------------
 
 
@@ -722,8 +715,8 @@ class TestFindOrCreateOAuthUser:
         return await create_provider(db, OAuthProviderCreate(**defaults))
 
     async def test_auto_create_user(self, client, test_db_session):
-        """OAUTH-05: New verified email auto-creates user with default role
-        and auth_provider='oauth'. Phase 268 H-30: email_verified=True is
+        """New verified email auto-creates user with default role
+        and auth_provider='oauth'. email_verified=True is
         required for the email to be claimed on the new user."""
         from app.modules.auth.oauth.service import find_or_create_oauth_user
 
@@ -733,7 +726,7 @@ class TestFindOrCreateOAuthUser:
         userinfo = {
             "sub": "new-user-sub-123",
             "email": f"newuser-{uuid.uuid4().hex[:6]}@example.com",
-            "email_verified": True,  # H-30: required for email to persist
+            "email_verified": True,  # Required for email to persist
             "name": "New User",
         }
         user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
@@ -756,7 +749,7 @@ class TestFindOrCreateOAuthUser:
         The User(...) construction omitted the field, so every SSO account
         persisted the model default (false) — 27 of 27 on the public demo. Both
         halves of the persisted expression are covered: a verified claim stores
-        True, and an unverified one leaves False (its email is dropped by H-30,
+        True, and an unverified one leaves False (its email is dropped,
         so there is nothing verified to record).
         """
         from app.modules.auth.oauth.service import find_or_create_oauth_user
@@ -779,7 +772,7 @@ class TestFindOrCreateOAuthUser:
         assert verified.email is not None
         assert verified.email_verified is True
 
-        # No email_verified claim: H-30 drops the email, so nothing is verified.
+        # No email_verified claim: drops the email, so nothing is verified.
         unverified = await find_or_create_oauth_user(
             test_db_session,
             provider,
@@ -943,8 +936,8 @@ class TestFindOrCreateOAuthUser:
         assert legacy.user_id == tenant_a_user.id
 
     async def test_email_linking(self, client, test_db_session):
-        """OAUTH-06: OAuth login with existing email + verified email links
-        to existing user. Phase 268 H-30: also requires email_verified=True."""
+        """OAuth login with existing email + verified email links
+        to existing user. Also requires email_verified=True."""
         from app.modules.auth.models import User
         from app.modules.auth.oauth.models import OAuthAccount
         from app.modules.auth.oauth.service import find_or_create_oauth_user
@@ -971,7 +964,7 @@ class TestFindOrCreateOAuthUser:
         userinfo = {
             "sub": "existing-user-sub-456",
             "email": email,
-            "email_verified": True,  # H-30: required for auto-link
+            "email_verified": True,  # Required for auto-link
             "name": "Existing User",
         }
         user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
@@ -995,7 +988,7 @@ class TestFindOrCreateOAuthUser:
     async def test_email_linking_blocked_when_email_unverified_with_collision(
         self, client, test_db_session
     ):
-        """Phase 268 H-30: an OAuth login with an existing-email collision
+        """An OAuth login with an existing-email collision
         but email_verified=False MUST be refused entirely (raises
         OAuthEmailUnverifiedError) — neither auto-linking the victim's
         account nor creating a new account with the duplicate email."""
@@ -1089,7 +1082,7 @@ class TestFindOrCreateOAuthUser:
     async def test_email_linking_blocked_when_email_verified_missing(
         self, client, test_db_session
     ):
-        """Phase 268 H-30: missing email_verified claim is treated the same
+        """A missing email_verified claim is treated the same
         as email_verified=False — collision case raises."""
         from app.modules.auth.models import User
         from app.modules.auth.oauth.service import (
@@ -1289,7 +1282,7 @@ class TestFindOrCreateOAuthUser:
     async def test_unverified_email_no_collision_creates_user_without_email(
         self, client, test_db_session
     ):
-        """Phase 268 H-30: when no local user has the unverified email,
+        """When no local user has the unverified email,
         create the new user without claiming that email (set email=None).
         Allows IdPs that don't set email_verified to still be usable for
         net-new accounts without the auto-link risk."""
@@ -1342,11 +1335,11 @@ class TestFindOrCreateOAuthUser:
     async def test_group_role_mapping_community_uses_default_role(
         self, client, test_db_session
     ):
-        """OAUTH-07 community: Group mapping present in DB is IGNORED; default_role applied.
+        """Community: Group mapping present in DB is IGNORED; default_role applied.
 
         Provider is seeded via direct ORM (NOT _create_test_provider) to bypass
-        the new D-01 schema validator and simulate a legacy/direct-DB row.
-        This tests the service-layer defense-in-depth gate (D-08, RESEARCH Pitfall 2).
+        the new schema validator and simulate a legacy/direct-DB row.
+        This tests the service-layer defense-in-depth gate.
         """
         from app.modules.auth.oauth.models import OAuthProvider
         from app.modules.auth.oauth.service import find_or_create_oauth_user
@@ -1386,9 +1379,9 @@ class TestFindOrCreateOAuthUser:
     async def test_group_role_mapping_enterprise_applies_mapping(
         self, client, test_db_session
     ):
-        """OAUTH-07 enterprise: Group claims in userinfo map to GeoLens roles.
+        """Enterprise: Group claims in userinfo map to GeoLens roles.
 
-        Initialises enterprise edition so _resolve_role() is invoked (D-08).
+        Initialises enterprise edition so _resolve_role() is invoked.
         Provider is seeded via direct ORM to bypass the schema validator
         (which would also accept in enterprise, but ORM is cleaner for isolation).
         """
@@ -1452,7 +1445,7 @@ class TestFindOrCreateOAuthUser:
         userinfo = {
             "sub": f"collision-sub-{uuid.uuid4().hex[:6]}",
             "email": f"{base_username}@example.com",
-            "email_verified": True,  # H-30: required so email drives username
+            "email_verified": True,  # Required so email drives username
             "name": "Collision User",
         }
         user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
@@ -1465,7 +1458,7 @@ class TestFindOrCreateOAuthUser:
 
 
 # ---------------------------------------------------------------------------
-# Schema-validator gate tests (D-09)
+# Schema-validator gate tests
 # ---------------------------------------------------------------------------
 
 
@@ -1473,7 +1466,7 @@ class TestIdpRoleMappingGate:
     """Schema-layer gate: OAuthProviderCreate/Update reject IdP mapping in community.
 
     Edition state is reset before/after every test by the module-level
-    _clean_edition autouse fixture (D-10).
+    _clean_edition autouse fixture.
     """
 
     def _create_payload(self, **overrides):
@@ -1551,7 +1544,7 @@ class TestIdpRoleMappingGate:
         )
 
     def test_create_with_empty_mapping_allowed_in_community(self):
-        """Empty group_role_mapping ({}) is accepted in community (D-02 clear-mapping carve-out)."""
+        """Empty group_role_mapping ({}) is accepted in community (clear-mapping carve-out)."""
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
 
         schema = OAuthProviderCreate(**self._create_payload(group_role_mapping={}))
@@ -1572,15 +1565,15 @@ class TestOAuthLoginEndpoint:
     async def test_oauth_login_redirect(
         self, client, client_session, _ensure_public_app_url
     ):
-        """OAUTH-04: Login endpoint returns redirect to IdP.
+        """Login endpoint returns redirect to IdP.
 
-        Phase 1099 / OAUTH-03: uses client_session (shares client's
+        Uses client_session (shares client's
         override_get_db factory) so commit() is immediately visible to
         the subsequent client.get(...) under -n 4 / -n auto. The
         _ensure_public_app_url fixture pins settings.public_app_url so
         the test is self-contained regardless of test order (the OAuth
-        for_external_use=True path refuses request-origin fallback per
-        SEC-13 / H-27).
+        for_external_use=True path refuses request-origin fallback because
+        it requires an explicit URL).
         """
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
         from app.modules.auth.oauth.service import create_provider
@@ -1741,7 +1734,7 @@ class TestOAuthCallbackCSRF:
     ):
         """OAuth callback with no state/code params returns error redirect, not account takeover.
 
-        Phase 1099 / OAUTH-01: uses client_session (shares client's
+        Uses client_session (shares client's
         override_get_db factory) so commit() is immediately visible to
         the subsequent client.get(...) under -n 4 / -n auto. The
         _ensure_public_app_url fixture pins settings.public_app_url so
@@ -1783,7 +1776,7 @@ class TestOAuthCallbackCSRF:
     ):
         """OAuth callback with an invalid authorization code returns error redirect.
 
-        Phase 1099 / OAUTH-02: uses client_session (shares client's
+        Uses client_session (shares client's
         override_get_db factory) so commit() is immediately visible to
         the subsequent client.get(...) under -n 4 / -n auto. The
         _ensure_public_app_url fixture pins settings.public_app_url so

@@ -75,7 +75,7 @@ def _admin_credentials() -> tuple[str, str]:
 
     A standard install (``make dev-init``) writes a GENERATED admin password
     into the repo root .env — a hardcoded admin/admin fallback would 401 on
-    any normal stack (#866 review r2). Username falls back to "admin" (the
+    any normal stack. Username falls back to "admin" (the
     installer's own default) only when nothing provides it; a missing
     password fails the tier with a clear message instead of a confusing 401.
     """
@@ -137,7 +137,7 @@ def live():
     # Cleanup ledger, appended to as each persistent resource is created.
     # Everything past the first POST runs inside try/finally so a mid-seed
     # failure (e.g. the map POST) still deletes what already exists
-    # (#866 review r2). Dataset deletes need the title as confirmation.
+    #. Dataset deletes need the title as confirmation.
     created_datasets: list[tuple[str, str]] = []  # (id, confirm_title)
     created_maps: list[str] = []
     saved_env = {
@@ -200,7 +200,7 @@ def live():
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-        # Loud cleanup (#866 review r3): only 204 (deleted) and 404 (already
+        # Loud cleanup: only 204 (deleted) and 404 (already
         # gone) are success — anything else is recorded and fails the tier at
         # the end so pollution of a long-lived target is visible, not silent.
         problems: list[str] = []
@@ -236,7 +236,7 @@ def live():
         for m_id in created_maps:
             _delete_map(m_id)
 
-        # Fallback sweep (#866 review r3): both creation endpoints commit
+        # Fallback sweep: both creation endpoints commit
         # BEFORE serializing their response, so a commit-then-500 leaves a
         # resource the ledger never saw. The run marker is unique, so any
         # marker-titled resource not in the ledger is ours to delete.

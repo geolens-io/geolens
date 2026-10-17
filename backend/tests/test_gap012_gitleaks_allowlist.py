@@ -1,4 +1,4 @@
-"""GAP-012 regression: the gitleaks allowlist must stay narrow.
+"""Regression: the gitleaks allowlist must stay narrow.
 
 The audit found the config blanket-allowlisted the whole backend/tests/ and
 sdks/ trees plus any value containing the substring "padding", so a future real

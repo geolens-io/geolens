@@ -1,11 +1,8 @@
 """Unit tests for _assert_compatible_record_type on the service-URL preview path.
 
-Pins the IA-P1-02 fix (Phase 1065 plan 03): `reupload_service_preview` now
+Pins the fix: `reupload_service_preview` now
 surfaces vector→raster and any→VRT swaps as HTTP 400 before pipeline execution,
 mirroring the multipart and presigned paths.
-
-Requirement: IA-P1-02
-Phase: 1065-03
 """
 
 from types import SimpleNamespace

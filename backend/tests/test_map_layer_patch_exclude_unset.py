@@ -1,4 +1,4 @@
-"""MapLayerPatch must keep omitted fields omitted (HT-14 regression).
+"""MapLayerPatch must keep omitted fields omitted (regression).
 
 The old after-mode ``_normalize_paint_boundary`` validator assigned
 ``self.paint``/``self.style_config`` unconditionally, adding both names to
@@ -33,7 +33,7 @@ def test_explicit_style_config_still_normalizes():
         style_config={"builder": {"outlineWidth": 2}, "render_mode": "hillshade"},
     )
     assert "style_config" in patch.model_fields_set
-    # Phase 1060 canonicalization still applies on the explicit path.
+    # canonicalization still applies on the explicit path.
     assert patch.style_config == {
         "builder": {"outline_width": 2},
         "render_mode": "hillshade",

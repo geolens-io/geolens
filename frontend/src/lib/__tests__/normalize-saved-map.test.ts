@@ -371,7 +371,7 @@ describe('normalizeSavedMap', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Phase 1035 — group_meta field tests
+  // group_meta field tests
   // -------------------------------------------------------------------------
 
   it('group_meta: preserves valid record when group_meta is present', () => {

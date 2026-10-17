@@ -1,13 +1,13 @@
-"""Regression tests for Phase 1209 code-review findings (CR-01, CR-03).
+"""Regression tests for code-review findings on tenant-scoped tile caching.
 
 Proves the two gaps the original gate suite missed:
 
-CR-01 — Tile cache key must be tenant-scoped:
+Tile cache key must be tenant-scoped:
   Two tenants with the same table_name must NOT share a cached tile binary.
   The cache key must be prefixed with the tenant_id in multi_tenant mode.
   In single_tenant, the key is the bare table_name (byte-identical guard).
 
-CR-03 — Metadata helpers must target the per-tenant schema:
+Metadata helpers must target the per-tenant schema:
   get_table_srid / get_column_info must read from data_t_{tid} in multi_tenant.
   Verify the SQL sent to the DB uses the tenant schema param, not hardcoded 'data'.
   In single_tenant, default schema='data' is preserved (byte-identical guard).
@@ -32,12 +32,12 @@ _TABLE = "shared_table_name"
 
 
 # ---------------------------------------------------------------------------
-# CR-01: Tile cache key is tenant-scoped
+# Tile cache key is tenant-scoped
 # ---------------------------------------------------------------------------
 
 
 class TestTileCacheKeyTenantScoped:
-    """CR-01: tile cache key is prefixed with tid in multi_tenant.
+    """Tile cache key is prefixed with tid in multi_tenant.
 
     Two tenants sharing the same table_name must NOT share a cached tile —
     the cache key must include the tenant dimension.
@@ -64,13 +64,13 @@ class TestTileCacheKeyTenantScoped:
         monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
 
         # Confirm the cache key construction logic directly from the module
-        # (static analysis of the pattern established by CR-01 fix)
+        # (static analysis of the pattern established by the fix)
         from app.processing.tiles import router as tile_router
         import inspect
 
         src = inspect.getsource(tile_router)
 
-        # CR-01: the vector tile endpoint must compute a tenant-prefixed key
+        # The vector tile endpoint must compute a tenant-prefixed key
         assert "_tile_tid = _require_tile_tenant_context()" in src, (
             "CR-01: vector tile endpoint missing fail-closed tenant lookup "
             "for cache key"
@@ -79,7 +79,7 @@ class TestTileCacheKeyTenantScoped:
             "_tile_cache_key" in src and "table_name}" in src
         ), "CR-01: vector tile endpoint missing _tile_cache_key with tenant prefix"
 
-        # CR-01: the cluster tile endpoint must compute a tenant-prefixed key
+        # The cluster tile endpoint must compute a tenant-prefixed key
         assert "_cluster_tid = _require_tile_tenant_context()" in src, (
             "CR-01: cluster tile endpoint missing fail-closed tenant lookup "
             "for cache key"
@@ -179,12 +179,12 @@ class TestTileCacheKeyTenantScoped:
 
 
 # ---------------------------------------------------------------------------
-# CR-03: Metadata helpers target per-tenant schema
+# Metadata helpers target per-tenant schema
 # ---------------------------------------------------------------------------
 
 
 class TestMetadataHelpersTargetTenantSchema:
-    """CR-03: get_table_srid and get_column_info use the per-tenant schema in multi_tenant.
+    """get_table_srid and get_column_info use the per-tenant schema in multi_tenant.
 
     Verifies that the schema parameter is correctly threaded to the SQL queries
     so information_schema.columns and Find_SRID target data_t_{tid} not 'data'.

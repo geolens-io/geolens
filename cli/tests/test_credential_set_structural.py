@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-"""fix(#1778 round 32): structural gate -- delete_credentials()
+"""Structural gate -- delete_credentials()
 (logout), _snapshot_credentials(), _restore_credentials(), and
 _delete_stale_credentials() must each iterate _CREDENTIAL_SET (the
 single definition of the four-member credential set: bearer, api_key,
 refresh, refresh_fingerprint) rather than hand-rolling their own list
 of accounts.
 
-Before round 32, _CredentialSnapshot/_restore_credentials/
+Previously, _CredentialSnapshot/_restore_credentials/
 delete_credentials() each independently listed the accounts by hand.
-Round 31 added the refresh_fingerprint to delete_credentials() and
+A later change added the refresh_fingerprint to delete_credentials() and
 _delete_stale_credentials() but NOT to the snapshot/restore pair, so a
 login rollback silently dropped it -- a restored bearer+refresh pair
 came back without the fingerprint that proves they belong together,

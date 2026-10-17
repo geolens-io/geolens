@@ -1,5 +1,5 @@
 /**
- * Unit tests for `applySublayerOverrides` (Phase 1059 BSE-01).
+ * Unit tests for `applySublayerOverrides`.
  *
  * Uses a fake MapLibre map with vi.fn() mocks for every method the helper touches.
  * Mirrors the fakeMap pattern from ViewerMap.basemap-config.test.tsx.
@@ -165,7 +165,7 @@ describe('applySublayerOverrides', () => {
   });
 
   it('applies_per_sublayer_opacity_to_symbol_layer_text_and_icon', () => {
-    // IN-01: renamed from 'applies_opacity_multiplicatively_over_layer_type_symbol'.
+    // Renamed from 'applies_opacity_multiplicatively_over_layer_type_symbol'.
     // The implementation assigns opacity absolutely (not multiplicatively) —
     // map.setPaintProperty(layerId, 'text-opacity', 0.5) is a direct assignment.
     // Symbol layers get both text-opacity and icon-opacity set simultaneously.
@@ -178,7 +178,7 @@ describe('applySublayerOverrides', () => {
   });
 
   it('composes_per_sublayer_opacity_with_master_opacity', () => {
-    // builder-audit #338 CORR-01: a per-sublayer opacity override must COMPOSE on top
+    // A per-sublayer opacity override must COMPOSE on top
     // of the whole-basemap master opacity (override * master), not clobber it.
     // master 0.5 + road override 0.5 → 0.25 on-screen.
     map.getStyle.mockReturnValue({ layers: [makeRoadLineLayer('road-primary')] });
@@ -189,7 +189,7 @@ describe('applySublayerOverrides', () => {
   });
 
   it('master_opacity_defaults_to_1_preserving_raw_override', () => {
-    // builder-audit #338 CORR-01: when master is omitted (default 1) the override is
+    // When master is omitted (default 1) the override is
     // applied as-is — preserves backward-compatible behavior for direct callers.
     map.getStyle.mockReturnValue({ layers: [makeRoadSymbolLayer('road-label')] });
 
@@ -331,7 +331,7 @@ describe('applySublayerOverrides', () => {
     applySublayerOverrides(map as never, { road: { min_zoom: 8, max_zoom: null } });
 
     // max_zoom is null → defaults to 22 (matches UI displayed default in BasemapSublayerEditorScene)
-    // WR-01: was 24 (MapLibre max) which would silently extend layers beyond what the UI shows.
+    // Was 24 (MapLibre max) which would silently extend layers beyond what the UI shows.
     expect(map.setLayerZoomRange).toHaveBeenCalledWith('road-primary', 8, 22);
   });
 

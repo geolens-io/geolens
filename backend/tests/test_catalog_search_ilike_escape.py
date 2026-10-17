@@ -1,4 +1,4 @@
-"""BUG-027: catalog search _build_text_filter must escape %, _, and \\.
+"""Catalog search _build_text_filter must escape %, _, and \\.
 
 service_filters._build_text_filter() composed its ILIKE pattern as
 ``func.concat("%", immutable_unaccent(query_text.lower()), "%")`` and called
@@ -39,7 +39,7 @@ def _compile_filter(query_text: str):
 
 
 class TestCatalogSearchEscapeIlikeSql:
-    """SQL-compilation unit tests for BUG-027."""
+    """SQL-compilation unit tests."""
 
     def test_percent_literal_escaped(self):
         """q='100%' must bind the ILIKE pattern fragment as '100\\%' (escaped).

@@ -1,4 +1,4 @@
-"""Regression tests for SEC-008: SSRF DNS-rebinding via resolve-then-fetch.
+"""Regression tests for SSRF DNS-rebinding via resolve-then-fetch.
 
 validate_url_for_ssrf resolved DNS once at submission time, but make_safe_client
 returned a plain client that performed its OWN DNS lookup at connect time. A

@@ -407,7 +407,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     # posture of the deployment.
     #   "single_tenant" (default) -> Community/Enterprise byte-identical behavior;
     #                                tenant_id is NULL everywhere, no isolation.
-    #   "multi_tenant"            -> Requires the cloud overlay + 1208 RLS layer;
+    #   "multi_tenant"            -> Requires the cloud overlay + tenant row-level security layer;
     #                                boot guard (GUARD-01) fails loud without them.
     # An invalid value raises a Pydantic ValidationError at boot.
     geolens_tenancy_mode: Literal["single_tenant", "multi_tenant"] = "single_tenant"

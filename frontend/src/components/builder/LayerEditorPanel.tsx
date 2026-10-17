@@ -27,13 +27,13 @@ export interface LayerEditorHandlers {
   onPopupChange: (layerId: string, config: PopupConfig | null) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean; restore?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  // SF-02 (Phase 1049): widened to all RenderAsId values. use-builder-layers'
+  // Widened to all RenderAsId values. use-builder-layers'
   // handleRenderModeChange now dispatches non-circle modes through
   // handleRenderAsChange to avoid stale layout/paint keys leaking across adapter
   // boundaries (e.g. line→arrow leaving behind line-cap / line-join).
   onRenderModeChange?: (layerId: string, mode: RenderAsId) => void;
   onRemove: (layerId: string) => void;
-  /** fix(#913): called after a banner Revert so the page can re-derive whether
+  /** Called after a banner Revert so the page can re-derive whether
    *  the map is still dirty (the revert itself routes through the ordinary
    *  mutation handlers, which all mark it dirty). */
   onRevertToSaved?: () => void;
@@ -42,7 +42,7 @@ export interface LayerEditorHandlers {
 interface LayerEditorPanelProps {
   layer: MapLayerResponse;
   /**
-   * SP-05 (Phase 1045): server-state baseline for `layer`. When set, the
+   * Server-state baseline for `layer`. When set, the
    * embedded LayerStyleEditor gates its "Pending style preview" banner on a
    * deep-equal diff against this baseline.
    */
@@ -68,7 +68,7 @@ interface LayerEditorPanelProps {
   /** Click handler for the breadcrumb element when editorScene === 'basemap-sublayer'. */
   onBreadcrumbClick?: () => void;
   /**
-   * EASY-18 (Phase 1138-03): rendered-feature count for the active layer;
+   * Rendered-feature count for the active layer;
    * forwarded to the filter-tab LayerFilterEditor so it can render the
    * empty-state hint when a filter is applied but 0 features are visible.
    */
@@ -219,7 +219,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     return 'style';
   }, [activeTab, availableTabs]);
 
-  // fix(#524 B-034): roving-tabindex tablists need an arrow-key handler —
+  // Roving-tabindex tablists need an arrow-key handler —
   // inactive tabs carry tabIndex=-1, so without this a keyboard-only user has
   // no path to the Filter/Labels/Popup editors at all. Selection follows focus
   // (WAI-ARIA automatic-activation tabs pattern).
@@ -252,7 +252,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     setPendingRenderAs(null);
   }, [layer.id, editorScene]);
 
-  // POL-18: Scroll + focus preservation across scene transitions
+  // Scroll + focus preservation across scene transitions
   const bodyRef = useRef<HTMLDivElement>(null);
   const savedScrollTopRef = useRef<number | null>(null);
   const prevSceneRef = useRef(editorScene);
@@ -291,7 +291,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   function handleRenderAsClick(target: RenderAsId) {
     if (target === currentRenderAs) return;
-    // fix(#430 V-09): only confirm when the CURRENT mode actually carries
+    // Only confirm when the CURRENT mode actually carries
     // mode-specific style settings that diverge from that mode's defaults
     // (see hasCustomizedRenderAsStyle). A fresh/default layer has nothing
     // mode-specific to lose, so switch immediately — a clean layer clicking
@@ -309,7 +309,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     if (pendingRenderAs) {
       handlers.onRenderModeChange?.(layer.id, pendingRenderAs);
       setPendingRenderAs(null);
-      // fix(#788): the confirm held focus (autofocused button); hand it to the
+      // The confirm held focus (autofocused button); hand it to the
       // pill that just became active instead of dropping to <body>.
       document.getElementById(`renderas-${layer.id}-${pendingRenderAs}`)?.focus();
     }
@@ -317,7 +317,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   function cancelRenderAsSwitch() {
     setPendingRenderAs(null);
-    // fix(#788): return focus to the still-active pill instead of <body>.
+    // Return focus to the still-active pill instead of <body>.
     document.getElementById(`renderas-${layer.id}-${currentRenderAs}`)?.focus();
   }
 
@@ -343,7 +343,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               onClick={onBreadcrumbClick}
               className="block text-mini leading-tight tracking-[0.04em] text-muted-foreground hover:text-foreground hover:underline"
             >
-              {/* fix(#788 item 1): translated — the visible text was a
+              {/* Translated — the visible text was a
                   hardcoded English literal while the aria-label above is
                   translated, so the two disagreed in non-English locales. */}
               {t('basemapSublayer.breadcrumb', {
@@ -479,7 +479,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                     <section
                       aria-labelledby={`section-renderas-${layer.id}`}
                       className="rounded-md border bg-muted/25 p-3"
-                      // fix(#788): Escape with the render-as confirm pending
+                      // Escape with the render-as confirm pending
                       // cancels the pending switch (consumed) — previously it
                       // bubbled to the editor <aside> and closed the whole
                       // panel with the confirm still open. Section-level so it
@@ -504,7 +504,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                           return (
                             <button
                               key={option.id}
-                              // fix(#788): stable id so confirm/cancel can
+                              // Stable id so confirm/cancel can
                               // restore keyboard focus to the pill.
                               id={`renderas-${layer.id}-${option.id}`}
                               type="button"
@@ -524,9 +524,9 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                         })}
                       </div>
                       {pendingRenderAs && (
-                        // ux(#777): shared builder-wide inline confirm — safe
+                        // Shared builder-wide inline confirm — safe
                         // action left, destructive right, cancel autofocused.
-                        // fix(#788): the shared component supplies the
+                        // The shared component supplies the
                         // group+alert semantics and Escape-to-cancel; onCancel
                         // (cancelRenderAsSwitch) restores focus to the pill.
                         <InlineDeleteConfirm

@@ -18,7 +18,7 @@ export interface PluginContext {
   /** Map-level terrain config; drives the synthetic "3D terrain" legend entry. */
   terrainConfig?: MapTerrainConfig | null;
   /**
-   * Map-level custom legend title (ENH-06). Null/undefined renders the legend
+   * Map-level custom legend title. Null/undefined renders the legend
    * without a heading override.
    */
   legendTitle?: string | null;

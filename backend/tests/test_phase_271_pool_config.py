@@ -11,7 +11,7 @@ _DOCKER_COMPOSE = _REPO_ROOT / "docker-compose.yml"
 
 
 def test_config_py_db_max_overflow_default_is_3():
-    """DBM-04: lower db_max_overflow from 5 to 3."""
+    """Lower db_max_overflow from 5 to 3."""
     text = _CONFIG_PY.read_text()
     assert re.search(
         r"db_max_overflow\s*:\s*int\s*=\s*(?:3\b|Field\(\s*default\s*=\s*3\b)",

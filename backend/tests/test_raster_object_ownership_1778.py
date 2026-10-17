@@ -67,9 +67,9 @@ class TestUnpublishedStorageKeys:
     def test_the_first_ingest_tail_records_its_keys_before_phase_2(self) -> None:
         """The write has to precede the phase-2 session, not sit inside it.
 
-        Phase 2's first statements dirty the ingest_jobs row, so a second
-        session writing that row while phase 2 held it would block until phase
-        2 ended, and phase 2 would be waiting on the write.
+        The phase-2 session's first statements dirty the ingest_jobs row, so a
+        second session writing that row while phase 2 held it would block until
+        phase 2 ended, and phase 2 would be waiting on the write.
         """
         module = "processing/ingest/tasks_raster.py"
         lines = _source(module).splitlines()
@@ -344,7 +344,7 @@ class TestRecorderChecksItsOwnFence:
 
 
 class TestIdenticalReplacementKeepsTheLiveAsset:
-    """fix(#1778 codex r1): a re-upload of the file the dataset already serves.
+    """A re-upload of the file the dataset already serves.
 
     The replacement converts to the same COG and hashes to the same
     ``asset_sha256``, so the three keys the replace tail intends to write are
@@ -409,7 +409,7 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
 
         session.execute.assert_awaited_once()
         stmt = session.execute.await_args.args[0]
-        # fix(#1778 codex r9): the bind is the array the attempt appends; the
+        # The bind is the array the attempt appends; the
         # field name reaches the statement through jsonb_build_object, because
         # the value now concatenates onto whatever the row already names.
         recorded = stmt.compile().params["unpublished_patch"]
@@ -465,7 +465,7 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
     def test_every_site_that_records_intended_keys_states_the_exclusion(self) -> None:
         """Enumerated rather than assumed: three writers, all answering.
 
-        fix(#1778 codex r4): `ingest_vrt` joined the set. Its keys sit under a
+        `ingest_vrt` joined the set. Its keys sit under a
         dataset id it generates per task invocation, so its answer is the empty
         one, but it still has to give it.
         """
@@ -562,7 +562,7 @@ class TestLiveReferenceQuery:
 
 
 class TestAttemptScopedReplaceKeys:
-    """fix(#1778 codex r3): the reaper's TOCTOU against a re-admitted replace.
+    """The reaper's TOCTOU against a re-admitted replace.
 
     `fail_stale_jobs` commits once, and that commit settles the dead attempt
     AND releases the dataset's active-run reservation through the refresh-run
@@ -767,7 +767,7 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
 
 
 class TestEveryPutSiteHasAnOwner:
-    """fix(#1778 codex r4): no object may be written with nothing able to name it.
+    """No object may be written with nothing able to name it.
 
     The finding this file exists for is a key that outlives the process that
     could have deleted it. `written_storage_keys` is a local list, so any put
@@ -875,7 +875,7 @@ class TestEveryPutSiteHasAnOwner:
 
 
 class TestRetentionPurgeIsTheLastOwner:
-    """fix(#1778 codex r4): the row being deleted is the last thing naming these.
+    """The row being deleted is the last thing naming these.
 
     The two stale-job passes only read the rows they move OFF `running`. A job
     that reached `failed` or `cancelled` on its own, whose in-process
@@ -931,7 +931,7 @@ class TestRetentionPurgeIsTheLastOwner:
 
         assert outcome._unpublished_storage_keys == (self.KEY,)
         assert [call.args[0] for call in storage.delete.await_args_list] == [self.KEY]
-        # fix(#1778 codex r7): (job, table), so the drop can verify ownership.
+        # (job, table), so the drop can verify ownership.
         analysis_reap.assert_awaited_once_with(((purged_job_id, "parcels_buffered"),))
 
     @pytest.mark.asyncio
@@ -1000,7 +1000,7 @@ class TestRetentionPurgeIsTheLastOwner:
 
 
 class TestReapScalesAndStaysRetryable:
-    """fix(#1778 codex r5): the two ways a whole sweep's worth of keys was lost.
+    """The two ways a whole sweep's worth of keys was lost.
 
     The survivor query expanded its key list into four `IN` clauses, so its
     argument count was four per key. Past roughly 8192 keys that crosses
@@ -1277,7 +1277,7 @@ class TestReapScalesAndStaysRetryable:
 
 
 class TestTheRecordAccumulatesAcrossAttempts:
-    """fix(#1778 codex r9): a retry used to forget the previous attempt's keys.
+    """A retry used to forget the previous attempt's keys.
 
     `/jobs/{id}/retry` preserves `user_metadata`, so a retried ingest reached
     the recorder with attempt 1's keys still on the row. The JSONB merge set
@@ -1533,19 +1533,19 @@ def _mock_db_for_fail_stale(
     purge = MagicMock()
     purge.all.return_value = []
     results.append(purge)
-    # fix(#1778 codex r4): the purge only issues its survivor SELECT when a
+    # The purge only issues its survivor SELECT when a
     # deleted row carried a file_path, and these fixtures carry none.
     assert not any(row[1] for row in (purged_rows or [])), (
         "a purged row with a file_path adds one SELECT this double does not model"
     )
 
-    # fix(#1778 codex r10): the artifact-carrying SELECT, unconditional and
+    # The artifact-carrying SELECT, unconditional and
     # run AFTER the retention block (it used to be the exempted-row SELECT
     # the purge issued first, inside the block). These fixtures drive the
     # reaps through it rather than through the DELETE, because a row that
     # still names an artifact is deliberately NOT purged.
     artifact_rows = MagicMock()
-    # fix(#1778 codex r7): (id, user_metadata), because the analysis reap is
+    # (id, user_metadata), because the analysis reap is
     # keyed on the owning job now rather than on a name two jobs could hold.
     artifact_rows.all.return_value = [
         (job_row_id, um) for (job_row_id, _fp, um) in (purged_rows or [])

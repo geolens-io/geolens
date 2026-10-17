@@ -60,7 +60,7 @@ def _make_layer(table: str = "data.test_table", geom: str = "Polygon") -> ChatMa
 
 
 def test_schema_cache_key_isolates_by_map_id() -> None:
-    """PERF-04: same layers under different map_id produce distinct cache
+    """Same layers under different map_id produce distinct cache
     keys (cross-map isolation)."""
     layer = _make_layer()
     key_a = _schema_cache_key([layer], map_id="map-A")

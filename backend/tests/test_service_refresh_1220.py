@@ -59,7 +59,7 @@ pytestmark = pytest.mark.anyio
 
 _ARCGIS_BASE = "https://services.example.com/arcgis/rest/services/Parcels/FeatureServer"
 _WFS_BASE = "https://services.example.com/geoserver/wfs"
-# fix(#1746 codex r2): the third service type the marker gate has to
+# The third service type the marker gate has to
 # answer for, and the second that cannot be probed.
 _OGCAPI_BASE = "https://services.example.com/ogcapi"
 
@@ -128,7 +128,7 @@ async def _dispatch_harness():
     """
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None)
-    # fix(#1770 round 35): a header-auth credential (the default source_format
+    # A header-auth credential (the default source_format
     # here is "wfs") routes the dispatch through task.configure(queue=...)
     # before defer_async. Returning the SAME mock from configure() keeps every
     # existing `task.defer_async` assertion in this file valid whichever path
@@ -157,12 +157,12 @@ async def _service_dataset(
 ):
     """A dataset bound to a service origin the way ingest binds one.
 
-    fix(#1277 review round 8): the enriched pointer is ``base/layer_id`` for
+    The enriched pointer is ``base/layer_id`` for
     EVERY service type, not just ArcGIS. The probe sets
     ``layer_id = layer["name"]`` for WFS and OGC API, and both ingest paths
     compose the stored URL as ``base/layer_id when layer_id is not None``.
     Seeding WFS with a bare base encoded the same wrong premise the handler
-    did, which is why round 1 looked self-consistent.
+    did, which is why it looked self-consistent.
     """
     dataset = await _create_dataset(
         session,
@@ -192,12 +192,12 @@ async def _service_dataset(
 async def _probe_harness(*, result=None, raises=None):
     """Patch the refresh door's token-less probe; yield the mock.
 
-    fix(#1746 codex r1): the door no longer refuses on the stored marker
+    The door no longer refuses on the stored marker
     alone, it asks the origin. Tests need to state the origin's answer, and to
     assert that the probe did NOT happen on the paths that must not pay for
     one.
 
-    fix(#1746 codex r2): only the ArcGIS path probes, so this patches the
+    Only the ArcGIS path probes, so this patches the
     ArcGIS origin probe by name. A WFS or OGC API dataset that reaches the
     probe at all is the bug this harness now also catches.
     """
@@ -305,7 +305,7 @@ class TestRefreshDispatch:
         ``layer_id = layer["name"]`` for these services. So both slots carry
         the identity, or a refresh rewrites the pointer the import wrote.
 
-        fix(#1277 review round 8): this asserted ``layer_id is None`` on the
+        This asserted ``layer_id is None`` on the
         reasoning that ``base/typename`` addressed nothing. It is exactly what
         an imported WFS dataset stores.
         """
@@ -428,18 +428,18 @@ class TestRefreshDispatch:
 
 
 class TestAuthRequiredRefusal:
-    """fix(#1746) finding 3: the door refuses what the worker cannot do.
+    """The door refuses what the worker cannot do.
 
     Before this, a credential-less refresh of an org-only service answered
     202 and then failed ~0.5s later in the worker, where the only statement
     of the real cause was a job error message nobody was watching.
 
-    fix(#1746 codex r1): the stored marker says the last successful pull was
+    The stored marker says the last successful pull was
     MADE with a token, which is not the same claim as "the origin demands
     one" — a public service imported while the user held a token is marked
     too. So the marker is a gate.
 
-    fix(#1746 codex r2): and the gate resolves differently per service,
+    And the gate resolves differently per service,
     because only ArcGIS can be asked. Its probe target is the layer the
     worker actually reads. A WFS or OGC API probe would hit GetCapabilities
     or the landing page, which says nothing about whether GetFeature or
@@ -621,7 +621,7 @@ class TestAuthRequiredRefusal:
         base_url: str,
         layer_id: str,
     ) -> None:
-        """fix(#1746 codex r2): a probe here could only ask the wrong question.
+        """A probe here could only ask the wrong question.
 
         ``service_probe_target`` deliberately aims a WFS at GetCapabilities
         and an OGC API at its landing page, because those are the documents
@@ -675,7 +675,7 @@ class TestAuthRequiredRefusal:
 
         message = resp.json()["detail"]["message"]
         assert "re-upload" in message
-        # fix(#1746 B2b review r1): "a credential" rather than "a token" — the
+        # "a credential" rather than "a token" — the
         # dialog takes all three methods now, and the marker is set by any of
         # them.
         assert "without a credential" in message
@@ -687,7 +687,7 @@ class TestAuthRequiredRefusal:
     async def test_the_session_is_released_across_the_probe_and_re_read_after(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1746 codex r2): the pool must not be held across the wait.
+        """The pool must not be held across the wait.
 
         The probe can hold its full deadline against a slow origin, and a
         session held across it pins one of the pool's connections — enough
@@ -802,7 +802,7 @@ class TestAuthRequiredRefusal:
     async def test_a_marker_that_lands_during_the_reservation_is_caught(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1746 codex r3): the binding check cannot see this one.
+        """The binding check cannot see this one.
 
         An authenticated re-upload commits its swap while this refresh is
         reserving. The origin did not move, so ``origin != candidate`` passes,
@@ -1365,7 +1365,7 @@ class TestRefreshRefusals:
         editor_auth_header: dict,
         test_db_session,
     ) -> None:
-        """fix(#1746 B2b review r1): every refusal behind the same gate.
+        """Every refusal behind the same gate.
 
         The credential policy is chosen by `dataset.source_format`, so judging
         it before the write-access check answered 422 for a dataset the caller
@@ -1408,7 +1408,7 @@ class TestRefreshRefusals:
         admin_auth_header: dict,
         test_db_session,
     ) -> None:
-        """fix(#1746 B2b review r1): `token` alone is not advice a basic user can take.
+        """`token` alone is not advice a basic user can take.
 
         A WFS origin last pulled with a username and password is marked by the
         same `auth_required` flag as a bearer one, and the deprecated `token`
@@ -1502,7 +1502,7 @@ class TestCredentialHandoff:
         )
 
         # And the secret really is retrievable by the reference, once.
-        # feat(#1746 B2b) plan D9: what a header-auth service stages is the
+        # What a header-auth service stages is the
         # finished header line the door composed, not the bare token, so one
         # wire format reaches the worker whatever method the caller used.
         assert (
@@ -1632,9 +1632,9 @@ class TestCredentialHandoff:
         assert ttl == creds.CREDENTIAL_TTL_SECONDS
 
     def test_the_ttl_survives_a_skipped_renewal_cycle(self) -> None:
-        """fix(#1277 review round 2): the TTL is bounded by renewal now.
+        """The TTL is bounded by renewal now.
 
-        Round 1 derived it from JOB_TIMEOUT_SECONDS, which turned out not to
+        An earlier version derived it from JOB_TIMEOUT_SECONDS, which turned out not to
         bound anything relevant: the heartbeat keeps a healthy long import
         alive indefinitely, so that constant bounds a DEAD worker's lease. The
         mirrored constant and its drift test went with the premise — a dead
@@ -1666,7 +1666,7 @@ class TestCredentialHandoff:
         assert "renew_queued_credentials_once()" in source
 
     def test_the_sweeper_never_renews_outside_a_tenant_context(self) -> None:
-        """fix(#1277 review round 3): the renewal is tenant-scoped now.
+        """The renewal is tenant-scoped now.
 
         It used to open its own session after ``sweep_stale_jobs_once`` had
         exited every ``tenant_job_context`` block, so in multi-tenant mode the
@@ -1691,7 +1691,7 @@ class TestCredentialHandoff:
         helper = inspect.getsource(creds.renew_queued_credentials_once)
         assert "tenant_job_context" in helper
         assert "is_multi_tenant()" in helper
-        # fix(#1277 review round 4): and the worker hosts it too. API liveness
+        # The worker hosts it too. API liveness
         # does not bound an already-committed task's wait, so a single host
         # let a healthy worker find a credential the API's downtime expired.
         from app.platform.jobs import worker
@@ -1780,7 +1780,7 @@ class TestRedisBackendContract:
     async def test_a_transport_failure_on_claim_is_not_reported_as_expiry(
         self,
     ) -> None:
-        """The misreport codex caught: an outage blamed on a spent token.
+        """The misreport to avoid: an outage blamed on a spent token.
 
         Only the store ANSWERING "no such key" is evidence about the
         credential. A store that cannot be reached is evidence of nothing.
@@ -1860,13 +1860,13 @@ class TestWorkerCredentialClaim:
 
 
 # ---------------------------------------------------------------------------
-# Credential renewal (#1277 review round 2)
+# Credential renewal
 # ---------------------------------------------------------------------------
 
 
 class TestCredentialRenewal:
     """The TTL is short because renewal keeps it honest, not because the queue
-    is short. Round 1 assumed a constant could bound the wait; the heartbeat
+    is short. An earlier version assumed a constant could bound the wait; the heartbeat
     means it cannot, so the bound is now "the dispatch is still queued".
 
     Three independent stops, one test each, because a renewal that keeps
@@ -1943,7 +1943,7 @@ class TestCredentialRenewal:
     async def test_a_dispatch_being_worked_on_is_still_renewed(
         self, client, test_db_session, credential_backend
     ) -> None:
-        """fix(#1277 review round 7): 'doing' does not mean the key is gone.
+        """'doing' does not mean the key is gone.
 
         Procrastinate flips the row to 'doing' BEFORE invoking the task, and
         the task revalidates its URL for SSRF — an unbounded DNS resolution —
@@ -1953,7 +1953,7 @@ class TestCredentialRenewal:
         actively being worked on.
 
         The predicate now matches the abandonment sweep's liveness test
-        exactly, which is the same deferral round 5 applied to the run side.
+        exactly, which is the same deferral applied to the run side.
         """
         ref = await creds.stash_service_credential("being-worked-on")
         await self._dispatch(test_db_session, ref=ref, pj_status="doing")
@@ -1992,7 +1992,7 @@ class TestCredentialRenewal:
     async def test_an_old_run_with_a_live_task_is_still_renewed(
         self, client, test_db_session, credential_backend
     ) -> None:
-        """fix(#1277 review round 5): the sweep owns "abandoned", not this.
+        """The sweep owns "abandoned", not this.
 
         An earlier version stopped renewing once the run passed
         ABANDONED_RUN_CUTOFF_SECONDS. That contradicted the sweep, which
@@ -2048,7 +2048,7 @@ class TestCredentialRenewal:
     async def test_renewal_and_the_sweep_agree_while_the_task_is_executing(
         self, client, test_db_session, credential_backend
     ) -> None:
-        """fix(#1277 review round 7): the same pin, for the 'doing' half.
+        """The same pin, for the 'doing' half.
 
         The sweep's liveness test is `IN ('todo', 'doing')` in all three of
         its predicates — an executing job is not abandoned — and renewal was
@@ -2117,7 +2117,7 @@ class TestCredentialRenewal:
 
 
 # ---------------------------------------------------------------------------
-# One token policy, both sides (#1277 review round 6)
+# One token policy, both sides
 # ---------------------------------------------------------------------------
 
 
@@ -2239,7 +2239,7 @@ class TestServiceTokenPolicy:
     def test_both_sides_consume_the_same_policy(self) -> None:
         """The invariant, named where whoever edits either side will trip.
 
-        Structural like round 8's sweep-versus-renewal pin, and for the same
+        Structural like the sweep-versus-renewal pin, and for the same
         reason: neither policy was wrong on its own, so only their agreement is
         worth asserting. The worker keeps its own enforcement — the guarantee
         is about what reaches libcurl and must not rest on a validator in
@@ -2259,7 +2259,7 @@ class TestServiceTokenPolicy:
         from app.platform import service_auth
         from app.processing.ingest import ogr, service
 
-        # The worker judges a LINE now (plan D9), and keeps the base64url
+        # The worker judges a LINE now, and keeps the base64url
         # charset and the length floor on the bearer branch of it, so nothing
         # about today's bearer guarantee weakens.
         worker_source = inspect.getsource(ogr._sanitize_authorization_token)
@@ -2272,7 +2272,7 @@ class TestServiceTokenPolicy:
         # Every door that can hand a service credential to the worker, by the
         # name whoever adds the next one will search for.
         #
-        # fix(#1746 B2b): the name changed and the test follows it rather than
+        # The name changed and the test follows it rather than
         # being deleted. A door no longer applies one charset rule to one bare
         # token: it hands the whole credential to `wire_credential`, which
         # selects the policy by service format, judges the inputs and composes
@@ -2334,7 +2334,7 @@ class TestServiceTokenPolicy:
 
 
 class TestRefreshDoesNotRespellTheBinding:
-    """fix(#1277 review round 8): a refresh re-ingests; it must not rewrite
+    """A refresh re-ingests; it must not rewrite
     how the origin is spelled.
 
     The worker composes the stored pointer as ``base/layer_id`` when layer_id

@@ -121,7 +121,7 @@ async def test_get_branding_after_config_override(client: AsyncClient):
 async def test_get_branding_privacy_url_unset_by_default(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """PRIV-1: no privacy_url is configured until an admin sets one.
+    """No privacy_url is configured until an admin sets one.
 
     GET /api/settings/branding/ returns null (community and self-hosted
     instances never link to another operator's privacy page by default), and
@@ -436,7 +436,7 @@ async def test_put_privacy_url_accepts_uts46_mapped_hosts(
 
 @pytest.mark.anyio
 async def test_get_branding_drops_an_unsafe_stored_privacy_url(client: AsyncClient):
-    """PRIV-1 reader-side defense: an unsafe stored value must never reach
+    """Reader-side defense: an unsafe stored value must never reach
     the login page as a raw <a href>, even if it bypassed the admin-write
     validator — a row written before that check existed, or by any other
     path than PUT /api/settings/. Writes through PersistentConfig.set()

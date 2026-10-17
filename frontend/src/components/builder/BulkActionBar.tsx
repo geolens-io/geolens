@@ -30,11 +30,11 @@ interface BulkActionBarProps {
   onBulkGroup: (ids: Set<string>) => void;
   onBulkUngroup: (ids: Set<string>) => void;
   onBulkDelete: (ids: Set<string>) => void;
-  /** Phase 1201-01 (ENH-03): apply the first selected (or copied) layer's style
+  /** Apply the first selected (or copied) layer's style
    *  to all geometry-compatible selected layers. Optional so existing call sites
    *  that have not wired it compile; the menu item hides when absent. */
   onBulkApplyStyle?: (ids: Set<string>) => void;
-  /** Phase 1047-04 (PERF-03): true while bulk-delete HTTP call is in flight.
+  /** True while bulk-delete HTTP call is in flight.
    *  Swaps Trash2 → Loader2, disables the Delete button, sets aria-busy. */
   isDeleting?: boolean;
   /** fix(v1.6.0 audit A5): count of layers in the in-flight delete batch, captured
@@ -46,7 +46,7 @@ interface BulkActionBarProps {
 }
 
 // ---------------------------------------------------------------------------
-// builder-audit #338 STACK-01/STACK-08: getParentGroupId and isFolderGroupLayer are
+// getParentGroupId and isFolderGroupLayer are
 // imported from their canonical homes (folder-groups.ts / layer-capabilities.ts)
 // instead of being re-implemented inline with `as unknown as` / a hard-coded
 // 'group:folder' substring check.
@@ -72,7 +72,7 @@ export const BulkActionBar = memo(function BulkActionBar({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [mounted, setMounted] = useState(false);
   const confirmId = useId();
-  // fix(#833): the overflow items' aria-label overrides their subtree as the
+  // The overflow items' aria-label overrides their subtree as the
   // accessible name, so the inline disabled-reason hints were invisible to
   // assistive tech. Exposing each hint via aria-describedby (only while it
   // renders) keeps the short label as the name and surfaces the reason as the
@@ -129,7 +129,7 @@ export const BulkActionBar = memo(function BulkActionBar({
     [layers, selectedIds],
   );
 
-  // fix(#771): group container rows have no backend record — handleBulkDelete
+  // Group container rows have no backend record — handleBulkDelete
   // filters them out of the batch — so every delete-facing count must be the
   // DELETABLE count, not the selection size. Counting group rows promised
   // deletions that never happened ("Delete 2 layers" on two group headers →
@@ -149,7 +149,7 @@ export const BulkActionBar = memo(function BulkActionBar({
   const majorityVisible = visibleCount > N / 2;
 
   // Group enabled: ALL selected are loose layers (not in a group, not a group
-  // row). fix(#585): the extra vector_dataset requirement disagreed with
+  // row). The extra vector_dataset requirement disagreed with
   // StackRow's "Add to group…" and with drag-and-drop membership, both of
   // which accept raster/DEM rows — canJoinFolderGroup is the shared predicate.
   const canGroup = useMemo(
@@ -194,7 +194,7 @@ export const BulkActionBar = memo(function BulkActionBar({
       tabIndex={-1}
       role="toolbar"
       aria-label={t('bulkActions.toolbarLabel', { count: N })}
-      // SF-01 (Phase 1049): marker for UnifiedStackPanel's outside-click guard.
+      // Marker for UnifiedStackPanel's outside-click guard.
       // Without it, clicking the inline "Delete N layers" confirm button fires the
       // document-level mousedown listener BEFORE the React click handler, clearing
       // selection + unmounting the bar — so the onClick that calls onBulkDelete
@@ -234,7 +234,7 @@ export const BulkActionBar = memo(function BulkActionBar({
           <span className="text-sm text-muted-foreground flex-1">
             {t('bulkActions.deletingLayers', { count: displayDeleteCount })}
           </span>
-          {/* ux(#777): variant="destructive" (not ghost+text-destructive) so the
+          {/* variant="destructive" (not ghost+text-destructive) so the
               in-flight button matches the confirm button the user just pressed. */}
           <Button
             type="button"
@@ -270,7 +270,7 @@ export const BulkActionBar = memo(function BulkActionBar({
             id={confirmId}
             className="flex-1 text-sm text-destructive text-center"
           >
-            {/* fix(#771): the confirm promises only what the handler will
+            {/* The confirm promises only what the handler will
                 actually delete — group rows are filtered out of the batch. */}
             {t('bulkActions.deleteConfirmLabel', { count: deletableCount })}
           </p>
@@ -278,7 +278,7 @@ export const BulkActionBar = memo(function BulkActionBar({
             type="button"
             variant="ghost"
             size="sm"
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- focus on safe choice per AUD-09 / UI-SPEC §5
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- focus on safe choice
             autoFocus
             onClick={(e) => {
               e.stopPropagation();
@@ -290,7 +290,7 @@ export const BulkActionBar = memo(function BulkActionBar({
           >
             {t('bulkActions.deleteConfirmCancel')}
           </Button>
-          {/* ux(#777): destructive action styled variant="destructive" and placed
+          {/* Destructive action styled variant="destructive" and placed
               last (right), matching InlineDeleteConfirm and every ui/alert-dialog
               footer — deleting one layer and deleting five are the same gesture. */}
           <Button
@@ -315,9 +315,9 @@ export const BulkActionBar = memo(function BulkActionBar({
       ) : (
         // ------------------------------------------------------------------
         // Normal state: inline count + Visibility + Opacity, then overflow menu
-        // SP-01 (Phase 1045): Group / Ungroup / Delete were previously inline
+        // Group / Ungroup / Delete were previously inline
         // and clipped by the 340px sidebar `<aside class="overflow-hidden">`
-        // (smoke check 2026-05-15, B-02). They now live behind a `…` overflow
+        // (seen in a smoke check). They now live behind a `…` overflow
         // trigger so the entire bar fits the sidebar width while Group / Ungroup
         // / Delete remain reachable via keyboard + pointer.
         // ------------------------------------------------------------------
@@ -379,7 +379,7 @@ export const BulkActionBar = memo(function BulkActionBar({
             />
           </div>
 
-          {/* Overflow menu — Group / Ungroup / Delete (SP-01) */}
+          {/* Overflow menu — Group / Ungroup / Delete */}
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -403,7 +403,7 @@ export const BulkActionBar = memo(function BulkActionBar({
               align="end"
               side="top"
               className="w-48"
-              // SP-01 (Phase 1045): Radix portals the menu content out of the
+              // Radix portals the menu content out of the
               // UnifiedStackPanel's stackPanelRef subtree. The panel's
               // `document.mousedown` outside-click guard treats portal clicks
               // as "outside" and would clear the multi-selection before our
@@ -414,7 +414,7 @@ export const BulkActionBar = memo(function BulkActionBar({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Phase 1201-01 ENH-03: apply one selected layer's style to all
+              {/* Apply one selected layer's style to all
                   geometry-compatible peers. Enabled at 2+ selected; the hook
                   filters compatibility + skips mismatches with a count toast. */}
               {onBulkApplyStyle && (
@@ -428,7 +428,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                   }}
                 >
                   <Paintbrush className="h-3.5 w-3.5 me-2" aria-hidden="true" />
-                  {/* fix(#585): disabled items state their reason inline
+                  {/* Disabled items state their reason inline
                       (tooltips don't fire on disabled elements). */}
                   <span className="flex flex-col items-start">
                     {t('bulkActions.applyStyle')}
@@ -482,7 +482,7 @@ export const BulkActionBar = memo(function BulkActionBar({
               <DropdownMenuItem
                 data-testid="bulk-action-delete"
                 className="text-destructive focus:text-destructive"
-                // fix(#771): disabled when the selection holds only group rows —
+                // Disabled when the selection holds only group rows —
                 // the handler filters them out, so confirming would delete nothing.
                 disabled={deletableCount === 0}
                 aria-label={t('bulkActions.deleteAriaLabel', { count: deletableCount })}

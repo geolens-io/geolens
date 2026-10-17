@@ -28,7 +28,7 @@ interface MapWithBounds {
  * lng/lat degree plane. This is an approximation (it ignores Mercator area
  * distortion), which is fine for a UX threshold check.
  *
- * fix(#1128): where `demBounds` comes from, because it is easy to get wrong,
+ * Where `demBounds` comes from, because it is easy to get wrong,
  * and it is no longer the same on both call sites.
  *
  * BuilderMap passes the DEM layer's `dataset_extent_bbox` — the RFC 7946 §5.2
@@ -43,7 +43,7 @@ interface MapWithBounds {
  * use-viewer-terrain still passes the token bounds, because `SharedLayerResponse`
  * carries no extent field (maps/schemas.py) — and it does not matter: that call
  * site passes `audience: 'viewer'`, which returns below before `demBounds` is
- * ever read (#430 V-06). The viewer emits no coverage toast at all.
+ * ever read. The viewer emits no coverage toast at all.
  *
  * The seam still matters, for the other rectangle. `map.getBounds()` is always
  * monotonic — MapLibre takes min/max over four UNWRAPPED corner longitudes —
@@ -97,7 +97,7 @@ function coveredLength(t: number, width: number): number {
 /**
  * Longitudinal overlap of the DEM with the viewport, measured on the circle.
  *
- * fix(#1124 codex P2): this used to score the DEM against a fixed `[-360, 0,
+ * This used to score the DEM against a fixed `[-360, 0,
  * 360]` shift list. `renderWorldCopies` is on by default, so `getBounds()` runs
  * further out the more the user pans and a Fiji DEM can legitimately be viewed
  * at `[899.5, 902]`, two whole turns east. A fixed list answers "how many
@@ -116,7 +116,7 @@ function lonOverlap(dem: [number, number], view: [number, number]): number {
   const demWidth = dem[1] - dem[0];
   // A DEM spanning the globe covers every longitude, at every pan distance.
   //
-  // fix(#1128): this branch used to swallow every seam-crossing DEM too, and no
+  // This branch used to swallow every seam-crossing DEM too, and no
   // arithmetic here could have separated them. `extent_to_span_bbox`
   // (processing/tiles/router.py) widens a crossing extent to exactly
   // [-180, s, 180, n] — the same value a genuinely global raster produces — so
@@ -229,7 +229,7 @@ export function maybeWarnSmallDemCoverage(args: {
   dedupeKey: string;
   threshold?: number;
   /**
-   * fix(#430 V-06): the warning's copy ("zoom in", "drape it over a coarse global
+   * The warning's copy ("zoom in", "drape it over a coarse global
    * DEM") is builder-actionable advice; anonymous/read-only viewers can't act
    * on it. Pass `'viewer'` to suppress the toast entirely for that audience.
    * Defaults to `'builder'` so existing call sites keep their behavior.
@@ -239,7 +239,7 @@ export function maybeWarnSmallDemCoverage(args: {
   const { map, demBounds, dedupeKey, audience = 'builder' } = args;
   const threshold = args.threshold ?? SMALL_DEM_COVERAGE_THRESHOLD;
 
-  // fix(#430 V-06): viewer sessions never see this builder-oriented advice toast.
+  // Viewer sessions never see this builder-oriented advice toast.
   if (audience === 'viewer') return false;
 
   let viewport: number[] | null = null;

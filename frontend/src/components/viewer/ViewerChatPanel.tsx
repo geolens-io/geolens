@@ -160,7 +160,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
       geojson.type === 'FeatureCollection' &&
       Array.isArray(action.bbox) &&
       action.bbox.length === 4 &&
-      // fix(#527 B-054/C-06): Number.isFinite + non-inverted — NaN/inverted
+      // Number.isFinite + non-inverted — NaN/inverted
       // bounds pass the range comparisons and throw in fitBounds.
       action.bbox.every((n: unknown) => Number.isFinite(n))
     ) {
@@ -177,7 +177,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         // The producer half is #1071; until it lands this branch is correct and
         // simply not yet reachable for a clip.
         //
-        // feat(#1241 codex r1): `truncated` is the SQL row cap, not a statement
+        // `truncated` is the SQL row cap, not a statement
         // about the overlay — the server clips the FeatureCollection to its own
         // render budget after it, so a 300-row answer arrives as 50 features
         // with the flag false. chatOverlayCompleteness catches that too. The
@@ -378,7 +378,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           </div>
 
           <div className="flex items-end gap-2 border-t px-3 py-2">
-            {/* fix(#438): DS-03 — raw textarea kept for the auto-growing
+            {/* Raw textarea kept for the auto-growing
                 chat composer; the ui/textarea primitive covers static fields. */}
             <textarea
               ref={inputRef}

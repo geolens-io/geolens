@@ -3,7 +3,7 @@ import { canUseClusterSource } from './cluster-source';
 import { classifyGeometry } from './layer-adapters/shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import i18n from '@/i18n/i18n';
-// builder-audit #338 ADAPT-05/06 / DRY-04/06: pull the per-render-mode default paint and
+// Pull the per-render-mode default paint and
 // the arrow/extrusion magic constants from the single builder-defaults source of truth
 // instead of re-declaring divergent copies here.
 import {
@@ -45,11 +45,11 @@ interface RenderAsOption {
   source: RenderAsSource;
 }
 
-// builder-audit #338 ADAPT-07: trimmed RendererCapability to the fields runtime code
+// Trimmed RendererCapability to the fields runtime code
 // actually reads. The previous schema modeled backend/viewerSupport/styleJsonSupport/
 // companionLayers/sourceRequirement/writableFields/enabled, none of which had a
 // consumer outside this module and its tests (every row was backend:'maplibre',
-// enabled:true). GUARD-05: 'deckgl-future' was already removed; with the single
+// enabled:true). 'deckgl-future' was already removed; with the single
 // backend gone there is no multi-backend abstraction left to model.
 interface RendererCapability {
   id: RenderAsId;
@@ -130,7 +130,7 @@ function isRasterLayer(layer: RenderAsLayer) {
   );
 }
 
-// builder-audit #338 ADAPT-02/DRY-05: derive from the single classifyGeometry scanner.
+// Derive from the single classifyGeometry scanner.
 function geometryFamily(geometryType: string | null): 'point' | 'line' | 'polygon' | null {
   const family = classifyGeometry(geometryType);
   return family === 'other' ? null : family;
@@ -201,7 +201,7 @@ function numericHeightColumn(layer: RenderAsLayer) {
 }
 
 /** The column auto-pick would choose on extrusion entry — the "uncustomized"
- *  heightColumn baseline for hasCustomizedRenderAsStyle (fix #430 codex). */
+ *  heightColumn baseline for hasCustomizedRenderAsStyle. */
 function defaultHeightColumn(layer: RenderAsLayer): string {
   const numericColumn = layer.dataset_column_info?.find((column) => {
     const type = column.type.toLowerCase();
@@ -299,7 +299,7 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
 }
 
 /**
- * fix(#430 V-09): whether the layer's CURRENT render mode carries mode-specific
+ * Whether the layer's CURRENT render mode carries mode-specific
  * style settings that diverge from that mode's fresh/default state. Used to
  * decide whether the render-as confirm dialog is warranted — a layer that has
  * never been customized beyond the mode's defaults has nothing to lose by
@@ -325,7 +325,7 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
         || (symbol.iconSize !== undefined && symbol.iconSize !== 1)
         || (symbol.iconRotation !== undefined && symbol.iconRotation !== 0)
         || (symbol.iconAnchor !== undefined && symbol.iconAnchor !== 'center')
-        // fix(#430 codex r3): the Symbol editor also persists iconOffset and a
+        // The Symbol editor also persists iconOffset and a
         // per-category icon mapping — all dropped when leaving symbol mode.
         || (symbol.iconOffset !== undefined
           && (symbol.iconOffset[0] !== 0 || symbol.iconOffset[1] !== 0))
@@ -342,7 +342,7 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'cluster': {
-      // fix(#430 codex r9): clusterColor is auto-seeded on mode entry (from
+      // clusterColor is auto-seeded on mode entry (from
       // the circle paint), so presence alone isn't customization — diverging
       // from that seed is (same pattern as extrusion heightColumn). Any
       // non-empty ramp is user-authored destructible state.
@@ -356,13 +356,13 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
         || (typeof builder.clusterTextSize === 'number' && builder.clusterTextSize !== 12)
         || (typeof builder.clusterColor === 'string' && builder.clusterColor !== seededClusterColor)
         || (Array.isArray(builder.clusterColorRamp) && builder.clusterColorRamp.length > 0)
-        // ux(#839): counts hidden is user-authored destructible state.
+        // Counts hidden is user-authored destructible state.
         || builder.clusterShowCounts === false
       );
     }
 
     case 'arrow': {
-      // fix(#430 codex r17): arrowColor is auto-seeded on mode entry from the
+      // arrowColor is auto-seeded on mode entry from the
       // line paint (same pattern as clusterColor/heightColumn); diverging
       // from the seed is destructible state. With this, every editor-persisted
       // builder field (arrow*, cluster*, heightColumn, symbol.*) is covered
@@ -378,7 +378,7 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'extrusion-3d': {
-      // fix(#430 codex): a user-chosen heightColumn is destructible state too —
+      // A user-chosen heightColumn is destructible state too —
       // leaving extrusion deletes it. Entry auto-picks a column, so presence
       // alone isn't customization; diverging from the auto-pick default is.
       const heightColumn = builderHeightColumn(layer);
@@ -546,7 +546,7 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
       builder.heightColumn = numericHeightColumn(layer);
       builder.heightScale = typeof priorHeightScale === 'number' ? priorHeightScale : 1;
       builder.extrusionMinZoom = typeof priorExtrusionMinZoom === 'number' ? priorExtrusionMinZoom : DEFAULT_EXTRUSION_MIN_ZOOM;
-      // builder-audit #338 (verifier nit): the prior `Math.min(0.85, 1)` was a no-op that
+      // The prior `Math.min(0.85, 1)` was a no-op that
       // always evaluated to 0.85; use the shared extrusion-opacity cap directly.
       builder.extrusionOpacity = typeof priorExtrusionOpacity === 'number' ? priorExtrusionOpacity : DEFAULT_EXTRUSION_OPACITY_CAP;
     }

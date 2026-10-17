@@ -172,7 +172,7 @@ class TestUploadFile:
         assert int(result.status_code) == 201
 
     def test_raises_the_timeout_then_restores_it(self, tmp_path: Path) -> None:
-        """fix(#1778 review round 5): the backend saves and validates the
+        """The backend saves and validates the
         replacement before responding, so a large file posted through
         AppState.sdk()'s plain 30s bound could time out. upload_file()
         must raise the bound for the POST itself (long_request_timeout()) and
@@ -345,7 +345,7 @@ class TestOriginRefusalMessage:
         assert origin_refusal_message(origin) is None
 
     def test_enumerates_every_known_origin_kind(self) -> None:
-        """gh#1767 review round 2 P2: every kind the platform defines gets
+        """gh#1767 P2: every kind the platform defines gets
         a deliberate answer here, not a silent pass-through."""
         from geolens_cli.replace import KNOWN_ORIGIN_KINDS, origin_refusal_message
 
@@ -583,10 +583,10 @@ class TestReplaceSingleLayerHappyPath:
 
 
 class TestReplaceStage2PreviewIsBounded:
-    """fix(#1778 review round 6): the Stage 2 preview step runs the
+    """The Stage 2 preview step runs the
     backend's run_ogrinfo_preview() probe (OGRINFO_TIMEOUT_SECONDS =
     300s, backend/app/processing/ingest/ogr.py) — a request with no
-    file body, so round 5's files=-keyed structural gate missed it.
+    file body, so the files=-keyed structural gate missed it.
     Stage 2 must wrap the preview call in long_request_timeout()."""
 
     def test_replace_stage2_preview_captures_the_extended_timeout(
@@ -818,7 +818,7 @@ class TestReplaceConfirmationPrompt:
 
 
 class TestReplaceJsonModeConfirmation:
-    """gh#1767 review round 4 P1: Click 8.3's confirm() writes part of the
+    """gh#1767 P1: Click 8.3's confirm() writes part of the
     exchange to stdout regardless of err=True (it echoes piped input back),
     so interactive confirmation is incompatible with a pure-JSON stdout
     contract. --json is a scripting mode and never prompts; it requires

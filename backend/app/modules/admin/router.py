@@ -49,7 +49,7 @@ from app.modules.auth.dependencies import (
     require_mode_permission,
     require_permission,
 )
-from app.platform.ratelimit import limiter  # HARDEN-01: shared rate-limiter instance
+from app.platform.ratelimit import limiter  # shared rate-limiter instance
 from app.modules.auth.models import User
 from app.modules.auth.schemas import RoleName, UserResponse
 from app.processing.export.service import safe_content_disposition
@@ -165,7 +165,7 @@ def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
     raise HTTPException(status_code=default_status, detail=detail)
 
 
-# ROUTE-01: dual-shape decorator — trailing-slash form is canonical (in OpenAPI);
+# Dual-shape decorator — trailing-slash form is canonical (in OpenAPI);
 # no-slash is a hidden alias closing the redirect_slashes=False 404 regression.
 @router.post(
     "/users",
@@ -187,10 +187,10 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Create a new user with the specified role (admin only)."""
-    # DOMAIN-04: enforce allowed_email_domains on admin-create. Break-glass:
+    # Enforce allowed_email_domains on admin-create. Break-glass:
     # the requesting admin is exempt when they hold manage_settings (see the
     # shared gate, fix(#836)).
-    from app.modules.auth.domain_policy import (  # LAZY — per D-17
+    from app.modules.auth.domain_policy import (
         enforce_email_domain_gate,
     )
 
@@ -225,7 +225,7 @@ async def create_user(
     return _user_response(user)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.get(
     "/users",
     response_model=UserListResponse,
@@ -270,8 +270,8 @@ async def list_users(
         sort=sort,
         order=order,
     )
-    # QUOTA-04: quota usage for the page. fix(#435): genuinely batched now — this
-    # said "batch" but ran one three-table aggregate per user, 200 users per page.
+    # Quota usage for the page, fetched in one batch rather than one
+    # three-table aggregate per user.
     usage_by_user = await get_user_quota_usage_bulk(db, [u.id for u in users])
     user_responses = [
         UserResponse(
@@ -416,7 +416,7 @@ async def export_users_csv(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.get(
     "/users/names",
     response_model=list[UserNameItem],
@@ -511,7 +511,7 @@ async def update_user(
     return _user_response(user)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.post(
     "/users/{user_id}/deactivate",
     response_model=UserResponse,
@@ -552,7 +552,7 @@ async def deactivate_user(
     return _user_response(user)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.post(
     "/users/{user_id}/reset-password",
     response_model=UserResponse,
@@ -605,7 +605,7 @@ async def reset_user_password(
     return _user_response(user)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.post(
     "/users/{user_id}/convert-saml-to-local",
     response_model=UserResponse,
@@ -626,16 +626,16 @@ async def convert_saml_to_local(
 ) -> UserResponse:
     """Convert a SAML-authenticated user to local-password (admin only).
 
-    Phase 221 LIFECYCLE-06. The conversion happens in a single DB transaction:
+    The conversion happens in a single DB transaction:
     validate -> set password -> flip auth_provider -> delete SAML oauth_accounts
     row -> write audit_log row. The audit_log write is the LAST step before
-    commit (per D-05) so failed conversions never leave an orphan audit entry.
+    commit so failed conversions never leave an orphan audit entry.
 
     Audit details are an explicit allow-list ({"from", "to", "provider_slug"})
     -- password material is never logged.
 
     Self-conversion is blocked with 422 to prevent admin self-lockout when an
-    admin fat-fingers the new password (Phase 221 Risk Surfaces / Pitfall 7).
+    admin fat-fingers the new password.
     """
     # Self-conversion guard -- mirrors update_user's self-action guard at
     # router.py:180-184. 422 (NOT 400/403) per the existing convention.
@@ -682,7 +682,7 @@ async def convert_saml_to_local(
     return _user_response(user)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.post(
     "/users/{user_id}/approve",
     response_model=UserResponse,
@@ -724,7 +724,7 @@ async def approve_user(
     return _user_response(user)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.post(
     "/users/{user_id}/reject",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -797,7 +797,7 @@ async def delete_user(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.get(
     "/stats",
     response_model=CatalogStatsResponse,
@@ -816,7 +816,7 @@ async def get_catalog_stats(
     return await service.get_catalog_stats()
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.get(
     "/jobs",
     response_model=AdminJobListResponse,
@@ -960,7 +960,7 @@ def _ai_status(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 # fix(#627): exclude_unset so the `probe` field appears ONLY when the caller
 # opted in — the default response keeps its exact pre-probe JSON shape.
 # Safe because _ai_status passes every other field explicitly.
@@ -1019,7 +1019,7 @@ async def get_ai_status(
     return result
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 # fix(#627): exclude_unset for shape parity with GET (probe is never set here).
 @router.patch(
     "/ai-status",
@@ -1066,7 +1066,7 @@ async def update_ai_status(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.get(
     "/embedding-stats",
     response_model=EmbeddingStatsResponse,
@@ -1137,7 +1137,7 @@ async def _require_backfill_permission(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+# Dual-shape decorator — see /users above.
 @router.post(
     "/backfill-embeddings",
     response_model=BackfillResponse,

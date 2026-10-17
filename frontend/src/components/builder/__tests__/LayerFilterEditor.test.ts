@@ -330,7 +330,7 @@ describe('LayerFilterEditor layout', () => {
 });
 
 // ---------------------------------------------------------------------------
-// PB-04 / PERF-04: Value input debounce at 200ms
+// Value input debounce at 200ms
 // ---------------------------------------------------------------------------
 describe('LayerFilterEditor - value input debounce (PB-04)', () => {
   beforeEach(() => {
@@ -409,10 +409,10 @@ describe('LayerFilterEditor - value input debounce (PB-04)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// EASY-18: featureCount empty-state hint + Clear filter button
+// featureCount empty-state hint + Clear filter button
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// EDIT-03: raw-apply empty-array ([]) must CLEAR (emit null), never persist []
+// Raw-apply empty-array ([]) must CLEAR (emit null), never persist []
 // ---------------------------------------------------------------------------
 describe('LayerFilterEditor - EDIT-03 raw-apply empty-array clear', () => {
   function enterRawModeAndApply(
@@ -461,7 +461,7 @@ describe('LayerFilterEditor - EDIT-03 raw-apply empty-array clear', () => {
     expect(screen.queryByText('Invalid JSON')).not.toBeInTheDocument();
   });
 
-  // fix(#1778): the raw-mode <Textarea> had no accessible-name mechanism at
+  // The raw-mode <Textarea> had no accessible-name mechanism at
   // all -- it only renders once rawMode is toggled on, so the gating axe
   // suite structurally cannot reach it.
   it('#1778 — the raw JSON textarea has an accessible name', () => {
@@ -544,8 +544,8 @@ describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#392): multi-condition round-trip through the real emit -> sanitize
-// -> feed-back loop (mirrors handleFilterChange in use-layer-map-sync.ts). (audit B-001/FL-01)
+// Multi-condition round-trip through the real emit -> sanitize
+// -> feed-back loop (mirrors handleFilterChange in use-layer-map-sync.ts).
 // ---------------------------------------------------------------------------
 // A controlled wrapper that holds `filter` state and — exactly like the real
 // parent — routes every emitted value through the real sanitizeNullableNumericFilter
@@ -617,7 +617,7 @@ describe('LayerFilterEditor - B-001 / FL-01: multi-condition round-trip', () => 
 });
 
 // ---------------------------------------------------------------------------
-// fix(#394) FL-03: numeric in_list per-entry NaN guard
+// Numeric in_list per-entry NaN guard
 // ---------------------------------------------------------------------------
 describe('numeric in_list per-entry validation (fix(#394) FL-03)', () => {
   it('drops non-numeric entries instead of emitting a mixed-type literal', () => {
@@ -645,7 +645,7 @@ describe('numeric in_list per-entry validation (fix(#394) FL-03)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#524 B-033): a pending debounced value emit must be cancelled by any
+// A pending debounced value emit must be cancelled by any
 // immediate emit — otherwise the stale 200ms timer re-emits the pre-change
 // filter, overwrites the newer one, and (because lastEmittedFilterRef is set
 // to the stale value) the prop-sync effect never corrects the UI, so the
@@ -702,7 +702,7 @@ describe('LayerFilterEditor - stale debounce cancellation (B-033)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#527 B-054/F-05 + F-06): separators-only lists drop cleanly; boolean
+// Separators-only lists drop cleanly; boolean
 // columns support != end-to-end.
 // ---------------------------------------------------------------------------
 describe('separator-only in_list and boolean != (B-054/F-05, F-06)', () => {

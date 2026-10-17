@@ -1,10 +1,10 @@
-"""Regression tests for Phase 1181 — Config-ops & settings correctness.
+"""Regression tests for config-ops and settings correctness.
 
-BUG-007: RequestBodyLimitMiddleware must honour admin-raised UPLOAD_MAX_SIZE_MB
+RequestBodyLimitMiddleware must honour admin-raised UPLOAD_MAX_SIZE_MB
          (resolved per-request from cached PersistentConfig, not boot-time env).
-BUG-009: Invalid settings values must be rejected 400/422 BEFORE side effects.
-BUG-010: config import must be atomic (all-or-nothing).
-BUG-011: config import must gate restricted keys.
+Invalid settings values must be rejected 400/422 BEFORE side effects.
+Config import must be atomic (all-or-nothing).
+Config import must gate restricted keys.
 
 Each test is marked with the bug ID it exercises.
 """
@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 # ---------------------------------------------------------------------------
-# BUG-007 — per-request body-limit resolution
+# per-request body-limit resolution
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +93,7 @@ class TestBug007BodyLimitDynamic:
 
 
 # ---------------------------------------------------------------------------
-# BUG-009 — validate-before-side-effects for settings PUT
+# validate-before-side-effects for settings PUT
 # ---------------------------------------------------------------------------
 
 
@@ -174,7 +174,7 @@ class TestBug009ValidateBeforeSideEffects:
 
 
 # ---------------------------------------------------------------------------
-# BUG-010 — atomic config import
+# Atomic config import
 # ---------------------------------------------------------------------------
 
 
@@ -272,7 +272,7 @@ class TestBug010AtomicImport:
 
 
 # ---------------------------------------------------------------------------
-# BUG-011 - runtime-gated config import
+# runtime-gated config import
 # ---------------------------------------------------------------------------
 
 

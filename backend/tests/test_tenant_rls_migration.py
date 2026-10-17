@@ -1,4 +1,4 @@
-"""Migration round-trip + apply_tenancy_rls tests for Phase 1208-02 (ISO-02).
+"""Migration round-trip + apply_tenancy_rls tests.
 
 Tests
 -----
@@ -146,7 +146,7 @@ async def _disable_rls_on_all() -> None:
 class TestMigrationRoundTripExitCodes:
     """HEAD migration round-trips reversibly with no subprocess errors.
 
-    Updated for Phase 1209-01 (migration 0007_tenant_data_schemas off 0006_tenant_rls):
+    Updated for migration 0007_tenant_data_schemas off 0006_tenant_rls:
     downgrade -1 now goes from 0007→0006 (not 0006→0005 as originally written).
     The exit-code assertions are unchanged; stderr content assertions updated to
     match the current HEAD migration chain.
@@ -163,8 +163,8 @@ class TestMigrationRoundTripExitCodes:
     def test_downgrade_minus_one_exits_zero(self):
         """alembic downgrade -1 (HEAD → HEAD-1) exits 0.
 
-        Phase 1208-02 original: 0006 → 0005.
-        Phase 1209-01 update: 0007 → 0006 (new HEAD is 0007_tenant_data_schemas).
+        Original: 0006 → 0005.
+        Update: 0007 → 0006 (new HEAD is 0007_tenant_data_schemas).
         """
         r = _run_alembic("downgrade", "-1")
         assert r.returncode == 0, (
@@ -263,7 +263,7 @@ class TestPoliciesAfterUpgrade:
             )
 
     async def test_policies_qual_has_no_is_null_escape(self):
-        """No policy qual contains IS NULL (no fail-open escape — ISO-02 hard rule)."""
+        """No policy qual contains IS NULL (no fail-open escape — hard rule)."""
         rows = await _fresh_query(
             """
             SELECT policyname, qual

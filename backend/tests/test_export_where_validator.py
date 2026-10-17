@@ -1,4 +1,4 @@
-"""Tests for the AST-based WHERE-clause validator (SEC-S09).
+"""Tests for the AST-based WHERE-clause validator.
 
 Tests are grouped into:
   - test_allowlist_*  : expressions that MUST pass validate_where_ast()
@@ -169,15 +169,14 @@ class TestBlocklist:
             validate_where_ast("COALESCE(col, 0) > 1")
 
     def test_table_qualified_reference_rejected(self):
-        """Pins the KNOWN-10 fix: sqlglot's postgres dialect parses tbl.col
+        """Pins the fix: sqlglot's postgres dialect parses tbl.col
         into exp.Column with .table populated (not a separate exp.Dot node).
         validate_where_ast inspects Column.table/.db/.catalog and raises
         with the 'table-qualified column reference' message.
 
-        CR-03 (Phase 1071 review): removed the dead 'Dot' branch from the
+        Removed the dead 'Dot' branch from the
         assertion — the validator uses Column.table inspection so 'Dot' never
-        appears in the error message. Assert the exact rejection string instead.
-        KNOWN-10 (v1062 IN-03)."""
+        appears in the error message. Assert the exact rejection string instead."""
         with pytest.raises(ValueError) as exc:
             validate_where_ast("catalog.records.title = 'x'")
         # Error message names the table-qualified rejection specifically.
@@ -260,7 +259,7 @@ class TestWrapper:
 
 
 class TestCanonicalWhere:
-    """fix(#430 BA-08): canonical_where re-renders the validated AST so the
+    """``canonical_where`` re-renders the validated AST so the
     export cap's bounded COUNT never interpolates the caller's raw bytes."""
 
     def test_returns_equivalent_canonical_sql(self):
@@ -281,7 +280,7 @@ class TestCanonicalWhere:
 
 
 class TestEndpoint:
-    """HTTP-level regression tests for the export -where gate (SEC-S09).
+    """HTTP-level regression tests for the export -where gate.
 
     Requires a live API (httpx AsyncClient from conftest) + a real public dataset.
     Skipped when SEC_AUDIT_PUBLIC_DATASET_ID is not set.

@@ -230,7 +230,7 @@ class TestTileEndpoint:
     async def test_tile_response_has_etag_and_supports_304(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """MVT-04: vector tile carries an ETag and honors If-None-Match -> 304."""
+        """Vector tile carries an ETag and honors If-None-Match -> 304."""
         table_name = f"tile_etag_{uuid.uuid4().hex[:8]}"
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
@@ -256,7 +256,7 @@ class TestTileEndpoint:
     async def test_cluster_tile_response_has_etag_and_supports_304(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """MVT-04: cluster tile carries an ETag and honors If-None-Match -> 304."""
+        """Cluster tile carries an ETag and honors If-None-Match -> 304."""
         table_name = f"cluster_etag_{uuid.uuid4().hex[:8]}"
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         await _create_tile_test_dataset(
@@ -620,7 +620,7 @@ class TestTileQueryStructure:
         assert "256" in query
         assert "ST_AsMVTGeom" in query
         assert "ST_AsMVT" in query
-        assert '"data"."test_table"' in query  # DP-02: schema-qualified
+        assert '"data"."test_table"' in query  # schema-qualified
         # Verify bounds CTE precomputes geom_4326
         assert "bounds.geom_4326" in query
         assert "ST_Transform(bounds.geom, 4326)" not in query
@@ -654,7 +654,7 @@ class TestTileQueryStructure:
 
         query = _build_cluster_tile_query("cluster_dataset")
 
-        assert '"data"."cluster_dataset"' in query  # DP-02: schema-qualified
+        assert '"data"."cluster_dataset"' in query  # schema-qualified
         assert "point_count" in query
         assert "point_count_abbreviated" in query
         assert "cluster_id" in query
@@ -853,7 +853,7 @@ class TestClusterBucketSemantics:
         assert neighbor_rows[0]["name"] == "interior"
 
     async def test_world_edge_point_owned_by_edge_tile(self, test_db_session):
-        """fix(#868, codex round 2): a feature sitting exactly on the world's
+        """A feature sitting exactly on the world's
         east boundary is emitted by exactly one tile — the edge tile, whose
         upper ownership bound is inclusive (no neighbor exists beyond the
         world). Runs past cluster max zoom, where the ownership anchor is
@@ -898,7 +898,7 @@ class TestClusterBucketSemantics:
         assert rows_by_tile[(1, 0)][0]["name"] == "edge"
 
     async def test_cap_divergence_emits_shared_cell_at_most_once(self, test_db_session):
-        """fix(#868, codex round 2): when the input cap truncates DIFFERENT
+        """When the input cap truncates DIFFERENT
         candidate subsets in neighboring tiles, the shared straddling cell
         is still emitted by at most one tile (the anchor owner). The
         degradation is an undercounted single in the owner tile, never a
@@ -943,7 +943,7 @@ class TestClusterBucketSemantics:
         assert len(neighbor_rows) == 0
 
     async def test_past_max_zoom_ring_does_not_starve_cap(self, test_db_session):
-        """fix(#868, codex round 3): past cluster max zoom nothing clusters,
+        """Past cluster max zoom nothing clusters,
         so the scan uses NO envelope expansion. With expansion, lower-gid
         neighbor points could consume the whole candidate cap and then all
         be discarded as ring-only, leaving the tile empty — a starvation
@@ -979,7 +979,7 @@ class TestClusterBucketSemantics:
         assert rows[0]["cluster"] is None
 
     async def test_west_edge_cell_is_owned(self, test_db_session):
-        """fix(#868, codex round 3): the grid anchors at the world minimum,
+        """The grid anchors at the world minimum,
         so the cell holding a point near lon -180 has an in-world origin
         and IS owned by the west edge tile. A 0-anchored grid put that
         cell's origin outside the world: no tile owned it and the point
@@ -1004,7 +1004,7 @@ class TestClusterBucketSemantics:
         assert rows[0]["cluster"] is None
 
     async def test_emitted_geometry_is_clamped_into_owner_tile(self, test_db_session):
-        """fix(#868, codex round 4): a cell owned via its anchor can have a
+        """A cell owned via its anchor can have a
         raw centroid inside the NEIGHBOR tile; a viewport covering the
         centroid but not the owner tile never requests the owner tile, so
         out-of-tile geometry would be invisible. The emitted point is
@@ -1117,7 +1117,7 @@ class TestClusterBucketSemantics:
         }
 
     async def test_feature_cap_applies_after_ownership(self, test_db_session):
-        """fix(#868, codex round 4): the feature cap applies AFTER the
+        """The feature cap applies AFTER the
         ownership filter, so neighbor-owned cells seen through the expanded
         scan can never consume the output budget and displace this tile's
         own cells."""

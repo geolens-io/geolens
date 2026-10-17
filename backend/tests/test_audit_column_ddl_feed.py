@@ -1,4 +1,4 @@
-"""SEC-FU-08: Column DDL feed — service helper and endpoint tests.
+"""Column DDL feed — service helper and endpoint tests.
 
 Tests the query_column_ddl_history service helper and the
 GET /api/audit/datasets/{dataset_id}/column-ddl endpoint.
@@ -224,7 +224,7 @@ async def test_query_column_ddl_history_pagination(
 
 
 # ===========================================================================
-# Router-layer tests (Task 3, tests 5–10)
+# Router-layer tests
 # ===========================================================================
 
 
@@ -439,7 +439,7 @@ async def test_column_ddl_feed_non_owner_public_dataset_denied(
     admin_auth_header: dict,
     test_db_session: AsyncSession,
 ):
-    """fix(#458 E-37): the feed is owner-facing — a PUBLIC dataset must not let
+    """The feed is owner-facing — a PUBLIC dataset must not let
     arbitrary authenticated users enumerate editor usernames/user_ids. The old
     check_dataset_access (read visibility) allowed exactly that."""
     owner_headers, owner_id_str = await _create_test_user(

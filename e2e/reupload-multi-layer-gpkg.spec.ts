@@ -1,13 +1,13 @@
 /**
- * GPKG-01 Phase 1058: Multi-layer GPKG reupload headless Playwright spec.
+ * Multi-layer GPKG reupload headless Playwright spec.
  *
- * Encodes the acceptance behavior for GPKG-01 (silent-data-swap fix):
+ * Encodes the acceptance behavior for the silent-data-swap fix:
  *   Scenario A — happy path: previous source_layer pre-selected from prior IngestJob
  *   Scenario B — missing-layer warning: user must explicitly pick a replacement
  *
- * NOTE: These tests require a running local stack (localhost:8080) with the Phase 1058
- * backend deployed. They are NOT run against the live stack in CI by default.
- * Phase 1060 live MCP re-verify will exercise these paths interactively.
+ * NOTE: These tests require a running local stack (localhost:8080) with the
+ * matching backend deployed. They are NOT run against the live stack in CI by default.
+ * Live MCP re-verify will exercise these paths interactively.
  *
  * To run headless against local stack:
  *   npx playwright test e2e/reupload-multi-layer-gpkg.spec.ts --reporter=list
@@ -180,7 +180,7 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
     // Open "More" menu and click "Re-Upload"
     const moreBtn = page.getByRole('button', { name: /more|actions/i }).first();
     // fix(#1778): the Re-Upload affordance disappearing is exactly the
-    // regression e2e/dataset-detail.spec.ts (IMPORT-04) exists to catch —
+    // regression e2e/dataset-detail.spec.ts exists to catch —
     // skipping here instead of failing let that regression turn this test
     // green-as-skipped.
     await expect(moreBtn).toBeVisible({ timeout: 5_000 });
@@ -209,7 +209,7 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
 
     // fix(#1778): FIXTURE_PATH (multi-layer-gpkg.gpkg) is a known multi-layer
     // file, so the layer-select step is not an optional branch — it is
-    // exactly the silent-data-swap symptom GPKG-01 exists to catch. Asserting
+    // exactly the silent-data-swap symptom this test exists to catch. Asserting
     // it unconditionally means a regression that skips straight to preview
     // (the old "acceptable, not a failure" branch) now fails this test.
     await expect(page.getByTestId('reupload-file-layer-select')).toBeVisible({ timeout: 5_000 });

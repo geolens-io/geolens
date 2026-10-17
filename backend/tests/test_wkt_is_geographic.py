@@ -81,7 +81,7 @@ def test_grads_geogcs_is_geographic_but_not_degrees():
 
 
 def test_wkt2_grads_axes_with_degree_prime_meridian_are_not_degrees():
-    # fix(#939 codex r4): EPSG:4901's WKT2 expresses the PRIME meridian in
+    # EPSG:4901's WKT2 expresses the PRIME meridian in
     # degrees while both ellipsoidal axes are grads — the unit test must read
     # the coordinate-system section, not the first angular unit anywhere.
     wkt = (
@@ -98,7 +98,7 @@ def test_wkt2_grads_axes_with_degree_prime_meridian_are_not_degrees():
 
 
 def test_cs_marker_inside_a_quoted_axis_name_is_not_structure():
-    # fix(#939 codex r8): a quoted axis name containing "CS[" must not be read
+    # A quoted axis name containing "CS[" must not be read
     # as a WKT2 coordinate-system marker. PROJ tokenizes quoted names, so this
     # is structurally impossible now; kept as a regression fixture.
     wkt = (
@@ -111,7 +111,7 @@ def test_cs_marker_inside_a_quoted_axis_name_is_not_structure():
 
 
 def test_custom_degree_name_is_matched_by_conversion_factor():
-    # fix(#939 codex r7): WKT unit semantics live in the radians-per-unit
+    # WKT unit semantics live in the radians-per-unit
     # factor, not the name, and rasterio preserves valid custom names — so
     # the check compares factors (as `_is_degree_based` does) either way.
     wkt = (
@@ -131,7 +131,7 @@ def test_degree_unit_missing_wkt_is_unknown():
 
 
 def test_wkt2_2015_geodcrs_ellipsoidal_is_geographic():
-    # fix(#939 codex r3): WKT2:2015 spells geographic CRSs GEODCRS; rasterio
+    # WKT2:2015 spells geographic CRSs GEODCRS; rasterio
     # still emits this form (CRS.from_epsg(4269).to_wkt(version="WKT2_2015")).
     wkt = (
         'GEODCRS["NAD83",DATUM["North American Datum 1983",'
@@ -167,7 +167,7 @@ def test_wkt2_2015_compound_geodcrs_is_geographic():
 
 
 def test_boundcrs_reports_the_source_crs_units_not_the_targets():
-    # fix(#939 codex r5/r6): a BOUNDCRS binds a grads SOURCECRS to a degree
+    # A BOUNDCRS binds a grads SOURCECRS to a degree
     # TARGETCRS, and the stored resolutions are expressed in the SOURCE. The
     # target declares "degree" twice (its PRIMEM and its axes), so any flat
     # scan of the string finds a degree unit; PROJ resolves the tree and
@@ -205,7 +205,7 @@ def test_boundcrs_reports_the_source_crs_units_not_the_targets():
 
 
 def test_axis_meridian_unit_does_not_masquerade_as_the_axis_unit():
-    # fix(#939 codex r9): a geographic 3D CRS whose axes are radians but whose
+    # A geographic 3D CRS whose axes are radians but whose
     # AXIS carries MERIDIAN[...,ANGLEUNIT["degree",...]]. The meridian's unit
     # sits INSIDE the coordinate-system section, so every window-narrowing
     # rule still saw it and reported degrees. PROJ reads the axis unit.
@@ -235,7 +235,7 @@ def test_real_epsg_wkt_round_trips_through_both_helpers():
         (4326, True, True),
         (4269, True, True),  # NAD83
         (4258, True, True),  # ETRS89
-        (4979, True, True),  # WGS 84 3D — WKT2-only, the r9 shape
+        (4979, True, True),  # WGS 84 3D — WKT2-only
         (9518, True, True),  # WGS 84 + EGM2008 height (compound)
         (4807, True, False),  # NTF (Paris) — geographic, grads
         (3857, False, False),
@@ -255,7 +255,7 @@ def test_unparseable_wkt_falls_back_to_the_keyword_sniff():
 
 
 def test_non_string_inputs_are_unknown_not_a_crash():
-    # fix(#939 codex r2): callers hand these whatever sits on
+    # Callers hand these whatever sits on
     # RasterAsset.crs_wkt, including MagicMock in unit tests.
     from unittest.mock import MagicMock
 
@@ -265,7 +265,7 @@ def test_non_string_inputs_are_unknown_not_a_crash():
 
 
 def test_long_quoted_name_cannot_hide_the_keywords():
-    # fix(#939 codex r2): quoted content is blanked BEFORE the 2000-char
+    # Quoted content is blanked BEFORE the 2000-char
     # truncation, so a pathologically long name containing PROJCS cannot
     # misclassify (or declassify) the WKT.
     long_name = ("PROJCS padding " * 200)[:2500]
@@ -274,7 +274,7 @@ def test_long_quoted_name_cannot_hide_the_keywords():
 
 
 def test_keywords_inside_quoted_names_are_ignored():
-    # fix(#939 codex r1): a CRS name or remark mentioning PROJCS must not
+    # A CRS name or remark mentioning PROJCS must not
     # flip a geographic WKT to projected (and vice versa).
     geographic_with_projcs_in_name = 'GEOGCRS["adjusted from PROJCS NAD27",DATUM["North American Datum 1927",ELLIPSOID["Clarke 1866",6378206.4,294.978698213898]],ANGLEUNIT["degree",0.0174532925199433]]'
     assert wkt_is_geographic(geographic_with_projcs_in_name) is True

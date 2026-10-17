@@ -29,12 +29,12 @@ export interface BaseStyleEditorProps {
   /** Patch a single paint property (handles builder-alias routing internally). */
   onPaintProp: (key: string, value: unknown) => void;
   /**
-   * EDIT-05: Dedicated fill-pattern change handler. Enforces mutual exclusion:
+   * Dedicated fill-pattern change handler. Enforces mutual exclusion:
    * setting a pattern deletes fill-color; clearing the pattern (id=undefined)
    * deletes fill-pattern and restores fill-color. Optional — only FillEditor uses it.
    */
-  /** fix(#922): required — the fallback set fill-pattern to undefined instead of
-   *  deleting the key, exactly what the EDIT-05 mutual-exclusion rule forbids. */
+  /** Required — the fallback set fill-pattern to undefined instead of
+   *  deleting the key, exactly what the mutual-exclusion rule forbids. */
   onFillPatternChange: (id: string | undefined) => void;
   onToggleFill: () => void;
   onToggleStroke: () => void;

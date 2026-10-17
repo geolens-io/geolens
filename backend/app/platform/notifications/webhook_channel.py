@@ -7,13 +7,13 @@ Payload: ``{event_type, subject, body, data, text}`` — ``text`` is
 "<subject>\\n<body>" so a Slack/Teams incoming-webhook URL (which renders
 ``{"text": "..."}``) works through this channel with no vendor SDK.
 
-Security (T-1229-04/T-1229-06): ``NOTIFICATION_WEBHOOK_SECRET``, if set,
+Security: ``NOTIFICATION_WEBHOOK_SECRET``, if set,
 is sent only as the ``X-Webhook-Secret`` header, revealed via ``reveal()``
 at construction — never appended to the URL/query string. The webhook URL
 is operator-configured (admin trust boundary); no URL allow-list is
-enforced — SSRF risk accepted per design (T-1229-SC).
+enforced — SSRF risk accepted per design.
 
-Timeout: ``httpx.Timeout(10.0, connect=5.0)`` bounds the POST (T-1229-05).
+Timeout: ``httpx.Timeout(10.0, connect=5.0)`` bounds the POST.
 
 Non-2xx raises ``httpx.HTTPStatusError`` via ``raise_for_status()``;
 transport errors propagate. The caller (``EnvConfiguredNotificationSink``)
@@ -63,7 +63,7 @@ async def post_webhook(notification: "Notification") -> None:  # type: ignore[na
 
     headers: dict[str, str] = {}
     if secret is not None:
-        # Reveal only at header-construction; never in the URL/query (T-1229-04).
+        # Reveal only at header-construction; never in the URL/query.
         headers["X-Webhook-Secret"] = reveal(secret) or ""
 
     timeout = httpx.Timeout(10.0, connect=5.0)

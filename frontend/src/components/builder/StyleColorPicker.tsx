@@ -15,7 +15,7 @@ interface StyleColorPickerProps {
   onChange: (hex: string) => void;
 }
 
-// builder-audit #338 DRY-02: single source for the 6-digit hex validation regex.
+// Single source for the 6-digit hex validation regex.
 // Previously copied inline in DataDrivenStyleEditor (two sites).
 const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -34,7 +34,7 @@ export const PRESET_COLORS = [
 ] as const;
 
 /**
- * builder-audit #338 DRY-02: compact swatch button + popover hex editor shared by the
+ * Compact swatch button + popover hex editor shared by the
  * DataDrivenStyleEditor categorical and graduated color lists. Replaces two
  * near-identical inline Popover+HexColorPicker+HexColorInput blocks (each with
  * its own copy of the hex regex). Debouncing, if any, is owned by the caller's
@@ -113,7 +113,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
               <button
                 key={hex}
                 type="button"
-                // fix(#527 B-054/S-07): presets go through the same local-state
+                // Presets go through the same local-state
                 // path as the picker so the selected ring updates instantly.
                 onClick={() => debouncedChange(hex)}
                 className={cn(

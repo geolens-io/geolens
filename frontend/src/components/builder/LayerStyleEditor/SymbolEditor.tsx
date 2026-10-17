@@ -6,7 +6,7 @@ import type { BaseStyleEditorProps } from './types';
 import { useMapIcons } from '@/hooks/use-maps';
 import type { SymbolStyleConfig } from '@/types/api';
 
-// fix(#920): the anchor dropdown rendered these raw tokens in every locale.
+// The anchor dropdown rendered these raw tokens in every locale.
 const ICON_ANCHORS = [
   'center', 'top', 'bottom', 'left', 'right',
   'top-left', 'top-right', 'bottom-left', 'bottom-right',
@@ -20,7 +20,7 @@ export function SymbolEditor({
 }: BaseStyleEditorProps) {
   const sampleColumns = layer.dataset_column_info ?? [];
   const categoryColumn = symbolConfig.categoryColumn ?? '';
-  // fix(#920): show every value the backend returned instead of an arbitrary 6.
+  // Show every value the backend returned instead of an arbitrary 6.
   // dataset_sample_values is a SAMPLE, not the column's distinct values — the
   // backend caps it at 10 per column, drawn from the first 10k rows — so the
   // section is labelled as a sample rather than claiming "6 of N".
@@ -44,7 +44,7 @@ export function SymbolEditor({
 
   function updateCategory(value: string | number | null, icon: string) {
     const existing = currentCategories.filter((entry) => entry.value !== value);
-    // fix(#920): an empty icon is not a mapping. The adapter already skips it,
+    // An empty icon is not a mapping. The adapter already skips it,
     // but storing {value, icon: ''} left junk in saved style_config and made the
     // row render blank instead of the fallback icon it actually draws.
     const next = icon ? [...existing, { value, icon }] : existing;
@@ -156,7 +156,7 @@ export function SymbolEditor({
                     onChange={(event) => updateCategory(value as string | number | null, event.target.value)}
                   />
                 </div>
-                {/* fix(#920): a typo used to land in the match expression and draw
+                {/* A typo used to land in the match expression and draw
                     nothing at all, with no indication anything was wrong. */}
                 {unknown && (
                   <p className="text-mini text-warning" role="alert">

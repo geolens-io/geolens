@@ -1,5 +1,5 @@
 /**
- * EW-05 — STAC Import size-estimate confirmation step tests.
+ * STAC Import size-estimate confirmation step tests.
  *
  * Tests cover:
  *   1. Mixed sizes: total bytes shown where available; partial-unavailable note displayed.

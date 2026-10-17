@@ -1,5 +1,5 @@
 /**
- * Phase 1201-01 (ENH-02/ENH-03) — pure layer-style-clipboard helper tests.
+ * Pure layer-style-clipboard helper tests.
  *
  * Covers:
  *  - geometryClass derivation from dataset_geometry_type
@@ -195,7 +195,7 @@ describe('layer-style-clipboard — applyCopiedStyleToLayer', () => {
   });
 });
 
-// fix(#923): the paste merge preserves target-only paint keys on purpose, which is what
+// The paste merge preserves target-only paint keys on purpose, which is what
 // let the loser of the fill pair survive — a copied pattern landing beside the target's
 // colour (and the reverse). MapLibre gives the pattern precedence either way, so the map
 // drew one key while the legend, the editor and the saved JSON reported the other.

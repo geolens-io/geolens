@@ -1,4 +1,4 @@
-"""Tests for VRT creation endpoint and task (Phase 173-02).
+"""Tests for VRT creation endpoint and task.
 
 Covers:
 - VrtCreateRequest / VrtCreateResponse schema validation
@@ -44,7 +44,7 @@ def _make_subprocess_result(returncode: int = 0, stderr: str = "") -> MagicMock:
 
 @pytest.fixture(autouse=True)
 def _stub_vrt_source_authz():
-    """SEC-C (Phase 1172) / #1298: ``create_vrt_job`` now authorizes every
+    """#1298: ``create_vrt_job`` now authorizes every
     source dataset against the caller via ``get_user_roles`` +
     ``check_datasets_access_bulk``. Those helpers issue their own
     ``db.execute`` calls, which would shift the call-count-ordered /
@@ -379,7 +379,7 @@ class TestVrtCreateEndpoint:
 
 
 class TestCreateVrtJob:
-    """Tests for ``ingest.service.create_vrt_job`` (K5/KISS-10 extraction).
+    """Tests for ``ingest.service.create_vrt_job`` (extracted from the router).
 
     These exercise the validation paths end-to-end through the service helper
     so the router handler stays a 3-line wrapper with no business logic.

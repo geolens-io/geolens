@@ -38,7 +38,7 @@ export function useAuth() {
 
   // Proactive refresh: refresh 60 seconds before expiry. Routes through the
   // shared tryRefresh() mutex in api/client.ts so a concurrent 401-driven
-  // refresh and this timer collapse to a single /auth/refresh/ POST (SP-09).
+  // refresh and this timer collapse to a single /auth/refresh/ POST.
   useEffect(() => {
     if (!expiresAt || !token) return;
 
@@ -58,7 +58,7 @@ export function useAuth() {
     async (username: string, password: string) => {
       const tokenResponse = await apiLogin(username, password);
       await completeSignIn(tokenResponse, async () => {
-        // BUG-021: invalidate the ['auth','me'] cache so a new login never shows
+        // Invalidate the ['auth','me'] cache so a new login never shows
         // the previous user's stale identity. Runs once the new token is
         // installed, so the meQuery re-fetch races the new token, not the old
         // cached data.
@@ -95,7 +95,7 @@ export function useAuth() {
     void logoutSession().catch(() => {
       // Offline, or a session already dead. Local teardown proceeds regardless.
     });
-    // BUG-021: clear the ['auth','me'] cache on logout so a subsequent login
+    // Clear the ['auth','me'] cache on logout so a subsequent login
     // does not see the previous user's cached identity.
     queryClient.removeQueries({ queryKey: queryKeys.auth.me });
     // Also drop cached permissions so capability gates (e.g. the catalog import

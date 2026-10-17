@@ -1,4 +1,4 @@
-"""Regression tests for SEC-026: LocalStorageProvider path-traversal containment.
+"""Regression tests for LocalStorageProvider path-traversal containment.
 
 Without the fix, crafted keys like ``../../etc/passwd``, ``/etc/passwd``, or
 keys containing a null byte can escape ``base_dir`` — allowing reads, writes,
@@ -69,7 +69,7 @@ async def _consume_stream(gen) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# SEC-026 regression: malicious keys raise on ALL six IO methods
+# Regression: malicious keys raise on ALL six IO methods
 # ---------------------------------------------------------------------------
 
 
@@ -290,7 +290,7 @@ class TestLocalStorageContainmentOtherKeyedMethods:
 
 
 # ---------------------------------------------------------------------------
-# SEC-026 positive: normal in-base keys still work after the fix
+# Positive: normal in-base keys still work after the fix
 # ---------------------------------------------------------------------------
 
 

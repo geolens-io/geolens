@@ -1,20 +1,19 @@
-"""STOR-06: Render a raster tile from an Azurite blob via /vsiaz/ (Phase 1210 Plan 04).
+"""Render a raster tile from an Azurite blob via /vsiaz/.
 
-Proves criterion 3 of the Azure storage seam milestone: a raster tile RENDERS
-from an Azurite blob using GDAL's /vsiaz/ driver with the Azure credentials
-delivered via environment variables.
+Proves that a raster tile RENDERS from an Azurite blob using GDAL's /vsiaz/
+driver with the Azure credentials delivered via environment variables.
 
 Two-tier render proof
 ---------------------
-TIER-1 (always-on, CI-portable, runs whenever Azurite is reachable):
+Always-on tier (CI-portable, runs whenever Azurite is reachable):
   - Upload a small single-band GeoTIFF to Azurite via the azure-storage-blob SDK
   - Assert resolve_open_path under provider=azure yields /vsiaz/{container}/{key}
   - Assert rasterio.open of that /vsiaz/ path with the Azure env set returns the
     expected band count AND reads a non-empty window of real pixel data
   This proves GDAL renders real pixels from an Azurite blob with NO Titiler
-  container required. It is the authoritative CI proof for STOR-06.
+  container required. It is the authoritative CI proof for Azurite rendering.
 
-TIER-2 (live_stack marker — run when the full cloud-dev Docker stack is up):
+Live-stack tier (live_stack marker; run when the full cloud-dev Docker stack is up):
   - Requires Titiler reachable at http://titiler:8000 (internal Docker network only)
   - Requires Azurite reachable at http://azurite:10000 (internal Docker network)
   - Requests a tile from the Titiler /cog/tiles endpoint with url=/vsiaz/... and
@@ -144,15 +143,15 @@ def azurite_fixture_key():
 
 
 # ---------------------------------------------------------------------------
-# TIER-1: resolve_open_path dispatch + GDAL /vsiaz/ open (always-on)
+# resolve_open_path dispatch + GDAL /vsiaz/ open (always-on)
 # ---------------------------------------------------------------------------
 
 
 class TestTier1ResolveAndGdalOpen:
-    """TIER-1 STOR-06: resolve_open_path dispatch + GDAL renders from Azurite blob.
+    """Tier 1: resolve_open_path dispatch + GDAL renders from Azurite blob.
 
     These tests run whenever Azurite is reachable (session fixture probe).
-    They are the authoritative CI proof for STOR-06: GDAL reads real pixels
+    They are the authoritative CI proof for Azurite rendering: GDAL reads real pixels
     from an Azurite blob via /vsiaz/ without requiring Titiler.
     """
 
@@ -175,7 +174,7 @@ class TestTier1ResolveAndGdalOpen:
     def test_gdal_opens_vsiaz_path_and_reads_pixels(self, azurite_fixture_key):
         """GDAL rasterio.open of /vsiaz/{container}/{key} returns real pixel data.
 
-        This is the STOR-06 TIER-1 proof: GDAL opens a raster from an Azurite
+        This is the proof: GDAL opens a raster from an Azurite
         blob via /vsiaz/ with the Azure connection string in the environment.
         The fixture was uploaded with pixel sentinel value 77 — we assert that
         value is present in the read window.
@@ -250,13 +249,13 @@ class TestTier1ResolveAndGdalOpen:
 
 
 # ---------------------------------------------------------------------------
-# TIER-2: Full Titiler /cog/tiles end-to-end (live_stack only)
+# Full Titiler /cog/tiles end-to-end (live_stack only)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.live_stack
 class TestTier2TitilerLiveRender:
-    """TIER-2 STOR-06: Full Titiler COG tile render via /vsiaz/.
+    """Tier 2: Full Titiler COG tile render via /vsiaz/.
 
     Requires the cloud-dev Docker stack (titiler + azurite both running with
     the well-known Azurite Azure env set in Titiler's environment).
@@ -264,7 +263,7 @@ class TestTier2TitilerLiveRender:
     These tests are SKIPPED in default CI runs (no live_stack marker). Run with:
         pytest -m live_stack tests/test_stor06_render_from_azurite.py
 
-    The tier-1 GDAL open tests above are the CI-portable minimum proof for STOR-06.
+    The tier-1 GDAL open tests above are the CI-portable minimum proof for Azurite rendering.
     """
 
     def test_titiler_cog_tiles_200_png_from_azurite(self, azurite_fixture_key):

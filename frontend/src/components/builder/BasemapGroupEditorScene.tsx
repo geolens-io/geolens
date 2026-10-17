@@ -28,7 +28,7 @@ interface BasemapGroupEditorSceneProps {
   onSwapBasemap: (presetId: string) => void;
   /**
    * Optional. When omitted, the "Add custom basemap" affordance is not rendered.
-   * Custom-basemap support is a Plan 1037 follow-up; until a real handler is
+   * Custom-basemap support is not implemented yet; until a real handler is
    * supplied the button stays hidden rather than shipping a no-op stub.
    */
   onAddCustomBasemap?: () => void;
@@ -84,7 +84,7 @@ export function BasemapGroupEditorScene({
           <p className="eyebrow mb-2">
             {t('basemapGroup.presetSectionLabel', { defaultValue: 'PRESET' })}
           </p>
-          {/* fix(#394) UX-03/B-017: expose selected-state to assistive tech —
+          {/* Expose selected-state to assistive tech —
               radiogroup + aria-checked, same pattern as the Projection pills
               in SettingsEditorScene. The border highlight alone was invisible
               to screen readers. */}
@@ -164,7 +164,7 @@ export function BasemapGroupEditorScene({
         </div>
       </section>
 
-      {/* 2. Sublayers section — hidden when there are no sublayers (e.g. blank basemap). WR-02 fix. */}
+      {/* 2. Sublayers section — hidden when there are no sublayers (e.g. blank basemap). */}
       {sublayers.length > 0 && (
       <section className="border-b">
         <div className="px-4 py-2">

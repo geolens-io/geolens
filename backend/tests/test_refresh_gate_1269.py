@@ -1,6 +1,6 @@
 """Cross-origin refresh integration and security gate (#1269).
 
-ADR-002 Amendment A10's milestone-close acceptance, pruned to shipped scope.
+The ADR-002 acceptance suite, pruned to shipped scope.
 Runs in the ordinary ``backend-test`` job — that job already gates every
 PR, so this needs no new CI plumbing.
 
@@ -168,7 +168,7 @@ async def _dispatch_harness():
     """
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None)
-    # fix(#1770 round 35): a header-auth credential routes the reupload
+    # A header-auth credential routes the reupload
     # dispatch through task.configure(queue=...) before defer_async.
     # Returning the mock itself from configure() keeps `task` the object
     # every assertion here already checks.
@@ -1045,7 +1045,7 @@ class TestSentinelTokenSweep:
             # it", since nothing here is a happy-path no-op.
             task = MagicMock()
             task.defer_async = AsyncMock(side_effect=RuntimeError("queue unavailable"))
-            # fix(#1770 round 35): same reason as the shared harness above —
+            # Same reason as the shared harness above —
             # keep configure(queue=...) resolving to this exact mock so the
             # side_effect still fires wherever the dispatch actually calls
             # defer_async.

@@ -1,10 +1,10 @@
-"""Record sub-resource edit contracts (fix(#458 E-45/E-46/E-47)).
+"""Record sub-resource edit contracts.
 
 Covers the update-path gaps the 2026-07-16 editing audit found:
-- E-45: DistributionUpdate.url gets the same HTTP(S) validation as create.
-- E-46: PATCH clears optional fields with an explicit null (dataset E-04
+- DistributionUpdate.url gets the same HTTP(S) validation as create.
+- PATCH clears optional fields with an explicit null (dataset
   contract); non-nullable fields 422 instead of silently dropping the null.
-- E-47: sub-resource writes emit metadata.edit audit events into the backing
+- Sub-resource writes emit metadata.edit audit events into the backing
   dataset's history.
 """
 
@@ -61,7 +61,7 @@ async def _create_distribution(client: AsyncClient, record_id, headers) -> str:
 async def test_distribution_update_rejects_non_http_url(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#458 E-45): the update path validates URLs like the create path."""
+    """The update path validates URLs like the create path."""
     admin_id = await get_user_id(test_db_session, "admin")
     _, record_id = await _dataset_and_record(test_db_session, admin_id)
     dist_id = await _create_distribution(client, record_id, admin_auth_header)
@@ -86,7 +86,7 @@ async def test_distribution_update_rejects_non_http_url(
 async def test_contact_patch_clears_optional_field_with_null(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#458 E-46): an explicit null clears optional fields; it used to be
+    """An explicit null clears optional fields; it used to be
     silently dropped by double exclude_none."""
     admin_id = await get_user_id(test_db_session, "admin")
     _, record_id = await _dataset_and_record(test_db_session, admin_id)
@@ -108,7 +108,7 @@ async def test_contact_patch_clears_optional_field_with_null(
 async def test_contact_patch_null_role_is_422(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#458 E-46): role is NOT NULL — explicit null is a 422, not a drop."""
+    """Role is NOT NULL — explicit null is a 422, not a drop."""
     admin_id = await get_user_id(test_db_session, "admin")
     _, record_id = await _dataset_and_record(test_db_session, admin_id)
     contact_id = await _create_contact(client, record_id, admin_auth_header)
@@ -125,7 +125,7 @@ async def test_contact_patch_null_role_is_422(
 async def test_distribution_patch_null_url_is_422(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#458 E-46): the NOT NULL trio (type/format/url) rejects explicit null."""
+    """The NOT NULL trio (type/format/url) rejects explicit null."""
     admin_id = await get_user_id(test_db_session, "admin")
     _, record_id = await _dataset_and_record(test_db_session, admin_id)
     dist_id = await _create_distribution(client, record_id, admin_auth_header)
@@ -151,7 +151,7 @@ async def test_distribution_patch_null_url_is_422(
 async def test_subresource_write_appears_in_dataset_history(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#458 E-47): sub-resource writes emit metadata.edit audit events into
+    """Sub-resource writes emit metadata.edit audit events into
     the backing dataset's history like top-level metadata PATCHes do."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset_id, record_id = await _dataset_and_record(test_db_session, admin_id)

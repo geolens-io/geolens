@@ -131,12 +131,12 @@ class TestExportAuth:
     async def test_export_anonymous_missing_dataset_returns_404(
         self, client: AsyncClient
     ):
-        """EXP-01: export no longer requires authentication — anonymous callers
+        """Export no longer requires authentication — anonymous callers
         may export public+published datasets (matching the OGC/tiles contract).
         An anonymous request for a non-existent dataset therefore resolves to a
         normal 404 (dataset not found), NOT a 401. Anonymous denial of
         private/restricted/unpublished data and the public+published allow path
-        are covered by test_export_access.py (EXP-02)."""
+        are covered by test_export_access.py."""
         fake_id = str(uuid.uuid4())
         resp = await client.get(f"/datasets/{fake_id}/export")
         assert resp.status_code == 404
@@ -725,7 +725,7 @@ class TestExportParameters:
 
 
 # ---------------------------------------------------------------------------
-# Feature-cap tests — fix(#430 BA-08), codex r8
+# Feature-cap tests
 # ---------------------------------------------------------------------------
 
 
@@ -807,7 +807,7 @@ class TestExportFeatureCap:
         self, client: AsyncClient, admin_auth_header: dict, capped_dataset
     ):
         """where=1=1 selects every row, so an oversized dataset must still 413.
-        This is the codex r8 bypass regression."""
+        This is the bypass regression."""
         resp = await client.get(
             f"/datasets/{capped_dataset.id}/export",
             params={"where": "1=1"},
@@ -935,7 +935,7 @@ class TestExportFeatureCap:
     async def test_ordinary_bbox_count_stays_envelope_conservative(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
     ):
-        """fix(#905 codex r1): the non-crossing branch must keep counting with
+        """The non-crossing branch must keep counting with
         `&&` (envelope overlap), not exact ST_Intersects — the export runs
         ogr2ogr -spat, whose GDAL contract permits envelope false positives,
         so an exact count could pass the cap while -spat exports more. Three
@@ -1216,7 +1216,7 @@ class TestExportWhereWordLiteral:
 
 
 class TestPmtilesMaxzoomForExtent:
-    """fix(#1686 codex r1): the PMTiles writer materializes the whole pyramid,
+    """The PMTiles writer materializes the whole pyramid,
     so MAXZOOM is budgeted from extent instead of fixed at 14."""
 
     def test_world_extent_caps_at_z8(self):
@@ -1261,7 +1261,7 @@ class TestPmtilesMaxzoomForExtent:
 
 
 class TestPmtilesMaxzoomPropagation:
-    """fix(#1686 codex r2): the cap is only real if it reaches the pmtiles
+    """The cap is only real if it reaches the pmtiles
     ogr2ogr invocation — the router's computation was once silently dropped
     because the kwarg was threaded through the wrong service branch."""
 

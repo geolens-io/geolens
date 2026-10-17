@@ -51,7 +51,7 @@ def _check_titiler() -> bool:
     return _TITILER_AVAILABLE
 
 
-# Phase 278 TEST-09: evaluate Titiler reachability once at module import time
+# Evaluate Titiler reachability once at module import time
 # so the conditional skip can be expressed as a @pytest.mark.skipif decorator
 # (collected at gather-time rather than at test-execution time). The 3-second
 # urlopen timeout in _check_titiler bounds the import-time cost; result is

@@ -1,4 +1,4 @@
-// BUG-042: editing a feature's ATTRIBUTES never reloaded the vector tiles, so
+// Editing a feature's ATTRIBUTES never reloaded the vector tiles, so
 // attribute-driven rendering kept stale values until a manual reload. The
 // geometry/delete handlers already reloadTiles(); the attribute handler now
 // does too. This test pins that handleEditAttributeSubmit cache-busts the
@@ -40,7 +40,7 @@ vi.mock('@/lib/env', () => ({
   getEnvConfig: () => ({ TILE_BASE_URL: '' }),
 }));
 
-// fix(#1761 review round 3 P1): selectFeatureFromMap's identity race needs a
+// selectFeatureFromMap's identity race needs a
 // controllable getFeature() promise to hold the function paused mid-await.
 vi.mock('@/api/features', () => ({
   getFeature: vi.fn(),
@@ -159,7 +159,7 @@ describe('useFeatureEditing — handleEditAttributeSubmit (BUG-042)', () => {
   });
 });
 
-// fix(#1761 review round 3 P1): a stale selectFeatureFromMap resolution used
+// A stale selectFeatureFromMap resolution used
 // to install the fetched geometry on the map (clear() + addFeatures()) and
 // select/hide it BEFORE anything checked whether the identity that started
 // the fetch was still current — only the final setSelectedFeature() call was
@@ -247,7 +247,7 @@ describe('useFeatureEditing — selectFeatureFromMap identity race (fix #1761 re
   });
 });
 
-// fix(#1761 review round 3 P2): handleSaveEdit/handleDeleteFeature applied
+// handleSaveEdit/handleDeleteFeature applied
 // their success cleanup (removeFeatures, tile reload/restore,
 // clearSelectedFeature) unconditionally. If the identity changed while the
 // mutation was in flight, that cleanup landed on whatever a SECOND identity
@@ -423,7 +423,7 @@ describe('useFeatureEditing — post-mutation cleanup skipped after a stale iden
   });
 });
 
-// fix(round1 #1795): a drag/vertex edit only marks the edit dirty
+// A drag/vertex edit only marks the edit dirty
 // (handleEditFinish) — it is not persisted until Save. The undo history for
 // that pending edit must survive until it actually settles: a successful
 // save, or a cancel/deselection (performDeselect, shared by both).
@@ -507,7 +507,7 @@ describe('useFeatureEditing — undo history reset on settle, not on finish (fix
     expect(resetHistory).not.toHaveBeenCalled();
   });
 
-  // fix(round2 #1795, P2): handleDeleteFeature's success path removed the
+  // handleDeleteFeature's success path removed the
   // feature and cleared the selection but never reset the undo history —
   // canUndo stayed true and Undo restored the deleted geometry as a
   // client-side ghost. Reset at the same point handleSaveEdit does, after
@@ -548,7 +548,7 @@ describe('useFeatureEditing — undo history reset on settle, not on finish (fix
   });
 });
 
-// fix(round2 #1795, P2): Terra Draw's undo() reverts snapshots and updates
+// Terra Draw's undo() reverts snapshots and updates
 // canUndo, but never touched isEditDirty — undoing all the way back to the
 // original geometry still triggered the unsaved-changes confirmation on
 // Cancel/Done/mode-switch. handleHistoryBaseline is what use-terra-draw's
@@ -607,7 +607,7 @@ describe('useFeatureEditing — handleHistoryBaseline clears isEditDirty (fix ro
   });
 });
 
-// fix(round4 #1795, P2): undo() restored a snapshot that no longer contains
+// Undo restored a snapshot that no longer contains
 // the feature that was selected before the undo — Terra Draw's own select
 // state has nothing left to re-select. handleSelectionLost clears our
 // selection store too, so it agrees with what Terra Draw actually has.
@@ -657,7 +657,7 @@ describe('useFeatureEditing — handleSelectionLost clears the selection store (
   });
 });
 
-// fix(#1761 review round 4): the epoch-change cleanup (DatasetMap's
+// The epoch-change cleanup (DatasetMap's
 // finishDrawingSession) clears Terra Draw but, before this, not the overlay
 // ref/source that saveAndRefresh populates for instant visibility while a
 // create is in flight — and clearOverlay(), fired later by a tile-load
@@ -737,7 +737,7 @@ describe('useFeatureEditing — overlay reset on identity change (fix #1761 revi
   });
 });
 
-// fix(#1761 review round 4): handleEditAttributeSubmit used to report
+// handleEditAttributeSubmit used to report
 // success and reload tiles even after a stale write, and its caller
 // (DatasetMap's AttributeForm onSubmit) closed the dialog unconditionally —
 // discarding a second identity's own now-open editor for their feature.
@@ -808,7 +808,7 @@ describe('useFeatureEditing — handleEditAttributeSubmit result (fix #1761 revi
     expect(outcome).toEqual({ applied: true, refused: true });
   });
 
-  // fix(#1761 review round 5): the catch path returned applied: true
+  // The catch path returned applied: true
   // unconditionally, so when the identity changed while the mutation was
   // in flight and it then REJECTED, the caller closed a second identity's
   // own now-open editor and an error toast for the FIRST identity's
@@ -839,7 +839,7 @@ describe('useFeatureEditing — handleEditAttributeSubmit result (fix #1761 revi
   });
 });
 
-// fix(#1761 review round 7): the success path of each mutation already
+// The success path of each mutation already
 // rechecks the captured epoch before its toast/state effects; the catch
 // path did not, so a request that FAILED after an identity change still
 // surfaced its error toast to whoever is signed in now.
@@ -971,7 +971,7 @@ describe('useFeatureEditing — stale-failure feedback suppressed (fix #1761 rev
     expect(toast.error).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#1761 review round 8): the fourth catch path with the same
+  // The fourth catch path with the same
   // omission — selectFeatureFromMap's catch (getFeature() rejecting) had
   // no epoch recheck at all, unlike the mutation catch paths above, so a
   // failed fetch always showed map.featureLoadFailed to whoever is signed

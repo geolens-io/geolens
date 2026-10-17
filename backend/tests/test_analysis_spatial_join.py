@@ -387,7 +387,7 @@ class TestSpatialJoinPreview:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#727 codex round 5): a bbox on the request scopes match_count
+        """A bbox on the request scopes match_count
         too, not just source_feature_count — otherwise a viewport-scoped
         preview pairs an honest "N of TOTAL" source count with a match_count
         that silently counts the whole dataset, which is the same class of

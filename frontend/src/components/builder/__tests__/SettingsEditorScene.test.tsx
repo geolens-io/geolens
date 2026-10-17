@@ -171,7 +171,7 @@ describe('SettingsEditorScene', () => {
     expect(screen.queryByLabelText(/Terrain exaggeration/i)).not.toBeInTheDocument();
   });
 
-  // Test 5: Plugin toggles render with correct aria-label (UX-04: "Enable {name}" / "Disable {name}")
+  // Test 5: Plugin toggles render with correct aria-label ("Enable {name}" / "Disable {name}")
   it('plugin toggle rows render with correct aria-label based on active state', () => {
     render(
       <SettingsEditorScene

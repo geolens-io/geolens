@@ -104,7 +104,7 @@ const operationsItems: readonly OperationItem[] = [
   { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true, capability: 'manage_settings', settingsGated: true },
 ];
 
-// Phase 279 ADMIN-03 (M-03): server-driven enterprise-tab list. Used as the
+// Server-driven enterprise-tab list. Used as the
 // fallback when the /settings/enterprise-tabs/ endpoint is unreachable
 // (boot, network failure, transient API outage). Must stay in sync with the
 // backend `_ENTERPRISE_ONLY_TABS` frozenset in
@@ -170,7 +170,7 @@ export function AdminSidebar() {
     enabled: canAdminSettings,
   });
 
-  // Phase 279 ADMIN-03 (M-03): derive each Settings-tab's enterpriseOnly flag
+  // Derive each Settings-tab's enterpriseOnly flag
   // from the server-driven list. Falls back to the local default when the
   // hook is loading or has errored so the sidebar still renders cleanly
   // during boot/network failures (no flash of forbidden tabs in community).
@@ -200,7 +200,7 @@ export function AdminSidebar() {
     sharedMaps: publishedMapCount,
   };
 
-  // #347 (ADM-02): cap large counts at 999+ in the small sidebar badge.
+  // #347: cap large counts at 999+ in the small sidebar badge.
   const capBadge = (n: number) => (n > 999 ? '999+' : String(n));
 
   return (
@@ -318,7 +318,7 @@ export function AdminSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip={t('adminNav.backToApp')}>
-              {/* CLEAN-N5: search workspace is "/" after landing page removal. */}
+              {/* Search workspace is "/" after landing page removal. */}
               <Link to="/">
                 <ArrowLeft className="rtl-mirror" />
                 <span>{t('adminNav.backToApp')}</span>

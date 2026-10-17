@@ -1,8 +1,8 @@
-"""DP-02: Read-path role binding + schema-qualified tile queries + dataset resolver (Phase 1209-03).
+"""Read-path role binding + schema-qualified tile queries + dataset resolver.
 
 Tests
 -----
-Task 1 — Tile path binder + schema-qualified queries:
+Tile path binder + schema-qualified queries:
   T1A: set_tenant_role_for_tile_request is a no-op in single_tenant (no SQL issued).
   T1B: set_tenant_role_for_tile_request in multi_tenant issues SET LOCAL ROLE + SET LOCAL search_path
        and the live DB reflects the per-tenant role and schema.
@@ -14,7 +14,7 @@ Task 1 — Tile path binder + schema-qualified queries:
   T1H: set_tenant_role_for_tile_request with tenant B's role cannot read data_t_{A}'s table
        (cross-tenant privilege denied at DB level).
 
-Task 2 — Sandbox executor mode-aware role + dataset resolver:
+Sandbox executor mode-aware role + dataset resolver:
   T2A: execute_safe uses geolens_readonly in single_tenant.
   T2B: execute_safe uses tenant_reader_role(tid) in multi_tenant when tid is set.
   T2C: execute_safe fails closed in multi_tenant when tid is None.
@@ -281,7 +281,7 @@ class TestSandboxRoleSelection:
     async def test_single_tenant_uses_geolens_reader(self, monkeypatch):
         """T2A: In single_tenant, execute_safe issues SET LOCAL ROLE geolens_reader.
 
-        CR-04 (Phase 1209): fallback role is geolens_reader (guaranteed by
+        Fallback role is geolens_reader (guaranteed by
         migration 0007) rather than geolens_readonly (only in 0001_baseline).
         """
         # Patch at the executor module binding, not the source module
@@ -300,7 +300,7 @@ class TestSandboxRoleSelection:
             await execute_safe(MagicMock(), "SELECT 1")
 
         role_stmts = [s for s in executed_stmts if "SET LOCAL ROLE" in s]
-        # CR-04: single_tenant uses geolens_reader (exact suffix match, not a prefix
+        # single_tenant uses geolens_reader (exact suffix match, not a prefix
         # of geolens_reader_t_*)
         assert any(s.strip().endswith("geolens_reader") for s in role_stmts), (
             f"Expected SET LOCAL ROLE geolens_reader; got: {role_stmts}"

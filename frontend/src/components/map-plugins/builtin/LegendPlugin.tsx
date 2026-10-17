@@ -38,7 +38,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
 
   return (
     <div className="space-y-0 min-w-44">
-      {/* ENH-06: custom map-level legend title + edit affordance. The title row
+      {/* Custom map-level legend title + edit affordance. The title row
           renders only when a custom title exists OR the editor is open; the
           pencil button is always present in editable (builder) contexts. */}
       {(legendTitle || canEdit) && (
@@ -114,7 +114,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
                   legend and layer-list icons must agree, so derive the glyph
                   instead of hardcoding it. */}
               <RasterGlyphChip glyph={demChipGlyph('terrain')} />
-              {/* fix(HT-08): keep the bound DEM's identity — fall back to the
+              {/* Keep the bound DEM's identity — fall back to the
                   generic "3D terrain" label only when the layer has no name. */}
               <span className="font-medium text-foreground truncate">
                 {terrainEntry.sourceName ?? t(terrainEntry.labelKey)}

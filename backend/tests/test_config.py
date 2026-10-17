@@ -363,7 +363,7 @@ class TestProcrastinateConninfo:
         assert "sslmode=verify-full" in conninfo
 
     def test_override_includes_search_path(self):
-        # BUG-002: the override branch previously dropped the search_path
+        # The override branch previously dropped the search_path
         # option, so procrastinate could not resolve its unqualified objects on
         # managed Postgres (DATABASE_URL_OVERRIDE) and the job queue broke. The
         # override branch must mirror the default branch and pin the catalog
@@ -827,7 +827,7 @@ class TestJwtSecretLengthValidator:
         assert s.jwt_secret_key.get_secret_value() == long_key
 
     def test_known_bad_jwt_secret_rejected(self):
-        """Phase 268 H-28: .env.example default is exactly 32 chars but is a
+        """.env.example default is exactly 32 chars but is a
         public, version-controlled value. The validator must reject it."""
         with pytest.raises(Exception) as exc_info:
             _make_settings(jwt_secret_key="dev-only-change-me-in-production")
@@ -899,7 +899,7 @@ class TestLogLevelValidator:
 
 
 class TestPrivacyUrlValidator:
-    """PRIV-1: PRIVACY_URL is rendered as a raw <a href> on the login page,
+    """PRIVACY_URL is rendered as a raw <a href> on the login page,
     so an unsafe value must fail boot rather than reach the browser. This is
     the ONLY validation an ENV_ONLY_CONFIG deployment ever runs for it — the
     admin-write validator never sees an env-sourced value in that mode.
@@ -991,7 +991,7 @@ class TestPrivacyUrlValidator:
         ],
     )
     def test_ulabel_and_alabel_forms_get_the_same_verdict(self, host, accepted):
-        """PRIV-1 (codex r7): a host's native Unicode (U-label) spelling and
+        """A host's native Unicode (U-label) spelling and
         its IDNA-encoded ("xn--...", A-label) spelling must always agree --
         which one the operator happened to type is never why one is
         accepted and the other rejected. Skips the A-form comparison for a
@@ -1095,7 +1095,7 @@ class TestSecretStrMasking:
 
 
 class TestPendingJobTimeoutBounds:
-    """fix(#1235 review r5, r6): both ends, enforced at config load.
+    """Both ends, enforced at config load.
 
     Each end had the same shape — a value the settings model accepted under
     which no upload could ever succeed, so the deployment booted clean and
@@ -1115,7 +1115,7 @@ class TestPendingJobTimeoutBounds:
         assert "pending_job_timeout_seconds" in str(excinfo.value)
 
     def test_a_timeout_at_the_signing_margin_is_refused(self):
-        """fix(#1235 review r6): the dead zone is excluded by the bound, not
+        """The dead zone is excluded by the bound, not
         discovered by the operator when every upload starts failing."""
         with pytest.raises(Exception) as excinfo:
             _make_settings(

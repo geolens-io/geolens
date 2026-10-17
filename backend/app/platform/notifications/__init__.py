@@ -92,7 +92,7 @@ async def notify(
         except Exception as exc:  # broad: sinks must not break callers
             # SAFE error only: type name + short message. NEVER interpolate
             # notification.body, smtp_password, webhook_url, or any other
-            # secret/payload value (T-1229-01/T-1229-03).
+            # secret/payload value.
             safe_error = f"{type(exc).__name__}: sink delivery failed"
             errors.append(safe_error)
             if per_channel is None:

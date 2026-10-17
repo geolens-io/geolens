@@ -33,7 +33,7 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
     setMapKey(prev => prev + 1);
   }, []);
 
-  // fix(#1362 codex r4): a completed replacement remounts the hero the same
+  // A completed replacement remounts the hero the same
   // way a manual retry does (fresh heroState + mapKey), but it is NOT a
   // failed-tile retry — routing it through handleRetry spent the 3-attempt
   // manual-retry budget on a SUCCESS, so a later genuine tile failure could

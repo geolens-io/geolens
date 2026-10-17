@@ -1,14 +1,14 @@
 """Save and restore everything ``setup_logging()`` mutates.
 
-fix(#1064 codex r2): ``setup_logging()`` does not only touch the root logger.
+fix(#1064): ``setup_logging()`` does not only touch the root logger.
 Reading ``app/core/logging_config.py:283-304`` line by line, it clears root's
 handlers, then clears handlers and rewrites ``propagate`` on ``uvicorn``,
 ``uvicorn.error`` and ``uvicorn.access``. A teardown that restores only root
 leaves those three changed — measured, a caller's ``uvicorn.access`` goes in
 with ``propagate=True`` and comes back out with ``propagate=False``.
 
-fix(#1746 codex r5): the same function also sets ``httpx``/``httpcore`` to
-``WARNING`` (finding 1/13's fix), and that level survived every restore here
+fix(#1746): the same function also sets ``httpx``/``httpcore`` to
+``WARNING``, and that level survived every restore here
 until now for exactly the reason the paragraph above warns about: it was not
 on this list. A caller doing ``configured_logging()`` around a direct
 ``setup_logging()`` call left both loggers pinned at ``WARNING`` for the rest
@@ -89,7 +89,7 @@ def configured_logging(
 ) -> Iterator[None]:
     """``setup_logging()`` inside a preserved window, with the freeze disarmed.
 
-    fix(#1064 codex r4): use this rather than ``preserved_logging_state()``
+    fix(#1064): use this rather than ``preserved_logging_state()``
     directly whenever the window CALLS ``setup_logging()``. Restoring the
     config on exit is not enough on its own, because ``setup_logging()`` turns
     ``cache_logger_on_first_use`` ON, and a module-level logger that emits

@@ -1,4 +1,4 @@
-// feat(#1241): the chat preview → dataset snapshot. What matters here is that
+// The chat preview → dataset snapshot. What matters here is that
 // the client's FeatureCollection reaches the ORDINARY ingest path — upload,
 // preview, commit — as a .geojson file, so the result is a dataset with
 // nothing special about it downstream.
@@ -94,7 +94,7 @@ describe('chatPreviewFileName', () => {
   });
 });
 
-// feat(#1241 codex r5): graphemes are the wrong unit for a filesystem entry.
+// Graphemes are the wrong unit for a filesystem entry.
 // 80 emoji plus the extension is 328 bytes, and local staging writes
 // `<job-uuid>_<basename>` into a directory entry Linux caps at 255 — the
 // upload then fails with ENAMETOOLONG, which the endpoint returns as a 500.
@@ -193,7 +193,7 @@ describe('SaveChatPreviewDialog', () => {
     expect(commitImport).not.toHaveBeenCalled();
   });
 
-  // feat(#1241 codex r2): the commit chain has three server steps and the
+  // The commit chain has three server steps and the
   // dialog stays open when one fails. Re-uploading on retry strands the first
   // staged job, and if a commit was accepted with only its response lost, a
   // fresh job would queue a SECOND dataset from the same answer. Resuming puts
@@ -216,7 +216,7 @@ describe('SaveChatPreviewDialog', () => {
     expect(toastSuccess).toHaveBeenCalled();
   });
 
-  // feat(#1241 codex r3): the ambiguous case. A commit that reached the server
+  // The ambiguous case. A commit that reached the server
   // with only its response lost leaves a queued import behind, and the backend
   // refuses the repeat with 400 "Job already processed" — forever. Without
   // this the dialog can never close over a dataset that already exists.
@@ -235,7 +235,7 @@ describe('SaveChatPreviewDialog', () => {
     expect(toastError).toHaveBeenCalledTimes(1);
   });
 
-  // feat(#1241 codex r4): the backend answers a repeat commit with the same
+  // The backend answers a repeat commit with the same
   // 400 for every non-pending status, and a dispatch failure leaves the job
   // `failed` with its staged file deleted. Reading the 400 alone reported
   // success for an import that was never queued.

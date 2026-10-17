@@ -274,7 +274,7 @@ function serializeBBox(bbox: BBox): string {
   return bbox.map((value) => Number(value.toFixed(6))).join(',');
 }
 
-// fix(review #1792 round 5): a number string-interpolated directly (e.g.
+// A number string-interpolated directly (e.g.
 // `${threshold}` below) goes through JS's default Number-to-string
 // conversion, which switches to scientific notation below 1e-6 or at/above
 // 1e21 -- (1e-7).toString() === '1e-7', (1e21).toString() === '1e+21'. The
@@ -283,7 +283,7 @@ function serializeBBox(bbox: BBox): string {
 // clause. Expand scientific notation back to a plain decimal string before
 // it reaches a clause. Pure string/digit manipulation on the exact digits
 // JS already chose -- never touches the value itself, so it can never round
-// (in particular, never rounds above the observed maximum the round-2 fix
+// (in particular, never rounds above the observed maximum the earlier fix
 // depends on).
 function formatNumericLiteral(value: number): string {
   const raw = String(value);
@@ -322,7 +322,7 @@ function isSqlIdentifier(value: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 }
 
-// fix(review #1792 round 6): JSON.parse loses precision above
+// JSON.parse loses precision above
 // Number.MAX_SAFE_INTEGER -- not just fractional rounding, the parsed
 // integer can differ from the true value entirely (9007199254740995
 // becomes 9007199254740996, a database value that may not even exist).
@@ -409,7 +409,7 @@ function buildWherePredicate(
   }
 
   if (numericColumn) {
-    // fix(review #1792 round 2): Number(maxValue.toFixed(6)) can round the
+    // Number(maxValue.toFixed(6)) can round the
     // observed maximum UP (1.2345678 -> 1.234568), which would make
     // `column >= threshold` exclude the very row that produced the maximum
     // -- the clause would then match nothing. The auto-seeded runtime
@@ -422,7 +422,7 @@ function buildWherePredicate(
     // rendered exactly, which is not guaranteed (see below).
     const { columnName, propertyKey } = numericColumn;
 
-    // fix(review #1792 round 6): `maxValue` came from JSON.parse, which for
+    // `maxValue` came from JSON.parse, which for
     // a BIGINT above Number.MAX_SAFE_INTEGER does not just lose fractional
     // precision -- it can round to a DIFFERENT integer entirely (e.g.
     // 9007199254740995 becomes 9007199254740996), so `maxValue` here may
@@ -452,7 +452,7 @@ function buildWherePredicate(
     let clauseValue: string;
     let evaluateThreshold: number;
 
-    // fix(review #1792 round 7): a raw token that fails the regex's
+    // A raw token that fails the regex's
     // `(?![\d.eE])` lookahead -- e.g. a NUMERIC maximum serialized as
     // "9007199254740995.1", which JSON.parse rounds to the unsafe integer
     // 9007199254740996 -- used to fall through to the `rawValues.length ===
@@ -515,7 +515,7 @@ function buildWherePredicate(
 }
 
 async function loginAsAdmin(request: APIRequestContext): Promise<string> {
-  // SP-11: route is now /auth/login (no trailing slash), so the POST body is
+  // the route is /auth/login (no trailing slash), so the POST body is
   // preserved without a 307 redirect and Playwright doesn't trip on the
   // Docker-internal api:8000 hostname.
   const loginResponse = await request.post('/api/auth/login', {
@@ -703,7 +703,7 @@ async function resolveRuntimeDataset(
     if (baseline.features.length === 0) {
       return null;
     }
-    // fix(review #1792 round 6): kept alongside the parsed `baseline` so
+    // Kept alongside the parsed `baseline` so
     // buildWherePredicate can recover exact BIGINT digits JSON.parse
     // already discarded -- see extractRawIntegerValues.
     const baselineRawText = baselineBody.toString('utf8');
@@ -765,7 +765,7 @@ async function resolveRuntimeDataset(
   );
 }
 
-// fix(review #1792 round 5): pure-logic pin for formatNumericLiteral,
+// Pure-logic pin for formatNumericLiteral,
 // independent of any live request -- the two inputs are exactly where
 // JS's Number-to-string conversion switches to scientific notation (see
 // the function's own comment).
@@ -788,7 +788,7 @@ test.describe('formatNumericLiteral', () => {
   });
 });
 
-// fix(review #1792 round 6): pure-logic pin for buildWherePredicate's
+// Pure-logic pin for buildWherePredicate's
 // threshold computation, independent of any live request. Covers the two
 // precision-loss shapes JSON.parse can introduce: a BIGINT above
 // Number.MAX_SAFE_INTEGER (parses to a DIFFERENT integer, not just a
@@ -858,7 +858,7 @@ test.describe('buildWherePredicate precision', () => {
   });
 
   test('a raw decimal token past MAX_SAFE_INTEGER falls back to the epsilon margin, not the rounded parse', () => {
-    // fix(review #1792 round 7): a NUMERIC column can genuinely hold a
+    // A NUMERIC column can genuinely hold a
     // fractional value out here, e.g. "9007199254740995.1" -- the regex in
     // extractRawIntegerValues deliberately excludes this token (its
     // `(?![\d.eE])` lookahead requires the digit run to end cleanly, not
@@ -908,7 +908,7 @@ test.describe('Runtime export integrity', () => {
   let ownedDataset: OwnedDataset | null = null;
 
   test.beforeAll(async ({ request }) => {
-    // fix(review #1792 round 3): seedRuntimeDataset's own ingest-and-poll
+    // seedRuntimeDataset's own ingest-and-poll
     // loop can run for up to 60s (its `for (let attempt = 0; attempt < 60;
     // attempt += 1)` below), which is Playwright's default hook timeout
     // with nothing left over for the login and resolveRuntimeDataset calls
@@ -1032,7 +1032,7 @@ test.describe('Runtime export integrity', () => {
     // small epsilon, so the request is guaranteed to intersect at least that
     // feature regardless of dataset topology. This works identically for
     // `ownedDataset` and for E2E_EXPORT_DATASET_ID.
-    // fix(review #1792 round 7): `baseline.features[0]` assumed the FIRST
+    // `baseline.features[0]` assumed the FIRST
     // feature has computable geometry, but resolveCandidate only checks
     // that SOME feature across the whole collection contributes a position
     // (collectFeatureCollectionPositions skips null/empty geometry per

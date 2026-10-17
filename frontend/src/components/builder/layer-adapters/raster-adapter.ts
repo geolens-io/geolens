@@ -51,14 +51,14 @@ export const RASTER_OWNED_PAINT_PROPERTIES = [
  * and MapLibre re-fetches tiles with the new params.
  *
  * The `_colormap` and `_stretch` keys are builder-private paint keys (never
- * in RASTER_OWNED_PAINT_PROPERTIES — Pitfall 6) and mutate the tile URL, not
+ * in RASTER_OWNED_PAINT_PROPERTIES) and mutate the tile URL, not
  * a MapLibre paint property.
  *
  * `colormap_name` is forwarded only for a non-gray colormap (gray is Titiler's
  * single-band default). `stretch` is forwarded independently of the colormap —
  * the api raster-proxy computes a stats-based rescale server-side that applies
  * to the grayscale render too, so `percentile`/`stddev` must work even when the
- * colormap is left at the default gray (RASTER-STRETCH-UI-02).
+ * colormap is left at the default gray.
  *
  * Bound params follow the "only forward non-default" discipline:
  * - `pmin` / `pmax` are forwarded only when `_stretch === 'percentile'` AND the
@@ -68,7 +68,7 @@ export const RASTER_OWNED_PAINT_PROPERTIES = [
  *   finite number differing from its default (2).
  * This ensures the default-case URL is byte-identical to prior behavior.
  *
- * `_pmin`, `_pmax`, and `_sigma` are builder-private paint keys (Pitfall 6) —
+ * `_pmin`, `_pmax`, and `_sigma` are builder-private paint keys —
  * they must NOT appear in `RASTER_OWNED_PAINT_PROPERTIES`.
  *
  * @param baseUrl  Root-relative or absolute tile URL (e.g. `/api/raster-tiles/...`)
@@ -114,7 +114,7 @@ export function buildColormapTileUrl(
   }
   const qs = params.toString();
   if (!qs) return baseUrl;
-  // fix(#688): the raster template arrives signed, so it already carries
+  // The raster template arrives signed, so it already carries
   // `?sig=&exp=&scope=`. A blind `?` folded these params into the `scope` VALUE
   // — a "Scope mismatch" 403 on a private raster, and silently dropped styling
   // on a public one. `new URL()` is not usable here: the base still holds the
@@ -171,13 +171,13 @@ export const rasterAdapter: LayerAdapter = {
 
   addLayers(map, input) {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, bounds, attribution } = input;
-    // builder-audit #338 ADAPT-10: source construction reads input.tileUrl directly. The
+    // Source construction reads input.tileUrl directly. The
     // colormap/stretch query params are applied by buildColormapTileUrl (exported from
     // THIS module) — but the call site lives in map-sync.syncRasterLayer, which mutates
     // adapterInput.tileUrl before handing it here. The URL builder is co-located in this
     // file so a reader inspecting raster source/colormap behavior finds it next to the
     // adapter; map-sync owns the wiring (cross-linked here intentionally).
-    // WALK-R-05: split source guard from layer guard so that when a style swap
+    // Split source guard from layer guard so that when a style swap
     // removes layers but retains sources (raster basemap reload scenario), the
     // layer is re-added without re-adding the already-existing source.
     if (!map.getSource(sourceId)) {
@@ -189,7 +189,7 @@ export const rasterAdapter: LayerAdapter = {
         minzoom: minzoom ?? 0,
         maxzoom: maxzoom ?? 18,
         ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
-        // fix(#1472 review): the dataset's required credit line, read by
+        // The dataset's required credit line, read by
         // MapLibre's attribution control off the source it renders from.
         ...(attribution ? { attribution } : {}),
       });

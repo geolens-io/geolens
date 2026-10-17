@@ -1,4 +1,4 @@
-// feat(#1241 codex r1): the overlay-completeness rule, in one place.
+// The overlay-completeness rule, in one place.
 //
 // The defect this exists for: `truncated` is the SQL sandbox's row-cap flag.
 // backend/app/processing/ai/chat_actions.py slices the FeatureCollection to a

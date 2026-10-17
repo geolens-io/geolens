@@ -337,7 +337,7 @@ class TestGeoParquetExport:
         """An oversized (feature_count > cap) parquet dataset with empty
         column_info stays filterable: the router's cap guard is skipped for
         parquet, and export_parquet validates the filter against live columns
-        (Codex r10 regression)."""
+        (a past regression)."""
         table_name = f"exp_pqov_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
             text(

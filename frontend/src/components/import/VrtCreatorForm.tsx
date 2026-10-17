@@ -35,7 +35,7 @@ import { formatNumber } from '@/lib/format';
 
 const VRT_MAX_SOURCES = 20;
 
-// fix(#1805 review round 1 P2): shared by every client-side grid-alignment
+// Shared by every client-side grid-alignment
 // float comparison in this form, mirroring the backend's _FLOAT_TOL in
 // _check_grid_alignment (backend/app/processing/raster/validation.py).
 const GRID_ALIGNMENT_TOLERANCE = 1e-10;
@@ -46,15 +46,15 @@ function floatsAligned(a: number, b: number): boolean {
 
 type NodataState = 'defined' | 'absent' | 'unknown';
 
-// fix(#1805 review round 2 P1): _check_nodata_consistency compares the
+// _check_nodata_consistency compares the
 // backend's authoritative RasterAsset.nodata column, which IS populated for
 // remote COGs. But cog_info.py's band-level stats for a remote COG carry
 // only min/max/mean -- service_records.py never puts a `nodata` key on
 // that source's raster:bands entries even though the backend sees nodata
 // as defined. A band with no `nodata` key therefore means "this source's
 // band metadata doesn't carry the value" (unknown), not "no nodata"
-// (absent) -- those are different states, and conflating them (round 1's
-// fix did, via `!= null`) produces a false nodata_inconsistent whenever a
+// (absent) -- those are different states, and conflating them (as a
+// `!= null` check does) produces a false nodata_inconsistent whenever a
 // remote-COG source is paired with a locally-probed one. `nodata: null`
 // (as opposed to the key being entirely missing) is the one shape that
 // legitimately means "absent" today; no OGCRecordProperties field carries
@@ -82,7 +82,7 @@ function validateSources(
   const errors: ValidationErrors = {};
   const first = sources[0];
 
-  // fix(#1805 review round 1): _check_crs (backend/app/processing/raster/
+  // _check_crs (backend/app/processing/raster/
   // validation.py) picks the reference CRS as the FIRST source in the list
   // with a known CRS, not unconditionally sources[0] -- a source with no
   // CRS never becomes the reference and is skipped as a comparison target.
@@ -104,7 +104,7 @@ function validateSources(
 
     if (vrtType === 'mosaic') {
       // Band count check (mosaic only) -- mirrors _check_band_count_mosaic
-      // (VAL-02). The backend compares band_count unconditionally (it is a
+      // The backend compares band_count unconditionally (it is a
       // NOT NULL column on the authoritative RasterAsset row re-fetched at
       // creation time); band_count here comes from OGC search-result
       // properties, which omit the key entirely for legacy records with no
@@ -128,7 +128,7 @@ function validateSources(
     const srcDtype = src.properties['raster:bands']?.[0]?.data_type;
     const firstDtype = first.properties['raster:bands']?.[0]?.data_type;
 
-    // Dtype check -- mirrors _check_dtype (VAL-04). Unknown never blocks:
+    // Mirrors _check_dtype. Unknown never blocks:
     // raster:bands is entirely absent from OGC search-result properties
     // for sources ingested before band-info tracking existed, while the
     // backend's dtype column is guaranteed non-null. Comparing only when
@@ -138,9 +138,8 @@ function validateSources(
       errs.push('dtype_mismatch');
     }
 
-    // fix(#1805 review round 2 P1): _check_nodata_consistency (VAL-06)
-    // requires only consistent PRESENCE of nodata, not equal values (fixed
-    // in round 1) -- but "present" has to be judged per source, not
+    // _check_nodata_consistency
+    // requires only consistent PRESENCE of nodata, not equal values -- but "present" has to be judged per source, not
     // inferred from `!= null` on a single band field. A remote COG's
     // nodata IS defined on the backend but its band stats never carry a
     // `nodata` key (see nodataState() above), so a plain presence check
@@ -158,7 +157,7 @@ function validateSources(
     }
 
     // Band stack grid alignment check -- mirrors _check_grid_alignment
-    // (VAL-05). Unknown never blocks: every `!= null` guard below skips
+    // Unknown never blocks: every `!= null` guard below skips
     // its comparison when either side's dimension/resolution is unknown,
     // same tri-state principle as nodataState() above.
     if (vrtType === 'band_stack') {
@@ -170,10 +169,10 @@ function validateSources(
         srcShape != null && firstShape != null && srcShape[0] !== firstShape[0];
       const widthMismatch =
         srcShape != null && firstShape != null && srcShape[1] !== firstShape[1];
-      // fix(#1805 review round 1 P2): the backend compares res_x/res_y with
+      // The backend compares res_x/res_y with
       // a 1e-10 absolute float tolerance, not strict equality.
-      // fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y))
-      // -- two sources at (res_x=10, res_y=20) and (res_x=10, res_y=30)
+      // gsd is a lossy min(abs(res_x), abs(res_y)):
+      // two sources at (res_x=10, res_y=20) and (res_x=10, res_y=30)
       // collapse to the identical gsd=10, so a gsd-only comparison passed a
       // pair _check_grid_alignment (which compares res_x and res_y
       // independently) rejects. Compare each axis directly instead.

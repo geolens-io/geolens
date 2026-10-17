@@ -411,7 +411,7 @@ class TestBoundPendingSweep:
 
 
 def test_put_url_ttl_cannot_outlive_the_job() -> None:
-    """fix(#1234, #1235 r2): the one-shot PUT URL needed the clamp too.
+    """The one-shot PUT URL needed the clamp too.
 
     Its 3600 default happens to equal today's default timeout, which is what
     hid it: configure the timeout lower and the URL silently outlives the job.
@@ -459,7 +459,7 @@ def test_part_url_ttl_cannot_outlive_the_job() -> None:
 
 
 class TestPollingPathHonoursTheSameGuard:
-    """fix(#1235 review r2): the POLL is the path that actually fires.
+    """The POLL is the path that actually fires.
 
     `get_job_status`'s own comment says so — the frontend polls it every 2s for
     any job it is tracking. #1234 guarded the background sweep and left this
@@ -529,7 +529,7 @@ class TestPollingPathHonoursTheSameGuard:
     async def test_a_poll_still_fails_a_local_path_bound_job_at_1h(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """fix(#1235 review r2 refinement): the protected class is the
+        """The protected class is the
         `staging/` PREFIX, not "file_path is set".
 
         A direct upload whose dispatch failed binds an ABSOLUTE local path and
@@ -860,7 +860,7 @@ def test_the_published_cleanup_response_drops_the_new_count_without_raising() ->
 
 
 class TestUrlExpiryAnchorsToTheJobDeadline:
-    """fix(#1235 review r3): URL expiry anchored at SIGNING time while the job
+    """URL expiry anchored at SIGNING time while the job
     deadline anchors at created_at, so the two drifted by the in-request time
     between the job INSERT and each signature — and the part loop signs
     sequentially, so a many-part file's last URLs drifted furthest. In that gap
@@ -902,7 +902,7 @@ class TestUrlExpiryAnchorsToTheJobDeadline:
         assert 3595 <= ttl <= 3600, ttl
 
     def test_a_job_past_its_deadline_reports_a_negative_remainder(self) -> None:
-        """fix(#1235 review r4): the helper must not launder a dead job into a
+        """The helper must not launder a dead job into a
         live URL. It used to floor at 1, which reads as "expired on arrival" and
         is the opposite: ExpiresIn is relative to SIGNING time, so 1 buys the
         client one more usable second past the deadline."""
@@ -930,7 +930,7 @@ class TestUrlExpiryAnchorsToTheJobDeadline:
 
 
 class TestEveryLifetimeTimerDerivesFromTheOneSetting:
-    """fix(#1235 review r4): #1234 made the pending lifetime configurable and
+    """Making the pending lifetime configurable (#1234)
     converted only some of the consumers of the numbers that used to be its
     fixed value. Each survivor broke differently once an operator moved it, so
     what is asserted here is the closure — every lifetime-derived timer moves
@@ -965,7 +965,7 @@ class TestEveryLifetimeTimerDerivesFromTheOneSetting:
             assert stale_pending_cutoff_seconds(completion_bound=True) == 86400
 
     def test_the_post_expiry_sweep_waits_out_the_configured_url(self) -> None:
-        """fix(#1235 review r4): this cutoff derived from a fixed 3600. With a
+        """This cutoff derived from a fixed 3600. With a
         longer timeout the sweep ran while the PUT URL was still live, and the
         reaped marker takes the row out of every later pass — so an object
         recreated after it survived forever."""
@@ -978,7 +978,7 @@ class TestEveryLifetimeTimerDerivesFromTheOneSetting:
 
 
 class TestPresignRefusesRatherThanSigningADeadWindow:
-    """fix(#1235 review r4): there is no ExpiresIn that means "already dead".
+    """There is no ExpiresIn that means "already dead".
 
     The helper used to floor the remaining lifetime at 1, described as a URL
     "expired on arrival". ExpiresIn is relative to SIGNING time, so that floor
@@ -1017,7 +1017,7 @@ class TestPresignRefusesRatherThanSigningADeadWindow:
 
 
 class TestThePollPathSkipsUpdatesItCannotMatch:
-    """fix(#1235 review r4): the r2 rewrite dropped the outer elapsed check, so
+    """The earlier rewrite dropped the outer elapsed check, so
     BOTH pending UPDATEs ran on every 2s poll of every pending job. The DB
     predicates remain the authority; the elapsed check is a fast-path skip.
     """

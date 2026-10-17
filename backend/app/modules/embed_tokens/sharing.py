@@ -27,7 +27,7 @@ async def get_active_allowed_origins(
     when the token has none recorded -- the public-map path turns this into
     a per-token CSP ``frame-ancestors``, so the two are not interchangeable.
 
-    CR-04 (Phase 1062 review): must admit ``expires_at IS NULL`` explicitly
+    Must admit ``expires_at IS NULL`` explicitly
     -- in Postgres ``NULL > now()`` is NULL (falsy), so a non-expiring
     (community default) token would silently fall out and framing would
     break.

@@ -170,7 +170,7 @@ async def test_main_skips_stale_recovery_when_bootstrap_fails():
 async def test_main_uses_shutdown_graceful_timeout():
     """main() should pass shutdown_graceful_timeout from settings.worker_shutdown_timeout.
 
-    CONF-03 (Phase 277): worker.py reads the timeout via the Settings model
+    worker.py reads the timeout via the Settings model
     (`settings.worker_shutdown_timeout`) instead of `os.environ.get(...)`,
     so the test patches the Settings attribute directly.
     """
@@ -188,7 +188,7 @@ async def test_main_uses_shutdown_graceful_timeout():
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
+        # Storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).
         patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
         patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
@@ -209,7 +209,7 @@ async def test_main_uses_shutdown_graceful_timeout():
 async def test_main_uses_default_shutdown_timeout():
     """Without an override, settings.worker_shutdown_timeout defaults to 30.
 
-    CONF-03 (Phase 277): the default is built into the Settings field,
+    The default is built into the Settings field,
     not pulled from os.environ. Patching the attribute to 30 makes the
     expectation explicit even when the host process inherits a different
     value.
@@ -228,7 +228,7 @@ async def test_main_uses_default_shutdown_timeout():
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
+        # Storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).
         patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
         patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
@@ -340,7 +340,7 @@ async def test_main_passes_install_signal_handlers_true():
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
+        # Storage/cache/edition init now lives inside the shared bootstrap()
         # helper that worker.main() delegates to — patch it (not the old inline calls).
         patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
         patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),

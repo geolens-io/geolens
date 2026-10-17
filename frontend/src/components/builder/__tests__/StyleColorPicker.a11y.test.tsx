@@ -1,4 +1,4 @@
-// fix(#1778): the HexColorInput in both SwatchColorPopover and
+// The HexColorInput in both SwatchColorPopover and
 // StyleColorPicker had no accessible name -- it only renders inside an
 // open popover, so the gating axe suite structurally cannot reach it.
 import { fireEvent, render, screen } from '@/test/test-utils';

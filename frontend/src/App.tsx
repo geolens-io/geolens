@@ -152,7 +152,7 @@ export const appRoutes = (
     <Route path="/m/:token" element={<PublicViewerPage />} handle={preload(loadPublicViewerPage)} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
-      {/* FRONT-01: LandingFirstGuard redirects anonymous visitors to /login
+      {/* LandingFirstGuard redirects anonymous visitors to /login
           when the landing_first flag is ON; otherwise renders SearchPage. */}
       <Route index element={<LandingFirstGuard />} errorElement={<RouteErrorBoundary />} />
       <Route path="search" element={<SearchRedirect />} />

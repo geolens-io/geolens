@@ -34,7 +34,7 @@ import type {
  * import request covers the whole selected batch of items, not one entry
  * per item.
  *
- * fix(codex #1763 r3): also carries the search CONTEXT (catalog,
+ * Also carries the search CONTEXT (catalog,
  * collections list, selected collection, search results, selected item
  * ids) the way the Upload session already carries the selected layer in
  * `previewData` — an adopted result used to restore only `importResult`,
@@ -93,7 +93,7 @@ export interface StacImportSession {
 
 let current: StacImportSession | null = null;
 
-// fix(codex #1763 r1): a literal control byte was here as the key
+// A literal control byte was here as the key
 // separator, copied by analogy from url-import-session.ts's escaped
 // constant without actually escaping it. A raw control byte makes ripgrep
 // report this file as binary (verified: grep silently returns nothing for

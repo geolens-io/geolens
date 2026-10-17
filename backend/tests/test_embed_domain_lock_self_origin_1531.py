@@ -121,7 +121,7 @@ def _minter_reads_every_dataset(monkeypatch):
 
 
 def test_the_self_origin_lookup_cannot_be_told_about_the_request():
-    """fix(#1548 review r9): the #1531 invariant, now structural.
+    """The #1531 invariant, now structural.
 
     It used to be asserted by a fixture watching for a ``request=`` kwarg, which
     the switch to ``get_configured_public_app_url`` quietly made vacuous — that
@@ -195,7 +195,7 @@ async def _validate(request, allowed_origins: list[str] | None, monkeypatch) -> 
             "created_by": str(uuid.uuid4()),
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
             "tenant_id": None,
-            # fix(#1778 codex r3): a positive entry now carries the revocation
+            # A positive entry now carries the revocation
             # generation it was minted under, and one whose stamp is stale (or
             # missing) is refused and re-read from the database. This module is
             # about the ORIGIN check on the cache-hit path, so it pins the
@@ -344,7 +344,7 @@ class TestForeignOriginStillDenied:
 
 
 class TestLocalhostBypassPreserved:
-    """Phase 268 H-31 is untouched: the localhost-Origin dev bypass still
+    """The localhost-Origin dev bypass still
     requires the actual TCP peer to be loopback."""
 
     @pytest.mark.anyio
@@ -653,7 +653,7 @@ class TestDomainLockIsRefusedWhenUnenforceable:
         ``client_host`` is deliberately NOT loopback: in the shipped compose
         stack nginx proxies to the api container, so ``request.client.host`` is
         a bridge IP even for a browser on the host. A gate that leaned on the
-        H-31 loopback bypass to recognize this case would refuse every default
+        loopback bypass to recognize this case would refuse every default
         install.
         """
         self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)

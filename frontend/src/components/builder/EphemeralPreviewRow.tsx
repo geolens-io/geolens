@@ -1,4 +1,4 @@
-// fix(#1009): the analysis/chat preview drew an ephemeral overlay the layer
+// The analysis/chat preview drew an ephemeral overlay the layer
 // stack knew nothing about — with several layers on screen nothing said which
 // one was the preview, or how to get rid of it short of finding the badge in
 // the map's corner. This is that preview as a row in the stack.
@@ -26,12 +26,12 @@ import {
 
 export interface EphemeralPreviewRowProps extends EphemeralCountInput {
   onDismiss: () => void;
-  /** feat(#675): opens the Analysis panel prefilled with the operation behind
-   *  this preview. feat(#1241): or opens the save-as-dataset dialog for a
+  /** Opens the Analysis panel prefilled with the operation behind
+   *  this preview, or opens the save-as-dataset dialog for a
    *  plain chat result. Absent when neither is on offer, which is why the
    *  action is conditional. */
   onSaveAsDataset?: () => void;
-  /** feat(#1241): set instead of `onSaveAsDataset` when the save belongs on
+  /** Set instead of `onSaveAsDataset` when the save belongs on
    *  this preview but cannot be honoured — the affordance renders disabled
    *  with the reason spelled out rather than silently disappearing. */
   saveDisabledReason?: PreviewSaveDisabledReason;
@@ -118,7 +118,7 @@ export function EphemeralPreviewRow({
           </button>
         )}
       </div>
-      {/* feat(#1241): a disabled control with no stated reason is a dead end.
+      {/* A disabled control with no stated reason is a dead end.
           The count line above already carries the "N of M" — this says why
           that N is what rules the save out. Visible text (not a title
           tooltip), because a disabled button gets no hover or focus. */}

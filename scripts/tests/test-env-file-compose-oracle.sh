@@ -1,27 +1,25 @@
 #!/bin/sh
-# fix(#1798 review round 13, P2, review 5103870781; round 13b precedence
-# follow-up): every other test in this suite pins get_env_value's
+# fix(#1798): every other test in this suite pins get_env_value's
 # (scripts/lib/common.sh) behavior against a WRITTEN-DOWN understanding of
 # Docker Compose's `.env` grammar. This one instead asks Compose itself,
-# for a corpus covering every codex .env finding from rounds 6-12 (BOM, a
+# for a corpus covering the .env cases reviewers found (BOM, a
 # comment after a closing quote, escapes including \n/\t/\\, sibling and
 # chained ${VAR} interpolation with redefinition, a value ending in a real
 # trailing newline, an empty value, `=` inside a value, an undocumented
-# escape left alone, and absent vs empty) plus round 13b's process-env vs
+# escape left alone, and absent vs empty) plus the process-env vs
 # file precedence corpus (below).
 #
 # COMPOSE IS THE ORACLE. When a future review finds a new divergence
 # between get_env_value and real `docker compose`, the fix is to ADD A
 # CORPUS CASE HERE that reproduces it (red), fix common.sh's awk/shell
 # parser to match (green), and leave the case in place — not to re-argue
-# what Compose's grammar "should" do from first principles. Round 13b is
-# exactly that cycle: this file's own round-13 version documented (rather
-# than closed) a divergence where a key defined in BOTH the .env file AND
-# the shell's process environment resolved differently here than in real
-# Compose (file-first here, shell-env-first in Compose) — codex flagged a
-# Compose-parser mismatch on this PR every round from 6 to 12, and a
-# documented-but-open divergence was exactly the shape that becomes the
-# next one. get_env_value's interpolation now matches Compose's own
+# what Compose's grammar "should" do from first principles. The
+# process-env precedence case is exactly that cycle: an earlier version of
+# this file documented (rather than closed) a divergence where a key
+# defined in BOTH the .env file AND the shell's process environment
+# resolved differently here than in real Compose (file-first here,
+# shell-env-first in Compose), and a documented-but-open divergence is
+# exactly the shape that becomes the next one. get_env_value's interpolation now matches Compose's own
 # precedence: the process environment wins whenever X is set there (even
 # to an empty string, for the non-colon forms — see the process-env-vs-file
 # precedence corpus below), falling back to an earlier line in the same
@@ -76,7 +74,7 @@ YML
 }
 
 # Prints Compose's resolved value for KEY in FILE. Sentinel-protected (see
-# scripts/lib/common.sh's own P2 fix this round) so a real trailing
+# scripts/lib/common.sh's sentinel handling) so a real trailing
 # newline in the resolved value survives this capture too.
 _compose_value() {
   _cv_json="$(_compose_resolve_json "$1" "$2" && printf x)" || { printf ''; return 1; }
@@ -95,11 +93,11 @@ _our_value() {
   ( . "$REPO_ROOT/lib/common.sh" && get_env_value "$1" "$2" )
 }
 
-# fix(#1798 review round 15, P2, review 5104520795): the interface real
+# The interface real
 # callers (restore.sh/check-env.sh/upgrade.sh) now use is env_value_into,
 # not get_env_value's own stdout return -- a plain `VAR="$(get_env_value
 # ...)"` at the CALL SITE stripped a trailing decoded newline all over
-# again even after get_env_value's own round-13 fix started preserving
+# again even after get_env_value's own earlier fix started preserving
 # one internally, since ordinary command substitution always strips a
 # trailing newline regardless of what the command inside it does.
 # Exercises that ACTUAL caller path (source common.sh, call
@@ -236,13 +234,12 @@ _assert_matches_compose() {
   fi
 }
 
-# fix(#1798 review round 14, review 5104197320): `docker compose config
-# --format json` (the mechanism _compose_value/_compose_resolve_json use)
-# was found NOT to resolve a literal `$` faithfully — it appears to
+# `docker compose config --format json` (the mechanism
+# _compose_value/_compose_resolve_json use) was found NOT to resolve a literal `$` faithfully — it appears to
 # defensively RE-ESCAPE any literal, non-interpolated `$` back into `$$`
 # in its OWN serialized output, rather than show the value a real
 # container would actually receive. Verified by hand while writing this
-# round's corpus: `PASS=a$$b` read through `${PASS}` via `--format json`
+# corpus: `PASS=a$$b` read through `${PASS}` via `--format json`
 # comes back UNCHANGED as `a$$b` (the escape never resolves), while a
 # genuinely bare, single `$5` in a value comes back as `$$5` (a literal
 # dollar sign gets DOUBLED in the output) — both wrong in OPPOSITE
@@ -268,10 +265,10 @@ services:
 YML
   _cdv_out="$(docker compose -f "$_cdv_yml" --env-file "$_cdv_file" config --environment 2>/dev/null && printf x)" || { printf ''; return 1; }
   _cdv_out="${_cdv_out%x}"
-  # fix(#1798 review round 14, review 5104197320): a `grep`-matched line
+  # A `grep`-matched line
   # carries its OWN trailing newline — capturing that raw into the
   # sentinel-protected _amcd_theirs above would leave a spurious trailing
-  # `\n` on every value here (none of round 14's $-corpus values are
+  # `\n` on every value here (none of the $-corpus values are
   # meant to end in one). Capturing the grep result through ITS OWN
   # `$(...)` strips exactly that one, incidental newline; parameter
   # expansion (not sed) removes the "KEY=" prefix so a key name is never
@@ -338,7 +335,7 @@ _assert_errors_like_compose() {
   ok "$_aelc_desc (both $_aelc_resolve and Compose itself fail to resolve it)"
 }
 
-# fix(#1778 round 22, P2): _compose_value/_assert_matches_compose cannot
+# _compose_value/_assert_matches_compose cannot
 # distinguish "KEY is genuinely UNSET" from "KEY is SET to an empty
 # string" -- a direct ${KEY} query collapses both to the same JSON "" (a
 # real, separately-confirmed Compose behavior: querying an unset name
@@ -398,20 +395,20 @@ _compose_presence() {
 # test-restore-env-sourcing-safety.sh.
 # ============================================================================
 
-# BOM (round 11 audit + CI round 12 fix).
+# BOM.
 BOM_ENV="$WORK/.env.bom"
 printf '\357\273\277POSTGRES_DB=geolens\n' > "$BOM_ENV"
 _assert_matches_compose POSTGRES_DB "$BOM_ENV" \
   "BOM-prefixed single-line .env"
 
-# A comment following the closing quote (round 2).
+# A comment following the closing quote.
 COMMENT_ENV="$WORK/.env.comment"
 printf 'COMPOSE_FILE="docker-compose.prod.yml" # production\n' > "$COMMENT_ENV"
 _assert_matches_compose COMPOSE_FILE "$COMMENT_ENV" \
   "a double-quoted value followed by a trailing comment"
 
-# Escapes: \t and \n mid-value (round 10), \\ (round 9/10), an undocumented
-# escape left alone (round 10).
+# Escapes: \t and \n mid-value, \\, an undocumented
+# escape left alone.
 ESCAPE_ENV="$WORK/.env.escapes"
 cat > "$ESCAPE_ENV" <<EOF
 DB_TAB="geo\\tlens"
@@ -426,7 +423,7 @@ _assert_matches_compose DOUBLE_UNKNOWN_ESCAPE "$ESCAPE_ENV" \
   "an undocumented double-quoted escape (\\d) is left completely unchanged"
 
 # Sibling interpolation with an outer bound that must NOT narrow between
-# tokens (round 13, review 5103870781, P2 #1).
+# tokens.
 SIBLING_ENV="$WORK/.env.sibling"
 cat > "$SIBLING_ENV" <<'EOF'
 A=alpha
@@ -436,7 +433,7 @@ EOF
 _assert_matches_compose POSTGRES_DB "$SIBLING_ENV" \
   "sibling \${A} and \${B} tokens in the same value"
 
-# Chained interpolation with an intervening redefinition (round 11 audit).
+# Chained interpolation with an intervening redefinition.
 CHAIN_ENV="$WORK/.env.chain"
 cat > "$CHAIN_ENV" <<'EOF'
 C=orig
@@ -449,21 +446,21 @@ _assert_matches_compose A "$CHAIN_ENV" \
 _assert_matches_compose B "$CHAIN_ENV" \
   "chained \${VAR} reference resolved directly (B references the pre-redefinition C)"
 
-# A referenced value containing a decoded literal newline (round 13, P2 #2:
-# used to be built into a sed program and break it).
+# A referenced value containing a decoded literal newline (used
+# to be built into a sed program and break it).
 NLREF_ENV="$WORK/.env.nlref"
 printf 'DB_NAME="prod\\narchive"\nPOSTGRES_DB="${DB_NAME}_suffix"\n' > "$NLREF_ENV"
 _assert_matches_compose POSTGRES_DB "$NLREF_ENV" \
   "a referenced value containing a decoded literal newline"
 
-# A value ending in a real trailing newline (round 13, P2 #3: used to be
+# A value ending in a real trailing newline (used to be
 # stripped by an unprotected \$(...) capture inside get_env_value itself).
 TRAILING_ENV="$WORK/.env.trailing"
 printf 'TRAILING_NL="geo\\n"\n' > "$TRAILING_ENV"
 _assert_matches_compose TRAILING_NL "$TRAILING_ENV" \
   "a value ending in a real trailing newline"
 
-# `=` inside unquoted and single-quoted values (round 6/9).
+# `=` inside unquoted and single-quoted values.
 EQUALS_ENV="$WORK/.env.equals"
 cat > "$EQUALS_ENV" <<EOF
 UNQUOTED_HAS_EQUALS=a=b
@@ -474,7 +471,7 @@ _assert_matches_compose UNQUOTED_HAS_EQUALS "$EQUALS_ENV" \
 _assert_matches_compose SINGLE_HAS_EQUALS "$EQUALS_ENV" \
   "a single-quoted value containing '='"
 
-# Present-but-empty (round 6) — get_env_value and Compose agree here (both
+# Present-but-empty — get_env_value and Compose agree here (both
 # resolve to "", exit/rc 0).
 EMPTY_ENV="$WORK/.env.empty"
 printf 'PRESENT_EMPTY=\n' > "$EMPTY_ENV"
@@ -482,7 +479,7 @@ _assert_matches_compose PRESENT_EMPTY "$EMPTY_ENV" \
   "a key present with an explicitly empty value"
 
 # ============================================================================
-# Absent vs empty (round 6) — the ONE place get_env_value and Compose
+# Absent vs empty — the ONE place get_env_value and Compose
 # deliberately DIVERGE, already documented at the top of common.sh: a key
 # entirely missing from the file is rc=1/no-output from get_env_value (so
 # restore.sh/check-env.sh can tell "absent" apart from "present but
@@ -505,12 +502,10 @@ else
 fi
 
 # ============================================================================
-# Process-env vs .env-file precedence (round 13b, follow-up to round 13's
-# review 5103870781) — codex flagged a Compose-parser mismatch on this PR
-# every round from 6 to 12; round 13's own oracle test shipped with this
-# EXACT divergence merely documented rather than closed, which is exactly
-# the shape that becomes the next P2. Verified through the real oracle
-# (never reasoned about from first principles): Compose's process
+# Process-env vs .env-file precedence — an earlier version of this
+# oracle test documented this EXACT divergence rather than closing it,
+# which is the shape that becomes the next review finding. Verified through
+# the real oracle (never reasoned about from first principles): Compose's process
 # environment wins whenever the referenced key is SET there — even to an
 # empty string, for the plain `${X}`/`${X-d}` forms — falling back to an
 # earlier line in the SAME .env file only when the environment has no X at
@@ -615,7 +610,7 @@ _assert_file_like_compose "$FILE_DIR/unclosed-ref" "an unclosed \${ reference"
 printf 'CONTROL=ok\nFOO="a\nb c\n"\nBAR # after\n' > "$FILE_DIR/continuation"
 _assert_file_like_compose "$FILE_DIR/continuation" "a spaced continuation line is exempt and the key error after it is the one named"
 
-# fix(#1899 codex r1): a key outside the shell-identifier charset is a record
+# fix(#1899): a key outside the shell-identifier charset is a record
 # too, so its value is interpolated where Compose interpolates it.
 printf 'CONTROL=ok\nODD-KEY=${MISSING:?boom}\n' > "$FILE_DIR/odd-hyphen"
 _assert_file_like_compose "$FILE_DIR/odd-hyphen" "a hyphenated key whose value Compose refuses"
@@ -671,17 +666,16 @@ _assert_matches_compose COLON "$FILE_DIR/colon-value" "a colon ends the key and 
 
 
 # ============================================================================
-# Round 14 (review 5104197320) — closes the WHOLE Compose interpolation
+# Closes the WHOLE Compose interpolation
 # grammar (https://docs.docker.com/reference/compose-file/interpolation/)
-# in one push, not just the `${VAR:+alt}`/`${VAR+alt}` forms the round 13b
-# verdict flagged. Codex had paid a round per operator since round 6; every
-# case below was let the oracle decide, never reasoned about from the
+# in one push, not just the `${VAR:+alt}`/`${VAR+alt}` forms.
+# Every case below was let the oracle decide, never reasoned about from the
 # docs' prose alone — several turned out subtler than the docs describe
 # (see the brace-matching and $$ notes below).
 # ============================================================================
 
-# --- ${VAR:+alt} / ${VAR+alt} — the alternative-value forms round 13b left
-# out. Mirrors the round 13b precedence corpus shape (set-nonempty,
+# --- ${VAR:+alt} / ${VAR+alt} — the alternative-value forms left
+# out. Mirrors the precedence corpus shape (set-nonempty,
 # set-empty, unset; the colon form treats set-but-empty as unset, the
 # non-colon form does not).
 PLUS_ENV="$WORK/.env.plus"
@@ -708,7 +702,7 @@ _assert_matches_compose USES_PLUS_EMPTY "$PLUS_ENV" \
 _assert_matches_compose USES_PLUS_UNSET "$PLUS_ENV" \
   "\${VAR+alt}, VAR unset: alt NOT used"
 
-# ${VAR:+alt} interacting with round 13b's env-over-file precedence: the
+# ${VAR:+alt} interacting with the env-over-file precedence: the
 # "is VAR set" check for +/​:+ must use the SAME precedence as everything
 # else — process environment first.
 PLUS_PREC_ENV="$WORK/.env.plusprecedence"
@@ -734,7 +728,7 @@ unset PRECVAR
 # variable ... is missing a value" from a live `docker compose config`),
 # so get_env_value must fail non-zero to match — this pins the EXIT CODE,
 # not a value, for the failing cases.
-# fix(#1798 review round 14, review 5104197320): unlike get_env_value
+# Unlike get_env_value
 # (which resolves a SINGLE key's own line, lazily), real Compose validates
 # an ENTIRE .env file up front — a required-and-missing ${VAR:?msg} on ANY
 # line fails loading the WHOLE file, so querying a DIFFERENT, perfectly
@@ -871,7 +865,7 @@ _assert_matches_compose_dollar USES_TRAILING "$BAREDOLLAR_ENV" \
   "a bare \$ at the very end of a value is left completely unchanged"
 
 # --- Single-quoted values are never interpolated at all, `$$` and
-# `${VAR}` alike (round 14 explicitly re-confirms this against the
+# `${VAR}` alike (explicitly re-confirms this against the
 # oracle, using the \$-aware helper since the pinned value itself
 # contains a literal \$).
 SINGLEQ_ENV="$WORK/.env.singlequote"
@@ -884,9 +878,9 @@ _assert_matches_compose_dollar USESVAL "$SINGLEQ_ENV" \
 
 
 # ============================================================================
-# Round 15 (review 5104520795) P2 #1 -- the caller-side trailing-newline
-# gap: get_env_value preserves a trailing decoded newline internally
-# (round 13), but every ACTUAL caller assigned via
+# The caller-side trailing-newline
+# gap: get_env_value preserves a trailing decoded newline internally,
+# but every ACTUAL caller assigned via
 # `_v="$(get_env_value ...)"`, and plain command substitution strips a
 # trailing newline regardless of what get_env_value itself does. Fixed at
 # the interface (env_value_into, scripts/lib/common.sh) rather than per
@@ -918,7 +912,7 @@ fi
 
 
 # ============================================================================
-# Round 15 (review 5104520795) P2 #2 -- the fixed recursion cap (5) used
+# The fixed recursion cap (5) used
 # to truncate a valid ACYCLIC chain longer than that, and did not actually
 # protect against the one case that genuinely can loop forever: a value
 # sourced from the PROCESS ENVIRONMENT, which has no file line number to
@@ -1015,7 +1009,7 @@ fi
 
 # A two-node file cycle (A=${B}, B=${A}) -- querying B is the direction
 # that actually exercises the NEW chain-based cycle check (querying A
-# alone was already safe before this round: B has no earlier-line
+# alone was already safe without it: B has no earlier-line
 # definition relative to A's own line, so the existing bound-narrowing
 # rule stops it without any help from cycle detection at all -- querying
 # B is what needed the fix, since A DOES have an earlier definition
@@ -1038,14 +1032,14 @@ fi
 # sourced entirely from the PROCESS ENVIRONMENT, which has no file line
 # number to bound recursion against at all. Two exported variables whose
 # literal text values reference each other never terminated on bound
-# alone before round 15's real cycle detection.
+# alone before real cycle detection existed.
 #
-# fix(#1798 review round 18, P2, review 5105652413): the exact expected
-# VALUE here was wrong in round 15 — that round only checked this against
+# The exact expected
+# VALUE here was once wrong: it was only checked against
 # THIS parser's own (then-buggy) implementation, never the real oracle,
 # because testing an exported-variable scenario through the oracle needs
 # the SAME variables exported in the CURRENT shell before invoking
-# `docker compose` as a subprocess, which round 15 didn't set up. Doing
+# `docker compose` as a subprocess, which the first version did not set up. Doing
 # that now surfaces a real, previously-undiscovered fact: Compose does
 # NOT recursively re-interpolate a process-environment-sourced value at
 # all — verified directly (an exported `OUTER='${INNER}'` referenced via
@@ -1057,12 +1051,12 @@ fi
 # environment, with nothing left to recurse into) — cycle detection
 # (chain tracking) is what protects the case where TWO OR MORE identical
 # names would otherwise be resolved from the FILE forever; an
-# environment-sourced hop was never actually going to recurse once this
-# round's other fix landed, whether or not it happened to repeat a name.
+# environment-sourced hop never recurses, whether or not it repeats a
+# name.
 # Uses _assert_matches_compose_dollar (not _assert_matches_compose):
 # the expected value here is the literal text "${ENVCYCLE_B_XYZ}" — a
 # literal `$`, exactly the content _compose_value/--format json is known
-# (round 14) to misrepresent.
+# to misrepresent.
 ENVCYCLE_ENV="$WORK/.env.envcycle"
 printf 'USES="${ENVCYCLE_A_XYZ}"\n' > "$ENVCYCLE_ENV"
 export ENVCYCLE_A_XYZ='${ENVCYCLE_B_XYZ}'
@@ -1073,7 +1067,7 @@ unset ENVCYCLE_A_XYZ ENVCYCLE_B_XYZ
 
 
 # ============================================================================
-# Round 16 (review 5104847831) P2 #2 -- Compose allows a quoted .env value
+# Compose allows a quoted .env value
 # to span physical lines; the parser used to validate/extract a quoted
 # value against its OWN single line only, treating an unterminated same-
 # line quote as malformed and returning it literally instead of gathering
@@ -1152,7 +1146,7 @@ _assert_matches_compose USES "$MULTI_INTERP_ENV" \
 
 # An unterminated quote (EOF reached with the quote still open) -- verified
 # against the oracle: Compose's own .env load hard-fails on this
-# ("unterminated quoted value"), the same failure class round 14 already
+# ("unterminated quoted value"), the same failure class already
 # established for other malformed .env constructs.
 MULTI_UNTERM_ENV="$WORK/.env.multi_unterminated"
 cat > "$MULTI_UNTERM_ENV" <<'EOF'
@@ -1165,19 +1159,18 @@ _assert_errors_like_compose USES "$MULTI_UNTERM_ENV" \
 
 
 # ============================================================================
-# Round 17 (review 5105248083) -- closes the WHOLE dotenv LINE grammar the
-# way round 14 closed the interpolation grammar. Two P2s, both in the
-# line-locating scan: a key-shaped physical line INSIDE another key's
-# multiline value could win the "last definition" lookup (P2 #1), and the
-# scan never recognized Compose's optional `export ` prefix at all (P2
-# #2). Fixed structurally with one tokenizer (_env_tokenize) that walks
+# Closes the WHOLE dotenv LINE grammar the way the interpolation grammar
+# was closed above. Two bugs lived in the line-locating scan: a key-shaped
+# physical line INSIDE another key's multiline value could win the "last
+# definition" lookup, and the scan never recognized Compose's optional
+# `export ` prefix at all. Fixed structurally with one tokenizer (_env_tokenize) that walks
 # the file ONCE into logical records; every lookup below selects among
 # those records instead of grepping physical lines itself. The REST of
 # this corpus sweeps Compose's own dotenv grammar (the godotenv fork in
 # compose-go/dotenv) case by case, each pinned against the oracle.
 # ============================================================================
 
-# P2 #1 -- a key-shaped line INSIDE another key's multiline value must
+# A key-shaped line INSIDE another key's multiline value must
 # never be mistaken for a real redefinition.
 GRAM_P2A_ENV="$WORK/.env.grammar_p2a"
 cat > "$GRAM_P2A_ENV" <<'EOF'
@@ -1188,7 +1181,7 @@ EOF
 _assert_matches_compose POSTGRES_DB "$GRAM_P2A_ENV" \
   "a key-shaped physical line inside another key's multiline value is never a new definition"
 
-# P2 #2 -- the optional \`export \` prefix.
+# The optional \`export \` prefix.
 GRAM_P2B_ENV="$WORK/.env.grammar_p2b"
 printf 'export USES=hello\n' > "$GRAM_P2B_ENV"
 _assert_matches_compose USES "$GRAM_P2B_ENV" \
@@ -1212,9 +1205,9 @@ _assert_matches_compose USES "$GRAM_LEAD_TAB_ENV" \
 
 # A bare KEY line with no '=' -- Compose inherits from the process
 # environment; verified both when unset there and when set (resolves to
-# that value), exercising round 13b's env precedence too.
+# that value), exercising the env precedence too.
 #
-# fix(#1778 round 22, P2): case 74's ORIGINAL assertion here (via
+# The ORIGINAL assertion here (via
 # _assert_matches_compose, a direct ${KEY} query) claimed a bare KEY line
 # with nothing to inherit "resolves to empty, not absent" -- that value
 # was correct (both sides really do produce "") but the CONCLUSION drawn
@@ -1301,7 +1294,7 @@ _assert_matches_compose USES "$GRAM_EMPTY_ENV" \
 
 # A key defined twice where the SECOND is a genuine later definition
 # (not a multiline continuation) -- last wins, must not be confused with
-# the P2 #1 fix that makes a continuation line NOT count as a definition.
+# the rule that makes a continuation line NOT count as a definition.
 GRAM_DUP_REAL_ENV="$WORK/.env.grammar_dup_real"
 printf 'USES=first\nUSES=second\n' > "$GRAM_DUP_REAL_ENV"
 _assert_matches_compose USES "$GRAM_DUP_REAL_ENV" \
@@ -1323,10 +1316,10 @@ _assert_matches_compose DB_NAME "$GRAM_PREFIX_ENV" \
 
 
 # ============================================================================
-# Round 18 (review 5105652413) -- two P2s, both in the interpolation core.
+# Two bugs in the interpolation core.
 # ============================================================================
 
-# P2 #1 -- the process environment must be consulted BEFORE the cycle
+# The process environment must be consulted BEFORE the cycle
 # check for every name, not after. POSTGRES_DB="${POSTGRES_DB:-geolens}"
 # with POSTGRES_DB exported is not a cycle Compose ever has to break: the
 # shell environment already answers the question before the .env file's
@@ -1355,13 +1348,12 @@ _assert_matches_compose B "$TWOCYCLE_ENVEXP_ENV" \
   "a two-node file cycle where ONE node is also exported resolves via the environment (query B)"
 unset B
 
-# P2 #2 -- the escape grammar, single- and double-quoted. Read
+# The escape grammar, single- and double-quoted. Read
 # compose-go/dotenv (the godotenv fork) for the escape tables, then let
 # the oracle decide every value -- one summary of that source (used only
 # to steer which cases to test) claimed single-quoted `\'` does NOT
 # escape and the quote still closes; the oracle disagrees and this corpus
-# matches the ORACLE, not the doc summary (see the reply on this
-# review's P2 #2 thread for the full note).
+# matches the ORACLE, not the doc summary.
 ESCAPE_SQ_APOS_ENV="$WORK/.env.escape_sq_apostrophe"
 printf "USES='geo\\\\'lens'\n" > "$ESCAPE_SQ_APOS_ENV"
 _assert_matches_compose USES "$ESCAPE_SQ_APOS_ENV" \
@@ -1376,7 +1368,7 @@ ESCAPE_DQ_DOLLAR_ENV="$WORK/.env.escape_dq_dollar"
 printf 'USES="pre\\$RANDOM_XYZ_UNSET"\n' > "$ESCAPE_DQ_DOLLAR_ENV"
 # _assert_matches_compose_dollar (not _assert_matches_compose): the
 # expected value contains a literal $, exactly the content
-# _compose_value/--format json is known (round 14) to misrepresent (it
+# _compose_value/--format json is known to misrepresent (it
 # doubles a literal, non-interpolated $ in its own output).
 _assert_matches_compose_dollar USES "$ESCAPE_DQ_DOLLAR_ENV" \
   "double-quoted \\\$ decodes to a literal \$ AND suppresses interpolation of what follows"
@@ -1396,7 +1388,7 @@ printf 'USES=a\\\\b\n' > "$ESCAPE_UNQUOTED_BS_ENV"
 _assert_matches_compose USES "$ESCAPE_UNQUOTED_BS_ENV" \
   "an unquoted value gets no backslash processing at all"
 
-# fix(#1778 round 20, P1 class) at scripts/restore.sh:41: a FORWARD
+# fix(#1778, P1 class) at scripts/restore.sh:41: a FORWARD
 # reference — a key whose OWN value interpolates ${OTHER}, where OTHER is
 # defined LATER in the same file — must resolve OTHER as if it did not
 # exist in the file at all (an earlier line can never see a later one),

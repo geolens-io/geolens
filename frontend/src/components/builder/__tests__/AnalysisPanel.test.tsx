@@ -14,7 +14,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse, UserResponse } from '@/types/api';
 
-// fix(#760): the rehydration tests need a controllable job status; the real
+// The rehydration tests need a controllable job status; the real
 // hook would fire a network fetch for any non-null id. `value` applies only
 // when the panel holds a jobId, mirroring the enabled-gate of the real hook.
 const mockJobStatus = vi.hoisted(() => ({
@@ -28,7 +28,7 @@ vi.mock('@/components/import/hooks/use-ingest', () => ({
   }),
 }));
 
-// fix(#793 review): a controllable TerraDraw so the mask-restore error path
+// A controllable TerraDraw so the mask-restore error path
 // can be exercised. Only tests that mount with a saved mask AND a map ref
 // ever construct it; everything else never touches the mock.
 const mockTerraDraw = vi.hoisted(() => ({
@@ -79,7 +79,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// fix(#700 review): the save half is gated on can('upload'); default to a
+// The save half is gated on can('upload'); default to a
 // role that has it so the existing save-path tests keep their controls.
 let mockCanUpload = true;
 vi.mock('@/hooks/use-permissions', () => ({
@@ -122,7 +122,7 @@ const SHARED_COLUMNS = [
   { name: 'name', type: 'text' },
   // Must be filtered out — collides with the generated output column.
   { name: 'source_count', type: 'integer' },
-  // fix(#1097 review): every remaining shape the server refuses. GDAL
+  // Every remaining shape the server refuses. GDAL
   // launders only case, '-' and '#', so ingested tables hold names like
   // these routinely; they are carried into analysis output but cannot be
   // NAMED in a request, because _SAFE_COLUMN_RE gates group keys and
@@ -139,7 +139,7 @@ const SHARED_COLUMNS = [
   { name: `${'q'.repeat(58)}_alpha`, type: 'text' },
 ];
 
-// fix(#1097 review): keyed on the dataset id. A join field's collision is a
+// Keyed on the dataset id. A join field's collision is a
 // relationship between the two layers, so a mock that hands both the same
 // columns cannot express it — ds1 is the source and already carries a
 // join_zone (routine, since it is what an earlier spatial join leaves behind),
@@ -181,7 +181,7 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
         ? [
             ...SHARED_COLUMNS,
             { name: 'join_zone', type: 'text' },
-            // fix(#1097 review): 63 chars — what `join_` + LONG_JOIN_FIELD
+            // 63 chars — what `join_` + LONG_JOIN_FIELD
             // becomes once PostgreSQL truncates it. The untruncated alias
             // does not match this, so a picker comparing untruncated names
             // offers the field and the server refuses it.
@@ -220,11 +220,11 @@ const datasetLayer2 = {
   dataset_name: 'Roads',
   display_name: null,
   is_dem: false,
-  // Polygonal so it stays eligible as a clip mask (ux(#698) filter).
+  // Polygonal so it stays eligible as a clip mask (filter).
   dataset_geometry_type: 'MultiPolygon',
 } as unknown as MapLayerResponse;
 
-// ux(#698): a non-polygon layer the server would reject as a clip mask.
+// A non-polygon layer the server would reject as a clip mask.
 const pointLayer = {
   id: 'l4',
   dataset_id: 'ds4',
@@ -234,7 +234,7 @@ const pointLayer = {
   dataset_geometry_type: 'Point',
 } as unknown as MapLayerResponse;
 
-// ux(#720): an ordinary (non-DEM) raster layer. It carries a dataset_id, so the
+// An ordinary (non-DEM) raster layer. It carries a dataset_id, so the
 // old `!is_dem` filter offered it, and the server 422s on it.
 const rasterLayer = {
   id: 'l5',
@@ -247,7 +247,7 @@ const rasterLayer = {
   dataset_geometry_type: null,
 } as unknown as MapLayerResponse;
 
-// fix(#720 review): the same raster, but reporting a geometry type. Every
+// The same raster, but reporting a geometry type. Every
 // raster dataset stores NULL there today, which is what made a geometry-only
 // test appear to work — but nothing enforces it, and LayerLegend already has a
 // fixture where a raster reports 'POINT'.
@@ -259,7 +259,7 @@ const rasterLayerWithGeometryType = {
   dataset_geometry_type: 'POINT',
 } as unknown as MapLayerResponse;
 
-// fix(#720 review): layer_type picks a RENDERER and the API validates it
+// layer_type picks a RENDERER and the API validates it
 // against nothing — add_layer defaults it to 'vector_geolens' whatever the
 // dataset is. A classifier keyed on layer_type calls this vector.
 const rasterLayerWithVectorLayerType = {
@@ -305,7 +305,7 @@ beforeEach(() => {
 describe('AnalysisPanel', () => {
   beforeEach(() => {
     useAnalysisJobStore.setState({ job: null });
-    // fix(#833): the add-to-map single-use marker is a module-level store now.
+    // The add-to-map single-use marker is a module-level store now.
     useAnalysisAddedStore.setState({ addedDatasetIds: [], pendingAddIds: [] });
   });
 
@@ -755,7 +755,7 @@ describe('AnalysisPanel', () => {
     expect(input).toHaveAttribute('aria-describedby', alert.id);
     expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
 
-    // fix(#723 review): exactly 0 is rejected by distanceValid (> 0), so the
+    // Exactly 0 is rejected by distanceValid (> 0), so the
     // message must not describe it as accepted.
     fireEvent.change(input, { target: { value: '0' } });
     expect(screen.getByRole('alert')).toHaveTextContent('greater than 0');
@@ -822,7 +822,7 @@ describe('AnalysisPanel', () => {
     );
   });
 
-  // fix(#699): the two tests above set `truncated: true` and then assert only
+  // The two tests above set `truncated: true` and then assert only
   // on the overlay handoff — nothing pinned which notice the user actually
   // reads, so the count-only fallback and the "of N source features" branch
   // were interchangeable.
@@ -843,13 +843,13 @@ describe('AnalysisPanel', () => {
 
     expect(mockToast.info).toHaveBeenCalledWith(
       'Showing the first {{count, number}} of {{total, number}} source features',
-      // ux(#686): the capped preview names its own remedy, and the user here
+      // The capped preview names its own remedy, and the user here
       // has the Create dataset button to follow it to.
       {
         description: 'Use Create dataset to run the operation over every feature.',
       },
     );
-    // fix(#788): both numbers go through raw so `count` still drives plural
+    // Both numbers go through raw so `count` still drives plural
     // selection while the locale string groups them. Passing a preformatted
     // string would render correctly in English and break plurals elsewhere.
     expect(mockT).toHaveBeenCalledWith(
@@ -905,7 +905,7 @@ describe('AnalysisPanel', () => {
       match_count: 2838,
     });
     renderPanel([datasetLayer, datasetLayer2]);
-    // fix(#1097 review): the operation is now what selects match_count, so
+    // The operation is now what selects match_count, so
     // this test has to run one. It previously proved less than it read: with
     // the panel on its default buffer, the assertion passed on the null
     // source count alone and would have passed for EVERY operation.
@@ -1023,7 +1023,7 @@ describe('AnalysisPanel', () => {
   });
 
   it('raises no truncation notice for a complete preview', async () => {
-    // fix(#699 codex P2): wait on a signal belonging to THIS request. The
+    // Wait on a signal belonging to THIS request. The
     // `previewAnalysis` mock is shared and never cleared between tests, so
     // waiting for it to have been called at all resolves instantly on an
     // earlier test's call — and the negative assertion below would then run
@@ -1055,7 +1055,7 @@ describe('AnalysisPanel', () => {
   });
 
   it('blocks a second Create while an earlier job is still running', () => {
-    // fix(#682 review): the API allows one active analysis job per user.
+    // The API allows one active analysis job per user.
     // Clicking through would 429 AND orphan the running job's notification.
     useAnalysisJobStore.setState({
       job: { jobId: 'j-earlier', title: 'Earlier', mapId: 'm1' },
@@ -1225,7 +1225,7 @@ describe('AnalysisPanel', () => {
     const user = userEvent.setup();
     renderPanel([datasetLayer]);
 
-    // ux(#773): pick the unit FIRST — changing it now converts the number to
+    // Pick the unit FIRST — changing it now converts the number to
     // preserve the physical distance, so typing after the switch is how a
     // user enters "2 miles".
     // Combobox order under buffer: layer, operation, distance unit.
@@ -1819,7 +1819,7 @@ describe('AnalysisPanel — chat handoff prefill (#675)', () => {
       expect(mockTerraDraw.instance.addFeatures).not.toHaveBeenCalled();
 
       // The map arrives by REF assignment; the load re-renders the parent.
-      // on/off: the fix(#775) style.load subscription attaches while a mask
+      // on/off: the style.load subscription attaches while a mask
       // is set.
       mapRef.current = { on: vi.fn(), off: vi.fn() };
       view.rerender(renderTree());
@@ -2427,7 +2427,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(onAddDataset).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#833): the single-use marker is shared with the watcher's toast
+  // The single-use marker is shared with the watcher's toast
   // action — each affordance used to dedupe only against itself, so clicking
   // the toast action and then this button added the layer twice.
   it('disables the panel Add to map when the toast action already added', async () => {
@@ -2450,7 +2450,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(onAddDataset).not.toHaveBeenCalled();
   });
 
-  // fix(#833 codex P2): the guard is claimed (pending) before the add
+  // The guard is claimed (pending) before the add
   // mutation starts, so a failed add must clear the pending claim
   // (handleAddDataset's onError) or the affordances stay retired with no
   // retry path. A confirmed entry is NOT cleared by failures — a failed
@@ -2484,7 +2484,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(onAddDataset).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#833 codex round 6): clearPending only touches the pending claim — a
+  // clearPending only touches the pending claim — a
   // failed NON-analysis add of the same dataset (which never claims one) must
   // not un-retire a confirmed analysis add.
   it('keeps a confirmed add retired when an unrelated add of the same dataset fails', () => {
@@ -2497,7 +2497,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
     expect(useAnalysisAddedStore.getState().pendingAddIds).not.toContain('out1');
   });
 
-  // feat(#790): chaining a second operation onto a finished run. The target is
+  // Chaining a second operation onto a finished run. The target is
   // always the MATERIALIZED result's layer — an ephemeral preview is not an
   // operation input (the reasoning lives at the completion-state call site).
   describe('chain on the materialized result (#790)', () => {
@@ -2535,7 +2535,7 @@ describe('AnalysisPanel — audit remediation (v1.6.0)', () => {
 
       expect(screen.getByLabelText('Layer')).toHaveTextContent('Roads');
       // Chaining is a source change like any other, so the finished run's
-      // status line and its name go with it (fix(#764)) — otherwise one more
+      // status line and its name go with it — otherwise one more
       // click would create an identically-named dataset from new parameters.
       expect(screen.queryByText('Dataset created')).not.toBeInTheDocument();
       expect(screen.getByLabelText('New dataset name')).toHaveValue('');
@@ -2671,7 +2671,7 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
 
   it('offers every other layer as a join target, not only polygons', async () => {
     const user = userEvent.setup();
-    // pointLayer is excluded from the CLIP mask picker by the ux(#698) filter;
+    // pointLayer is excluded from the CLIP mask picker by the filter;
     // a join counts in any direction, so it must be offered here.
     renderPanel([datasetLayer, datasetLayer2, pointLayer]);
     await pickSpatialJoin(user);
@@ -2700,13 +2700,13 @@ describe('AnalysisPanel spatial join (feat(#953))', () => {
     for (const refused of ['count', 'Área', '2020_pop']) {
       expect(screen.queryByRole('option', { name: refused })).toBeNull();
     }
-    // fix(#1097 review): and the one that only collides AFTER truncation.
+    // And the one that only collides AFTER truncation.
     // `join_` + this field is 64 chars; PostgreSQL cuts it to 63, which is
     // exactly a column ds1 already has. Comparing untruncated names misses it.
     expect(
       screen.queryByRole('option', { name: `${'q'.repeat(58)}_alpha` }),
     ).toBeNull();
-    // fix(#1097 review): and the one that depends on the OTHER layer. `zone`
+    // And the one that depends on the OTHER layer. `zone`
     // is transferable in itself; it is refused because the source already has
     // a join_zone, so the transfer would arrive twice. A picker that reads
     // only the join layer cannot see this.
@@ -2890,7 +2890,7 @@ describe('AnalysisPanel select by location (feat(#955))', () => {
 
   it('offers only polygon layers to select against', async () => {
     const user = userEvent.setup();
-    // The selection geometry has to be an area, so this keeps clip's ux(#698)
+    // The selection geometry has to be an area, so this keeps clip's
     // filter rather than spatial_join's any-direction rule.
     renderPanel([datasetLayer, datasetLayer2, pointLayer]);
     await pickOperation(user, 'Select by location');
@@ -2980,7 +2980,7 @@ describe('AnalysisPanel select by location (feat(#955))', () => {
       expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
     );
 
-    // fix(#680)'s rule survives the widening: the retained polygon's TerraDraw
+    // The cleanup rule survives the widening: the retained polygon's TerraDraw
     // layers must come off the map when the next operation ignores them.
     // Asserted through stop() rather than through the request body — the body
     // omits `mask` for centroid anyway, so it cannot tell the two apart.
@@ -3103,7 +3103,7 @@ describe('AnalysisPanel intersect (feat(#956))', () => {
   });
 
   it('names the previewed extent for a truncated, bbox-scoped intersect total (#727 codex round 3)', async () => {
-    // fix(#727 codex round 2) threaded bbox into render_intersect_preview, so
+    // render_intersect_preview takes the bbox, so
     // intersect's match_count now rides the SAME bbox-filtered statement the
     // geometry preview runs — unlike select_by_location's, which is a
     // separate uncapped query the request's bbox never reaches. The toast

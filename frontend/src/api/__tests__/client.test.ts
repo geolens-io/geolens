@@ -207,7 +207,7 @@ describe('apiFetch', () => {
     expect(retryHeaders.get('Authorization')).toBe('Bearer new-token');
   });
 
-  // BUG-016: after a successful refresh, a retry that returns a non-401 error
+  // After a successful refresh, a retry that returns a non-401 error
   // (e.g. 403 Forbidden) must be RETURNED to the caller — NOT treated as an
   // auth failure. Pre-fix this fell through to logout(); post-fix it returns
   // the retry response.
@@ -377,7 +377,7 @@ describe('apiFetch', () => {
       }
     });
 
-    // fix(#1862 review P2): a regression of the fix above. Before it, the
+    // A regression of the fix above. Before it, the
     // stale-token truthiness masked this case by accident — `!!token` was
     // true regardless of whose refresh put it there. Reporting failure here
     // for an outcome the store shows as success would make the caller treat
@@ -442,7 +442,7 @@ describe('apiFetch', () => {
     });
   });
 
-  // RES-N1: `TypeError: Failed to fetch` is what browsers throw when the
+  // `TypeError: Failed to fetch` is what browsers throw when the
   // network is unreachable (offline, DNS, CORS preflight block). Without
   // the safeFetch wrapper, this propagated as an unhandled rejection through
   // every TanStack Query. We now convert it to a friendly ApiError(status=0).
@@ -492,7 +492,7 @@ describe('apiFetch', () => {
     });
   });
 
-  // SP-09: 3 concurrent 401 responses should collapse to a single refresh POST.
+  // 3 concurrent 401 responses should collapse to a single refresh POST.
   // Smoke check on 2026-05-15 saw 3 concurrent /auth/refresh/ POSTs because the
   // proactive timer in use-auth.ts bypassed the client.ts mutex. Both call sites
   // must share the same in-flight singleton.

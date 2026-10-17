@@ -39,7 +39,7 @@ async def enforce_email_domain_gate(
     if is_email_allowed(email, domains):
         return
     if break_glass_user is not None:
-        from app.modules.auth.permissions import (  # LAZY — per D-17
+        from app.modules.auth.permissions import (
             MANAGE_SETTINGS,
             user_has_capability,
         )

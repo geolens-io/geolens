@@ -3819,6 +3819,10 @@ export type DatasetResponse = {
      */
     tile_columns?: Array<string> | null;
     /**
+     * How long rows are kept; null keeps every row.
+     */
+    retention?: DatasetRetention | null;
+    /**
      * Original Srid
      *
      * EPSG SRID of the uploaded source file
@@ -4032,6 +4036,52 @@ export type DatasetResponse = {
      * The data the last replacement or restore replaced, which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when there is none.
      */
     previous_version?: PreviousVersionResponse | null;
+};
+
+/**
+ * DatasetRetention
+ *
+ * Keep only the rows from the last `days` days, judged by `column`.
+ */
+export type DatasetRetention = {
+    /**
+     * Column
+     *
+     * A date or timestamp column of the dataset's table. Rows where it is null are kept.
+     */
+    column: string;
+    /**
+     * Days
+     */
+    days: number;
+};
+
+/**
+ * DatasetRetentionResponse
+ */
+export type DatasetRetentionResponse = {
+    retention: DatasetRetention | null;
+    /**
+     * Rows Past Cutoff
+     *
+     * On a dry run, rows currently older than the cutoff, 0 when off. Hourly runs delete them in batches, so a large backlog can take several runs. Null on a save, which does not count them.
+     */
+    rows_past_cutoff: number | null;
+    /**
+     * Cutoff
+     *
+     * Rows older than this UTC instant are past retention; for a date column it is UTC midnight of the cutoff date. Null when off.
+     */
+    cutoff?: string | null;
+};
+
+/**
+ * DatasetRetentionUpdate
+ *
+ * The retention setting to store; null turns retention off.
+ */
+export type DatasetRetentionUpdate = {
+    retention: DatasetRetention | null;
 };
 
 /**
@@ -21354,6 +21404,75 @@ export type CreateDatasetRelationshipDatasetsDatasetIdRelationshipsPostResponses
 };
 
 export type CreateDatasetRelationshipDatasetsDatasetIdRelationshipsPostResponse = CreateDatasetRelationshipDatasetsDatasetIdRelationshipsPostResponses[keyof CreateDatasetRelationshipDatasetsDatasetIdRelationshipsPostResponses];
+
+export type SetDatasetRetentionDatasetsDatasetIdRetentionPutData = {
+    body: DatasetRetentionUpdate;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: {
+        /**
+         * Dry Run
+         *
+         * Check the setting and count its rows without saving it.
+         */
+        dry_run?: boolean;
+    };
+    url: '/datasets/{dataset_id}/retention/';
+};
+
+export type SetDatasetRetentionDatasetsDatasetIdRetentionPutErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type SetDatasetRetentionDatasetsDatasetIdRetentionPutError = SetDatasetRetentionDatasetsDatasetIdRetentionPutErrors[keyof SetDatasetRetentionDatasetsDatasetIdRetentionPutErrors];
+
+export type SetDatasetRetentionDatasetsDatasetIdRetentionPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: DatasetRetentionResponse;
+};
+
+export type SetDatasetRetentionDatasetsDatasetIdRetentionPutResponse = SetDatasetRetentionDatasetsDatasetIdRetentionPutResponses[keyof SetDatasetRetentionDatasetsDatasetIdRetentionPutResponses];
 
 export type ReuploadDatasetDatasetsDatasetIdReuploadPostData = {
     body: BodyReuploadDatasetDatasetsDatasetIdReuploadPost;

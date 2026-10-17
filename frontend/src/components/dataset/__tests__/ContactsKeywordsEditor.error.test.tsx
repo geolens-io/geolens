@@ -1,4 +1,4 @@
-// GAP-034: ContactsEditor / KeywordsEditor previously collapsed a fetch error
+// ContactsEditor / KeywordsEditor previously collapsed a fetch error
 // into the empty 'noContacts'/'noKeywords' state (data?.contacts ?? []), which
 // silently mislead the editor into thinking the record has none and re-adding
 // duplicates. They must now render a distinct error + retry state.

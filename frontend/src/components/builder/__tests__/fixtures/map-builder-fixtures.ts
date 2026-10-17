@@ -75,7 +75,7 @@ export function makeMapLibreMock(
     sources?: string[];
     layers?: string[];
     styleLoaded?: boolean;
-    /** fix(#1877): zoomAfterFit applies only when fitBounds is called with
+    /** zoomAfterFit applies only when fitBounds is called with
      * duration: 0 (mirrors MapLibre's real flyTo-vs-synchronous behavior);
      * defaults above 2 so callers that don't care about zoom see no setZoom(2). */
     zoomAfterFit?: number;

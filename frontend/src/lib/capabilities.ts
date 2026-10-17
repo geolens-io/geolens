@@ -2,7 +2,7 @@
  * Frontend mirror of the backend's canonical capability registry at
  * `backend/app/core/permissions.py:ALL_CAPABILITIES`.
  *
- * v13.14 Phase 281 surfaced a typo bug (`view_audit` was not in the registry,
+ * v13.14 surfaced a typo bug (`view_audit` was not in the registry,
  * so `can('view_audit')` returned false for admins and the audit page-guard
  * always redirected). The bug class is "weak typing on `can(capability: string)`
  * accepts any literal" — this module closes it: every `can()` call now must

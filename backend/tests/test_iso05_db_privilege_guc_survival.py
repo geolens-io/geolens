@@ -1,4 +1,4 @@
-"""ISO-05: DB-privilege + GUC-survival verification (Phase 1208-04).
+"""DB-privilege + GUC-survival verification.
 
 Purpose (spike-grade)
 ---------------------
@@ -35,7 +35,7 @@ This finding is a DEPLOYMENT REQUIREMENT for multi_tenant:
   The production app's PRIMARY DB connection role must be a NON-superuser,
   NON-BYPASSRLS role so that FORCE RLS is effective on that role.  The
   ``geolens`` superuser role is NOT safe as the runtime role in multi_tenant.
-  Per-tenant reader roles narrowed in Phase 1209 extend this boundary further.
+  Per-tenant reader roles narrowed per tenant extend this boundary further.
 
 Pasted evidence (captured 2026-06-14 from test DB)
 ---------------------------------------------------

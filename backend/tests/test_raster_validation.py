@@ -50,7 +50,7 @@ def _ids(errors: list[SourceValidationError]) -> set[str]:
 
 
 class TestCrsCheck:
-    """VAL-01: CRS consistency check (mosaic + band_stack)."""
+    """CRS consistency check (mosaic + band_stack)."""
 
     def test_matching_crs_no_errors(self):
         sources = [FakeRasterAsset(crs_wkt="A"), FakeRasterAsset(crs_wkt="B")]
@@ -117,7 +117,7 @@ class TestCrsCheck:
 
 
 class TestBandCountCheck:
-    """VAL-02: Band count check (mosaic only)."""
+    """Band count check (mosaic only)."""
 
     def test_matching_band_count_no_errors(self):
         sources = [FakeRasterAsset(band_count=3), FakeRasterAsset(band_count=3)]
@@ -147,7 +147,7 @@ class TestBandCountCheck:
 
 
 class TestSingleBandCheck:
-    """VAL-03: Single-band requirement (band_stack only)."""
+    """Single-band requirement (band_stack only)."""
 
     def test_single_band_sources_pass(self):
         sources = [FakeRasterAsset(band_count=1), FakeRasterAsset(band_count=1)]
@@ -176,7 +176,7 @@ class TestSingleBandCheck:
 
 
 class TestDtypeCheck:
-    """VAL-04: dtype consistency check (mosaic + band_stack)."""
+    """dtype consistency check (mosaic + band_stack)."""
 
     def test_matching_dtype_no_errors(self):
         sources = [FakeRasterAsset(dtype="float32"), FakeRasterAsset(dtype="float32")]
@@ -205,7 +205,7 @@ class TestDtypeCheck:
 
 
 class TestNodataCheck:
-    """VAL-06: Nodata consistency check (mosaic + band_stack)."""
+    """Nodata consistency check (mosaic + band_stack)."""
 
     def test_all_none_nodata_passes(self):
         sources = [FakeRasterAsset(nodata=None), FakeRasterAsset(nodata=None)]
@@ -248,7 +248,7 @@ class TestNodataCheck:
 
 
 class TestRotationCheck:
-    """VAL-07: Rotation rejection (mosaic + band_stack)."""
+    """Rotation rejection (mosaic + band_stack)."""
 
     def test_non_rotated_no_errors(self):
         sources = [FakeRasterAsset(is_rotated=False), FakeRasterAsset(is_rotated=False)]
@@ -288,7 +288,7 @@ class TestRotationCheck:
 
 
 class TestGridAlignmentCheck:
-    """VAL-05: Grid alignment check (band_stack only)."""
+    """Grid alignment check (band_stack only)."""
 
     def test_matching_grid_passes(self):
         sources = [
@@ -366,9 +366,9 @@ class TestGridAlignmentCheck:
 
 
 class TestPixelGeometryCheck:
-    """VAL-08 (#1385): unmeasured pixel geometry (NULL res_x/res_y) fails distinctly.
+    """Unmeasured pixel geometry (NULL res_x/res_y) fails distinctly.
 
-    Neither VAL-05 (grid alignment) nor VAL-07 (rotation) can distinguish
+    Neither the grid-alignment nor the rotation check can distinguish
     "measured and fine" from "never measured" on their own, so a source
     with NULL res_x/res_y must raise `unknown_pixel_geometry` instead of
     silently passing both.
@@ -399,7 +399,7 @@ class TestPixelGeometryCheck:
         assert pg_errors[0].field == "res_x"
 
     def test_first_source_null_also_flagged(self):
-        """Applies to all sources, including the first — mirrors rotation (VAL-07)."""
+        """Applies to all sources, including the first — mirrors rotation."""
         src1 = FakeRasterAsset(res_x=None)
         src2 = FakeRasterAsset()
         errors = validate_sources("mosaic", [src1, src2], _SAME_CRS)
@@ -414,8 +414,8 @@ class TestPixelGeometryCheck:
         assert len(pg_errors) == 1
 
     def test_checked_for_mosaic_even_though_grid_alignment_is_not(self):
-        """VAL-05 (grid alignment) only runs for band_stack, but VAL-08 must
-        still run for mosaic — it also guards the always-on rotation check.
+        """The grid-alignment check only runs for band_stack, but the unmeasured-
+        resolution check must still run for mosaic — it also guards the always-on rotation check.
         """
         sources = [FakeRasterAsset(), FakeRasterAsset(res_x=None, res_y=None)]
         errors = validate_sources("mosaic", sources, _SAME_CRS)
@@ -436,7 +436,7 @@ class TestPixelGeometryCheck:
         assert errors == []
 
     def test_existing_grid_misalignment_still_fires_when_geometry_known(self):
-        """VAL-05 still fires unchanged when res_x/res_y are measured but differ."""
+        """The grid-alignment check still fires unchanged when res_x/res_y are measured but differ."""
         sources = [
             FakeRasterAsset(res_x=1.0, res_y=1.0),
             FakeRasterAsset(res_x=2.0, res_y=1.0),
@@ -447,7 +447,7 @@ class TestPixelGeometryCheck:
         assert "unknown_pixel_geometry" not in codes
 
     def test_existing_rotation_failure_still_fires_when_geometry_known(self):
-        """VAL-07 still fires unchanged for a rotated source with measured geometry."""
+        """The rotation check still fires unchanged for a rotated source with measured geometry."""
         src_rotated = FakeRasterAsset(is_rotated=True, res_x=1.0, res_y=1.0)
         sources = [FakeRasterAsset(is_rotated=False), src_rotated]
         errors = validate_sources("mosaic", sources, _SAME_CRS)
@@ -457,7 +457,7 @@ class TestPixelGeometryCheck:
 
     def test_null_resolution_does_not_mask_rotation(self):
         """A source that is both unmeasured AND rotated reports both codes —
-        VAL-08 does not suppress VAL-07.
+        The unmeasured-resolution check does not suppress the rotation check.
         """
         src_bad = FakeRasterAsset(is_rotated=True, res_x=None)
         sources = [FakeRasterAsset(), src_bad]

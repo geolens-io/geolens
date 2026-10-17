@@ -157,7 +157,7 @@ def test_lazy_route_handler_resolution_strips_root_path():
 async def test_rate_limit_health_excluded(client: AsyncClient):
     """GET /health is not subject to the tight global default rate limit.
 
-    GAP-016: /health carries its own explicit @limiter.limit("60/minute")
+    /health carries its own explicit @limiter.limit("60/minute")
     instead of @limiter.exempt. A route-specific limit overrides the global
     default in slowapi, so a tight 2/second default never trips the Docker
     healthcheck / LB polling — exactly the property this test guards.

@@ -1,4 +1,4 @@
-"""GAP-002 / feat(#1267): VRT regenerating-status stale sweep.
+"""feat(#1267): VRT regenerating-status stale sweep.
 
 Tests that RasterAsset rows stuck in status='regenerating' past the
 JOB_TIMEOUT_SECONDS threshold are reconciled by the shared sweep helper,
@@ -77,7 +77,7 @@ def _make_mock_db_for_fail_stale(
 
     execute() side effects (in order):
       1. stale UNBOUND pending IngestJobs (1h) → all() returns
-         (id, user_metadata, created_by, status) — fix(#1556 review) widened
+         (id, user_metadata, created_by, status) — fix(#1556) widened
          this one RETURNING so the sweep can count the rows its CASE settled
          `cancelled` apart from the ones it failed
       2. stale BOUND pending IngestJobs (24h, fix(#1234)) → empty here
@@ -85,21 +85,21 @@ def _make_mock_db_for_fail_stale(
       3. stale VrtGeneration UPDATE → all() returns (id, vrt_dataset_id) pairs
       4. composition-preserving RasterAsset UPDATE (-> 'ready') → scalars()
          returns dataset ids for ``stale_vrt_assets``
-      4b. composition-changed RasterAsset UPDATE (-> 'failed', fix(#1322
-         review round 3)) → scalars() returns dataset ids for
+      4b. composition-changed RasterAsset UPDATE (-> 'failed', fix(#1322))
+         → scalars() returns dataset ids for
          ``stale_vrt_assets_degraded``. See the recover-side helper's
          docstring for why this is mock-level routing, not the real SQL.
       4c. abandoned dataset_refresh_runs UPDATE (feat(#1219)) → scalars()
          returns cancelled run ids. Empty in these fixtures; the sweep has
          its own suite in test_dataset_refresh_runs.py.
       5. purge DELETE .. RETURNING (id, file_path, user_metadata) → .all()
-         returns those three-tuples. fix(#1202 review r5) widened the
+         returns those three-tuples. fix(#1202) widened the
          RETURNING so the purge can also reap a completed presigned job's
          staging key. Callers may still pass (file_path,) one-tuples; they
          are normalized below so each test keeps stating only what it cares
          about.
       6. optional surviving-path SELECT when a deleted row had a file_path
-      7. fix(#1778 codex r10): the artifact-carrying SELECT (id,
+      7. fix(#1778): the artifact-carrying SELECT (id,
          user_metadata) that feeds both reapers, run unconditionally after
          the retention block — a deployment with retention disabled still
          owes these reaps, which is why it sits outside the
@@ -120,14 +120,14 @@ def _make_mock_db_for_fail_stale(
     ):
         mock_result = MagicMock()
         mock_result.scalars.return_value = returned_ids
-        # fix(#1550 review): the three job sweeps RETURN (id, user_metadata,
+        # fix(#1550): the three job sweeps RETURN (id, user_metadata,
         # created_by) now — the sweep is the last actor that can close an
         # embedding backfill's audit trail after a hard kill, and it needs the
         # run's own metadata to write a correlated entry. These fixtures carry
         # no backfill marker, so the audit emission is a no-op for them; the
         # shape still has to match or the counts read zero.
         #
-        # fix(#1556 review): the UNBOUND half (index 0) carries a fourth column,
+        # fix(#1556): the UNBOUND half (index 0) carries a fourth column,
         # the status its CASE chose. These fixtures describe rows with no
         # `presigned` marker, so the status the database would have written is
         # `failed` — which is what keeps `pending_failed` reading 1 below.
@@ -141,7 +141,7 @@ def _make_mock_db_for_fail_stale(
             ]
         results.append(mock_result)
 
-    # fix(#1709 review r7): the childless-`fanned_out` reconciliation runs
+    # fix(#1709): the childless-`fanned_out` reconciliation runs
     # between the running-jobs sweep and the VRT sweep — a fan-out parent
     # whose dispatch died before its first child committed. It RETURNs ids
     # and reads them via .scalars(). No such parents in these fixtures, so
@@ -164,7 +164,7 @@ def _make_mock_db_for_fail_stale(
         [asset.dataset_id for asset in (stale_vrt_assets or [])],
         [asset.dataset_id for asset in (stale_vrt_assets_degraded or [])],
         # feat(#1219): the refresh-run sweep, between the VRT sweep and the
-        # retention purge — TWO statements since fix(#1274 review): the
+        # retention purge — TWO statements since fix(#1274): the
         # legacy-completion success recorder, then the abandonment cancel.
         # Both empty in these fixtures; the sweep has its own suite in
         # test_dataset_refresh_runs.py.
@@ -188,7 +188,7 @@ def _make_mock_db_for_fail_stale(
         survivors_result.scalars.return_value = surviving_paths or []
         results.append(survivors_result)
 
-    # fix(#1778 codex r10): the artifact-carrying SELECT, unconditional and
+    # fix(#1778): the artifact-carrying SELECT, unconditional and
     # outside the retention block — see the docstring above. None of these
     # fixtures carry an unreaped artifact, so an empty .all() keeps each test
     # stating only what it cares about.
@@ -196,7 +196,7 @@ def _make_mock_db_for_fail_stale(
     artifact_rows_result.all.return_value = artifact_rows or []
     results.append(artifact_rows_result)
 
-    # fix(#1202 review r8): the post-expiry presigned-staging sweep issues one
+    # fix(#1202): the post-expiry presigned-staging sweep issues one
     # more SELECT after the purge. No candidates in these fixtures, so an empty
     # .all() keeps each test stating only what it cares about.
     post_expiry_result = MagicMock()
@@ -210,7 +210,7 @@ def _make_mock_db_for_fail_stale(
 
 
 # ---------------------------------------------------------------------------
-# GAP-002: fail_stale_jobs sweeps stale VRT regenerating assets
+# fail_stale_jobs sweeps stale VRT regenerating assets
 # ---------------------------------------------------------------------------
 
 
@@ -377,7 +377,7 @@ async def test_fail_stale_jobs_commit_failure_keeps_stale_generation_storage_int
 @pytest.mark.asyncio
 async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     """The purge is one DELETE that carries the terminal-status predicates
-    itself (codex P2 r10: a SELECT-then-DELETE-by-id pair raced with
+    itself (a SELECT-then-DELETE-by-id pair raced with
     /jobs/{id}/retry)."""
     from sqlalchemy.sql.dml import Delete
 
@@ -387,13 +387,13 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     await fail_stale_jobs(mock_db)
 
     # 5 sweeps (the pending clause is two statements since fix(#1234)) + the
-    # VRT asset UPDATE split into two (ready / degraded, fix(#1322 review
-    # round 3)) + the refresh-run sweep's TWO statements (feat(#1219),
-    # fix(#1274 review): legacy-completion recorder then abandonment cancel)
+    # VRT asset UPDATE split into two (ready / degraded, fix(#1322)) + the
+    # refresh-run sweep's TWO statements (feat(#1219), fix(#1274):
+    # legacy-completion recorder then abandonment cancel)
     # + the purge DELETE + the artifact-carrying SELECT + the post-expiry
     # staging SELECT.
-    # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation.
-    # fix(#1778 codex r10): the purge no longer reads exempted rows itself —
+    # fix(#1709): +1 — the childless-`fanned_out` reconciliation.
+    # fix(#1778): the purge no longer reads exempted rows itself —
     # that SELECT moved out of the retention block into the unconditional
     # artifact-carrying query below, which is what keeps the total the same
     # even though the purge DELETE shifts one slot earlier.
@@ -401,7 +401,7 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     # Indexes 7-8 are the refresh-run sweep now; the purge DELETE sits at 9
     # (no survivors SELECT here, since the one purge candidate has no file
     # path) and the artifact-carrying SELECT at 10.
-    # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation
+    # fix(#1709): +1 — the childless-`fanned_out` reconciliation
     # sits at index 3, between the running-jobs sweep and the VRT sweep.
     purge_stmt = mock_db.execute.await_args_list[9].args[0]
     assert isinstance(purge_stmt, Delete)
@@ -420,7 +420,7 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
     """codex P2 on #434: /jobs/by-dataset serves persistent ingest warnings and
     the reupload source_layer hint from a dataset's most recent complete job —
     that row must survive the purge no matter how old it is. Older completes
-    and failed rows past retention are still deleted, and (codex P2 r3) a
+    and failed rows past retention are still deleted, and a
     purged failed job's staged local file is reaped along with the row."""
     from sqlalchemy import select as sa_select
 
@@ -438,11 +438,11 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
     monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
     staged_file = tmp_path / "failed-upload.geojson"
     staged_file.write_text("{}")
-    # codex P2 (r4): fan-out siblings share one staging object — a path also
+    # Fan-out siblings share one staging object — a path also
     # referenced by a retryable row OUTSIDE the purge set must NOT be reaped.
     shared_file = tmp_path / "shared-fanout.gpkg"
     shared_file.write_text("{}")
-    # codex P2 (r5): a SUCCESSFUL fan-out's shared original is referenced
+    # A SUCCESSFUL fan-out's shared original is referenced
     # forever by exempt latest-complete children — a surviving complete row
     # must NOT block the reap (only pending/running/failed need the file).
     fanout_file = tmp_path / "successful-fanout.gpkg"
@@ -467,7 +467,7 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
             created_at=old,
             file_path=str(fanout_file),
         ),
-        # codex P2 (r7): manifest apply resolves datasets via the newest
+        # Manifest apply resolves datasets via the newest
         # complete job per manifest_key — this row is OLDER than the dataset's
         # latest complete job (so the per-dataset exemption skips it) but must
         # survive via the manifest-key exemption or re-applying the manifest
@@ -500,7 +500,7 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
             created_at=now - timedelta(days=1),
             file_path=str(shared_file),
         ),
-        # codex P2 (r8): an ancient still-running row gets stale-failed by THIS
+        # An ancient still-running row gets stale-failed by THIS
         # same fail_stale_jobs call (completed_at=now) — the purge cutoff is on
         # finished-at, so the fresh failure evidence must survive a full
         # retention window instead of being deleted in the same transaction.
@@ -564,12 +564,12 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
     await fail_stale_jobs(mock_db)
 
     # 5 sweeps (two pending clauses since fix(#1234)) plus the VRT asset
-    # UPDATE split into two (ready / degraded, fix(#1322 review round 3))
-    # plus the refresh-run sweep's two statements (feat(#1219), fix(#1274
-    # review)) and no purge DELETE, plus the artifact-carrying SELECT and the
+    # UPDATE split into two (ready / degraded, fix(#1322))
+    # plus the refresh-run sweep's two statements (feat(#1219), fix(#1274))
+    # and no purge DELETE, plus the artifact-carrying SELECT and the
     # post-expiry staging SELECT, both independent of retention.
-    # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation.
-    # fix(#1778 codex r10): +1 — the artifact-carrying SELECT runs outside the
+    # fix(#1709): +1 — the childless-`fanned_out` reconciliation.
+    # fix(#1778): +1 — the artifact-carrying SELECT runs outside the
     # retention block on purpose, so a deployment with retention disabled
     # still owes a reap for a row that carries an unpublished storage key or
     # an unadopted analysis table.
@@ -577,13 +577,13 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# GAP-002: shared helper is called from both entry points
+# Shared helper is called from both entry points
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_fail_stale_jobs_calls_vrt_sweep_helper():
-    """GAP-002: fail_stale_jobs delegates to the shared VRT stale sweep helper."""
+    """fail_stale_jobs delegates to the shared VRT stale sweep helper."""
     from app.platform.jobs import router as router_module
 
     assert hasattr(router_module, "sweep_stale_vrt_assets"), (
@@ -592,15 +592,15 @@ async def test_fail_stale_jobs_calls_vrt_sweep_helper():
 
 
 # ---------------------------------------------------------------------------
-# GAP-002: vrt_assets_recovered count returned by sweep helper
+# vrt_assets_recovered count returned by sweep helper
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_sweep_stale_vrt_assets_returns_count():
-    """GAP-002: sweep_stale_vrt_assets(session, stale_cutoff) returns
-    (assets_recovered, gens_failed, storage_keys) — feat(#1267)/fix(#1322
-    review) widened the tuple to carry resolved-not-deleted storage keys."""
+    """sweep_stale_vrt_assets(session, stale_cutoff) returns
+    (assets_recovered, gens_failed, storage_keys) — feat(#1267)/fix(#1322)
+    widened the tuple to carry resolved-not-deleted storage keys."""
     from app.platform.jobs.router import sweep_stale_vrt_assets
 
     stale_asset = _make_raster_asset(status="regenerating")
@@ -608,7 +608,7 @@ async def test_sweep_stale_vrt_assets_returns_count():
 
     # Three atomic UPDATEs: generation, then the asset split into a
     # composition-preserving branch (-> 'ready') and a composition-changed
-    # branch (-> 'failed', fix(#1322 review round 3)).
+    # branch (-> 'failed', fix(#1322)).
     gen_result = MagicMock()
     gen_result.all.return_value = [(stale_gen.id, stale_gen.vrt_dataset_id)]
     ready_result = MagicMock()
@@ -626,7 +626,7 @@ async def test_sweep_stale_vrt_assets_returns_count():
 
     # No tenant context is bound in this unit test, so key RESOLUTION itself
     # (not just deletion — sweep_stale_vrt_assets never deletes anything,
-    # fix(#1322 review)) short-circuits to an empty tuple rather than raising.
+    # fix(#1322)) short-circuits to an empty tuple rather than raising.
     # Either way this stays a 3-call contract: resolving/skipping keys is
     # pure Python, never a 4th db.execute().
     with patch("app.core.tenancy.is_multi_tenant", return_value=True):
@@ -682,7 +682,7 @@ async def test_sweep_stale_vrt_assets_preserves_single_tenant_sql_shape():
 
 @pytest.mark.asyncio
 async def test_sweep_stale_vrt_assets_restores_ready_not_failed():
-    """feat(#1267) / fix(#1322 review round 3): the FIRST asset UPDATE
+    """feat(#1267) / fix(#1322): the FIRST asset UPDATE
     (composition-preserving) sets status='ready'; the SECOND (composition-
     changed) sets status='failed' — a dead attempt's own VrtGeneration row
     is what unconditionally records the failure, not the asset, UNLESS the
@@ -702,7 +702,7 @@ async def test_sweep_stale_vrt_assets_restores_ready_not_failed():
         session, datetime.now(timezone.utc) - timedelta(hours=1)
     )
 
-    # fix(#1322 review round 4): _PRIOR_ATTEMPT_WAS_READY_SQL legitimately
+    # _PRIOR_ATTEMPT_WAS_READY_SQL legitimately
     # mentions the literal 'failed' in its WHERE-clause comparison (the most
     # recent OTHER generation's status), so "'failed' not anywhere in the
     # statement" is no longer a valid signal — isolate the SET clause (the
@@ -736,7 +736,7 @@ async def test_sweep_stale_vrt_assets_restores_ready_not_failed():
 
 @pytest.mark.asyncio
 async def test_sweep_stale_vrt_assets_resolves_but_never_deletes_storage():
-    """fix(#1322 review): sweep_stale_vrt_assets RESOLVES a swept generation's
+    """fix(#1322): sweep_stale_vrt_assets RESOLVES a swept generation's
     immutable object keys (3rd tuple element) but must never call storage
     itself. Deleting before its caller's commit is durable can destroy a
     generation a rolled-back reconciliation still owns — see
@@ -801,7 +801,7 @@ async def test_sweep_stale_vrt_assets_storage_failure_never_masks_reconciliation
 
 
 # ---------------------------------------------------------------------------
-# fix(#1322 review round 3): the discrimination is a STATE comparison
+# The discrimination is a STATE comparison
 # (built_from vs the live vrt_source_links set), not a timing heuristic —
 # these run against a real Postgres database so the actual
 # _COMPOSITION_PRESERVED_SQL executes, not a mock standing in for it.
@@ -994,7 +994,7 @@ async def test_sweep_restores_ready_for_a_dead_staged_mutation(test_db_session):
 
 
 async def test_sweep_keeps_failed_when_source_was_removed(test_db_session):
-    """fix(#1322 review round 3): a link set that shrank without the artifact
+    """A link set that shrank without the artifact
     following it. built_from still names the removed source — the published
     VRT still contains it — so restoring 'ready' would hide that the catalog's
     stated composition (1 source) no longer matches what is actually being
@@ -1104,7 +1104,7 @@ async def test_sweep_keeps_failed_when_built_from_is_null(test_db_session):
 
 
 # ---------------------------------------------------------------------------
-# fix(#1322 review round 4): composition-preserving alone is not enough — the
+# composition-preserving alone is not enough — the
 # asset must also have PROVABLY been 'ready' (not 'failed') the instant this
 # attempt was allowed to start. regenerate_vrt_endpoint's guard only rejects
 # 'regenerating', so a caller may retry an already-'failed' asset; if that
@@ -1131,7 +1131,7 @@ async def test_sweep_keeps_failed_when_prior_attempt_was_failed(test_db_session)
     now = datetime.now(timezone.utc)
     # Generation 1: the ORIGINAL attempt, genuinely failed (e.g. a real GDAL
     # error) — not swept, not abandoned; explicitly terminal already.
-    # heartbeat_at is set: fix(#1322 review round 5) — this is what
+    # heartbeat_at is set: this is what
     # distinguishes a genuine build failure (the task claimed and ran) from
     # an enqueue failure (never reached the worker at all); see
     # test_sweep_restores_ready_when_prior_attempt_never_ran for that case.
@@ -1254,7 +1254,7 @@ async def test_sweep_restores_ready_when_prior_attempt_completed(test_db_session
 
 
 async def test_sweep_restores_ready_when_prior_attempt_never_ran(test_db_session):
-    """fix(#1322 review round 5): a generation's status='failed' does not by
+    """A generation's status='failed' does not by
     itself mean the asset was not ready. regenerate_vrt_endpoint's own
     orphan-guard rollback marks a just-created generation 'failed' when the
     Procrastinate ENQUEUE itself throws — the task never reached a worker,
@@ -1333,7 +1333,7 @@ async def test_sweep_restores_ready_when_prior_attempt_never_ran(test_db_session
 
 
 # ---------------------------------------------------------------------------
-# fix(#1322 review round 6): PROVEN-DEAD FIRST for a 'pending' generation
+# PROVEN-DEAD FIRST for a 'pending' generation
 # specifically. started_at age alone cannot distinguish an orphan from a
 # regeneration still legitimately sitting in Procrastinate's queue through a
 # sustained worker backlog — queue waits are unbounded, the same reason
@@ -1363,7 +1363,7 @@ async def _insert_live_procrastinate_job(session, *, generation_id) -> None:
 
 
 async def _insert_legacy_live_procrastinate_job(session, *, vrt_dataset_id) -> None:
-    """fix(#1322 review round 6, completed): a pre-upgrade delivery with no
+    """A pre-upgrade delivery with no
     `generation_id` argument at all — the shape tasks_vrt.regenerate_vrt
     explicitly still accepts by adopting RasterAsset.current_generation_id.
     Carries only `vrt_dataset_id`, matching what such a delivery's args
@@ -1490,7 +1490,7 @@ async def test_sweep_reaps_pending_generation_once_its_job_is_proven_gone(
 async def test_sweep_leaves_pending_generation_alone_for_a_live_legacy_delivery(
     test_db_session,
 ):
-    """fix(#1322 review round 6, completed): a pre-upgrade delivery queued
+    """A pre-upgrade delivery queued
     with no `generation_id` argument is still live and will still adopt
     RasterAsset.current_generation_id once it runs (tasks_vrt.regenerate_vrt
     explicitly supports this for rolling-deploy safety). Correlating only by
@@ -1618,7 +1618,7 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                     "catalog.raster_assets TO geolens_reader"
                 )
             )
-            # fix(#1322 review round 3): the composition-preserving check
+            # The composition-preserving check
             # reads vrt_source_links — a real runtime role already has
             # blanket SELECT/INSERT/UPDATE/DELETE on every catalog table
             # (configure-runtime-db-role.sh), so this is this minimal test
@@ -1626,7 +1626,7 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
             await conn.execute(
                 sa.text("GRANT SELECT ON catalog.vrt_source_links TO geolens_reader")
             )
-            # fix(#1322 review round 6): the pending-generation proven-dead
+            # The pending-generation proven-dead
             # check reads catalog.procrastinate_jobs — same "minimal test
             # role catching up" rationale as above; the query text references
             # the table even for these status='running' fixture rows, so
@@ -1705,7 +1705,7 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
                 )
 
         async with ctx.tenant_session(ctx.tenant_a) as session:
-            # fix(#1322 review): 3rd element is resolved-not-deleted storage
+            # fix(#1322): 3rd element is resolved-not-deleted storage
             # keys, tenant-prefixed since ctx.tenant_session binds
             # current_tenant_var for the block — one swept generation, 3 keys.
             sweep_result = await sweep_stale_vrt_assets(session, cutoff)

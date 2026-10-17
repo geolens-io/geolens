@@ -1,11 +1,11 @@
 /**
- * GLUX-002 (Phase 1248): regression gate for the SettingsPage control semantics.
+ * Regression gate for the SettingsPage control semantics.
  *
  * Asserts:
  * - The language select is queryable by its accessible name via the shared
  *   FieldLabel primitive. Removing the FieldLabel + id binding fails this test.
  *
- * #347 (UX-01) (v1049): the theme toggle was removed from Settings (it now lives only
+ * #347: the theme toggle was removed from Settings (it now lives only
  * in the navbar user dropdown), so the former aria-pressed assertion is gone.
  */
 import { render, screen } from '@/test/test-utils';

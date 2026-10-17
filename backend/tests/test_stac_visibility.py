@@ -1,4 +1,4 @@
-"""Tests for STAC visibility filter coverage (Phase 1061 SEC-S01).
+"""Tests for STAC visibility filter coverage.
 
 Mirrors test_ogc_public_access.py: anonymous users see only public+published
 raster records; authenticated owners can see their own private records via

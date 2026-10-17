@@ -1,6 +1,6 @@
-"""SEC-03: Sensitive fields are redacted by a structlog processor.
+"""Sensitive fields are redacted by a structlog processor.
 
-Pins the v13.13 closure of M-65. Even if a developer accidentally logs
+Even if a developer accidentally logs
 `logger.info("attempt", token=jwt)`, the token is redacted before
 reaching stdout / log aggregators.
 """
@@ -129,7 +129,7 @@ def test_integration_token_redacted_in_log_output(capsys):
     leaked-global class this file's own subject matter is about, and the
     caching half is what makes a later `capture_logs()` see nothing.
 
-    fix(#1064 codex r4): `configured_logging()` replaces a fixture that only
+    fix(#1064): `configured_logging()` replaces a fixture that only
     saved and restored. Restoring was never sufficient on its own — while
     caching is on, any module-level proxy emitting inside the window freezes
     permanently, and a proxy-local bind survives every restore. The helper

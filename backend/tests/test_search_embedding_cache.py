@@ -1,4 +1,4 @@
-"""Tests for the Phase 269 H-22 query-embedding LRU cache.
+"""Tests for the query-embedding LRU cache.
 
 The cache lives in `app.modules.catalog.search.service_semantic` and wraps
 `generate_embedding` so that repeated identical queries don't re-call the
@@ -64,7 +64,7 @@ def _mock_port(
 
     `resolve_embedding_config` answers the whole live configuration, which is
     what lets the caller PIN the provider call to the same one it filters rows
-    on (#1546 review r1).
+    on (#1546).
     """
     port = MagicMock()
     port.generate_embedding = AsyncMock(
@@ -291,7 +291,7 @@ async def test_cache_partitioned_by_configuration():
 
 @pytest.mark.asyncio
 async def test_the_provider_call_is_pinned_to_the_resolved_configuration():
-    """fix(#1546 review r1, codex P1): one read, used for all three purposes.
+    """One read, used for all three purposes.
 
     The configuration decides three things in a single search: which stored
     rows are comparable, what the cache entry is keyed on, and which endpoint

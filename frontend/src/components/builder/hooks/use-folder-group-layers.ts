@@ -11,7 +11,7 @@ import {
 } from '@/components/builder/folder-groups';
 import { randomId } from '@/lib/random-id';
 
-// STATE-02: folder-group handlers, relocated verbatim out of the useBuilderLayers
+// Folder-group handlers, relocated verbatim out of the useBuilderLayers
 // god-hook. PURE RELOCATION — handler bodies are unchanged; the shared layers
 // state (layersRef + setters) is threaded in as params. These operate on the
 // in-memory localLayers array. Group layers are encoded as layers with
@@ -89,7 +89,7 @@ export function useFolderGroupLayers({
       // Remove the group container, keep children (clear their parent_group_id
       // AND any persisted style_config.builder.folderGroupId — otherwise a
       // child duplicated before Save carries the stale group pointer and gets
-      // silently re-grouped on the next server resync; see fix #392, audit CR-01).
+      // silently re-grouped on the next server resync).
       const next = prev
         .filter((l) => l.id !== groupId)
         .map((l) => {
@@ -117,7 +117,7 @@ export function useFolderGroupLayers({
     const children = current.filter(
       (l) => (l as GroupedLayer).parent_group_id === groupId && l.id !== groupId,
     );
-    // fix(#394) LM-04: flip relative to the children AGGREGATE — the same
+    // Flip relative to the children AGGREGATE — the same
     // signal the stack renders as the group eye (UnifiedStackPanel derives
     // `children.some(visible)`), so the click always does what the eye shows.
     // The synthetic row's own `visible` can lag per-child toggles.
@@ -140,7 +140,7 @@ export function useFolderGroupLayers({
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef]);
 
   const handleDeleteGroup = useCallback((groupId: string) => {
-    // B-007: collect the group's child layer ids BEFORE the state mutation and
+    // Collect the group's child layer ids BEFORE the state mutation and
     // imperatively tear down their MapLibre companions (fill/outline/label/
     // extrusion/arrow/cluster glyphs), mirroring handleRemove. Without this the
     // children's paint layers linger as ghost visuals on the map until the next
@@ -169,7 +169,7 @@ export function useFolderGroupLayers({
       const targetIdx = prev.findIndex((l) => l.id === layerId);
       if (targetIdx < 0) return prev;
       const updatedLayer: GroupedLayer = { ...(prev[targetIdx] as GroupedLayer), parent_group_id: groupId };
-      // fix(#394) LM-01/B-021: splice the row adjacent to the group's block and
+      // Splice the row adjacent to the group's block and
       // renumber sort_order — the exact fix the drag path got in #392
       // (handleAddDataset's group insert). Stamping parent_group_id in place
       // left the row at its old position, so hydrateFolderGroupLayers
@@ -189,7 +189,7 @@ export function useFolderGroupLayers({
         : (groupIdx >= 0 ? groupIdx + 1 : without.length);
       const next = [...without];
       next.splice(insertIdx, 0, updatedLayer as MapLayerResponse);
-      // fix(#767): defensive — should the moved layer have been the last child
+      // Defensive — should the moved layer have been the last child
       // of ANOTHER group, prune that emptied group row in the same write.
       return pruneEmptyFolderGroups(next).map((l, i) => ({ ...l, sort_order: i }));
     });
@@ -210,8 +210,8 @@ export function useFolderGroupLayers({
 
       // Find the position of the group container to place the layer just after it
       const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
-      // fix(#392): clear the persisted folderGroupId alongside the
-      // frontend-only parent_group_id — see handleUngroup comment above. (audit CR-01)
+      // Clear the persisted folderGroupId alongside the
+      // frontend-only parent_group_id — see handleUngroup comment above.
       const updatedLayer: GroupedLayer = {
         ...gl,
         parent_group_id: null,
@@ -221,7 +221,7 @@ export function useFolderGroupLayers({
       const next = prev.filter((l) => l.id !== layerId) as MapLayerResponse[];
       const insertAt = groupIdx >= 0 ? groupIdx + 1 : next.length;
       next.splice(insertAt, 0, updatedLayer as MapLayerResponse);
-      // fix(#767): moving the LAST child out empties the group — prune its row
+      // Moving the LAST child out empties the group — prune its row
       // (an empty group has no persisted carrier and vanishes on save+reload).
       // The moved-out layer then takes the pruned group's stack position.
       return pruneEmptyFolderGroups(next).map((l, i) => ({ ...l, sort_order: i }));

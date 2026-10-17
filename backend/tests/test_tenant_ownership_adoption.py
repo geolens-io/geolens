@@ -2293,18 +2293,15 @@ class TestLiveTenantBoundary:
 
 
 # ---------------------------------------------------------------------------
-# The runbook recipe and the module it invokes
+# The runbook pointer and the module the recipe invokes
 # ---------------------------------------------------------------------------
 
 
-def test_runbook_documents_the_forward_only_recipe() -> None:
-    """A rename that orphans the DR recipe must fail here, not mid-recovery."""
+def test_runbook_sends_tenant_restores_to_the_cloud_runbook() -> None:
+    """The recipe lives with the Cloud overlay; Core keeps only the pointer."""
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
 
-    assert "python -m app.core.db.tenant_adoption --apply" in runbook
-    # The destructive downgrade is documented as the thing NOT to reach for,
-    # not as the recipe (#998).
-    assert "#### Do not reach for `alembic downgrade 0016`" in runbook
+    assert "follow the Cloud overlay's own" in runbook
     assert "uv run --no-dev alembic downgrade 0016" not in runbook
 
 

@@ -265,7 +265,7 @@ def test_build_maplibre_style_exports_fill_companion_layers():
     assert extrusion["paint"]["fill-extrusion-color"] == "#94a3b8"
 
 
-# fix(#910, codex P2): once a fill pattern owns the fill, EDIT-05 keeps `fill-color`
+# Once a fill pattern owns the fill, the builder keeps `fill-color`
 # out of paint and the colour lives in the builder stash. The extrusion companion is
 # the only exported layer that needs a solid colour, so it has to read the stash or a
 # patterned 3D layer exports default blue while the builder draws the saved colour.
@@ -333,7 +333,7 @@ def test_builtin_pattern_export_keeps_the_stashed_fill_color():
     """A builder-patterned polygon exports in the colour the user chose.
 
     #917 strips a builtin `fill-pattern` at export and falls back to a solid
-    colour, but EDIT-05 means a patterned layer keeps NO `fill-color` in paint —
+    colour, but a patterned layer keeps NO `fill-color` in paint —
     the choice lives in `builder.fillColorSaved`. Without seeding it, every
     builder-patterned polygon exported as DEFAULT_FILL_COLOR.
     """
@@ -479,8 +479,8 @@ def test_build_maplibre_style_exports_basemap_config_metadata():
     style = build_maplibre_style(map_obj, [_layer()])
 
     # The serialized output normalizes BasemapConfig through Pydantic, which
-    # adds the schema defaults: opacity=1.0 (Phase 1000),
-    # background_color=None, sublayer_overrides=None (Phase 1059 BSE-01),
+    # adds the schema defaults: opacity=1.0,
+    # background_color=None, sublayer_overrides=None,
     # and basemap_position=None / projection=None (jsonb-additive).
     expected = {
         **map_obj.basemap_config,
@@ -819,7 +819,7 @@ def test_parse_maplibre_style_import_preserves_cluster_intent_metadata():
     layer = imported.layers[0]
     assert layer.dataset_id == dataset_id
     assert layer.paint == {"circle-color": "#2255aa", "circle-radius": 6}
-    # Phase 1060 (`a400eb89`): MapLayerInput's `_normalize_paint_boundary`
+    # MapLayerInput's `_normalize_paint_boundary`
     # post-validator runs `canonicalize_builder_style_config`, converting
     # builder.* keys to snake_case for storage parity (DB-side canonical form).
     # The wire-format export (build_maplibre_style) still emits camelCase, but
@@ -837,10 +837,10 @@ def test_parse_maplibre_style_import_preserves_cluster_intent_metadata():
 
 
 def test_build_maplibre_style_rejects_array_shaped_builder_line_gradient_intent():
-    """Locked contract per CONTEXT D-01: builder.lineGradient must be a non-empty plain dict.
+    """Locked contract: builder.lineGradient must be a non-empty plain dict.
 
     Arrays must be rejected for parity with the frontend `lineGradientNeededFor` helper, which
-    uses `!Array.isArray(intent)`. If a future Phase 256 change emits an array-shaped intent,
+    uses `!Array.isArray(intent)`. If a future change emits an array-shaped intent,
     both sides must be aligned in lockstep. This test locks the backend half.
     """
     dataset_id = uuid.uuid4()
@@ -884,7 +884,7 @@ def test_build_maplibre_style_drops_line_gradient_paint_on_unsupported_source_ty
 ):
     """Drop line-gradient paint when the backing source type cannot support lineMetrics.
 
-    Mirrors the Phase 251 _HILLSHADE_PAINT_KEYS silent-filter convention.
+    Mirrors the _HILLSHADE_PAINT_KEYS silent-filter convention.
     """
     import logging
 
@@ -924,7 +924,7 @@ def test_build_maplibre_style_drops_line_gradient_paint_on_unsupported_source_ty
 def test_build_maplibre_style_warns_on_builder_line_gradient_intent_with_unsupported_source(
     caplog,
 ):
-    """WR-03: builder-intent on incompatible source type must emit a warning.
+    """builder-intent on incompatible source type must emit a warning.
 
     The paint-drop warning fires only when paint['line-gradient'] is set. Without this
     test, a layer with `style_config.builder.lineGradient` but no paint key (e.g. a
@@ -1051,7 +1051,7 @@ def test_parse_maplibre_style_import_matches_geolens_sources_and_warns_external(
     assert layer.opacity == 0.5
     assert "_private" not in layer.paint
     assert layer.label_config == {"column": "name"}
-    # Phase 1060 (`a400eb89`): MapLayerInput canonicalizes builder.* keys to
+    # MapLayerInput canonicalizes builder.* keys to
     # snake_case (e.g. fillDisabled -> fill_disabled). Note `symbol.iconImage`
     # stays camelCase — the canonicalization map only covers builder keys.
     assert layer.style_config == {
@@ -1171,7 +1171,7 @@ def test_parse_maplibre_style_import_restores_basemap_config_from_metadata():
     imported = parse_maplibre_style_import(style)
 
     # The Pydantic schema fills opacity=1.0 (v1000 default),
-    # background_color=None, sublayer_overrides=None (Phase 1059 BSE-01),
+    # background_color=None, sublayer_overrides=None,
     # and basemap_position=None / projection=None (jsonb-additive default).
     assert imported.basemap_config == {
         "label_mode": "hidden",
@@ -1241,7 +1241,7 @@ def test_parse_maplibre_style_import_restores_outline_and_extrusion_companions()
     assert imported.summary.layers_imported == 1
     layer = imported.layers[0]
     assert layer.style_config is not None
-    # Phase 1060 (`a400eb89`): MapLayerInput canonicalizes builder.* keys to
+    # MapLayerInput canonicalizes builder.* keys to
     # snake_case. Companion-restoration helpers in style_json.py still write
     # camelCase into the builder dict, but the model_validator rewrites them
     # at the persistence boundary.
@@ -1297,7 +1297,7 @@ def test_parse_maplibre_style_import_restores_line_arrow_companion():
     assert imported.summary.layers_imported == 1
     layer = imported.layers[0]
     assert layer.dataset_id == dataset_id
-    # Phase 1060 (`a400eb89`): MapLayerInput canonicalizes builder.* keys to
+    # MapLayerInput canonicalizes builder.* keys to
     # snake_case. Arrow size/spacing also come back as floats because
     # `_builder_from_arrow_companion` runs the layout values through
     # `_finite_number`, which casts to float.
@@ -1355,7 +1355,7 @@ def test_build_maplibre_style_round_trip_preserves_terrain_and_builder_state():
     )
     assert imported_polygon.style_config is not None
     builder = imported_polygon.style_config["builder"]
-    # Phase 1060 (`a400eb89`): MapLayerInput canonicalizes builder.* keys to
+    # MapLayerInput canonicalizes builder.* keys to
     # snake_case at the persistence boundary. The full round-trip
     # (build -> parse -> MapLayerInput) lands here with snake_case keys.
     assert builder["outline_color"] == "#abcdef"
@@ -1529,7 +1529,7 @@ def test_build_maplibre_style_round_trip_preserves_line_gradient_paint_and_sourc
     assert imported_line.paint["line-gradient"] == gradient
 
     # Re-export: construct a MapLayerResponse from the imported MapLayerInput and re-build the style.
-    # This mechanic mirrors Phase 251 Plan 02 round-trip pattern: imported.layers (MapLayerInput) ->
+    # This mechanic mirrors the round-trip pattern: imported.layers (MapLayerInput) ->
     # _layer(...) factory -> MapLayerResponse -> build_maplibre_style.
     imported_polygon = next(
         entry for entry in imported.layers if entry.dataset_id == polygon_dataset_id
@@ -1557,7 +1557,7 @@ def test_build_maplibre_style_round_trip_preserves_line_gradient_paint_and_sourc
     # Semantic identity (Python `==` is element-wise structural equality on lists/dicts):
     # line-gradient and lineMetrics survive a full round-trip. Byte-identity is not asserted
     # — undefined paint values may be normalized away across import — but semantic equality
-    # is the agreed bar per CONTEXT.md line 59.
+    # is the agreed bar.
     assert re_style["sources"][f"geolens-{line_dataset_id}"]["lineMetrics"] is True
     re_line_export = next(
         entry
@@ -1568,11 +1568,11 @@ def test_build_maplibre_style_round_trip_preserves_line_gradient_paint_and_sourc
 
 
 def test_build_maplibre_style_round_trip_preserves_builder_line_gradient_intent():
-    """Full round-trip for the BUILDER-INTENT detection path (WR-01 from REVIEW.md).
+    """Full round-trip for the BUILDER-INTENT detection path.
 
     The companion test above covers paint-driven gradient. This one covers the second
     detection input — `style_config.builder.lineGradient` — through the full
-    export -> import -> re-export cycle. Phase 256 builder UI is the primary consumer
+    export -> import -> re-export cycle. The builder UI is the primary consumer
     of this intent field; if a future allowlist change in `_clean_style_metadata`
     silently strips it, this test catches it. Both lineMetrics and the builder.lineGradient
     payload must survive the full round-trip.
@@ -1653,12 +1653,12 @@ def test_build_maplibre_style_round_trip_preserves_builder_line_gradient_intent(
 
 
 # ---------------------------------------------------------------------------
-# builder-audit #338 remediation tests (STYLE_JSON cluster)
+# Remediation tests (STYLE_JSON cluster)
 # ---------------------------------------------------------------------------
 
 
 def test_export_uses_data_prefixed_mvt_source_layer_p1_01():
-    """P1-01: exported vector source-layer must be `data.<table>` to match runtime."""
+    """Exported vector source-layer must be `data.<table>` to match runtime."""
     layer = _layer(
         dataset_geometry_type="POLYGON",
         dataset_table_name="parcels",
@@ -1697,7 +1697,7 @@ def test_export_uses_tenant_prefixed_mvt_source_layer():
 
 
 def test_export_tile_url_includes_sorted_cols_for_all_references_p1_02():
-    """P1-02/P1-03: cols= contains data-driven, label, paint ['get'], and filter columns."""
+    """cols= contains data-driven, label, paint ['get'], and filter columns."""
     dataset_id = uuid.uuid4()
     layer = _layer(
         dataset_id=dataset_id,
@@ -1738,7 +1738,7 @@ def test_export_cols_includes_extrusion_and_heatmap_builder_columns_p1_02():
 
 
 def test_terrain_export_emits_dedicated_raster_dem_source_for_image_dem_p1_05():
-    """P1-05: terrain must point at a raster-dem source even when DEM renders as image."""
+    """Terrain must point at a raster-dem source even when DEM renders as image."""
     dem_id = uuid.uuid4()
     map_obj = _map()
     map_obj.terrain_config = {
@@ -1763,7 +1763,7 @@ def test_terrain_export_emits_dedicated_raster_dem_source_for_image_dem_p1_05():
 
 
 def test_terrain_export_reuses_visible_raster_dem_when_hillshade_p1_05():
-    """P1-05 regression: hillshade DEM keeps pointing terrain at its raster-dem source."""
+    """Regression: hillshade DEM keeps pointing terrain at its raster-dem source."""
     dem_id = uuid.uuid4()
     map_obj = _map()
     map_obj.terrain_config = {
@@ -1777,7 +1777,7 @@ def test_terrain_export_reuses_visible_raster_dem_when_hillshade_p1_05():
 
 
 def test_export_emits_color_relief_companion_for_hypso_dem_p1_06():
-    """P1-06: a hypsometric-tinted DEM exports a valid color-relief companion layer."""
+    """A hypsometric-tinted DEM exports a valid color-relief companion layer."""
     dem_id = uuid.uuid4()
     layer = _dem_layer(
         dem_id=dem_id,
@@ -1830,7 +1830,7 @@ def test_color_relief_round_trips_through_build_parse_p1_06():
 
 
 def test_export_basemap_config_drops_unknown_key_forward_skew_style_04():
-    """STYLE-04: a stored basemap_config with an unknown key degrades, never 500s."""
+    """A stored basemap_config with an unknown key degrades, never 500s."""
     map_obj = _map()
     # Forward-compat write then rollback: a key the running backend doesn't know.
     map_obj.basemap_config = {
@@ -1845,7 +1845,7 @@ def test_export_basemap_config_drops_unknown_key_forward_skew_style_04():
 
 
 def test_export_basemap_config_degrades_to_none_on_invalid_value_style_04():
-    """STYLE-04: a structurally-invalid stored basemap_config degrades to None."""
+    """A structurally-invalid stored basemap_config degrades to None."""
     map_obj = _map()
     # background_color must be #RRGGBB; an invalid value would raise under strict
     # validation. On the export path it must degrade rather than 500 the document.
@@ -1855,7 +1855,7 @@ def test_export_basemap_config_degrades_to_none_on_invalid_value_style_04():
 
 
 def test_emitted_style_strips_unknown_paint_properties_spec_01():
-    """SPEC-01: misspelled / wrong-surface paint properties are stripped on emit."""
+    """Misspelled / wrong-surface paint properties are stripped on emit."""
     layer = _layer(
         dataset_geometry_type="POLYGON",
         paint={
@@ -1875,7 +1875,7 @@ def test_emitted_style_strips_unknown_paint_properties_spec_01():
 
 
 def test_emitted_style_strips_wrong_typed_paint_values_spec_01():
-    """SPEC-01: a string where ``*-opacity`` expects a number, or a non-string
+    """A string where ``*-opacity`` expects a number, or a non-string
     ``*-color``, is dropped on emit; valid scalars and expressions survive."""
     layer = _layer(
         dataset_geometry_type="POLYGON",
@@ -1899,7 +1899,7 @@ def test_emitted_style_strips_wrong_typed_paint_values_spec_01():
 
 
 def test_emitted_style_keeps_expression_opacity_spec_01():
-    """SPEC-01 guard: a zoom expression for opacity is a list and is preserved."""
+    """Guard: a zoom expression for opacity is a list and is preserved."""
     expr = ["interpolate", ["linear"], ["zoom"], 0, 0.2, 10, 0.9]
     layer = _layer(
         dataset_geometry_type="POLYGON",
@@ -1915,7 +1915,7 @@ def test_emitted_style_keeps_expression_opacity_spec_01():
 
 
 def test_emitted_style_keeps_all_valid_companion_properties_spec_01():
-    """SPEC-01 guard: validation must not strip any property the builder emits."""
+    """Guard: validation must not strip any property the builder emits."""
     layer = _layer(
         dataset_geometry_type="POLYGON",
         paint={"fill-color": "#94a3b8"},
@@ -1938,7 +1938,7 @@ def test_emitted_style_keeps_all_valid_companion_properties_spec_01():
 
 
 def test_style_config_round_trippable_keys_survive_build_parse_spec_03():
-    """SPEC-03: legend/ramp/render-mode UI state survives the export/import path."""
+    """Legend/ramp/render-mode UI state survives the export/import path."""
     style_config = {
         "mode": "graduated",
         "column": "pop",
@@ -1984,7 +1984,7 @@ def test_style_config_round_trippable_keys_survive_build_parse_spec_03():
 
 
 def test_export_emits_projection_at_style_root_spec_07():
-    """SPEC-07: basemap_config.projection is emitted at the GL style root."""
+    """basemap_config.projection is emitted at the GL style root."""
     map_obj = _map()
     map_obj.basemap_config = {"projection": "globe"}
     style = build_maplibre_style(map_obj, [_layer()])
@@ -1992,7 +1992,7 @@ def test_export_emits_projection_at_style_root_spec_07():
 
 
 def test_root_light_and_transition_preserved_on_import_spec_07():
-    """SPEC-07: GL root light/transition are preserved across import."""
+    """GL root light/transition are preserved across import."""
     style = {
         "version": 8,
         "name": "Lit",
@@ -2026,7 +2026,7 @@ def test_root_light_and_transition_preserved_on_import_spec_07():
     ],
 )
 def test_build_parse_build_idempotence_per_render_mode_style_02(style_config):
-    """STYLE-02: build -> parse -> build is idempotent per render mode/companion set."""
+    """Build -> parse -> build is idempotent per render mode/companion set."""
     geometry = "POLYGON"
     if style_config and style_config.get("render_mode") == "arrow":
         geometry = "LINESTRING"
@@ -2073,7 +2073,7 @@ def test_build_parse_build_idempotence_per_render_mode_style_02(style_config):
 
 
 def test_default_palette_constants_exported_for_service_shared_style_07():
-    """STYLE-07: the default palette/magic constants are named, importable values."""
+    """The default palette/magic constants are named, importable values."""
     assert style_json.DEFAULT_FILL_COLOR == "#3b82f6"
     assert style_json.DEFAULT_STROKE_COLOR == "#1d4ed8"
     assert style_json.DEFAULT_OUTLINE_WIDTH == 1
@@ -2084,7 +2084,7 @@ def test_default_palette_constants_exported_for_service_shared_style_07():
 
 
 def test_builder_alias_table_is_single_source_inverse_style_01():
-    """STYLE-01: style_json reuses the schemas inverse (incl. folder_group_* keys)."""
+    """style_json reuses the schemas inverse (incl. folder_group_* keys)."""
     from app.modules.catalog.maps.schemas import BUILDER_SNAKE_TO_CAMEL_KEYS
 
     assert style_json._BUILDER_KEY_ALIASES is BUILDER_SNAKE_TO_CAMEL_KEYS
@@ -2093,12 +2093,12 @@ def test_builder_alias_table_is_single_source_inverse_style_01():
 
 
 # ---------------------------------------------------------------------------
-# fix(#394) ST-01 / ST-04: symbol icon-image expression hardening
+# Symbol icon-image expression hardening
 # ---------------------------------------------------------------------------
 
 
 def test_symbol_icon_expression_zero_pairs_falls_back_flat_st01():
-    """ST-01: when every category icon is empty, emit the flat fallback id —
+    """When every category icon is empty, emit the flat fallback id —
     a zero-pair ["match", input, fallback] (length 3) makes addLayer throw."""
     expr = style_json._symbol_icon_expression(
         {
@@ -2114,7 +2114,7 @@ def test_symbol_icon_expression_zero_pairs_falls_back_flat_st01():
 
 
 def test_symbol_icon_expression_to_string_input_and_labels_st04():
-    """ST-04: match input is to-string-wrapped and labels are stringified so
+    """Match input is to-string-wrapped and labels are stringified so
     numeric MVT values match the editor's stringified sample values."""
     expr = style_json._symbol_icon_expression(
         {
@@ -2151,7 +2151,7 @@ def test_vector_source_maxzoom_mirrors_live_builder_394():
     assert cluster_source["maxzoom"] == 22
 
 
-# fix(#526 B-044): the builder stores the per-layer zoom range as
+# The builder stores the per-layer zoom range as
 # builder-private `_minzoom`/`_maxzoom` layout keys; export previously
 # stripped them (underscore-key cleaning) without re-emitting spec-level
 # minzoom/maxzoom, so a zoom-limited layer rendered at ALL zooms in the
@@ -2160,7 +2160,7 @@ def test_export_emits_layer_zoom_range_from_builder_layout_keys():
     layer = _layer(layout={"_minzoom": 8, "_maxzoom": 12})
     exported = style_json._style_layer_for_map_layer(layer, "src-1")
     primary = next(entry for entry in exported if entry["id"].startswith("layer-"))
-    # fix(#526 codex on B-044): companions (here the -label layer) inherit the
+    # Companions (here the -label layer) inherit the
     # range too — the live builder zoom-ranges every companion id.
     assert len(exported) > 1
     for entry in exported:
@@ -2203,7 +2203,7 @@ def test_export_omits_default_zoom_range():
     assert "maxzoom" not in primary
 
 
-# fix(#527 B-054/S-05 + LB-04): symbol export parity — master opacity drives
+# Symbol export parity — master opacity drives
 # icon-opacity, and the label overlap toggle governs the icon.
 def test_symbol_export_emits_icon_opacity_from_master_opacity():
     layer = _layer(
@@ -2286,7 +2286,7 @@ def test_stripping_a_builtin_pattern_keeps_an_authored_fill_color():
     "pattern",
     [
         "some-uploaded-icon",
-        # fix(#917 codex r1): `create_icon_asset` derives a sprite slug from the
+        # `create_icon_asset` derives a sprite slug from the
         # uploaded filename, so `geolens-fill-logo.png` becomes a real map_icons
         # entry whose slug carries the builtin prefix. Reserving the prefix
         # would strip a working pattern from every exported style.
@@ -2560,7 +2560,7 @@ def test_export_folds_the_builder_default_when_paint_has_no_line_opacity_1626():
 
 
 def test_export_treats_wrong_typed_fill_opacity_as_absent_when_folding_1626():
-    """A string opacity would be stripped by SPEC-01 anyway; the master must
+    """A string opacity would be stripped by the spec sanitiser anyway; the master must
     survive that rather than vanish with it."""
     layer = _layer(
         dataset_geometry_type="POLYGON",
@@ -2840,8 +2840,8 @@ def test_a_non_numeric_stored_master_opacity_falls_back_to_one_1778():
     ],
 )
 def test_import_restores_the_per_layer_zoom_range_1778(stored, expected):
-    """Export promotes the builder-private range to spec minzoom/maxzoom
-    (fix(#526 B-044)); import never read it back, so a zoom-limited map drew at
+    """Export promotes the builder-private range to spec minzoom/maxzoom;
+    import never read it back, so a zoom-limited map drew at
     all zooms after an export/import cycle, with no warning."""
     layer = _layer(layout=dict(stored), label_config=None, style_config=None)
 
@@ -2906,7 +2906,7 @@ def test_a_malformed_popup_config_is_dropped_not_raised_1778():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 round 3): a restored minimum must leave a visible band
+# A restored minimum must leave a visible band
 # ---------------------------------------------------------------------------
 
 # The builder's substituted range, spelled out rather than imported so this

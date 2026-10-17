@@ -1,14 +1,14 @@
 /**
  * Admin SAML SSO configuration page.
  *
- * Page-level capability gating (Phase 217 D-14, updated Phase 1054-03 ROUTE-01):
+ * Page-level capability gating:
  * - Default runtime: renders an unavailable notice that keeps the URL
  *   at /admin/saml so operators who arrive via bookmark or copied URL get a clear
  *   signal rather than a silent vanish. The notice does NOT fetch data from the
  *   gated /auth/saml/* endpoints (SamlProvidersSection is not rendered).
  * - SAML-enabled runtime: renders the full SamlProvidersSection.
  *
- * Three-layer access-control still holds (T-217-04-EDITION):
+ * Three-layer access-control still holds:
  *   Layer 1: backend gate returns 404 on /auth/saml/*.
  *   Layer 2: sidebar nav filter hides the link.
  *   Layer 3: this page renders a notice (previously: Navigate away).

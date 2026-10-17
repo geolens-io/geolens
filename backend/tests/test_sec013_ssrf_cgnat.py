@@ -1,4 +1,4 @@
-"""Regression tests for SEC-013: SSRF blocklist missing CGNAT 100.64.0.0/10.
+"""Regression tests: SSRF blocklist missing CGNAT 100.64.0.0/10.
 
 The existing _is_blocked_ip() check relies on ip.is_private etc., but CGNAT
 addresses (100.64.0.0/10) are NOT flagged by Python's ipaddress as private —
@@ -28,7 +28,7 @@ def _addrinfo(ip: str, port: int | None = None):
 
 
 # ---------------------------------------------------------------------------
-# SEC-013: CGNAT range 100.64.0.0/10 must be blocked
+# CGNAT range 100.64.0.0/10 must be blocked
 # ---------------------------------------------------------------------------
 
 
@@ -79,7 +79,7 @@ async def test_cgnat_via_validate_url_for_ssrf(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# SEC-013: address just outside CGNAT (100.128.0.0) must NOT be blocked
+# Address just outside CGNAT (100.128.0.0) must NOT be blocked
 # ---------------------------------------------------------------------------
 
 
@@ -106,7 +106,7 @@ async def test_address_just_above_cgnat_allowed(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# SEC-013: public IP still allowed (regression guard)
+# Public IP still allowed (regression guard)
 # ---------------------------------------------------------------------------
 
 
@@ -131,7 +131,7 @@ async def test_public_ip_still_allowed(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# SEC-013: IPv6 ULA fc00::/7 blocked (if added)
+# IPv6 ULA fc00::/7 blocked (if added)
 # ---------------------------------------------------------------------------
 
 
@@ -158,7 +158,7 @@ async def test_ipv6_ula_fd_prefix_blocked(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# SEC-013: NAT64 64:ff9b::/96 blocked (if added)
+# NAT64 64:ff9b::/96 blocked (if added)
 # ---------------------------------------------------------------------------
 
 

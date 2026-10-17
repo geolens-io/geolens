@@ -1,4 +1,4 @@
-"""Unit tests for the email-verification token service (Phase 1231 / SIGNUP-03/05).
+"""Unit tests for the email-verification token service.
 
 Covers:
 - issue_verification_token stores only the sha256 hash (plaintext never at rest)

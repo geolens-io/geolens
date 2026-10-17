@@ -1,6 +1,6 @@
-"""Static-analysis tests for Phase 272 .dockerignore polish.
+"""Static-analysis tests for .dockerignore polish.
 
-Pins INF-11 (db/.dockerignore alignment) + INF-12 (root .dockerignore comment header).
+Pins db/.dockerignore alignment and the root .dockerignore comment header.
 """
 
 from tests.repo_paths import repo_root
@@ -11,7 +11,7 @@ DB_DOCKERIGNORE = REPO_ROOT / "db" / ".dockerignore"
 
 
 # ---------------------------------------------------------------------------
-# INF-12: Root .dockerignore comment header
+# Root .dockerignore comment header
 # ---------------------------------------------------------------------------
 
 
@@ -40,7 +40,7 @@ class TestInf12RootDockerignoreHeader:
 
 
 # ---------------------------------------------------------------------------
-# INF-11: db/.dockerignore alignment
+# db/.dockerignore alignment
 # ---------------------------------------------------------------------------
 
 
@@ -64,7 +64,7 @@ class TestInf11DbDockerignoreAlignment:
         assert ".DS_Store" in text, "db/.dockerignore must ignore .DS_Store"
 
     def test_file_size_grew(self):
-        """Pre-Phase 272 the file was 10 bytes (just .git\\n*.md). After, ~250+ bytes."""
+        """Previously the file was 10 bytes (just .git\\n*.md). After, ~250+ bytes."""
         size = DB_DOCKERIGNORE.stat().st_size
         assert size > 100, (
             f"db/.dockerignore is {size} bytes; expected >100 after Phase 272 alignment"

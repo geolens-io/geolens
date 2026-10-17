@@ -1,17 +1,17 @@
 /**
- * Playwright perf spec scaffold — PERF-01..04 (Phase 1047)
+ * Playwright perf spec scaffold
  *
  * This spec seeds a 50-layer builder map and provides the test harness that
- * Wave B-D plans attach first-paint / input-latency / throughput assertions to.
+ * first-paint / input-latency / throughput assertions attach to.
  *
  * Currently ships:
  *   - beforeAll / afterAll seeder lifecycle (createLargeBuilderMap / deleteBuilderMap)
  *   - Smoke test: map opens and MapLibre canvas renders within 8s
  *
- * Timing assertions (performance.mark / CDP coverage) land in:
- *   - Plan 02 (PERF-05 lazy-load)
- *   - Plan 03 (PERF-04 rAF coalescing)
- *   - Plan 04 (PERF-01..03 bulk-op + first-paint)
+ * Timing assertions (performance.mark / CDP coverage) attach to:
+ * - lazy-load
+ * - rAF coalescing
+ * - bulk-op + first-paint
  *
  * Environment guards:
  *   The seeder calls the live backend API; run with E2E_BACKEND_AVAILABLE=1 or
@@ -28,7 +28,7 @@ import { createLargeBuilderMap, deleteBuilderMap } from '../fixtures/seed-large-
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
-/** Number of layers in the large-map fixture.  Plans 02-04 all read this. */
+/** Number of layers in the large-map fixture. Every timing assertion reads this. */
 export const LARGE_MAP_LAYER_COUNT = 50;
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
 
     await page.goto(`/maps/${largeMapId}`);
 
-    // Canvas visible within 8s (no timing assertion yet — Wave B attaches FCP mark)
+    // Canvas visible within 8s (no timing assertion yet; the FCP mark attaches later)
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 8_000 });
   });
 
@@ -112,18 +112,18 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
   // Placeholder slots for future waves
   // -------------------------------------------------------------------------
 
-  // Plan 02 (PERF-05): will attach lazy-load chunk timing assertion here
+  // Will attach lazy-load chunk timing assertion here
   // test('lazy-loads LayerEditorPanel chunk on first panel open', async ({ page }) => { … });
 
-  // Plan 03 (PERF-04): will attach rAF coalescing paint-update timing here
+  // Will attach rAF coalescing paint-update timing here
   // test('paint updates coalesce to one repaint per rAF tick', async ({ page }) => { … });
 
   // -------------------------------------------------------------------------
-  // PERF-02: Input latency — hover on stack row p50 < 30ms
+  // Input latency — hover on stack row p50 < 30ms
   //
   // Measures frame latency for hovering a StackRow in the 50-layer map by
   // using performance.mark() via page.evaluate(). The 30ms p50 target is from
-  // BUILDER-PERF-BASELINE.md (PERF-02 Recommended Target).
+  // BUILDER-PERF-BASELINE.md (Recommended Target).
   // -------------------------------------------------------------------------
   test('input-latency: hover latency on 50-layer stack is < 30ms p50', async ({ page }) => {
     if (!largeMapId) throw new Error('largeMapId not set — beforeAll failed');
@@ -164,12 +164,12 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
 
     console.log(`PERF-02 hover latency — p50: ${p50.toFixed(1)}ms, p95: ${p95.toFixed(1)}ms`);
 
-    // PERF-02 target: < 30ms p50
+    // Target: < 30ms p50
     expect(p50).toBeLessThan(30);
   });
 
   // -------------------------------------------------------------------------
-  // PERF-03: Bulk-delete throughput — single API call + < 600ms wall-clock
+  // Bulk-delete throughput — single API call + < 600ms wall-clock
   //
   // Creates a fresh 50-layer map for this test (to avoid timing interactions
   // with other tests), selects all layers, clicks Delete, clicks Confirm,
@@ -247,7 +247,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
       const elapsed = Date.now() - t0;
       console.log(`PERF-03 bulk-delete wall-clock: ${elapsed}ms (${bulkDeleteCallCount} request(s))`);
 
-      // PERF-03 assertions
+      // Assertions
       expect(bulkDeleteCallCount).toBe(1);
       expect(elapsed).toBeLessThan(600);
     } finally {

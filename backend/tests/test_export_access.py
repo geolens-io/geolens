@@ -1,14 +1,14 @@
-"""Regression tests for EXP-02 + API-01: export access-control matrix and
+"""Regression tests: export access-control matrix and
 OGC items trailing-slash route parity.
 
-Pins the Plan 01 (Phase 1157) behavior:
-  - EXP-01 positive guard: anonymous export of public+published dataset succeeds
-  - EXP-02 deny matrix:
+Pins the behavior:
+  - Positive guard: anonymous export of public+published dataset succeeds
+  - Deny matrix:
       * anon + public-unpublished (record_status="internal") -> {401,403,404}
       * anon + private -> {401,403,404}
       * anon + restricted -> {401,403,404}
       * non-owner authenticated (viewer, not the admin owner) + private -> {401,403,404}
-  - API-01 parity: /collections/{id}/items/ (trailing) == /collections/{id}/items (no-slash)
+  - Trailing-slash parity: /collections/{id}/items/ (trailing) == /collections/{id}/items (no-slash)
 
 Requirements:
   - Docker database must be running (docker compose up db)
@@ -82,7 +82,7 @@ def mock_export_service(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# EXP-01/EXP-02: export access-control matrix
+# Export access-control matrix
 # ---------------------------------------------------------------------------
 
 
@@ -91,10 +91,10 @@ async def test_anon_export_public_published_allowed(
     test_db_session,
     mock_export_service,
 ):
-    """EXP-01 positive over-gating guard: anonymous export of a public+published
+    """Positive over-gating guard: anonymous export of a public+published
     dataset must return 200 with a non-empty body.
 
-    This guard ensures the EXP-01 gate does not over-restrict legitimate
+    This guard ensures the export gate does not over-restrict legitimate
     anonymous access to public data.
     """
     admin_id = await get_user_id(test_db_session, "admin")
@@ -124,7 +124,7 @@ async def test_anon_export_all_formats_public_published_allowed(
     test_db_session,
     mock_export_service,
 ):
-    """EXP-01 positive over-gating guard across formats: anonymous export of a
+    """Positive over-gating guard across formats: anonymous export of a
     public+published dataset must return 200 for each supported format.
 
     Note: shp is excluded because gpkg/geojson/csv cover the gate logic and
@@ -152,7 +152,7 @@ async def test_anon_export_public_unpublished_denied(
     client: AsyncClient,
     test_db_session,
 ):
-    """EXP-02: anonymous export of a public but unpublished (internal) dataset
+    """Anonymous export of a public but unpublished (internal) dataset
     must be denied — status in {401, 403, 404}.
 
     check_dataset_access_or_anonymous raises 404 to hide existence for anon.
@@ -178,7 +178,7 @@ async def test_anon_export_private_denied(
     client: AsyncClient,
     test_db_session,
 ):
-    """EXP-02: anonymous export of a private+published dataset must be denied —
+    """Anonymous export of a private+published dataset must be denied —
     status in {401, 403, 404}.
 
     check_dataset_access_or_anonymous raises 404 to hide existence for anon
@@ -205,7 +205,7 @@ async def test_anon_export_restricted_denied(
     client: AsyncClient,
     test_db_session,
 ):
-    """EXP-02: anonymous export of a restricted+published dataset must be denied —
+    """Anonymous export of a restricted+published dataset must be denied —
     status in {401, 403, 404}.
     """
     admin_id = await get_user_id(test_db_session, "admin")
@@ -230,7 +230,7 @@ async def test_non_owner_export_private_denied(
     test_db_session,
     viewer_auth_header: dict,
 ):
-    """EXP-02: authenticated non-owner (viewer) export of a private dataset
+    """Authenticated non-owner (viewer) export of a private dataset
     must be denied — status in {401, 403, 404}.
 
     The dataset is owned by admin; the viewer is a distinct user who is NOT
@@ -378,7 +378,7 @@ async def test_viewer_with_export_exports_internal_dataset(
 
 
 # ---------------------------------------------------------------------------
-# API-01: trailing-slash parity on /collections/{id}/items
+# trailing-slash parity on /collections/{id}/items
 # ---------------------------------------------------------------------------
 
 
@@ -386,10 +386,10 @@ async def test_collection_items_trailing_slash_matches_no_slash(
     client: AsyncClient,
     test_db_session,
 ):
-    """API-01: GET /collections/{id}/items/ (trailing slash) must resolve to
+    """GET /collections/{id}/items/ (trailing slash) must resolve to
     the same status as /collections/{id}/items (no slash).
 
-    Pins the Plan 01 dual-shape stacked-decorator alias on get_collection_items
+    Pins the dual-shape stacked-decorator alias on get_collection_items
     against regression. A public+published dataset with a real data table is
     used so the OGC items endpoint can serve rows and return 200 on both shapes.
 

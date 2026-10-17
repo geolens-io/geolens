@@ -180,7 +180,7 @@ async function xhrUpload<T>(
     throw failure;
   }
 
-  // codex on #1660: a 2xx response whose body isn't valid JSON (empty,
+  // A 2xx response whose body isn't valid JSON (empty,
   // truncated, an HTML error page from an intermediary proxy) previously
   // threw a raw SyntaxError here, outside every reporting branch above —
   // the status-based `if (res.status < 200 || res.status >= 300)` block
@@ -292,7 +292,7 @@ export async function previewFile(jobId: string, layerName?: string): Promise<Fi
     // the reported path — same reasoning as reportQueryKey in main.tsx: an id
     // isn't reliably distinguishable from a secret by shape.
     //
-    // codex on #1660: gating this on `instanceof ApiError` skipped a real
+    // Gating this on `instanceof ApiError` skipped a real
     // failure class — apiFetch's own `response.json()` throws a raw
     // SyntaxError (not ApiError) on a malformed 2xx body, and that error type
     // silently fell through this guard uncaptured. reportApiCallFailure
@@ -306,7 +306,7 @@ export async function commitImport(
   jobId: string,
   request: CommitImportRequest,
 ): Promise<CommitImportResponse> {
-  // codex on #1660: commitImport is a direct apiFetch call reached from
+  // commitImport is a direct apiFetch call reached from
   // UploadForm's handleCommitSingle/handleCommitAll, neither of which is a
   // TanStack mutation — a commit failure set the row to 'commit-failed' with
   // nothing written to the report buffer at all (a different gap from the
@@ -367,7 +367,7 @@ export async function previewServiceLayer(
   });
 }
 
-// fix(#1757 codex): open_portal_signin's discovery phase and
+// open_portal_signin's discovery phase and
 // PortalSignIn.mint's token-mint phase run sequentially, each under its
 // own asyncio.timeout in backend/app/modules/catalog/sources/
 // arcgis_signin.py (_DISCOVERY_DEADLINE_SECONDS = 20,
@@ -376,14 +376,13 @@ export async function previewServiceLayer(
 // abort a valid slow sign-in in the browser while the backend keeps
 // processing, and counting, the attempt. 60s covers the 45s backend
 // bound with margin.
-// codex #1759 post-#1757-merge dedupe: exported so lane A3's
-// independent arcgis-signin.ts client (frontend/src/components/dataset/
+// Exported so the independent arcgis-signin.ts client (frontend/src/components/dataset/
 // ArcgisCredentialBlock.tsx's refresh-door credential prompt) can share
 // this exact number rather than declare its own -- the backend bound
 // below is one fact and both callers need the same margin over it.
 export const ARCGIS_SIGNIN_TIMEOUT_MS = 60_000;
 
-// fix(service-auth wave, lane A2): mints a short-lived (60 min) ArcGIS token
+// Mints a short-lived (60 min) ArcGIS token
 // from a username and password so the import wizard never has to hold that
 // password any longer than this one request. The caller clears its own
 // password state as soon as this settles, success or failure alike; this
@@ -457,7 +456,7 @@ async function completePresignedUpload(
  * HTTP error status) or anything else apiFetch can throw uncaught — notably
  * a raw SyntaxError from `response.json()` on a malformed 2xx body, which the
  * previous `instanceof ApiError` gates in this file silently swallowed
- * (codex on #1660). `label` is a short static description, never a raw URL
+ * `label` is a short static description, never a raw URL
  * with an id or a presigned query string in it.
  */
 function reportApiCallFailure(label: string, err: unknown): void {
@@ -539,7 +538,7 @@ export async function uploadPresigned(
   // Multipart upload — progress reported per completed chunk. uploadChunks
   // reports its own per-part failures.
   const etags = await uploadChunks(urls, file, part_size!, onProgress, {
-    // fix(review #1800 P2 round 3): tell the backend to abort the multipart
+    // Tell the backend to abort the multipart
     // upload if a part comes back with no ETag — otherwise S3 keeps it open
     // (consuming storage) on every retry with nothing left to complete it.
     onMissingEtag: () => completePresignedUpload(job_id),

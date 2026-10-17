@@ -1,11 +1,11 @@
-"""Phase 279 ADMIN-01 + ADMIN-02 regression tests.
+"""Regression tests.
 
-ADMIN-01 (M-01): Pin ApiKeyCreateRequest.name max_length=255 against future
+Pin ApiKeyCreateRequest.name max_length=255 against future
 schema refactors. Without this gate a future "tidy up the validators" PR
 could drop the constraint and rely on the DB column to truncate, which
 silently corrupts user input.
 
-ADMIN-02 (M-02; corrected in T-1): Pin the admin audit-log search query
+Pin the admin audit-log search query
 rewrite from ILIKE to lower(catalog.immutable_unaccent(...)).like(...) against
 future refactors. The trigram GIN indexes (ix_audit_logs_action_trgm,
 ix_users_username_trgm from migration 0015) are built on
@@ -26,7 +26,7 @@ from app.modules.auth.schemas import ApiKeyCreateRequest
 
 
 # -------------------------------------------------------------------
-# ADMIN-01 -- ApiKeyCreateRequest.name max_length regression tests
+# ApiKeyCreateRequest.name max_length regression tests
 # -------------------------------------------------------------------
 
 
@@ -51,7 +51,7 @@ def test_api_key_create_name_min_length():
 
 
 # -------------------------------------------------------------------
-# ADMIN-02 -- Audit-log search uses indexed lower(catalog.immutable_unaccent(...)) form
+# Audit-log search uses indexed lower(catalog.immutable_unaccent(...)) form
 # -------------------------------------------------------------------
 
 

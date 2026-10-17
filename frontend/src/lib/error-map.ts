@@ -155,15 +155,15 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
 // literal, mirroring the refresh-refusal taxonomy convention (#1285/#1332)
 // of one user-facing key per backend code rather than per call site.
 const SOURCE_VALIDATION_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
-  crs_mismatch: 'errors.sourceValidationCrsMismatch', // VAL-01
-  crs_unverified: 'errors.sourceValidationCrsUnverified', // VAL-01
-  band_count_mismatch: 'errors.sourceValidationBandCountMismatch', // VAL-02
-  single_band_required: 'errors.sourceValidationSingleBandRequired', // VAL-03
-  dtype_mismatch: 'errors.sourceValidationDtypeMismatch', // VAL-04
-  grid_misaligned: 'errors.sourceValidationGridMisaligned', // VAL-05
-  nodata_inconsistent: 'errors.sourceValidationNodataInconsistent', // VAL-06
-  rotated_raster: 'errors.sourceValidationRotatedRaster', // VAL-07
-  unknown_pixel_geometry: 'errors.sourceValidationUnknownPixelGeometry', // VAL-08
+  crs_mismatch: 'errors.sourceValidationCrsMismatch',
+  crs_unverified: 'errors.sourceValidationCrsUnverified',
+  band_count_mismatch: 'errors.sourceValidationBandCountMismatch',
+  single_band_required: 'errors.sourceValidationSingleBandRequired',
+  dtype_mismatch: 'errors.sourceValidationDtypeMismatch',
+  grid_misaligned: 'errors.sourceValidationGridMisaligned',
+  nodata_inconsistent: 'errors.sourceValidationNodataInconsistent',
+  rotated_raster: 'errors.sourceValidationRotatedRaster',
+  unknown_pixel_geometry: 'errors.sourceValidationUnknownPixelGeometry',
 };
 
 /**
@@ -239,13 +239,26 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   zip_too_many_entries: 'errors.uploadZipTooManyEntries',
 };
 
+/** The dataset retention setting's refusal codes (`RetentionRefused` in `backend/app/modules/catalog/features/retention.py`). */
+const RETENTION_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
+  retention_column_missing: 'errors.retentionColumnMissing',
+  retention_column_not_temporal: 'errors.retentionColumnNotTemporal',
+  retention_delete_rule: 'errors.retentionDeleteRule',
+  retention_delete_trigger: 'errors.retentionDeleteTrigger',
+  retention_gid_unusable: 'errors.retentionGidUnusable',
+  retention_has_children: 'errors.retentionHasChildren',
+  retention_not_feature_dataset: 'errors.retentionNotFeatureDataset',
+  retention_referenced: 'errors.retentionReferenced',
+  retention_unsupported_relation: 'errors.retentionUnsupportedRelation',
+};
+
 /**
- * A coded upload-refusal detail: `{code, message, ...values}`, matching
+ * A coded refusal detail: `{code, message, ...values}`, matching
  * `refusal_detail()` in `backend/app/core/upload_errors.py`.
  */
 function uploadRefusalDescriptor(value: Record<string, unknown>): ApiErrorDescriptor | undefined {
   if (typeof value.code !== 'string') return undefined;
-  const key = UPLOAD_REFUSAL_CODE_KEYS[value.code];
+  const key = UPLOAD_REFUSAL_CODE_KEYS[value.code] ?? RETENTION_REFUSAL_CODE_KEYS[value.code];
   if (!key) return undefined;
   const { code: _code, message: _message, ...values } = value;
   return { key, values: values as TranslationValues };
@@ -374,7 +387,7 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     return { key: 'errors.corsWildcardNotAllowed' };
   }
 
-  // fix(#1548 review P2): the embed domain-lock refusal. Its whole value is the
+  // The embed domain-lock refusal. Its whole value is the
   // remediation — which variable to set, and to what — and both compose files
   // ship PUBLIC_APP_URL defaulted to localhost, so this is the message an
   // operator hits on a stock install. Unmapped it collapses to the generic 422
@@ -431,7 +444,7 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   // fix(#931): the backend names the offending maps precisely so a human can go
   // and fix them, and unmapped that list fell through to the generic 422 —
   // which drops exactly the part that makes the refusal actionable.
-  // fix(#931 codex r5): `s` (dotAll) because a map name may legally contain a
+  // `s` (dotAll) because a map name may legally contain a
   // newline — `MapCreate.name` is length-bounded and NFC-normalized, nothing
   // more — and without it `.` stops at the line terminator, the match fails,
   // and the actionable map list collapses to the generic 422. `$` is dropped
@@ -581,8 +594,7 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
         values: { message: value.message },
       };
     }
-    // fix(service-auth wave, lane A2): POST /services/arcgis/signin/'s own
-    // refusal taxonomy (plan 2026-09-01-service-auth-PLAN.md section 3.2).
+    // POST /services/arcgis/signin/'s own refusal taxonomy.
     // arcgis_signin_rejected deliberately collapses "wrong password" and
     // "account locked" into one message. Telling the caller which of the
     // two happened would let a GeoLens user use this form as an oracle for
@@ -618,7 +630,6 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'network_error') {
       return { key: 'errors.couldNotReachService' };
     }
-    // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
     // arcgis_signin_in_progress is a 409 for one ArcGIS sign-in already
     // running for that account. A real 429 rate_limited still happens
     // separately, from the attempt-count limiter (keyed on the ArcGIS
@@ -637,7 +648,7 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'arcgis_portal_not_https') {
       return { key: 'errors.arcgisPortalNotHttps' };
     }
-    // fix(service-auth wave, post-merge rebase onto #1758): arcgis_portal_host_invalid
+    // arcgis_portal_host_invalid
     // is the sixth and last caller-facing code this endpoint returns
     // (backend/app/modules/catalog/sources/arcgis_signin.py, HOST_INVALID),
     // a 422 for a portal hostname that cannot be canonicalized. Same

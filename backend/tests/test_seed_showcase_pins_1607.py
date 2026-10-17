@@ -367,7 +367,7 @@ def test_help_names_the_sentinel_exception_under_force_pinned():
     stale-map loop first, which deletes every row under the name AND their
     share links, so there the override really does destroy the uuid the
     examples link. An operator reads the help, not the source, so the help has
-    to carry the exception (fix(#1607 review r3)).
+    to carry the exception (fix(#1607)).
     """
     result = _run("--help")
     assert result.returncode == 0
@@ -450,7 +450,7 @@ def test_prune_keeps_a_pinned_name_that_also_appears_in_a_retired_list(monkeypat
     assert api.deleted_datasets == [retired_dataset]
 
 
-# --- the Sentinel in-place repair (#1607 review r2) ---------------------------
+# --- the Sentinel in-place repair (#1607) ---------------------------
 
 
 class _LayerApi:
@@ -505,7 +505,7 @@ def test_replace_map_layers_handles_a_map_whose_layers_already_cascaded():
     assert api.added == [{"dataset_id": "d1"}]
 
 
-# --- every retained duplicate is rebound (#1607 review r4) --------------------
+# --- every retained duplicate is rebound (#1607) --------------------
 
 
 class _MultiRowApi:
@@ -560,7 +560,7 @@ def test_rows_to_rebind(newest, retained, expected):
 
 
 def test_every_retained_duplicate_is_rebound_and_none_is_deleted():
-    """The r4 hole: the scene delete cascades EVERY retained row's layers away.
+    """The earlier hole: the scene delete cascades EVERY retained row's layers away.
 
     Rebinding only the primary would leave the other rows holding their uuids
     with no layers at all - an empty map behind a link the examples may use,
@@ -655,13 +655,13 @@ def test_only_sentinel2_replaces_layers_in_place():
 
     The rebind goes through _rebind_pinned_rows so that EVERY retained row is
     rebound, not just the primary - a builder reaching _replace_map_layers
-    directly would be back to rebinding one row (fix(#1607 review r4)).
+    directly would be back to rebinding one row (fix(#1607)).
     """
     assert _callers_of("_replace_map_layers") == {"_rebind_pinned_rows"}
     assert _callers_of("_rebind_pinned_rows") == {"build_sentinel2"}
 
 
-# --- the outcome main() reports (#1607 review r2) -----------------------------
+# --- the outcome main() reports (#1607) -----------------------------
 
 
 def test_a_pinned_keep_returns_a_distinct_marker():

@@ -1,4 +1,4 @@
-"""DP-01: Per-tenant data schema helper unit tests (Phase 1209-01).
+"""Per-tenant data schema helper unit tests.
 
 Tests
 -----

@@ -80,7 +80,7 @@ class TestRegistration:
         assert resp.status_code == 403
 
     async def test_register_duplicate_username(self, client: AsyncClient, monkeypatch):
-        """Duplicate username returns the same 201 pending-approval response (SEC-012).
+        """Duplicate username returns the same 201 pending-approval response.
 
         Updated from the old contract (409 Conflict) to the uniform response that
         prevents username enumeration — the caller cannot distinguish a collision
@@ -101,7 +101,7 @@ class TestRegistration:
         )
         assert resp1.status_code == 201
 
-        # Second registration with same username — must be uniform (SEC-012)
+        # Second registration with same username — must be uniform
         resp2 = await client.post(
             "/auth/register/",
             json={"username": username, "password": "SecurePass123!"},
@@ -300,7 +300,7 @@ class TestLoginAudit:
     async def test_login_deactivated_user_creates_audit_log(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """fix(#1230 codex r1 P1): denial paths past credential-check are also
+        """Denial paths past credential-check are also
         audited, not just AuthenticationError -- a deactivated account trying
         to log in is exactly the kind of attempt an operator needs to see.
         """
@@ -436,7 +436,7 @@ class TestLoginAudit:
     async def test_login_oauth_only_user_creates_audit_log_not_500(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#1230 codex r10 P1): an OAuth-created user has password_hash=
+        """An OAuth-created user has password_hash=
         None (oauth/service.py never sets one). Submitting the password form
         for that username used to hand pwdlib an empty-string "hash" it
         can't parse, raising UnknownHashError uncaught -- a 500 instead of
@@ -482,7 +482,7 @@ class TestLoginAudit:
     async def test_login_failure_truncates_long_username(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """fix(#1230 codex r1 P1): OAuth2PasswordRequestForm applies no length
+        """OAuth2PasswordRequestForm applies no length
         limit to username, so a failed login must not persist an unbounded
         string in details -- bound it to User.username's own width (150).
         """
@@ -513,7 +513,7 @@ class TestLoginAudit:
     ):
         """POST /auth/logout writes a user.logout row.
 
-        Logout revokes the token that authorized the call (SEC-S15), so the
+        Logout revokes the token that authorized the call, so the
         follow-up admin query needs a freshly minted token.
         """
         resp = await client.post("/auth/logout", headers=admin_auth_header)
@@ -539,7 +539,7 @@ class TestPublicConfig:
         """GET /auth/config/ surfaces AuthExtension.get_auth_methods() so the
         login page can render conditional sign-in options without needing
         admin OAuthProvider access. Community returns []; enterprise overlays
-        contribute methods (e.g. ['saml']) per Phase 217 D-13."""
+        contribute methods (e.g. ['saml'])."""
         resp = await client.get("/auth/config/")
         assert resp.status_code == 200
         data = resp.json()
@@ -645,7 +645,7 @@ class TestRBAC:
         resp = await client.get("/admin/users/", headers=viewer_headers)
         assert resp.status_code == 403
 
-    # SSO-03 (Phase 1226): Google-signup users receive the 'editor' role
+    # Google-signup users receive the 'editor' role
     # (set via provider.default_role). Verify they cannot reach admin or
     # settings management endpoints.
     async def test_editor_cannot_access_admin_endpoints(self, client: AsyncClient):

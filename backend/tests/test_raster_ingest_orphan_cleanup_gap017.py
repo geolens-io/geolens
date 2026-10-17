@@ -1,4 +1,4 @@
-"""GAP-017 regression: raster ingest must not orphan storage assets on crash.
+"""Regression: raster ingest must not orphan storage assets on crash.
 
 Raster ingest writes COG + quicklook bytes to managed storage BEFORE the
 terminal DB commit. The storage key embeds ``dataset.id`` — a flushed-but-

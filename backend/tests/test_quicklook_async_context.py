@@ -222,8 +222,8 @@ async def test_generate_quicklook_timeout_does_not_poison_outer_session(
     job_id = await _create_pending_job(session, admin_id)
 
     # Tiny timeout → cancellation fires synchronously the first time
-    # the quicklook generator awaits a DB execute. CR-01 fix:
-    # monkeypatching ``_GENERATION_TIMEOUT_SECONDS`` is a no-op because
+    # the quicklook generator awaits a DB execute.
+    # Monkeypatching ``_GENERATION_TIMEOUT_SECONDS`` is a no-op because
     # the wrapper captures it as a function default; override the
     # wrapper itself instead.
     _force_quicklook_timeout(monkeypatch)
@@ -372,7 +372,7 @@ async def test_generate_quicklook_completes_on_multipolygon_shape(
     # test — this exercises the poisoned-cursor recovery path that the
     # iter-2 rollback closes. See ``_force_quicklook_timeout`` docstring
     # for why mutating ``_GENERATION_TIMEOUT_SECONDS`` directly does
-    # not work (CR-01).
+    # not work.
     _force_quicklook_timeout(monkeypatch)
 
     try:
@@ -434,7 +434,7 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
     )
     job_id = await _create_pending_job(session, admin_id)
 
-    # CR-01 fix: monkeypatch the wrapper directly. Mutating the module's
+    # Monkeypatch the wrapper directly. Mutating the module's
     # ``_GENERATION_TIMEOUT_SECONDS`` constant has no effect because the
     # wrapper's ``timeout`` parameter default is captured at function-
     # definition time. See ``_force_quicklook_timeout`` docstring.
@@ -453,7 +453,7 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
         assert dataset.quicklook_256_uri is not None
         assert dataset.quicklook_256_uri.endswith(".png")
 
-        # WR-02 (post-1091 review): assert on `record.msg` as a DICT, not as
+        # Assert on `record.msg` as a DICT, not as
         # a string. The prior `phase='commit' not in rendered` and
         # `phase=commit not in rendered` substring checks were dead
         # assertions: structlog's BoundLogger with `stdlib.LoggerFactory()`

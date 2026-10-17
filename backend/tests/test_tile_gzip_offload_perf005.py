@@ -1,4 +1,4 @@
-"""PERF-005 regression — MVT gzip compression must be offloaded off the event loop.
+"""Regression — MVT gzip compression must be offloaded off the event loop.
 
 `backend/app/processing/tiles/router.py` compressed each freshly-rendered MVT
 tile inline in the async handler with ``gzip.compress(tile_data, compresslevel=6)``

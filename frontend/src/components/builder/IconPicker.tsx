@@ -10,7 +10,7 @@ interface IconPickerProps {
   value: string;
   onChange: (spriteId: string) => void;
   label: string;
-  // CONF-06 (Phase 277): localized aria-label for the upload button + hidden
+  // Localized aria-label for the upload button + hidden
   // file input. Required (no default fallback) to ensure non-EN locales never
   // surface the hardcoded English string. Use t('style.symbol.uploadIcon').
   uploadAriaLabel: string;

@@ -1,7 +1,7 @@
 """An audit row that the database rejects must roll back only itself (#1491).
 
 ``audit_emit()`` has always wrapped each ``sink.emit()`` in try/except, because
-AUDIT-03's contract is that an audit sink cannot break the operation it records.
+the contract is that an audit sink cannot break the operation it records.
 That guard was structurally incomplete: the default sink's ``emit()`` bottoms
 out in ``session.add()``, which cannot fail, and the INSERT it stages runs at
 the CALLER's flush/commit — outside the guard entirely. So a row Postgres
@@ -105,7 +105,7 @@ async def test_rejected_audit_row_rolls_back_only_itself(test_db_session) -> Non
     The caller's mutation is deliberately still PENDING when ``audit_emit()`` is
     called — unflushed ``session.add()`` — because that is the state the old
     code destroyed. Both sinks are registered so this also re-pins the per-sink
-    isolation from AUDIT-03: the poisoned sink must not cost the default sink
+    isolation: the poisoned sink must not cost the default sink
     its row.
     """
     session = test_db_session

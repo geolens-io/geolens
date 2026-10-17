@@ -516,7 +516,7 @@ class TestGetJobStatus:
     async def test_get_job_drops_unknown_warning_kind(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """TYPE-2: unknown warning ``kind`` values are dropped, not proxied.
+        """Unknown warning ``kind`` values are dropped, not proxied.
 
         Regression for the contract-drift scenario: if a future task emits a
         warning kind the Pydantic union does not recognize, ``JobStatusResponse``
@@ -552,7 +552,7 @@ class TestGetJobStatus:
     async def test_get_job_drops_unknown_temporal_parse_error_keys(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """TYPE-3: ``temporal_parse_errors`` keys are narrowed to the contract set.
+        """``temporal_parse_errors`` keys are narrowed to the contract set.
 
         An upstream bug that emits ``temporal_created`` (unknown key) must not
         make the whole response fail Pydantic ``Literal`` validation — the
@@ -581,7 +581,7 @@ class TestGetJobStatus:
     async def test_job_status_includes_progress_fields_default_none(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """REMED-02 / P2-07: new progress fields default to None when never written.
+        """New progress fields default to None when never written.
 
         Pre-existing jobs (or any job before workers populate the new columns)
         must continue to validate as JobStatusResponse — the three new fields
@@ -600,7 +600,7 @@ class TestGetJobStatus:
     async def test_job_status_returns_written_progress_values(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """REMED-02 / P2-07: worker-written progress values surface via the API."""
+        """Worker-written progress values surface via the API."""
         admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(test_db_session, created_by=admin_id, status="running")
 
@@ -624,12 +624,12 @@ class TestGetJobStatus:
 
 
 # ---------------------------------------------------------------------------
-# REMED-02 / P2-07: Pydantic contract bounds for new progress fields
+# Pydantic contract bounds for new progress fields
 # ---------------------------------------------------------------------------
 
 
 def test_job_status_response_rejects_out_of_range_progress():
-    """REMED-02 / P2-07: ``progress`` field rejects values outside [0.0, 1.0]."""
+    """``progress`` field rejects values outside [0.0, 1.0]."""
     from pydantic import ValidationError
 
     from app.platform.jobs.schemas import JobStatusResponse
@@ -1426,7 +1426,7 @@ class TestCleanupStaleJobs:
         monkeypatch.setattr(audit_service, "audit_emit_durable", record_durable)
         monkeypatch.setattr(jobs_router, "fail_stale_jobs", cleanup)
         monkeypatch.setattr(jobs_router, "_reap_committed_staged_paths", reap)
-        # fix(#1202 review r8): the post-expiry staging sweep runs beside the
+        # The post-expiry staging sweep runs beside the
         # reaper on this path; stub it out so the fake session is not queried.
         monkeypatch.setattr(
             jobs_router,
@@ -1515,7 +1515,7 @@ class TestCleanupStaleJobs:
         monkeypatch.setattr(audit_service, "audit_emit_durable", fail_durable)
         monkeypatch.setattr(jobs_router, "fail_stale_jobs", cleanup)
         monkeypatch.setattr(jobs_router, "_reap_committed_staged_paths", reap)
-        # fix(#1202 review r8): the post-expiry staging sweep runs beside the
+        # The post-expiry staging sweep runs beside the
         # reaper on this path; stub it out so the fake session is not queried.
         monkeypatch.setattr(
             jobs_router,

@@ -55,13 +55,13 @@
   --muted-foreground: oklch(0.45 0.005 250);
   --accent: oklch(0.97 0.003 85);
   --accent-foreground: oklch(0.205 0.005 250);
-  /* fix(#441): darkened from 0.577 like the semantic status colors below —
-   * DS-01's soft badge recipe puts text-destructive on a bg-destructive/10
+  /* Darkened from 0.577 like the semantic status colors below. The soft
+   * badge recipe puts text-destructive on a bg-destructive/10
    * tint, which measured 3.89:1 at the stock value. Now 4.95:1 on the /10
    * tint and 5.96:1 for white-on-solid (buttons). */
   --destructive: oklch(0.50 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  /* fix(#438): A11Y-02 — measured contrast (OKLCH→sRGB→WCAG):
+  /* Measured contrast (OKLCH→sRGB→WCAG):
      --border 0.88 sits at ~1.4:1 against card/background. Decorative dividers
      and card edges are not WCAG-1.4.11 "components", so this subtle hairline is
      kept intentionally for the instrument-panel look; darkening every card edge
@@ -70,7 +70,7 @@
   /* --input IS a 1.4.11 component (form-control boundary), so it is brought to
      ≥3:1: L 0.65 measures ~3.1:1 vs card and background. */
   --input: oklch(0.65 0.006 85);
-  /* Focus-ring color. fix(#438): DS-10 — the standard focus treatment is
+  /* Focus-ring color. The standard focus treatment is
      `ring-2 ring-ring`. `ring-primary` was folded into `ring-ring` (same hue).
      The residual `ring-1` width one-offs are a visible-weight change left for
      a dedicated design pass, not swept here. (shadow-xs has since been mapped
@@ -85,7 +85,7 @@
 
 
   /* ─ Map-native surface tones ─
-     fix(#438): DS-07 — intentionally scoped to the LoginPage brand panel's
+     These are intentionally scoped to the LoginPage brand panel's
      wireframe-globe illustration, not general surfaces. Kept as their own
      tokens (rather than folded into --surface-*) so the illustration can be
      retuned without shifting app chrome. */
@@ -142,12 +142,12 @@
   --type-pointcloud: oklch(0.47 0.10 110);
   --type-pointcloud-bg: oklch(0.94 0.04 110);
 
-  /* fix(#438): synthetic-data badge, was a raw violet-* Tailwind palette (DS-01).
+  /* Synthetic-data badge, was a raw violet-* Tailwind palette.
      Distinct from --type-vrt: that hue marks a record type, this marks provenance. */
   --synthetic: oklch(0.47 0.17 285);
   --synthetic-bg: oklch(0.94 0.04 285);
 
-  /* fix(#438): DS-05 — folder-group type icon, was an inline OKLCH amber with no
+  /* Folder-group type icon, was an inline OKLCH amber with no
      dark variant (the app's only theme-breaking inline color). */
   --type-folder: oklch(0.45 0.10 80);
   --type-folder-bg: oklch(0.93 0.03 80);
@@ -162,7 +162,7 @@
   --code-function: oklch(0.78 0.13 220);
   --code-string: oklch(0.78 0.13 140);
   --code-number: oklch(0.8 0.14 70);
-  /* fix(#438): A11Y-11 — was 0.5 (~3.3:1 on --code-bg, below AA); 0.6 clears 4.5:1. */
+  /* Was 0.5 (~3.3:1 on --code-bg, below AA); 0.6 clears 4.5:1. */
   --code-comment: oklch(0.6 0.008 250);
   --code-method-badge: oklch(0.75 0.14 155);
   --code-method-badge-bg: oklch(0.75 0.14 155 / 15%);
@@ -187,7 +187,7 @@
   --sidebar-border: oklch(0.92 0.005 85);
   --sidebar-ring: oklch(0.55 0.18 250);
 
-  /* Phase 1042 AUD-08: motion timing tokens */
+  /* Motion timing tokens */
   --motion-fast: 150ms;
   --motion-base: 250ms;
 }
@@ -224,7 +224,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.25 0.05 22);
   --border: oklch(1 0 0 / 10%);
-  /* fix(#438): A11Y-02 — 15% white measured ~1.5:1; 38% reaches ~3.3:1 vs the
+  /* 15% white measured ~1.5:1; 38% reaches ~3.3:1 vs the
      dark card/surface-2, meeting WCAG 1.4.11 for form controls. */
   --input: oklch(1 0 0 / 38%);
   --ring: oklch(0.72 0.17 250);
@@ -405,7 +405,7 @@
   /* Typography: micro text (badges, readouts, chips) */
   --text-2xs: 0.625rem; /* 10px */
   --text-2xs--line-height: 0.875rem;
-  /* fix(#438): DS-02 — 11px was the single most-used arbitrary size (text-[11px]
+  /* 11px was the single most-used arbitrary size (text-[11px]
      ×97) and had no token. `text-mini` sits between 2xs (10px) and xs (12px). */
   --text-mini: 0.6875rem; /* 11px */
   --text-mini--line-height: 1rem;
@@ -587,9 +587,9 @@ html [data-sonner-toaster][data-sonner-theme] {
   line-height: 14px;
 }
 
-/* ── BuilderMap NavigationControl offset (RESP-02-FOLLOWUP, Phase 1051) ───
- * In `BuilderMap.tsx` the NavigationControl is anchored `top-left` (post-W8
- * RESP-01 fix in commit 391459bb) and the `MapCoordReadout` pill sits at
+/* ── BuilderMap NavigationControl offset ───
+ * In `BuilderMap.tsx` the NavigationControl is anchored `top-left` and the
+ * `MapCoordReadout` pill sits at
  * `top-2 right-14` with showScale on. At the 800px viewport boundary the
  * map column compresses to ~316px wide and the pill's ~237px width stretches
  * leftward enough to invade the zoom-control's top-left zone, producing a
@@ -711,46 +711,46 @@ html [data-sonner-toaster][data-sonner-theme] {
   }
 }
 
-/* ── Phase 1038 BSR-24 drag polish ───────────────────────────────────────── */
+/* ── drag polish ───────────────────────────────────────── */
 
-/* Phase 1038 BSR-24: DnD insertion line — 2px primary line at drop target */
-/* Phase 1042: bloom shadow + full radius (1040 carry-over) */
+/* DnD insertion line — 2px primary line at drop target */
+/* Bloom shadow + full radius */
 [data-dnd-over="true"] {
   border-top: 2px solid var(--primary);
   border-radius: 9999px;
   box-shadow: 0 0 0 2px oklch(0.55 0.18 250 / 25%);
 }
 
-/* Phase 1038 BSR-24: hide kebabs on non-dragging rows during drag */
+/* Hide kebabs on non-dragging rows during drag */
 .dragging-active [data-testid^="stack-row-"] [data-kebab-trigger] {
   opacity: 0 !important;
 }
 
-/* ── Phase 1040 cross-panel drag polish ──────────────────────────── */
+/* ── cross-panel drag polish ──────────────────────────── */
 
-/* Phase 1040 AUD-03: hide any .kebab element during catalog→stack drag */
+/* Hide any .kebab element during catalog→stack drag */
 .dragging-active .kebab {
   opacity: 0 !important;
 }
 
-/* Phase 1040: cursor-grabbing on html during any drag to prevent flicker */
+/* Cursor-grabbing on html during any drag to prevent flicker */
 html.dragging-active {
   cursor: grabbing !important;
 }
 
-/* Phase 1040: basemap group drop target — primary-50 tint + left rail */
+/* Basemap group drop target — primary-50 tint + left rail */
 [data-basemap-drop-target="true"] {
   background: var(--primary-50, oklch(0.97 0.02 250));
   box-shadow: inset 2px 0 0 var(--primary);
 }
 
-/* Phase 1040 POL-03: folder-group drop target — primary-50 tint + left rail */
+/* Folder-group drop target — primary-50 tint + left rail */
 [data-group-drop-target="true"] {
   background: var(--primary-50, oklch(0.97 0.02 250));
   box-shadow: inset 2px 0 0 var(--primary);
 }
 
-/* ── Phase 1199 STACK-05 coarse-pointer reveal ───────────────────────────── */
+/* ── coarse-pointer reveal ───────────────────────────── */
 
 /* On touch / hover:none devices the per-row kebabs and catalog drag grips have no
    hover state to reveal them, so they stay at their opacity-0 rest state and become
@@ -780,7 +780,7 @@ html.dragging-active {
   }
 }
 
-/* Phase 1042: folder group-children wash when parent is drop target (1040 carry-over) */
+/* Folder group-children wash when parent is drop target */
 /* Use :has() to select the children container when a sibling carries data-group-drop-target.
    The keyed outer wrapper div contains both FolderGroupRowWrapper (which bears the attribute)
    and the folder-group-children div. :has() lets us style children from the common ancestor

@@ -1,16 +1,16 @@
-"""builder-audit #338 P0-01 (wiring) + P1-14 (share-expiration edition gate) + STYLE-06.
+"""Share wiring, share-expiration edition gate and history emission.
 
-P0-01 wiring: the maps router must revoke a map's embed tokens (not just its
+Wiring: the maps router must revoke a map's embed tokens (not just its
 share token) when sharing is revoked or when a public map is downgraded to
 non-public. These tests exercise the wiring end-to-end at the HTTP endpoint
 level (the embed-token revocation primitive itself is covered in
 ``test_embed_revocation_by_map.py``).
 
-P1-14: the backend share create/update endpoints reject a custom ``expires_at``
+The backend share create/update endpoints reject a custom ``expires_at``
 in Community with the same advanced-sharing error taxonomy embed tokens use.
 Community accepts fixed expiration presets, and Enterprise accepts a custom date.
 
-STYLE-06: the table-driven history-emission loop in ``update_map_endpoint`` must
+The table-driven history-emission loop in ``update_map_endpoint`` must
 still emit one event per changed field
 (name/visibility/terrain_config/basemap_config/layers/config_update).
 
@@ -91,7 +91,7 @@ async def _public_map_with_layer(
 
 
 # ---------------------------------------------------------------------------
-# P0-01 wiring (endpoint level)
+# Wiring (endpoint level)
 # ---------------------------------------------------------------------------
 
 
@@ -105,7 +105,7 @@ class TestP001EmbedRevokeWiring:
     ):
         """PUT /maps/{id} public->private must revoke the map's embed tokens.
 
-        builder-audit #338 P0-01: previously only the share token was flipped, so a
+        Previously only the share token was flipped, so a
         copied embed token kept validating after the downgrade.
         """
         init_cache()
@@ -203,7 +203,7 @@ class TestP001EmbedRevokeWiring:
     ):
         """DELETE /maps/{id}/share/ revokes an orphaned embed token even when no
         active share token exists — the embed purge must not be short-circuited by
-        the share-token 404 (Codex P1 on builder-audit #338)."""
+        the share-token 404."""
         init_cache()
         uid = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset_id, map_obj, _layer = await _public_map_with_layer(
@@ -242,7 +242,7 @@ class TestP001EmbedRevokeWiring:
         clean_tables,
     ):
         """PUT /maps/{id} replacing layers so the token's scoped dataset is gone
-        must revoke the orphaned embed token (builder-audit #338 P0-01)."""
+        must revoke the orphaned embed token."""
         init_cache()
         uid = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset_id, map_obj, _layer = await _public_map_with_layer(
@@ -288,7 +288,7 @@ class TestP001EmbedRevokeWiring:
 
 
 # ---------------------------------------------------------------------------
-# P1-14 share expiration edition gate
+# Share expiration edition gate
 # ---------------------------------------------------------------------------
 
 
@@ -453,7 +453,7 @@ class TestP114ShareExpirationEdition:
 
 
 # ---------------------------------------------------------------------------
-# STYLE-06 table-driven history emission
+# Table-driven history emission
 # ---------------------------------------------------------------------------
 
 
@@ -466,7 +466,7 @@ class TestStyle06HistoryEvents:
         clean_tables,
     ):
         """A single PUT touching every tracked field must still emit one history
-        event per field (builder-audit #338 STYLE-06 keeps semantics identical)."""
+        event per field (the table-driven loop keeps semantics identical)."""
         uid = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await create_dataset(
             test_db_session,

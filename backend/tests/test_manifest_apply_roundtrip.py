@@ -285,7 +285,7 @@ class TestManifestApplyEndpointRoundTrip:
         test_db_session,
         clean_tables,
     ):
-        # fix(#430 BA-02): the caller must OWN the manifest-managed datasets, else the
+        # The caller must OWN the manifest-managed datasets, else the
         # write-access gate now (correctly) denies the update. This test exercises
         # dry-run side-effect-freeness, not cross-user authz — so run it as the
         # owner (admin). The cross-user denial has its own test below.
@@ -386,7 +386,7 @@ class TestManifestApplyEndpointRoundTrip:
         test_db_session,
         clean_tables,
     ):
-        """fix(#430 BA-02): an editor cannot overwrite another user's manifest-managed
+        """An editor cannot overwrite another user's manifest-managed
         dataset, and dry_run must not leak that dataset's UUID (a pre-write oracle)."""
         owner = await _admin_user(test_db_session)
         original_payload = _dataset_payload(
@@ -454,7 +454,7 @@ class TestManifestApplyEndpointRoundTrip:
         test_db_session,
         clean_tables,
     ):
-        """fix(#430 codex r10, refuted): the BA-02 write gate dereferences
+        """fix(#430, refuted): the write gate dereferences
         dataset.record synchronously, which is only safe because the
         Dataset.record relationship is lazy='joined' (models.py) — the
         completed-manifest-job query has no explicit eager-load of its own.
@@ -502,7 +502,7 @@ class TestManifestApplyEndpointRoundTrip:
         assert entry["action"] == "update", entry
         assert entry["dataset_id"] == str(dataset.id)
 
-        # fix(#430 codex r15): the OWNER's same-fingerprint submit still
+        # fix(#430): the OWNER's same-fingerprint submit still
         # returns the skip entry WITH ids (the new skip gates only bite
         # non-owners).
         with patch(
@@ -526,10 +526,10 @@ class TestManifestApplyEndpointRoundTrip:
         test_db_session,
         clean_tables,
     ):
-        """fix(#430 codex r15): submitting a manifest whose key+fingerprint
+        """fix(#430): submitting a manifest whose key+fingerprint
         matches ANOTHER user's completed or in-flight job previously returned
         that user's job/dataset UUIDs in a 'skip' entry — the same
-        enumeration oracle BA-02 closed on the update path. Both skip paths
+        enumeration oracle closed on the update path. Both skip paths
         now yield an error entry with no ids for non-owners."""
         owner = await _admin_user(test_db_session)
 

@@ -209,7 +209,7 @@ async def test_the_estimate_header_is_readable_cross_origin(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 review r1): pagination must not depend on the estimated total.
+# fix(#1778): pagination must not depend on the estimated total.
 # ---------------------------------------------------------------------------
 
 DEEP_ROW_COUNT = 20_300
@@ -368,7 +368,7 @@ async def test_the_ogc_items_page_links_on_at_the_cap_boundary(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 review r3): the floor may only count rows that exist.
+# fix(#1778): the floor may only count rows that exist.
 # ---------------------------------------------------------------------------
 
 SMALL_ROW_COUNT = 5
@@ -466,7 +466,7 @@ async def test_an_exact_count_is_never_raised(small_dataset: Dataset, test_db_se
 async def test_an_estimated_full_page_still_floors_to_offset_plus_rows(
     deep_dataset: Dataset, test_db_session, estimate_forced_low
 ):
-    """The r1 property the r3 narrowing must not have thrown away."""
+    """The original property the later narrowing must not have thrown away."""
     page = await features_service.get_features(
         test_db_session,
         deep_dataset.table_name,

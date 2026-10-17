@@ -1,5 +1,5 @@
 /**
- * Phase 1051 Plan 10 — RESP-03 duplicate close button regression
+ * Duplicate close button regression
  *
  * Test surface: the shadcn `<SheetContent>` overlays in MapBuilderPage that
  * wrap `LayerEditorPanel` (lines 1178-1247) and `BuilderRail` (lines 1317-1327)
@@ -15,9 +15,8 @@
  * Full-page render is mocked in MapBuilderPage.a11y.test.tsx; replicating
  * that harness for one assertion would dwarf the test value.
  *
- * Cross-reference: PATTERNS.md Plan 10 finding #6 (BasemapPicker is dead;
- * the actual duplicate-X is the Sheet wrapper). UI-SPEC §RESP-03 fix
- * contract: "EXACTLY 1 visible, functional close button in every
+ * BasemapPicker is dead; the actual duplicate-X is the Sheet wrapper.
+ * Contract: "EXACTLY 1 visible, functional close button in every
  * right-sidebar-opened flyout".
  */
 
@@ -304,8 +303,7 @@ describe('Phase 1051 Plan 10 — RESP-03 duplicate close button (Sheet overlays)
   // -----------------------------------------------------------------------
   // Surface 5: Negative-control / bug-shape pin. Proves that WITHOUT the
   // `showCloseButton={false}` opt-out, the editor Sheet would render TWO
-  // close buttons. This is the exact pre-fix shape from PATTERNS.md Plan
-  // 10 + UI-SPEC §RESP-03. If this negative test ever fails (count drops
+  // close buttons. This is the exact pre-fix shape. If this negative test ever fails (count drops
   // to 1 without the prop), it means the shadcn Sheet default behavior
   // changed and the production opt-out may no longer be necessary —
   // re-audit before deleting `showCloseButton={false}` from
@@ -315,14 +313,14 @@ describe('Phase 1051 Plan 10 — RESP-03 duplicate close button (Sheet overlays)
 });
 
 // ===========================================================================
-// MAP-10 — exhaustive SheetContent grep guard
+// Exhaustive SheetContent grep guard
 // ===========================================================================
 /**
- * Pitfall #11 enforcement gate (v1011 contract).
+ * Enforcement gate for the single-close-button contract.
  *
  * If a future engineer adds a new `<SheetContent>` to MapBuilderPage.tsx
  * without `showCloseButton={false}`, this test fails. The negative-control
- * test (Test 8 in the Phase 1051 describe block) proves the bug-shape if
+ * test (Test 8 in the describe block) proves the bug-shape if
  * the opt-out is removed.
  *
  * Uses Vite `?raw` imports to read source — avoids `node:fs` / `@types/node`

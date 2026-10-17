@@ -1,5 +1,5 @@
 /**
- * fix(#1472 review): dataset credits reach MapLibre's attribution control,
+ * Dataset credits reach MapLibre's attribution control,
  * which assigns them to innerHTML. MapLibre's own sanitizer removes only
  * <script>, on* handlers, and javascript:/data: URLs — img, iframe, and inline
  * style survive it — so an editor-supplied credit is an injection vector into

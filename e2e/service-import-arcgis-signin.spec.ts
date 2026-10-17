@@ -1,9 +1,9 @@
 import { test, expect, type Page } from './helpers/session';
 
 /**
- * Lane A2 (service-auth wave): the ArcGIS sign-in method on the import
- * wizard's Service URL tab. The sign-in endpoint (lane A1,
- * POST /api/services/arcgis/signin/) is mocked here with page.route — it
+ * The ArcGIS sign-in method on the import
+ * wizard's Service URL tab. The sign-in endpoint
+ * (POST /api/services/arcgis/signin/) is mocked here with page.route — it
  * mints a request-only token from a username and password, so this spec
  * never touches a real ArcGIS portal.
  *
@@ -102,7 +102,7 @@ test.describe('ArcGIS sign-in on the import wizard', () => {
     );
   });
 
-  // codex review #1757 round 2 P2: the credential fields sit inside the
+  // Codex review #1757 P2: the credential fields sit inside the
   // outer form whose submit button is Probe, so pressing Enter used to
   // Probe the protected service instead of signing in.
   test('pressing Enter in the password field routes to sign-in, not Probe', async ({ page }) => {

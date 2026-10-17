@@ -206,7 +206,7 @@ class TestTheDroppedRelationIsIdentified:
 
 
 class TestADetachWhoseTableAlreadyVanished:
-    """The registered path that still frees the name (fix(#1452) round 1).
+    """The registered path that still frees the name (fix(#1452)).
 
     The relation is already gone when the delete runs, so there is no identity
     left to record — the honest oid is NULL. The owner is not lost with it,
@@ -254,7 +254,7 @@ class TestADetachWhoseTableAlreadyVanished:
 
 
 class TestASurvivingDetachRecordsWhatItReleased:
-    """fix(#1456 codex round 1): the path GH-1456's window 1 actually lives on.
+    """The path GH-1456's window 1 actually lives on.
 
     A detach that leaves the operator's table standing frees no name, so it
     writes no tombstone. Before this, that meant the probed oid and the owner

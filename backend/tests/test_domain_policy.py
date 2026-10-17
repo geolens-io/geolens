@@ -40,7 +40,7 @@ def _patch_break_glass(monkeypatch: pytest.MonkeyPatch, has_capability: bool) ->
 
 @pytest.mark.anyio
 async def test_null_email_is_permitted(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No address to gate on — preserves no-email registration paths (DOMAIN-02)."""
+    """No address to gate on — preserves no-email registration paths."""
     _patch_domains(monkeypatch, ["example.com"])
     await enforce_email_domain_gate(_Sentinel(), None)
     await enforce_email_domain_gate(_Sentinel(), "")

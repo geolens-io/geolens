@@ -63,8 +63,8 @@ vi.mock('@/hooks/use-edition', () => ({
   useEdition: () => useEditionMock(),
 }));
 
-// Phase 279 ADMIN-03 (M-03): server-driven enterprise-tab list. Defaults to
-// the canonical post-279 set so existing tests (which expect appearance to be
+// Server-driven enterprise-tab list. Defaults to
+// the canonical set so existing tests (which expect appearance to be
 // hidden in community) keep passing without changes. Per-test overrides via
 // `mockReturnValueOnce` exercise the loading / drift / extension scenarios.
 const useEnterpriseOnlyTabsMock = vi.fn<(_options?: { enabled?: boolean }) => { data: { tabs: string[] } | undefined }>(() => ({
@@ -409,10 +409,10 @@ describe('adminNav.failedJobs bundle coverage (#1185)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 217 Plan 04 Task 02 — SAML nav gating (217-04-02 / SAML-10)
+// SAML nav gating
 //
-// Verifies the three-layer defense for SAML enterprise gating
-// (T-217-04-EDITION): the sidebar nav item is HIDDEN in community mode
+// Verifies the three-layer defense for SAML enterprise gating:
+// the sidebar nav item is HIDDEN in community mode
 // (`isEnterprise=false`) and VISIBLE in enterprise mode (`isEnterprise=true`).
 // The companion checks live in:
 //   - AdminSamlPage.tsx (page-level <Navigate to="/admin"> redirect)
@@ -451,7 +451,7 @@ describe('AdminSidebar SAML gating (Phase 217 SAML-10)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 279 Plan 02 — Server-driven enterprise-tab list (ADMIN-03 / M-03)
+// Server-driven enterprise-tab list
 //
 // Verifies the AdminSidebar reads the canonical enterprise-only Settings tab
 // keys from the server-driven `useEnterpriseOnlyTabs` hook and falls back to

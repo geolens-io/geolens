@@ -1,6 +1,6 @@
-"""GATE-01: cross-tenant isolation gate (Phase 1208-04).
+"""Cross-tenant isolation gate.
 
-The security gate the whole phase exists to deliver.
+The blocking security gate for multi-tenant mode.
 
 What this tests
 ---------------
@@ -67,7 +67,7 @@ async def _with_surface(ctx, fn):
 
 
 # ---------------------------------------------------------------------------
-# GATE-01A: Datasets — catalog.datasets
+# Datasets — catalog.datasets
 # ---------------------------------------------------------------------------
 
 
@@ -138,7 +138,7 @@ class TestGate01Datasets:
 
 
 # ---------------------------------------------------------------------------
-# GATE-01B: Records — catalog.records
+# Records — catalog.records
 # ---------------------------------------------------------------------------
 
 
@@ -206,7 +206,7 @@ class TestGate01Records:
 
 
 # ---------------------------------------------------------------------------
-# GATE-01C: Maps — catalog.maps
+# Maps — catalog.maps
 # ---------------------------------------------------------------------------
 
 
@@ -276,7 +276,7 @@ class TestGate01Maps:
 
 
 # ---------------------------------------------------------------------------
-# GATE-01D: Embed tokens — catalog.embed_tokens
+# Embed tokens — catalog.embed_tokens
 # ---------------------------------------------------------------------------
 
 
@@ -288,8 +288,8 @@ class TestGate01EmbedTokens:
     iframe embedding.  A cross-tenant leak here means a tenant can enumerate
     or hijack another tenant's embed tokens, which may serve private datasets.
 
-    SEC-022 context: embed tokens intentionally serve private datasets
-    (EMBED-02/04).  Cross-tenant token leakage would be a critical security
+    Context: embed tokens intentionally serve private datasets.
+    Cross-tenant token leakage would be a critical security
     failure — a separate tenant must never be able to read or replay another
     tenant's embed token.
     """
@@ -350,7 +350,7 @@ class TestGate01EmbedTokens:
 
 
 # ---------------------------------------------------------------------------
-# GATE-01E: Collections — catalog.collections (OGC API path)
+# Collections — catalog.collections (OGC API path)
 # ---------------------------------------------------------------------------
 
 
@@ -418,7 +418,7 @@ class TestGate01Collections:
 
 
 # ---------------------------------------------------------------------------
-# GATE-01F: Cross-entity symmetry (all 5 paths in one transaction)
+# Cross-entity symmetry (all 5 paths in one transaction)
 # ---------------------------------------------------------------------------
 
 
@@ -433,7 +433,7 @@ class TestGate01CrossEntitySymmetry:
     async def test_full_cross_tenant_isolation_envelope(self, multi_tenant_rls):
         """All 5 cross-tenant reads return 0; all 5 own-tenant reads return 1.
 
-        This is the ROADMAP fail-closed cross-tenant assertion criterion.
+        This is the fail-closed cross-tenant assertion.
         A refactor that breaks the tenant contract on ANY of the 5 entity types
         will fail this test on every core PR.
         """

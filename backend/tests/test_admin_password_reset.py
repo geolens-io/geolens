@@ -335,7 +335,7 @@ async def test_reset_password_audits_actor_and_target_without_the_password(
 
 
 # ---------------------------------------------------------------------------
-# bcrypt's 72-byte input limit (fix(#1715 codex r1))
+# bcrypt's 72-byte input limit (fix(#1715))
 # ---------------------------------------------------------------------------
 
 
@@ -446,7 +446,7 @@ async def test_the_byte_limit_also_closed_the_two_pre_existing_entry_points(
 
 
 # ---------------------------------------------------------------------------
-# Reset vs. self-service change-password (fix(#1715 codex r1 P1))
+# Reset vs. self-service change-password (fix(#1715 P1))
 # ---------------------------------------------------------------------------
 
 
@@ -458,7 +458,7 @@ async def test_reset_is_not_overwritten_by_a_racing_change_password(
 ):
     """A holder of the old password cannot win the recovery by racing it.
 
-    The interleaving codex found: change_password verified the pre-reset hash
+    The interleaving: change_password verified the pre-reset hash
     and assigned its replacement, then blocked inside revoke_all_tokens' own
     FOR UPDATE. When the reset released the row, SQLAlchemy autoflush wrote the
     self-service password on top of the admin's, so the account stayed under
@@ -530,7 +530,7 @@ async def test_reset_is_not_outrun_by_a_racing_password_login(
 ):
     """A login with the old password cannot mint credentials across the reset.
 
-    The second interleaving of the same class codex found on change-password,
+    A second interleaving of the same class as the change-password one,
     this time on the login path. LocalAuthProvider.authenticate() looked the
     account up with an unlocked SELECT, so a login that read the row before the
     reset committed verified the STALE hash. It then minted from the post-reset
@@ -606,7 +606,7 @@ async def test_two_concurrent_logins_to_one_account_both_succeed(
 ):
     """Locking the login row must not deadlock two logins to the same account.
 
-    fix(#1715 codex r5): the first version of the lock took FOR SHARE. The
+    fix(#1715): the first version of the lock took FOR SHARE. The
     login handler then assigns user.last_login_at, whose UPDATE needs FOR NO
     KEY UPDATE, so two concurrent logins each held a shared lock and each tried
     to upgrade it. Postgres breaks that cycle by aborting one of them, turning
@@ -640,7 +640,7 @@ async def test_login_does_not_deadlock_against_a_shared_lock_then_write(
 ):
     """A login must not race another transaction into a lock upgrade.
 
-    fix(#1715 codex r5): the first version of this lock took FOR SHARE, and the
+    fix(#1715): the first version of this lock took FOR SHARE, and the
     login handler goes on to assign user.last_login_at, whose UPDATE needs FOR
     NO KEY UPDATE. Two transactions that both hold a shared lock on one row and
     then both write to it deadlock, and Postgres resolves that by aborting one

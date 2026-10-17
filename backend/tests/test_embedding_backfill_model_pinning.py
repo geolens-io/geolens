@@ -209,8 +209,8 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     monkeypatch.setattr(
         service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
     )
-    # One batch for the whole run, deliberately. The drift check added by
-    # #1525 review r4 runs at each batch boundary, so with several batches this
+    # One batch for the whole run, deliberately. The drift check added in
+    # #1525 runs at each batch boundary, so with several batches this
     # run would stop at the second one and the record whose label is asserted
     # below might never be written — the order records come back in is not
     # fixed. A single batch keeps this test on the question it asks (does the
@@ -218,7 +218,7 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     # test_embedding_backfill_base_url_pinning.py, which asserts it directly.
     monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 10_000)
 
-    # fix(#1525 review r5, codex P2): the swap lands during this batch's own
+    # fix(#1525, codex P2): the swap lands during this batch's own
     # provider call, and the drift check that runs before the batch is ACCEPTED
     # now catches it, so the batch is discarded rather than committed. The
     # label can no longer be wrong because no label is written — a stronger
@@ -278,7 +278,7 @@ async def test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_confi
 ):
     """The pin's own contract, asserted without the backfill loop around it.
 
-    The run-level tests above cannot cover this any more. #1525 review r4 added
+    The run-level tests above cannot cover this any more. #1525 added
     a drift check at the batch boundary, so a config change mid-run stops the
     run before an unpinned re-read could produce a divergent second call, and
     an unpinned tree therefore produces the same observables there as a pinned
@@ -364,7 +364,7 @@ async def test_a_switch_between_the_model_and_dims_reads_aborts_the_run(
     before = await _embedding_count(test_db_session)
     assert before > 0
 
-    # fix(#1525 review r2): hung on the UNCACHED read, which is the one the
+    # fix(#1525): hung on the UNCACHED read, which is the one the
     # snapshot makes.
     #
     # fix(#1546): the CACHED read is no longer a stand-in for it. The non-force
@@ -488,7 +488,7 @@ async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors
 ):
     """Generating is only half the promise: the vector has to fit the column.
 
-    fix(#1511 review r4, codex P1): the width a model produces and the width
+    fix(#1511, codex P1): the width a model produces and the width
     the column declares are written by different code at different times, so
     they can disagree. What found it was a settings write that persisted a
     newly detected width without rebuilding the column, leaving storage at the
@@ -564,7 +564,7 @@ async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors
     assert await _embedding_count(test_db_session) == before
     assert aborted
     # The provider must have been reached and must have succeeded — if it had
-    # rejected the pair this would be the round-3 scenario over again, and the
+    # rejected the pair this would be the earlier scenario over again, and the
     # storage check would never have been the thing that saved the vectors.
     assert provider.calls == [{"model": _MODEL_B, "dimensions": _DIMS_B}]
 
@@ -573,7 +573,7 @@ async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors
 async def test_force_on_an_empty_catalog_does_not_need_a_working_provider():
     """Nothing at risk means nothing to guard.
 
-    fix(#1511 review r5, codex P2): the force guards exist to protect rows from
+    fix(#1511, codex P2): the force guards exist to protect rows from
     the DELETE, and that DELETE is bounded by the record foreign key. A tenant
     with no visible records cannot lose one, so demanding a working provider
     just to discover that turned a harmless no-op into a 502 on a fresh

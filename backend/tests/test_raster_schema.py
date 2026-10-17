@@ -1,4 +1,4 @@
-"""Integration tests for Phase 165 schema changes.
+"""Integration tests for the raster schema changes.
 
 Verifies:
   - record_type column migration: defaults, constraint values, constraint rejection
@@ -7,7 +7,7 @@ Verifies:
 
 Requirements:
   - Docker database must be running (docker compose up db)
-  - Alembic migrations must be applied (includes 165_02, 165_03, 165_04)
+  - Alembic migrations must be applied (including the raster ones)
 """
 
 import uuid

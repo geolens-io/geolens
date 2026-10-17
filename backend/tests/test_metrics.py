@@ -218,8 +218,8 @@ def test_multiprocess_histogram_sums_across_simulated_workers(tmp_path):
 
 # Uses the real production Gauge (not a synthetic stand-in) so this test
 # actually exercises memory.py's multiprocess_mode="liveall" declaration --
-# a synthetic Gauge would default to "all" and miss the exact bug Codex
-# found in round 1 of review (see test_..._cleaned_up_after_shutdown below).
+# a synthetic Gauge would default to "all" and miss the exact bug a
+# review found (see test_..._cleaned_up_after_shutdown below).
 _RSS_GAUGE_WRITER = """
 import os
 from app.observability.metrics.memory import worker_rss_bytes
@@ -275,7 +275,7 @@ def test_multiprocess_rss_gauge_shows_every_live_worker(tmp_path):
 
 
 def test_multiprocess_rss_gauge_series_cleaned_up_after_shutdown(tmp_path):
-    """fix(#1240, #651 review round 1): a recycled worker's RSS series must
+    """A recycled worker's RSS series must
     actually disappear once shutdown_worker_metrics() marks it dead.
 
     prometheus_client's mark_process_dead() only unlinks mmap files for
@@ -383,7 +383,7 @@ if os.environ.get("_TEST_STAY_ALIVE"):
 
 
 def test_sweep_dead_worker_metrics_reaps_only_dead_pids(tmp_path):
-    """fix(#1240, #651 review round 2): a worker that's OOM-killed/SIGKILLed
+    """A worker that's OOM-killed/SIGKILLed
     never runs shutdown_worker_metrics() (it dies mid-request, not at a
     lifespan boundary), so its series would otherwise linger until the whole
     container restarts. The periodic sweep must reap ONLY pids that are no
@@ -470,7 +470,7 @@ def _scrape_consolidate_metrics(multiproc_dir: str):
 
 
 def test_consolidate_dead_counter_and_histogram_files_preserves_totals(tmp_path):
-    """fix(#1240, #651 review round 4): mark_process_dead() deliberately
+    """mark_process_dead() deliberately
     never removes counter_<pid>.db / histogram_<pid>.db (their cumulative
     values still need to count toward the total), so under
     UVICORN_MAX_REQUESTS recycling those files would otherwise accumulate
@@ -570,7 +570,7 @@ for v in sys.argv[1:]:
 
 
 def test_consolidate_dead_summary_files_preserves_totals(tmp_path):
-    """fix(#1240, #651 review round 7): the sweep only folded counter_*.db
+    """The sweep only folded counter_*.db
     and histogram_*.db into an archive -- summary_*.db (written by
     prometheus_fastapi_instrumentator's default http_request_size_bytes /
     http_response_size_bytes Summary metrics) was left out, so every
@@ -636,7 +636,7 @@ def test_consolidate_dead_summary_files_preserves_totals(tmp_path):
 
 
 def test_consolidate_dead_counter_files_is_race_safe_across_workers(tmp_path):
-    """fix(#1240, #651 review round 4): every live worker runs this sweep, so
+    """Every live worker runs this sweep, so
     two workers can race to consolidate the same dead pid's file in the same
     pass. The os.rename() mutual-exclusion step must let only one of them
     fold that file's value into the archive -- concurrent consolidation
@@ -714,7 +714,7 @@ _consolidate_dead_cumulative_metric_files()
 
 
 def test_consolidate_archive_writes_are_serialized_across_workers(tmp_path):
-    """fix(#1240, #651 review round 5): the os.rename() claim step only
+    """The os.rename() claim step only
     guarantees a given dead pid's SOURCE file is read by one worker -- it
     says nothing about the SHARED "<type>_archived.db" two workers both
     write into. Two dead workers here get DIFFERENT counter values (10 and
@@ -853,7 +853,7 @@ def _tagged_value(log_path, tag):
     return None
 """
 
-# fix(#1295 review round 1): events the sweep can only emit once it is PAST
+# Events the sweep can only emit once it is PAST
 # the exclusive lock. "sweep_lock_attempt" is deliberately not in this set --
 # it is emitted before the blocking flock() call, so it is expected to appear
 # while the scrape still holds the shared lock. That is the handshake.
@@ -861,7 +861,7 @@ _POST_LOCK_SWEEP_EVENTS = ("sweep_lock_acquired", "sweep_rename")
 
 
 def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
-    """fix(#1240, #651 review round 6): MultiProcessCollector.collect() globs
+    """MultiProcessCollector.collect() globs
     "*.db" and then opens each matched path one by one; it tolerates a path
     disappearing between those two steps only for gauge_live*.db (an
     explicit except-continue in prometheus_client's own code, because
@@ -890,12 +890,12 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
     exclusive acquire, which the kernel cannot grant until that release. So
     the log order is fixed by the lock, not by the scheduler. If the
     exclusive/shared flock pairing stops excluding the sweep -- the exact
-    gap round 6 found -- the rename lands DURING the scrape's hold and
+    gap that once existed -- the rename lands DURING the scrape's hold and
     appears before "scrape_pre_unlock"; verified by re-running this same
     ordering with the sweep's flock stubbed out, which inverts the log every
     run.
 
-    fix(#1295 review rounds 1-2): the two sides synchronize on the sweep's
+    The two sides synchronize on the sweep's
     LOCK ATTEMPT, and the verdict is then decided synchronously -- there is
     no interval anywhere whose expiry is read as proof that the lock held.
     The scrape makes two synchronous checks, both while holding the shared
@@ -905,7 +905,7 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
        probe on a SECOND descriptor for the lock path is refused. flock
        locks are per open file description, so a second descriptor conflicts
        with this process's own shared lock even within one process (the same
-       property that makes the round-8 same-process deadlock possible).
+       property that makes the same-process deadlock possible).
        Running it before the sweeper starts is what makes it unambiguous:
        nothing else holds anything, so the refusal is attributable to this
        scrape's own shared lock and to nothing else.
@@ -925,8 +925,8 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
     "sweep_lock_attempt" never arrives and the scrape fails waiting for it,
     rather than sailing past on an expired window. Earlier revisions of this
     test used such a window in two places and both were shown to false-pass:
-    a stall before the lock call (round 1) and a stall between the call
-    returning and its acquired event being written (round 2).
+    a stall before the lock call and a stall between the call
+    returning and its acquired event being written.
 
     The rename event is recorded by wrapping os.rename in the sweeper
     subprocess, so it observes the real production claim step inside
@@ -966,7 +966,7 @@ with open(_LOCK_PATH, "a+b") as lock_file:
     # this lock is denied while this shared lock is held. flock locks are per
     # open file description, so a second descriptor on the same path
     # conflicts with this process's own shared lock (the same property that
-    # makes the round-8 same-process deadlock possible). The sweeper is still
+    # makes the same-process deadlock possible). The sweeper is still
     # parked on the holding marker at this point, so a refusal here can only
     # come from this process's own shared lock -- it is unambiguous, and it
     # is synchronous: no interval is being read as proof of anything.
@@ -1160,13 +1160,13 @@ asyncio.run(main())
 
 
 def test_metrics_endpoint_survives_concurrent_sweep(tmp_path):
-    """fix(#1240, #651 review round 6): the reported symptom end to end --
+    """The reported symptom end to end --
     a real GET /metrics request, issued while the sweep holds the exclusive
     lock and is mid-rename, must wait and then succeed (200, correct data),
     never surface a FileNotFoundError-driven 500. Exercises the actual
     middleware wired into init_metrics(), not just the raw lock file.
 
-    fix(#1240, #651 review round 8): runs in a subprocess, not in-process --
+    Runs in a subprocess, not in-process --
     init_metrics() -> Instrumentator().instrument(app) registers
     http_requests_inprogress on prometheus_client's process-global default
     CollectorRegistry with no override, and other tests/fixtures in the same
@@ -1241,7 +1241,7 @@ async def main():
     scrape_task = asyncio.create_task(mimic_scrape_middleware())
     # Give the scrape a head start so it reliably holds the shared lock
     # before the sweep attempts its exclusive one -- this is the exact
-    # ordering that deadlocked pre-fix (round 6 called
+    # ordering that deadlocked pre-fix (an earlier version called
     # _consolidate_dead_cumulative_metric_files() directly on the loop
     # instead of via to_thread).
     await asyncio.sleep(0.05)
@@ -1253,7 +1253,7 @@ asyncio.run(main())
 
 
 def test_same_process_sweep_during_scrape_does_not_deadlock(tmp_path):
-    """fix(#1240, #651 review round 8): flock() locks are per OPEN FILE
+    """flock() locks are per OPEN FILE
     DESCRIPTION, not per-process -- a blocking fcntl.flock(LOCK_EX) call
     made directly on a worker's event loop thread, while that SAME
     worker's /metrics scrape middleware holds the shared lock via a
@@ -1264,12 +1264,12 @@ def test_same_process_sweep_during_scrape_does_not_deadlock(tmp_path):
     is a same-process deadlock, invisible to the uvicorn supervisor -- the
     worker just stops answering every request, not only /metrics.
 
-    round 6/7's existing tests (test_metrics_endpoint_survives_concurrent_sweep,
+    The existing tests (test_metrics_endpoint_survives_concurrent_sweep,
     test_sweep_waits_for_inflight_scrape_before_renaming) don't catch this:
     their "writer" side already runs its blocking flock() via
     loop.run_in_executor()/a separate process, so they never exercised a
     sweep call made directly on the SAME event loop the scrape's middleware
-    is using -- which is exactly how round 6 originally shipped the bug.
+    is using -- which is exactly how the bug originally shipped.
 
     Runs the exact ordering that deadlocked before this fix (verified with
     a throwaway script pre-fix: the subprocess had to be killed by its

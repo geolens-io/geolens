@@ -120,7 +120,7 @@ export const SidebarRail = memo(function SidebarRail({
               <button
                 type="button"
                 aria-label={displayName}
-                // fix(#526 B-049): at <1100px this rail is the ONLY layer list;
+                // At <1100px this rail is the ONLY layer list;
                 // selection was visual-only (data-selected). Mirror the Settings
                 // button's aria-pressed so AT users can tell which editor is open.
                 aria-pressed={isSelected}

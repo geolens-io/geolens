@@ -53,6 +53,9 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         # published again as its live data.
         "dataset.previous_version_dropped",
         "dataset.restore",
+        # One row per dataset per retention run, with the number of rows the
+        # run deleted. System-emitted, so it has no user.
+        "dataset.retention_prune",
         "dataset.transfer_owner",
         "dataset.view",
         "embed_token.bulk_revoke",

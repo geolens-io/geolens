@@ -587,7 +587,7 @@ class TestRunLifecycle:
         assert dataset.last_checked_at is None
 
     async def test_a_terminal_run_is_never_re_finalized(self, test_db_session) -> None:
-        """History is append-only; a retry creates a NEW row (Decision 4d)."""
+        """History is append-only; a retry creates a NEW row."""
         dataset, job = await _seed(test_db_session)
         run = await create_pending_run(
             test_db_session,
@@ -771,7 +771,7 @@ class TestAdmissionControl:
             feature_count_before=42,
         )
         await test_db_session.commit()
-        # A retry is a NEW row (Decision 4d): the history is append-only, and
+        # A retry is a NEW row: the history is append-only, and
         # the first run's outcome is not rewritten into the second's.
         assert second.id != first.id
         await test_db_session.refresh(first)
@@ -1428,7 +1428,7 @@ async def _seed_history(session, *, visibility: str = "public"):
     return dataset, run
 
 
-# Decision 4e's list, named once so a test cannot quietly cover fewer fields
+# The redacted-field list, named once so a test cannot quietly cover fewer fields
 # than it claims to.
 _REDACTED_FIELDS = (
     "triggered_by",
@@ -1678,7 +1678,7 @@ class TestDispatchCreatesTheRun:
     async def test_a_second_dispatch_is_refused_with_dataset_busy(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """ADR-002 Decision 5b at the door, not at the advisory lock.
+        """ADR-002: refuse a concurrent commit at the door, not at the advisory lock.
 
         Two humans clicking commit is the ordinary case, not the exotic one.
         Refusing the second here means only one job is ever queued; refusing it

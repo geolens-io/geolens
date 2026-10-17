@@ -356,7 +356,7 @@ describe('BLANK_BASEMAP_ID', () => {
       type: 'background',
       paint: { 'background-color': 'rgba(0,0,0,0)' },
     });
-    // fix(#525 B-039): the blank basemap MUST carry a glyphs URL — user data
+    // The blank basemap MUST carry a glyphs URL — user data
     // label layers (companion `*-label`, symbol-mode text) are added to this
     // style, and MapLibre cannot render any text-field without one. Glyphs are
     // fetched lazily, so a label-free blank map still makes no font requests.
@@ -532,7 +532,7 @@ describe('applyBasemapConfigToStyle master opacity', () => {
   });
 
   it('opacity=1 writes absolute 1.0 so previously-dimmed values are reset (CR-01)', () => {
-    // After CR-01 fix, master opacity is always absolute (never multiplicative
+    // Master opacity is always absolute (never multiplicative
     // against live paint). At opacity=1 we write 1.0 explicitly so the map-sync
     // diff loop can reset any previously-stamped value back to MapLibre default.
     // Without this, a slider drag down then back up would leave the basemap
@@ -548,7 +548,7 @@ describe('applyBasemapConfigToStyle master opacity', () => {
   });
 
   it('master opacity is reversible when reapplied (does not compound — CR-01 regression)', () => {
-    // Regression test for code review CR-01: applying opacity 0.5 then opacity 1
+    // Regression test: applying opacity 0.5 then opacity 1
     // against the same (already-mutated) style must restore raster-opacity to 1,
     // not stay at 0.5. The previous design multiplied against live paint and
     // short-circuited at >=1, leaving the slider monotonic-downward.
@@ -591,7 +591,7 @@ describe('applyBasemapConfigToStyle master opacity', () => {
   });
 
   it('dims boundary symbol icons in lockstep with text under subtle + master opacity', () => {
-    // FEH-03: applyBasemapLayerConfig's boundary branch previously stamped only
+    // applyBasemapLayerConfig's boundary branch previously stamped only
     // `text-opacity: 0.45` for symbol layers, so `applyMasterOpacity` (which
     // iterates BOTH text-opacity and icon-opacity for symbol type) fell back to
     // writing absolute master for icon-opacity — text dimmed, icon stayed full.
@@ -624,8 +624,8 @@ describe('applyBasemapConfigToStyle master opacity', () => {
 });
 
 describe('applyBasemapConfigToStyle prominence reversibility (builder-audit #338 COMPLEX-01)', () => {
-  // Lock the prose invariants in basemap-utils.ts (CR-01 / prominence-stamp
-  // composition) with CI-enforced regression tests: a subtle+dimmed pass
+  // Lock the prose invariants in basemap-utils.ts (master-opacity and
+  // prominence-stamp composition) with CI-enforced regression tests: a subtle+dimmed pass
   // followed by a full+opacity-1 pass must restore the canonical *-opacity
   // defaults (1.0) across line, symbol, and raster layer types. A future edit
   // that adds a new stamp, a new opacity key, or reorders applyMasterOpacity

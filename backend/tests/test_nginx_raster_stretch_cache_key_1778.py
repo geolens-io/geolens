@@ -1,6 +1,6 @@
 r"""The raster tile cache key must not vary on an arg the active stretch mode
 ignores, and a cache HIT must never change what an uncached request would
-answer (#1778, codebase audit 2026-08-30; codex rounds 1-9 on #1791).
+answer (#1778, codebase audit 2026-08-30).
 
 frontend/nginx.conf's raster_cache proxy_cache_key used to hold
 $arg_pmin/$arg_pmax/$arg_sigma unconditionally. In
@@ -12,122 +12,64 @@ neither -- the fragment passed to Titiler is unchanged either way. So
 byte-identical to the unfiltered tile, the same defeat #1785 closed for the
 vector tile ``cols=`` param.
 
-Round 1 blanked every inactive value unconditionally, which could let a
-cache HIT answer with a status an uncached request would not have gotten.
-Round 2 made raster_tile_proxy IGNORE pmin/pmax when stretch is not
-percentile and sigma when it is not stddev, instead of merely leaving them
-unvalidated, so blanking an inactive value can no longer disagree with the
-API about STATUS. Round 3 found nginx's raw read of the query string can
-still disagree with the API's decoded read about VALUE or MODE independent
-of validation (percent-encoded or case-varied `stretch`, a malformed float),
-and required an EXACT canonical spelling plus well-formedness before
-blanking.
+The contract has these parts:
 
-Round 4 found round 3's exact-spelling check assumed nginx's own $arg_NAME
-lookup is case-sensitive on the parameter NAME. It is not: nginx's arg
-matcher (ngx_http_arg -> ngx_strlcasestrn) is case-INSENSITIVE on the name,
-so $arg_stretch resolves from `Stretch=`, `STRETCH=`, etc, while FastAPI's
-query-param binding is exact-case. `?Stretch=minmax&stretch=percentile&pmin=5`
-had nginx read stretch=minmax (the first case-insensitive match, "inactive",
-blank pmin) while the API read stretch=percentile (the only EXACT-case
-match, active, uses pmin=5) -- a cache collision, not a status mismatch,
-because round 3's duplicate detector was itself case-sensitive-only and
-never saw this as a duplicate at all.
-
-The round-4 rule: blanking is allowed ONLY when $args is in STRICT CANONICAL
-FORM -- each of stretch/pmin/pmax/sigma appears at most once (checked
-CASE-INSENSITIVELY), every occurrence of each is spelled EXACTLY lowercase,
-and none is percent-encoded. $geolens_raster_noncanonical checks this
-directly against the raw $args string (not derived from any single $arg_*
-lookup, so it cannot inherit nginx's own case-insensitivity or decoding
-blind spots). When non-canonical, $geolens_raster_cache_extra folds the
-ENTIRE raw $args into the cache key, so correctness there is independent of
-any per-parameter reasoning: two requests share a key in the non-canonical
-case if and only if their raw query strings are identical.
-
-Round 5 found round 3's well-formedness check was stricter than it needed
-to be, in a way that reopened the exact cache-amplification vector this
-whole fix exists to close. It required a value to be WELL-FORMED AND IN THE
-RANGE THAT MATTERS FOR THE ACTIVE MODE (0-100 for pmin/pmax, positive for
-sigma) before blanking it under an inactive one -- a round-1 leftover from
-before round 2 made the API ignore an inactive value outright. Since the API
-never applies that range check to a value it never reads that far into, an
-out-of-range-but-syntactically-valid value (pmin=101, pmin=102, ...) stayed
-RAW, so an anonymous caller could still mint a distinct one-hour cache entry
-per distinct out-of-range value, all holding the identical tile.
-
-The round-5 rule: when the query is canonical and the parameter is
-inactive, blank every value FastAPI's float coercion would ACCEPT --
-matching its grammar (optional sign, digits, decimal point, exponent), not
-its semantic range -- and keep raw only what FastAPI cannot parse at all
-(its 422 path, unaffected by round 5, still covered by
-test_malformed_float_under_an_inactive_mode_stays_raw).
-
-Round 6 found round 4's fix for the non-canonical case introduced a new
-problem while closing the collision: $geolens_raster_cache_extra folded the
-ENTIRE raw $args into proxy_cache_key, and this endpoint accepts the
-deprecated ?api_key= query lane (_resolve_api_key,
-app/modules/auth/dependencies.py), so a non-canonical request carrying one
-wrote that credential, in the clear, into the cache key -- reachable
-through raster_cache's on-disk files and any backup of them, even though
-access logging already strips query strings for exactly this reason.
-
-The round-6 rule: proxy_cache_key must be built ONLY from the sanitised
-$geolens_raster_* variables (plus $dataset_id/$z/$x/$y/$fmt/$arg_v/
-$arg_colormap_name/$arg_stretch, none of which can carry a credential) --
-never raw $args, never any other raw $arg_*. A non-canonical request is
-instead served UNCACHED: $geolens_raster_noncanonical now also drives
-proxy_cache_bypass and proxy_no_cache on the raster-tiles location, so
-bypass skips the lookup and no_cache skips the store, and nothing about
-that request -- credential included -- is ever written to the cache at
-all. $geolens_raster_cache_extra and its map are gone.
-
-Round 7 found round 4's name-only check left a gap on the VALUE side:
-$geolens_raster_noncanonical never inspected pmin/pmax/sigma's raw value,
-only the parameter names. nginx never decodes $arg_pmin/$arg_pmax/$arg_sigma
-either, so a percent-encoded (`pmin=%31`) or `+`-encoded (`pmin=+1`,
-which Starlette's query-string unescaping turns into a space before
-float() parses it) value reaches this config as its own literal bytes
-while decoding to an ordinary, valid float at FastAPI -- every distinct
-encoding of the same float minted a distinct one-hour cache entry for one
-identical tile, the same amplification vector round 4 closed for names,
-reopened on values.
-
-The round-7 rule: $geolens_raster_noncanonical is now the OR of two
-checks -- the round-4 name check plus a new value check requiring pmin,
-pmax, and sigma to each be either empty or an exact, undecorated float
-(`-?[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?`, no `%`, no `+`, no whitespace). Any
-render-parameter value outside that grammar makes the WHOLE request
-non-canonical, the same treatment a malformed NAME already gets, so it
-bypasses the cache via the existing proxy_cache_bypass/proxy_no_cache
-rather than being keyed on anything. This closes the gap for an ACTIVE
-value too, not just an inactive one that would otherwise blank: two
-different raw spellings of the identical semantic float (`pmin=1` vs
-`pmin=%31`) must not sit unmodified in the cache key and mint two entries
-for one tile.
-
-Round 9 found the round-4/round-1 duplicate detector only counted
-occurrences containing `=` -- a BARE occurrence (no `=` at all) of a name
-was invisible to it. `?stretch=minmax&pmin=5&pmin` has nginx's $arg_pmin
-resolve from the earlier, well-formed `pmin=5` (ngx_http_arg requires an
-immediate `=` to match at all, so the bare occurrence is skipped entirely,
-the same as if it were absent), while Starlette keeps the bare `pmin` as a
-real ("pmin", "") pair (keep_blank_values=True) that the scalar Query
-dependency reads as the LAST occurrence -- empty string, which pydantic's
-float coercion 422s on unconditionally. That request was canonical to
-every check through round 8, so it collapsed onto the plain
-`?stretch=minmax` cache entry: warm 200, cold 422.
-
-The round-9 rule: a bare occurrence of any of the four names, anywhere,
-also sets $geolens_raster_noncanonical_name (folded into the SAME map as
-the round-1 duplicate/round-4 mis-case checks, since it is one more
-"$args is not in strict canonical form" condition, not a new kind of
-check). One regex per name checking "does a bare occurrence exist at all"
-is sufficient -- it does not need to literally COUNT occurrences, because a
-bare occurrence with nothing else is the single-bare case (still 422s,
-since the last occurrence is that bare pair), and a bare occurrence
-alongside a `name=` occurrence is already >= 2 total occurrences, the same
-"at most once" property rule 1 already polices.
+- raster_tile_proxy IGNORES pmin/pmax when stretch is not percentile and
+  sigma when it is not stddev, instead of merely leaving them unvalidated, so
+  blanking an inactive value in the cache key cannot disagree with the API
+  about STATUS.
+- nginx's raw read of the query string can disagree with the API's decoded
+  read about VALUE or MODE (percent-encoded or case-varied `stretch`, a
+  malformed float()), so blanking requires an EXACT canonical spelling plus
+  well-formedness.
+- nginx's $arg_NAME lookup is case-INSENSITIVE on the parameter NAME
+  (ngx_http_arg -> ngx_strlcasestrn), while FastAPI's query-param binding is
+  exact-case. `?Stretch=minmax&stretch=percentile&pmin=5` makes nginx read
+  stretch=minmax (inactive, blank pmin) while the API reads
+  stretch=percentile (active, uses pmin=5), a cache collision.
+- Blanking is therefore allowed ONLY when $args is in STRICT CANONICAL FORM:
+  each of stretch/pmin/pmax/sigma appears at most once (checked
+  CASE-INSENSITIVELY), every occurrence is spelled EXACTLY lowercase, and
+  none is percent-encoded. $geolens_raster_noncanonical checks this directly
+  against the raw $args string, not derived from any single $arg_* lookup, so
+  it cannot inherit nginx's own case-insensitivity or decoding blind spots.
+- When the query is canonical and the parameter is inactive, every value
+  FastAPI's float() coercion would ACCEPT is blanked, matching its grammar
+  (optional sign, digits, decimal point, exponent) and not its semantic range,
+  so out-of-range-but-parseable values (pmin=101, pmin=102, ...) cannot mint
+  a distinct one-hour cache entry each. Only what FastAPI cannot parse at all
+  stays raw (its 422 path, covered by
+  test_malformed_float_under_an_inactive_mode_stays_raw).
+- proxy_cache_key is built ONLY from the sanitised $geolens_raster_*
+  variables (plus $dataset_id/$z/$x/$y/$fmt/$arg_v/$arg_colormap_name/
+  $arg_stretch, none of which can carry a credential), never raw $args and
+  never any other raw $arg_*. The endpoint accepts the deprecated ?api_key=
+  query lane (_resolve_api_key, app/modules/auth/dependencies.py), so keying
+  on raw $args would write a credential, in the clear, into raster_cache's
+  on-disk files. A non-canonical request is instead served UNCACHED:
+  $geolens_raster_noncanonical drives proxy_cache_bypass and proxy_no_cache
+  on the raster-tiles location, so bypass skips the lookup and no_cache skips
+  the store.
+- $geolens_raster_noncanonical also requires pmin, pmax, and sigma to each be
+  either empty or an exact, undecorated float()
+  (`-?[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?`, no `%`, no `+`, no whitespace). nginx
+  never decodes $arg_pmin/$arg_pmax/$arg_sigma, so a percent-encoded
+  (`pmin=%31`) or `+`-encoded (`pmin=+1`, which Starlette's query-string
+  unescaping turns into a space before float() parses it) value would reach
+  this config as its own literal bytes while decoding to an ordinary float() at
+  FastAPI, minting a distinct cache entry per spelling of one tile. This
+  holds for an ACTIVE value too.
+- A BARE occurrence (no `=` at all) of any of the four names, anywhere, also
+  sets $geolens_raster_noncanonical_name. `?stretch=minmax&pmin=5&pmin` has
+  nginx's $arg_pmin resolve from the well-formed `pmin=5` (ngx_http_arg
+  requires an immediate `=` to match, so the bare occurrence is skipped),
+  while Starlette keeps the bare `pmin` as a real ("pmin", "") pair that the
+  scalar Query dependency reads as the LAST occurrence -- an empty string,
+  which pydantic's float() coercion 422s on unconditionally. One regex per name
+  checking "does a bare occurrence exist at all" is sufficient: a lone bare
+  occurrence still 422s, and a bare occurrence alongside a `name=`
+  occurrence is already >= 2 total occurrences, which the "at most once"
+  property already polices.
 
 These are structural (they read the conf and simulate nginx's own map
 evaluation in Python), because there is no nginx binary in this test
@@ -177,7 +119,7 @@ _MAPS: dict[str, tuple[str, str]] = {
         "$geolens_raster_sigma",
     ),
 }
-# fix(#1778 codex r7): $geolens_raster_noncanonical is now the OR of three
+# fix(#1778): $geolens_raster_noncanonical is now the OR of three
 # chained maps -- a name-based check ($args), a value-based check
 # ($arg_pmin:$arg_pmax:$arg_sigma), and a combiner over the two results.
 _NONCANONICAL_NAME_MAP: tuple[str, str] = (
@@ -275,7 +217,7 @@ def _map_entries_ordered(
 def _nginx_arg(args_string: str, name: str) -> str:
     """nginx's ``$arg_NAME``: the value of the FIRST occurrence of ``name`` in
     the raw query string, matched CASE-INSENSITIVELY on the name (nginx's
-    ngx_http_arg uses ngx_strlcasestrn, fix(#1778 codex r4)) -- and never
+    ngx_http_arg uses ngx_strlcasestrn, fix(#1778)) -- and never
     URL-decoded."""
     for pair in args_string.split("&"):
         if not pair:
@@ -326,7 +268,7 @@ def _conf() -> str:
 
 def _noncanonical(conf: str, args_string: str) -> str:
     """``$geolens_raster_noncanonical`` for a raw query string -- the OR of
-    the name-based map (round 4) and the value-based map (round 7), each
+    the name-based map and the value-based map, each
     evaluated the way nginx itself would and then combined through the
     third, combiner map, exactly as the three chained `map` directives in
     the conf resolve it."""
@@ -434,7 +376,7 @@ def test_cache_key_does_not_hold_the_raw_stretch_args():
 
 
 def test_cache_key_never_includes_raw_args_or_a_credential_name():
-    """fix(#1778 codex r6): $geolens_raster_cache_extra used to fold the
+    """fix(#1778): $geolens_raster_cache_extra used to fold the
     ENTIRE raw $args into this key for a non-canonical request, and this
     endpoint accepts the deprecated ?api_key= query lane
     (_resolve_api_key, app/modules/auth/dependencies.py). A raw $args (or
@@ -454,7 +396,7 @@ def test_cache_key_never_includes_raw_args_or_a_credential_name():
 
 
 def test_noncanonical_requests_bypass_the_cache_instead_of_being_keyed_on_it():
-    """fix(#1778 codex r6): rather than keying a non-canonical request on
+    """fix(#1778): rather than keying a non-canonical request on
     anything (which is how the $args/credential leak happened), it must be
     served UNCACHED -- $geolens_raster_noncanonical drives BOTH
     proxy_cache_bypass (skip the lookup) and proxy_no_cache (skip the
@@ -472,7 +414,7 @@ def test_noncanonical_requests_bypass_the_cache_instead_of_being_keyed_on_it():
 
 
 def test_noncanonical_request_with_an_api_key_leaks_nothing_and_is_marked_bypass():
-    """fix(#1778 codex r6): the exact scenario in the finding. A public
+    """fix(#1778): the exact scenario in the finding. A public
     raster request carrying ?api_key=SECRET alongside a non-canonical
     stretch spelling must (a) resolve $geolens_raster_noncanonical to "1"
     (bypass/no_cache both trigger, per the test above) and (b) never let
@@ -490,13 +432,13 @@ def test_noncanonical_request_with_an_api_key_leaks_nothing_and_is_marked_bypass
 # ---------------------------------------------------------------------------
 # pmin / pmax: percentile is the active mode; sigma: stddev is. Blank ONLY
 # when stretch is an EXACT canonical inactive spelling AND the value is a
-# well-formed float in range -- everything else stays raw (round 3).
+# well-formed float in range -- everything else stays raw.
 # ---------------------------------------------------------------------------
 
 
 def test_active_mode_always_passes_the_value_through_raw():
     """Active mode: the value must vary the key regardless of content --
-    percentile/stddev genuinely read it, unchanged since round 1."""
+    percentile/stddev genuinely read it."""
     conf = _conf()
     for value in ("5", "200", "-1", "abc", ""):
         assert _derive(conf, "pmin", _qs(stretch="percentile", pmin=value)) == value
@@ -551,8 +493,8 @@ def test_sigma_still_varies_the_key_under_stddev():
 
 
 def test_out_of_range_but_syntactically_valid_value_under_a_canonical_inactive_mode_blanks():
-    """fix(#1778 codex r5): the API IGNORES an inactive pmin/pmax/sigma
-    outright (fix(#1778 codex r2)), so it never applies a [0, 100] / positive
+    """fix(#1778): the API IGNORES an inactive pmin/pmax/sigma
+    outright (fix(#1778)), so it never applies a [0, 100] / positive
     range check to a value it never reads that far into. The previous
     range-restricted well-formedness check left every out-of-range-but-
     parseable value RAW, so an anonymous caller could mint a distinct
@@ -563,10 +505,8 @@ def test_out_of_range_but_syntactically_valid_value_under_a_canonical_inactive_m
     only a value FastAPI cannot parse as a float AT ALL stays raw (see
     test_malformed_float_under_an_inactive_mode_stays_raw right below).
 
-    fix(#1778 codex r7): ``+5`` used to be in this list -- round 5's
-    well-formedness grammar allowed a leading ``[+-]?`` sign, so it matched
-    and blanked like any other syntactically-valid value. It no longer
-    belongs here: a raw ``+`` is never itself part of a canonical float (see
+    ``+5`` does not belong in this list: a raw ``+`` is never itself part of
+    a canonical float (see
     test_percent_or_plus_encoded_value_is_noncanonical_and_bypasses_the_cache
     below), so ``pmin=+5`` now makes the whole request non-canonical instead
     of blanking under this map."""
@@ -579,7 +519,7 @@ def test_out_of_range_but_syntactically_valid_value_under_a_canonical_inactive_m
 
 
 def test_the_coordinators_named_out_of_range_examples_collapse_to_the_blank_key():
-    """fix(#1778 codex r5): the literal cases named in the finding --
+    """fix(#1778): the literal out-of-range cases --
     pmin=101, pmin=-5, sigma=0, pmax=1e3 under an inactive mode all blank,
     and pmin=abc (unparseable, not merely out of range) still stays raw."""
     conf = _conf()
@@ -591,10 +531,10 @@ def test_the_coordinators_named_out_of_range_examples_collapse_to_the_blank_key(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r3): percent-encoded/case-varied VALUES of stretch, and
+# fix(#1778): percent-encoded/case-varied VALUES of stretch, and
 # malformed float values, must stay raw. These are canonical-form requests
-# (one exact-lowercase name each), so $geolens_raster_cache_extra is empty
-# for them -- the per-parameter fallback alone closes these.
+# (one exact-lowercase name each), so the per-parameter
+# fallback alone closes these.
 # ---------------------------------------------------------------------------
 
 
@@ -630,27 +570,26 @@ def test_malformed_float_under_an_inactive_mode_stays_raw():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r4): the four names are matched CASE-INSENSITIVELY by
+# fix(#1778): the four names are matched CASE-INSENSITIVELY by
 # nginx's own $arg_NAME lookup, and a case variant or percent-encoded name
-# anywhere makes the WHOLE request non-canonical -- $geolens_raster_
-# cache_extra then folds the entire raw $args into the key, independent of
-# what any single per-parameter map would have derived.
+# anywhere makes the WHOLE request non-canonical -- and the request
+# then bypasses the cache, independent of what any single per-parameter map
+# would have derived.
 # ---------------------------------------------------------------------------
 
 
 def test_mixed_case_duplicate_is_noncanonical_and_the_whole_args_breaks_the_tie():
-    """codex round 4's exact finding: nginx's $arg_stretch is case-
-    INSENSITIVE, so it resolves `Stretch=minmax` (the first case-insensitive
-    match) while FastAPI's exact-case binding resolves the later
-    `stretch=percentile` -- a mode disagreement round 3's case-sensitive-only
-    duplicate detector could not see. Two requests differing only in pmin
-    must not share a key."""
+    """Nginx's $arg_stretch is case-INSENSITIVE, so it resolves
+    `Stretch=minmax` (the first case-insensitive match) while FastAPI's
+    exact-case binding resolves the later `stretch=percentile` -- a mode
+    disagreement a case-sensitive-only duplicate detector cannot see. Two
+    requests differing only in pmin must not share a key."""
     conf = _conf()
     args_5 = "Stretch=minmax&stretch=percentile&pmin=5"
     args_50 = "Stretch=minmax&stretch=percentile&pmin=50"
     assert _noncanonical(conf, args_5) == "1"
     assert _noncanonical(conf, args_50) == "1"
-    # fix(#1778 codex r6): both requests bypass the cache entirely (asserted
+    # fix(#1778): both requests bypass the cache entirely (asserted
     # structurally in test_noncanonical_requests_bypass_the_cache_instead_of_
     # being_keyed_on_it), so neither is ever cached in the first place --
     # the per-parameter fallback below is a second, independent reason they
@@ -724,7 +663,7 @@ def test_ordinary_canonical_request_is_unaffected():
 
 
 def test_duplicate_detection_finds_a_duplicate_not_starting_at_position_zero():
-    """Regression guard for the simulation itself (fix(#1778 codex r4)): the
+    """Regression guard for the simulation itself (fix(#1778)): the
     map regex must be evaluated as an unanchored SEARCH, matching nginx's own
     semantics, not a Python re.match anchored at position 0 -- otherwise a
     duplicate whose first occurrence isn't the very first key in $args would
@@ -736,7 +675,7 @@ def test_duplicate_detection_finds_a_duplicate_not_starting_at_position_zero():
 
 
 # ---------------------------------------------------------------------------
-# Duplicate `pmin`/`pmax`/`sigma` (exact lowercase, round 2/3): closed by
+# Duplicate `pmin`/`pmax`/`sigma` (exact lowercase): closed by
 # ignoring the inactive value entirely at the API AND requiring
 # well-formedness at nginx, so which occurrence either side reads matters
 # only when it changes well-formedness.
@@ -744,7 +683,7 @@ def test_duplicate_detection_finds_a_duplicate_not_starting_at_position_zero():
 
 
 def test_a_repeated_pmin_is_noncanonical_even_when_both_occurrences_are_well_formed():
-    """fix(#1778 codex r4): strict canonical form requires each of the four
+    """fix(#1778): strict canonical form requires each of the four
     names to appear AT MOST ONCE, full stop -- not merely "blank is safe
     here" reasoning about what the duplicate values happen to be. A
     repeated pmin, even same-case and even with both occurrences well-formed
@@ -777,8 +716,8 @@ def test_repeated_param_stays_raw_when_the_first_occurrence_is_not_well_formed()
 
 
 def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
-    """fix(#1778 codex r2): the collision codex's shape (b) recommendation
-    didn't cover on its own. nginx reads the FIRST `stretch` (minmax, so it
+    """fix(#1778): the collision that blanking alone
+    doesn't cover. nginx reads the FIRST `stretch` (minmax, so it
     would normally blank pmin); the API reads the LAST (percentile, so it
     actually uses pmin). Two such requests with DIFFERENT pmin values must
     NOT collapse onto one key -- that would be a genuine collision (different
@@ -789,7 +728,7 @@ def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
     args_b = "stretch=minmax&stretch=percentile&pmin=50"
     assert _noncanonical(conf, args_a) == "1"
     assert _noncanonical(conf, args_b) == "1"
-    # fix(#1778 codex r6): both bypass the cache entirely -- see
+    # fix(#1778): both bypass the cache entirely -- see
     # test_noncanonical_requests_bypass_the_cache_instead_of_being_keyed_on_it
     # -- so "must not collapse onto one key" is moot; neither is ever
     # written. The per-parameter values still differ too, independently.
@@ -799,7 +738,7 @@ def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
 def test_non_duplicated_stretch_is_unaffected_by_the_guard():
     """The guard must not blank the fast path: an ordinary, non-duplicated
     request keeps collapsing exactly as before, an out-of-range-but-valid
-    value ALSO blanks (fix(#1778 codex r5) -- range no longer matters for an
+    value ALSO blanks (fix(#1778) -- range no longer matters for an
     inactive parameter), and the active mode still keeps a value raw."""
     conf = _conf()
     assert _derive(conf, "pmin", "stretch=minmax&pmin=5") == ""
@@ -808,7 +747,7 @@ def test_non_duplicated_stretch_is_unaffected_by_the_guard():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r7): round 4 checked parameter NAMES for percent-encoding
+# fix(#1778): the name check covered percent-encoding of parameter NAMES
 # but said nothing about pmin/pmax/sigma's VALUES. nginx never decodes
 # $arg_pmin/$arg_pmax/$arg_sigma either, so a percent-encoded or
 # `+`-encoded value reaches this config as its own literal bytes while
@@ -816,13 +755,13 @@ def test_non_duplicated_stretch_is_unaffected_by_the_guard():
 # encoding of the same float is a different cache key for one identical
 # tile. A render-parameter value must match the exact float grammar
 # (`-?[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?`) or be empty, or the WHOLE request
-# is non-canonical and bypasses the cache -- the same treatment round 4
-# already gives a malformed NAME.
+# is non-canonical and bypasses the cache -- the same treatment a malformed NAME
+# already gets.
 # ---------------------------------------------------------------------------
 
 
 def test_percent_or_plus_encoded_value_is_noncanonical_and_bypasses_the_cache():
-    """The coordinator's named cases: %31 (percent-encoded "1"), +1 (a raw
+    """Cases: %31 (percent-encoded "1"), +1 (a raw
     `+`, which Starlette's query-string unescaping turns into a space before
     float() parses it), %201 (percent-encoded " 1", same result via a
     different byte sequence), and 1%2e5 (percent-encoded "1.5") each decode
@@ -887,7 +826,7 @@ def test_a_colon_inside_a_value_cannot_forge_a_false_negative():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r9): a BARE occurrence (no `=`) of stretch/pmin/pmax/sigma
+# fix(#1778): a BARE occurrence (no `=`) of stretch/pmin/pmax/sigma
 # is invisible to nginx's $arg_x lookup (ngx_http_arg requires an immediate
 # `=` after the name to resolve it at all) but is a real ("name", "") pair
 # to Starlette (keep_blank_values=True). `?stretch=minmax&pmin=5&pmin` has
@@ -895,8 +834,8 @@ def test_a_colon_inside_a_value_cannot_forge_a_false_negative():
 # scan never matches the bare occurrence and keeps looking), while FastAPI's
 # scalar Query reads the LAST occurrence -- the bare one, "" -- and 422s on
 # it unconditionally, before the "ignore when inactive" logic ever runs.
-# That request read as perfectly canonical to every check before round 9,
-# so it collapsed onto the plain `?stretch=minmax` cache entry: warm 200,
+# Without a bare-occurrence check that request reads as perfectly canonical,
+# so it collapses onto the plain `?stretch=minmax` cache entry: warm 200,
 # cold 422.
 # ---------------------------------------------------------------------------
 
@@ -930,7 +869,7 @@ def test_bare_occurrence_alone_is_noncanonical():
 def test_bare_occurrence_positive_control_stays_canonical():
     """Positive control: `pmin=5` alone, with or without a sibling
     well-formed parameter, and with no bare occurrence anywhere, must stay
-    canonical -- the round-9 guard must not fire on an ordinary, single,
+    canonical -- the bare-occurrence guard must not fire on an ordinary, single,
     well-formed occurrence."""
     conf = _conf()
     assert _noncanonical(conf, "stretch=minmax&pmin=5") == "0"

@@ -180,10 +180,10 @@ function CopyableUrl({
   );
 }
 
-/** fix(#1395 codex round 3): title alone can collide — `uq_record_distribution`
+/** Title alone can collide — `uq_record_distribution`
  * covers (record_id, distribution_type, format, url), not title, so two
  * manual rows are free to share one, and a truncated URL is only unique
- * up to whatever the truncation cuts off (round 2's fix). The row's own
+ * up to whatever the truncation cuts off. The row's own
  * `id` is the one field the database actually guarantees is unique — use it
  * untruncated instead of a heuristic. */
 function distributionLabel(distribution: DistributionResponse): string {
@@ -200,7 +200,7 @@ function distributionLabel(distribution: DistributionResponse): string {
  * PATCHes it to `is_primary: true`, which the backend applies as a
  * last-write-wins demote of every other row on the record (#1383).
  *
- * fix(#1395 codex round 1): `isMutating` disables every sibling control
+ * `isMutating` disables every sibling control
  * while any promotion is in flight, not just the clicked one — two manual
  * rows both idle-looking would otherwise let a second click fire a
  * concurrent PATCH, and since both transactions demote-then-promote against

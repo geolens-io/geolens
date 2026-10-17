@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""fix(#1778 review round 8): structural gate — every --wait poll loop in
+"""Structural gate — every --wait poll loop in
 this package must call call_sdk() with reraise_timeout=True (routed through
 _sdk_helpers.poll_until), not the plain default that treats a per-request
 httpx.TimeoutException as immediately fatal.
@@ -9,7 +9,7 @@ reraise_timeout, so one slow status GET made `geolens refresh --wait` exit
 EXIT_NETWORK immediately even with the operation's own deadline nowhere
 near reached (or, for the default unbounded --wait, with no deadline at
 all). resolve_dataset_id() (publish.py, shared by `publish --wait` and
-`analysis materialize --wait`) was fixed for this in round 7.
+`analysis materialize --wait`) was fixed for this earlier.
 
 Uses ``ast`` rather than a bare text grep so a match inside a comment or a
 docstring (this module's own docstring included) cannot produce a false
@@ -93,7 +93,7 @@ def test_every_poll_loop_calls_call_sdk_with_reraise_timeout() -> None:
 
 
 class TestPollUntilDeadlineDiscipline:
-    """fix(#1778 review round 16): poll_until()'s loop checked the
+    """poll_until()'s loop checked the
     deadline only AFTER a timeout, then slept the FULL interval
     regardless of how much time actually remained, and looped straight
     back into fetch() with no recheck at all -- only the NEXT timeout

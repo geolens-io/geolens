@@ -1,5 +1,5 @@
 /**
- * fix(#1708 codex r19): a URL import must survive the form unmounting.
+ * A URL import must survive the form unmounting.
  *
  * The Import page renders tabs conditionally, so switching away mid-import
  * unmounts UrlImportForm. The request keeps running server-side, so if the
@@ -22,7 +22,7 @@ vi.mock('@/api/ingest', () => ({
   uploadFromUrl: (...args: unknown[]) => mockUploadFromUrl(...args),
   previewFile: (...args: unknown[]) => mockPreviewFile(...args),
   commitImport: (...args: unknown[]) => mockCommitImport(...args),
-  // fix(review #1800 P2): UrlImportForm's preview-failure handling now
+  // UrlImportForm's preview-failure handling now
   // calls these to decide whether the failed job is still retryable.
   getJobStatus: (...args: unknown[]) => mockGetJobStatus(...args),
   cancelJob: (...args: unknown[]) => mockCancelJob(...args),
@@ -174,7 +174,7 @@ describe('UrlImportForm unmount survival', () => {
   });
 
   test('unmounting mid-commit resumes into tracking, not a blank form', async () => {
-    // fix(#1708 codex r20): r19 covered fetch+preview but cleared the
+    // An earlier version covered fetch+preview but cleared the
     // session on commit success, so an unmount while commitImport() was in
     // flight wrote `tracking` into a dead component and left the user with
     // a blank form on return — while the ingest was really running.
@@ -202,7 +202,7 @@ describe('UrlImportForm unmount survival', () => {
     await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
 
     // The user switches tabs while the commit is still in flight, and
-    // comes back BEFORE it settles — the r21 case: there is no outcome to
+    // comes back BEFORE it settles — the mid-commit case: there is no outcome to
     // sample yet, so the mount must subscribe.
     view.unmount();
     expect(peekUrlImport()?.commit).not.toBeNull();

@@ -181,7 +181,7 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(layerSpecs.every((spec) => spec['source-layer'] === 'data.points')).toBe(true);
   });
 
-  // fix(#403): server-cluster sources forward the data-driven / popup columns
+  // Server-cluster sources forward the data-driven / popup columns
   // as cols= so UNCLUSTERED features (past cluster max zoom) keep the
   // attributes their categorical paint and popups reference.
   it('forwards data-driven columns to the server-cluster tile URL', () => {

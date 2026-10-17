@@ -72,7 +72,7 @@ def _install_transport(monkeypatch, handler, *, validate=None):
             result = handler(request)
             if inspect.isawaitable(result):
                 result = await result
-            # fix(#1708 codex r11): the fetch reads aiter_raw (compression-
+            # fix(#1708): the fetch reads aiter_raw (compression-
             # bomb hardening), and a Response built with content=... has its
             # stream pre-consumed — aiter_raw then raises StreamConsumed.
             # Real network responses are always live streams, so rebuild
@@ -209,7 +209,7 @@ class TestUrlImportSsrf:
             "http://10.0.0.5/data.geojson",  # RFC 1918
             "http://192.168.1.10/data.geojson",  # RFC 1918
             "http://169.254.169.254/latest.geojson",  # link-local / IMDS
-            "http://100.64.0.1/data.geojson",  # CGNAT (SEC-013)
+            "http://100.64.0.1/data.geojson",  # CGNAT
             "http://[::1]/data.geojson",  # IPv6 loopback
         ],
     )
@@ -269,7 +269,7 @@ class TestUrlImportFilename:
     async def test_disallowed_extension_rejected(
         self, client: AsyncClient, admin_auth_header: dict, monkeypatch
     ):
-        # fix(#1708 codex r4): the SSRF gate now runs BEFORE the allowlist
+        # fix(#1708): the SSRF gate now runs BEFORE the allowlist
         # check (so its unbounded DNS never overlaps a checked-out
         # connection); stub it so this unresolvable mock host reaches the
         # extension refusal it is testing.
@@ -285,7 +285,7 @@ class TestUrlImportFilename:
     async def test_ssrf_gate_runs_before_any_handler_db_work(
         self, client: AsyncClient, admin_auth_header: dict, monkeypatch
     ):
-        """fix(#1708 codex r4): pins the reorder. The SSRF gate (with its
+        """fix(#1708): pins the reorder. The SSRF gate (with its
         unbounded getaddrinfo) must run before the handler's first DB call,
         so a DNS stall holds no pool connection. A refused URL must
         therefore never reach the allowlist fetch — if someone reorders the
@@ -430,7 +430,7 @@ class TestUrlImportFetch:
         assert staged.read_bytes() == GEOJSON
         # No raster stamp for a vector file.
         assert (job.user_metadata or {}).get("file_type") is None
-        # fix(#1708 codex r6): staging completion restarts the pending
+        # fix(#1708): staging completion restarts the pending
         # review window; the stamp the sweep's coalesce reads must exist.
         assert (job.user_metadata or {}).get("staged_at")
 
@@ -745,7 +745,7 @@ class TestUrlImportFetch:
 
 
 # ---------------------------------------------------------------------------
-# Round-2 review findings (#1708): malformed URLs, and the running lease
+# #1708: malformed URLs, and the running lease
 # that keeps the stale-pending sweep off an in-progress fetch
 # ---------------------------------------------------------------------------
 
@@ -754,7 +754,7 @@ class TestUrlImportMalformedUrl:
     async def test_malformed_authority_is_400_not_500(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """fix(#1708 codex r2): urlparse raises ValueError on 'http://[/...';
+        """fix(#1708): urlparse raises ValueError on 'http://[/...';
         derivation ran before the guarded block, so this exact payload 500ed."""
         resp = await client.post(
             "/ingest/upload/url",
@@ -796,7 +796,7 @@ class TestUrlImportReaperInteraction:
     async def test_mid_fetch_row_shape_is_invisible_to_the_pending_sweep(
         self, client, test_db_session
     ):
-        """fix(#1708 codex r2): the sweep-exclusion claim, tested against the
+        """fix(#1708): the sweep-exclusion claim, tested against the
         sweep's OWN clause set rather than a paraphrase of it.
 
         Two rows aged past any legal pending_job_timeout_seconds (backdated a
@@ -878,7 +878,7 @@ class TestUrlImportReaperInteraction:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r2): the post-fetch transition is a guarded CAS.
+        """fix(#1708): the post-fetch transition is a guarded CAS.
 
         The transport handler plays the reaper: it flips the row to 'failed'
         mid-download through an independent session. The completion's
@@ -921,7 +921,7 @@ class TestUrlImportReaperInteraction:
     async def test_staged_pending_row_gets_a_fresh_review_window(
         self, client, test_db_session
     ):
-        """fix(#1708 codex r6): the running lease covers the fetch, but the
+        """fix(#1708): the running lease covers the fetch, but the
         completion CAS used to return the row to 'pending' with created_at
         unchanged — at the 61s floor of pending_job_timeout_seconds the sweep
         could reap the freshly staged local-mode import while the user was
@@ -985,7 +985,7 @@ class TestUrlImportReaperInteraction:
 
 
 # ---------------------------------------------------------------------------
-# Round-5 review findings (#1708): filesystem-invalid names refused before a
+# #1708: filesystem-invalid names refused before a
 # job exists; the wall clock covering connect/headers; cleanup that can never
 # preempt the failure stamp
 # ---------------------------------------------------------------------------
@@ -995,7 +995,7 @@ class TestUrlImportControlCharacters:
     async def test_nul_in_url_path_rejected_before_job_creation(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#1708 codex r5): '/roads%00.geojson' decodes to a NUL-bearing
+        """fix(#1708): '/roads%00.geojson' decodes to a NUL-bearing
         basename that passes the suffix/allowlist checks and blows up only at
         open() — after the running-commit, with the cleanup unlink raising
         again on the same path before the failure CAS. Exact payload; the
@@ -1044,7 +1044,7 @@ class TestUrlImportWallClock:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r5): the deadline used to be polled only between
+        """fix(#1708): the deadline used to be polled only between
         body chunks, so a stall during connect/DNS/headers ran outside it.
         The transport here never yields a response until well past the
         (patched) deadline — the download must still fail cleanly inside the
@@ -1079,7 +1079,7 @@ class TestUrlImportCleanupHardening:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r5): the stuck-running SHAPE, not just the NUL
+        """fix(#1708): the stuck-running SHAPE, not just the NUL
         instance. Whatever makes a cleanup step raise, the failure CAS must
         still run — here every unlink of this job's staged file throws, the
         origin 404s, and the row must still land 'failed' with the real
@@ -1108,7 +1108,7 @@ class TestUrlImportCleanupHardening:
 
 
 # ---------------------------------------------------------------------------
-# Round-7 review findings (#1708): the S3-mode completions of the two
+# #1708: the S3-mode completions of the two
 # families — the CAS lands the staging key, and the byte quota is charged
 # only once the object exists
 # ---------------------------------------------------------------------------
@@ -1158,7 +1158,7 @@ class TestUrlImportS3Staging:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r7 P1-A): pins the ordering. The byte-quota check
+        """fix(#1708): pins the ordering. The byte-quota check
         runs AFTER the staging put, in the same short transaction as the CAS,
         so a put that fails must short-circuit before any byte-charged quota
         call — and the job must still settle failed."""
@@ -1196,7 +1196,7 @@ class TestUrlImportS3Staging:
 
 
 # ---------------------------------------------------------------------------
-# Round-8 review finding (#1708): the preflight DNS bound
+# #1708: the preflight DNS bound
 # ---------------------------------------------------------------------------
 
 
@@ -1208,7 +1208,7 @@ class TestUrlImportPreflightDnsBound:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r8): submission-time getaddrinfo has no bound of
+        """fix(#1708): submission-time getaddrinfo has no bound of
         its own. A validator that never returns must fail cleanly at the
         (patched) preflight bound, name DNS as the cause, and leave no job
         row — the gate runs before any job exists."""
@@ -1236,7 +1236,7 @@ class TestUrlImportPreflightDnsBound:
 
 
 # ---------------------------------------------------------------------------
-# Round-9 review finding (#1708): staging-path setup can never strand a
+# #1708: staging-path setup can never strand a
 # running row
 # ---------------------------------------------------------------------------
 
@@ -1250,7 +1250,7 @@ class TestUrlImportStagingDirFailure:
         tmp_path,
         monkeypatch,
     ):
-        """fix(#1708 codex r9): mkdir of upload_staging_dir used to run
+        """fix(#1708): mkdir of upload_staging_dir used to run
         outside the settlement guard, so a read-only parent left the job
         stranded 'running' for the full lease. feat(#1710) moved it into the
         task's guarded block: the same failure must now settle the row."""
@@ -1283,7 +1283,7 @@ class TestUrlImportStagingDirFailure:
 
 
 # ---------------------------------------------------------------------------
-# Round-10 review finding (#1708): the stream cap honors the caller's
+# #1708: the stream cap honors the caller's
 # remaining byte quota, not just the instance upload max
 # ---------------------------------------------------------------------------
 
@@ -1309,7 +1309,7 @@ class TestUrlImportQuotaCappedStream:
     ):
         """Zero remaining quota refuses before any origin contact.
 
-        fix(#1708 codex r10): no bandwidth spent and nothing staged.
+        fix(#1708): no bandwidth spent and nothing staged.
         fix(#1710): the refusal runs inside the task's settlement, so the
         row is stamped failed rather than left running for the lease.
         """
@@ -1341,7 +1341,7 @@ class TestUrlImportQuotaCappedStream:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r10): the mid-stream cap is min(instance max,
+        """fix(#1708): the mid-stream cap is min(instance max,
         remaining quota). 100 KB of quota left against a 192 KB body with no
         Content-Length: the stream must be cut at the quota, with the
         settled failure naming the quota rather than the instance limit."""
@@ -1402,7 +1402,7 @@ class TestUrlImportQuotaCappedStream:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r10): the preflight cap is advisory admission
+        """fix(#1708): the preflight cap is advisory admission
         control; the post-stage check stays authoritative and is charged the
         bytes that actually landed. Quota consumed by a concurrent actor
         DURING the fetch must still be caught, with the staged bytes gone."""
@@ -1438,7 +1438,7 @@ class TestUrlImportQuotaCappedStream:
 
 
 # ---------------------------------------------------------------------------
-# Round-11 review findings (#1708): compression bombs never reach a
+# #1708: compression bombs never reach a
 # decompressor, and an ambiguous final commit never deletes live bytes
 # ---------------------------------------------------------------------------
 
@@ -1451,7 +1451,7 @@ class TestUrlImportCompressionRefusal:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r11): a Content-Encoding response is refused by
+        """fix(#1708): a Content-Encoding response is refused by
         design, before any body handling. The body here is NOT valid gzip —
         anything that routed it through a decompressor would raise
         DecodingError instead of our deterministic refusal — and the request
@@ -1491,7 +1491,7 @@ class TestUrlImportAmbiguousCommit:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r11): the final commit was durably applied but the
+        """fix(#1708): the final commit was durably applied but the
         acknowledgement raised. Settlement must probe on a fresh session,
         see the pending row bound to the staged path, and stand down — the
         staged bytes survive and the row stays coherent."""
@@ -1557,7 +1557,7 @@ class TestUrlImportAmbiguousCommit:
 
 
 # ---------------------------------------------------------------------------
-# Round-14 review findings (#1708): the ambiguous-commit probe fires ONLY for
+# #1708: the ambiguous-commit probe fires ONLY for
 # a genuinely ambiguous commit, and settlement releases its connection first
 # ---------------------------------------------------------------------------
 
@@ -1570,7 +1570,7 @@ class TestUrlImportSettlementScope:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r14): an ordinary post-stage failure (quota race)
+        """fix(#1708): an ordinary post-stage failure (quota race)
         has a KNOWN outcome, so it must not open the probe's fresh session —
         which, held alongside its own still-open transaction, is what could
         exhaust the pool. It must also roll back BEFORE any settlement work,
@@ -1642,7 +1642,7 @@ class TestUrlImportSettlementScope:
         test_db_session,
         monkeypatch,
     ):
-        """The narrowing must not disarm the r11 protection: an exception
+        """The narrowing must not disarm the compression-bomb protection: an exception
         out of the final commit still reaches the probe and stands down."""
 
         async def ack_lost(db) -> None:
@@ -1676,7 +1676,7 @@ class TestUrlImportSettlementScope:
 
 
 # ---------------------------------------------------------------------------
-# Round-15 review finding (#1708): the landed stand-down keeps the artifact
+# #1708: the landed stand-down keeps the artifact
 # the ROW references and drops the copy nothing references
 # ---------------------------------------------------------------------------
 
@@ -1689,7 +1689,7 @@ class TestUrlImportLandedStandDownCleanup:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1708 codex r15): under S3 the pending row records only the
+        """fix(#1708): under S3 the pending row records only the
         staging key, so the local file is a redundant sniff copy that NO
         reaper can discover — the stand-down's early return used to leak one
         per ambiguous commit. The S3 object must survive (the row points at

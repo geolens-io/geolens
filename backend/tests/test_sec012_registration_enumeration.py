@@ -1,4 +1,4 @@
-"""Regression tests for SEC-012: registration response enumeration.
+"""Regression tests for registration response enumeration.
 
 A collision on username or email must return the SAME status code and response
 body shape as a brand-new registration — no 400/409/distinguishable signal.
@@ -43,7 +43,7 @@ async def _register(
 
 
 # ---------------------------------------------------------------------------
-# SEC-012: uniform response on collision
+# Uniform response on collision
 # ---------------------------------------------------------------------------
 
 
@@ -65,7 +65,7 @@ class TestSec012UniformRegistrationResponse:
     async def test_duplicate_username_returns_same_status_as_new(
         self, client: AsyncClient, monkeypatch
     ):
-        """SEC-012: a duplicate username must return 201, not 409/400.
+        """A duplicate username must return 201, not 409/400.
 
         This test FAILS before the fix (router raises 409 Conflict on ValueError
         from register_user) and PASSES after (uniform pending response).
@@ -95,7 +95,7 @@ class TestSec012UniformRegistrationResponse:
     async def test_duplicate_email_returns_same_status_as_new(
         self, client: AsyncClient, monkeypatch
     ):
-        """SEC-012: a duplicate email must return 201, not 409/400."""
+        """A duplicate email must return 201, not 409/400."""
         monkeypatch.setattr(
             REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
         )
@@ -120,7 +120,7 @@ class TestSec012UniformRegistrationResponse:
     async def test_collision_does_not_create_duplicate_row(
         self, client: AsyncClient, monkeypatch, test_db_session: AsyncSession
     ):
-        """SEC-012: on a username collision no extra DB row must be created."""
+        """On a username collision no extra DB row must be created."""
         monkeypatch.setattr(
             REGISTRATION_ENABLED, "get_uncached", AsyncMock(return_value=True)
         )

@@ -12,7 +12,7 @@ Two conformance gaps are pinned here:
    by STAC and rejected by OGC Features, per-dataset features, export and
    catalog search. OGC API Features and STAC both define a bbox with
    lower <= upper latitude, so a degenerate box is legal and every surface now
-   accepts it. Non-finite coordinates (SEC-FU-06) stay rejected everywhere.
+   accepts it. Non-finite coordinates stay rejected everywhere.
 """
 
 import uuid
@@ -34,7 +34,7 @@ from tests.factories import get_user_id
 ZERO_HEIGHT_BBOX = "-74.10,40.70,-73.90,40.70"
 # Inverted latitude: south > north. Invalid on every surface.
 INVERTED_BBOX = "-74.10,40.80,-73.90,40.70"
-# SEC-FU-06: non-finite coordinates are rejected on every surface.
+# Non-finite coordinates are rejected on every surface.
 NAN_BBOX = "-74.10,nan,-73.90,40.80"
 
 
@@ -279,7 +279,7 @@ async def test_inverted_latitude_bbox_rejected_on_every_surface(
 async def test_non_finite_bbox_rejected_on_every_surface(
     client: AsyncClient, stac_raster_dataset: Dataset, vector_dataset: Dataset
 ):
-    """SEC-FU-06 survives the move to the shared parser on all callers."""
+    """Non-finite bbox rejection survives the move to the shared parser on all callers."""
     responses = {
         "stac_items": await client.get(
             f"/stac/collections/{STAC_UNASSIGNED}/items", params={"bbox": NAN_BBOX}

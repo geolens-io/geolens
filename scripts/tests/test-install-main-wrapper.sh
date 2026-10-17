@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regression test for GAP-025: scripts/install.sh must run inside a main()
+# Regression test: scripts/install.sh must run inside a main()
 # function invoked by a single `main "$@"` on the LAST line.
 #
 # Under `curl -fsSL .../install.sh | sh`, statements stream and execute as they

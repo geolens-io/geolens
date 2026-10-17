@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""GAP-026 guard: shipped SDK quickstarts/docstrings show base_url WITH /api.
+"""Guard: shipped SDK quickstarts/docstrings show base_url WITH /api.
 
 The deployed GeoLens API is served under ``/api`` and the generated SDK paths
 are origin-relative (no prefix), so every published quickstart example must use

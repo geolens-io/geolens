@@ -1,4 +1,4 @@
-"""Regression tests for GAP-031: no unauthenticated /assets/{key} proxy URL emitted.
+"""Regression tests: no unauthenticated /assets/{key} proxy URL emitted.
 
 _proxy_url emitted /assets/{key} which:
   - Collides with the nginx SPA /assets/ location (serves bundle, not storage)
@@ -6,8 +6,8 @@ _proxy_url emitted /assets/{key} which:
   - Is unauthenticated and uncontained
 
 The fix: resolve_asset_url returns None for the dead local-storage proxy path
-instead of a bare /assets/{key} URL. Since dataset_assets is never populated
-(BUG-041), this changes no live output.
+instead of a bare /assets/{key} URL. Since dataset_assets is never populated,
+this changes no live output.
 
 Fail-before / pass-after protocol: these tests MUST FAIL on unpatched code.
 """
@@ -18,7 +18,7 @@ PUBLIC_API_URL = "http://localhost:8000"
 
 
 class TestGap031NoProxyUrl:
-    """GAP-031: resolve_asset_url must not emit bare /assets/{key} proxy URLs."""
+    """resolve_asset_url must not emit bare /assets/{key} proxy URLs."""
 
     def test_local_published_data_returns_none_not_proxy(self):
         """Local storage published data asset must NOT produce /assets/{key}."""
@@ -122,7 +122,7 @@ class TestRemoteHrefPassThrough:
     A STAC import persists the publisher's absolute http(s) COG URL as a
     ``dataset_assets`` href. That URL is already public in the origin
     catalog — it is not managed storage, so neither the presign branch nor
-    the GAP-031 refusal applies, on any backend and at any record status.
+    the refusal applies, on any backend and at any record status.
     """
 
     def test_https_href_passes_through_on_local_storage(self):

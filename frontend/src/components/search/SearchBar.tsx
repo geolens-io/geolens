@@ -17,13 +17,13 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   const { t } = useTranslation('search');
   const query = useSearchStore((s) => s.q);
   const resetEpoch = useSearchStore((s) => s.resetEpoch);
-  // fix(#1761 review round 6): `value` and the epoch it was typed under
+  // `value` and the epoch it was typed under
   // travel together in ONE state slot, set atomically by the same call.
-  // Round 4's fix derived the paired epoch reactively (`useMemo` over
-  // `[value, resetEpoch]`), which reads the CURRENT `resetEpoch` even in a
-  // render where `value` has not been reset yet — codex reproduced exactly
-  // that torn intermediate pairing (new epoch, stale text) by advancing the
-  // debounce timer in the same batch as an identity change. Setting both
+  // Deriving the paired epoch reactively (`useMemo` over
+  // `[value, resetEpoch]`) reads the CURRENT `resetEpoch` even in a
+  // render where `value` has not been reset yet, which yields a torn
+  // intermediate pairing (new epoch, stale text) when the
+  // debounce timer fires in the same batch as an identity change. Setting both
   // fields together, only from the input's own onChange/clear handlers and
   // from the resets below, means `entry.epoch` can only ever be the epoch
   // that was live at the moment `entry.value` was actually produced.
@@ -35,7 +35,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // fix(#1761 review round 6): reject a debounced result whose captured
+    // Reject a debounced result whose captured
     // epoch no longer matches the live one — it was typed under an
     // identity that is no longer current. The reset below re-arms a fresh
     // debounce for the cleared text under the new epoch.
@@ -50,7 +50,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
     setEntry((prev) => ({ ...prev, value: query }));
   }, [query]);
 
-  // fix(#1761 review P2, extracted round 4): an identity change bumps
+  // An identity change bumps
   // resetEpoch even when `q` was already '' (nothing had been committed to
   // the store yet), so the `[query]` effect above sees no change and does
   // not fire. Resetting `value` here changes useDebouncedValue's input,

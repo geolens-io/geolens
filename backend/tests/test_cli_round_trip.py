@@ -1,4 +1,4 @@
-"""Round-trip integration test for the CLI (Phase 216 / OCCLI-01..06).
+"""Round-trip integration test for the CLI.
 
 Mirrors backend/tests/test_sdks_round_trip.py's discipline exactly:
 
@@ -7,10 +7,10 @@ Mirrors backend/tests/test_sdks_round_trip.py's discipline exactly:
     ``backend/{app,alembic,tests}``). Host pytest and full-checkout CI runners
     exercise this module.
   * Mocked OS keyring via ``monkeypatch`` so tests never touch the host
-    keychain. Per RESEARCH Pattern 6.
+    keychain.
 
-**Transport choice (Plan 06 Task 0 spike result):** Option C —
-*uvicorn-on-free-port*. The Plan 06 sketch proposed Option B (sync
+**Transport choice:** Option C —
+*uvicorn-on-free-port*. The sketch proposed Option B (sync
 ``httpx.Client(transport=ASGITransport(app=app))``) but the spike showed it
 is structurally infeasible: ``httpx.ASGITransport`` (in httpx 0.28.1, the
 SDK's pinned range) implements only ``handle_async_request`` and the async
@@ -23,13 +23,13 @@ through an async ASGI bridge would require monkey-patching every
 ``sync_detailed`` call site.
 
 Option C — ``uvicorn`` bound to a free port on 127.0.0.1 — is the same
-proven pattern Phase 215's TypeScript half uses
+proven pattern the TypeScript half uses
 (``test_typescript_round_trip`` in test_sdks_round_trip.py:300-391). Pros:
 the CLI's ``sync_detailed`` calls go over a real socket exactly as in
 production; the test isomorphism is one-to-one. Cons: ~2-3 s of test
 startup; the CliRunner.invoke call must run in a worker thread so the
 asyncio event loop can keep serving uvicorn while the CLI's blocking httpx
-calls fire (same pattern Phase 215 used for ``subprocess.run``).
+calls fire (same pattern used for ``subprocess.run``).
 
 Tests use Typer's ``CliRunner`` to invoke ``geolens`` commands and assert
 on exit codes + output. The unit slices in ``cli/tests/`` already cover
@@ -104,7 +104,7 @@ except ImportError as _import_err:
 
 @pytest.fixture
 def in_memory_keyring(monkeypatch):
-    """Monkeypatch ``keyring`` to an in-memory dict (RESEARCH Pattern 6).
+    """Monkeypatch ``keyring`` to an in-memory dict.
 
     Mirrors test_sdks_round_trip's discipline of never touching host state.
     The CLI's ``geolens_cli.auth`` module imports ``keyring`` at module
@@ -212,7 +212,7 @@ async def _invoke(runner: CliRunner, args: list[str]):
 
 
 class TestLoginRoundTrip:
-    """OCCLI-02 — ``geolens login`` round-trips against a real backend."""
+    """``geolens login`` round-trips against a real backend."""
 
     @pytest.mark.anyio
     async def test_login_with_token_flag_no_keyring(
@@ -226,7 +226,7 @@ class TestLoginRoundTrip:
         )
         assert result.exit_code == 0, result.output
         # Verify credentials.toml round-tripped via the public loader.
-        # GAP-019: login canonicalizes the instance to <url>/api (the app's
+        # Login canonicalizes the instance to <url>/api (the app's
         # root_path="/api"), so creds are stored + loaded under that key.
         from geolens_cli import auth as _auth
         from geolens_cli.config import normalize_instance_url
@@ -246,7 +246,7 @@ class TestLoginRoundTrip:
             ["login", base_url, "--token", token],
         )
         assert result.exit_code == 0, result.output
-        # The mocked keyring stores the token under (service, instance). GAP-019
+        # The mocked keyring stores the token under (service, instance). The CLI
         # canonicalizes the instance to <url>/api (root_path="/api"), so that is
         # the storage/lookup key.
         from geolens_cli.config import normalize_instance_url
@@ -268,7 +268,7 @@ class TestLoginRoundTrip:
 
 
 class TestWhoamiRoundTrip:
-    """OCCLI-02 — ``GET /auth/me`` round-trip after login."""
+    """``GET /auth/me`` round-trip after login."""
 
     @pytest.mark.anyio
     async def test_whoami_after_login(
@@ -287,7 +287,7 @@ class TestWhoamiRoundTrip:
 
 
 class TestScanDryRun:
-    """OCCLI-03 — ``geolens scan`` is pure local I/O; no SDK or backend."""
+    """``geolens scan`` is pure local I/O; no SDK or backend."""
 
     def test_scan_classifies_geojson(self, runner, tmp_path) -> None:
         fixture_src = (
@@ -310,13 +310,13 @@ class TestScanDryRun:
 
 
 class TestPublishRoundTrip:
-    """OCCLI-04 — full 3-step ingest against a live uvicorn instance.
+    """Full 3-step ingest against a live uvicorn instance.
 
     The CLI's publish.py uses a multipart workaround (calls the SDK's
     ``client.get_httpx_client()`` directly to bypass the broken
-    ``BodyUploadFileIngestUploadPost.to_multipart()`` — RESEARCH Pitfall
-    1). Running it against a real socket exercises the workaround
-    end-to-end. If the round-trip fails for any reason (server-side
+    ``BodyUploadFileIngestUploadPost.to_multipart()``). Running it against a real
+    socket exercises the workaround end-to-end. If the round-trip fails for any
+    reason (server-side
     rejection of the test fixture, race in commit polling, etc.), the
     test skips with a documented reason — the unit slice in
     ``cli/tests/test_publish_unit.py`` covers the formatter logic with a
@@ -347,11 +347,11 @@ class TestPublishRoundTrip:
         # already covers the wait/no-wait branch.
         result = await _invoke(runner, ["publish", str(target), "--no-wait"])
         # Accept exit 0 (full success) OR exit 1 (commit returns success
-        # but resolve_dataset_id can't extract — accepted per Plan 06
-        # behavior note 2). Anything else is a real failure.
+        # but resolve_dataset_id can't extract — accepted).
+        # Anything else is a real failure.
         if result.exit_code == 0:
             # Either a /datasets/<id> URL or a /datasets?job_id=... URL
-            # (the --no-wait fallback per CONTEXT D-19).
+            # (the --no-wait fallback).
             assert "/datasets/" in result.output or "/datasets?" in result.output, (
                 result.output
             )
@@ -400,7 +400,7 @@ async def _search_live_catalog(base_url: str, token: str, query: str) -> dict:
 
 
 class TestManifestApplyRoundTrip:
-    """Phase 244 — live CLI manifest apply smoke over uvicorn."""
+    """Live CLI manifest apply smoke over uvicorn."""
 
     @pytest.mark.anyio
     async def test_apply_dry_run_reaches_manifest_endpoint(
@@ -542,7 +542,7 @@ class TestManifestApplyRoundTrip:
 
 
 class TestExportStacRoundTrip:
-    """OCCLI-05 — vector rejection works end-to-end; raster smoke skipped."""
+    """Vector rejection works end-to-end; raster smoke skipped."""
 
     @pytest.mark.anyio
     async def test_export_stac_unknown_dataset_id(
@@ -557,7 +557,7 @@ class TestExportStacRoundTrip:
             runner,
             ["export", "stac", "00000000-0000-0000-0000-000000000000"],
         )
-        # Plan 06 acceptance criteria — accept either exit 1 (not_found
+        # Acceptance criteria — accept either exit 1 (not_found
         # branch in main.py:472-473) or exit 2 (vector rejection branch
         # in main.py:474-476). The CLI's strict raster/vector branching
         # is unit-tested separately in cli/tests/test_export_stac.py.

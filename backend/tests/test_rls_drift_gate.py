@@ -1,4 +1,4 @@
-"""ISO-03 mode-aware RLS drift gate (Phase 1208-03).
+"""Mode-aware RLS drift gate.
 
 Reflects ``pg_policies`` + ``pg_class.relrowsecurity/relforcerowsecurity`` for
 the tenant-shared control-plane boundary and compares the live state to the
@@ -182,7 +182,7 @@ def _assert_policies_match_snapshot(
             f"  Snapshot with_check: {snap['with_check']!r}"
         )
 
-        # 2. IS NULL escape forbidden (fail-open regression — ISO-02).
+        # 2. IS NULL escape forbidden (fail-open regression).
         assert "IS NULL" not in qual.upper(), (
             f"ISO-03 DRIFT: Policy {name!r} qual contains IS NULL "
             f"(fail-open escape — forbidden by ISO-02).\n"

@@ -124,7 +124,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // codex on #908: MapLibre puts the failing tile URL in the AJAXError message,
+  // MapLibre puts the failing tile URL in the AJAXError message,
   // so without normalization one broken source counts once per visible tile and
   // the badge still runs to 9+.
   it('counts one failure for every failing tile of the same source', () => {
@@ -140,7 +140,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
-  // codex round 2 on #908: dropping the whole query string merged two cluster
+  // Dropping the whole query string merged two cluster
   // layers over the same dataset, which are distinct sources.
   it('keeps two cluster sources over one dataset apart', () => {
     for (const radius of [50, 80]) {
@@ -188,7 +188,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // codex round 3 on #908: message-only correlation is for the maplibre/console
+  // Message-only correlation is for the maplibre/console
   // pair. Two boundaries throwing the same common message from different panels
   // are two failures. (Back-to-back identical rows are collapsed by the buffer
   // itself, so this is the interleaved case — the one the key decides.)
@@ -211,7 +211,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(3);
   });
 
-  // codex round 4 on #908: getSourceIdForLayer gives each cluster layer its own
+  // getSourceIdForLayer gives each cluster layer its own
   // MapLibre source, so two broken layers over one dataset can fail with
   // byte-identical URLs. Those are two failures.
   it('keeps two failing map sources apart even with identical urls', () => {
@@ -239,7 +239,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
-  // codex round 4 on #908: an admin-configured remote style may address tiles by
+  // An admin-configured remote style may address tiles by
   // quadkey or bbox, where there is no z/x/y triple to normalize.
   it('collapses a broken quadkey-addressed basemap to one failure', () => {
     for (const quadkey of ['0313102310', '0313102311', '0313102312']) {
@@ -298,10 +298,10 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
-  // codex round 5 on #908: MapLibre's {prefix} resolves to a per-tile shard
+  // MapLibre's {prefix} resolves to a per-tile shard
   // label in the hostname, so one broken sharded basemap otherwise counts once
   // per tile.
-  // codex rounds 6-9 on #908: a resolved `{prefix}` shard cannot be told apart
+  // A resolved `{prefix}` shard cannot be told apart
   // from a meaningful short label in a single URL — `a.tiles…` looks exactly
   // like `ca.tiles…`, and both basemaps carry the fixed source id `basemap`.
   // Guessing merged two genuinely different basemaps, so this keeps them
@@ -319,7 +319,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // codex round 6/7 on #908: a resolved path-segment {prefix} cannot be told
+  // A resolved path-segment {prefix} cannot be told
   // apart from a meaningful static segment in a single URL, so it is left
   // alone — keeping two real sources distinct matters more to a problem
   // reporter than collapsing a sharded one.
@@ -335,7 +335,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // codex round 7 on #908: {ratio} resolves to an @2x suffix on a retina
+  // {ratio} resolves to an @2x suffix on a retina
   // display. Note what the buffer actually stores: redact() runs at capture and
   // reads `/1539@2x.png` as an email, so the y coordinate is already gone by
   // the time the key is computed.
@@ -351,7 +351,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
-  // codex round 8 on #908: toMaplibreStyle gives every custom basemap the fixed
+  // toMaplibreStyle gives every custom basemap the fixed
   // source id `basemap`, so the id alone merged two different failing basemaps.
   it('keeps two custom basemaps apart despite their shared source id', () => {
     for (const host of ['a-tiles.example.com', 'b-tiles.example.com']) {
@@ -366,7 +366,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // codex round 10 on #908: a validator-accepted template may put a static
+  // A validator-accepted template may put a static
   // suffix after the coordinates, which every shape-anchored rule missed.
   it('collapses coordinates followed by a static path suffix', () => {
     for (const [x, y] of [[1205, 1539], [1206, 1539], [1205, 1540]]) {
@@ -380,7 +380,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
-  // codex round 11 on #908: a template may carry the whole tile address in the
+  // A template may carry the whole tile address in the
   // query string, which the custom-basemap validator accepts.
   it('collapses a source whose coordinates ride the query string', () => {
     for (const [x, y] of [[1205, 1539], [1206, 1539], [1205, 1540]]) {
@@ -406,7 +406,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // codex round 12 on #908: a template can name the coordinate params anything.
+  // A template can name the coordinate params anything.
   // The standard names are covered; a value-based rule is not, because
   // `?layer=3` is numeric and source-defining.
   it('collapses coordinates carried under WMTS parameter names', () => {
@@ -445,7 +445,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // codex round 14 on #908: normalizing every numeric segment merged two
+  // Normalizing every numeric segment merged two
   // sources that differ only by a numeric version, tenant, or region.
   it('keeps a numeric version segment while still collapsing the coordinates', () => {
     for (const version of [1, 2]) {
@@ -474,7 +474,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(1);
   });
 
-  // codex round 15 on #908: an accepted template may label its coordinates
+  // An accepted template may label its coordinates
   // (`/z/{z}/x/{x}/y/{y}`), which no consecutive-segment rule can see.
   it('collapses coordinates carried behind path labels', () => {
     for (const [x, y] of [[1205, 1539], [1206, 1539], [1205, 1540]]) {
@@ -500,7 +500,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // codex round 16 on #908: a style may define a source id containing spaces,
+  // A style may define a source id containing spaces,
   // and stopping the parse at whitespace merged two of them.
   it('keeps two sources apart when their ids share a first word', () => {
     const message = 'AJAXError: Not Found (404): https://tiles.example.com/5/1/1.png';

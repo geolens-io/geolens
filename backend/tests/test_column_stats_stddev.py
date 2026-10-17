@@ -1,4 +1,4 @@
-"""Tests for stddev in get_column_stats (v1041 ENH-04).
+"""Tests for stddev in get_column_stats.
 
 The data-driven "Standard Deviation" classification method needs the backend
 column-stats endpoint to return sigma. These tests run against a real database.

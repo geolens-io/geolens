@@ -664,9 +664,9 @@ async def test_a_recreated_generated_column_gets_its_index_and_grant_back(
     table recreated with a valid STORED GENERATED `geom_4326` re-derives
     itself on every write, so the repair has nothing to do to the column — and
     gating the other two restorations on the re-derive let exactly that table
-    pass a refresh unreadable by `geolens_reader` (fix(#1738 round 1)) and
+    pass a refresh unreadable by `geolens_reader` and
     with no GiST index behind the `geom_4326 && <envelope>` predicate every
-    reader issues (fix(#1738 round 2)).
+    reader issues.
 
     A generated column is the case that isolates them: it is the one shape
     where the render values are already correct and the two things around
@@ -729,7 +729,7 @@ async def test_a_recreated_generated_column_gets_its_index_and_grant_back(
 async def test_a_registered_non_spatial_table_is_not_a_repair_failure(
     test_db_session,
 ) -> None:
-    """fix(#1738 round 1): `Find_SRID` raises; it does not return NULL.
+    """`Find_SRID` raises; it does not return NULL.
 
     Registration admits tables with no geometry (#1359), and resolving the
     source SRID before knowing whether there IS one turned every refresh of
@@ -780,7 +780,7 @@ async def test_a_registered_non_spatial_table_is_not_a_repair_failure(
 async def test_the_version_bump_does_not_lose_a_concurrent_increment(
     test_db_session,
 ) -> None:
-    """fix(#1738 round 1): the counter is incremented in the database.
+    """The counter is incremented in the database.
 
     The repair holds no lock on the datasets row, and the feature-edit
     routers roll the counter through a plain read-modify-write without one

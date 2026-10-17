@@ -1,12 +1,12 @@
-"""SSO login-mode tests for Phase 1236 Plan 02 (SSO-01/02/03/04).
+"""SSO login-mode tests.
 
 Covers:
-  - password_login_enabled=false → non-admin POST /auth/login → 403 (SSO-01)
-  - password_login_enabled=false → manage_settings admin login → 200 (SSO-02, break-glass)
+  - password_login_enabled=false → non-admin POST /auth/login → 403
+  - password_login_enabled=false → manage_settings admin login → 200 (break-glass)
   - password_login_enabled=true (default) → all users can log in
-  - GET /auth/config exposes password_login_enabled and reflects the configured value (SSO-03)
-  - PUT /settings with password_login_enabled=false and zero enabled providers → 422 (SSO-04)
-  - PUT /settings with password_login_enabled=false after enabling a provider → 200 (SSO-04)
+  - GET /auth/config exposes password_login_enabled and reflects the configured value
+  - PUT /settings with password_login_enabled=false and zero enabled providers → 422
+  - PUT /settings with password_login_enabled=false after enabling a provider → 200
 """
 
 import uuid
@@ -102,7 +102,7 @@ async def _purge_all_oauth_providers(db: AsyncSession) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests: SSO-01/SSO-02 — password_login_enabled gate + break-glass
+# Tests: password_login_enabled gate + break-glass
 # ---------------------------------------------------------------------------
 
 
@@ -113,7 +113,7 @@ class TestPasswordLoginEnabledGate:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """SSO-01: non-admin POST /auth/login → 403 when password_login_enabled=false."""
+        """non-admin POST /auth/login → 403 when password_login_enabled=false."""
         username, password = await _create_viewer(client, admin_auth_header)
         # We need an enabled provider so the lockout guard lets us flip the flag.
         provider = await _make_enabled_oauth_provider(test_db_session)
@@ -128,7 +128,7 @@ class TestPasswordLoginEnabledGate:
                 f"Expected 403 for non-admin with password_login_enabled=false, "
                 f"got {resp.status_code}: {resp.text}"
             )
-            # #347 (SEC-01): pin the EXACT gate message. The reported "bypass" (clicking
+            # #347: pin the EXACT gate message. The reported "bypass" (clicking
             # the login-page break-glass link) only reveals the form — the server
             # still rejects a non-admin password login here. Asserting the exact
             # 403 detail locks the gate so it cannot silently weaken to a vague
@@ -148,7 +148,7 @@ class TestPasswordLoginEnabledGate:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """SSO-02: manage_settings admin can still POST /auth/login when flag is false (break-glass)."""
+        """manage_settings admin can still POST /auth/login when flag is false (break-glass)."""
         from app.core.config import settings as app_settings
 
         admin_username = app_settings.geolens_admin_username
@@ -237,7 +237,7 @@ class TestPasswordLoginEnabledGate:
 
 
 # ---------------------------------------------------------------------------
-# Tests: SSO-03 — GET /auth/config exposes password_login_enabled
+# Tests: GET /auth/config exposes password_login_enabled
 # ---------------------------------------------------------------------------
 
 
@@ -245,7 +245,7 @@ class TestAuthConfigPasswordLoginEnabled:
     async def test_config_returns_password_login_enabled_true_by_default(
         self, client: AsyncClient
     ) -> None:
-        """SSO-03: GET /auth/config returns password_login_enabled=true by default."""
+        """GET /auth/config returns password_login_enabled=true by default."""
         resp = await client.get("/auth/config/")
         assert resp.status_code == 200
         data = resp.json()
@@ -260,7 +260,7 @@ class TestAuthConfigPasswordLoginEnabled:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """SSO-03: GET /auth/config reflects the configured value after PUT /settings/."""
+        """GET /auth/config reflects the configured value after PUT /settings/."""
         provider = await _make_enabled_oauth_provider(test_db_session)
         await test_db_session.commit()
         try:
@@ -275,7 +275,7 @@ class TestAuthConfigPasswordLoginEnabled:
 
 
 # ---------------------------------------------------------------------------
-# Tests: SSO-04 — lockout guard on PUT /settings
+# Tests: lockout guard on PUT /settings
 # ---------------------------------------------------------------------------
 
 
@@ -286,7 +286,7 @@ class TestPasswordLoginLockoutGuard:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """SSO-04: PUT /settings with password_login_enabled=false and no enabled providers → 422."""
+        """PUT /settings with password_login_enabled=false and no enabled providers → 422."""
         # Deterministic clean slate — purge any providers committed by sibling
         # tests sharing this xdist worker's DB (the guard reads a GLOBAL count).
         await _purge_all_oauth_providers(test_db_session)
@@ -311,7 +311,7 @@ class TestPasswordLoginLockoutGuard:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """SSO-04: PUT /settings with password_login_enabled=false and >=1 enabled provider → 200."""
+        """PUT /settings with password_login_enabled=false and >=1 enabled provider → 200."""
         provider = await _make_enabled_oauth_provider(test_db_session)
         await test_db_session.commit()
         try:
@@ -336,7 +336,7 @@ class TestPasswordLoginLockoutGuard:
         client: AsyncClient,
         admin_auth_header: dict,
     ) -> None:
-        """SSO-04: PUT /settings with password_login_enabled=true always succeeds (no lockout)."""
+        """PUT /settings with password_login_enabled=true always succeeds (no lockout)."""
         resp = await client.put(
             "/settings/",
             json={"settings": {"password_login_enabled": True}},
@@ -348,7 +348,7 @@ class TestPasswordLoginLockoutGuard:
 
 
 # ---------------------------------------------------------------------------
-# Tests: CR-02 — lockout guard on provider disable/delete
+# Tests: lockout guard on provider disable/delete
 # ---------------------------------------------------------------------------
 
 
@@ -359,7 +359,7 @@ class TestProviderDisableDeleteLockoutGuard:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """CR-02: PATCH provider enabled=false on the last provider when sso-only → 422."""
+        """PATCH provider enabled=false on the last provider when sso-only → 422."""
         await _purge_all_oauth_providers(test_db_session)
         provider = await _make_enabled_oauth_provider(test_db_session)
         await test_db_session.commit()
@@ -391,7 +391,7 @@ class TestProviderDisableDeleteLockoutGuard:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """CR-02: DELETE the last enabled provider when sso-only → 422."""
+        """DELETE the last enabled provider when sso-only → 422."""
         await _purge_all_oauth_providers(test_db_session)
         provider = await _make_enabled_oauth_provider(test_db_session)
         await test_db_session.commit()
@@ -420,7 +420,7 @@ class TestProviderDisableDeleteLockoutGuard:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """CR-02: With >=2 providers, disabling one still leaves one active → 200."""
+        """With >=2 providers, disabling one still leaves one active → 200."""
         await _purge_all_oauth_providers(test_db_session)
         provider_a = await _make_enabled_oauth_provider(test_db_session)
         provider_b = await _make_enabled_oauth_provider(test_db_session)
@@ -449,7 +449,7 @@ class TestProviderDisableDeleteLockoutGuard:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """CR-02: Guard does NOT fire when password_login_enabled=True (no risk of lockout)."""
+        """Guard does NOT fire when password_login_enabled=True (no risk of lockout)."""
         provider = await _make_enabled_oauth_provider(test_db_session)
         await test_db_session.commit()
         try:

@@ -179,7 +179,7 @@ describe('useSetPrimaryDistribution', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  // fix(#1395 codex round 4): onSuccess must stay pending through the
+  // onSuccess must stay pending through the
   // refetch, not just the PATCH — otherwise isPending flips back to false
   // (re-enabling the disabled-while-mutating guard) while the list still
   // shows pre-PATCH data.

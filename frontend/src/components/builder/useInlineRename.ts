@@ -8,17 +8,16 @@ import {
   type MouseEvent,
 } from 'react';
 
-// builder-audit #338 STACK-03: the inline-rename state machine was duplicated
-// near-verbatim between StackRow and FolderGroupRow — including the subtle
-// blur-double-fire / committingRef / Radix onCloseAutoFocus focus-race logic
-// that already required a BUG-03 follow-up fix. This hook is the single source.
+// StackRow and FolderGroupRow share this inline-rename state machine,
+// including the subtle blur-double-fire / committingRef / Radix
+// onCloseAutoFocus focus-race logic.
 
 interface UseInlineRenameOptions {
   /** Current display value — used as the initial edit value and the Escape revert target. */
   value: string;
   /** Commit handler. Receives the trimmed name, or null when the field is empty. */
   onCommit: (next: string | null) => void;
-  /** a11y(v1.6.0 audit A7): hand focus back to the row (or rename trigger)
+  /** Hand focus back to the row (or rename trigger)
    *  after commit or Escape-cancel — unmounting the focused input otherwise
    *  drops focus to <body>. Deferred a frame and skipped when focus already
    *  landed somewhere real (e.g. a blur-commit caused by clicking another
@@ -51,7 +50,7 @@ export function useInlineRename({ value, onCommit, restoreFocus }: UseInlineRena
   }, [editing]);
 
   const startRename = useCallback(() => {
-    // a11y(v1.6.0 audit A7): Escape unmounts the focused input, so no blur
+    // Escape unmounts the focused input, so no blur
     // fires and commit() — the only other place escapeRef clears — never runs.
     // Without this reset the first Enter of the NEXT rename was swallowed as
     // a stale escape.
@@ -60,7 +59,7 @@ export function useInlineRename({ value, onCommit, restoreFocus }: UseInlineRena
     setEditing(true);
   }, [value]);
 
-  // a11y(v1.6.0 audit A7): see restoreFocus in the options doc above.
+  // See restoreFocus in the options doc above.
   const restoreFocusAfterExit = useCallback(() => {
     if (!restoreFocus) return;
     requestAnimationFrame(() => {

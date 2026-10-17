@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import type { CommitImportResponse, UrlUploadKind, UploadResponse } from '@/types/api';
 
 /**
- * fix(#1708 codex r19): the in-flight URL import, owned OUTSIDE React.
+ * The in-flight URL import, owned OUTSIDE React.
  *
  * The Import page renders its tabs conditionally (`activeTab === 'url' &&
  * <UrlImportForm />`), so switching tabs mid-import unmounts the form. The
@@ -24,12 +24,12 @@ import type { CommitImportResponse, UrlUploadKind, UploadResponse } from '@/type
  * page reload cannot be recovered from anyway without a server-side
  * "my unfinished imports" lookup that does not exist yet (#1712).
  *
- * INVARIANT (fix #1708 codex r21) — every phase this session owns is
+ * INVARIANT — every phase this session owns is
  * represented by a PROMISE that any mount can subscribe to, never by a
  * flag a mount samples. Outcomes are delivered to whatever is mounted when
  * they resolve, and captured here when nothing is.
  *
- * The distinction is not stylistic. r20 recorded the commit as a boolean
+ * The distinction is not stylistic. An earlier version recorded the commit as a boolean
  * set before its await, so a mount arriving mid-commit sampled "committed"
  * and entered job tracking; if the commit then failed, the module flipped
  * the flag back but the mounted component never learned, and it polled a
@@ -38,8 +38,8 @@ import type { CommitImportResponse, UrlUploadKind, UploadResponse } from '@/type
  * arrives.
  *
  * Phase by phase:
- *   - fetch  — `promise`, subscribed by every mount (r19).
- *   - commit — `commit`, subscribed by every mount (r21).
+ *   - fetch  — `promise`, subscribed by every mount.
+ *   - commit — `commit`, subscribed by every mount.
  *   - preview — deliberately NOT stored. It is re-derived from `jobId` on
  *     each mount and is idempotent while the job is `pending`, so it has
  *     the same property by construction: nothing is sampled, and there is
@@ -60,17 +60,17 @@ export interface UrlImportSession {
   /**
    * The commit operation once issued, or null before it is.
    *
-   * fix(#1708 codex r21): a promise, not a boolean. A mount that arrives
+   * A promise, not a boolean. A mount that arrives
    * while this is in flight subscribes and learns the real outcome —
    * success moves to tracking, failure returns to review with the job
-   * still previewable. See the INVARIANT above for why the r20 boolean
+   * still previewable. See the INVARIANT above for why the earlier boolean
    * could not express that.
    */
   commit: Promise<CommitImportResponse> | null;
   /**
    * Whether the committed job is a raster.
    *
-   * fix(#1708 codex r22): the session's contract is "everything required to
+   * The session's contract is "everything required to
    * resume the UI", and the job id alone did not meet it. `JobProgress`
    * gates the COG download, add-to-map and connection actions on this, and
    * a resumed mount has no `previewData` to derive it from — so a completed
@@ -82,7 +82,7 @@ export interface UrlImportSession {
   /**
    * The user this import belongs to, captured when it started.
    *
-   * fix(#1708 codex r23): module state lives for the lifetime of the SPA,
+   * Module state lives for the lifetime of the SPA,
    * so a logout followed by a login WITHOUT a page reload left this session
    * alive and the next identity was auto-attached to the previous user's
    * in-flight import and job id — preview 403s at best, and at worst a
@@ -98,7 +98,7 @@ export interface UrlImportSession {
 
 let current: UrlImportSession | null = null;
 
-// fix(#1708 codex r24): an explicit escape, never a literal control byte.
+// An explicit escape, never a literal control byte.
 // The separator WAS a raw NUL here. It renders as a space in every viewer,
 // and it made ripgrep classify this module as binary -- so an `rg` sweep
 // over it returned nothing at all for patterns that are present, which is
@@ -154,7 +154,7 @@ export function startUrlImport(
 /**
  * Hand the session the commit operation, so any mount can subscribe to it.
  *
- * fix(#1708 codex r21): stored as the promise itself rather than a flag,
+ * Stored as the promise itself rather than a flag,
  * so a mount arriving mid-commit resolves to the true outcome instead of
  * sampling an intention. Called BEFORE the caller awaits, so an unmount
  * during the await still leaves something to subscribe to.
@@ -176,7 +176,7 @@ export function attachUrlImportCommit(
 /**
  * The current session, if one exists AND belongs to the signed-in user.
  *
- * fix(#1708 codex r23): the ownership check lives here, at the one place
+ * The ownership check lives here, at the one place
  * anything adopts a session, so it is a structural guarantee rather than a
  * promise that every teardown path fires. A session belonging to someone
  * else is CLEARED rather than merely hidden — leaving it would let it
@@ -198,9 +198,9 @@ export function peekUrlImport(): UrlImportSession | null {
 }
 
 /*
- * fix(#1708 codex r24): `urlImportIsUncancellable()` was removed here.
+ * `urlImportIsUncancellable()` was removed here.
  *
- * It was written for the r22 reset guard, never imported, and it could not
+ * It was written for the reset guard, never imported, and it could not
  * have served that guard correctly: `commit != null` means "a commit was
  * ever ISSUED", which stays true through job tracking, where reset must
  * work. The session cannot tell an in-flight commit from a settled one —
@@ -214,8 +214,8 @@ export function peekUrlImport(): UrlImportSession | null {
  * Release the session when the user is done with this import — an explicit
  * reset, or starting another.
  *
- * fix(#1708 codex r20): deliberately NOT called on commit success any more.
- * r19 cleared it there, which is exactly what made the tracking phase
+ * Deliberately NOT called on commit success any more.
+ * An earlier version cleared it there, which is exactly what made the tracking phase
  * unresumable: the job was running, the user had nothing to look at, and
  * the id was gone. The `commit` promise now carries that phase instead, so
  * the session survives into tracking and is released when the flow ends.
@@ -224,7 +224,7 @@ export function clearUrlImport(): void {
   current = null;
 }
 
-// fix(#1708 codex r23): same teardown the analysis form store uses
+// Same teardown the analysis form store uses
 // (stores/analysis-form-store.ts), for the same reason its comment gives —
 // per-tab module state otherwise survives a logout and reaches whoever signs
 // in next. Keyed on user IDENTITY rather than the token, so routine

@@ -13,7 +13,7 @@ import { DEFAULT_CIRCLE_PAINT } from '@/components/builder/layer-adapters/builde
 import { buildRenderAsPatch } from '@/components/builder/renderAs';
 import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
 
-// STATE-06: centralized default symbol style_config used when converting a
+// Centralized default symbol style_config used when converting a
 // layer to symbol render mode without a previously-saved symbol config. Lifted
 // out of the inline literal in handleRenderModeChange so the swap defaults live
 // in one place (alongside DEFAULT_CIRCLE_PAINT / DEFAULT_HEATMAP_PAINT).
@@ -39,7 +39,7 @@ function isClusterTransition(
     || next.style_config?.render_mode === 'cluster';
 }
 
-// STATE-02: render-mode / layer-swap cluster, relocated verbatim out of the
+// Render-mode / layer-swap cluster, relocated verbatim out of the
 // useBuilderLayers god-hook. PURE RELOCATION — handler bodies are unchanged; the
 // shared layers state (layersRef + setters) is threaded in as params.
 interface UseRenderModeLayersParams {
@@ -61,7 +61,7 @@ export function useRenderModeLayers({
 
   /** Swap the MapLibre layer for a given dataset between vector adapter types (e.g. circle <-> heatmap).
    *  An image or hillshade switch is left to the sync pass. */
-  // STATE-02: named function expression so the BUG-018 idle-retry recursion
+  // Named function expression so the idle-retry recursion
   // targets the function's own (immutable) name binding `runSwapLayerOnMap`
   // instead of the reactive useCallback identity — the React Compiler rejects
   // self-referencing a useCallback const. Behavior is identical to the prior
@@ -76,7 +76,7 @@ export function useRenderModeLayers({
     if (adapterType === 'raster' || adapterType === 'hillshade') return;
     const map = mapInstanceRef.current;
     if (!map) return;
-    // BUG-018: mirror the idle-retry pattern from BuilderMap.tsx (~:923).
+    // Mirror the idle-retry pattern from BuilderMap.tsx (~:923).
     // A render-mode switch during a basemap style transition must not be silently
     // dropped. Register a one-shot `idle` listener so the swap is retried as soon
     // as the map settles (idle fires after style.load + tiles + transitions).
@@ -93,7 +93,7 @@ export function useRenderModeLayers({
     try {
       const adapter = getAdapter(adapterType);
       adapter.addLayers(map, adapterInput);
-      // BUG-01: explicitly re-assert visibility after addLayers. The adapter
+      // Explicitly re-assert visibility after addLayers. The adapter
       // contract honors `input.visible` at initial add (defense-in-depth in
       // each adapter), and calling syncVisibility here also covers companion
       // layers (e.g. fill outline / cluster count / label) so the freshly-swapped
@@ -113,7 +113,7 @@ export function useRenderModeLayers({
    *  The cluster⇄points transition reuses the layer's MapLibre ids on a DIFFERENT
    *  source, so the old layer graph must be torn down first or the reconciler
    *  skips the replacement and then deletes the stale layer → blank until the next
-   *  sync (Codex #351). Remove the layer + every companion id here; source
+   *  sync. Remove the layer + every companion id here; source
    *  create/teardown stays with syncMapComposition's removeStaleSourcesAndLayers. */
   const removeLayerGraphForReactiveSync = useCallback(function runRemove(layerId: string): void {
     const map = mapInstanceRef.current;
@@ -166,7 +166,7 @@ export function useRenderModeLayers({
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
 
-    // SF-02 (Phase 1049): renderAsOptions in LayerEditorPanel surfaces ALL RenderAsId
+    // renderAsOptions in LayerEditorPanel surfaces ALL RenderAsId
     // values (arrow / fill / stroke / fill-stroke / extrusion-3d / line plus the
     // legacy circle quartet handled below). Route everything that isn't a
     // circle-family transition through handleRenderAsChange + buildRenderAsPatch

@@ -25,7 +25,7 @@ from app.modules.auth.oauth.schemas import (
     OAuthProviderUpdate,
 )
 
-# GitHub OAuth2 fixed endpoints (SSO-05, Phase 1237).
+# GitHub OAuth2 fixed endpoints.
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USERINFO_URL = "https://api.github.com/user"
@@ -310,9 +310,9 @@ async def _is_manage_settings_admin(db: AsyncSession, user: User) -> bool:
 
     Used for break-glass exemptions in the SSO domain-enforcement paths.
     Lazy-imports to avoid circular dependencies (mirrors the pattern used in
-    auth/router.py DOMAIN-04 gate, per D-17).
+    the auth/router.py domain gate).
     """
-    from app.modules.auth.permissions import (  # LAZY — per D-17
+    from app.modules.auth.permissions import (
         MANAGE_SETTINGS,
         user_has_capability,
     )
@@ -334,7 +334,7 @@ class OAuthEmailUnverifiedError(Exception):
 
 
 class OAuthDomainNotAllowedError(Exception):
-    """DOMAIN-03: raised when an OAuth identity's email domain is not in a
+    """Raised when an OAuth identity's email domain is not in a
     non-empty ``allowed_email_domains`` allowlist.
 
     Fires BEFORE any OAuthAccount lookup or user find/create (TOCTOU-free) —
@@ -388,7 +388,7 @@ async def create_provider(
 
     SAML providers require the 4 SAML fields (``idp_entity_id``,
     ``idp_sso_url``, ``idp_certificate``, ``sp_entity_id``); the IdP cert is
-    Fernet-encrypted (D-03). ``client_id``/``client_secret_encrypted`` get
+    Fernet-encrypted. ``client_id``/``client_secret_encrypted`` get
     placeholder strings for SAML rows since those DB columns are NOT-NULL.
 
     The edition gate is repeated here (not just at the schema layer) because
@@ -407,7 +407,7 @@ async def create_provider(
     )
 
     # GitHub auto-populate: fill in GitHub's fixed endpoints when the admin
-    # left them blank (SSO-05, Phase 1237) — GitHub is plain OAuth2 (no
+    # left them blank — GitHub is plain OAuth2 (no
     # discovery), so these fields can't come from a discovery_url fetch.
     # Scope defaults to GITHUB_DEFAULT_SCOPE only when the admin sent the
     # schema default ("openid profile email"), which isn't useful for GitHub.
@@ -421,7 +421,7 @@ async def create_provider(
         authorize_url=normalized["authorize_url"],
         token_url=normalized["token_url"],
         userinfo_url=normalized["userinfo_url"],
-        # SAML fields: idp_certificate is Fernet-encrypted (D-03 / Pattern D);
+        # SAML fields: idp_certificate is Fernet-encrypted;
         # the other 3 are plaintext (entity IDs and a public URL — not credentials).
         idp_entity_id=normalized["idp_entity_id"],
         idp_sso_url=normalized["idp_sso_url"],
@@ -527,7 +527,7 @@ async def update_provider(
         if raw_secret is not None:
             provider.client_secret_encrypted = encrypt_secret(raw_secret)
 
-    # idp_certificate handled the same way (D-03 / Pattern D).
+    # idp_certificate handled the same way.
     if "idp_certificate" in update_data:
         raw_cert = update_data.pop("idp_certificate")
         if raw_cert is not None:
@@ -554,7 +554,7 @@ async def _resolve_github_identity(
 
     GitHub's /user endpoint omits email when private, and even when present it
     may be unverified. Fetches /user/emails and accepts ONLY the entry that is
-    BOTH primary AND verified (T-1237-01) — the only address that can't be used
+    BOTH primary AND verified — the only address that can't be used
     for account-takeover via an attacker-added unverified email. Raises
     ValueError if none exists, which router.py's broad except turns into an
     oauth_failed redirect.
@@ -600,7 +600,7 @@ async def _resolve_github_identity(
     if not github_id:
         raise ValueError("GitHub /user response missing id")
 
-    # T-1237-01: select ONLY the entry that is both primary AND verified.
+    # Select ONLY the entry that is both primary AND verified.
     primary_verified = next(
         (
             entry
@@ -626,7 +626,7 @@ async def _resolve_github_identity(
     }
 
 
-# OAuth user find-or-create (OAUTH-05, OAUTH-06, OAUTH-07).
+# OAuth user find-or-create.
 def _generate_username(display_name: str | None, email: str | None) -> str:
     if email:
         return email.split("@")[0]
@@ -721,8 +721,8 @@ async def _reconcile_mapped_role(
         )
         return
 
-    # LAZY, per D-17 and to keep the import graph acyclic: admin/service.py
-    # already imports from auth/providers/local.py.
+    # Deferred to keep the import graph acyclic: admin/service.py already
+    # imports from auth/providers/local.py.
     from app.modules.admin.service import AdminService  # noqa: PLC0415
     from app.modules.audit.service import AuditEvent, audit_emit  # noqa: PLC0415
 
@@ -906,15 +906,15 @@ async def find_or_create_oauth_user(
         if not returning_user.is_active or returning_user.status != "active":
             raise OAuthAccountInactiveError("The linked account is not active.")
 
-        # WR-02: domain check also applies to RETURNING users (the original
-        # DOMAIN-03 ran only before Step 1, letting a returning user with an
-        # omitted email claim bypass it) — falls back to stored User.email.
+        # The domain check also applies to RETURNING users, so a returning
+        # user with an omitted email claim can't bypass it; it falls back to
+        # the stored User.email.
         #
-        # WR-01: break-glass exemption below is for RETURNING manage_settings
+        # The break-glass exemption below is for RETURNING manage_settings
         # admins only; a NEW (JIT) identity has no principal yet and must
         # satisfy the allowlist.
         #
-        # WR-02/Codex P1: prefer the IdP email claim ONLY when verified — an
+        # Prefer the IdP email claim ONLY when verified — an
         # unverified caller-controlled claim must not satisfy the allowlist
         # for a returning user whose stored email is disallowed.
         claim_trusted = email is not None and userinfo.get("email_verified") is True
@@ -931,7 +931,7 @@ async def find_or_create_oauth_user(
             # Cache-bypass: enforcement reads committed state (see auth login gate).
             domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
             if not is_email_allowed(check_email, domains):
-                # WR-01: break-glass for manage_settings admins.
+                # Break-glass for manage_settings admins.
                 if not await _is_manage_settings_admin(db, returning_user):
                     raise OAuthDomainNotAllowedError(
                         "OAuth identity email domain is not in the allowed_email_domains allowlist."
@@ -966,12 +966,12 @@ async def find_or_create_oauth_user(
         )
         return returning_user
 
-    # DOMAIN-03 (T-1236-01): domain check for NEW (JIT) identities. Fires
+    # Domain check for NEW (JIT) identities. Fires
     # BEFORE the email_verified collision guard and BEFORE provisioning
     # (TOCTOU-free). Empty allowlist -> always allowed. No break-glass: a
     # NEW identity has no established principal to exempt.
     #
-    # FIX-A (Codex P1): a NON-EMPTY allowlist with no email claim must reject
+    # A NON-EMPTY allowlist with no email claim must reject
     # (not silently provision email=None) — a no-email claim would otherwise
     # be an accidental allowlist bypass. Empty allowlist still provisions
     # as before.
@@ -982,9 +982,9 @@ async def find_or_create_oauth_user(
                 "OAuth identity has no email claim; cannot verify against the "
                 "allowed_email_domains allowlist."
             )
-        # FIX (Codex P1): an allowed domain only satisfies the allowlist if
+        # An allowed domain only satisfies the allowlist if
         # the email is VERIFIED — otherwise a caller-controlled claim could
-        # assert an allowed address, pass here, then have H-30 below drop the
+        # assert an allowed address, pass here, then have the email-match step below drop the
         # unverified email and provision anyway (bypassing the allowlist).
         if userinfo.get("email_verified") is not True:
             raise OAuthEmailUnverifiedError(
@@ -999,7 +999,7 @@ async def find_or_create_oauth_user(
     # so no additional check is needed; a no-email new user still provisions.
 
     # Step 2: Check email match (case-insensitive)
-    # H-30: only honor email-match auto-link when the IdP marked email
+    # Only honor email-match auto-link when the IdP marked email
     # verified — otherwise an attacker who registers victim@example.com at a
     # permissive IdP could inherit that local GeoLens account. Unverified +
     # colliding email refuses the login entirely; unverified + no collision
@@ -1095,7 +1095,7 @@ async def find_or_create_oauth_user(
             break
         username = f"{base_username}_{secrets.token_hex(4)}"
 
-    # D-05: enterprise applies IdP group->role via _resolve_role(); community
+    # Enterprise applies IdP group->role via _resolve_role(); community
     # uses default_role (defense-in-depth for legacy rows with
     # group_role_mapping populated before the schema gate shipped).
     if is_enterprise():

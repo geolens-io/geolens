@@ -174,7 +174,7 @@ const VECTOR_PREVIEW = {
   layers: null,
 };
 
-// fix(codex #1763 r2): a multi-layer file, so switching the reviewed layer
+// A multi-layer file, so switching the reviewed layer
 // (BulkReviewList's layer picker) is exercisable.
 const MULTI_LAYER_PREVIEW = {
   job_id: 'job-multi',
@@ -348,7 +348,7 @@ describe('UploadForm unmount survival', () => {
     expect(peekUploadBatch()).toBeNull();
   });
 
-  // fix(codex #1763 r2): a layer reselect used to write only to component
+  // A layer reselect used to write only to component
   // state, so the session kept the ORIGINAL layer and a remount restored
   // it — a subsequent default commit would silently ingest the wrong layer.
   test('a layer reselected before unmount is still selected on remount, and commit sends it', async () => {

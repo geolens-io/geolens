@@ -33,7 +33,7 @@ def test_validate_paint_with_feedback_heatmap_render_mode_keeps_heatmap_props():
     """fix(#392): a heatmap-rendered layer's dataset_geometry_type is
     virtually always Point, so without render_mode awareness heatmap-radius/
     heatmap-opacity/heatmap-intensity would be stripped as invalid-for-circle.
-    set_style is the only AI tool that can tune those three properties. (audit WR-01)"""
+    set_style is the only AI tool that can tune those three properties."""
     cleaned, warnings = validate_paint_with_feedback(
         {"heatmap-radius": 999, "heatmap-opacity": 2.0, "circle-color": "#f00"},
         "Point",
@@ -53,7 +53,7 @@ def test_validate_paint_with_feedback_heatmap_render_mode_keeps_heatmap_props():
 
 def test_validate_paint_with_feedback_without_render_mode_strips_heatmap_props():
     """Regression guard: without render_mode, a Point-geometry layer's heatmap-*
-    paint is stripped as invalid-for-circle (fix #392, audit WR-01)."""
+    paint is stripped as invalid-for-circle."""
     cleaned, warnings = validate_paint_with_feedback(
         {"heatmap-radius": 30},
         "Point",

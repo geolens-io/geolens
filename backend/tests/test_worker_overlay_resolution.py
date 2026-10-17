@@ -1,11 +1,8 @@
-"""WORK-01 / WORK-02 / WORK-03: Worker bootstrap + overlay-resolution tests.
+"""Worker bootstrap + overlay-resolution tests.
 
 RED phase: these tests exercise the not-yet-implemented
 ``bootstrap()`` helper and ``assert_enterprise_ports_resolved()`` from
 ``app.platform.extensions.bootstrap``.
-
-References: WORK-01 (shared bootstrap), WORK-02 (affirmative port assertion),
-WORK-03 (API-vs-worker parity via dummy overlay)
 """
 
 from __future__ import annotations
@@ -68,7 +65,7 @@ def _clean_state():
         # create a fresh loop, causing "Future attached to a different loop".
         # Patch at the source module — it's imported inline inside bootstrap().
         # The RLS path is covered by test_tenant_rls_migration.py and
-        # test_iso_single_tenant_byte_identical.py (Phase 1208-05).
+        # test_iso_single_tenant_byte_identical.py.
         patch("app.core.db.rls.apply_tenancy_rls_from_engine"),
     ):
         yield
@@ -178,7 +175,7 @@ class TestBootstrapWithDummyOverlay:
 
 
 class TestAssertEnterprisePortsResolved:
-    """WORK-02: assert_enterprise_ports_resolved() tiered loud-failure checks."""
+    """assert_enterprise_ports_resolved() tiered loud-failure checks."""
 
     def test_no_raise_on_community(self):
         """Resolved community + single-tenant → no raise even with Default ports."""
@@ -191,7 +188,7 @@ class TestAssertEnterprisePortsResolved:
             assert_enterprise_ports_resolved()
 
     def test_no_raise_on_enterprise_without_cloud_ports(self):
-        """WORK-02 regression: enterprise with the enterprise-overlay ports
+        """Regression: enterprise with the enterprise-overlay ports
         resolved but the cloud ports still Default → NO raise.
 
         A bare enterprise deploy legitimately runs the community processing /
@@ -357,7 +354,7 @@ class TestAssertEnterprisePortsResolved:
 
     def test_licensed_enterprise_without_env_var_is_checked(self):
         """License-key activation is asserted from the RESOLVED edition, not the
-        GEOLENS_EDITION env var — the env-var dodge is closed (WORK-02)."""
+        GEOLENS_EDITION env var — the env-var dodge is closed."""
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
         _set_edition("enterprise")

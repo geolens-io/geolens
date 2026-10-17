@@ -158,7 +158,7 @@ def test_sweep_stale_gdal_header_files_missing_dir_is_a_noop(tmp_path: Path) -> 
 def test_sweep_stale_gdal_header_files_defaults_without_provisioning(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """fix(#1746 codex r2): the no-argument form reads GDAL_HEADER_DIR and
+    """The no-argument form reads GDAL_HEADER_DIR and
     never creates it.
 
     Both boot hooks and the API's periodic pass call it with no argument. It
@@ -188,7 +188,7 @@ def test_sweep_stale_gdal_header_files_defaults_without_provisioning(
 def test_gdal_header_dir_is_on_the_container_tmpfs_not_the_backed_up_volume(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """fix(#1746 codex r2): the bearer-header directory is /tmp, mode 0700.
+    """The bearer-header directory is /tmp, mode 0700.
 
     Two properties, and they fail for different reasons. It must be under /tmp,
     because the api and the worker each mount that as their own 512m tmpfs —

@@ -45,7 +45,7 @@ export function useDeleteContact(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.contacts(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    // fix(#438): UX-07 — ContactsEditor also toasted; the hook now owns it.
+    // ContactsEditor also toasted; the hook now owns it.
     onError: (err) => { toast.error(formatMutationError('dataset:contacts.removeFailed', err)); },
   });
 }
@@ -79,7 +79,7 @@ export function useDeleteKeyword(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.keywords(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    // fix(#438): UX-07 — KeywordsEditor also toasted; the hook now owns it.
+    // KeywordsEditor also toasted; the hook now owns it.
     onError: (err) => { toast.error(formatMutationError('dataset:keywords.removeFailed', err)); },
   });
 }
@@ -97,7 +97,7 @@ export function useDistributions(recordId: string | undefined) {
 // distributionId being promoted — the row that ends up carrying is_primary
 // after the backend demotes every other row on the record in the same write.
 //
-// fix(#1395 codex round 4): onSuccess returns the invalidateQueries promise
+// onSuccess returns the invalidateQueries promise
 // so the mutation stays pending until the refetch lands, not just until the
 // PATCH resolves — DistributionsList's disabled-while-mutating guard reads
 // isPending, and an onSuccess that fires-and-forgets the invalidation would

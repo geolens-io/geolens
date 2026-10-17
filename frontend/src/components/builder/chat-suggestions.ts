@@ -4,7 +4,7 @@ import type { MapLayerResponse } from '@/types/api';
  * Generate geometry-aware suggestions for the chat empty state.
  * Simple fixed suggestions per geometry type — no column introspection.
  *
- * Phase 1135 AI-05: extended with optional `viewport` parameter for
+ * Extended with optional `viewport` parameter for
  * viewport-aware suggestion priority (selected layer + zoom-gated nearby features).
  * Callers that omit viewport receive the unchanged geometry-type-only list.
  */
@@ -15,7 +15,7 @@ export interface ViewportContext {
   selectedLayerName?: string;
 }
 
-// fix(#832): each suggestion pairs a plain-name label for display with the
+// Each suggestion pairs a plain-name label for display with the
 // mention-markup payload inserted on click. The label is built from the
 // original layer name rather than regex-stripped from the payload, which is
 // lossy for names containing "]" (PR #853 review: "@[A] B]" -> "A B]").

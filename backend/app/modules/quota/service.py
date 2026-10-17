@@ -355,7 +355,7 @@ async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID | None) -> N
 
 
 class StorageQuotaExceededError(Exception):
-    """Per-user storage byte cap exceeded at asset-commit time (fix(#430) BA-23).
+    """Per-user storage byte cap exceeded at asset-commit time.
 
     Plain exception (not HTTPException) because the authoritative check runs
     inside the ingest worker; API-side callers get a 413 via the handler

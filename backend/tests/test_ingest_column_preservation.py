@@ -6,11 +6,11 @@ Docker image install gdal-bin via apt (see root Dockerfile), so the
 tests run in full there.
 
 Covers:
-  RESEARCH §2.1  -lco PRECISION=NO round-trip (type documented, not changed)
-  RESEARCH §2.2  Reserved-name auto-rename (gid/geom/geom_4326/fid)
-  RESEARCH §2.3  DBF truncation collision warning (shapefile-only)
-  RESEARCH §2.4  get_column_info excluded set unchanged (verified safe)
-  RESEARCH §2.5  Non-ASCII column names get sample values after identifier quoting
+  -lco PRECISION=NO round-trip (type documented, not changed)
+  Reserved-name auto-rename (gid/geom/geom_4326/fid)
+  DBF truncation collision warning (shapefile-only)
+  get_column_info excluded set unchanged (verified safe)
+  Non-ASCII column names get sample values after identifier quoting
 
 Pure-unit tests for detect_dbf_truncation_collisions live in
 test_ingest_ogr_pure.py so they run on dev hosts without GDAL.
@@ -105,7 +105,7 @@ def _table_id(prefix: str) -> str:
 
 
 class TestBasicAttrsRoundTrip:
-    """RESEARCH §2.1: every source attribute is queryable after import."""
+    """Every source attribute is queryable after import."""
 
     async def test_all_fields_in_column_info(self, test_db_session):
         table = _table_id("tst_basic")
@@ -129,7 +129,7 @@ class TestBasicAttrsRoundTrip:
 
         -lco PRECISION=NO forces all numeric-family source fields to FLOAT8 /
         INTEGER / VARCHAR. This is an intentional trade-off (see ogr.py comment
-        and 260410-d7k-CONTEXT.md locked decision). The test pins the behavior
+        and the decision recorded there). The test pins the behavior
         so any accidental change to the flag is caught immediately.
         """
         table = _table_id("tst_precision")
@@ -156,7 +156,7 @@ class TestBasicAttrsRoundTrip:
 
 
 class TestReservedNameAutoRename:
-    """RESEARCH §2.2: source fields named gid/geom/geom_4326/fid are preserved."""
+    """Source fields named gid/geom/geom_4326/fid are preserved."""
 
     async def test_reserved_names_renamed_to_src_prefix(self, test_db_session):
         """After rename_reserved_columns(), src_* columns exist in the table."""
@@ -200,7 +200,7 @@ class TestReservedNameAutoRename:
             await _drop_table(test_db_session, table)
 
     async def test_add_4326_column_after_rename_does_not_crash(self, test_db_session):
-        """Regression for RESEARCH §2.2 Scenario C.
+        """Regression for Scenario C.
 
         Before fix: add_4326_column would silently no-op the ALTER TABLE
         (because a source geom_4326 text column already existed), then overwrite
@@ -355,7 +355,7 @@ class TestReservedNameAutoRename:
 
 
 class TestUnicodeSampleValues:
-    """RESEARCH §2.5: get_sample_values returns values for non-ASCII column names."""
+    """get_sample_values returns values for non-ASCII column names."""
 
     async def test_non_ascii_columns_have_sample_values(self, test_db_session):
         """No column should be silently absent from sample_values.
@@ -415,7 +415,7 @@ class TestUnicodeSampleValues:
 
 
 class TestSparseColumnSampleValues:
-    """INGEST-N6: get_sample_values returns samples for 99%+ NULL columns.
+    """get_sample_values returns samples for 99%+ NULL columns.
 
     Regression test for the sparse-column yield bug introduced by the
     CTE-batched rewrite (commit 180cfa97). Pre-bump (sample_size=1000),
@@ -526,7 +526,7 @@ class TestSparseColumnSampleValues:
 
 
 class TestDbfTruncationCollision:
-    """RESEARCH §2.3: warn when shapefile field names collide post-truncation.
+    """Warn when shapefile field names collide post-truncation.
 
     The pure-unit test (no ogr2ogr needed) lives in test_ingest_ogr_pure.py.
     This class exercises the full path: load the fixture via run_ogrinfo_preview

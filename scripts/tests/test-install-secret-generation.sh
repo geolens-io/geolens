@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regression test for SEC-010 / SEC-011: the installer must not ship or default
+# Regression test: the installer must not ship or default
 # to weak credentials. Verifies that generate_password() produces a strong,
 # class-diverse value and that install.sh generates POSTGRES_PASSWORD and the
 # admin password instead of keeping the public defaults `geolens` / `admin`.

@@ -330,7 +330,7 @@ async def test_a_failed_marker_write_resets_the_session_before_settling() -> Non
     upload nobody committed. It would then cancel a dispatch that really was
     attempted and take away its retry.
 
-    fix(#1774 review r2, codex P2): and the reset alone is not enough, because
+    And the reset alone is not enough, because
     it expires the very instance the settlement reads. Reset, restore, settle,
     in that order.
     """
@@ -414,7 +414,7 @@ async def test_a_failed_marker_write_settles_the_real_row_without_a_reload(
 ) -> None:
     """The whole recovery path, against a real session and a real row.
 
-    fix(#1774 review r2, codex P2): the snapshot is the guarantee and the
+    The snapshot is the guarantee and the
     reload is the convenience, so the reload is disabled here. What is left is
     a genuinely poisoned transaction, a genuinely expired `IngestJob`, and the
     real `settle_ingest_job_failed` reading `job.id` and `job.attempt_id` off
@@ -528,7 +528,7 @@ async def test_a_marker_write_that_succeeds_leaves_the_session_alone() -> None:
 
 @pytest.mark.anyio
 async def test_a_failed_fan_out_layer_leaves_the_parent_readable() -> None:
-    """fix(#1774 review r2, codex P2): the second stamping site, same hazard.
+    """The second stamping site, same hazard.
 
     `create_fan_out_jobs` commits the child row and its dispatch marker
     together, and its per-layer handler resets the session so the remaining

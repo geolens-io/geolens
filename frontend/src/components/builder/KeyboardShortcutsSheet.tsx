@@ -6,7 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-// builder-audit #338 STACK-07: shared platform detection + Save chord (was duplicated
+// Shared platform detection + Save chord (was duplicated
 // from MapTitleBar.tsx).
 import { IS_MAC, SAVE_SHORTCUT } from '@/lib/platform';
 
@@ -62,7 +62,7 @@ export function KeyboardShortcutsSheet({
       label: t('a11y.shortcuts.legend', { defaultValue: 'Toggle legend' }),
       chord: 'L',
     },
-    // fix(#394) UX-04/B-029: the sheet previously omitted half the real
+    // The sheet previously omitted half the real
     // keyboard model — every row below documents a binding that already
     // exists (MapBuilderPage '?' hotkey, StackRow reorder mode, panel
     // Escape handlers, UnifiedStackPanel multi-select).
@@ -91,7 +91,7 @@ export function KeyboardShortcutsSheet({
       label: t('a11y.shortcuts.multiSelect', { defaultValue: 'Toggle layer in selection' }),
       chord: IS_MAC ? '⌘+Click' : 'Ctrl+Click',
     },
-    // fix(#806): Space on a focused row is the keyboard equivalent of the
+    // Space on a focused row is the keyboard equivalent of the
     // Cmd-click above (StackRow's `e.key === ' '` handler), and double-click
     // renames. Both existed with no way to discover them from here — the
     // keyboard one especially, since it was the only route for a keyboard-only
@@ -122,7 +122,7 @@ export function KeyboardShortcutsSheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* fix(#806, codex P2): DialogContent has no max height and no overflow of its
+      {/* DialogContent has no max height and no overflow of its
           own, and it is vertically centred, so a sheet taller than the viewport
           clips at both ends with nothing to scroll. Fifteen rows plus wrapped
           translations reach that on a short window or with enlarged text. */}

@@ -1,4 +1,4 @@
-"""BUG-041 regression: raster ingest now populates dataset_assets.
+"""Regression: raster ingest now populates dataset_assets.
 
 The STAC-aligned ``dataset_assets`` table is read by the search/STAC/OGC asset
 output path (``_build_stac_assets`` -> ``build_assets``) but was never written
@@ -89,8 +89,8 @@ class TestReadPathNowLive:
     def test_s3_published_surfaces_data_thumbnail_overview(self):
         """Feeding the built rows into build_assets (S3 + published) emits assets.
 
-        Before BUG-041 these rows never existed, so build_assets only ever
-        returned computed raster_tiles. Now the data/thumbnail/overview assets
+        Before raster ingest populated dataset_assets these rows never existed,
+        so build_assets only ever returned computed raster_tiles. Now the data/thumbnail/overview assets
         appear with presigned hrefs.
         """
         ds_id = "00000000-0000-0000-0000-0000000000aa"
@@ -265,9 +265,9 @@ class TestReadPathNowLive:
 
 
 class TestIngestWritePathPortResolution:
-    """Regression for the BUG-041 *follow-up* crash.
+    """Regression for the *follow-up* crash.
 
-    The original BUG-041 fix wrote the dataset_assets rows during ingest via
+    The original fix wrote the dataset_assets rows during ingest via
     ``get_processing_port().dataset_asset_orm_class()`` — but that ORM accessor
     lives on the **CatalogPort**, not the ProcessingPort. Every COG/VRT ingest
     therefore raised ``'DefaultProcessingPort' object has no attribute

@@ -10,9 +10,9 @@ import { DEFAULT_CIRCLE_PAINT } from './builder-defaults';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import { labelLayerId, withLabelCompanion } from '../label-layer-utils';
 
-// builder-audit #338 ADAPT-03: exported so cluster-adapter's unclustered point reuses
+// Exported so cluster-adapter's unclustered point reuses
 // this exact owned set (was a byte-identical UNCLUSTERED_OWNED_PAINT_PROPERTIES copy).
-// builder-audit #338 SPEC-06: 'circle-stroke-blur' removed — it is not a MapLibre GL paint
+// 'circle-stroke-blur' removed — it is not a MapLibre GL paint
 // property (the spec has circle-blur + circle-stroke-{width,color,opacity}, no stroke-blur);
 // it was a silent no-op swallowed by setPaintProperty's try/catch.
 export const CIRCLE_OWNED_PAINT_PROPERTIES = [

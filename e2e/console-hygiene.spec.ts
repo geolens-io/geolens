@@ -1,5 +1,5 @@
 /**
- * MAPS-01 regression spec (#122):
+ * Regression spec (#122):
  *
  * Asserts zero `createRoot() on a container that has already been passed to
  * createRoot()` React warnings under an HMR-like re-execution of main.tsx.

@@ -151,7 +151,7 @@ if [ -n "$_globals_dump" ]; then
             echo "           ${_missing_roles}"
             echo "         Replay them BEFORE continuing, or restored objects will carry"
             echo "         neither their owners nor their grants (RUNBOOK.md"
-            echo "         §\"Multi-tenant role reconstruction after a fresh-cluster restore\"):"
+            echo "         §\"Role reconstruction after a fresh-cluster restore\"):"
             echo ""
             echo "           docker compose exec -T db psql -U \"\$POSTGRES_USER\" -d postgres \\"
             echo "             < ${_globals_dump}"
@@ -286,7 +286,7 @@ echo "Restore complete."
 # sibling staging-<timestamp>.tar.gz next to the dump. restore.sh keeps its
 # single-arg, DB-focused contract; restoring objects into the upload_staging
 # volume requires a one-off container with that volume mounted, so it is a
-# documented MANUAL step (see RUNBOOK.md §"full restore (DB + object storage)").
+# documented MANUAL step (see RUNBOOK.md §"Step-by-step: full restore (DB + object storage)").
 # If we can spot
 # the matching archive, point the operator at it rather than silently dropping
 # the staged objects.
@@ -311,7 +311,7 @@ if [ -n "$_staging_archive" ]; then
     echo "        ${_staging_archive}"
     echo "      The database is restored, but staged source objects are NOT"
     echo "      auto-extracted. To restore them into the upload_staging volume, run"
-    echo "      the documented manual step (RUNBOOK.md §\"full restore (DB + object storage)\"):"
+    echo "      the documented manual step (RUNBOOK.md §\"Step-by-step: full restore (DB + object storage)\"):"
     echo ""
     echo "        docker run --rm \\"
     echo "          -v <project>_upload_staging:/staging \\"

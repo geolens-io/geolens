@@ -3,7 +3,7 @@ import { SUGGESTED_DATASETS } from '../suggested-datasets';
 import type { SuggestedDataset } from '../suggested-datasets';
 
 /**
- * Minimal test stub for suggested-datasets.ts (CE-23 remediation).
+ * Minimal test stub for suggested-datasets.ts (remediation).
  *
  * suggested-datasets.ts is a pure constants file that ships empty by default.
  * Operators populate it per deployment. Tests verify the export contract and

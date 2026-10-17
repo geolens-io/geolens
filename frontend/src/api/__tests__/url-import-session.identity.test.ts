@@ -1,5 +1,5 @@
 /**
- * fix(#1708 codex r23): the URL-import session is scoped to an identity.
+ * The URL-import session is scoped to an identity.
  *
  * Module state lives for the lifetime of the SPA, so a logout followed by a
  * login WITHOUT a page reload used to leave the session alive and attach the

@@ -1,20 +1,19 @@
-"""SHARE-06 backend pin: CSP frame-ancestors NEVER contains '*'.
+"""Backend pin: CSP frame-ancestors NEVER contains '*'.
 
 This file covers two layers of the wildcard-rejection invariant:
 
   1. Schema layer (_validate_origins): POST/PATCH with wildcard origin returns 422
      with body detail containing 'Wildcard origin not allowed'.
 
-  2. Canonical-form round-trip (SHARE-06 closure): allowed_origins are normalised
+  2. Canonical-form round-trip: allowed_origins are normalised
      (lowercased, default-port stripped, trailing slash stripped) before storage,
-     matching the frontend Plan 01 normalizeOrigin contract.
+     matching the frontend normalizeOrigin contract.
 
 The CSP header-level test (defense-in-depth on the _build_frame_ancestors helper)
-lives in test_embed_framing_csp.py::test_shared_map_csp_header_drops_wildcard_origin
-— added by Task 2 of Phase 1137 Plan 02.
+lives in test_embed_framing_csp.py::test_shared_map_csp_header_drops_wildcard_origin.
 
-Cross-reference: frontend Plan 01 (1137-01) has a parity test on normalizeOrigin
-for the same canonical-form contract (SHARE-06).
+Cross-reference: the frontend has a parity test on normalizeOrigin
+for the same canonical-form contract.
 """
 
 import hashlib
@@ -114,7 +113,7 @@ async def _create_embed_token_direct(
 
 
 # ---------------------------------------------------------------------------
-# Task 1 — Schema-layer wildcard rejection (5 tests)
+# Schema-layer wildcard rejection (5 tests)
 # ---------------------------------------------------------------------------
 
 
@@ -259,12 +258,12 @@ def test_validate_origins_accepts_non_wildcard_list():
 
 
 # ---------------------------------------------------------------------------
-# Task 3 — SHARE-06 canonical-form round-trip pin
+# Canonical-form round-trip pin
 # ---------------------------------------------------------------------------
 
 
 def test_post_embed_token_canonicalizes_origin_storage():
-    """SHARE-06 backend round-trip pin: _validate_origins normalises origins before storage.
+    """Backend round-trip pin: _validate_origins normalises origins before storage.
 
     Input canonical-form transformations verified:
       - HTTPS://EXAMPLE.COM:443/  →  https://example.com  (lowercase + default port stripped + trailing slash stripped)
@@ -275,9 +274,9 @@ def test_post_embed_token_canonicalizes_origin_storage():
     guards (map-must-have-layers). The stored canonical form is exactly what the
     DB holds and what the embed token response returns.
 
-    Cross-reference: frontend Plan 01 (Phase 1137-01) has a parity test on
-    normalizeOrigin for the same contract (SHARE-06). If either side drifts, both
-    this test and the Plan 01 parity test go red.
+    Cross-reference: the frontend has a parity test on
+    normalizeOrigin for the same contract. If either side drifts, both
+    this test and the parity test go red.
     """
     from app.modules.embed_tokens.schemas import _validate_origins
 
@@ -298,7 +297,7 @@ def test_post_embed_token_canonicalizes_origin_storage():
 
 
 def test_normalize_origin_ipv6_brackets():
-    """CR-01 parity pin: IPv6 origins must emit bracket-safe canonical form.
+    """Parity pin: IPv6 origins must emit bracket-safe canonical form.
 
     Python urlparse strips brackets from IPv6 hostnames
     (urlparse('http://[::1]:8080').hostname == '::1').
@@ -326,7 +325,7 @@ def test_normalize_origin_ipv6_brackets():
 
 
 def test_bug028_service_and_schema_normalizers_are_the_same():
-    """BUG-028: storage and request-origin extraction must use ONE normalizer.
+    """Storage and request-origin extraction must use ONE normalizer.
 
     The service previously had its own bracket-stripping _normalize_origin while
     storage used the bracket-preserving schema one, so IPv6 origins never matched.
@@ -341,7 +340,7 @@ def test_bug028_service_and_schema_normalizers_are_the_same():
 
 
 def test_bug028_ipv6_loopback_is_localhost_origin():
-    """BUG-028: 'http://[::1]:8080' must be recognised as a localhost origin.
+    """'http://[::1]:8080' must be recognised as a localhost origin.
 
     Before the fix _LOCALHOST_HOSTS held the bracketed '[::1]' while
     _is_localhost_origin compared the UNBRACKETED urlparse hostname '::1' — a
@@ -359,7 +358,7 @@ def test_bug028_ipv6_loopback_is_localhost_origin():
 
 
 def test_bug028_stored_ipv6_allowlist_matches_extracted_request_origin():
-    """BUG-028: stored allowlist form must byte-match the extracted request origin.
+    """Stored allowlist form must byte-match the extracted request origin.
 
     allowed_origins are stored through the schema normalizer; request origins are
     extracted via extract_request_origin. For an IPv6 host the two must produce the

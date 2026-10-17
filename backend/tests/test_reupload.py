@@ -242,7 +242,7 @@ def mock_ogrinfo_preview(mock_reupload_catalog_port):
             "sample_rows": [
                 {"name": "Test", "value": 3.14, "new_col": "hello"},
             ],
-            # GPKG-01 Phase 1058: single-layer default — all_layers is None
+            # single-layer default — all_layers is None
             "all_layers": None,
         }
         yield mock_preview
@@ -1569,8 +1569,8 @@ class TestSchemaDiffComputation:
     def test_schema_diff_null_counts(self):
         """Null feature counts are UNKNOWN, and the delta says so.
 
-        fix(#1746 B2b review r24): this asserted a delta of 0, which is what
-        `(new or 0) - (old or 0)` produced and what the review called out: an
+        The test once asserted a delta of 0, which is what
+        `(new or 0) - (old or 0)` produced: an
         unknown count coerced to zero invents a delta the size of whichever
         side is known, and two unknowns read as "no change" rather than as
         "not known". The field is nullable now, and still required.
@@ -1628,7 +1628,7 @@ class TestSchemaDiffComputation:
 
 
 # ---------------------------------------------------------------------------
-# GPKG-01 Phase 1058: Multi-layer support tests
+# Multi-layer support tests
 # ---------------------------------------------------------------------------
 
 
@@ -1658,7 +1658,7 @@ async def _create_complete_ingest_job(
 
 
 class TestReuploadMultiLayer:
-    """GPKG-01 Phase 1058: multi-layer GPKG reupload tests."""
+    """Multi-layer GPKG reupload tests."""
 
     async def test_preview_returns_all_layers_for_multi_layer_source(
         self,

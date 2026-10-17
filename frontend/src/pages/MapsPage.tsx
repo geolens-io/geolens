@@ -36,7 +36,7 @@ import type { MapSummaryResponse } from '@/types/api';
 import { canMutateResource } from '@/lib/ownership';
 
 const PAGE_SIZE = 20;
-// fix(#438): ARC-06 — key + access via the typed storage helper.
+// Key + access via the typed storage helper.
 function getStoredView(): string {
   return readStorage(storageKeys.mapsView) ?? 'list';
 }
@@ -92,7 +92,7 @@ export function MapsPage() {
         toast.success(t('maps.deleted'));
         setDeletingMap(null);
       },
-      // fix(#438): UX-07 — no onError toast here; useDeleteMap already raises one.
+      // No onError toast here; useDeleteMap already raises one.
     });
   }
 

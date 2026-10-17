@@ -42,7 +42,7 @@ import {
   setDynamicLayoutProperty,
   setDynamicPaintProperty,
 } from './layer-adapters/shared';
-// builder-audit #338 SYNC-01: re-export the SINGLE isTerrainCapableDemLayer predicate
+// Re-export the SINGLE isTerrainCapableDemLayer predicate
 // from map-stack so the legend, the delete-time terrain-clear check, AND the 3D
 // mesh resolver (BuilderMap imports it from here) all consume one function. The
 // previous local copy meant the mesh resolver used a different definition that
@@ -73,7 +73,7 @@ export function normalizeTerrainExaggeration(value: number | null | undefined) {
   return Math.min(Math.max(value as number, TERRAIN_EXAGGERATION_MIN), TERRAIN_EXAGGERATION_MAX);
 }
 
-// builder-audit #338 ADAPT-01: normalizeRasterBounds now lives once in
+// normalizeRasterBounds now lives once in
 // layer-adapters/shared.ts and is imported above; the verbatim copies in
 // raster-adapter, hillshade-adapter, and this module collapse to one.
 
@@ -105,7 +105,7 @@ export function ensureRasterDemTerrainSource(
     minzoom?: number | null;
     maxzoom?: number | null;
     bounds?: number[] | null;
-    /** fix(#1472 review): the backing DEM's required credit. Load-bearing on
+    /** The backing DEM's required credit. Load-bearing on
      *  the BUILDER path only, and only because a terrain-mode DEM has no
      *  visible layer: `isDemTerrainVisualSuppressed` suppresses it, so nothing
      *  references the attributed raster-dem source the adapter created and
@@ -134,7 +134,7 @@ export function ensureRasterDemTerrainSource(
       || existingSpec.tileSize !== (options.tileSize ?? 256)
       || existingSpec.minzoom !== (options.minzoom ?? 0)
       || existingSpec.maxzoom !== (options.maxzoom ?? 18)
-      // fix(#1472 review): a changed credit replaces the source. Unlike the
+      // A changed credit replaces the source. Unlike the
       // GeoJSON case above there is no data to drop — this source carries only
       // a tile template — so the swap is cheap and keeps the terrain credit
       // live across an edit.
@@ -204,7 +204,7 @@ export interface SyncLayerInput {
   is_dem?: boolean | null;
   is_3d?: boolean | null;
   feature_count?: number | null;
-  /** Source-id dedupe (Phase 1050 SF-04): consumed by `getSourceIdForLayer` to
+  /** Source-id dedupe: consumed by `getSourceIdForLayer` to
    *  keep non-vector layers (raster/hillshade) on a per-layer source key. */
   layer_type?: string | null;
   dataset_record_type?: string | null;
@@ -214,11 +214,11 @@ export interface SyncLayerInput {
   maxzoom?: number | null;
   bounds?: number[] | null;
   format?: string | null;
-  /** MVT-05: per-dataset attribution string for the vector/raster source spec
+  /** Per-dataset attribution string for the vector/raster source spec
    *  (rendered in the MapLibre attribution control). Optional — populated only
    *  when the dataset carries a credit/licensing string. */
   attribution?: string | null;
-  /** MVT-04: dataset content/version stamp threaded into the tile URL's
+  /** Dataset content/version stamp threaded into the tile URL's
    *  `_v=` cache-buster so a reupload/geometry edit busts client/CDN caches.
    *  Optional — only emitted when a content version is available. */
   tile_version?: string | number | null;
@@ -230,7 +230,7 @@ export interface SyncOptions {
   idPrefix?: string;
   /** When provided, run basemap label reorder using this source prefix after layer order changes */
   showBasemapLabels?: boolean;
-  /** Phase 1051 UX-03: when 'top', move basemap fill/raster layers ABOVE data
+  /** When 'top', move basemap fill/raster layers ABOVE data
    *  layers after the standard reorder pass. When 'bottom' (default + legacy),
    *  the standard reorder pipeline already produces data-above-basemap. */
   basemapPosition?: 'top' | 'bottom';
@@ -258,24 +258,24 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     feature_count: layer.dataset_feature_count,
     layer_type: layer.layer_type,
     dataset_record_type: layer.dataset_record_type ?? null,
-    // fix(#394) VT-02 (codex P2): without this the builder's `_v=` read below
+    // Without this the builder's `_v=` read below
     // always saw undefined — the cache-buster only flowed on the viewer path.
     tile_version: layer.tile_version,
-    // fix(#1472 review): the builder's half of the attribution feature. It has
+    // The builder's half of the attribution feature. It has
     // no explicit <AttributionControl> to hand `customAttribution` to (and
     // react-maplibre reads the <Map attributionControl> option once at mount),
     // so the builder credits through MapLibre's native source-level mechanism —
-    // the field MVT-05 built here and left unfed. MapLibre recomputes the
-    // control from sources whose `used` flag is live, so hiding every layer on
+    // the `attribution` field this input already had and nothing fed. MapLibre
+    // recomputes the control from sources whose `used` flag is live, so hiding every layer on
     // a source drops its credit without any code of ours running.
     //
     // Deliberately NOT mirrored in toViewerSyncInput: the viewer owns an
     // explicit control and passes customAttribution, and feeding both would be
     // two mechanisms answering one question.
     attribution: toMapLibreAttribution(layer.dataset_attribution),
-    // MVT-06: surface the dataset spatial extent so the vector source can bound
+    // Surface the dataset spatial extent so the vector source can bound
     // tile fetching to the data footprint (the raster path already passes bounds).
-    // fix(#1112): this is the RFC 7946 spec form now — `west > east` on an
+    // This is the RFC 7946 spec form now — `west > east` on an
     // antimeridian crossing — and it is passed through unconverted on purpose.
     // Every reader of `bounds` reaches a MapLibre source through
     // `normalizeRasterBounds` (layer-adapters/shared.ts), which spans it there,
@@ -296,7 +296,7 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
   if (!style?.layers) return;
 
   const basemapSymbolLayers = style.layers.filter(
-    // builder-audit #338 DUP-02: shared basemap-owned predicate.
+    // Shared basemap-owned predicate.
     (l) => l.type === 'symbol' && isBasemapOwnedLayer(l, sourcePrefix),
   );
 
@@ -312,13 +312,13 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
 }
 
 function basemapStyleLayers(style: StyleSpecification, sourcePrefix: string) {
-  // builder-audit #338 DUP-02: shared basemap-owned predicate.
+  // Shared basemap-owned predicate.
   return style.layers.filter((layer) =>
     isBasemapOwnedLayer(layer, sourcePrefix),
   ) as StyleSpecification['layers'];
 }
 
-/** fix(#1778): what this module knows about one basemap-owned layer's paint.
+/** What this module knows about one basemap-owned layer's paint.
  *
  *  applyBasemapConfigToMap feeds `map.getStyle()`, the LIVE and already-mutated
  *  style, into applyBasemapConfigToStyle, and the appearance helpers
@@ -354,7 +354,7 @@ const generationListenerAttached = new WeakSet<MaplibreMap>();
 /**
  * Start counting style generations for `map`.
  *
- * fix(#1778 codex round 5): per-key equality reconciliation cannot see a swap
+ * Per-key equality reconciliation cannot see a swap
  * whose new native value happens to equal the override the old style was
  * carrying (style A's water overridden to #d9dde0, style B's native water also
  * #d9dde0). Nothing has changed from the paint's point of view, so clearing the
@@ -368,7 +368,7 @@ const generationListenerAttached = new WeakSet<MaplibreMap>();
  * earliest-registered `style.load` listener, so it has already bumped the
  * counter by the time BuilderMap's own persistent handler triggers an
  * appearance pass on the new style. Registering it lazily would reproduce the
- * round-2 ordering bug exactly.
+ * ordering bug exactly.
  *
  * Idempotent: a second call for the same map is a no-op, so a remount that
  * reuses the instance cannot double-count.
@@ -402,7 +402,7 @@ function basemapPaintStateFor(map: MaplibreMap): Map<string, BasemapLayerPaintSt
 }
 
 /**
- * fix(#1778 codex round 2 P1): detect a style change SYNCHRONOUSLY, here, per
+ * Detect a style change SYNCHRONOUSLY, here, per
  * key, instead of clearing the cache from a `style.load` listener.
  *
  * The listener could never be right: BuilderMap registers its own persistent
@@ -413,7 +413,7 @@ function basemapPaintStateFor(map: MaplibreMap): Map<string, BasemapLayerPaintSt
  * basemap's colours onto the new style, and the contaminated paint then became
  * the next pristine snapshot.
  *
- * fix(#1778 codex round 5): this is now the SECOND line of defence.
+ * This is now the SECOND line of defence.
  * registerBasemapStyleGeneration drops the whole cache when the style
  * generation moves, which covers the one case equality cannot see: a new style
  * whose native value equals the override the old one was carrying. The
@@ -452,7 +452,7 @@ function reconcileBasemapPaintState(
   return state;
 }
 
-/** UX-03 (Phase 1051 Plan 06): when `basemap_position === 'top'`, move all
+/** When `basemap_position === 'top'`, move all
  *  basemap-loaded style layers (anything whose source DOES NOT start with the
  *  data sourcePrefix) ABOVE the data layers in the MapLibre stack. MapLibre
  *  renders layers in order — last-in-array is painted on top — so calling
@@ -476,7 +476,7 @@ export function reorderBasemapAboveData(
   for (const layer of style.layers) {
     // basemap layers do NOT have a source matching the data sourcePrefix.
     // 'source' may be undefined for some background-style layers — those count
-    // as basemap layers too. builder-audit #338 DUP-02: shared predicate.
+    // as basemap layers too. Shared predicate.
     if (!isBasemapOwnedLayer(layer, sourcePrefix)) continue;
     if (!map.getLayer(layer.id)) continue;
     // Never lift the opaque base fills (background / land / water) above the
@@ -510,10 +510,10 @@ export function applyBasemapConfigToMap(
     ...style,
     layers: basemapStyleLayers(style, sourcePrefix),
   };
-  // fix(#1778): capture the pristine paint the FIRST time each basemap layer is
+  // Capture the pristine paint the FIRST time each basemap layer is
   // seen (before this call writes anything), then build `next` from pristine
   // rather than from the live style, so reverting an override is expressible.
-  // fix(#1778 codex round 2): reconcile first, so a key the live style no longer
+  // Reconcile first, so a key the live style no longer
   // agrees with this module about is re-snapshotted before it is read.
   const paintStates = basemapPaintStateFor(map);
   const pristineLayers = basemapOnlyStyle.layers.map((layer) => {
@@ -592,14 +592,14 @@ export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'a
 }
 
 function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, prefix: string | undefined) {
-  // builder-audit #338 SYNC-04: every companion id derived from one helper.
+  // Every companion id derived from one helper.
   const ids = getCompanionLayerIds(id, prefix);
   for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.mixedLines, ids.mixedPoints, layerId]) {
     if (map.getLayer(candidate)) map.removeLayer(candidate);
   }
 }
 
-// builder-audit #338 SYNC-05: the cluster signature and the tile-url signature are
+// The cluster signature and the tile-url signature are
 // kept in SEPARATE per-map WeakMaps. They were previously crammed into one Map
 // (cluster key = sourceId, tile-url key = `${sourceId}::tileurl`), where a
 // single `signatureMap.delete(sourceId)` in the non-cluster block risked wiping
@@ -621,7 +621,7 @@ function removeClusterCompanionLayers(map: MaplibreMap, layerId: string) {
 }
 
 function removeColorReliefCompanionLayer(map: MaplibreMap, layerId: string) {
-  // builder-audit #338 SYNC-04: -colorrelief suffix lives in companion-ids.ts.
+  // The -colorrelief suffix lives in companion-ids.ts.
   const colorReliefId = `${layerId}${COLOR_RELIEF_SUFFIX}`;
   if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
 }
@@ -645,7 +645,7 @@ function tileUrlSignatureStore(map: MaplibreMap) {
 }
 
 /**
- * builder-audit #338 SYNC-03 + token-refresh: refresh a vector source's tiles ONLY
+ * Refresh a vector source's tiles ONLY
  * when the signed URL actually changed, honoring the per-source tile-url
  * signature. Both the in-pass sync (`syncVectorTiles`) and the BuilderMap
  * token-refresh effect call this, so a paint/visibility edit that does not
@@ -660,16 +660,16 @@ export function refreshVectorSourceTiles(map: MaplibreMap, sourceId: string, til
   if (store.get(sourceId) === tileUrl) return false;
   source.setTiles([tileUrl]);
   store.set(sourceId, tileUrl);
-  // fix(#584): maplibre 5.x silently drops setTiles' tile reload when the
+  // MapLibre 5.x silently drops setTiles' tile reload when the
   // source's TileManager is paused (any same-pass layer update pauses it):
   // the 'content' data event returns early without setting the
   // reload-on-resume flag, so loaded tiles keep serving the pre-edit cols=
   // payload until an unrelated re-tile. Re-issue the reload through the
   // public refreshTiles API — that path DOES set the resume flag, so the
   // refetch can no longer be lost. The refresh must wait until the source's
-  // async load() has copied the new URL into `source.tiles` (fix(#586):
-  // refreshing before adoption reloads the OLD url while the signature store
-  // has already advanced, re-stranding the tiles), so poll for adoption with
+  // async load() has copied the new URL into `source.tiles` (refreshing
+  // before adoption reloads the OLD url while the signature store has
+  // already advanced, re-stranding the tiles), so poll for adoption with
   // a bounded retry that bails when the url is superseded by a newer edit or
   // the source is torn down.
   const awaitAdoptionThenRefresh = (attempt: number) => {
@@ -699,7 +699,7 @@ export function getLayerId(layerId: string) {
 // ---------------------------------------------------------------------------
 
 /**
- * POLISH-02: Returns true when the given DEM layer is already consumed by the
+ * Returns true when the given DEM layer is already consumed by the
  * active terrain source. In this state, starting a second raster-dem consumer
  * (for hillshade) causes MapLibre backfillBorder "dem dimension mismatch" errors.
  * Guard: terrain must be enabled AND the same dataset powers both consumers.
@@ -728,11 +728,11 @@ function syncRasterLayer(
   adapterInput.style_config = normalizeDemStyleConfig(adapterInput.style_config, adapterInput.is_dem);
   const useHillshade = source.type === 'raster-dem';
 
-  // fix(HT-05): a terrain-bound hillshade always paints alongside the 3D mesh
+  // A terrain-bound hillshade always paints alongside the 3D mesh
   // on its own per-layer source (`source-${layer.id}` via getSourceIdForLayer,
-  // NEVER the shared `terrain-dem` id, so the SF-04 teardown machinery does not
+  // NEVER the shared `terrain-dem` id, so the teardown machinery does not
   // orphan it). The old shouldSkipHillshadeForTerrain tile-size-mismatch guard
-  // (999.17 D-07) was dead code: terrain binding is same-dataset, so both
+  // was dead code: terrain binding is same-dataset, so both
   // consumers derive tileSize from one raster token and can never mismatch.
 
   const adapter = getAdapter(useHillshade ? 'hillshade' : 'raster');
@@ -767,7 +767,7 @@ function syncRasterLayer(
 }
 
 /** Resolved per-layer source decisions — pure, no map side effects.
- *  builder-audit #338 SYNC-05: extracted from syncVectorLayer so the type/cluster
+ *  Extracted from syncVectorLayer so the type/cluster
  *  resolution is testable and the gnarly source mutation lives separately. */
 interface VectorSourceMode {
   adapter: LayerAdapter;
@@ -807,7 +807,7 @@ function resolveVectorSourceMode(
   };
 }
 
-/** SYNC-05 unit 3 (syncVectorTiles): refresh the tiles of an EXISTING vector
+/** syncVectorTiles: refresh the tiles of an EXISTING vector
  *  source through the guarded `refreshVectorSourceTiles` (one path for cluster
  *  and non-cluster), then advance the cluster signature for server clusters. */
 function syncVectorTiles(
@@ -856,7 +856,7 @@ function ensureVectorSource(
   if (!canUseCluster) {
     removeClusterCompanionLayers(map, layerId);
     // Clear only the CLUSTER signature. The tile-url signature lives in its own
-    // WeakMap (SYNC-05), so this per-pass cleanup can no longer wipe the flicker
+    // WeakMap, so this per-pass cleanup can no longer wipe the flicker
     // guard — the lifecycle is structural, not comment-enforced.
     clusterStore.delete(sourceId);
   }
@@ -869,7 +869,7 @@ function ensureVectorSource(
       adapter.addLayers(map, adapterInput);
     } else {
       const src = map.getSource(sourceId);
-      // fix(#1472 review): setData carries data only — MapLibre reads a GeoJSON
+      // setData carries data only — MapLibre reads a GeoJSON
       // source's `attribution` at construction and exposes no setter, so an
       // attribution edited mid-session does not reach a source already on the
       // map. Accepted rather than engineered around: the alternative is
@@ -878,7 +878,7 @@ function ensureVectorSource(
       // PUBLISHED surface (viewer, share, embed, exported style) re-reads the
       // field per render or per request and is never stale.
       if (src && src.type === 'geojson') (src as GeoJSONSource).setData(source.data);
-      // A second layer sharing this dataset's source (the SF-04 dedupe) hits this
+      // A second layer sharing this dataset's source (the dedupe) hits this
       // branch even though its own layer was never added. syncPaint no-ops when the
       // layer is missing, so add it here instead. See #311.
       if (!map.getLayer(layerId)) adapter.addLayers(map, adapterInput);
@@ -888,7 +888,7 @@ function ensureVectorSource(
   }
 
   if (!map.getSource(sourceId)) {
-    // lineMetrics is sticky per D-02 (255-CONTEXT.md): we only set it at source CREATE time.
+    // lineMetrics is sticky: we only set it at source CREATE time.
     map.addSource(sourceId, source);
     if (canUseServerCluster && desiredClusterSignature) clusterStore.set(sourceId, desiredClusterSignature);
     else clusterStore.delete(sourceId);
@@ -899,7 +899,7 @@ function ensureVectorSource(
   } else {
     adapterInput.sourceType = 'vector';
     syncVectorTiles(map, adapterInput, mode, currentClusterSignature);
-    // A second layer sharing this dataset's source (the SF-04 dedupe) reaches this
+    // A second layer sharing this dataset's source (the dedupe) reaches this
     // branch with its own layer never added — the shared source was created by the
     // first layer. syncPaint no-ops when the layer is missing, so add it here. #311.
     if (!map.getLayer(layerId)) adapter.addLayers(map, adapterInput);
@@ -945,8 +945,8 @@ function syncDrawnLayer(
   finishDescribedLayer(map, drawing, getDrawingLayerIds(adapterInput.id, prefix), described.zoom);
 }
 
-/** Remove every map layer whose `source` references `sourceId`. builder-audit
- *  SYNC-06: for a DEDUPED vector source the id derived from the source name is
+/** Remove every map layer whose `source` references `sourceId`.
+ *  For a DEDUPED vector source the id derived from the source name is
  *  `data-${table}`, so the per-layer companion ids never match the real
  *  `layer-${layer.id}` ids — those orphan layers must be found structurally by
  *  walking the live style, not derived from the source key. */
@@ -972,7 +972,7 @@ function removeStaleSourcesAndLayers(
     if (desiredSources.has(sourceId)) continue;
     const id = sourceId.replace(sourcePrefix, '');
     const ids = getCompanionLayerIds(id, prefix);
-    // EDITOR-DEM-05: color-relief companion has no own source (it reuses the
+    // Color-relief companion has no own source (it reuses the
     // raster-dem source), so it is not found by the source-keyed loop and must
     // be removed explicitly here.
     removeColorReliefCompanionLayer(map, ids.layer);
@@ -980,7 +980,7 @@ function removeStaleSourcesAndLayers(
       // A layer redrawn on another source this pass keeps its id, and stays.
       if (map.getLayer(candidate)?.source === sourceId) map.removeLayer(candidate);
     }
-    // builder-audit #338 SYNC-06: enumerate any remaining layers still referencing
+    // Enumerate any remaining layers still referencing
     // this source (the deduped case where the derived ids above never matched)
     // and remove them BEFORE removeSource. Previously this relied on a sibling
     // path (removePerLayerCompanions) that early-returns mid-style-transition,
@@ -992,10 +992,10 @@ function removeStaleSourcesAndLayers(
   }
 }
 
-/** fix(#1778): remove managed data layers whose logical layer is gone even when
+/** Remove managed data layers whose logical layer is gone even when
  *  their SOURCE is still wanted.
  *
- *  removeStaleSourcesAndLayers is keyed on the source, so under the SF-04
+ *  removeStaleSourcesAndLayers is keyed on the source, so under the
  *  dedupe (two layers on one dataset share `source-data-${table}`) deleting one
  *  of them leaves the source DESIRED and its layer rows are never reclaimed.
  *  The delete path's own cleanup (removePerLayerCompanions) is best-effort, so
@@ -1119,7 +1119,7 @@ export function syncLayersToMap(
 
       const adapterInput: AdapterLayerInput = {
         ...adapterInputFor(layer, described),
-        // fix(#1472 review): reaches the raster / raster-dem source specs.
+        // Reaches the raster / raster-dem source specs.
         attribution: layer.attribution ?? null,
       };
 
@@ -1135,7 +1135,7 @@ export function syncLayersToMap(
   }
 
   try {
-    // fix(#1778): layer-aware prune first, so an orphan on a still-shared
+    // Layer-aware prune first, so an orphan on a still-shared
     // deduped source is reclaimed. Ordered before the source prune because the
     // source prune's removeLayersUsingSource depends on the layer set only for
     // sources it is about to drop.
@@ -1162,7 +1162,7 @@ export function syncLayersToMap(
       reorderBasemapLabels(map, options.showBasemapLabels, sourcePrefix);
     }
     reorderDataLabels(map, renderableLayers, prefix);
-    // UX-03: basemap-above-data inversion runs LAST so it overrides the
+    // Basemap-above-data inversion runs LAST so it overrides the
     // standard data-above-basemap stack ordering when position='top'.
     reorderBasemapAboveData(map, options?.basemapPosition, sourcePrefix);
     lastOrderKeyRef.current = orderKey();
@@ -1184,7 +1184,7 @@ function reorderDataGeometry(
     const colorReliefId = `${lid}${COLOR_RELIEF_SUFFIX}`;
     const cid = clusterCircleLayerId(lid);
     const ccid = clusterCountLayerId(lid);
-    // fix(#431 codex r1): mixed-geometry family sublayers move with their parent,
+    // Mixed-geometry family sublayers move with their parent,
     // preserving the adapter's add order (fill < outline < lines < points).
     const mlid = mixedLinesLayerId(lid);
     const mpid = mixedPointsLayerId(lid);

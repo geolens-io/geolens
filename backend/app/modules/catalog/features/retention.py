@@ -1,0 +1,620 @@
+"""Delete a feature dataset's rows once they fall out of its retention window.
+
+A dataset with retention keeps the rows whose retention column is no older
+than its last ``retention_days`` days; a row where that column is null is
+kept. A run deletes older rows in batches of ``BATCH_ROWS`` by ascending gid.
+Each batch commits with the feature count lowered by what it deleted, the tile
+cache version and data revision rolled, and an audit row recording it, so no
+transaction holds a large share of a table's row locks and a committed batch
+is current for tiles, exports and the count. The batch also marks the
+dataset ``retention_settle_pending``, and the run that deleted then
+recomputes the extent and derived geometry type and clears the mark. A run
+cut short before that leaves the mark set, and the next run settles every
+marked dataset, retention on or off, so the repair survives the setting
+being cleared. A timestamp without time zone is read as UTC.
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta, timezone
+
+import structlog
+from sqlalchemy import case, func, or_, select, text, update
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db.sqlstate import is_lock_conflict, sqlstate
+from app.core.db.tenant_schema import tenant_data_schema
+from app.core.db.tenant_session import current_tenant_var
+from app.core.record_types import capabilities
+from app.core.upload_errors import CodedRefusal
+from app.modules.audit.service import AuditEvent, audit_emit_required
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.schemas import DatasetRetention
+from app.modules.catalog.datasets.domain.service import _safe_column_ref, get_dataset
+from app.modules.catalog.features.idempotency import current_table_oid, held_table_oid
+from app.modules.catalog.features.service import refresh_dataset_metadata
+from app.platform.catalog_locks import (
+    WORKER_LOCK_TIMEOUT,
+    REQUEST_LOCK_TIMEOUT,
+    CatalogLockConflict,
+    lock_catalog_rows,
+    record_live_data_write,
+    worker_lock_budget,
+)
+from app.platform.extensions import get_catalog_port
+
+logger = structlog.get_logger(__name__)
+
+BATCH_ROWS = 5000
+# Per dataset per run; a larger backlog drains over later runs.
+RUN_BATCHES = 20
+SETTLE_ATTEMPTS = 3
+
+TEMPORAL_TYPES = frozenset(
+    {"date", "timestamp with time zone", "timestamp without time zone"}
+)
+# The name is spliced into SQL, quoted, so only plain names qualify.
+_PLAIN_COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+_GID_FLOOR = -(2**63)
+# LOCK TABLE on a foreign table or a materialized view.
+WRONG_OBJECT_TYPE = "42809"
+
+# What would make a delete reach past the rows a batch picked, or skip them,
+# or change rows behind the batch's count. tgtype bit 8 is DELETE.
+_RELATION_FACTS = text(
+    "SELECT c.relkind::text AS kind, "
+    "EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhparent = c.oid) AS inherited, "
+    "EXISTS (SELECT 1 FROM pg_constraint f WHERE f.contype = 'f' "
+    "AND f.confrelid = c.oid) AS referenced, "
+    "EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = c.oid "
+    "AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A') "
+    "AND t.tgtype & 8 = 8) AS delete_trigger, "
+    "EXISTS (SELECT 1 FROM pg_rewrite r WHERE r.ev_class = c.oid "
+    "AND r.ev_type = '4') AS delete_rule, "
+    # The batch pages on gid, so it must be an integer, a domain's base included.
+    "(WITH RECURSIVE base(oid, typtype, typbasetype) AS ("
+    "SELECT t.oid, t.typtype, t.typbasetype FROM pg_attribute a "
+    "JOIN pg_type t ON t.oid = a.atttypid WHERE a.attrelid = c.oid "
+    "AND a.attname = 'gid' AND a.attnum > 0 AND NOT a.attisdropped "
+    "UNION ALL SELECT t.oid, t.typtype, t.typbasetype FROM pg_type t "
+    "JOIN base b ON t.oid = b.typbasetype WHERE b.typtype = 'd') "
+    "SELECT oid::regtype::text FROM base WHERE typtype <> 'd') AS gid_type "
+    "FROM pg_class c WHERE c.oid = to_regclass(format("
+    "'%I.%I', CAST(:schema AS text), CAST(:table AS text)))"
+)
+# A domain resolves to its base type, as the feature table's column info does.
+_COLUMN_TYPE = text(
+    "WITH RECURSIVE base(oid, typtype, typbasetype) AS ("
+    "SELECT t.oid, t.typtype, t.typbasetype FROM pg_attribute a "
+    "JOIN pg_type t ON t.oid = a.atttypid "
+    "WHERE a.attrelid = to_regclass(format('%I.%I', "
+    "CAST(:schema AS text), CAST(:table AS text))) "
+    "AND a.attname = :column AND a.attnum > 0 AND NOT a.attisdropped "
+    "UNION ALL SELECT t.oid, t.typtype, t.typbasetype FROM pg_type t "
+    "JOIN base b ON t.oid = b.typbasetype WHERE b.typtype = 'd') "
+    "SELECT oid::regtype::text FROM base WHERE typtype <> 'd'"
+)
+
+
+class RetentionRefused(CodedRefusal):
+    """A retention setting the dataset cannot take, with a stable ``code``."""
+
+
+class _BatchStale(Exception):
+    """The dataset, its table or its setting changed before the batch's lock."""
+
+
+@dataclass(frozen=True)
+class _Window:
+    table_name: str
+    column: str
+    days: int
+    cutoff: datetime | date
+    table_oid: int | None
+
+
+def _has_features(record_type: str | None, geometry_type: str | None) -> bool:
+    return capabilities(record_type).feature_table and geometry_type is not None
+
+
+def is_feature_dataset(dataset: Dataset) -> bool:
+    """Whether the dataset has a feature table with geometry, as feature writes need."""
+    return _has_features(dataset.record.record_type, dataset.geometry_type)
+
+
+async def _locked_state(session: AsyncSession, dataset_id: uuid.UUID):
+    """The dataset's table, setting and modality, read under its catalog lock."""
+    return (
+        await session.execute(
+            select(
+                Dataset.table_name,
+                Dataset.retention_column,
+                Dataset.retention_days,
+                Dataset.geometry_type,
+                Record.record_type,
+            )
+            .join(Record, Record.id == Dataset.record_id)
+            .where(Dataset.id == dataset_id)
+        )
+    ).one_or_none()
+
+
+async def column_type(
+    session: AsyncSession, table_name: str, column: str
+) -> str | None:
+    """The base type of ``column`` in the dataset's live table, None when absent."""
+    if not _PLAIN_COLUMN.match(column):
+        return None
+    return await session.scalar(
+        _COLUMN_TYPE,
+        {
+            "schema": tenant_data_schema(current_tenant_var.get()),
+            "table": table_name,
+            "column": column,
+        },
+    )
+
+
+async def _relation_facts(session: AsyncSession, table_name: str):
+    return (
+        await session.execute(
+            _RELATION_FACTS,
+            {
+                "schema": tenant_data_schema(current_tenant_var.get()),
+                "table": table_name,
+            },
+        )
+    ).one_or_none()
+
+
+def _unsupported_relation() -> RetentionRefused:
+    return RetentionRefused(
+        "Retention needs the dataset's data in a plain table; this dataset "
+        "reads it from a view, a partitioned table or another relation.",
+        code="retention_unsupported_relation",
+    )
+
+
+async def relation_kind_refusal(
+    session: AsyncSession, table_name: str
+) -> RetentionRefused | None:
+    """Refuse a relation that is no plain table, before anything locks it.
+
+    ``LOCK TABLE`` itself fails on a foreign table or a materialized view.
+    """
+    facts = await _relation_facts(session, table_name)
+    return _unsupported_relation() if facts is None or facts.kind != "r" else None
+
+
+async def unsupported_table(
+    session: AsyncSession, table_name: str
+) -> RetentionRefused | None:
+    """Why retention can't delete from the dataset's live relation, or None.
+
+    Only a plain table with an integer gid qualifies whose deletes remove
+    exactly the rows asked for: no inheritance children, no foreign key
+    pointing at it, no enabled DELETE trigger of any timing or level and no
+    DELETE rule.
+    """
+    facts = await _relation_facts(session, table_name)
+    if facts is None or facts.kind != "r":
+        return _unsupported_relation()
+    if facts.gid_type not in {"smallint", "integer", "bigint"}:
+        return RetentionRefused(
+            "Retention pages through a table by its integer gid column, which "
+            "this table no longer has.",
+            code="retention_gid_unusable",
+        )
+    if facts.inherited:
+        return RetentionRefused(
+            "Retention can't run on a table that other tables inherit from.",
+            code="retention_has_children",
+        )
+    if facts.referenced:
+        return RetentionRefused(
+            "Retention can't run on a table that a foreign key references; "
+            "deleting its rows would also change the rows that point at them.",
+            code="retention_referenced",
+        )
+    if facts.delete_trigger:
+        return RetentionRefused(
+            "Retention can't run on a table with a DELETE trigger, which can "
+            "keep rows a delete asks for or change rows behind its count.",
+            code="retention_delete_trigger",
+        )
+    if facts.delete_rule:
+        return RetentionRefused(
+            "Retention can't run on a table with a DELETE rule.",
+            code="retention_delete_rule",
+        )
+    return None
+
+
+async def hold_table_for_setting(session: AsyncSession, table_name: str) -> None:
+    """Hold the live table until commit so no foreign key, trigger or ALTER can
+    land between a save's checks and its commit. Raises ``CatalogLockConflict``.
+    """
+    if await current_table_oid(session, table_name) is None:
+        return
+    quoted = get_catalog_port().quote_table(table_name)
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :budget, true)"),
+        {"budget": REQUEST_LOCK_TIMEOUT},
+    )
+    try:
+        # codeql[py/sql-injection] table via quote_table; the mode is a literal
+        await session.execute(text(f"LOCK TABLE ONLY {quoted} IN ROW EXCLUSIVE MODE"))
+    except DBAPIError as exc:
+        if sqlstate(exc) == WRONG_OBJECT_TYPE:
+            await session.rollback()
+            raise _unsupported_relation() from exc
+        if not is_lock_conflict(exc):
+            raise
+        await session.rollback()
+        raise CatalogLockConflict(
+            "Another operation is changing this dataset's table."
+        ) from exc
+
+
+def cutoff_for(now: datetime, days: int, type_name: str) -> datetime | date:
+    """The value a row's column must be older than to be deleted."""
+    instant = now.astimezone(timezone.utc) - timedelta(days=days)
+    if type_name == "date":
+        return instant.date()
+    if type_name == "timestamp without time zone":
+        return instant.replace(tzinfo=None)
+    return instant
+
+
+async def check_retention(
+    session: AsyncSession, dataset: Dataset, retention: DatasetRetention
+) -> datetime | date:
+    """Refuse a setting the dataset can't take; return its cutoff as of now."""
+    if not is_feature_dataset(dataset):
+        raise RetentionRefused(
+            "Retention applies only to datasets with features.",
+            code="retention_not_feature_dataset",
+        )
+    refusal = await unsupported_table(session, dataset.table_name)
+    if refusal is not None:
+        raise refusal
+    type_name = await column_type(session, dataset.table_name, retention.column)
+    if type_name is None:
+        raise RetentionRefused(
+            f"Column {retention.column!r} does not exist.",
+            code="retention_column_missing",
+            values={"column": retention.column},
+        )
+    if type_name not in TEMPORAL_TYPES:
+        raise RetentionRefused(
+            f"Column {retention.column!r} is {type_name}; retention needs a "
+            "date or timestamp column.",
+            code="retention_column_not_temporal",
+            values={"column": retention.column},
+        )
+    return cutoff_for(datetime.now(timezone.utc), retention.days, type_name)
+
+
+async def count_rows_past(
+    session: AsyncSession, table_name: str, column: str, cutoff: datetime | date
+) -> int:
+    """Rows whose ``column`` is older than ``cutoff``. The caller checked ``column``."""
+    quoted = get_catalog_port().quote_table(table_name)
+    sql = (
+        f"SELECT count(*) FROM ONLY {quoted} WHERE {_safe_column_ref(column)} < :cutoff"
+    )
+    # codeql[py/sql-injection] column matched _PLAIN_COLUMN, exists in the table and is quoted by _safe_column_ref; table via quote_table; cutoff is bound
+    return await session.scalar(text(sql), {"cutoff": cutoff})
+
+
+async def _window(
+    session: AsyncSession, dataset_id: uuid.UUID, now: datetime
+) -> tuple[Dataset, _Window] | None:
+    """The dataset and its retention as stored now, or None when nothing is due."""
+    dataset = await get_dataset(session, dataset_id)
+    if dataset is None or dataset.retention_column is None:
+        return None
+    if dataset.retention_days is None or not is_feature_dataset(dataset):
+        return None
+    type_name = await column_type(session, dataset.table_name, dataset.retention_column)
+    if type_name not in TEMPORAL_TYPES:
+        logger.warning(
+            "dataset_retention_column_unusable",
+            dataset_id=str(dataset_id),
+            column=dataset.retention_column,
+            column_type=type_name,
+        )
+        return None
+    return dataset, _Window(
+        dataset.table_name,
+        dataset.retention_column,
+        dataset.retention_days,
+        cutoff_for(now, dataset.retention_days, type_name),
+        await current_table_oid(session, dataset.table_name),
+    )
+
+
+async def _hold_live_window(
+    session: AsyncSession, window: _Window, now: datetime
+) -> _Window:
+    """Hold the table against DDL, then take the cutoff from its live column.
+
+    ``_window`` reads the column's type without a lock, so a retype or a
+    table swap can commit before the delete. ROW EXCLUSIVE conflicts with
+    the ACCESS EXCLUSIVE every ALTER and swap takes, so the type read here
+    holds until the batch ends, and no foreign key, trigger or rule on the
+    table can be added meanwhile. Raises ``_BatchStale`` when the table was
+    replaced, ``unsupported_table`` refuses it, or the column is no longer a
+    date or timestamp.
+    """
+    if await relation_kind_refusal(session, window.table_name) is not None:
+        raise _BatchStale("table_or_column_changed")
+    quoted = get_catalog_port().quote_table(window.table_name)
+    try:
+        async with worker_lock_budget(session):
+            # codeql[py/sql-injection] table via quote_table; the mode is a literal
+            await session.execute(text(f"LOCK TABLE {quoted} IN ROW EXCLUSIVE MODE"))
+    except DBAPIError as exc:
+        if sqlstate(exc) != WRONG_OBJECT_TYPE:
+            raise
+        raise _BatchStale("table_or_column_changed") from exc
+    type_name = await column_type(session, window.table_name, window.column)
+    if (
+        await current_table_oid(session, window.table_name) != window.table_oid
+        or await unsupported_table(session, window.table_name) is not None
+        or type_name not in TEMPORAL_TYPES
+    ):
+        raise _BatchStale("table_or_column_changed")
+    return replace(window, cutoff=cutoff_for(now, window.days, type_name))
+
+
+async def _delete_batch(
+    session: AsyncSession, window: _Window, after: int, limit: int
+) -> list[int]:
+    quoted = get_catalog_port().quote_table(window.table_name)
+    column = _safe_column_ref(window.column)
+    # MATERIALIZED picks the batch once; an IN subquery a nested loop rescans
+    # would lock and delete a fresh batch per outer row. The delete matches the
+    # locked rows themselves by ctid, since a registered table can hold one gid
+    # twice; locked rows cannot move before the delete. ONLY keeps an
+    # inheritance child attached mid-batch out of it.
+    sql = (
+        f"WITH batch AS MATERIALIZED (SELECT ctid FROM ONLY {quoted} "
+        f"WHERE {column} < :cutoff "
+        "AND (gid >= CAST(:after AS bigint) OR gid IS NULL) "
+        "ORDER BY gid NULLS FIRST LIMIT :limit FOR UPDATE SKIP LOCKED) "
+        f"DELETE FROM ONLY {quoted} WHERE ctid IN "
+        f"(SELECT ctid FROM batch) AND {column} < :cutoff RETURNING gid"
+    )
+    params = {"cutoff": window.cutoff, "after": after, "limit": limit}
+    async with worker_lock_budget(session):
+        # codeql[py/sql-injection] column matched _PLAIN_COLUMN, exists in the table and is quoted by _safe_column_ref; table via quote_table; values are bound
+        result = await session.execute(text(sql), params)
+    # One gid per deleted row, repeats and NULLs included. The caller pages
+    # from the largest gid inclusively, so expired rows sharing it are picked
+    # up next batch; rows without a gid come first in every batch.
+    return list(result.scalars())
+
+
+async def _record_batch(
+    session: AsyncSession, dataset: Dataset, window: _Window, deleted: int
+) -> None:
+    """Settle a batch's deletion in its own transaction, after the table work.
+
+    The catalog rows are taken after the delete, the order every feature
+    write uses, and the count moves by what was deleted rather than by a
+    recount of the table. Raises ``_BatchStale``, for the caller to roll the
+    delete back, when the dataset is gone, no longer names the table and
+    setting the delete used, or no longer has features.
+    """
+    await lock_catalog_rows(
+        session,
+        dataset_cls=Dataset,
+        record_cls=Record,
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        lock_timeout=WORKER_LOCK_TIMEOUT,
+    )
+    stored = await _locked_state(session, dataset.id)
+    if (
+        stored is None
+        or (stored.table_name, stored.retention_column, stored.retention_days)
+        != (window.table_name, window.column, window.days)
+        or not _has_features(stored.record_type, stored.geometry_type)
+    ):
+        raise _BatchStale
+    await session.execute(
+        update(Dataset)
+        .where(Dataset.id == dataset.id)
+        .values(
+            feature_count=case(
+                (Dataset.feature_count.is_(None), None),
+                else_=func.greatest(Dataset.feature_count - deleted, 0),
+            ),
+            retention_settle_pending=True,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    # The record carries the dataset's modification time, which a batch that
+    # changes no record column would otherwise leave behind; its trigger
+    # supplies a monotonic wall time. No user made this edit.
+    await session.execute(
+        update(Record)
+        .where(Record.id == dataset.record_id)
+        .values(updated_at=func.now(), updated_by=None)
+        .execution_options(synchronize_session=False)
+    )
+    if await record_live_data_write(session, dataset) is None:
+        raise _BatchStale
+    await audit_emit_required(
+        session,
+        AuditEvent(
+            user_id=None,
+            action="dataset.retention_prune",
+            resource_type="dataset",
+            resource_id=dataset.id,
+            details={
+                "deleted": deleted,
+                "column": window.column,
+                "retention_days": window.days,
+                "cutoff": window.cutoff.isoformat(),
+            },
+        ),
+    )
+
+
+async def _settle(dataset_id: uuid.UUID) -> None:
+    """Recompute count, extent and derived geometry type, and clear the mark.
+
+    The table is held first, then the catalog rows, the order column DDL,
+    deletion and replacement take them, so settlement waits on a held table
+    without holding the pair. A batch committing meanwhile either finishes
+    before the recount, which then sees it, or waits for the rows and marks
+    the dataset again. A dataset replaced by one without features has no
+    spatial metadata to recompute, so only the mark is cleared.
+    """
+    from app.core.db import async_session
+
+    for attempt in range(SETTLE_ATTEMPTS):
+        async with async_session() as session:
+            dataset = await get_dataset(session, dataset_id)
+            if dataset is None:
+                return
+            try:
+                async with worker_lock_budget(session):
+                    await held_table_oid(session, dataset.table_name)
+                await lock_catalog_rows(
+                    session,
+                    dataset_cls=Dataset,
+                    record_cls=Record,
+                    dataset_id=dataset.id,
+                    record_id=dataset.record_id,
+                    lock_timeout=WORKER_LOCK_TIMEOUT,
+                )
+                stored = await _locked_state(session, dataset_id)
+                if stored is not None and _has_features(
+                    stored.record_type, stored.geometry_type
+                ):
+                    await refresh_dataset_metadata(session, dataset)
+            except CatalogLockConflict:
+                if attempt + 1 == SETTLE_ATTEMPTS:
+                    raise
+                continue
+            await session.execute(
+                update(Dataset)
+                .where(Dataset.id == dataset_id)
+                .values(retention_settle_pending=False)
+                .execution_options(synchronize_session=False)
+            )
+            await session.commit()
+            return
+
+
+async def prune_dataset(
+    dataset_id: uuid.UUID,
+    *,
+    now: datetime,
+    batch_rows: int = BATCH_ROWS,
+    max_batches: int = RUN_BATCHES,
+    settle_pending: bool = False,
+) -> int:
+    """Delete up to ``max_batches`` batches of the dataset's expired rows.
+
+    Each batch re-reads the setting, so turning retention off stops a run
+    after the batch in flight, and a batch whose dataset or setting changed
+    before its lock deletes nothing and ends the dataset's run. Rows another
+    transaction holds are skipped until a later run. The dataset is settled
+    when this run deleted rows or ``settle_pending`` says an earlier one
+    did not settle. Returns the number deleted.
+    """
+    from app.core.db import async_session
+
+    deleted = 0
+    after = _GID_FLOOR
+    try:
+        for _ in range(max_batches):
+            try:
+                async with async_session() as session:
+                    due = await _window(session, dataset_id, now)
+                    if due is None:
+                        break
+                    dataset, window = due
+                    window = await _hold_live_window(session, window, now)
+                    gids = await _delete_batch(session, window, after, batch_rows)
+                    if gids:
+                        await _record_batch(session, dataset, window, len(gids))
+                    await session.commit()
+            except _BatchStale as stale:
+                logger.warning(
+                    "dataset_retention_batch_rolled_back",
+                    dataset_id=str(dataset_id),
+                    reason=str(stale) or "dataset_or_setting_changed",
+                )
+                break
+            if gids:
+                deleted += len(gids)
+                after = max((gid for gid in gids if gid is not None), default=after)
+            if len(gids) < batch_rows:
+                break
+    finally:
+        # Also after a failed batch, for the batches already committed.
+        if deleted or settle_pending:
+            await _settle(dataset_id)
+    return deleted
+
+
+async def prune_expired_rows(
+    *,
+    now: datetime | None = None,
+    batch_rows: int = BATCH_ROWS,
+    max_batches: int = RUN_BATCHES,
+) -> dict[uuid.UUID, int]:
+    """Run retention for every dataset in the current tenant scope that has it.
+
+    A dataset whose retention was cleared after an unsettled batch is only
+    settled. Returns the number of rows deleted per dataset that lost any.
+    """
+    from app.core.db import async_session
+
+    now = now or datetime.now(timezone.utc)
+    async with async_session() as session:
+        due = (
+            await session.execute(
+                select(Dataset.id, Dataset.retention_settle_pending)
+                .where(
+                    or_(
+                        Dataset.retention_days.is_not(None),
+                        Dataset.retention_settle_pending,
+                    )
+                )
+                .order_by(Dataset.id)
+            )
+        ).all()
+    pruned: dict[uuid.UUID, int] = {}
+    for dataset_id, settle_pending in due:
+        try:
+            deleted = await prune_dataset(
+                dataset_id,
+                now=now,
+                batch_rows=batch_rows,
+                max_batches=max_batches,
+                settle_pending=settle_pending,
+            )
+        except Exception:  # broad: one dataset's failure must not stop the rest
+            logger.warning(
+                "dataset_retention_failed", dataset_id=str(dataset_id), exc_info=True
+            )
+            continue
+        if deleted:
+            pruned[dataset_id] = deleted
+    if pruned:
+        logger.info(
+            "dataset_retention_run",
+            datasets=len(pruned),
+            deleted=sum(pruned.values()),
+        )
+    return pruned

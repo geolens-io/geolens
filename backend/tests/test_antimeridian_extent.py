@@ -180,7 +180,7 @@ class TestBboxToExtentWkt:
         zero-width ring — an invalid geometry, the exact defect class this helper
         exists to prevent.
 
-        fix(#934 codex r2): the zero-width half is dropped here, and that stays
+        fix(#934): the zero-width half is dropped here, and that stays
         right for this helper's callers, which all pass a continuous rectangle
         (a raster footprint, a STAC item bbox) with nothing in the dropped half
         to lose. The discrete-row case, where a feature really does sit at the
@@ -269,7 +269,7 @@ class TestBboxToExtentWkt:
         ],
     )
     def test_a_non_finite_bbox_is_refused_not_widened_to_the_globe(self, bbox):
-        """fix(#944 codex r1): NaN compares False against everything.
+        """fix(#944): NaN compares False against everything.
 
         Every guard in this helper is an ordered comparison, so a NaN slips
         through all of them and comes out the far side as an almost-global

@@ -1,4 +1,4 @@
-"""HARDEN-04 (T-1238-07): Admin create_user fail-fast role check tests.
+"""Admin create_user fail-fast role check tests.
 
 Verifies that AdminService.create_user() resolves the role BEFORE adding or
 flushing the User row, so a bad role name raises ValueError with no partial

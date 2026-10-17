@@ -219,7 +219,7 @@ describe('session-expiry notification (fix #628)', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  // fix(#1862 review P2): before the fix, tryRefresh reported failure here
+  // Before the fix, tryRefresh reported failure here
   // regardless of what the store actually held, so this retried with a dead
   // token, got 401 again, and notified — logging out (and revoking) the
   // session the peer tab had just refreshed.
@@ -242,7 +242,7 @@ describe('session-expiry notification (fix #628)', () => {
 
     // Yield until the fetch mock's own resolution, the 401 branch, and the
     // tryRefresh call all clear their microtask hops and refreshAccessToken
-    // is actually invoked (same pattern as the SP-09 concurrent-dedup test).
+    // is actually invoked (same pattern as the concurrent-dedup test).
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();

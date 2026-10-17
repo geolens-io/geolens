@@ -40,7 +40,7 @@ describe('KeyboardShortcutsSheet', () => {
     expect(screen.getByTestId('shortcut-legend')).toBeInTheDocument();
   });
 
-  // fix(#806 item 1): Space on a focused row toggles multi-selection (StackRow's
+  // Space on a focused row toggles multi-selection (StackRow's
   // `e.key === ' '` handler) and double-click renames. Both were undocumented; the
   // keyboard one was the only route a keyboard-only user had, and the sheet listed
   // multi-select as a pointer chord alone.

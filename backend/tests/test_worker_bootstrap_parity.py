@@ -1,4 +1,4 @@
-"""WORK-03: API-vs-worker parity regression test via dummy overlay.
+"""API-vs-worker parity regression test via dummy overlay.
 
 This file tests that for the same env + overlay combination, the "API path"
 (bootstrap with a FastAPI stub) and the "worker path" (bootstrap with app=None)
@@ -9,8 +9,6 @@ resolve to:
 
 Also: structural assertion that worker.main() references "bootstrap" (mirrors
 TestEnterpriseCheckWiredIntoLifespan in test_enterprise_overlay_startup_check.py).
-
-References: WORK-03 (parity), WORK-01 (structural wiring), T-1206-06 (drift detection)
 """
 
 from __future__ import annotations
@@ -44,7 +42,7 @@ def _clean_state():
         # create a fresh loop, causing "Future attached to a different loop".
         # Patch at the source module — it's imported inline inside bootstrap().
         # The RLS path is covered by test_tenant_rls_migration.py and
-        # test_iso_single_tenant_byte_identical.py (Phase 1208-05).
+        # test_iso_single_tenant_byte_identical.py.
         patch("app.core.db.rls.apply_tenancy_rls_from_engine"),
     ):
         yield
@@ -71,10 +69,10 @@ def _make_mock_ep(name: str, loader_fn):
 
 
 class TestBootstrapWiredIntoEntrypoints:
-    """Structural regression: both entrypoints delegate to bootstrap() (T-1206-06)."""
+    """Structural regression: both entrypoints delegate to bootstrap()."""
 
     def test_worker_main_references_bootstrap(self):
-        """worker.main source must reference 'bootstrap' (WORK-01 drift guard)."""
+        """worker.main source must reference 'bootstrap' (drift guard)."""
         from app.platform.jobs import worker as worker_module
 
         worker_src = inspect.getsource(worker_module.main)
@@ -85,7 +83,7 @@ class TestBootstrapWiredIntoEntrypoints:
         )
 
     def test_lifespan_references_bootstrap(self):
-        """api/main.py lifespan source must reference 'bootstrap' (WORK-01 drift guard)."""
+        """api/main.py lifespan source must reference 'bootstrap' (drift guard)."""
         from app.api import main as main_module
 
         lifespan_src = inspect.getsource(main_module.lifespan)
@@ -97,7 +95,7 @@ class TestBootstrapWiredIntoEntrypoints:
     def test_lifespan_references_port_assertion(self):
         """api lifespan must run assert_enterprise_ports_resolved() after bootstrap.
 
-        WORK-02: the affirmative port assertion has to run in BOTH entrypoints,
+        The affirmative port assertion has to run in BOTH entrypoints,
         else a license-key activation with a missing overlay crashes the worker
         while the API keeps serving Default community ports (API-up/worker-down
         split-brain).
@@ -158,7 +156,7 @@ class TestBootstrapWiredIntoEntrypoints:
 
 
 # ---------------------------------------------------------------------------
-# WORK-03: API vs worker parity — empty-overlay (community) case
+# API vs worker parity — empty-overlay (community) case
 # ---------------------------------------------------------------------------
 
 
@@ -211,7 +209,7 @@ class TestApiWorkerParityCommunity:
 
 
 # ---------------------------------------------------------------------------
-# WORK-03: API vs worker parity — dummy overlay case
+# API vs worker parity — dummy overlay case
 # ---------------------------------------------------------------------------
 
 

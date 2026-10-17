@@ -6,9 +6,8 @@ A python-mode ``model_dump()`` leaves ``date``/``datetime``/``UUID``/``Decimal``
 objects intact, and stdlib json cannot encode any of them.
 
 Why that is worse than a broken audit row: the ``TypeError`` surfaces at FLUSH
-time, not at ``audit_emit()`` time. ``audit_emit`` isolates sink failures
-(AUDIT-03), but the sink only calls ``session.add()`` — the INSERT is emitted
-later, inside the caller's commit, outside that try/except. So the failure
+time, not at ``audit_emit()`` time. ``audit_emit()`` isolates sink failures, but the sink only calls
+``session.add()`` — the INSERT is emitted later, inside the caller's commit, outside that try/except. So the failure
 rolls back the whole request transaction and takes the user's already-staged
 mutation with it. On the live demo a
 ``PATCH /datasets/{id} {"data_vintage_start": "1950-01-01"}`` 500'd and silently
@@ -102,7 +101,7 @@ async def test_patch_dataset_vintage_null_clear_still_audits(
     """``exclude_unset`` semantics survive the mode switch.
 
     ``mode="json"`` must not turn an explicit null-clear into an absent key —
-    that distinction is load-bearing for the history feed (#458 E-04).
+    that distinction is load-bearing for the history feed.
     """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")

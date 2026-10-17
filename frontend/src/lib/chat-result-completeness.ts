@@ -1,5 +1,5 @@
 /**
- * feat(#1241 codex r1): whether a chat overlay holds the WHOLE answer.
+ * Whether a chat overlay holds the WHOLE answer.
  *
  * `truncated` on a show_query_result action is the SQL sandbox's row-cap flag,
  * and it is not a statement about the FeatureCollection. When the model selects

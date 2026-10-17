@@ -137,7 +137,7 @@ function toFileEntry(
   };
 }
 
-// GPKG-03 Phase 1058: per-layer result shape for the fan-out results modal.
+// Per-layer result shape for the fan-out results modal.
 type FanOutResult = {
   layerName: string;
   status: 'fulfilled' | 'rejected';
@@ -168,7 +168,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   const [canTrack, setCanTrack] = useState(false);
   // Batch-level quota notice (the "X of Y datasets used" detail), shown once.
   const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
-  // GPKG-03 Phase 1058: results modal state for the multi-layer fan-out
+  // Results modal state for the multi-layer fan-out
   const [fanOutResults, setFanOutResults] = useState<{
     entryId: string;
     results: FanOutResult[];
@@ -181,8 +181,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
   // isFetching (not just isPending) so drops during the refetchOnMount
   // background refresh are also deferred — otherwise the cached-but-stale
-  // quota would briefly apply on remount before the live GET lands (Codex P2
-  // on PR #274).
+  // quota would briefly apply on remount before the live GET lands.
   const { data: uploadConfig, isFetching: configFetching } = useUploadConfig();
   const [chosenKind, setChosenKind] = useState<UploadKind | null>(null);
 
@@ -223,8 +222,8 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     // fix(#1832): same reasoning for the config-fetch queue.
     clearPendingUploadFiles();
     // Refresh remaining_dataset_quota so "Upload More" after an import reflects
-    // the new dataset count instead of the cached pre-import value (Codex P2 on
-    // PR #274). invalidate matches the user-scoped key by prefix.
+    // the new dataset count instead of the cached pre-import value on
+    // remount. The invalidation matches the user-scoped key by prefix.
     queryClient.invalidateQueries({ queryKey: queryKeys.ingest.uploadConfig });
   }, [setPhase, queryClient]);
 
@@ -277,10 +276,10 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     });
   }, [showBatch]);
 
-  // IMPORT-03 (Phase 1054): phase transitions were inlined inside setEntries
+  // Phase transitions were inlined inside setEntries
   // updaters, which violates React 19's "no setState during another
-  // component's render" rule and fires the verbatim warning the audit
-  // captured. Moving them into a single effect dep'd on `entries` runs the
+  // component's render" rule and fires the verbatim React warning.
+  // Moving them into a single effect dep'd on `entries` runs the
   // transition AFTER React commits the entries change.
   useEffect(() => {
     if (phase === 'uploading' && entries.length > 0) {
@@ -372,7 +371,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   // Flush queued drops once the quota query settles, re-applying every gate
   // the dropzone validated against nothing (or stale values) during the fetch
   // window: extension and per-file size are re-checked per file with the same
-  // rejection toast react-dropzone shows (Codex P2 round 2 on PR #432), then
+  // rejection toast react-dropzone shows, then
   // the batch cap with the fresh quota. Over-cap batches are trimmed to the
   // cap and the overflow rejected per file, matching react-dropzone v19's
   // maxFiles behavior (v19 accepts files up to the limit instead of
@@ -443,7 +442,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
     removeUploadSessionEntry(entryId);
     // Phase transition (reviewing → idle when empty) is handled by the
-    // useEffect dep'd on `entries` (IMPORT-03).
+    // useEffect dep'd on `entries`.
   };
 
   const quotaBanner = quotaNotice ? (
@@ -477,7 +476,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
           onCommitAllAsVrt={handleCommitAllAsVrt}
           onRemove={removeEntry}
           onSheetChange={handleSheetChange}
-          // GPKG-03 Phase 1058: wire fan-out handler
+          // Wire fan-out handler
           onIngestAllLayers={handleIngestAllLayers}
           isCommitting={entries.some((e) => e.status === 'committing')}
         />
@@ -485,7 +484,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
           {t('upload.startOver')}
         </Button>
 
-        {/* GPKG-03 Phase 1058: results modal shown after fan-out settles */}
+        {/* Results modal shown after fan-out settles */}
         {fanOutResults && (
           <Dialog
             open
@@ -539,16 +538,16 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   }
 
   // idle. The dropzone stays enabled while the quota query fetches — disabling
-  // it made react-dropzone silently swallow drops (PR #274 follow-up). Drops in
+  // it made react-dropzone silently swallow drops. Drops in
   // that window queue in pendingFiles and flush with the fresh quota, so we
-  // still never *act* on an unresolved/stale quota (Codex P2 on PR #274). Once
+  // still never *act* on an unresolved/stale quota. Once
   // a fetch settles, success carries the live remaining quota; an error
   // degrades to permissive — consistent with allowedExtensions/maxSizeMb.
   // While fetching, every config-derived gate is permissive (quota null,
   // extensions/size undefined): react-dropzone enforces accept/maxSize/maxFiles
   // at drop time, so cached stale values would reject files the fresh config
   // allows before they could queue — the flush validates all three against the
-  // settled config instead (Codex P2 rounds 1-3 on PR #432).
+  // settled config instead.
   return (
     <div className="space-y-4">
       {/* Locked while a drop waits on the config, so it uploads as the kind it was dropped as. */}

@@ -1,8 +1,8 @@
-"""Tests for the tenancy MODE axis, inert tenant-context middleware, and GUARD-01 edition-half.
+"""Tests for the tenancy MODE axis, inert tenant-context middleware, and the edition half of the guard.
 
-TSEAM-03: GEOLENS_TENANCY_MODE setting + is_multi_tenant() helper.
-TSEAM-04: TenantContextMiddleware is a strict no-op in single_tenant.
-GUARD-01 edition-half: multi_tenant without a tenancy overlay fails loud at boot.
+GEOLENS_TENANCY_MODE setting + is_multi_tenant() helper.
+TenantContextMiddleware is a strict no-op in single_tenant.
+Edition-half: multi_tenant without a tenancy overlay fails loud at boot.
 """
 
 from __future__ import annotations
@@ -166,7 +166,7 @@ class TestTenantContextMiddlewareInert:
 
 
 # ---------------------------------------------------------------------------
-# Test D: GUARD-01 edition-half — multi_tenant without overlay raises
+# Test D: edition-half — multi_tenant without overlay raises
 # ---------------------------------------------------------------------------
 
 

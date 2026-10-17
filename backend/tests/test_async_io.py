@@ -1,4 +1,4 @@
-"""fix(#435 codex r2/r3/r4): threaded I/O must finish before cancellation returns.
+"""Threaded I/O must finish before cancellation returns.
 
 `run_in_thread_draining` backs the local-storage copy, the manifest HTTP download, and
 the shapefile export zip. `asyncio.to_thread` cannot stop a running thread, so returning

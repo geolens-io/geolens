@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Shape B chat-action-staging module (Phase 1135 AI-01).
+ * Unit tests for the Shape B chat-action-staging module.
  *
  * Tests the staging buffer mechanics: push, acceptAll order, rejectAll clears
  * buffer with zero dispatch calls, acceptOne removes only the indexed action,
@@ -40,7 +40,7 @@ describe('isDestructiveAction', () => {
   });
 
   it('returns false for show_query_result', () => {
-    // show_query_result is NOT destructive — bypasses staging buffer per CONTEXT.md
+    // show_query_result is NOT destructive — bypasses staging buffer
     expect(isDestructiveAction(makeAction('show_query_result'))).toBe(false);
   });
 

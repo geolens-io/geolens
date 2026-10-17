@@ -36,7 +36,7 @@ async def _clean_settings(client: AsyncClient):
     except RuntimeError:
         pass
 
-    # BUG-008: the per-process sync rate-limit cache is now warmed on
+    # The per-process sync rate-limit cache is now warmed on
     # set()/reset(); clear it between tests so a warmed value never leaks into
     # an unrelated case.
     from app.core.persistent_config import _sync_rate_limit_cache
@@ -223,7 +223,7 @@ async def test_get_uncached_bypasses_stale_cache(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_set_public_url_invalidates_public_url_cache(client: AsyncClient):
-    """BUG-025: writing a public-URL key invalidates the public_urls module cache.
+    """Writing a public-URL key invalidates the public_urls module cache.
 
     public_urls._PUBLIC_URL_CACHE is a SEPARATE 60s memoization from the
     config: cache. Before the fix, PUBLIC_APP_URL.set() cleared only the
@@ -344,13 +344,13 @@ async def test_log_level_side_effect(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_log_level_side_effect_raises_httpx_floor_too(client: AsyncClient):
-    """fix(#1746 codex r8): a runtime LOG_LEVEL change must raise httpx's floor.
+    """fix(#1746): a runtime LOG_LEVEL change must raise httpx's floor.
 
     `apply_http_logger_levels()` keeps httpx/httpcore at least WARNING, but
     that floor has to track root upward too: a LOG_LEVEL=CRITICAL change made
     through the admin settings UI at runtime (not just LOG_LEVEL set at boot)
     must not leave httpx sitting at WARNING -- MORE verbose than the
-    deployment just asked for. The round 5/6 test guards already restore
+    deployment just asked for. The test guards already restore
     httpx/httpcore's level around every test, so no manual cleanup is needed
     for those two here; only root's own level is restored, matching the
     sibling test above.
@@ -397,7 +397,7 @@ async def test_sync_rate_limit_accessor(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_set_warms_sync_cache_with_new_value(client: AsyncClient):
-    """BUG-008: set() must warm the sync rate-limit cache with the NEW value.
+    """set() must warm the sync rate-limit cache with the NEW value.
 
     On main, set() warmed the sync cache only with the OLD value (via the
     get(db) at the top of set()) and never the new one, so slowapi kept
@@ -484,7 +484,7 @@ async def test_get_all_settings_returns_grouped(
 async def test_get_all_settings_env_only_shows_env_default_not_db_override(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """BUG-030: GET /settings/all in ENV_ONLY_CONFIG mode shows the effective
+    """GET /settings/all in ENV_ONLY_CONFIG mode shows the effective
     env_default, not the stale DB override.
 
     PersistentConfig.get short-circuits to env_default when env_only is set, so
@@ -1682,7 +1682,7 @@ async def test_a_legacy_blank_model_row_reads_as_the_provider_default(
 
 
 # ---------------------------------------------------------------------------
-# Log level propagation tests (CFG-06)
+# Log level propagation tests
 # ---------------------------------------------------------------------------
 
 
@@ -1725,7 +1725,7 @@ async def test_log_level_propagation_via_api(
 
 
 # ---------------------------------------------------------------------------
-# Tile cache TTL tests (CFG-07)
+# Tile cache TTL tests
 # ---------------------------------------------------------------------------
 
 
@@ -1837,7 +1837,7 @@ async def test_bulk_settings_update_creates_per_field_audit_entries(
 
 
 # ---------------------------------------------------------------------------
-# Phase 222: TypeAdapter runtime validation at JSONB unwrap boundary (D-06)
+# TypeAdapter runtime validation at JSONB unwrap boundary
 # ---------------------------------------------------------------------------
 
 
@@ -2072,7 +2072,7 @@ async def test_an_export_pairs_models_with_the_exported_provider(
 @pytest.mark.parametrize(
     "type_,good_value,bad_value",
     [
-        (bool, True, "not_a_bool"),  # CORRECTED from D-06: "yes" coerces in LAX
+        (bool, True, "not_a_bool"),  # "yes" coerces in LAX
         (str, "hi", 42),
         (int, 5, "five"),
         (list, [1, 2], {"k": "v"}),

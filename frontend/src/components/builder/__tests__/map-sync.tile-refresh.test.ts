@@ -33,7 +33,7 @@ function createMockMap() {
       // Vector sources expose setTiles in MapLibre — mirror that so the refresh
       // path under test can be exercised and counted. Real setTiles adopts the
       // new URL asynchronously (load() copies _options.tiles → source.tiles);
-      // the mock adopts on the NEXT 50ms timer tick so the fix(#584)
+      // the mock adopts on the NEXT 50ms timer tick so the
       // adoption-gated refresh has something realistic to wait for.
       if (spec.type === 'vector') {
         const src: { type: string; tiles?: string[]; setTiles?: ReturnType<typeof vi.fn> } = { ...spec };
@@ -162,7 +162,7 @@ describe('syncLayersToMap non-cluster vector tile refresh guard', () => {
       // ...and the reload backstop waits for the source to ADOPT the new URL
       // (maplibre's async load() copies it into source.tiles) before calling
       // refreshTiles — refreshing earlier would reload the OLD url while the
-      // signature store has already advanced (fix(#586)), re-stranding
+      // signature store has already advanced, re-stranding
       // the tiles. The mock adopts at +50ms.
       const refreshTiles = (map as unknown as { refreshTiles: ReturnType<typeof vi.fn> }).refreshTiles;
       expect(refreshTiles).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-"""HARDEN-04 (T-1238-05/06): OAuth audit correlation tests.
+"""OAuth audit correlation tests.
 
 Verifies that login-init and callback (success and failure) emit audit entries
 sharing a single correlation_id, and that no audit detail contains secrets,
@@ -34,7 +34,7 @@ def _clean_edition():
 
 # ---------------------------------------------------------------------------
 # client_session: shares client's override_get_db so committed rows are
-# immediately visible to subsequent HTTP calls (mirrors test_oauth.py D-04a).
+# immediately visible to subsequent HTTP calls (mirrors the client_session fixture in test_oauth.py).
 # ---------------------------------------------------------------------------
 
 
@@ -364,7 +364,7 @@ async def test_callback_registration_disabled_emits_failure_audit(
 
 # ---------------------------------------------------------------------------
 # Test 6: FIX-C — generic exception mid-provisioning rolls back partial User;
-# only the failure-audit row is persisted (Codex P2).
+# only the failure-audit row is persisted.
 # ---------------------------------------------------------------------------
 
 

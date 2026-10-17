@@ -1,4 +1,4 @@
-"""Regression tests for SEC-01: vector-tile egress authorization.
+"""Regression tests for vector-tile egress authorization.
 
 Pins the anonymous denial of public-unpublished vector tile tokens AND tile
 bytes so the leak cannot return silently.  Covers:
@@ -129,13 +129,13 @@ async def _cleanup_data_table(session, table_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SEC-01 regression tests
+# Regression tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.usefixtures("_init_tile_pool_for_tests")
 class TestVectorTileEgressAuthorization:
-    """Regression coverage for SEC-01: anon callers must not receive tile tokens
+    """Regression coverage: anon callers must not receive tile tokens
     or tile bytes for public + non-published vector datasets."""
 
     async def test_anon_single_token_denied_for_public_unpublished(
@@ -144,7 +144,7 @@ class TestVectorTileEgressAuthorization:
         """Anonymous GET /tiles/token/{id}/ must be denied (401 or 404) for a
         public + non-published vector dataset.
 
-        Before the SEC-01 fix this returned 200 with a minted HMAC sig (the leak).
+        Before the fix this returned 200 with a minted HMAC sig (the leak).
         """
         admin_id = await _get_admin_id(test_db_session)
         _record, dataset = await _create_vector_dataset(
@@ -166,7 +166,7 @@ class TestVectorTileEgressAuthorization:
         """Anonymous POST /tiles/tokens/ must return 200 (batch never fails the
         request) but the per-dataset entry must carry an 'error' key and NO 'sig'.
 
-        Before the SEC-01 fix the batch endpoint minted an HMAC sig for the
+        Before the fix the batch endpoint minted an HMAC sig for the
         public+unpublished dataset regardless of anonymous status.
         """
         admin_id = await _get_admin_id(test_db_session)
@@ -205,7 +205,7 @@ class TestVectorTileEgressAuthorization:
         This is the LITERAL leak path measured at "200 + 1842 bytes of MVT".  The
         dataset is given a real point backing table so the request reaches the
         authorization gate in _authorize_vector_tile_request rather than failing
-        earlier on a missing table / null geometry.  Before the SEC-01 fix this
+        earlier on a missing table / null geometry.  Before the fix this
         returned 200 with MVT feature bytes.
         """
         admin_id = await _get_admin_id(test_db_session)
@@ -233,7 +233,7 @@ class TestVectorTileEgressAuthorization:
         denied (404) for a public + non-published vector dataset.
 
         With a real point backing table the clusterable gate
-        (_ensure_clusterable_dataset) passes, so the request reaches the SEC-01
+        (_ensure_clusterable_dataset) passes, so the request reaches the
         authorization gate (_authorize_vector_tile_request) and must return 404 —
         not a 400 from the clusterable gate.  This pins the cluster auth path
         directly (a null-geometry 400 would pass regardless of the fix).
@@ -264,7 +264,7 @@ class TestVectorTileEgressAuthorization:
         """POSITIVE over-gating guard: anonymous GET /tiles/token/{id}/ must
         return 200 with a 'sig' present for a public + published vector dataset.
 
-        This guard ensures the SEC-01 fix does not over-gate legitimate anon access
+        This guard ensures the fix does not over-gate legitimate anon access
         to publicly published datasets.
         """
         admin_id = await _get_admin_id(test_db_session)
@@ -291,7 +291,7 @@ class TestVectorTileEgressAuthorization:
         """POSITIVE over-gating guard for the serving path: anonymous raw .pbf on a
         public + published vector dataset must still return 200 with MVT bytes.
 
-        Ensures the SEC-01 status gate does not break legitimate anonymous tile
+        Ensures the status gate does not break legitimate anonymous tile
         serving for published public data.
         """
         admin_id = await _get_admin_id(test_db_session)

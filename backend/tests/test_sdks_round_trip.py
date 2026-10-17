@@ -1,4 +1,4 @@
-"""Round-trip integration test for both SDKs (Phase 215 / OCSDK-01, OCSDK-02).
+"""Round-trip integration test for both SDKs.
 
 The Python half exercises the SDK directly against the in-process FastAPI app
 via a manually-constructed ``httpx.Client`` that wraps ``ASGITransport(app=app)``
@@ -6,25 +6,24 @@ plus the auth headers built from the SDK's ``AuthenticatedClient`` (no real
 network I/O, no uvicorn subprocess for these tests, ~3s in CI). It exercises
 both Bearer-token AND X-API-Key auth modes, closing the empirical gap that
 ``OAuth2PasswordBearer`` is the only security scheme advertised in the OpenAPI
-snapshot but ``X-API-Key`` works through the hand-written wrapper (RESEARCH
-Pitfall 4).
+snapshot but ``X-API-Key`` works through the hand-written wrapper.
 
 The TypeScript half spawns a Node subprocess that runs against a uvicorn
 instance bound to a free port on 127.0.0.1. If Node is unavailable on the
 test runner OR the SDK has not been built (``dist/index.js`` missing), the
-test skips with a clear reason (RESEARCH Assumption A3). The CI workflow
+test skips with a clear reason. The CI workflow
 ensures both are present.
 
-ROADMAP SC#1/SC#2 require round-trip against three endpoints. The actual
+The round-trip covers three endpoints. The actual
 operationIds in the OpenAPI snapshot (verified 2026-04-27) are:
     GET  /search/datasets/         search_datasets_endpoint_search_datasets_get
     GET  /datasets/{dataset_id}    get_single_dataset_datasets_dataset_id_get
     POST /ingest/upload            upload_file_ingest_upload_post
 (Single-underscore separators per generator naming, NOT the double-underscore
-prose paths from the ROADMAP — RESEARCH Pitfall 5.)
+prose paths in earlier notes.)
 
 Note: ``GeolensClient`` is imported from ``geolens.auth`` (its definition
-module). Plan 05 also added ``__init__.py`` to the Makefile cp-stash so
+module). The Makefile cp-stash also carries ``__init__.py`` so
 ``from geolens import GeolensClient`` works for SDK consumers; the
 explicit submodule path is kept here for test stability across regenerations.
 """
@@ -82,7 +81,7 @@ from geolens.models.service_auth_request import ServiceAuthRequest  # noqa: E402
 from geolens.models.stac_item_summary import StacItemSummary  # noqa: E402
 from geolens.types import UNSET  # noqa: E402
 
-# Phase 278 TEST-09: lift the 3 TypeScript-round-trip skip preconditions to
+# Lift the 3 TypeScript-round-trip skip preconditions to
 # module-level constants so the conditional skips become @pytest.mark.skipif
 # decorators (collected at gather-time). All three checks are pure (no
 # side effects, no network).
@@ -1783,7 +1782,7 @@ class TestPythonRoundTrip:
 
     @pytest.mark.anyio
     async def test_api_key_auth_mode(self, client, admin_auth_header) -> None:
-        """Closes Pitfall 4: X-API-Key works via the wrapper despite not being
+        """X-API-Key works via the wrapper despite not being
         in the OpenAPI spec (only OAuth2PasswordBearer is advertised)."""
         from app.api.main import app
         from geolens.api.search import (
@@ -1831,9 +1830,9 @@ async def test_typescript_round_trip(
     """Spawn a Node subprocess that exercises the TypeScript SDK against a
     uvicorn instance bound to a free port on 127.0.0.1.
 
-    Per RESEARCH Assumption A3: skip preconditions (node availability, TS SDK
+    Skip preconditions (node availability, TS SDK
     built, uvicorn importable) are evaluated at module import time and
-    expressed as @pytest.mark.skipif decorators (Phase 278 TEST-09). The CI
+    expressed as @pytest.mark.skipif decorators. The CI
     workflow ensures all three are present.
     """
     node = shutil.which("node")

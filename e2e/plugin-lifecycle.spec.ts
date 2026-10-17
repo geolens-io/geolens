@@ -2,10 +2,9 @@
  * Plugin lifecycle E2E — covers the plugin enable/disable + persistence
  * round-trip:
  *
- *   MED-1/round-trip — toggling a plugin in the builder Settings panel, saving,
- *   and reloading round-trips through the `catalog.maps.plugins` column.
- *
- *   MED-2 — the per-map Settings plugin toggles are filtered by the admin
+ * - Toggling a plugin in the builder Settings panel, saving, and reloading
+ *   round-trips through the `catalog.maps.plugins` column.
+ * - The per-map Settings plugin toggles are filtered by the admin
  *   `enabled_plugins` allowlist (no dead toggles for admin-disabled plugins).
  *
  * Self-contained: each test creates its own throwaway map via the API and

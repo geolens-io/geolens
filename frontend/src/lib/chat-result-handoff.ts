@@ -16,7 +16,7 @@
 export interface ChatResultHandoff {
   geojson: GeoJSON.FeatureCollection;
   bbox: [number, number, number, number];
-  /** feat(#1241 codex r1): whether the overlay holds the whole answer, and of
+  /** Whether the overlay holds the whole answer, and of
    *  how many. Geometry alone was enough while the builder could only draw and
    *  dismiss a carried result; now it can also be saved as a dataset, and a
    *  handoff that drops the completeness pair arrives looking complete. */
@@ -32,7 +32,7 @@ const KEY = 'geolens-chat-result';
 /**
  * Validate a show_query_result-style geojson/bbox pair. Mirrors
  * ViewerChatPanel's flyover guard: finite, WGS84-bounded, non-inverted bbox
- * (fix(#527 B-054/C-06) — NaN/inverted bounds throw in fitBounds).
+ * (NaN/inverted bounds throw in fitBounds).
  *
  * Geometry only: the completeness pair and the prompt are added by the caller
  * that has them, so this stays the one place that decides whether a payload is

@@ -1,10 +1,9 @@
 import { test, expect, type Page } from './helpers/session';
 
 /**
- * Lane B4 (service-auth wave): the four-way credential method select for a
+ * The four-way credential method select for a
  * non-ArcGIS-shaped service URL (WFS, OGC API Features) on the import
- * wizard's Service URL tab. Backend B2b (#1770, merged to main before this
- * lane started) is what makes Basic and header-key methods actually reach
+ * wizard's Service URL tab. Backend B2b (#1770) is what makes Basic and header-key methods actually reach
  * the service; the probe/preview endpoints are mocked here with page.route,
  * so this spec never touches a real WFS server, but does exercise the real
  * `auth` object the frontend now builds and sends.

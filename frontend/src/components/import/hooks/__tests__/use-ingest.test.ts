@@ -253,7 +253,7 @@ describe('useUploadConfig', () => {
 });
 
 /**
- * REMED-01 (ingest-audit P2-06): useCreateVrt must invalidate the
+ * useCreateVrt must invalidate the
  * jobStatus cache on success so any UI subscribed to the new job's
  * progress refetches immediately. VrtCreateResponse carries only
  * `job_id` (no `dataset_id`), so we invalidate jobStatus(job_id).

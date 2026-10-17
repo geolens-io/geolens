@@ -12,7 +12,7 @@ import {
 } from '../shared';
 import type { LayoutPropertyName, PaintPropertyName } from '../shared';
 
-// fix(#846): the ownership options now carry the real MapLibre key unions, which is
+// The ownership options now carry the real MapLibre key unions, which is
 // accurate for every production caller (each passes a curated `as const` tuple). The
 // two tests below deliberately feed a builder-private `_`-prefixed key to prove the
 // runtime guards still drop it, so they assert past the narrowed type on purpose.
@@ -269,7 +269,7 @@ describe('normalizeRasterBounds (ADAPT-01)', () => {
     expect(normalizeRasterBounds([1, 2, 3, 4, 5])).toBeUndefined();
   });
 
-  // fix(#903): a MapLibre source `bounds` takes one increasing box, so an
+  // A MapLibre source `bounds` takes one increasing box, so an
   // antimeridian-crossing pair matches no tile and the layer renders blank.
   it('widens a seam-crossing pair to the monotonic world span', () => {
     expect(normalizeRasterBounds([178.5, -20, -178.5, -15])).toEqual([-180, -20, 180, -15]);
@@ -329,7 +329,7 @@ describe('syncOwnedLayoutProperties', () => {
   });
 });
 
-// fix(#1625): the single branch point for the master-opacity split.
+// The single branch point for the master-opacity split.
 describe('applyMasterOpacity (#1625)', () => {
   const expr = ['step', ['zoom'], 0.2, 9, 0.7];
 

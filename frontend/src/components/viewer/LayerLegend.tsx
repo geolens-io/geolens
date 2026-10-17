@@ -20,7 +20,7 @@ interface LayerLegendProps {
   /** Map-level terrain config; drives the synthetic "3D terrain" legend entry. */
   terrainConfig?: MapTerrainConfig | null;
   /**
-   * ENH-06: custom map-level legend title. When set (non-empty), it renders as
+   * Custom map-level legend title. When set (non-empty), it renders as
    * the panel heading in place of the default "Legend" label. Null/empty keeps
    * the default heading.
    */
@@ -58,9 +58,9 @@ export function LayerLegend({
     [layers, drawn],
   );
 
-  // D-01: single synthetic "3D terrain" entry driven by terrain_config — only
+  // Single synthetic "3D terrain" entry driven by terrain_config — only
   // when a backing terrain-capable DEM layer for the source dataset is present
-  // (999.17 MD-01: no phantom entry for a dangling terrain_config).
+  // (no phantom entry for a dangling terrain_config).
   const terrainEntry = useMemo(() => {
     const entry = deriveTerrainLegendEntry(terrainConfig, layers, { labelKey: 'viewer.legend.terrain3d' });
     if (!entry) return null;
@@ -142,7 +142,7 @@ export function LayerLegend({
                     legend and layer-list icons must agree, so derive the glyph
                     instead of hardcoding it. */}
                 <RasterGlyphChip glyph={demChipGlyph('terrain')} />
-                {/* fix(HT-08): keep the bound DEM's identity — fall back to the
+                {/* Keep the bound DEM's identity — fall back to the
                     generic "3D terrain" label only when the layer has no name. */}
                 <span className="text-sm text-foreground flex-1">
                   {terrainEntry.sourceName ?? t(terrainEntry.labelKey)}

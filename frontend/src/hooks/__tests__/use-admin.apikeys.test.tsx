@@ -1,6 +1,5 @@
-// fix(#1805 review round 4 P2): useQueries silently dropped a failed page --
-// isError was never surfaced and hasMore stayed true, so a broken page just
-// looked unloaded. useApiKeys now surfaces the first failed page (in page
+// useQueries silently dropped a failed page: isError was never surfaced and
+// hasMore stayed true, so a broken page just looked unloaded. useApiKeys now surfaces the first failed page (in page
 // order) and a retryFailedPage() scoped to that one query.
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

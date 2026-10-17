@@ -1,6 +1,6 @@
 """Tests for raster_tile_proxy colormap_name + stretch query param handling.
 
-Covers every behavior bullet in 1140-01-PLAN.md Task 2:
+Covers:
 - colormap_name=viridis → titiler URL contains colormap_name=viridis
 - colormap_name omitted → titiler URL unchanged (no colormap_name appended)
 - colormap_name=gray → treated as default/no-op (not appended)
@@ -9,7 +9,7 @@ Covers every behavior bullet in 1140-01-PLAN.md Task 2:
 - stretch=evil → 422
 - DEM (render_params starts with algorithm=) → colormap_name NOT appended
 
-Phase 1153 additions (RASTER-STRETCH-03 + RASTER-STRETCH-UI-01 backend):
+Multi-band rescale and configurable bounds (backend):
 - 3-band raster + stretch=percentile → exactly 3 rescale= fragments
 - 1-band raster + stretch=percentile → exactly 1 rescale= fragment
 - band_count=4 capped at 3 → exactly 3 rescale= fragments
@@ -17,10 +17,10 @@ Phase 1153 additions (RASTER-STRETCH-03 + RASTER-STRETCH-UI-01 backend):
 - pmin/pmax/sigma configurable bounds, forwarded as repeated p= to /cog/statistics
 - _band_stats_cache keyed by (open_path, pmin, pmax) — isolation between bounds
 - 422 validation on invalid pmin/pmax/sigma before Titiler called
-- SPIKE-01 contract pinned (p=/percentile_<N> forwarding)
+- contract pinned (p=/percentile_<N> forwarding)
 
-Security: T-1140-01 — invalid colormap must be rejected before Titiler is called.
-Security: T-1153-01 — invalid pmin/pmax/sigma rejected before Titiler called.
+Security: invalid colormap must be rejected before Titiler is called.
+Security: invalid pmin/pmax/sigma rejected before Titiler called.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ def _make_titiler_ok_response() -> MagicMock:
 #   percentile → rescale=512.66,1304.31  (percentile_2, percentile_98)
 #   stddev     → rescale=490.6,1228.19   (mean ± 2σ, lo clamped to band min)
 #
-# Phase 1153: extended with b2/b3 for multi-band tests + percentile_5/percentile_95
+# Extended with b2/b3 for multi-band tests + percentile_5/percentile_95
 # for configurable-bounds tests.
 _BAND_STATS: dict[str, Any] = {
     "b1": {
@@ -244,11 +244,11 @@ class TestRasterColormapProxy:
 
     # ------------------------------------------------------------------
     # Behavior: colormap_name outside allowlist → 422; Titiler NOT called
-    # T-1140-01 BLOCKING security test
+    # BLOCKING security test
     # ------------------------------------------------------------------
 
     async def test_invalid_colormap_returns_422(self, client):
-        """[T-1140-01] Out-of-allowlist colormap_name → 422; Titiler never called."""
+        """Out-of-allowlist colormap_name → 422; Titiler never called."""
         resp = await client.get(
             _TILE_PATH,
             params={"colormap_name": "not_a_real_map"},
@@ -262,7 +262,7 @@ class TestRasterColormapProxy:
         )
 
     async def test_injection_attempt_colormap_returns_422(self, client):
-        """[T-1140-01] Colormap injection attempt → 422; Titiler never called."""
+        """Colormap injection attempt → 422; Titiler never called."""
         resp = await client.get(
             _TILE_PATH,
             params={"colormap_name": "viridis&evil=injection"},
@@ -277,7 +277,7 @@ class TestRasterColormapProxy:
     # ------------------------------------------------------------------
 
     async def test_stretch_percentile_computes_rescale(self, client):
-        """[RASTER-STRETCH-01] stretch=percentile overrides the dtype rescale with
+        """stretch=percentile overrides the dtype rescale with
         [percentile_2, percentile_98] from Titiler band statistics."""
         resp = await client.get(
             _TILE_PATH,
@@ -294,7 +294,7 @@ class TestRasterColormapProxy:
         assert "rescale=0,65535" not in tile_url, tile_url
 
     async def test_stretch_stddev_computes_rescale(self, client):
-        """[RASTER-STRETCH-02] stretch=stddev overrides rescale with mean±2σ,
+        """stretch=stddev overrides rescale with mean±2σ,
         clamped to the band [min, max]."""
         resp = await client.get(
             _TILE_PATH,
@@ -442,11 +442,11 @@ class TestRasterColormapProxy:
         assert f"colormap_name={cmap}" in self._titiler_calls[0]
 
     # ------------------------------------------------------------------
-    # Phase 1153 Task 1: Multi-band rescale (RASTER-STRETCH-03)
+    # Multi-band rescale
     # ------------------------------------------------------------------
 
     async def test_three_band_stretch_produces_three_rescale_fragments(self, client):
-        """[RASTER-STRETCH-03] 3-band raster + stretch=percentile → exactly 3 rescale= fragments.
+        """3-band raster + stretch=percentile → exactly 3 rescale= fragments.
 
         The raster_tile_proxy must use n_bands=min(band_count or 1, 3) so each
         band gets its own independent rescale= from Titiler per-band stats.
@@ -463,7 +463,7 @@ class TestRasterColormapProxy:
         )
 
     async def test_one_band_stretch_produces_one_rescale_fragment(self, client):
-        """[RASTER-STRETCH-03] 1-band raster + stretch=percentile → exactly 1 rescale= fragment."""
+        """1-band raster + stretch=percentile → exactly 1 rescale= fragment."""
         self._auth_band_count = 1
         resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
         assert resp.status_code in (200, 204)
@@ -473,7 +473,7 @@ class TestRasterColormapProxy:
         )
 
     async def test_four_band_stretch_capped_at_three_rescale_fragments(self, client):
-        """[RASTER-STRETCH-03] band_count=4 is capped at 3 → exactly 3 rescale= fragments."""
+        """band_count=4 is capped at 3 → exactly 3 rescale= fragments."""
         self._auth_band_count = 4
         self._auth_render_params = (
             "bidx=1&bidx=2&bidx=3&rescale=0,255&rescale=0,255&rescale=0,255"
@@ -488,7 +488,7 @@ class TestRasterColormapProxy:
     async def test_missing_band_count_falls_back_to_one_rescale_fragment(
         self, client, monkeypatch
     ):
-        """[RASTER-STRETCH-03] band_count missing/None → 1 rescale= fragment, no crash."""
+        """band_count missing/None → 1 rescale= fragment, no crash."""
         from app.processing.tiles import router as tiles_router
 
         # Simulate absent X-GeoLens-Band-Count header — router must fall back to 1.
@@ -513,11 +513,11 @@ class TestRasterColormapProxy:
         )
 
     # ------------------------------------------------------------------
-    # Phase 1153 Task 2: Configurable bounds (RASTER-STRETCH-UI-01 backend)
+    # Configurable bounds (backend)
     # ------------------------------------------------------------------
 
     async def test_custom_pmin_pmax_forwarded_as_repeated_p_params(self, client):
-        """[RASTER-STRETCH-UI-01] pmin=5&pmax=95 → statistics URL raw query contains p=5&p=95."""
+        """pmin=5&pmax=95 → statistics URL raw query contains p=5&p=95."""
         resp = await client.get(
             _TILE_PATH,
             params={"stretch": "percentile", "pmin": 5, "pmax": 95},
@@ -530,7 +530,7 @@ class TestRasterColormapProxy:
         )
 
     async def test_custom_pmin_pmax_reads_dynamic_percentile_keys(self, client):
-        """[RASTER-STRETCH-UI-01] pmin=5&pmax=95 → rescale uses percentile_5/percentile_95 values."""
+        """pmin=5&pmax=95 → rescale uses percentile_5/percentile_95 values."""
         resp = await client.get(
             _TILE_PATH,
             params={"stretch": "percentile", "pmin": 5, "pmax": 95},
@@ -543,11 +543,11 @@ class TestRasterColormapProxy:
         )
 
     async def test_cache_key_isolation_different_bounds(self, client):
-        """[RASTER-STRETCH-UI-01 critical] Two requests with different pmin/pmax produce distinct
+        """[critical] Two requests with different pmin/pmax produce distinct
         _band_stats_cache entries keyed (open_path, pmin, pmax).
 
         This is the critical acceptance gate: without bounds in the cache key, the second
-        request would silently use the first's cached p2/p98 stats (PITFALL-01 from 1153-CONTEXT.md).
+        request would silently use the first's cached p2/p98 stats.
         """
         from app.processing.tiles import router as tiles_router
 
@@ -588,7 +588,7 @@ class TestRasterColormapProxy:
         )
 
     async def test_custom_sigma_computes_different_rescale(self, client):
-        """[RASTER-STRETCH-UI-01] sigma=3 → mean ± 3·std (distinct from default sigma=2)."""
+        """sigma=3 → mean ± 3·std (distinct from default sigma=2)."""
         # Default sigma=2: rescale=490.6,1228.19 (lo clamped to 490.6)
         # sigma=3: mean=787.77, std=220.21 → 127.14..1448.4 → clamped lo=490.6, hi=1448.4
         resp = await client.get(
@@ -605,7 +605,7 @@ class TestRasterColormapProxy:
         assert "rescale=490.6,1228.19" not in tile_url
 
     async def test_default_pmin_pmax_preserves_percentile_2_98(self, client):
-        """[RASTER-STRETCH-UI-01] absent pmin/pmax → reads percentile_2/percentile_98 (unchanged behavior)."""
+        """absent pmin/pmax → reads percentile_2/percentile_98 (unchanged behavior)."""
         resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
         assert resp.status_code in (200, 204)
         tile_url = self._tile_titiler_calls[0]
@@ -614,7 +614,7 @@ class TestRasterColormapProxy:
         )
 
     async def test_default_sigma_preserves_two_stddev(self, client):
-        """[RASTER-STRETCH-UI-01] absent sigma → 2.0·std (unchanged behavior)."""
+        """absent sigma → 2.0·std (unchanged behavior)."""
         resp = await client.get(_TILE_PATH, params={"stretch": "stddev"})
         assert resp.status_code in (200, 204)
         tile_url = self._tile_titiler_calls[0]
@@ -636,7 +636,7 @@ class TestRasterColormapProxy:
     async def test_invalid_bounds_returns_422_before_titiler(
         self, client, bad_params, description
     ):
-        """[T-1153-01] Invalid pmin/pmax/sigma → HTTP 422; Titiler tile-fetch NOT called.
+        """Invalid pmin/pmax/sigma → HTTP 422; Titiler tile-fetch NOT called.
 
         Security: untrusted bounds must be validated before any Titiler call.
         """
@@ -659,7 +659,7 @@ class TestRasterColormapProxy:
             ({"pmin": -1}, "pmin<0 under an inactive stretch mode"),
             ({"sigma": 0}, "sigma=0 under an inactive stretch mode"),
             ({"sigma": -1}, "sigma<0 under an inactive stretch mode"),
-            # fix(#1778 codex r8): pmin=1e309 (FastAPI coerces this literal
+            # Pmin=1e309 (FastAPI coerces this literal
             # to `inf`) under stretch=minmax -- minmax is inactive for
             # pmin/pmax the same as stddev is, so this must be ignored the
             # same as any other out-of-range value, never a 500.
@@ -672,17 +672,17 @@ class TestRasterColormapProxy:
     async def test_out_of_range_bounds_are_ignored_under_an_inactive_stretch_mode(
         self, client, bad_params, description
     ):
-        """[T-1153-01] fix(#1778 codex r2): pmin/pmax/sigma are read and
+        """pmin/pmax/sigma are read and
         validated ONLY when the active stretch mode reads them -- stretch=
         minmax reads neither pmin/pmax nor sigma, so an out-of-range value
         under it is ignored, not rejected.
 
-        This inverts what round 1 of this fix pinned (validate regardless of
+        This inverts what the first version of this fix pinned (validate regardless of
         mode). That version made "inactive" a claim the API could contradict:
         frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
         out of the cache key so a random one cannot defeat the cache, and a
         cache HIT must never answer with a status an uncached request would
-        not have given. Round 1 closed that by validating anyway and only
+        not have given. That version closed the gap by validating anyway and only
         blanking well-formed values, but that still had two residuals (a
         joint pmin/pmax ordering nginx cannot cheaply check, and a repeated
         query parameter, where nginx reads the FIRST occurrence and this
@@ -705,7 +705,7 @@ class TestRasterColormapProxy:
         assert len(self._stats_titiler_calls) == 0
 
     # ------------------------------------------------------------------
-    # fix(#1778 codex r8): "inactive means ignored" was decided at the
+    # "inactive means ignored" was decided at the
     # validation gate but not enforced on eff_pmin/eff_pmax/eff_sigma
     # themselves -- they were resolved from "was the parameter merely
     # present", so an inactive parameter's RAW value still reached
@@ -783,7 +783,7 @@ class TestRasterColormapProxy:
         assert len(self._stats_titiler_calls) == 0
 
     async def test_dem_with_custom_bounds_no_rescale(self, client):
-        """[T-1153-03] DEM (algorithm= render_params) ignores pmin/pmax/sigma — no rescale injected."""
+        """DEM (algorithm= render_params) ignores pmin/pmax/sigma — no rescale injected."""
         self._auth_render_params = "algorithm=terrainrgb"
         resp = await client.get(
             _TILE_PATH,
@@ -798,11 +798,11 @@ class TestRasterColormapProxy:
         )
 
     # ------------------------------------------------------------------
-    # Phase 1153 Task 3: SPIKE-01 contract-pinning test
+    # Contract-pinning test
     # ------------------------------------------------------------------
 
     async def test_spike01_p_param_forwarding_and_dynamic_percentile_key(self, client):
-        """[SPIKE-01 closure] Contract pin: _fetch_band_statistics forwards p=pmin&p=pmax as
+        """Contract pin: _fetch_band_statistics forwards p=pmin&p=pmax as
         repeated query params; _compute_stretch_rescale reads percentile_<pmin>/percentile_<pmax>
         dynamically (not hardcoded percentile_2/percentile_98).
 
@@ -888,7 +888,7 @@ class TestRasterColormapProxy:
     async def test_a_buried_query_over_the_field_count_bound_degrades_not_500(
         self, client
     ):
-        """fix(#1770 round 47b P2 class): `{fmt}` is attacker-reachable on an
+        """`{fmt}` is attacker-reachable on an
         unauthenticated tile URL, with no credential or source registration
         needed -- a live path, unlike most of this round's other sites.
         `max_num_fields=MAX_QUERY_FIELDS` on the buried-query recovery

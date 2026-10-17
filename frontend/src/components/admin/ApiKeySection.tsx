@@ -35,7 +35,7 @@ interface ApiKeySectionProps {
 
 export function ApiKeySection({ userId }: ApiKeySectionProps) {
   const { t } = useTranslation('admin');
-  // fix(#1805 review round 3 P2): the flat limit=200 fetch was itself the
+  // The flat limit=200 fetch was itself the
   // backend's hard cap -- a user past 200 keys still had no way to reach
   // the rest, the exact defect #1778 set out to fix. pageCount grows via
   // the "Load more" control below until every key is loaded.
@@ -155,7 +155,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
 
       {isLoading && <p className="text-sm text-muted-foreground">{t('apiKeys.loadingKeys')}</p>}
 
-      {/* fix(#1805 review round 4 P2): a failed page used to be dropped
+      {/* A failed page used to be dropped
           silently, so the section fell through to "No API keys" (or just
           stopped growing) with no indication anything went wrong. */}
       {apiKeysError && (

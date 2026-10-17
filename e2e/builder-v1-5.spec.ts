@@ -139,7 +139,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
   });
 
   // =========================================================================
-  // Test 1: drag-from-catalog happy path (POL-01, POL-02, POL-05)
+  // Test 1: drag-from-catalog happy path
   // Goal: prove dragging a catalog dataset row onto the stack adds a new layer;
   //       modal stays open after drop.
   // Strategy: keyboard sensor primary (more reliable headless); pointer fallback.
@@ -168,7 +168,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     await expect(dialog).toBeVisible({ timeout: 10_000 });
 
     // Locate the first catalog row drag handle
-    // aria-label resolves from search.dragHandle: "Drag into map" (renamed in V-01..V-17)
+    // aria-label resolves from search.dragHandle: "Drag into map" (renamed)
     const dragHandle = dialog
       .getByRole('button', { name: /drag into map/i })
       .first();
@@ -264,14 +264,14 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
       page.locator('[data-sonner-toast]').filter({ hasText: /added to map/i }),
     ).toBeVisible({ timeout: 5_000 });
 
-    // Assert modal stayed open (POL-05 contract)
+    // Assert modal stayed open
     await expect(dialog).toBeVisible();
 
     assertConsoleClean(gate);
   });
 
   // =========================================================================
-  // Test 2: drag Escape cancels mid-drag — negative (POL-23)
+  // Test 2: drag Escape cancels mid-drag — negative
   // Goal: prove pressing Escape during a keyboard drag cancels without partial
   //       state (no layer added, announcement fires, modal stays open).
   // =========================================================================
@@ -354,7 +354,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
   //   Runs BEFORE the bulk-delete happy test so the map still has all 3+ layers
   //   (bulk-delete happy removes 2 layers).
   // Goal: prove cmd-click on the basemap-group row does NOT add it to the
-  //       overlay selection — basemap boundary cannot be crossed (POL-11).
+  // overlay selection — basemap boundary cannot be crossed.
   // =========================================================================
 
   test('3. multi-select negative: basemap + overlay mixed selection blocked', async ({
@@ -382,11 +382,10 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     const cmdKey = process.platform === 'darwin' ? 'Meta' : 'Control';
 
     // Cmd-click first overlay row to enter multi-select mode.
-    // Phase 1052 dropped role="listbox"/"option" from stack rows (nested-interactive
+    // Stack rows dropped role="listbox"/"option" (nested-interactive
     // a11y issue — rows contain focusable controls). With those roles gone,
     // aria-selected is meaningless; selection is signalled by data-selected="true"
-    // (renders the primary-tint background per StackRow.tsx:188). Phase 1060 close
-    // gate test-contract update.
+    // (renders the primary-tint background per StackRow.tsx:188).
     await overlayRows.nth(0).click({ modifiers: [cmdKey] });
     await expect(overlayRows.nth(0)).toHaveAttribute('data-selected', 'true');
 
@@ -408,7 +407,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
       // Click may throw if the element is not interactable — that is acceptable
     });
 
-    // POL-11 contract: basemap boundary must NOT be addable to the multi-select set.
+    // Contract: basemap boundary must NOT be addable to the multi-select set.
     // Evidence: toolbar still reports "2 selected layers" (not 3) — basemap was NOT
     // added to selectedIds. Note: basemap row may show aria-selected="true" from
     // single-selection (editor context), which is expected and distinct from
@@ -420,7 +419,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     await expect(overlayRows.nth(1)).toHaveAttribute('data-selected', 'true');
 
     // Visual a11y cue: basemap row shows cursor-not-allowed when overlay selected
-    // (Phase 1041-01 defense-in-depth visual signal)
+    // (defense-in-depth visual signal)
     const basemapHasCursorNotAllowed = await basemapGroupRow.evaluate((el) =>
       el.classList.contains('cursor-not-allowed') ||
       getComputedStyle(el).cursor === 'not-allowed',
@@ -442,8 +441,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
   // Test 4 (execution order 4): multi-select bulk delete happy path
   //   Runs LAST because it removes 2 layers from the shared map.
   // Goal: prove cmd-click selects 2 rows, bulk action bar appears, delete +
-  //       confirm removes both atomically. Cancel is autoFocused (POL-09).
-  // (POL-06, POL-08, POL-09)
+  // confirm removes both atomically. Cancel is autoFocused.
   // =========================================================================
 
   test('4. multi-select bulk delete happy: 2 rows', async ({ page }) => {
@@ -469,7 +467,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     const cmdKey = process.platform === 'darwin' ? 'Meta' : 'Control';
 
     // Select 2 rows via Cmd-click.
-    // Phase 1060: use data-selected (post-1052 contract — see Test 3 comment).
+    // Use data-selected (see Test 3 comment).
     await rows.nth(0).click({ modifiers: [cmdKey] });
     await expect(rows.nth(0)).toHaveAttribute('data-selected', 'true');
 
@@ -484,7 +482,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     const toolbarLive = toolbar.locator('[aria-live="polite"][aria-atomic="true"]');
     await expect(toolbarLive).toHaveCount(1);
 
-    // SP-01 (Phase 1045): Delete moved into a portaled overflow DropdownMenu.
+    // Delete moved into a portaled overflow DropdownMenu.
     // 1) Open the overflow menu via its testid trigger.
     // 2) Click the Delete menuitem from the portal (not from the toolbar subtree).
     // The outside-click handler whitelists `[data-bulk-action-menu="true"]` so
@@ -504,7 +502,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     const confirmDialog = page.locator('[role="alertdialog"]').first();
     await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
 
-    // POL-09 / Phase 1043-01: Cancel must be autoFocused in the confirm dialog.
+    // Cancel must be autoFocused in the confirm dialog.
     // autoFocus triggers on mount — evaluate immediately after dialog is visible.
     const cancelBtn = confirmDialog.locator('button').filter({ hasText: /cancel/i });
     await expect(cancelBtn).toBeVisible();

@@ -220,7 +220,7 @@ def test_manifest_accepts_a_well_formed_source_checksum() -> None:
 
 
 def test_manifest_accepts_a_null_source_checksum() -> None:
-    """gh#1773 codex r4: ManifestSource.checksum is Optional on the backend,
+    """ManifestSource.checksum is Optional on the backend,
     and the generated OpenAPI schema allows a null variant for it, so a
     template manifest with an explicit `checksum: null` (rather than the
     key omitted entirely) is a valid request. Before `type` included "null"
@@ -254,7 +254,7 @@ def test_manifest_rejects_malformed_source_checksum(checksum: str) -> None:
 
 
 def test_manifest_rejects_source_checksum_with_a_trailing_newline() -> None:
-    """gh#1773 codex r1: Python's `re` treats `$` as matching just before a
+    """Python's `re` treats `$` as matching just before a
     trailing newline, so `pattern` alone let a YAML literal-scalar checksum
     (which can carry a trailing newline) through this validator while the
     backend's Pydantic model correctly rejected it -- geolens validate would

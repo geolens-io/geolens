@@ -31,7 +31,7 @@ from app.modules.auth.dependencies import get_current_user, get_optional_user
 from app.modules.auth.models import RefreshToken, User
 from app.modules.auth.service import AuthService
 
-PASSWORD = "TestPass1234!"  # SEC-S16: 12 chars, 3 character classes
+PASSWORD = "TestPass1234!"  # 12 chars, 3 character classes
 
 
 async def _create_user(client: AsyncClient, admin_headers: dict) -> tuple[str, str]:

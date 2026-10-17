@@ -72,9 +72,9 @@ from app.standards.ogc.errors import (
 )
 from app.modules.settings.router_public import router as public_router
 
-# Phase 1229 Plan 03 — channel functions imported at module level so tests can
-# monkeypatch at `app.modules.settings.router.send_email` / `.post_webhook`
-# (same discipline as app.platform.notifications.env_sink from Plan 02).
+# Channel functions are imported at module level so tests can monkeypatch at
+# `app.modules.settings.router.send_email` / `.post_webhook` (same discipline
+# as app.platform.notifications.env_sink).
 from app.platform.notifications.smtp_channel import send_email  # noqa: E402
 from app.platform.notifications.webhook_channel import post_webhook  # noqa: E402
 
@@ -90,7 +90,7 @@ require_settings_admin = require_mode_permission(
 router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
 
-# Phase 279 (L-01): PUT/RESET handlers below end with
+# PUT/RESET handlers below end with
 # `return await get_all_settings(...)` to capture side-effects (rebuild
 # rollback, validator coercion, request-derived public_app_url/public_api_url
 # — NOT stored in AppSetting) without duplicating get_all_settings's body.
@@ -236,7 +236,7 @@ async def _probe_embedding_dims_for_model(
         )
 
     provider_ext = get_embedding_provider("openai_compatible")
-    # dimensions=None discovers the model's natural width (Phase 231 D-02).
+    # dimensions=None discovers the model's natural width.
     # `model` has no fallback to the runtime default on purpose: this path is
     # only reached when the request names embedding_model, and the default IS
     # the committed EMBEDDING_MODEL — falling back would probe the model
@@ -387,7 +387,7 @@ async def _embedding_change(db: AsyncSession, needed: bool) -> AsyncIterator[Non
         ) from exc
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# Dual-shape decorator — both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
 # the 404 regression introduced by redirect_slashes=False (api/main.py).
@@ -432,7 +432,7 @@ async def get_all_settings(
         elif cfg.key == "public_api_url":
             value = await get_public_api_url(db, request=request)
         elif not env_only and cfg.key in db_settings:
-            # BUG-030: in ENV_ONLY_CONFIG mode, PersistentConfig.get short-
+            # In ENV_ONLY_CONFIG mode, PersistentConfig.get short-
             # circuits to env_default and DB rows are dead data at runtime.
             # Resolving from db_settings here would surface stale overrides
             # that are NOT in effect; show the effective env_default instead.
@@ -465,7 +465,7 @@ async def get_all_settings(
     return SettingsAllResponse(env_only=env_only, tabs=tabs)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.get(
     "/enterprise-tabs",
     response_model=EnterpriseTabsResponse,
@@ -493,7 +493,7 @@ async def get_enterprise_only_tabs(
     return EnterpriseTabsResponse(tabs=sorted(ENTERPRISE_ONLY_TABS))
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above. The empty
+# Dual-shape decorator — see /all above. The empty
 # path "" registers PUT /settings (prefix-only, no trailing slash).
 @router.put("", response_model=SettingsAllResponse, include_in_schema=False)
 @router.put(
@@ -504,7 +504,7 @@ async def get_enterprise_only_tabs(
         503: EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE,
     },
 )
-@limiter.limit("30/minute")  # HARDEN-02: rate-limit settings mutations per client IP
+@limiter.limit("30/minute")  # rate-limit settings mutations per client IP
 async def update_settings(
     body: SettingsUpdateRequest,
     request: Request,
@@ -514,7 +514,7 @@ async def update_settings(
     """Update one or more settings (admin only). Returns updated settings."""
     registry_map = _get_registry_map()
 
-    # BUG-009: validate ALL keys before applying any side effect, so an
+    # Validate ALL keys before applying any side effect, so an
     # invalid key raises 400/422 with nothing persisted.
     #   Pass 1 — validate every key (unknown-key check, enterprise gate,
     #            custom validators, TypeAdapter validation).
@@ -648,14 +648,14 @@ async def update_settings(
                 ),
             )
 
-    # Phase 279 (L-01): second get_all_settings() call is INTENTIONAL — this
+    # The second get_all_settings() call is INTENTIONAL — this
     # handler can persist values the request body doesn't name: auto-detected
     # embedding_dims (#1529), a rebuild rollback (above), and validator
     # coercion from .set(). See the module comment near the top of the file.
     return await get_all_settings(request=request, _user=user, db=db)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.post("/reset", response_model=SettingsAllResponse, include_in_schema=False)
 @router.post(
     "/reset/",
@@ -760,14 +760,14 @@ async def reset_settings(
                 ),
             )
 
-    # Phase 279 (L-01): intentional second SELECT — cfg.reset() writes
+    # Intentional second SELECT — cfg.reset() writes
     # env_default to AppSetting; re-read captures the post-reset state, which
     # may differ if a derivation (public_app_url/public_api_url) runs at
     # response-build time in get_all_settings.
     return await get_all_settings(request=request, _user=user, db=db)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.get(
     "/api-key-status",
     response_model=ApiKeyStatusResponse,
@@ -785,7 +785,7 @@ async def get_api_key_status(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.post(
     "/detect-embedding-dims",
     response_model=DetectEmbeddingDimsResponse,
@@ -821,7 +821,7 @@ async def detect_embedding_dims(
     return DetectEmbeddingDimsResponse(dimensions=dims)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.get(
     "/notifications/status",
     response_model=NotificationStatusResponse,
@@ -844,7 +844,7 @@ async def get_notification_status(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.post(
     "/notifications/test",
     response_model=NotificationTestResponse,
@@ -914,7 +914,7 @@ async def send_test_notification(
         ) as exc:  # broad: per-channel isolation; channel failure → 200 body, not 5xx
             # Safe error string: exception TYPE name + short class-level message only.
             # NEVER interpolate exc.args or str(exc) — those may echo the SMTP
-            # password, webhook URL, or webhook secret (T-1229-09).
+            # password, webhook URL, or webhook secret.
             safe_error = f"{type(exc).__name__}: channel delivery failed"
             results.append(
                 NotificationTestChannelResult(channel=name, ok=False, error=safe_error)
@@ -947,7 +947,7 @@ async def send_test_notification(
     return NotificationTestResponse(sent=any_ok, channels=results, message=message)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.get("/config-mode", response_model=ConfigModeResponse, include_in_schema=False)
 @router.get("/config-mode/", response_model=ConfigModeResponse)
 async def get_config_mode() -> ConfigModeResponse:
@@ -955,7 +955,7 @@ async def get_config_mode() -> ConfigModeResponse:
     return ConfigModeResponse(env_only=_is_env_only())
 
 
-# Audit-log redaction allowlist (Pitfall 9, T-217-03-AUDIT-LEAK). SECRET_FIELDS
+# Audit-log redaction allowlist. SECRET_FIELDS
 # is authoritative for diffing old_values (includes the internal
 # ``client_secret_encrypted`` column); SECRET_BODY_FIELDS is the user-input
 # subset a request body can submit — ``client_secret_encrypted`` is excluded
@@ -970,7 +970,7 @@ def _snapshot_provider(provider) -> dict:
     Secret fields are NEVER included — they're flagged "<redacted>" by
     ``update_oauth_provider``'s body-detection loop or the SECRET_FIELDS
     check. Also avoids the deferred-load trap on community DBs lacking SAML
-    columns (Pitfall 11): only attributes loaded by the default SELECT are read.
+    columns: only attributes loaded by the default SELECT are read.
     """
     return {
         "group_claim": provider.group_claim,
@@ -988,7 +988,7 @@ def _snapshot_provider(provider) -> dict:
     }
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.get(
     "/oauth-providers",
     response_model=list[OAuthProviderResponse],
@@ -1006,7 +1006,7 @@ async def list_oauth_providers(
     return [OAuthProviderResponse.model_validate(p) for p in providers]
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @router.post(
     "/oauth-providers",
     response_model=OAuthProviderResponse,
@@ -1109,7 +1109,7 @@ async def update_oauth_provider(
     if not is_enterprise() and provider.provider_type == "saml":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    # CR-02: lockout guard mirroring update_settings, applied to the provider
+    # Lockout guard mirroring update_settings, applied to the provider
     # PATCH side — when password_login_enabled is False and this update would
     # disable the last enabled provider (excluding the target), refuse before
     # any persist.
@@ -1152,7 +1152,7 @@ async def update_oauth_provider(
     # field to <redacted>/<redacted>, protecting against a future old_values
     # addition that accidentally includes a secret. New values come from
     # __dict__ (not getattr) to avoid a deferred lazy-load on community DBs
-    # missing SAML columns (Pitfall 11).
+    # missing SAML columns.
     changes: dict[str, dict] = {}
     new_snapshot = _snapshot_provider(provider)
     for field, old in old_values.items():
@@ -1211,7 +1211,7 @@ async def delete_oauth_provider(
             status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
         )
 
-    # CR-02: lockout guard for delete, same policy as the update guard above
+    # Lockout guard for delete, same policy as the update guard above
     # — deleting the last enabled SSO provider while password login is
     # disabled would lock everyone out. Only applies when the target is
     # currently enabled.
@@ -1271,7 +1271,7 @@ async def delete_oauth_provider(
     await db.commit()
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+# Dual-shape decorator — see /all above.
 @public_router.get(
     "/tile-config", response_model=TileConfigResponse, include_in_schema=False
 )

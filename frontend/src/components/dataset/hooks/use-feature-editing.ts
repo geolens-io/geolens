@@ -83,7 +83,7 @@ function datasetReplaced(err: unknown): { tile_cache_version?: number | null } |
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
 /** Hide a specific feature from vector tile layers by filtering on gid */
-// fix(#430 codex r22): generic sketch datasets install per-family
+// Generic sketch datasets install per-family
 // geometry-type filters at layer creation (use-map-layers). The editing gid
 // filter must COMPOSE with those base filters, and clearing must RESTORE
 // them — overwriting with the gid filter / null made polygon outlines bleed
@@ -136,7 +136,7 @@ interface UseFeatureEditingOptions {
   addFeatures: (features: Feature[]) => { id?: string | number; valid: boolean }[];
   selectFeature: (id: string) => void;
   clear: () => void;
-  /** fix(round1 #1795): reset the undo ring once a pending edit settles
+  /** Reset the undo ring once a pending edit settles
    *  (save, cancel, or deselection) — NOT on every drag/vertex finish. */
   resetHistory: () => void;
 }
@@ -284,7 +284,7 @@ export function useFeatureEditing({
     overlayCleanupRef.current = null;
   }, []);
 
-  // fix(#1761 review round 4): empties the overlay ref and the map's
+  // Empties the overlay ref and the map's
   // drawn-overlay source immediately — used by the identity-change cleanup
   // (DatasetMap's finishDrawingSession, keyed on sessionEpoch) so a shape
   // drawn-but-not-yet-committed under the previous identity does not sit
@@ -307,7 +307,7 @@ export function useFeatureEditing({
       if (!datasetId || !tableName) return { saved: false };
       const map = mapRef.current;
 
-      // fix(#1761 review round 4): captured before the mutation's await —
+      // Captured before the mutation's await
       // clearOverlay() below must not erase a NEWER identity's own overlay
       // if this request's identity has since changed.
       const session = useDrawingStore.getState();
@@ -347,7 +347,7 @@ export function useFeatureEditing({
             attempt,
           });
         }
-        // fix(#1761 review round 4): if the identity changed while this
+        // If the identity changed while this
         // request was in flight, the identity-change cleanup already
         // emptied the overlay ref/source (resetOverlay, via
         // finishDrawingSession). Reporting success and reloading tiles
@@ -362,7 +362,7 @@ export function useFeatureEditing({
         if (map) {
           cleanupOverlayListener();
           const clearOverlay = () => {
-            // fix(#1761 review round 4): re-checked at fire time, not just
+            // Re-checked at fire time, not just
             // at the mutation's resolution above — the identity can change
             // again in the gap before the tile-load event (or the 5s
             // fallback) fires, and a second identity may have started
@@ -393,7 +393,7 @@ export function useFeatureEditing({
         }
         return { saved: true };
       } catch (err) {
-        // fix(#1761 review round 7): the toast is feedback for whoever
+        // The toast is feedback for whoever
         // issued this request — reject it the same way the success branch
         // above already does, or a failed create surfaces A's backend
         // error to B. The overlay-ref filtering below stays unconditional:
@@ -421,7 +421,7 @@ export function useFeatureEditing({
           toast.error(t('map.featureSavedThenReplaced'));
           reloadTiles(replaced.tile_cache_version);
         } else if (!stale) {
-          // fix(#458 E-36): surface the backend's reason (invalid geometry,
+          // Surface the backend's reason (invalid geometry,
           // type mismatch) like the table path does, not a bare "failed".
           toast.error(formatMutationError('dataset:map.featureSaveFailed', err));
         }
@@ -451,7 +451,7 @@ export function useFeatureEditing({
     const map = mapRef.current;
     if (map) showAllFeaturesInTiles(map);
     clearSelectedFeature();
-    // fix(round1 #1795): deselection (also used for Cancel — see
+    // Deselection (also used for Cancel — see
     // DatasetMap's handleDeselect) discards any pending, un-saved undo
     // history for the edit just abandoned.
     resetHistory();
@@ -480,7 +480,7 @@ export function useFeatureEditing({
       return;
     }
 
-    // fix(#1761 review round 3 P2): captured before the mutation's
+    // Captured before the mutation's
     // await — see handleDeleteFeature below for the shared rationale.
     const session = useDrawingStore.getState();
     const epoch = session.sessionEpoch;
@@ -494,7 +494,7 @@ export function useFeatureEditing({
         geometry: feature.geometry as Geometry,
         tableId: sf.tableId,
       });
-      // fix(#1761 review round 3 P2): if the identity changed while this
+      // If the identity changed while this
       // request was in flight, a second identity may have adopted their
       // own selection by now. Applying this success's cleanup here would
       // remove THEIR terra draw feature by a colliding tdId, restore tile
@@ -508,11 +508,11 @@ export function useFeatureEditing({
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
-      // fix(round1 #1795): the edit just landed server-side — the pending
+      // The edit just landed server-side — the pending
       // undo history it belonged to is no longer meaningful.
       resetHistory();
     } catch (err) {
-      // fix(#1761 review round 7): mirror the success branch's recheck —
+      // Mirror the success branch's recheck
       // a failed update is feedback for whoever issued it, not whoever is
       // signed in by the time it rejects.
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
@@ -521,7 +521,7 @@ export function useFeatureEditing({
         closeReplacedEdit(replaced.tile_cache_version);
         return;
       }
-      // fix(#458 E-36): keep the backend detail.
+      // Keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureUpdateFailed', err));
     } finally {
       endWrite(epoch);
@@ -534,7 +534,7 @@ export function useFeatureEditing({
     if (!sf || !datasetId || !tableName) return;
     if (refuseIfWrongDataset(datasetId)) return;
 
-    // fix(#1761 review round 3 P2): captured before the mutation's
+    // Captured before the mutation's
     // await. A second identity can adopt their own selection while this
     // delete is in flight; applying this success's cleanup then would
     // remove THEIR terra draw feature by a colliding tdId, restore tile
@@ -555,12 +555,12 @@ export function useFeatureEditing({
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
-      // fix(round2 #1795): the deleted feature no longer exists — its
+      // The deleted feature no longer exists — its
       // pending undo history (which would restore it as a client-side
       // ghost) is no longer meaningful. Same point handleSaveEdit resets at.
       resetHistory();
     } catch (err) {
-      // fix(#1761 review round 7): mirror the success branch's recheck —
+      // Mirror the success branch's recheck
       // a failed delete is feedback for whoever issued it, not whoever is
       // signed in by the time it rejects.
       if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return;
@@ -569,7 +569,7 @@ export function useFeatureEditing({
         closeReplacedEdit(replaced.tile_cache_version);
         return;
       }
-      // fix(#458 E-36): keep the backend detail.
+      // Keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureDeleteFailed', err));
     } finally {
       endWrite(epoch);
@@ -587,7 +587,7 @@ export function useFeatureEditing({
       const sf = useDrawingStore.getState().selectedFeature;
       if (!sf || !datasetId) return { applied: true };
       if (refuseIfWrongDataset(datasetId)) return { applied: true };
-      // fix(#1761 review round 2 P1): captured BEFORE the mutation's await,
+      // Captured BEFORE the mutation's await,
       // not re-read afterward — by the time this resolves, a second
       // identity may have adopted its own new target, whose fresh epoch
       // would otherwise make this stale write look current. See
@@ -599,7 +599,7 @@ export function useFeatureEditing({
       beginWrite(epoch);
       try {
         const updated = await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties, tableId: sf.tableId });
-        // fix(#1761 review round 4): recheck immediately after the await,
+        // Recheck immediately after the await,
         // before reporting success, writing to the store, or reloading
         // tiles. setSelectedFeature's own epoch check already refuses the
         // store write on its own, but this validates it BEFORE those other
@@ -607,7 +607,7 @@ export function useFeatureEditing({
         if (isSelectionStale(epoch, targetDatasetId, sf, generation, drawingGenerationRef.current)) return { applied: false };
         toast.success(t('map.attributesUpdated'));
         setSelectedFeature({ ...sf, properties: { ...sf.properties, ...properties } }, epoch);
-        // BUG-042: the geometry handlers (handleSaveEdit/handleDeleteFeature)
+        // The geometry handlers (handleSaveEdit/handleDeleteFeature)
         // reload tiles after a write; the attribute handler omitted it, so any
         // attribute-driven rendering kept stale values until a manual reload.
         // Cache-bust the vector tiles so the edited attributes render. Geometry
@@ -615,7 +615,7 @@ export function useFeatureEditing({
         reloadTiles(updated.tile_cache_version);
         return { applied: true };
       } catch (err) {
-        // fix(#1761 review round 5): mirror the success path's recheck. If
+        // Mirror the success path's recheck. If
         // the identity changed while this request was in flight, the
         // failure is A's, not whoever is looking now (possibly B, with
         // their own editor open for their own feature) — reporting it as
@@ -628,7 +628,7 @@ export function useFeatureEditing({
           closeReplacedEdit(replaced.tile_cache_version);
           return { applied: true, refused: true };
         }
-        // fix(#458 E-36): keep the backend detail.
+        // Keep the backend detail.
         toast.error(formatMutationError('dataset:map.attributesUpdateFailed', err));
         return { applied: true, refused: true };
       } finally {
@@ -647,7 +647,7 @@ export function useFeatureEditing({
   );
 
   /**
-   * fix(round2 #1795): Terra Draw's undo() popped the ring back to its
+   * Terra Draw's undo() popped the ring back to its
    * earliest recorded snapshot — the displayed geometry is once again
    * whatever was there when the ring started, so there is no longer a
    * pending edit to confirm away on Cancel/Done/mode-switch. A subsequent
@@ -658,7 +658,7 @@ export function useFeatureEditing({
   }, [setEditDirty]);
 
   /**
-   * fix(round4 #1795): undo() restored a snapshot that no longer contains
+   * Undo restored a snapshot that no longer contains
    * the feature that was selected before the undo — Terra Draw's own
    * select state has nothing left to re-select. Clear our selection store
    * too, so it agrees with what Terra Draw actually has (a stale selection
@@ -696,7 +696,7 @@ export function useFeatureEditing({
         return;
       }
 
-      // fix(#1761 review round 2 P1): captured BEFORE the fetch's await, for
+      // Captured BEFORE the fetch's await, for
       // the same reason as handleEditAttributeSubmit above — a stale
       // resolution here must not be accepted just because someone else's
       // fresh target happens to make the live epoch look unchanged.
@@ -706,7 +706,7 @@ export function useFeatureEditing({
       const generation = drawingGenerationRef.current;
       try {
         const fullFeature = await getFeature(datasetId, gid);
-        // fix(#1761 review round 3 P1): recheck IMMEDIATELY after the
+        // Recheck IMMEDIATELY after the
         // await, before ANY map mutation. setSelectedFeature's own epoch
         // check refuses the STORE write, but by then clear() and
         // addFeatures() below would already have installed the stale
@@ -743,7 +743,7 @@ export function useFeatureEditing({
           toast.error(t('map.featureLoadFailed'));
         }
       } catch {
-        // fix(#1761 review round 8): mirror the success branch's recheck —
+        // Mirror the success branch's recheck
         // a failed fetch is feedback for whoever clicked the feature, not
         // whoever is signed in (or anonymous) by the time getFeature()
         // rejects.

@@ -2,17 +2,17 @@
 
 Verifies:
   - Published S3 data assets get presigned URLs
-  - Published thumbnails: no unsafe proxy URL (GAP-031: returns None for local storage)
-  - Draft/ready/internal records: no unsafe proxy URL (GAP-031: returns None)
-  - Local storage always returns None (no backend route for /assets/ — GAP-031)
-  - ASSET-07: no frontend stac_assets references (confirmed)
+  - Published thumbnails: no unsafe proxy URL (returns None for local storage)
+  - Draft/ready/internal records: no unsafe proxy URL (returns None)
+  - Local storage always returns None (no backend route for /assets/)
+  - No frontend stac_assets references (confirmed)
 
-GAP-031: resolve_asset_url no longer emits /assets/{key} proxy URLs for local
+resolve_asset_url no longer emits /assets/{key} proxy URLs for local
 storage or non-signed paths. The nginx /assets/ location serves the SPA bundle,
 not storage files, so the proxy URL was dead and a potential collision surface.
-Since dataset_assets is never populated (BUG-041), this changes no live output.
+Since dataset_assets is never populated, this changes no live output.
 
-# ASSET-07 CONFIRMATION: grep -r stac_assets frontend/src --include='*.ts' --include='*.tsx'
+# CONFIRMATION: grep -r stac_assets frontend/src --include='*.ts' --include='*.tsx'
 # returns zero matches. Frontend already uses 'assets' dict. No migration needed.
 """
 
@@ -27,7 +27,7 @@ PUBLIC_API_URL = "http://localhost:8000"
 
 class TestResolveAssetUrl:
     def test_draft_returns_none_not_proxy(self):
-        """GAP-031: draft assets return None (no dead /assets/ proxy URL)."""
+        """Draft assets return None (no dead /assets/ proxy URL)."""
         url = resolve_asset_url(
             "/uploads/test.tif",
             storage_backend="s3",
@@ -38,7 +38,7 @@ class TestResolveAssetUrl:
         assert url is None, f"Expected None for draft asset, got: {url}"
 
     def test_ready_returns_none_not_proxy(self):
-        """GAP-031: ready assets return None (no dead /assets/ proxy URL)."""
+        """Ready assets return None (no dead /assets/ proxy URL)."""
         url = resolve_asset_url(
             "/uploads/test.tif",
             storage_backend="s3",
@@ -49,7 +49,7 @@ class TestResolveAssetUrl:
         assert url is None
 
     def test_internal_returns_none_not_proxy(self):
-        """GAP-031: internal assets return None (no dead /assets/ proxy URL)."""
+        """Internal assets return None (no dead /assets/ proxy URL)."""
         url = resolve_asset_url(
             "/uploads/test.tif",
             storage_backend="s3",
@@ -77,7 +77,7 @@ class TestResolveAssetUrl:
         mock_provider.generate_presigned_get_url.assert_called_once()
 
     def test_s3_published_thumbnail_returns_none_without_provider(self):
-        """GAP-031: S3 thumbnail without a storage_provider returns None."""
+        """S3 thumbnail without a storage_provider returns None."""
         url = resolve_asset_url(
             "/uploads/thumb.png",
             storage_backend="s3",
@@ -85,11 +85,11 @@ class TestResolveAssetUrl:
             roles=["thumbnail"],
             public_api_url=PUBLIC_API_URL,
         )
-        # No storage_provider → cannot produce a presigned URL → None (GAP-031)
+        # No storage_provider → cannot produce a presigned URL → None
         assert url is None
 
     def test_local_published_data_returns_none(self):
-        """GAP-031: local storage published data returns None (no /assets/ route)."""
+        """Local storage published data returns None (no /assets/ route)."""
         url = resolve_asset_url(
             "/uploads/test.tif",
             storage_backend="local",
@@ -159,7 +159,7 @@ class TestResolveAssetUrl:
             current_tenant_var.reset(token)
 
     def test_no_assets_slash_in_any_result(self):
-        """GAP-031: /assets/ prefix must never appear in resolve_asset_url output."""
+        """/assets/ prefix must never appear in resolve_asset_url output."""
         cases = [
             dict(
                 storage_backend="local",

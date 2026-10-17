@@ -1,10 +1,9 @@
-"""SEC-08 + SEC-11: Startup warnings for production-misconfig posture.
+"""Startup warnings for production-misconfig posture.
 
-SEC-08: Warn when CORS_ALLOWED_ORIGINS is unset in production.
-SEC-11: Warn when TILE_SIGNING_SECRET is unset and falls back to JWT secret.
+Warn when CORS_ALLOWED_ORIGINS is unset in production.
+Warn when TILE_SIGNING_SECRET is unset and falls back to JWT secret.
 
-Pins the v13.13 closure of M-72 + L-64. Operators who forget security-relevant
-env vars get a loud signal at boot rather than a silent insecure default.
+Operators who forget security-relevant env vars get a loud signal at boot rather than a silent insecure default.
 """
 
 from types import SimpleNamespace
@@ -12,7 +11,7 @@ from unittest.mock import MagicMock
 
 
 # ---------------------------------------------------------------------------
-# SEC-08: CORS_ALLOWED_ORIGINS warning
+# CORS_ALLOWED_ORIGINS warning
 # ---------------------------------------------------------------------------
 
 
@@ -25,7 +24,7 @@ def test_cors_warning_fires_in_production_with_empty_cors():
 
     main_module._warn_if_cors_unset(fake_settings, fake_logger)
 
-    # SEC-08: behavior assertion — fires exactly once with the canonical event
+    # Behavior assertion — fires exactly once with the canonical event
     # name. Survives refactors that change call-count details (e.g., adding
     # an unrelated info() log) but break only on actual contract change.
     fake_logger.warning.assert_called_once_with(
@@ -49,7 +48,7 @@ def test_cors_warning_silent_in_dev():
 
     main_module._warn_if_cors_unset(fake_settings, fake_logger)
 
-    # SEC-08: dev mode must not warn — behavior assertion uses the built-in
+    # Dev mode must not warn — behavior assertion uses the built-in
     # MagicMock error message which lists the offending call_args_list.
     fake_logger.warning.assert_not_called()
 
@@ -65,12 +64,12 @@ def test_cors_warning_silent_with_origins_configured():
 
     main_module._warn_if_cors_unset(fake_settings, fake_logger)
 
-    # SEC-08: configured origins must not warn — behavior assertion.
+    # Configured origins must not warn — behavior assertion.
     fake_logger.warning.assert_not_called()
 
 
 def test_cors_warning_helper_is_called_from_lifespan():
-    """SEC-08 wiring: main.py source contains the helper call inside lifespan."""
+    """Wiring: main.py source contains the helper call inside lifespan."""
     import inspect
 
     from app.api import main as main_module
@@ -82,7 +81,7 @@ def test_cors_warning_helper_is_called_from_lifespan():
 
 
 # ---------------------------------------------------------------------------
-# SEC-11: TILE_SIGNING_SECRET fallback warning
+# TILE_SIGNING_SECRET fallback warning
 # ---------------------------------------------------------------------------
 
 
@@ -102,7 +101,7 @@ def test_tile_signing_fallback_warns_once_when_none(monkeypatch):
     monkeypatch.setattr(signing_module, "logger", mock_logger)
 
     # First call — warning fires with canonical event name + message kwarg.
-    # SEC-11: behavior assertion against the actual structlog event name
+    # Behavior assertion against the actual structlog event name
     # operators grep for in production logs.
     signing_module._get_signing_key()
     mock_logger.warning.assert_called_once_with(
@@ -152,7 +151,7 @@ def test_tile_signing_no_warn_when_configured(monkeypatch):
     monkeypatch.setattr(signing_module, "logger", mock_logger)
 
     signing_module._get_signing_key()
-    # SEC-11: configured tile_signing_secret must not warn — behavior assertion.
+    # Configured tile_signing_secret must not warn — behavior assertion.
     mock_logger.warning.assert_not_called()
 
 

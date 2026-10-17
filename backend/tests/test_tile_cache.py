@@ -15,7 +15,7 @@ from app.platform.cache.tile_cache import TileCacheProvider
 
 
 def _read_label_counter(counter, label_value: str) -> float:
-    """Read the per-label-set value of a labeled Prometheus Counter (PERF-11).
+    """Read the per-label-set value of a labeled Prometheus Counter.
 
     Labeled Counters do not expose ``._value`` at the parent level —
     each label combination has its own underlying child. ``.labels(...)``
@@ -39,7 +39,7 @@ async def tile_cache():
     """
     provider = TileCacheProvider.__new__(TileCacheProvider)
     provider._client = fakeredis.aioredis.FakeRedis(decode_responses=False)
-    # Reset Prometheus counters for isolation. PERF-11 — counters are now
+    # Reset Prometheus counters for isolation. Counters are
     # labeled by table_name; reset the labels we use in this fixture's
     # downstream tests.
     from app.platform.cache.tile_cache import tile_cache_hits, tile_cache_misses
@@ -170,11 +170,11 @@ async def test_invalidate_table_silent_on_redis_failure():
 
 
 def test_get_tile_cache_returns_in_memory_provider_when_redis_not_set():
-    """get_tile_cache() returns InMemoryTileCacheProvider fallback (PERF-01).
+    """get_tile_cache() returns InMemoryTileCacheProvider fallback.
 
-    Before Phase 274, an unset REDIS_URL meant ``get_tile_cache()``
+    Previously, an unset REDIS_URL meant ``get_tile_cache()``
     returned ``None`` and the tile router silently bypassed caching.
-    PERF-01 wires a bounded LRU fallback so smaller deployments still
+    Wires a bounded LRU fallback so smaller deployments still
     benefit from caching without Redis.
     """
     from unittest.mock import patch
@@ -258,7 +258,7 @@ def test_settings_tile_pool_max_size_env_override(monkeypatch):
     assert s.tile_pool_max_size == 20
 
 
-# --- H-10: tile pool drops privileges to geolens_reader ---
+# --- tile pool drops privileges to geolens_reader ---
 
 
 def test_parse_dsn_uses_dedicated_tile_url(monkeypatch):
@@ -330,7 +330,7 @@ def test_multi_tenant_tile_pool_accepts_distinct_login(monkeypatch):
 
 async def test_setup_tile_connection_issues_set_role():
     """_setup_tile_connection runs ``SET ROLE geolens_reader`` on every fresh
-    pool checkout so tile-path queries cannot mutate or drop tables (H-10)."""
+    pool checkout so tile-path queries cannot mutate or drop tables."""
     from app.processing.tiles.pool import _setup_tile_connection
 
     conn = AsyncMock()
@@ -342,7 +342,7 @@ async def test_setup_tile_connection_issues_set_role():
 async def test_setup_tile_connection_logs_and_continues_on_postgres_error(monkeypatch):
     """If geolens_reader doesn't exist (e.g. legacy upgrade pre-v6.0), the
     setup callback logs a warning and lets the connection serve requests
-    rather than crashing the pool (H-10)."""
+    rather than crashing the pool."""
     import asyncpg
 
     from app.processing.tiles.pool import _setup_tile_connection

@@ -1,4 +1,4 @@
-"""Quota schemas for per-user upload and storage quotas (QUOTA-01..04)."""
+"""Quota schemas for per-user upload and storage quotas."""
 
 from pydantic import BaseModel
 

@@ -1,5 +1,5 @@
 /**
- * FRONT-01/FRONT-02 (Phase 1223): LandingFirstGuard routing matrix.
+ * LandingFirstGuard routing matrix.
  *
  * Scenarios:
  *  A) flag OFF → SearchPage (no redirect)

@@ -168,7 +168,7 @@ class TestMaterializedProvenance:
     async def test_output_no_longer_fails_the_lineage_validation_gate(
         self, test_db_session: AsyncSession
     ):
-        """VAL-01 treats an empty ``lineage_summary`` as an error, so every
+        """Validation treats an empty ``lineage_summary`` as an error, so every
         materialized output used to fail that check on creation.
         """
         from app.modules.catalog.validation.service import validate_record
@@ -624,7 +624,7 @@ class TestDerivedFromParamsVisibility:
         The router records it on the job (Admin Jobs reads that to diagnose a
         run) and the worker records it in provenance (the durable lineage).
         They are separate constants because processing/ cannot import from
-        app.modules.catalog (PROCESS-02), and separate constants are how the
+        app.modules.catalog, and separate constants are how the
         previous round's fix landed in one writer and not the other.
 
         Pinned rather than deduplicated, since the import boundary is the
@@ -1000,11 +1000,11 @@ class TestLineageSummaryVisibility:
 
         hidden_mask = uuid.uuid4()
         adversarial_sentences = [
-            # round 1: even embedded quotes — fragments between spans
+            # even embedded quotes — fragments between spans
             'Clipped from "Roads" to "Flood "Zone" map", created by admin.',
-            # round 2: odd embedded quote — span counts coincide
+            # odd embedded quote — span counts coincide
             'Clipped from "Roads" to "Flood "Zone", created by admin.',
-            # round 3: unnamed source + quoted actor — char counts coincide
+            # unnamed source + quoted actor — char counts coincide
             'Clipped from an unnamed dataset to "Secret Zone", created by "bob".',
             # plain prose, nothing adversarial at all
             'Clipped from "Roads" to "Secret Zone", created by admin.',

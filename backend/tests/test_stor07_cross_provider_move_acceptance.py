@@ -1,4 +1,4 @@
-"""STOR-07: Cross-provider move acceptance — render without touching stored VRT XML.
+"""Cross-provider move acceptance — render without touching stored VRT XML.
 
 Acceptance criterion 4 of the Azure storage seam milestone:
   A VRT-backed dataset's objects move to a different bucket/provider, config
@@ -25,13 +25,12 @@ What this test proves
 7. The stored VRT XML bytes (sha256) are asserted UNCHANGED — no edit to the
    stored XML occurred during the move + config flip + render.
 
-This proves STOR-07: open-time resolution is the sole mechanism for cross-
+This proves that open-time resolution is the sole mechanism for cross-
 provider portability; stored XML is never touched during migration.
 
 Reference
 ---------
-The internal cross-cloud migration runbook (Plan 03 Task 2) documents the
-5-step migration procedure this test mechanizes.
+This test mechanizes the 5-step cross-cloud migration procedure.
 
 Skip behavior
 -------------
@@ -105,8 +104,8 @@ def _make_tiny_cog(path: Path, pixel_value: int = 55) -> None:
 def _make_vrt_xml_with_vsi_path(vsi_cog_path: str) -> str:
     """Return a minimal VRT XML with a concrete /vsiaz/ (or /vsis3/) SourceFilename.
 
-    This simulates the pre-Plan03 VRT that _write_python_vrt might have emitted
-    before the relativeToVRT="1" fix. rewrite_vrt_sources must strip the prefix.
+    This simulates the VRT that _write_python_vrt might have emitted before
+    the relativeToVRT="1" fix. rewrite_vrt_sources must strip the prefix.
     """
     return f"""<?xml version='1.0' encoding='utf-8'?>
 <VRTDataset rasterXSize="32" rasterYSize="32">
@@ -145,7 +144,7 @@ def azurite_svc():
 
 
 class TestCrossProviderMoveAcceptance:
-    """STOR-07: VRT-backed dataset moves between Azurite containers without XML edit.
+    """VRT-backed dataset moves between Azurite containers without XML edit.
 
     Full acceptance scenario in one test method to keep the state machine clear:
     upload -> snapshot XML -> move -> assert sha256 unchanged -> render from B.
@@ -153,7 +152,7 @@ class TestCrossProviderMoveAcceptance:
 
     def test_move_vrt_dataset_xml_unchanged_and_renders(self, azurite_svc, tmp_path):
         """
-        Full STOR-07 acceptance proof.
+        Full acceptance proof.
 
         Steps:
         1. Create source COG + .vrt with a baked /vsiaz/{container_a}/ path
@@ -186,8 +185,8 @@ class TestCrossProviderMoveAcceptance:
         vrt_path.write_text(raw_vrt_xml, encoding="utf-8")
 
         # ------------------------------------------------------------------
-        # Step 2: rewrite_vrt_sources normalizes the stored VRT (Plan 03 logic)
-        # CR-01 fix: pass vrt_storage_key so the rewrite computes the correct
+        # Step 2: rewrite_vrt_sources normalizes the stored VRT
+        # Pass vrt_storage_key so the rewrite computes the correct
         # path relative to the VRT's own directory (not the full logical key).
         # vrt_key="stor07/dataset1/source.vrt", cog_key="stor07/dataset1/source.cog.tif"
         # -> relative path = "source.cog.tif" (same directory).
@@ -236,7 +235,7 @@ class TestCrossProviderMoveAcceptance:
         # Verify the relative COG filename is present (without any provider prefix).
         # With vrt_storage_key supplied, the stored path is just the basename
         # ("source.cog.tif") not the full logical key — GDAL resolves it relative
-        # to the VRT's own directory in the container (CR-01 fix).
+        # to the VRT's own directory in the container.
         assert "source.cog.tif" in vrt_text, (
             f"'source.cog.tif' not found in stored VRT: {vrt_text[:500]}"
         )
@@ -311,7 +310,7 @@ class TestCrossProviderMoveAcceptance:
         # ------------------------------------------------------------------
         # Step 11: GDAL opens the ACTUAL STORED VRT directly from /vsiaz/
         # ------------------------------------------------------------------
-        # CR-01 fix: open /vsiaz/{container_b}/{vrt_key} directly — NO absolute-path
+        # Open /vsiaz/{container_b}/{vrt_key} directly — NO absolute-path
         # injection.  GDAL resolves the relativeToVRT="1" SourceFilename
         # ("source.cog.tif") relative to /vsiaz/{container_b}/stor07/dataset1/,
         # yielding /vsiaz/{container_b}/stor07/dataset1/source.cog.tif (which exists).
@@ -337,7 +336,7 @@ class TestCrossProviderMoveAcceptance:
             f"Sentinel value 55 not found in pixel window from container B: {pixel_window}"
         )
 
-        # Summary assertion: the key invariant of STOR-07
+        # Summary assertion: the key invariant of this move
         assert post_move_sha256 == pre_move_sha256, (
             "STOR-07 INVARIANT VIOLATED: stored VRT XML bytes differ before and after move"
         )
@@ -346,10 +345,10 @@ class TestCrossProviderMoveAcceptance:
         """Stored VRT has NO /vsis3/ or /vsiaz/ literals after rewrite_vrt_sources.
 
         This is a pure unit assertion (no Azurite needed) proving the invariant
-        that underlies STOR-07: rewrite_vrt_sources strips all provider-specific
+        that underlies cross-provider moves: rewrite_vrt_sources strips all provider-specific
         prefixes before storage, so the stored XML is portable across providers.
         """
-        # Build a VRT with a baked /vsis3/ path (simulating pre-Plan03 storage)
+        # Build a VRT with a baked /vsis3/ path (simulating older storage)
         vrt_path = tmp_path / "has_s3_path.vrt"
         vrt_xml = _make_vrt_xml_with_vsi_path("/vsis3/my-bucket/rasters/1/cog.tif")
         vrt_path.write_text(vrt_xml, encoding="utf-8")
@@ -401,7 +400,7 @@ class TestCrossProviderMoveAcceptance:
 
 
 class TestVrtDirectAzuriteOpen:
-    """CR-01 proof: GDAL opens the ACTUAL STORED VRT directly from Azurite.
+    """GDAL opens the ACTUAL STORED VRT directly from Azurite.
 
     This test does NOT inject absolute paths — it opens /vsiaz/{container}/{vrt_key}
     and lets GDAL resolve the relativeToVRT="1" SourceFilename relative to that
@@ -452,7 +451,7 @@ class TestVrtDirectAzuriteOpen:
         vrt_path.write_text(vrt_xml, encoding="utf-8")
 
         # Run rewrite_vrt_sources WITH vrt_storage_key so it computes the
-        # correct POSIX relative path (CR-01 fix).
+        # correct POSIX relative path.
         # Expected result: "source.cog.tif" (same directory), NOT the full key.
         changes = rewrite_vrt_sources(vrt_path, vrt_storage_key=vrt_key)
         assert len(changes) == 1, f"Expected 1 rewrite, got: {changes}"

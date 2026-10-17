@@ -1,12 +1,9 @@
 """Tests for EmbeddingProviderExtension Protocol, registry seeding, and entry-points dispatch.
 
-Phase 231 D-18 (entry-points overlay test) + D-19 (default smoke test) +
-D-20 (ValueError on unknown provider name).
-
-Maps to EMBPROV-01 (Protocol exists), EMBPROV-02 (default registered via accessor),
-EMBPROV-05 (overlay-registered providers dispatch correctly via importlib.metadata
-entry_points). The architecture-guard test in test_layering.py covers EMBPROV-03
-and EMBPROV-04.
+Covers the Protocol, the default registered via accessor, entry-points overlay
+dispatch via importlib.metadata, and ValueError on an unknown provider name.
+The architecture-guard test in test_layering.py covers the remaining registry
+invariants.
 """
 
 from unittest.mock import MagicMock, patch
@@ -17,7 +14,7 @@ pytestmark = pytest.mark.usefixtures("_clean_registry")
 
 
 def test_default_embedding_provider_registered():
-    """D-19 / EMBPROV-02 smoke: get_embedding_provider returns DefaultOpenAIEmbeddingProvider."""
+    """Smoke: get_embedding_provider returns DefaultOpenAIEmbeddingProvider."""
     from app.platform.extensions import get_embedding_provider
     from app.platform.extensions.defaults import DefaultOpenAIEmbeddingProvider
     from app.platform.extensions.protocols import EmbeddingProviderExtension
@@ -25,7 +22,7 @@ def test_default_embedding_provider_registered():
     provider = get_embedding_provider("openai_compatible")
     assert isinstance(provider, DefaultOpenAIEmbeddingProvider)
 
-    # Verify Protocol satisfaction (runtime_checkable per D-05)
+    # Verify Protocol satisfaction (runtime_checkable)
     assert isinstance(provider, EmbeddingProviderExtension)
 
     # Singleton stability — two calls return the SAME instance (registry singleton)
@@ -33,7 +30,7 @@ def test_default_embedding_provider_registered():
 
 
 def test_unknown_embedding_provider_raises_value_error():
-    """D-20 / D-11: unknown name raises ValueError with exact message."""
+    """Unknown name raises ValueError with exact message."""
     from app.platform.extensions import get_embedding_provider
 
     with pytest.raises(ValueError, match=r"^Unknown embedding provider: bedrock$"):
@@ -45,7 +42,7 @@ def test_unknown_embedding_provider_raises_value_error():
 
 @pytest.mark.asyncio
 async def test_overlay_embedding_provider_is_dispatched():
-    """D-18 / SC#5 / EMBPROV-05 binding: overlay registered via
+    """Overlay registered via
     importlib.metadata entry_points is dispatched correctly without
     modifying any core file.
 
@@ -109,7 +106,7 @@ async def test_overlay_embedding_provider_is_dispatched():
         assert captured_kwargs["texts"] == ["hello"]
 
         # Verify community default still resolves correctly even though we
-        # added an overlay (registry coexistence — D-10 setdefault discipline).
+        # added an overlay (registry coexistence — setdefault discipline).
         assert isinstance(
             get_embedding_provider("openai_compatible"),
             DefaultOpenAIEmbeddingProvider,

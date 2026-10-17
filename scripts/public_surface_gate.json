@@ -224,18 +224,11 @@
       "reason": "Licensing transparency documents CI enforcement that keeps private paid packages out of public Core."
     },
     {
-      "id": "runbook-multi-tenant-role-reconstruction",
-      "path": "RUNBOOK.md",
-      "pattern_id": "multi_tenant_wording",
-      "match": "Multi-tenant",
-      "reason": "Offline recovery instructions must name the role-reconstruction procedure operators need after restore."
-    },
-    {
-      "id": "runbook-multi-tenant-fresh-cluster-restore",
+      "id": "runbook-runtime-role-tile-login-connect",
       "path": "RUNBOOK.md",
       "pattern_id": "multi_tenant_wording",
       "match": "multi-tenant",
-      "reason": "Offline recovery instructions must distinguish fresh-cluster tenant restores from same-cluster recovery."
+      "reason": "The runtime-role CONNECT boundary must name the dedicated tile login that needs its own database grant."
     },
     {
       "id": "runbook-single-tenant-runtime-role-boundary",

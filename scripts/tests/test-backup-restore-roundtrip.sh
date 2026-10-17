@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# BKP-04 (Phase 1219): backup + restore round-trip test (LOCAL proof)
+# Backup + restore round-trip test (LOCAL proof)
 # ==============================================================================
 # Proves the canonical backup/restore path actually reproduces the data:
 #

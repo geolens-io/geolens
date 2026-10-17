@@ -7,7 +7,7 @@ Covers:
   4. Anonymous public — unauthenticated request to public dataset returns 200.
   5. Anonymous private — unauthenticated request to private dataset returns 404.
 
-End-to-end mint→consume (TestDownloadTokenConsumption, KNOWN-01 Phase 1071):
+End-to-end mint→consume (TestDownloadTokenConsumption):
   6. Authenticated mint→consume — sub-bearing token consumed by /download/cog (auth path).
   7. Anonymous mint→consume on PUBLIC raster — no-sub token consumed (200/302).
   8. Anonymous mint REJECTED on PRIVATE raster — mint-side gate.
@@ -155,12 +155,12 @@ class TestDownloadTokenEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# KNOWN-01 (Phase 1071): End-to-end mint→consume regression pin.
+# End-to-end mint→consume regression pin.
 # ---------------------------------------------------------------------------
 #
-# Before Phase 1071 the consumer (_resolve_download_user) rejected any token
+# Previously the consumer (_resolve_download_user) rejected any token
 # missing a `sub` claim with 401, breaking the anonymous-COG-download flow
-# that the mint endpoint had been advertising since v1015 Phase 1065. These
+# that the mint endpoint had been advertising. These
 # tests pin the closure: both authenticated and anonymous-public paths must
 # work end-to-end, and the consume side must still reject expired and
 # wrong-scope tokens regardless of sub-presence.
@@ -223,7 +223,7 @@ async def _create_local_raster_dataset(
 
 
 class TestDownloadTokenConsumption:
-    """End-to-end mint→consume tests pinning KNOWN-01 closure."""
+    """End-to-end mint→consume tests pinning closure."""
 
     async def test_authenticated_mint_then_consume_returns_cog(
         self, client: AsyncClient, admin_auth_header, test_db_session
@@ -270,8 +270,8 @@ class TestDownloadTokenConsumption:
     ):
         """Anonymous mints a no-sub download token for PUBLIC raster → consumes it.
 
-        This is the KNOWN-01 regression pin. Before Phase 1071 the consume side
-        returned 401 because the sub claim was absent; after Phase 1071 it
+        This is the regression pin. Before the fix the consume side
+        returned 401 because the sub claim was absent; now it
         returns 200/302/503 (auth-passed).
         """
         result = await test_db_session.execute(
@@ -297,7 +297,7 @@ class TestDownloadTokenConsumption:
             f"Anonymous mint should produce no-sub token, got payload: {payload}"
         )
 
-        # Consume anonymously — this MUST not 401 (the KNOWN-01 bug).
+        # Consume anonymously — this MUST not 401 (the earlier bug).
         resp = await client.get(
             f"/datasets/{dataset.id}/download/cog?token={token}",
             follow_redirects=False,
@@ -313,7 +313,7 @@ class TestDownloadTokenConsumption:
 
         # Audit assertion: anonymous download row was emitted with user_id=NULL.
         #
-        # WR-03 (Phase 1071 review): session-visibility rationale.
+        # session-visibility rationale.
         # test_db_session is created from the same async_session factory that
         # the test app client patches into the app (conftest.py:481). The route
         # handler calls await db.commit() before returning, which flushes the
@@ -348,7 +348,7 @@ class TestDownloadTokenConsumption:
 
         Documents the mint-side gate (check_dataset_access_or_anonymous returns 404
         for non-public datasets to anonymous callers). The consume-side
-        public-visibility guard added in Phase 1071 is defense-in-depth on top
+        public-visibility guard is defense-in-depth on top
         of this mint-side gate.
         """
         result = await test_db_session.execute(
@@ -380,7 +380,7 @@ class TestDownloadTokenConsumption:
 
         Critically: status MUST NOT be 200/302 (would mean the token granted
         access to a private dataset) and MUST NOT be 401 (would re-introduce
-        KNOWN-01's blanket-reject behavior).
+        the blanket-reject behavior).
         """
         result = await test_db_session.execute(
             select(User).where(User.username == settings.geolens_admin_username)
@@ -413,7 +413,7 @@ class TestDownloadTokenConsumption:
             f"got {resp.status_code}: {resp.text}"
         )
         # Positive-form regression pin: must NOT be 200/302 (over-grant),
-        # 401 (KNOWN-01 over-restriction), or 403 (would reveal existence).
+        # 401 (over-restriction), or 403 (would reveal existence).
         assert resp.status_code not in (200, 302, 401, 403), (
             f"Anonymous-private must not over-grant or over-restrict — "
             f"got {resp.status_code}"

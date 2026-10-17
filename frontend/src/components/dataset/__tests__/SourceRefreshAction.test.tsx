@@ -26,7 +26,7 @@ async function chooseOption(
   await user.click(await screen.findByRole('option', { name }));
 }
 
-// fix(#1285 codex round 4): SourceRefreshAction no longer owns run-tracking
+// SourceRefreshAction no longer owns run-tracking
 // (that moved to useDatasetRefreshWatch, mounted at the page level so it
 // survives a tab switch away from "sources" — see use-dataset.ts). This
 // component only dispatches and reports the run_id to a `watch` prop, so
@@ -35,9 +35,9 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useRefreshDataset: vi.fn(),
 }));
 
-// fix(#1755 item 4): lane A1's sign-in endpoint. Mocked here per the plan's
-// contract (portal_url/username/password in, token/expires_at out) since
-// this lane builds against that contract rather than a live backend.
+// The sign-in endpoint, mocked against its contract
+// (portal_url/username/password in, token/expires_at out) rather than a
+// live backend.
 vi.mock('@/api/arcgis-signin', () => ({
   arcgisSignIn: vi.fn(),
 }));
@@ -46,7 +46,7 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-// fix(#1285 codex round 6): mirrors the mock convention DatasetPage's own
+// Mirrors the mock convention DatasetPage's own
 // tests use (DatasetPage.edit-affordances.test.tsx) for this same store.
 const drawingStoreState = vi.hoisted(() => ({
   selectedFeature: null as { gid: number; tdId: string; properties: Record<string, unknown> } | null,
@@ -180,7 +180,7 @@ describe('SourceRefreshAction', () => {
     expect(input).toHaveAttribute('data-bwignore');
   });
 
-  // fix(#1285 codex round 3): _dispatch_postgis_refresh() rejects ANY
+  // _dispatch_postgis_refresh() rejects ANY
   // nonempty token with 422 credential_not_applicable — a registered table
   // needs no service credential. Offering the field here invites a
   // guaranteed failure, so it must not render for this origin.
@@ -243,7 +243,7 @@ describe('SourceRefreshAction', () => {
       token: undefined,
       auth: { method: 'bearer', token: secretToken },
     });
-    // fix(#1285 codex round 4): the component no longer tracks the dispatched
+    // The component no longer tracks the dispatched
     // run itself — it must hand the run_id to the page-level watch instead.
     expect(trackDispatchedRun).toHaveBeenCalledWith('run-42');
     // The credential must not survive anywhere reachable from the DOM once
@@ -394,7 +394,7 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByLabelText('Authentication')).toHaveTextContent('No authentication');
   });
 
-  // fix(#1834 round 1 P2): `serviceAuth` used to be cleared unconditionally
+  // `serviceAuth` used to be cleared unconditionally
   // before every request, win or lose. ServiceCredentialBlock is
   // uncontrolled for its own fields (it only calls back when THEY change),
   // so a failed submission left the block still showing the typed
@@ -507,7 +507,7 @@ describe('SourceRefreshAction', () => {
     ).toBeInTheDocument();
   });
 
-  // fix(#1285 codex round 6, widened on completion): DatasetMap stays
+  // DatasetMap stays
   // mounted above DetailPanel regardless of tab, so a feature selection
   // survives a switch to the Source tab. The hazard does not need an
   // in-progress edit — handleDeleteFeature acts on a merely-selected
@@ -677,7 +677,7 @@ describe('SourceRefreshAction', () => {
     ).not.toBeInTheDocument();
   });
 
-  // fix(#1285 codex round 4): the whole point of lifting tracking into a
+  // The whole point of lifting tracking into a
   // page-level watch — a dispatch that resolves AFTER the user has already
   // switched away from the Source tab (unmounting this component) must
   // still reach the watch, since it is the caller's (not this component's)
@@ -722,7 +722,7 @@ describe('SourceRefreshAction', () => {
     });
   });
 
-  // fix(#1755 item 4, plan 3.7): the refresh door's own 422 detail. The
+  // The refresh door's own 422 detail. The
   // `message` field is a diagnostic sentence aimed at an API client, not UI
   // copy -- it must never reach the DOM, and this suite pins that alongside
   // the credential prompt it triggers instead.
@@ -736,7 +736,7 @@ describe('SourceRefreshAction', () => {
     });
   }
 
-  // codex #1759, post-#1757-merge dedupe: ArcgisCredentialBlock now renders
+  // ArcgisCredentialBlock now renders
   // `ApiError.message` directly rather than mapping `code` to its own copy
   // (see the component's module comment). This mock has to match what the
   // REAL apiFetch would have produced, so it runs the same detail through
@@ -748,7 +748,7 @@ describe('SourceRefreshAction', () => {
     return new ApiError(translateApiErrorDetail(body, status), status, body);
   }
 
-  // codex #1759 round 2: the ArcGIS credential block now schedules a clear
+  // The ArcGIS credential block now schedules a clear
   // for `expires_at` minus a safety margin, so any test that mints a token
   // without exercising expiry itself needs an `expires_at` safely in the
   // future relative to whenever the suite actually runs -- a fixed literal
@@ -898,7 +898,7 @@ describe('SourceRefreshAction', () => {
       });
     });
 
-    // codex #1759 round 3 P2: ArcGISSignInRequest does not strip
+    // ArcGISSignInRequest does not strip
     // whitespace and PortalSignIn.mint forwards the value unchanged, so a
     // pasted username with leading/trailing whitespace would burn one of
     // the account's limited sign-in attempts on a value that could never
@@ -944,7 +944,7 @@ describe('SourceRefreshAction', () => {
       );
     });
 
-    // codex #1759 round 3, P2: "Start refresh" clears the parent's `token`
+    // "Start refresh" clears the parent's `token`
     // state before awaiting the refresh request, win or lose. Before this
     // fix, the credential block's own `signedIn` flag did not know that --
     // a rejected refresh left it still claiming "Signed in" while the next
@@ -1022,12 +1022,12 @@ describe('SourceRefreshAction', () => {
       ).toBeInTheDocument();
       expect(screen.queryByText('raw')).not.toBeInTheDocument();
       // Exactly one attempt: nothing in this component retries a rejected
-      // sign-in automatically (plan 3.2 -- a retry loop can lock the
+      // sign-in automatically (a retry loop can lock the
       // customer's real ArcGIS account).
       expect(mockArcgisSignIn).toHaveBeenCalledTimes(1);
     });
 
-    // codex #1759 round 4 P2: a rejected sign-in used to leave the
+    // A rejected sign-in used to leave the
     // password sitting in state and in the controlled input until the
     // user edited it or closed the dialog -- contradicting this block's
     // own request-scoped credential lifetime, and letting a second click
@@ -1113,7 +1113,7 @@ describe('SourceRefreshAction', () => {
       expect(screen.queryByText('raw diagnostic text, never rendered')).not.toBeInTheDocument();
     });
 
-    // codex #1759 round 3, P2: ArcGISSignInRequest rejects input -- a
+    // ArcGISSignInRequest rejects input -- a
     // scheme-less portal URL, one carrying credentials, an overlong field --
     // before the route runs. That is a FastAPI/pydantic validation array in
     // err.body, not this endpoint's {code, message} shape, so it has no
@@ -1150,7 +1150,7 @@ describe('SourceRefreshAction', () => {
       ).not.toBeInTheDocument();
     });
 
-    // codex #1759 round 1, P1: a late arcgisSignIn response landing after
+    // A late arcgisSignIn response landing after
     // the dialog (and this credential block, which SourceRefreshAction
     // unmounts on close) is dismissed must not resurrect a token the user
     // already dismissed.
@@ -1197,7 +1197,7 @@ describe('SourceRefreshAction', () => {
       expect(screen.getByLabelText('Access token (optional)')).toHaveValue('');
     });
 
-    // codex #1759 round 1, P2: a token minted for one set of credentials
+    // A token minted for one set of credentials
     // must not survive editing those credentials or a rejected retry.
     it('clears a previously minted token as soon as a sign-in field changes, before any new attempt', async () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
@@ -1277,7 +1277,7 @@ describe('SourceRefreshAction', () => {
       });
     });
 
-    // codex #1759 round 2: the refresh door only stages a credential and
+    // The refresh door only stages a credential and
     // queues the worker, so a dialog left open past the minted token's
     // lifetime would otherwise submit one already dead on the wire, and
     // the failure would only surface later in the background.
@@ -1371,7 +1371,7 @@ describe('SourceRefreshAction', () => {
         });
       });
 
-      // codex #1759 P2: the scheduled timer and the render-triggered belt
+      // The scheduled timer and the render-triggered belt
       // effect are both suspended exactly like any other browser timer by a
       // backgrounded tab or a system sleep. This proves the submit path
       // catches an already-expired token on its own, without either of
@@ -1404,7 +1404,7 @@ describe('SourceRefreshAction', () => {
         ).toBeInTheDocument();
       });
 
-      // codex #1759 round 3 P2: the synchronous guard used to compare
+      // The synchronous guard used to compare
       // against the raw expires_at, while the scheduled timer retires the
       // token 30s early. A tab resuming inside that last 30-second window
       // -- past the margin cutoff but before the real expiry -- used to
@@ -1442,11 +1442,11 @@ describe('SourceRefreshAction', () => {
 
 describe('REFRESHABLE_ORIGINS', () => {
   it('mirrors the refresh door dispatch table — the three kinds with a strategy', () => {
-    // fix(#1285 codex round 1): router_refresh.py routes every origin it does
+    // router_refresh.py routes every origin it does
     // not name through _resolve_service_origin(), which refuses upload and
     // created with 409 refresh_not_applicable. This is the value DetailPanel
     // gates on; a widened set here without a matching backend strategy would
-    // put the "Refresh from source" control back where round 1 found it.
+    // show the "Refresh from source" control for origins the backend refuses.
     // feat(#1266): stac gained one.
     expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['postgis', 'service', 'stac']);
   });

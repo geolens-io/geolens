@@ -1,4 +1,4 @@
-"""REMED-02 / ingest-audit P2-07: regression tests for worker progress writes.
+"""Regression tests for worker progress writes.
 
 Pins the contract that the polling UI depends on:
 

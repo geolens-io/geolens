@@ -58,7 +58,7 @@ type ReuploadStep =
   | 'service-connect'
   | 'probing'
   | 'layer-select'
-  // GPKG-01 Phase 1058: file-path layer-select step (distinct from service 'layer-select')
+  // File-path layer-select step (distinct from service 'layer-select')
   | 'selecting-file-layer'
   | 'uploading'
   | 'previewing'
@@ -95,7 +95,7 @@ interface ReuploadDialogProps {
   dataset: DatasetResponse;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** fix(#1362 codex r1): called once a raster replacement job completes, so
+  /** Called once a raster replacement job completes, so
    * the caller can force its hero map to remount and pick up the new tiles —
    * the raster tile URL is a fixed per-dataset route, so nothing else in the
    * app tells MapLibre's already-added raster source to reload. */
@@ -129,7 +129,7 @@ function isLikelyProtectedServiceFailure(message: string): boolean {
   return AUTH_ERROR_HINTS.some((hint) => normalized.includes(hint));
 }
 
-/** fix(#1768 round 1): the commit door's expected-origin refusal, read off the
+/** The commit door's expected-origin refusal, read off the
  *  raw `detail` ApiError carries in `body` rather than off the translated
  *  message — the copy is locale-dependent, the code is not. */
 function isOriginChangedError(err: unknown): boolean {
@@ -163,7 +163,7 @@ export function ReuploadDialog({
   // handleConfirm's catch block), not just the refusal itself.
   const [isRefreshingOrigin, setIsRefreshingOrigin] = useState(false);
   const [originRefreshFailed, setOriginRefreshFailed] = useState(false);
-  // fix(#1822 review P2): stale-completion guard for the refetch above — see
+  // Stale-completion guard for the refetch above — see
   // handleConfirm and resetState.
   const refreshGenerationRef = useRef(0);
   const [preview, setPreview] = useState<ReuploadPreviewResponse | null>(null);
@@ -173,7 +173,7 @@ export function ReuploadDialog({
   const [serviceToken, setServiceToken] = useState('');
   const [probeResult, setProbeResult] = useState<ProbeResponse | null>(null);
   const [selectedLayer, setSelectedLayer] = useState<LayerInfo | null>(null);
-  // GPKG-01 Phase 1058: state for file-path multi-layer selection
+  // State for file-path multi-layer selection
   const [allLayers, setAllLayers] = useState<NonNullable<ReuploadPreviewResponse['all_layers']>>([]);
   const [previousSourceLayer, setPreviousSourceLayer] = useState<string | null>(null);
   const [selectedFileLayer, setSelectedFileLayer] = useState<string | null>(null);
@@ -202,7 +202,7 @@ export function ReuploadDialog({
     setStagedOriginKind(null);
     setIsRefreshingOrigin(false);
     setOriginRefreshFailed(false);
-    // fix(#1822 review P2): orphans any refetch still in flight from before
+    // Orphans any refetch still in flight from before
     // this reset (e.g. the dialog was closed mid-refetch).
     refreshGenerationRef.current += 1;
     setPreview(null);
@@ -212,7 +212,7 @@ export function ReuploadDialog({
     setServiceToken('');
     setProbeResult(null);
     setSelectedLayer(null);
-    // GPKG-01 Phase 1058: clear multi-layer file state
+    // Clear multi-layer file state
     setAllLayers([]);
     setPreviousSourceLayer(null);
     setSelectedFileLayer(null);
@@ -237,7 +237,7 @@ export function ReuploadDialog({
 
     if (jobData.status === 'complete') {
       if (jobData.quicklook_pending) setQuicklookJobId(jobId);
-      // fix(#1362 codex r3): the await below leaves this continuation
+      // The await below leaves this continuation
       // in flight across a render where `step`/`jobId` can change under it —
       // closing the dialog (resetState) or starting a second reupload before
       // the first's invalidation settles must not let this stale run apply
@@ -246,7 +246,7 @@ export function ReuploadDialog({
       // change (step leaving 'tracking' included) before this branch's next
       // invocation runs.
       let cancelled = false;
-      // fix(#1362 codex r2): invalidateQueries only SCHEDULES a refetch —
+      // invalidateQueries only SCHEDULES a refetch, so
       // firing onReplaceComplete without waiting for it raced the remount
       // against the still-in-flight dataset-detail refetch, so a replacement
       // with a different extent could remount using the OLD bbox (DatasetMap
@@ -263,7 +263,7 @@ export function ReuploadDialog({
           queryClient.invalidateQueries({ queryKey: queryKeys.search.all }),
         ]);
         if (cancelled) return;
-        // fix(#1362 codex r1): a raster's tile URL is a fixed per-dataset
+        // A raster's tile URL is a fixed per-dataset
         // route, not versioned by content — invalidating the dataset query
         // alone doesn't touch the hero map's already-added MapLibre raster
         // source, so it keeps serving the old tiles until something remounts
@@ -355,11 +355,11 @@ export function ReuploadDialog({
           jobId: uploadResult.job_id,
         });
 
-        // GPKG-01 Phase 1058: branch on all_layers for multi-layer file sources.
+        // Branch on all_layers for multi-layer file sources.
         // Show the selecting-file-layer step when:
         //   (a) the file has >1 layers (multi-layer GPKG), OR
         //   (b) previous_source_layer is set but not found in the new file's layers
-        //       (even 1-layer files must surface the mismatch so users confirm — D-02).
+        //       (even 1-layer files must surface the mismatch so users confirm).
         // Single-layer files where the previous layer matches (or no previous layer) skip the step.
         const layers = previewResult.all_layers ?? [];
         const prevLayer = previewResult.previous_source_layer ?? null;
@@ -368,7 +368,7 @@ export function ReuploadDialog({
         if (needsLayerSelect) {
           setAllLayers(layers);
           setPreviousSourceLayer(prevLayer);
-          // Default to previous source_layer if it appears in the new file (D-02).
+          // Default to previous source_layer if it appears in the new file.
           // If absent (mismatch case), set to null — user MUST explicitly select.
           const isPresent = prevLayer !== null && layers.some((l) => l.name === prevLayer);
           setSelectedFileLayer(isPresent ? prevLayer : null);
@@ -468,7 +468,7 @@ export function ReuploadDialog({
     [dataset.id, dataset.origin, probeResult, servicePreviewMutation, serviceToken, t, appendRetryGuidance],
   );
 
-  // GPKG-01 Phase 1058: handler for file-path layer selection.
+  // Handler for file-path layer selection.
   // Mirrors handleLayerPreview (service path) but operates on the file-path state machine.
   const handleFileLayerPreview = useCallback(
     async (layerName: string) => {
@@ -505,7 +505,7 @@ export function ReuploadDialog({
       const token = sourceType === 'service_url' && serviceToken.trim()
         ? serviceToken.trim()
         : undefined;
-      // GPKG-01 Phase 1058: pass selectedFileLayer so commit persists the user-chosen layer
+      // Pass selectedFileLayer so commit persists the user-chosen layer
       await commitMutation.mutateAsync({
         datasetId: dataset.id,
         jobId,
@@ -535,7 +535,7 @@ export function ReuploadDialog({
         const generation = ++refreshGenerationRef.current;
         setIsRefreshingOrigin(true);
         try {
-          // fix(#1822 review P2 round 3): fetchQuery dedupes onto an
+          // fetchQuery dedupes onto an
           // already in-flight fetch for this key (e.g. a window-focus
           // refetch) instead of running ours, so cancel it first.
           await queryClient.cancelQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
@@ -545,7 +545,7 @@ export function ReuploadDialog({
             staleTime: 0,
           });
         } catch {
-          // fix(#1822 review P2): a reset (dialog closed) or a newer attempt
+          // A reset (dialog closed) or a newer attempt
           // bumped the generation — this completion is orphaned, ignore it.
           if (generation === refreshGenerationRef.current) {
             setOriginRefreshFailed(true);
@@ -640,7 +640,7 @@ export function ReuploadDialog({
     (preview.schema_diff.columns_removed.length > 0 ||
       preview.schema_diff.type_changes.length > 0);
 
-  // GPKG-02 Phase 1058: advisory banner — derived client-side per D-07, distinct from hasWarning (D-05/D-07)
+  // Advisory banner — derived client-side, distinct from hasWarning
   const schemaChangeCount =
     (preview?.schema_diff.columns_added.length ?? 0) +
     (preview?.schema_diff.columns_removed.length ?? 0);
@@ -660,7 +660,7 @@ export function ReuploadDialog({
     'layer-select': t('reupload.descriptions.layerSelect', {
       defaultValue: 'Choose the service layer to preview.',
     }),
-    // GPKG-01 Phase 1058: file-path layer-select description
+    // File-path layer-select description
     'selecting-file-layer': t('reupload.descriptions.fileLayerSelect', {
       defaultValue: 'Choose the layer from this multi-layer file.',
     }),
@@ -692,14 +692,14 @@ export function ReuploadDialog({
 
   const previewSourceLabel = sourceType === 'service_url'
     ? t('reupload.service.layerLabel', { defaultValue: 'Layer:' })
-    // GPKG-01 Phase 1058: show 'Layer:' label when a file-layer was selected (multi-layer file)
+    // Show 'Layer:' label when a file-layer was selected (multi-layer file)
     : selectedFileLayer !== null
       ? t('reupload.service.layerLabel', { defaultValue: 'Layer:' })
       : t('reupload.file');
 
   const previewSourceValue = sourceType === 'service_url'
     ? (selectedLayer ? humanizeLayerName(selectedLayer) : (preview?.layer_name ?? t('common:unknown')))
-    // GPKG-01 Phase 1058: show selected layer name for multi-layer files
+    // Show selected layer name for multi-layer files
     : selectedFileLayer !== null
       ? selectedFileLayer
       : selectedFile?.name;
@@ -717,7 +717,7 @@ export function ReuploadDialog({
         {step === 'source-select' && (
           <div className="space-y-4" data-testid="reupload-source-selector">
             <p className="text-sm text-muted-foreground">
-              {/* fix(#1362 codex r1): raster has no service path — nothing
+              {/* Raster has no service path — nothing
                   fetches a GeoTIFF from a feature service, and the backend
                   refuses a raster service-preview outright — so raster
                   never sees the Service URL option below. */}
@@ -957,7 +957,7 @@ export function ReuploadDialog({
           </div>
         )}
 
-        {/* GPKG-01 Phase 1058: file-path layer-select step for multi-layer GPKG files */}
+        {/* File-path layer-select step for multi-layer GPKG files */}
         {step === 'selecting-file-layer' && (
           <div className="space-y-4" data-testid="reupload-file-layer-select">
             <div className="flex items-center justify-between">
@@ -965,7 +965,7 @@ export function ReuploadDialog({
                 {t('reupload.fileLayer.layerStep', { defaultValue: 'Select a layer' })}
               </p>
             </div>
-            {/* D-02: warn when previous source_layer is not in the new file's layers */}
+            {/* Warn when previous source_layer is not in the new file's layers */}
             {previousSourceLayer && !allLayers.find((l) => l.name === previousSourceLayer) && (
               <p className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
                 {t('reupload.fileLayer.missingLayerWarning', {
@@ -1045,7 +1045,7 @@ export function ReuploadDialog({
             alone rather than waiting for `preview`. */}
         {step === 'preview' && (preview || isRaster) && (
           <div className="space-y-4">
-            {/* GPKG-02 Phase 1058: file-path multi-layer shows File + Layer lines; single-layer or service shows one line */}
+            {/* File-path multi-layer shows File + Layer lines; single-layer or service shows one line */}
             {sourceType === 'file' && selectedFileLayer !== null ? (
               <>
                 <p className="text-sm">
@@ -1074,7 +1074,7 @@ export function ReuploadDialog({
               </p>
             ) : preview && (
               <>
-                {/* GPKG-02 Phase 1058: schema-change advisory banner (informational, distinct from hasWarning) */}
+                {/* Schema-change advisory banner (informational, distinct from hasWarning) */}
                 {hasSchemaChange && (
                   <div
                     className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm"
@@ -1140,7 +1140,7 @@ export function ReuploadDialog({
                 : t('reupload.processingMessage')}
             </p>
             <p className="text-xs text-muted-foreground">
-              {/* fix(#1362 codex r1): job tracking (useJobStatus polling)
+              {/* Job tracking (useJobStatus polling)
                   stops once the dialog closes and steps away from
                   'tracking', so this must not promise closing is safe. */}
               {isRaster
