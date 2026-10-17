@@ -362,7 +362,7 @@ export function useFeatureEditing({
         if (map) {
           cleanupOverlayListener();
           const clearOverlay = () => {
-            // re-checked at fire time, not just
+            // Re-checked at fire time, not just
             // at the mutation's resolution above — the identity can change
             // again in the gap before the tile-load event (or the 5s
             // fallback) fires, and a second identity may have started

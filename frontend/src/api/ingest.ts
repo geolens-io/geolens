@@ -292,7 +292,7 @@ export async function previewFile(jobId: string, layerName?: string): Promise<Fi
     // the reported path — same reasoning as reportQueryKey in main.tsx: an id
     // isn't reliably distinguishable from a secret by shape.
     //
-    // gating this on `instanceof ApiError` skipped a real
+    // Gating this on `instanceof ApiError` skipped a real
     // failure class — apiFetch's own `response.json()` throws a raw
     // SyntaxError (not ApiError) on a malformed 2xx body, and that error type
     // silently fell through this guard uncaptured. reportApiCallFailure
@@ -376,8 +376,7 @@ export async function previewServiceLayer(
 // abort a valid slow sign-in in the browser while the backend keeps
 // processing, and counting, the attempt. 60s covers the 45s backend
 // bound with margin.
-// dedupe: exported so lane A3's
-// independent arcgis-signin.ts client (frontend/src/components/dataset/
+// Exported so the independent arcgis-signin.ts client (frontend/src/components/dataset/
 // ArcgisCredentialBlock.tsx's refresh-door credential prompt) can share
 // this exact number rather than declare its own -- the backend bound
 // below is one fact and both callers need the same margin over it.

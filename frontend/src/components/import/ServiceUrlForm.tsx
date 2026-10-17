@@ -58,8 +58,8 @@ type ServiceStep =
 // service is public"), not a blank state.
 type ArcgisAuthMethod = 'none' | 'token' | 'signin';
 
-// feat(#1746 B4, plan 3.1): for a non-ArcGIS-shaped URL (WFS, OGC API
-// Features), B2b widened the door beyond a bearer token to the same
+// For a non-ArcGIS-shaped URL (WFS, OGC API
+// Features), the door offers more than a bearer token: the same
 // four-way choice the backend's CredentialMethod enum names. ArcGIS itself
 // stays bearer-only (an ArcGIS token is percent-encoded into the query, so
 // build_credential_header refuses to compose a header for it), which is why
@@ -91,7 +91,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // ArcGIS sign-in (plan 3.2 / lane A2).
+  // ArcGIS sign-in.
   const [arcgisAuthMethod, setArcgisAuthMethod] = useState<ArcgisAuthMethod>('none');
   const [portalUrl, setPortalUrl] = useState('');
   const [username, setUsername] = useState('');
@@ -101,7 +101,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const [signinError, setSigninError] = useState<string | null>(null);
   const [tokenExpired, setTokenExpired] = useState(false);
 
-  // Non-ArcGIS credential method (plan 3.1 / lane B4). `token` above is
+  // Non-ArcGIS credential method. `token` above is
   // reused for the bearer branch here, same as it is for ArcGIS's own
   // 'token' method — the two are mutually exclusive branches of the same
   // ternary below, so nothing can read the other's value into a request.
@@ -159,8 +159,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   // looking current, and must invalidate any sign-in still in flight for
   // the context being replaced. A password edit clears the mint too, for
   // symmetry: a new password means a new attempt, not a continuation of
-  // the old one. The expiry timer below reuses this same function. Lane
-  // A3 applies the identical rule to its own credential block.
+  // the old one. The expiry timer below reuses this same function.
+  // ArcgisCredentialBlock applies the identical rule.
   const invalidateMintedCredential = useCallback(() => {
     signinGenerationRef.current += 1;
     clearExpiryTimer();
@@ -255,7 +255,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     setUsername('');
     setPassword('');
     setSigninError(null);
-    // fix(#1746 B4): the non-ArcGIS credential branch is the other half of
+    // The non-ArcGIS credential branch is the other half of
     // the same hazard — a username/password or header key typed for one
     // origin or shape must not survive being pointed at another, same as
     // the ArcGIS fields above. `token` itself is already covered by
@@ -360,8 +360,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   }
 
   // Switching methods discards the other branch's fields rather than
-  // half-honouring them (mirrors the backend's own `auth` object rule,
-  // plan 3.4). A stale password or a stale pasted token left over from the
+  // half-honouring them (mirrors the backend's own `auth` object rule).
+  // A stale password or a stale pasted token left over from the
   // method the user just backed out of must never ride along silently.
   const handleAuthMethodChange = (next: ArcgisAuthMethod) => {
     setCredentialsReset(false);
@@ -466,7 +466,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     setError(null);
 
     try {
-      // fix(#1746 B4): ArcGIS keeps forwarding a bare bearer token the way
+      // ArcGIS keeps forwarding a bare bearer token the way
       // it always has; a non-ArcGIS-shaped URL now forwards the structured
       // `auth` object instead, since it can also describe basic or a named
       // header.
@@ -547,7 +547,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
       return;
     }
 
-    // fix(#1746 B4): same split as Probe above — ArcGIS forwards its bearer
+    // Same split as Probe above — ArcGIS forwards its bearer
     // token under the deprecated `token` field, a non-ArcGIS service under
     // the structured `auth` object. The two are mutually exclusive on the
     // wire (`reject_service_auth_conflict`), so only one is ever set here.
@@ -587,7 +587,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
 
     setStep('committing');
 
-    // fix(#1746 B4): same split as Probe/Preview above.
+    // Same split as Probe/Preview above.
     const auth = isArcGisShaped ? undefined : buildServiceAuth();
 
     const commitPromise = commitImport(previewData.job_id, {
@@ -795,7 +795,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
             {probeResult.layers.map((layer) => {
               // Consume backend-classified layer.kind directly.
               // Previously re-derived from geometry_type string contents, which failed
-              // when geometry_type is null (the post-default for OGC API / WFS layers).
+              // when geometry_type is null (the default for OGC API / WFS layers).
               const unsupported = layer.importable === false;
               return (
                 <button

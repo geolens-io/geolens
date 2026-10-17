@@ -1,5 +1,5 @@
 /**
- * test: the catalog Import CTA must be gated on the
+ * Regression test: the catalog Import CTA must be gated on the
  * 'upload' capability, not on token presence. A guest or viewer-role user
  * must not see an Import link that dead-ends at the editor-gated /import route.
  *

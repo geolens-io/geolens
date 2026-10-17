@@ -63,8 +63,8 @@ vi.mock('@/hooks/use-edition', () => ({
   useEdition: () => useEditionMock(),
 }));
 
-// server-driven enterprise-tab list. Defaults to
-// the canonical post-279 set so existing tests (which expect appearance to be
+// Server-driven enterprise-tab list. Defaults to
+// the canonical set so existing tests (which expect appearance to be
 // hidden in community) keep passing without changes. Per-test overrides via
 // `mockReturnValueOnce` exercise the loading / drift / extension scenarios.
 const useEnterpriseOnlyTabsMock = vi.fn<(_options?: { enabled?: boolean }) => { data: { tabs: string[] } | undefined }>(() => ({
@@ -411,7 +411,7 @@ describe('adminNav.failedJobs bundle coverage (#1185)', () => {
 // ---------------------------------------------------------------------------
 // SAML nav gating
 //
-// Verifies the three-layer defense for SAML enterprise gating
+// Verifies the three-layer defense for SAML enterprise gating:
 // the sidebar nav item is HIDDEN in community mode
 // (`isEnterprise=false`) and VISIBLE in enterprise mode (`isEnterprise=true`).
 // The companion checks live in:

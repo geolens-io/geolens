@@ -123,7 +123,7 @@ describe('wireAuthCacheReset', () => {
     }
   });
 
-  // The race the ownerId-only check missed
+  // The race the ownerId-only check missed:
   // handleEditAttributeSubmit reads `selectedFeature` before an update
   // mutation and calls setSelectedFeature again once it resolves. These pin
   // that resolution being refused when it lands AFTER an identity change,

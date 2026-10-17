@@ -57,7 +57,7 @@ const drawingState = vi.hoisted(() => ({
   setEditDirty: vi.fn(),
   setHasUnsavedMapWork: vi.fn(),
   isEditDirty: false,
-  // identity-change session counter. Real
+  // Identity-change session counter. Real
   // usage never resets this to 0 mid-life, so tests that bump it use a high
   // starting value to avoid colliding with any other test's leftover state.
   sessionEpoch: 0,
@@ -2028,7 +2028,7 @@ describe('DatasetMap antimeridian extent (fix #1004)', () => {
 // (a sessionEpoch bump) drives that cleanup even though nothing in the
 // choke point itself knows this component exists.
 describe('DatasetMap identity-change cleanup (fix #1761 review round 3 P1)', () => {
-  // spy-able 'drawn-overlay' source, so the
+  // The map mock exposes a spy-able 'drawn-overlay' source, so the
   // "tears down..." test below can also assert resetOverlay() actually
   // reaches the map (not just that finishDrawingSession's OTHER cleanup
   // steps ran).

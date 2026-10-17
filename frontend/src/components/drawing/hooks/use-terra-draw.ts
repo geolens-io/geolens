@@ -556,7 +556,7 @@ export function useTerraDraw(
     if (prev && prev.length > 0) {
       draw.addFeatures(prev);
     }
-    // re-select only if that id is still present in the
+    // Re-select only if that id is still present in the
     // restored features. Call draw.selectFeature() directly (not this
     // hook's own selectFeature() wrapper above) — that wrapper also
     // captures a NEW baseline and would overwrite the one this undo just

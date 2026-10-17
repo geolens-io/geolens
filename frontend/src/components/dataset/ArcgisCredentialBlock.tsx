@@ -16,7 +16,7 @@ interface ArcgisCredentialBlockProps {
 }
 
 // The ONE margin shared by the scheduled timer
-// (handleSignIn, below) and this synchronous check -- mirrors lane A2's
+// (handleSignIn, below) and this synchronous check -- mirrors the
 // identical fix in ServiceUrlForm.tsx (EXPIRY_MARGIN_MS)
 // for the same bug shape. The timer used to retire a
 // token 30 seconds before its real expiry while this check compared
@@ -53,9 +53,9 @@ export interface ArcgisCredentialBlockHandle {
   markExpired: () => void;
 }
 
-// post-#1757-merge dedupe: this block used to carry its own
+// This block used to carry its own
 // {code -> key} table and its own copy for all seven of this endpoint's
-// refusal shapes. Lane A2's error-map.ts (frontend/src/lib/error-map.ts)
+// refusal shapes. error-map.ts (frontend/src/lib/error-map.ts)
 // now maps every one of them -- arcgis_signin_rejected, arcgis_sso_account,
 // ssrf_refused, arcgis_signin_in_progress, arcgis_portal_not_https and
 // arcgis_portal_host_invalid -- under `common:errors.*`, and deliberately
@@ -73,19 +73,19 @@ export interface ArcgisCredentialBlockHandle {
 // field-named message.
 
 /**
- * fix(#1755 item 4, plan 3.7/3.2): the refresh door's ArcGIS credential
- * prompt. Lane A2 (PR #1757, merged) ships the equivalent three-way method
+ * The refresh door's ArcGIS credential
+ * prompt. The import wizard ships the equivalent three-way method
  * select for the import wizard (`ServiceUrlForm.tsx`), its own
  * `arcgisSignin` client in `api/ingest.ts`, and hand-typed request/response
  * types in `types/api.ts`. This component and that select are still two
  * independent copies of the same taxonomy -- converging them into one
  * shared component remains a follow-up -- but the error COPY is no longer
- * duplicated: this component reuses A2's `common:errors.*` mapping in
+ * duplicated: this component reuses the shared `common:errors.*` mapping in
  * `lib/error-map.ts` via `ApiError.message` (see the comment above) rather
  * than carrying a second `{code -> key}` table under its own namespace.
  *
- * None / Token / Sign in, per plan 3.1. Selecting a method discards the
- * other branch's fields rather than half-honouring them (plan 3.4's oneOf
+ * None / Token / Sign in. Selecting a method discards the
+ * other branch's fields rather than half-honouring them (the backend's oneOf
  * rule, applied here to component state rather than a request body).
  */
 export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, ArcgisCredentialBlockProps>(
@@ -130,7 +130,7 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
   // (the dialog closing unmounts this block -- SourceRefreshAction renders
   // it conditionally on `serviceTokenRequired`, which handleOpenChange
   // resets on close) and at the start of every sign-in attempt. Mirrors
-  // the generation-counter pattern lane A2 applies in ServiceUrlForm.tsx,
+  // the generation-counter pattern ServiceUrlForm.tsx applies,
   // so the two blocks converge later.
   const generationRef = useRef(0);
 
@@ -141,7 +141,7 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
     };
   }, []);
 
-  // belt: the scheduled timer above is the primary
+  // Belt and braces: the scheduled timer above is the primary
   // mechanism, but re-verify on every render too (method switch, a field
   // edit, the `disabled` prop flipping when "Start refresh" is clicked) in
   // case the timer fires late -- background-tab throttling can delay a
@@ -381,7 +381,7 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
             <Input
               id="arcgis-credential-password"
               type="password"
-              // fix(#1755 item 4, plan 3.2): a genuine third-party login, so a
+              // A genuine third-party login, so a
               // password manager offering to save it is not absurd -- but it
               // would be saved against the GeoLens origin, which is
               // misleading. Opt out the same way the request-only service

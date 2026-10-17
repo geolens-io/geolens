@@ -7,7 +7,7 @@ vi.mock('@/api/admin', () => ({
   getAIStatus: vi.fn(),
 }));
 
-// non-admin editors read the public-safe availability endpoint.
+// Non-admin editors read the public-safe availability endpoint.
 vi.mock('@/api/maps', () => ({
   getAIAvailability: vi.fn(),
 }));
@@ -308,7 +308,7 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
 });
 
 // ---------------------------------------------------------------------------
-// reason field taxonomy
+// Reason field taxonomy
 // ---------------------------------------------------------------------------
 
 describe('useAIAvailability — reason field (Phase 1135 AI-02)', () => {

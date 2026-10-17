@@ -1,5 +1,5 @@
 /**
- * Regression test for closed LayerLegend panel must not trap keyboard focus.
+ * Regression test: a closed LayerLegend panel must not trap keyboard focus.
  *
  * Before the fix, the panel stayed mounted with `opacity-0 pointer-events-none`,
  * leaving per-layer visibility toggle buttons in the tab order. A keyboard user

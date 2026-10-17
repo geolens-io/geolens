@@ -175,7 +175,7 @@ export async function detectEmbeddingDims(): Promise<DetectEmbeddingDimsResponse
 
 interface BrandingConfig {
   show_badge: boolean;
-  /** operator-configured privacy-policy URL, or null/absent when unset. */
+  /** Operator-configured privacy-policy URL, or null/absent when unset. */
   privacy_url?: string | null;
 }
 

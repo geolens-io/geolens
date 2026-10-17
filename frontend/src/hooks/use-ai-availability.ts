@@ -26,7 +26,7 @@ import { queryKeys } from '@/lib/query-keys';
  * - **Viewers (no `use_ai_chat`)** fire NEITHER endpoint, so there is no 401/403
  *   console noise; they get a safe disabled state with `reason = 'permission'`.
  *
- * Both endpoints are gated on `!!token` so anonymous sessions never probe them
+ * Both endpoints are gated on `!!token` so anonymous sessions never probe them.
  *
  * ## reason field
  *

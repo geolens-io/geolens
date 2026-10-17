@@ -548,7 +548,7 @@ describe('applyBasemapConfigToStyle master opacity', () => {
   });
 
   it('master opacity is reversible when reapplied (does not compound — CR-01 regression)', () => {
-    // Regression test for code review applying opacity 0.5 then opacity 1
+    // Regression test: applying opacity 0.5 then opacity 1
     // against the same (already-mutated) style must restore raster-opacity to 1,
     // not stay at 0.5. The previous design multiplied against live paint and
     // short-circuited at >=1, leaving the slider monotonic-downward.
@@ -624,8 +624,8 @@ describe('applyBasemapConfigToStyle master opacity', () => {
 });
 
 describe('applyBasemapConfigToStyle prominence reversibility (builder-audit #338 COMPLEX-01)', () => {
-  // Lock the prose invariants in basemap-utils.ts (/ prominence-stamp
-  // composition) with CI-enforced regression tests: a subtle+dimmed pass
+  // Lock the prose invariants in basemap-utils.ts (master-opacity and
+  // prominence-stamp composition) with CI-enforced regression tests: a subtle+dimmed pass
   // followed by a full+opacity-1 pass must restore the canonical *-opacity
   // defaults (1.0) across line, symbol, and raster layer types. A future edit
   // that adds a new stamp, a new opacity key, or reorders applyMasterOpacity

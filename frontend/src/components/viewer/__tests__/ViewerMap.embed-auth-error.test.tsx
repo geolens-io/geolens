@@ -2,7 +2,7 @@
 // every 4xx, so an expired/invalid embed token (X-Embed-Token) rendered blank
 // layers with no user feedback. This spec proves an embed-token 401/403
 // surfaces a deduped "access expired" toast, while a genuine no-data 404
-// stays silent (regression guard). (audit)
+// stays silent (regression guard).
 import type { ReactNode } from 'react';
 import { render, waitFor } from '@/test/test-utils';
 import { ViewerMap } from '../ViewerMap';
@@ -238,7 +238,7 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
 
   // fix(#392): transformRequest attaches X-Embed-Token to every request the map
   // makes, including third-party basemap CDN fetches — a 401/403 from one of
-  // those hosts is not an embed-token problem and must not misfire the toast. (audit)
+  // those hosts is not an embed-token problem and must not misfire the toast.
   it('stays quiet on a 401 from a third-party basemap CDN host', async () => {
     renderEmbedViewer();
     await waitFor(() => {

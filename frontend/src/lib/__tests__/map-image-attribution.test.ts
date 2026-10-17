@@ -1147,7 +1147,7 @@ describe('fitAttributionText', () => {
   });
 });
 
-/* mid-STRING wrapping is the one residual limit we allow.
+/* Mid-STRING wrapping is the one residual limit we allow.
  * Mid-CHARACTER is truncation in disguise — a surrogate pair split across two
  * drawn lines renders replacement glyphs where the provider's name should be. */
 describe('grapheme safety in the wrapping path', () => {
@@ -1236,7 +1236,7 @@ describe('drawAttributionOverlay', () => {
     expect(ctx.fillText).toHaveBeenCalledWith('© A | © B', expect.any(Number), expect.any(Number));
   });
 
-  // The second. These crops cannot grow, so they spend map pixels.
+  // These crops cannot grow, so they spend map pixels.
   it('wraps to multiple lines rather than dropping a credit on the thumbnail', () => {
     const ctx = makeCtx();
     const canvas = makeCanvas(400, 250, ctx);

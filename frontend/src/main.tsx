@@ -80,7 +80,7 @@ const router = createBrowserRouter(createRoutesFromElements(appRoutes));
 
 // Cache the React root on the container so a Vite HMR re-exec of this entry
 // module reuses it instead of calling createRoot() twice on the same node
-// (/ #122). Type-only; erased at runtime.
+// (#122). Type-only; erased at runtime.
 interface RootContainer extends HTMLElement { __glRoot?: Root }
 
 // Awaiting initializeI18n() before the first render blocks

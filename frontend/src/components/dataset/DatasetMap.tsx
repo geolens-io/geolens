@@ -252,7 +252,7 @@ export const DatasetMap = memo(function DatasetMap({
   // sibling raster/vector handlers below. `status`/`url` are still populated at
   // runtime — v6's AJAXError keeps both — so the recovery logic is unchanged.
   const tileAuthErrorHandlerRef = useRef<((e: { error?: { message?: string; status?: number; url?: string } }) => void) | null>(null);
-  // dataset-detail preview map had no data-tiles-loaded signal at
+  // The dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
   // camera move is in flight, true once idle (no tiles loading / no
   // transitions / no animations running).

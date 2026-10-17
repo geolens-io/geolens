@@ -776,7 +776,7 @@ export const ViewerMap = memo(function ViewerMap({
         canvasForKeyboard = null;
       }
     };
-    // Style idle retry (mirrors the layer-sync/visibility effects):
+    // Idle retry (mirrors the layer-sync/visibility effects):
     // on a cold hard load — exactly how a share link opens — the style is
     // still transitioning when this effect runs, and a plain early-return
     // never re-attached the click listener, leaving popups inert for every
@@ -928,7 +928,7 @@ export const ViewerMap = memo(function ViewerMap({
     // The embed-token path has its own transformRequest flow and doesn't
     // depend on tokenMap, so it's allowed to sync immediately.
     if (!embedToken && layers.length > 0 && tokenMap.size === 0) return;
-    // Style idle retry (mirrors the visibility effect below): on a
+    // Idle retry (mirrors the visibility effect below): on a
     // cold/hard page load — exactly how a shared-link visitor arrives — the
     // style can still be transitioning when this effect first runs. Terrain
     // maps widen that window (the raster-dem terrain source delays readiness).

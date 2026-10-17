@@ -1,5 +1,5 @@
 /**
- * accessible-name regression gate for the MapsPage
+ * Accessible-name regression gate for the MapsPage
  * search input.
  *
  * Asserts that the search input is queryable by its accessible name rather

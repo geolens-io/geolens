@@ -60,7 +60,7 @@ export function LayerLegend({
 
   // Single synthetic "3D terrain" entry driven by terrain_config — only
   // when a backing terrain-capable DEM layer for the source dataset is present
-  // (999.17 no phantom entry for a dangling terrain_config).
+  // (no phantom entry for a dangling terrain_config).
   const terrainEntry = useMemo(() => {
     const entry = deriveTerrainLegendEntry(terrainConfig, layers, { labelKey: 'viewer.legend.terrain3d' });
     if (!entry) return null;
@@ -142,7 +142,7 @@ export function LayerLegend({
                     legend and layer-list icons must agree, so derive the glyph
                     instead of hardcoding it. */}
                 <RasterGlyphChip glyph={demChipGlyph('terrain')} />
-                {/* fix: keep the bound DEM's identity — fall back to the
+                {/* Keep the bound DEM's identity — fall back to the
                     generic "3D terrain" label only when the layer has no name. */}
                 <span className="text-sm text-foreground flex-1">
                   {terrainEntry.sourceName ?? t(terrainEntry.labelKey)}

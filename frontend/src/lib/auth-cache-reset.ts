@@ -40,7 +40,7 @@ function clearChatSessionStorage(): void {
 }
 
 /**
- * user-scoped queries (dataset search, map search, map
+ * User-scoped queries (dataset search, map search, map
  * lists) key their caches by request parameters only, so after a logout — or a
  * lower-privilege login in the same tab — the previous identity's cached rows
  * could render before any refetch. Rather than threading auth identity into
@@ -74,7 +74,7 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     // intent. Same choke point, same rule: identity changed, drop everything
     // adopted or entered under the old one.
     //
-    // bump the session epoch BEFORE clearing, so any
+    // Bump the session epoch BEFORE clearing, so any
     // write already in flight (captured against the old epoch) is refused
     // by drawing-store's own check even if it lands between these two
     // calls or after them, no matter what the next identity turns out to

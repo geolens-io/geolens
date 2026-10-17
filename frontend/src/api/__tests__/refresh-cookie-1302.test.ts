@@ -668,7 +668,7 @@ describe('persisted auth state', () => {
   });
 
   it('drops a legacy refresh token from storage once the migrating refresh spends it', () => {
-    // Pre-shape: rehydrated into memory, kept until spent.
+    // Pre-GH-1302 shape: rehydrated into memory, kept until spent.
     useAuthStore.setState({ refreshToken: 'legacy-refresh-token' });
     useAuthStore.getState().setTokens('access-2', null, 900);
 

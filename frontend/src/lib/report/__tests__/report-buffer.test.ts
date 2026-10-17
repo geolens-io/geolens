@@ -188,7 +188,7 @@ describe('countDistinctFailures (fix #908)', () => {
     expect(countDistinctFailures(getReportEntries())).toBe(2);
   });
 
-  // message-only correlation is for the maplibre/console
+  // Message-only correlation is for the maplibre/console
   // pair. Two boundaries throwing the same common message from different panels
   // are two failures. (Back-to-back identical rows are collapsed by the buffer
   // itself, so this is the interleaved case — the one the key decides.)

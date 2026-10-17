@@ -137,7 +137,7 @@ function toFileEntry(
   };
 }
 
-// per-layer result shape for the fan-out results modal.
+// Per-layer result shape for the fan-out results modal.
 type FanOutResult = {
   layerName: string;
   status: 'fulfilled' | 'rejected';
@@ -223,7 +223,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     clearPendingUploadFiles();
     // Refresh remaining_dataset_quota so "Upload More" after an import reflects
     // the new dataset count instead of the cached pre-import value on
-    // PR #274). invalidate matches the user-scoped key by prefix.
+    // remount. The invalidation matches the user-scoped key by prefix.
     queryClient.invalidateQueries({ queryKey: queryKeys.ingest.uploadConfig });
   }, [setPhase, queryClient]);
 
@@ -278,8 +278,8 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
 
   // Phase transitions were inlined inside setEntries
   // updaters, which violates React 19's "no setState during another
-  // component's render" rule and fires the verbatim warning the audit
-  // captured. Moving them into a single effect dep'd on `entries` runs the
+  // component's render" rule and fires the verbatim React warning.
+  // Moving them into a single effect dep'd on `entries` runs the
   // transition AFTER React commits the entries change.
   useEffect(() => {
     if (phase === 'uploading' && entries.length > 0) {
@@ -538,7 +538,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   }
 
   // idle. The dropzone stays enabled while the quota query fetches — disabling
-  // it made react-dropzone silently swallow drops (PR #274 follow-up). Drops in
+  // it made react-dropzone silently swallow drops. Drops in
   // that window queue in pendingFiles and flush with the fresh quota, so we
   // still never *act* on an unresolved/stale quota. Once
   // a fetch settles, success carries the live remaining quota; an error

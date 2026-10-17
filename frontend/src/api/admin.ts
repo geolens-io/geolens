@@ -310,7 +310,7 @@ export async function exportAuditLogs(
   const qs = query.toString();
   const url = `${API_BASE}/admin/audit-logs/export/${encodeURIComponent(format)}${qs ? `?${qs}` : ''}`;
 
-  // refresh-aware raw fetch so an export issued as the first request
+  // Refresh-aware raw fetch so an export issued as the first request
   // after a long idle transparently refreshes the JWT instead of 401-ing.
   const response = await authenticatedRawFetch(url);
   if (!response.ok) {

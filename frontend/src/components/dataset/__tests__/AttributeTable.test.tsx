@@ -15,7 +15,7 @@
  * Render-correctness is exercised manually + via Playwright in the existing
  * dataset E2E spec.
  *
- * accessible-name regression gate — a separate DOM
+ * Accessible-name regression gate — a separate DOM
  * render suite below asserts that filter inputs are queryable by accessible
  * name. The filter row lives in <thead> (not virtualized), so jsdom can render
  * and interrogate it without layout computation.

@@ -20,13 +20,13 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
-// lazy-load ReuploadDialog — only fetched when the
+// Lazy-load ReuploadDialog — only fetched when the
 // user opens the reupload flow (activeDialog === 'reupload'). Splits the
 // dialog and its dropzone/upload deps off the page-mount critical path.
 const ReuploadDialog = lazy(() =>
   import('@/components/dataset/ReuploadDialog').then((m) => ({ default: m.ReuploadDialog }))
 );
-// lazy-load DatasetMap so map-vendor chunk is fetched
+// Lazy-load DatasetMap so map-vendor chunk is fetched
 // only when this page actually renders (after data fetch resolves).
 const DatasetMap = lazy(() =>
   import('@/components/dataset/DatasetMap').then((m) => ({ default: m.DatasetMap }))
@@ -37,7 +37,7 @@ import {
   type DatasetDetailHeaderAction,
 } from '@/components/dataset/DatasetDetailHeader';
 import { RelatedRecordsPanel } from '@/components/dataset/RelatedRecordsPanel';
-// lazy-load DetailPanel — DetailPanel transitively
+// Lazy-load DetailPanel — DetailPanel transitively
 // imports all six dataset-detail tabs (Overview/Metadata/Data/Structure/Sources/Access).
 // Lazifying it splits the per-tab code paths off the page-mount critical path;
 // the active-tab content streams in via Suspense after first paint.
@@ -49,7 +49,7 @@ import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
 import { DatasetChatPanel } from '@/components/dataset/DatasetChatPanel';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
-// lazy-load VrtCreateDialog — only fetched when the
+// Lazy-load VrtCreateDialog — only fetched when the
 // user opens the VRT creation flow (activeDialog === 'vrt').
 const VrtCreateDialog = lazy(() =>
   import('@/components/import/VrtCreateDialog').then((m) => ({ default: m.VrtCreateDialog }))

@@ -35,9 +35,9 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useRefreshDataset: vi.fn(),
 }));
 
-// fix(#1755 item 4): lane A1's sign-in endpoint. Mocked here per the plan's
-// contract (portal_url/username/password in, token/expires_at out) since
-// this lane builds against that contract rather than a live backend.
+// The sign-in endpoint, mocked against its contract
+// (portal_url/username/password in, token/expires_at out) rather than a
+// live backend.
 vi.mock('@/api/arcgis-signin', () => ({
   arcgisSignIn: vi.fn(),
 }));
@@ -722,7 +722,7 @@ describe('SourceRefreshAction', () => {
     });
   });
 
-  // fix(#1755 item 4, plan 3.7): the refresh door's own 422 detail. The
+  // The refresh door's own 422 detail. The
   // `message` field is a diagnostic sentence aimed at an API client, not UI
   // copy -- it must never reach the DOM, and this suite pins that alongside
   // the credential prompt it triggers instead.
@@ -736,7 +736,7 @@ describe('SourceRefreshAction', () => {
     });
   }
 
-  // post-#1757-merge dedupe: ArcgisCredentialBlock now renders
+  // ArcgisCredentialBlock now renders
   // `ApiError.message` directly rather than mapping `code` to its own copy
   // (see the component's module comment). This mock has to match what the
   // REAL apiFetch would have produced, so it runs the same detail through
@@ -1022,7 +1022,7 @@ describe('SourceRefreshAction', () => {
       ).toBeInTheDocument();
       expect(screen.queryByText('raw')).not.toBeInTheDocument();
       // Exactly one attempt: nothing in this component retries a rejected
-      // sign-in automatically (plan 3.2 -- a retry loop can lock the
+      // sign-in automatically (a retry loop can lock the
       // customer's real ArcGIS account).
       expect(mockArcgisSignIn).toHaveBeenCalledTimes(1);
     });

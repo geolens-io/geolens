@@ -1,5 +1,5 @@
 /**
- * test: AdminAuditPage page-level
+ * Regression test: AdminAuditPage page-level
  * guard. Defense-in-depth on top of the backend's
  * require_permission("manage_settings") 403 on /admin/audit-logs/*. The
  * redirect short-circuits a flash of viewer chrome for users who paste

@@ -49,7 +49,7 @@ export function buildNullableSafeNumericAccessor(
 }
 
 // ---------------------------------------------------------------------------
-// one canonical field extractor + filter parser
+// One canonical field extractor + filter parser
 // ---------------------------------------------------------------------------
 
 export interface CanonicalFilterCondition {
@@ -177,7 +177,7 @@ export function parseCanonicalFilter(expr: FilterSpecification | null | undefine
 }
 
 // ---------------------------------------------------------------------------
-// raw-JSON filter validator/normalizer
+// Raw-JSON filter validator/normalizer
 // ---------------------------------------------------------------------------
 // Mirrors backend/app/modules/catalog/maps/filter_grammar.py:validate_filter so
 // a filter accepted in the raw-JSON editor is accepted, stored, exported, and
@@ -329,7 +329,7 @@ export function sanitizeNullableNumericFilter(
   // so it can never be persisted nor reach setFilter via any caller.
   if (Array.isArray(filter) && filter.length === 0) return null;
   const sanitized = sanitizeFilterNode(filter);
-  // Preserve input reference when structurally unchanged so the filter editor re-emit guard holds (audit)
+  // Preserve input reference when structurally unchanged so the filter editor re-emit guard holds
   if (JSON.stringify(sanitized) === JSON.stringify(filter)) return filter;
   return sanitized as FilterSpecification;
 }

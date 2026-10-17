@@ -186,7 +186,7 @@ function reloadOnTokenRotation(reload: () => void): void {
  * 403 burst. Tile sigs are minted on `round_expiry()` 900 s boundaries, so a
  * tab backgrounded for a few minutes routinely crosses one; MapLibre then
  * resumes its fetches with the stale `sig` and every visible tile 403s before
- * the reactive / #621 handler heals the map.
+ * the reactive #621 handler heals the map.
  *
  * Deliberately the SAME `recover` callback the 403 handler uses, so this only
  * pulls the existing re-mint forward: its 30 s cooldown / 10 s settle window

@@ -1072,7 +1072,7 @@ describe('ReuploadDialog', () => {
   });
 });
 
-// multi-layer file path tests
+// Multi-layer file path tests
 describe('ReuploadDialog file path multi-layer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1621,7 +1621,7 @@ describe('ReuploadDialog raster reupload', () => {
     expect(onReplaceComplete).not.toHaveBeenCalled();
   });
 
-  // invalidateQueries only SCHEDULES a refetch — firing
+  // invalidateQueries only SCHEDULES a refetch, so firing
   // onReplaceComplete without waiting for it raced the remount against the
   // still-in-flight dataset-detail refetch, so a replacement with a
   // different extent could remount using the OLD bbox. Uses a real

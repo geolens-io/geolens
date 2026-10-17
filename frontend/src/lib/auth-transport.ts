@@ -12,7 +12,7 @@ import { readStorage, writeStorage } from '@/lib/storage';
  *
  * A deployment that repoints `API_BASE_URL` at a different origin cannot use
  * the cookie (its refresh POST is cross-site, and `SameSite=Lax` withholds it),
- * so those installs stay on the pre-body-token flow rather than being
+ * so those installs stay on the earlier body-token flow rather than being
  * handed a credential the browser would never send back.
  */
 export const AUTH_MODE_HEADER = 'X-GeoLens-Auth-Mode';

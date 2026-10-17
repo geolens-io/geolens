@@ -488,7 +488,7 @@ describe('four-viewer parity', () => {
 
     expect(sharedResult).not.toBeNull();
     const sr = sharedResult!;
-    // invariants: normalized outputs are structurally equivalent
+    // Invariants: normalized outputs are structurally equivalent
     expect(mapResult.basemap_style).toBe(sr.basemap_style);
     expect(mapResult.show_basemap_labels).toBe(sr.show_basemap_labels);
     expect(mapResult.basemap_config).toEqual(sr.basemap_config);

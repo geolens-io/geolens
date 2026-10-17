@@ -1,5 +1,5 @@
 /**
- * request-contract tests for the admin api layer.
+ * Request-contract tests for the admin api layer.
  *
  * `admin` is the audit's weakest-covered, highest-silent-risk domain (off the
  * main user path, so a wrong URL/method regresses invisibly). These pin the

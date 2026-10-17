@@ -554,7 +554,7 @@ describe('useDatasetRefreshWatch', () => {
     queryKeys.maps.columnValuesPrefix('ds-1'),
     queryKeys.maps.columnStatsPrefix('ds-1'),
     queryKeys.search.all,
-    // staleTime Infinity, feeds the persistent
+    // The job-status key has staleTime Infinity and feeds the persistent
     // ingest-warnings banner (mirrors useReuploadCommit's own invalidation).
     queryKeys.ingest.jobStatusByDataset('ds-1'),
     // The joined related-record rows a mounted

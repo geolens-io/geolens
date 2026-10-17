@@ -154,7 +154,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   // Quicklook: useQuicklook solves the Bearer-JWT mismatch — <img src> requests
   // do NOT carry the Authorization header, so private-dataset quicklooks 404'd
   // anonymously. useQuicklook routes the fetch through apiFetchBlob (Bearer-
-  // attached) and returns a blob URL. negative-cache: genuine file-missing
+  // attached) and returns a blob URL. Genuine file-missing
   // 404s are cached in quicklook-cache.ts for the session so we skip re-fetching.
   const featureId = feature.id as string;
   const enableQuicklook = !isCollection && !isTable && Boolean(properties.has_quicklook);

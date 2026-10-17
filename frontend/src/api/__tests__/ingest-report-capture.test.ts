@@ -16,7 +16,7 @@
  * (e) preview/detection failure (previewFile)
  * (f) a redaction-worthy error detail is scrubbed the same as any other entry
  *
- * Found the same gap class at three more sites — a failure
+ * The same gap class exists at three more sites — a failure
  * path that flips a staged file's row to 'upload-failed'/'commit-failed'
  * (and so shows the report CTA) without writing a buffer entry:
  * (g) commitImport failure (no capture existed here at all, unlike (a)/(e))
@@ -62,7 +62,7 @@ class FakeXHR {
   }
 }
 
-// uploadChunks' per-part PUT moved to XHR
+// uploadChunks' per-part PUT uses XHR, so this mock is
 // URL-aware so test (d) can drive two concurrent-in-flight-order parts by
 // which presigned URL each XHR instance was opened against.
 class PartXHR {

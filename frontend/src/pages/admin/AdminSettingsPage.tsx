@@ -175,7 +175,7 @@ export function AdminSettingsPage() {
       </div>
 
       {/* Unsaved changes navigation guard.
-          Was a dismissible Dialog, so clicking the backdrop
+          This was a dismissible Dialog, so clicking the backdrop
           silently discarded the guard. DatasetPage uses a modal AlertDialog
           that forces an explicit Stay/Leave; match it. */}
       <AlertDialog open={blocker.state === 'blocked'} onOpenChange={() => blocker.reset?.()}>

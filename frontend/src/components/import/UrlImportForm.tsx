@@ -206,7 +206,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     [t],
   );
 
-  // re-run the preview for the SAME job id — no
+  // Re-run the preview for the SAME job id — no
   // re-download, no new staged file. Uses the same terminal check as the
   // initial failure so a second miss on an actually-dead job still clears.
   const runPreview = useCallback(
@@ -239,7 +239,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   // cancel endpoint, then release the session and reset to a fresh idle
   // form.
   //
-  // a failed (or ambiguous) cancel does NOT
+  // A failed (or ambiguous) cancel does NOT
   // mean the job is gone — resetting unconditionally on ANY outcome
   // cleared the only client-side copy of a job that might still be pending
   // server-side with its staged file. Reset only when the job is
@@ -391,7 +391,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   };
 
   const handleLayerChange = async (layerName: string) => {
-    // re-previewing mid-commit replaced `committing`
+    // Re-previewing mid-commit replaced `committing`
     // with `previewing` and then UNCONDITIONALLY with `review`, which
     // re-enabled Start Over and the commit button against a request that
     // cannot be recalled — orphaning the queued job, or offering a second

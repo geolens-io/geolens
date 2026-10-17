@@ -1,5 +1,5 @@
 /**
- * accessible-name regression gate for the collection
+ * Accessible-name regression gate for the collection
  * membership search input.
  *
  * Asserts that the search input inside CollectionMembershipManager is

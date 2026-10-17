@@ -519,7 +519,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
       </div>
 
       {/*
-        scroll container is `parentRef`. Virtualization is applied to
+        The scroll container is `parentRef`. Virtualization is applied to
         the <tbody> only — the native <table>/<thead>/<tr>/<td> structure is
         preserved so column auto-sizing and sticky headers keep working. The
         table is `w-max` (content-sized): wide tables overflow and scroll via

@@ -624,7 +624,7 @@ function ImportSection() {
       </CardContent>
     </Card>
 
-    {/* type-to-confirm gate for the irreversible overwrite. */}
+    {/* Type-to-confirm gate for the irreversible overwrite. */}
     <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>

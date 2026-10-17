@@ -32,7 +32,7 @@ export function AdminAuditPage() {
   }
 
   if (!can('manage_settings')) {
-    // (rationale in file-header JSDoc above).
+    // Rationale in the file-header JSDoc above.
     return <Navigate to="/admin" replace />;
   }
 

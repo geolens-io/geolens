@@ -3,10 +3,10 @@
  * control semantics.
  *
  * Asserts:
- * Create-form name input has an accessible name via FieldLabel.
- * Active / revoked status is rendered as visible text, not color+title only.
- * The icon-only revoke button has an accessible name.
- * Create and revoke mutation errors are announced via role=alert.
+ * - Create-form name input has an accessible name via FieldLabel.
+ * - Active / revoked status is rendered as visible text, not color+title only.
+ * - The icon-only revoke button has an accessible name.
+ * - Create and revoke mutation errors are announced via role=alert.
  */
 import userEvent from '@testing-library/user-event';
 import { act } from '@testing-library/react';

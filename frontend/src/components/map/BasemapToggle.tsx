@@ -108,7 +108,7 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
                 )}
                 aria-label={b.label}
               >
-                {/* decorative; the visible label text and the
+                {/* Decorative; the visible label text and the
                     button aria-label already name this option. */}
                 <img
                   src={basemapThumbnail(b.id)}

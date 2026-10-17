@@ -112,7 +112,7 @@ export function useApiKeyStatus() {
   });
 }
 
-// server-driven enterprise-tab list. The backend
+// Server-driven enterprise-tab list. The backend
 // _ENTERPRISE_ONLY_TABS frozenset is the canonical source; AdminSidebar reads
 // the list via this hook and falls back to a local default when the API is
 // unavailable so the sidebar still renders during boot/network failures.

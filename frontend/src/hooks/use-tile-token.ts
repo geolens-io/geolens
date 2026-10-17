@@ -51,7 +51,7 @@ export function useTileToken(datasetId: string | undefined) {
 }
 
 /**
- * Fetch tile tokens for multiple datasets in a single batched request
+ * Fetch tile tokens for multiple datasets in a single batched request.
  * Previously this spawned N parallel useQuery calls — a 20-layer
  * map meant 20 HTTP requests + 20 RBAC checks + 20 HMAC signatures on every
  * mount. The new implementation issues one POST /tiles/tokens/ with all

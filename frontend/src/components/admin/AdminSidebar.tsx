@@ -104,7 +104,7 @@ const operationsItems: readonly OperationItem[] = [
   { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true, capability: 'manage_settings', settingsGated: true },
 ];
 
-// server-driven enterprise-tab list. Used as the
+// Server-driven enterprise-tab list. Used as the
 // fallback when the /settings/enterprise-tabs/ endpoint is unreachable
 // (boot, network failure, transient API outage). Must stay in sync with the
 // backend `_ENTERPRISE_ONLY_TABS` frozenset in

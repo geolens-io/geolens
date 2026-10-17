@@ -114,7 +114,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
                   legend and layer-list icons must agree, so derive the glyph
                   instead of hardcoding it. */}
               <RasterGlyphChip glyph={demChipGlyph('terrain')} />
-              {/* fix: keep the bound DEM's identity — fall back to the
+              {/* Keep the bound DEM's identity — fall back to the
                   generic "3D terrain" label only when the layer has no name. */}
               <span className="font-medium text-foreground truncate">
                 {terrainEntry.sourceName ?? t(terrainEntry.labelKey)}

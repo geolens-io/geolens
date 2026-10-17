@@ -536,7 +536,7 @@ export function StacImportForm() {
     // protecting). Awaiting the SAME promise the session holds means this
     // mount still learns the real outcome; only a remount changes anything.
     //
-    // the search context travels with the session too,
+    // The search context travels with the session too,
     // captured here because this is the last point every one of these
     // values is still known — an adopted mount has none of its own local
     // state to fall back on.

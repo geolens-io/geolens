@@ -22,13 +22,13 @@ import type {
   ScreenReaderInstructions,
 } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-// lazy-load BuilderMap so map-vendor chunk loads
+// Lazy-load BuilderMap so map-vendor chunk loads
 // only when the builder is about to render (post-data-fetch).
 const BuilderMap = lazy(() =>
   import('@/components/builder/BuilderMap').then((m) => ({ default: m.BuilderMap }))
 );
 import { UnifiedStackPanel } from '@/components/builder/UnifiedStackPanel';
-// lazy-load editor scenes so they only ship in their own
+// Lazy-load editor scenes so they only ship in their own
 // chunks and are fetched only when the user opens the corresponding scene panel.
 const DEMEditorScene = lazy(() =>
   import('@/components/builder/DEMEditorScene').then((m) => ({ default: m.DEMEditorScene }))
@@ -179,7 +179,7 @@ export function MapBuilderPage() {
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  // session-local basemap visibility toggle. Client-only and
+  // Session-local basemap visibility toggle. Client-only and
   // intentionally NOT persisted to MapBasemapConfig — a backend field is deferred to
   // to avoid the extra=forbid silent-422 class. Hiding is applied
   // by rendering BLANK_BASEMAP_ID in the live map (BuilderMap's isBlank branch) while
@@ -306,13 +306,13 @@ export function MapBuilderPage() {
     },
     [setBasemapConfig, setLocalBasemap, setLocalTerrainConfig, setShowBasemapLabels],
   );
-  // session-local show/hide of the basemap. Toggles the live
+  // Session-local show/hide of the basemap. Toggles the live
   // map between the real basemap style and BLANK_BASEMAP_ID; not persisted.
   const handleToggleBasemapVisibility = useCallback(
     () => setBasemapVisible((v) => !v),
     [],
   );
-  // hand-rolled string keys are intentional value-equality
+  // Hand-rolled string keys are intentional value-equality
   // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
   // refetchOnMount / window-focus invalidations) produce shape-equivalent
   // but identity-different plugin arrays — declaring `[mapData?.plugins,
@@ -397,7 +397,7 @@ export function MapBuilderPage() {
       layers: layers.localLayers,
       mapId: id!,
       terrainConfig: layers.localTerrainConfig,
-      // map-level legend title + persistence callbacks for the
+      // Map-level legend title + persistence callbacks for the
       // LegendPlugin edit affordance.
       legendTitle: layers.localLegendTitle,
       onLegendTitleChange: layers.handleLegendTitleChange,
@@ -621,7 +621,7 @@ export function MapBuilderPage() {
         id: 'basemap-group',
         presetName: t('basemapGroup.noBasemap', { defaultValue: 'No basemap' }),
         providerLabel: undefined,
-        // session-local visibility (was hardcoded true).
+        // Session-local visibility (was hardcoded true).
         visible: basemapVisible,
         opacity: basemapState.config.opacity ?? 1,
         sublayers: [],
@@ -642,7 +642,7 @@ export function MapBuilderPage() {
       id: 'basemap-group',
       presetName,
       providerLabel: undefined,
-      // session-local visibility (was hardcoded true).
+      // Session-local visibility (was hardcoded true).
       visible: basemapVisible,
       opacity: basemapState.config.opacity ?? 1,
       sublayers: basemapState.sublayers,
@@ -679,7 +679,7 @@ export function MapBuilderPage() {
   const panelEditorScene: Exclude<BuilderEditorScene, 'group'> =
     editorScene === 'group' ? 'default' : editorScene;
 
-  // rendered-feature count for the active editing layer.
+  // Rendered-feature count for the active editing layer.
   // Returns null when no layer is being edited, when no filter is set, or when
   // the layer isn't yet on the map. Used to drive the empty-state hint inside
   // LayerFilterEditor.
@@ -699,7 +699,7 @@ export function MapBuilderPage() {
   // shift-click range select children of collapsed groups and rows hidden by
   // the layer search, so bulk delete/visibility/opacity acted on rows the
   // user could not see.
-  // fix: terrain-mode DEM rows render in the stack again, so they are
+  // Terrain-mode DEM rows render in the stack again, so they are
   // range-selectable like any other row (the skip is obsolete).
   const selectableRowIds = useMemo(
     (): string[] => computeSelectableRowIds(layers.localLayers, layers.groupMeta, layerSearch),
@@ -785,7 +785,7 @@ export function MapBuilderPage() {
     });
   }, [layers.localLayers, layers.groupMeta, layers.isDeleting, selectableRowIds, layerSearch]);
 
-  // multi-selection handlers driven by the
+  // Multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
   // so plain/shift/cmd clicks all coordinate from the same authoritative source.
   const handleCmdClick = useCallback((id: string) => {
@@ -851,7 +851,7 @@ export function MapBuilderPage() {
     searchHiddenSelectionRef.current.clear();
   }, []);
 
-  // clear-selection handler (used by UnifiedStackPanel's Escape/outside-click)
+  // Clear-selection handler (used by UnifiedStackPanel's Escape/outside-click)
   const handleClearSelection = useCallback(() => {
     resetMultiSelection();
     lastToggleAnchor.current = null;
@@ -879,7 +879,7 @@ export function MapBuilderPage() {
   const handleBulkGroup = useCallback((ids: Set<string>) => {
     // fix(#392): only clear the selection when a group was
     // actually created; an ineligible selection must stay intact so the user
-    // can see it, read the toast, and adjust instead of losing it silently. (audit B-004d/)
+    // can see it, read the toast, and adjust instead of losing it silently.
     if (applyBulkGroup(ids)) resetMultiSelection();
   }, [applyBulkGroup, resetMultiSelection]);
 
@@ -1253,7 +1253,7 @@ export function MapBuilderPage() {
 
   // DnD handlers hoisted from UnifiedStackPanel — same behavior,
   // lifted to MapBuilderPage so BuilderDialogs (catalog modal) shares the context.
-  // 01: preserve activationConstraint distance:8 and closestCenter verbatim.
+  // Preserve activationConstraint distance:8 and closestCenter verbatim.
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDragActiveId(String(event.active.id));
     handleSelectLayer(null);
@@ -1518,7 +1518,7 @@ export function MapBuilderPage() {
       });
     } else if (expandedId) {
       requestAnimationFrame(() => {
-        // fix: the row can be gone by the time focus returns (e.g. the
+        // The row can be gone by the time focus returns (e.g. the
         // layer was deleted from the editor footer). Falling back to the first
         // stack row keeps keyboard focus in the panel instead of dropping it
         // on <body>.
@@ -1530,7 +1530,7 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable refs
   }, [layers.handleToggleExpand, layers.expandedLayerId]);
 
-  // Open Add Data modal for "Add layer" in folder group (will pass groupId)
+  // Open Add Data modal for "Add layer" in folder group (groupId is not forwarded yet)
   const handleAddLayerToFolderGroup = useCallback((_groupId: string) => {
     handleAddDataClick();
   }, [handleAddDataClick]);
@@ -1575,7 +1575,7 @@ export function MapBuilderPage() {
     return ids;
   }, [layers.localLayers, isTerrainActive, boundTerrainLayer?.id]);
 
-  // +1036: scene-specific content + footer for LayerEditorPanel
+  // Scene-specific content + footer for LayerEditorPanel
   // Computed after handleSelectLayer and handleAddDataClick are in scope
   let sceneContent: ReactNode = null;
   let sceneFooter: ReactNode = null;
@@ -1844,7 +1844,7 @@ export function MapBuilderPage() {
     // than a hardcoded 100vh-navbar calc that ignored the demo banner and made
     // the whole page scroll. Matches PublicMapViewerPage's flex-1/min-h-0 layout.
     <div className="flex flex-col flex-1 min-h-0">
-      {/* sr-only aria-live region for keyboard/mouse catalog drag announcements.
+      {/* An sr-only aria-live region for keyboard/mouse catalog drag announcements.
           Renders at root of the builder so screen readers in any panel can read it.
           Zero-width-space + timestamp suffix in dragAnnouncement forces aria-live re-fire on
           identical consecutive messages (e.g. two "Drop cancelled." announcements). */}
@@ -2179,7 +2179,7 @@ export function MapBuilderPage() {
                   disabled={btn.disabled}
                   data-unavailable={btn.unavailable || undefined}
                   title={btn.label}
-                  // rework: notes-presence folds into the button's own
+                  // Notes-presence folds into the button's own
                   // accessible name (aria-label replaces the subtree, so a
                   // label on the dot span was never exposed).
                   aria-label={
@@ -2205,7 +2205,7 @@ export function MapBuilderPage() {
                     <btn.icon className="h-4 w-4" aria-hidden="true" />
                   )}
                   {/* Presence dot on mobile Notes button — mirrors the
-                      BuilderRail rail-button dot (search there).
+                      BuilderRail rail-button dot.
                       BuilderRail is hidden at <800px (isEditorHidden); this dot keeps
                       parity at 414×896. Decorative: the state is announced via
                       the button's conditional aria-label above. */}

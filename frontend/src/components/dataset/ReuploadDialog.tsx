@@ -58,7 +58,7 @@ type ReuploadStep =
   | 'service-connect'
   | 'probing'
   | 'layer-select'
-  // file-path layer-select step (distinct from service 'layer-select')
+  // File-path layer-select step (distinct from service 'layer-select')
   | 'selecting-file-layer'
   | 'uploading'
   | 'previewing'
@@ -163,7 +163,7 @@ export function ReuploadDialog({
   // handleConfirm's catch block), not just the refusal itself.
   const [isRefreshingOrigin, setIsRefreshingOrigin] = useState(false);
   const [originRefreshFailed, setOriginRefreshFailed] = useState(false);
-  // stale-completion guard for the refetch above — see
+  // Stale-completion guard for the refetch above — see
   // handleConfirm and resetState.
   const refreshGenerationRef = useRef(0);
   const [preview, setPreview] = useState<ReuploadPreviewResponse | null>(null);
@@ -246,7 +246,7 @@ export function ReuploadDialog({
       // change (step leaving 'tracking' included) before this branch's next
       // invocation runs.
       let cancelled = false;
-      // invalidateQueries only SCHEDULES a refetch
+      // invalidateQueries only SCHEDULES a refetch, so
       // firing onReplaceComplete without waiting for it raced the remount
       // against the still-in-flight dataset-detail refetch, so a replacement
       // with a different extent could remount using the OLD bbox (DatasetMap
@@ -660,7 +660,7 @@ export function ReuploadDialog({
     'layer-select': t('reupload.descriptions.layerSelect', {
       defaultValue: 'Choose the service layer to preview.',
     }),
-    // file-path layer-select description
+    // File-path layer-select description
     'selecting-file-layer': t('reupload.descriptions.fileLayerSelect', {
       defaultValue: 'Choose the layer from this multi-layer file.',
     }),
@@ -957,7 +957,7 @@ export function ReuploadDialog({
           </div>
         )}
 
-        {/* file-path layer-select step for multi-layer GPKG files */}
+        {/* File-path layer-select step for multi-layer GPKG files */}
         {step === 'selecting-file-layer' && (
           <div className="space-y-4" data-testid="reupload-file-layer-select">
             <div className="flex items-center justify-between">
@@ -1045,7 +1045,7 @@ export function ReuploadDialog({
             alone rather than waiting for `preview`. */}
         {step === 'preview' && (preview || isRaster) && (
           <div className="space-y-4">
-            {/* file-path multi-layer shows File + Layer lines; single-layer or service shows one line */}
+            {/* File-path multi-layer shows File + Layer lines; single-layer or service shows one line */}
             {sourceType === 'file' && selectedFileLayer !== null ? (
               <>
                 <p className="text-sm">
@@ -1074,7 +1074,7 @@ export function ReuploadDialog({
               </p>
             ) : preview && (
               <>
-                {/* schema-change advisory banner (informational, distinct from hasWarning) */}
+                {/* Schema-change advisory banner (informational, distinct from hasWarning) */}
                 {hasSchemaChange && (
                   <div
                     className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm"

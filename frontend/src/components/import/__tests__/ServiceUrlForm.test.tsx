@@ -133,7 +133,7 @@ describe('ServiceUrlForm token input', () => {
   it('opts every password manager out of the service token field', async () => {
     const user = userEvent.setup();
     render(<ServiceUrlForm />);
-    // feat(#1746 B4): the non-ArcGIS credential field is now behind a
+    // The non-ArcGIS credential field is now behind a
     // method select; Bearer token is the method that reuses a plain
     // password-type input.
     await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
@@ -206,7 +206,7 @@ describe('ServiceUrlForm layer picker with a shared layer name', () => {
 });
 
 /**
- * Lane A2 (service-auth wave): ArcGIS auth method select. An ArcGIS-shaped
+ * ArcGIS auth method select. An ArcGIS-shaped
  * URL (matching /(FeatureServer|MapServer)/, mirroring the backend adapter's
  * own detection) swaps the plain optional token field for a three-way
  * Authentication select: no authentication, sign in, or paste a token.
@@ -304,7 +304,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     await enterUrl(user, urlInput, 'https://example.test/wfs');
-    // feat(#1746 B4): the non-ArcGIS bearer field is now behind its own
+    // The non-ArcGIS bearer field is now behind its own
     // method select, sharing the `token` state with ArcGIS's 'token'
     // method — the very thing this test proves does not carry across.
     await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
@@ -717,7 +717,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
   // NOT fired) exercises exactly the throttled-background-tab path that
   // check exists for, as distinct from the timer having already run.
   //
-  // the jump lands at +45s of a 60s
+  // The jump lands at +45s of a 60s
   // deadline, inside the 30s margin window but short of the raw
   // expires_at. Before the shared EXPIRY_MARGIN_MS fix, isPast compared
   // only against the raw deadline and would have called this "not

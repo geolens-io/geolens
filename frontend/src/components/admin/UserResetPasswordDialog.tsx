@@ -74,7 +74,7 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
         // as signed in until some later request happens to 401, contradicting
         // the warning this dialog just showed.
         //
-        // this goes through useAuth's logout, not the
+        // This goes through useAuth's logout, not the
         // store's. The store action only bumps sessionEpoch, which stops a
         // late refresh writing tokens back but does NOT stop the browser
         // processing its Set-Cookie: a refresh still in flight could land

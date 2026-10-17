@@ -502,14 +502,14 @@ function suppressContainedCredits(entries: string[]): string[] {
  * true`, where `isHidden` is `zoom < minzoom || zoom >= maxzoom || visibility
  * === 'none'`:
  *
- *   `layout.visibility`
- *   the layer's zoom range, with MapLibre's own
+ *   - `layout.visibility`
+ *   - the layer's zoom range, with MapLibre's own
  *     boundary semantics: minzoom inclusive, maxzoom exclusive, and a zero
  *     treated as absent exactly as its truthiness test does. Read from the
  *     serialized `minzoom`/`maxzoom`, not the builder-private
  *     `_minzoom`/`_maxzoom`, which `stripPrivateLayoutKeys` removes before
  *     MapLibre sees them and which reach the style through `setLayerZoomRange`.
- *   Terrain, whose source renders with NO style
+ *   - Terrain, whose source renders with NO style
  *     layer at all: `ensureRasterDemTerrainSource` creates an attributed source
  *     that only `usedForTerrain` counts, so layer references alone put a credit
  *     for plainly visible 3D relief in the hidden group.
@@ -902,8 +902,8 @@ interface AttributionOverlaySpec {
 }
 
 /** 400x250. It has to carry the credit because `get_share_card_image_url`
- *  falls back to the thumbnail as the og:image for every map captured before
- *  that surface has no adjacent text at all. */
+ *  falls back to the thumbnail as the og:image for maps that have no
+ *  dedicated OG image. That surface has no adjacent text at all. */
 export const THUMBNAIL_ATTRIBUTION: AttributionOverlaySpec = {
   fontPx: 10,
   lineHeight: 13,
@@ -1124,7 +1124,7 @@ const BAND_GAP = 12;
  *             Firefox 63 11,180² = 124,992,400 · Safari on iOS 4,096² =
  *             16,777,216. We take iOS Safari's.
  *
- * iOS Safari's is deliberately conservative, and
+ * The iOS Safari figure is deliberately conservative, and
  * an earlier revision of this comment named it and then budgeted against the
  * desktop figure anyway. That is a bound that holds only where it was measured:
  * an iPad's 2048x2732 canvas is valid and exports today, and enough supported

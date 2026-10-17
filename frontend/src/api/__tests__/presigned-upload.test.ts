@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { uploadChunks } from '../_presignedUpload';
 
 /**
- * per-part retry and abort for presigned multipart uploads.
+ * Per-part retry and abort for presigned multipart uploads.
  * A single transient blip used to throw and discard every part already sent.
  *
- * The per-part PUT moved from `fetch` to XHR
+ * The per-part PUT moved from `fetch` to XHR because
  * `fetch` exposes no upload-progress signal, so a wall-clock
  * AbortSignal.timeout() could not distinguish a genuine stall from a
  * slow-but-live transfer (a 10 MiB part at the backend's credited minimum

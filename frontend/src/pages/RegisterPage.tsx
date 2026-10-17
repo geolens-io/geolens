@@ -138,7 +138,7 @@ export function RegisterPage() {
       {submitted ? (
         // Use the server's authoritative outcome (RegisterResponse.next_step)
         // rather than inferring from a cached /auth/config snapshot — race-free
-        // and matches exactly what the backend did (M1 follow-up).
+        // and matches exactly what the backend did.
         nextStep === 'verify_email' ? (
           <VerificationPending email={registrantEmail} />
         ) : (

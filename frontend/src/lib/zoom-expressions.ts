@@ -65,7 +65,7 @@ function allNumbers(values: unknown[]): values is number[] {
 }
 
 function pairsToStops(values: number[]): ZoomStop[] {
-  // keep-all stop semantics over the shared pair walker. `values` is
+  // Keep-all stop semantics over the shared pair walker. `values` is
   // already validated (even length, all finite numbers) by the caller.
   return walkExpressionPairs(values, 0).map((pair) => ({
     zoom: pair.first as number,

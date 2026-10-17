@@ -37,7 +37,7 @@ export class ApiError extends Error {
   }
 }
 
-// module-level in-flight singleton. Concurrent 401s AND the proactive
+// Module-level in-flight singleton. Concurrent 401s AND the proactive
 // timer in use-auth.ts (which now also calls tryRefresh) collapse to one
 // /auth/refresh/ POST per refresh cycle. Cleared in finally so the next
 // expiration starts fresh.
@@ -148,7 +148,7 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   // The singleton MUST be cleared synchronously when the IIFE settles —
   // not in the outer try/finally — so a third caller that arrives between
   // resolution and the outer finally can't observe `inflightRefresh === null`
-  // and kick off a second refresh cycle..
+  // and kick off a second refresh cycle.
   // fix(#1446): a logout can land while this request is in flight — most
   // easily when logout itself triggers the proactive refresh and then stops
   // waiting on it. Writing the rotated tokens afterwards would re-populate the

@@ -513,7 +513,7 @@ export const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
 // applyBasemapConfigToMap feeds map.getStyle() (live, post-mutation) as input,
 // `existing` already contains a prior master-opacity stamp. Compounding occurs
 // and masterOpacity >= 1 short-circuits the reset, leaving the slider monotonic-
-// downward (review finding).
+// downward.
 //
 // Fix: never read live paint. The `prominenceStamps` map tells us which keys
 // applyProminence set this call (with the canonical subtle values). Other keys
