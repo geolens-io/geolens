@@ -281,10 +281,10 @@ COPY frontend/ ./
 # has no alias in this OSS vite.config — using this path produces unresolved-
 # module errors.
 #
-# SUPPORTED build path for the cloud frontend: use the STANDALONE cloud Vite
-# build run by the Cloud overlay's own image build.  That
-# build has its own vite.config.ts with both '@' (OSS src) and '@cloud'
-# (cloud src-cloud/) aliases and produces a correct dist.
+# SUPPORTED build path for the cloud frontend: the Cloud overlay's own image
+# build, which runs a standalone Vite build with its own vite.config.ts. That
+# config has both '@' (OSS src) and '@cloud' (cloud src-cloud/) aliases and
+# produces a correct dist.
 #
 # The ARG and loop below are preserved so the OSS Dockerfile remains a no-op
 # (INSTALL_FRONTEND_OVERLAYS unset → loop body never runs → byte-identical OSS
