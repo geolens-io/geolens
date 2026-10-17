@@ -618,16 +618,12 @@ $$;
 
 **Step 2 — restore the dump.**
 
-Run `scripts/restore.sh` as in
-[Step-by-step: full restore](#step-by-step-full-restore-db--object-storage).
-Step 6 of the [canonical entry point](#canonical-restore-entry-point) rebuilds
-the grants and `data.*` ownership a restored dump lacks, and step 7 starts
-`api` and `worker` only after that succeeds.
-
 If `TILE_DATABASE_URL_OVERRIDE` names a separate tile login, admit it to the
-database again before serving tiles. The reconciler revokes `PUBLIC CONNECT`
-in every path, and the database on a new cluster holds no named grant for that
-login. With `$POSTGRES_USER` and `$POSTGRES_DB` set as in step 1:
+database first. `restore.sh` restarts `api` and `worker` when it exits, the
+reconciler revokes `PUBLIC CONNECT` in every path, and the database on a new
+cluster holds no named grant for that login. The revoke keeps explicit
+per-login grants, so this one survives the restore. With `$POSTGRES_USER` and
+`$POSTGRES_DB` set as in step 1:
 
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
@@ -635,6 +631,12 @@ docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
 GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
+
+Then run `scripts/restore.sh` as in
+[Step-by-step: full restore](#step-by-step-full-restore-db--object-storage).
+Step 6 of the [canonical entry point](#canonical-restore-entry-point) rebuilds
+the grants and `data.*` ownership a restored dump lacks, and step 7 starts
+`api` and `worker` only after that succeeds.
 
 ### Step-by-step: full restore (DB + object storage)
 
