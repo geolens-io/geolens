@@ -67,8 +67,10 @@ caveats below.
 
 ### What each backup cycle captures
 
-Each cycle writes a `.dump`, a `staging-*.tar.gz` and a `globals-*.sql` with
-matching timestamps. The guide's
+Each cycle writes a `.dump` and a `globals-*.sql` with matching timestamps, plus
+a `staging-*.tar.gz` when the `upload_staging` volume has files. A fresh install
+with no uploads yet has no staging archive, and its backup is still complete. The
+guide's
 [Backup destinations](https://docs.getgeolens.com/guides/admin/backups/#backup-destinations)
 section lists the file names and formats.
 
