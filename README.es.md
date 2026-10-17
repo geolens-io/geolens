@@ -104,7 +104,7 @@ flowchart LR
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-provenance-dark.png">
-    <img src=".github/assets/geolens-provenance.png" alt="La pestaña Fuente del conjunto de datos USGS Earthquakes: importado del servicio ArcGIS del USGS a una copia propia, con las horas de la última actualización y la última comprobación, el número de entidades y las insignias Saludable, Actualizada y Sin deriva" width="100%">
+    <img src=".github/assets/geolens-provenance.png" alt="La pestaña Fuente del conjunto de datos USGS Earthquakes: importado del servicio ArcGIS del USGS a una copia propia, con las horas de la última actualización y la última comprobación, el número de entidades y las insignias Correcto, Actualizada y Sin cambios" width="100%">
   </picture>
   <br>
   <sub>Terremotos importados del servicio del USGS. GeoLens conserva su propia copia y muestra cuándo actualizó y comprobó la fuente por última vez, y si esa fuente está en buen estado, vigente y sin cambios.</sub>
@@ -195,7 +195,7 @@ solo lectura se ejecutan contra la demostración, y la CI los repite allí cada 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="El panel Ask AI sobre el conjunto de datos Major Hurricane Tracks respondiendo 'How many of these hurricanes made landfall?' con 119 de 202, una tabla de recuento de dos filas, una nota sobre cómo interpretó la columna de llegada a tierra y un botón Open in builder" width="100%">
+    <img src=".github/assets/geolens-ask-ai.png" alt="El panel Preguntar a la IA sobre el conjunto de datos Major Hurricane Tracks respondiendo 'How many of these hurricanes made landfall?' con 119 de 202, una tabla de recuento de dos filas, una nota sobre cómo interpretó la columna de llegada a tierra y un botón Abrir en el editor" width="100%">
   </picture>
   <br>
   <sub>"How many of these hurricanes made landfall?" obtiene el recuento, una tabla y el supuesto en que se basa la respuesta, con un botón que abre el resultado en el constructor de mapas.</sub>
