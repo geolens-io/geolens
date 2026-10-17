@@ -222,9 +222,10 @@ curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
   --data-urlencode "filter=vei >= 6" -d limit=3
 ```
 
-Fügen Sie in QGIS `https://demo.getgeolens.com/api/` als WFS-/OGC-API-Features-Verbindung hinzu,
-um die öffentlichen Datensätze als Ebenen aufzulisten. Die
-[QGIS-Anleitung](https://docs.getgeolens.com/guides/api/qgis/) beschreibt die Schritte.
+QGIS bindet dieselbe API als OGC-API-Features-Verbindung ein, wie die
+[QGIS-Anleitung](https://docs.getgeolens.com/guides/api/qgis/) zeigt. Das
+[GeoLens-Plugin für QGIS](https://github.com/geolens-io/qgis-geolens-plugin) ergänzt die
+Katalogsuche, private Datensätze und Änderungen, die zu GeoLens zurücksynchronisiert werden.
 
 <p align="center">
   <img src=".github/assets/geolens-qgis.png" alt="QGIS 4 mit der GeoLens-Demo als OGC-API-Features-Verbindung: Das Browser-Bedienfeld listet die Collections der Demo, und aktuelle Erdbeben, bedeutende Vulkanausbrüche, Plattengrenzen und Länder aus der Demo sind als Ebenen auf einer Weltkarte geladen" width="100%">
@@ -241,15 +242,15 @@ um die öffentlichen Datensätze als Ebenen aufzulisten. Die
 | Vektorkacheln und COG-Rasterkacheln | eine Kachel-URL an jeder Ebene | MapLibre, OpenLayers, Leaflet |
 | 3D Tiles und COPC | die Seite jedes 3D-Datensatzes | CesiumJS, QGIS, Potree |
 
-Vektorkacheln lassen unterhalb von Zoomstufe 10 Attributspalten weg; hängen Sie
-`cols=<column>,<column>` an eine Kachel-URL an, um bestimmte Spalten zu behalten. Daten lassen sich
-als GeoJSON, Shapefile, GeoPackage, CSV, FlatGeobuf, GeoParquet, PMTiles oder Cloud-Optimized
-GeoTIFF exportieren.
+Daten lassen sich als GeoJSON, Shapefile, GeoPackage, CSV, FlatGeobuf, GeoParquet, PMTiles oder
+Cloud-Optimized GeoTIFF exportieren.
 
 Die `geolens`-CLI veröffentlicht Dateien und wendet Katalogmanifeste an, Python- und
 TypeScript-SDKs decken die API ab, und ein rein lesender MCP-Server lässt KI-Agenten den Katalog
-durchsuchen. Die [Beispielgalerie](https://geolens-io.github.io/geolens-examples/) enthält
-lauffähigen Code für MapLibre, Leaflet, OpenLayers, das ArcGIS Maps SDK, QGIS und DuckDB.
+durchsuchen. [API-Referenz](https://docs.getgeolens.com/guides/api/) und
+[SDK-Anleitungen](https://docs.getgeolens.com/guides/sdk/) dokumentieren sie, und die
+[Beispielgalerie](https://geolens-io.github.io/geolens-examples/) enthält lauffähigen Code für
+MapLibre, Leaflet, OpenLayers, das ArcGIS Maps SDK, QGIS und DuckDB.
 
 ## Optionale KI
 
@@ -270,8 +271,9 @@ ein Administrator einen Anbieter konfiguriert, und jeder Arbeitsablauf funktioni
 
 ## Installation
 
-Sie brauchen Git, curl, Docker Engine 24+ und Docker Compose v2. Eine frische Installation startet sechs
-Container mit etwa 1,3 GB Arbeitsspeicher auf linux/amd64 oder linux/arm64.
+Sie brauchen Git, curl und Docker mit dem Compose-Plugin. Die
+[Installationsanleitung](https://docs.getgeolens.com/guides/quickstart/install/) nennt die
+erwarteten Versionen, den Arbeitsspeicher und die Ports.
 
 ```sh
 curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
@@ -279,70 +281,43 @@ cd geolens
 grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin password
 ```
 
-Öffnen Sie http://localhost:8080 und melden Sie sich als `admin` an, dem Standardbenutzernamen des
-Installers. Der Installer erzeugt Geheimnisse und das Admin-Passwort, lädt die vorgefertigten Images
-und startet den Stack in etwa einer Minute. Um das Skript zuvor zu prüfen, laden Sie `install.sh`
-und `SHA256SUMS` aus demselben [Release](https://github.com/geolens-io/geolens/releases) herunter
-und führen Sie `sha256sum -c SHA256SUMS` aus (unter macOS `shasum -a 256 -c SHA256SUMS`).
+Öffnen Sie http://localhost:8080 und melden Sie sich mit diesem Passwort als `admin` an. Jedes
+[Release](https://github.com/geolens-io/geolens/releases) enthält eine Datei `SHA256SUMS`, mit der
+Sie `install.sh` vor der Ausführung prüfen können. Um stattdessen aus dem Quellcode zu bauen,
+klonen Sie das Repository und führen `bash scripts/install.sh` aus; der erste Build dauert
+5-10 Minuten.
 
-- Zum Bauen aus dem Quellcode klonen Sie das Repository und führen `bash scripts/install.sh` aus.
-  Der erste Build dauert 5-10 Minuten.
-- Die vorgefertigten Images sind `ghcr.io/geolens-io/geolens-api` und
-  `ghcr.io/geolens-io/geolens-frontend`, und `latest` ist die neueste stabile Version.
-- Für die Produktion lesen Sie die
-  [Installationsanleitung](https://docs.getgeolens.com/guides/quickstart/install/) und die Anleitungen
-  für [verwaltete Cloud-Dienste](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/).
-  Docker Compose ist der unterstützte Weg; ein experimentelles, von der Community gepflegtes
-  Helm-Chart liegt in
-  [geolens-deployments](https://github.com/geolens-io/geolens-deployments).
+Für die Produktion lesen Sie die
+[Anleitung zur Cloud-Bereitstellung](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/),
+die auch nennt, was eine externe Datenbank braucht. Docker Compose ist der unterstützte Weg, und
+[geolens-deployments](https://github.com/geolens-io/geolens-deployments) enthält ein von der
+Community gepflegtes Helm-Chart und Terraform-Rezepte für AWS ECS Fargate und Azure Container Apps.
 
-Eine externe Datenbank muss PostgreSQL 15+ mit PostGIS, pgvector 0.5+, pg_trgm und unaccent sein,
-und ihre Sicherung liegt bei Ihnen. Die mitgelieferte Datenbank wird täglich und wöchentlich
-gesichert, optional mit externen Kopien auf S3. Um eine Installation mit vorgefertigten Images zu
-aktualisieren, führen Sie `./scripts/upgrade.sh` im Installationsverzeichnis aus: Das Skript sichert
-die Datenbank, lädt die neuen Images und migriert hinter einer Zustandsprüfung. Bei Quell-Builds
-aktualisieren Sie den Checkout und bauen neu. [UPGRADING.md](UPGRADING.md) behandelt beides,
-einschließlich Rollback.
-
-[RUNBOOK.md](RUNBOOK.md) behandelt den Betrieb, `infra/monitoring/` enthält Prometheus-Alarmregeln
-und ein Grafana-Dashboard, und die
+Die mitgelieferte Datenbank wird täglich gesichert, und die
+[Backup-Anleitung](https://docs.getgeolens.com/guides/admin/backups/) behandelt externe Kopien und
+Wiederherstellung. [UPGRADING.md](UPGRADING.md) behandelt Upgrades und Rollback,
+[RUNBOOK.md](RUNBOOK.md) den Betrieb, und die
 [Konfigurationsreferenz](https://docs.getgeolens.com/guides/quickstart/configuration/) listet jede
 Einstellung auf.
 
 ## Ihr erster Datensatz
 
-Veröffentlichen Sie die Beispieldatei mit der CLI und lesen Sie sie dann über OGC API Features zurück:
+Ist die [CLI](https://docs.getgeolens.com/guides/cli/) installiert, veröffentlichen Sie die
+Beispieldatei aus dem Installationsverzeichnis:
 
 ```sh
-python3 -m venv .venv && . .venv/bin/activate         # Python 3.11+; on Debian/Ubuntu, apt install python3-venv
-pip install geolens-cli
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
-export GEOLENS_API_KEY="paste-your-api-key-here"      # create one on your Settings page
-curl -H "X-Api-Key: $GEOLENS_API_KEY" \
-  "http://localhost:8080/api/collections/<dataset-id>/items?limit=5"
 ```
 
-`geolens publish` gibt die URL des Datensatzes aus, die auf seine ID endet. Um einen ganzen Katalog
-zu verwalten, beschreiben Sie die Quellen in einem Manifest `geolens.yaml` und führen
-`geolens apply` aus; [`examples/manifests/`](examples/manifests/) enthält Vorlagen, und die
-[CLI-Anleitung](https://docs.getgeolens.com/guides/cli/) beschreibt das Schema.
+`geolens publish` gibt die URL des neuen Datensatzes aus. Um einen ganzen Katalog zu verwalten,
+beschreiben Sie die Quellen in einem Manifest `geolens.yaml` und führen `geolens apply` aus;
+[`examples/manifests/`](examples/manifests/) enthält Vorlagen.
 
-Um die Karten und Datensätze der Demo in Ihre Installation zu laden, führen Sie das Seed-Skript
-aus. Es braucht Internetzugang und lädt öffentliche offene Daten aus etwa einem Dutzend Quellen
-herunter, darunter eine Reliefdatei von rund 466 MB und 62 Geländekacheln; `--no-oceans` und
-`--no-terrain` überspringen diese, und [scripts/README.md](scripts/README.md) listet alle Optionen
-auf. Verwenden Sie Ihren eigenen Admin-Benutzernamen, falls Sie ihn geändert haben.
-
-```sh
-python3 -m venv .venv && . .venv/bin/activate         # the same virtualenv as above
-pip install httpx
-GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  python scripts/seed-showcase.py --username admin
-```
-
-Die [API-Referenz](https://docs.getgeolens.com/guides/api/) und die
-[SDK-Anleitungen](https://docs.getgeolens.com/guides/sdk/) behandeln den Rest.
+Um die Karten und Datensätze der Demo zu laden, exportieren Sie `GEOLENS_ADMIN_PASSWORD` aus `.env`
+und führen Sie `python scripts/seed-showcase.py --username admin` aus. Das Skript braucht
+Python 3.10+ und `httpx` und lädt öffentliche Daten aus etwa einem Dutzend Quellen herunter;
+[scripts/README.md](scripts/README.md) nennt Größen und Optionen.
 
 ## Datenschutz und Zugriff
 
@@ -357,8 +332,8 @@ Die [API-Referenz](https://docs.getgeolens.com/guides/api/) und die
 - Die Anmeldung erfolgt über lokale Konten oder OAuth 2.0/OIDC (Google, Microsoft, GitHub oder ein
   generischer Anbieter), mit Rollen, Berechtigungen je Datensatz, API-Schlüsseln je Benutzer und
   einem Audit-Log. Die Selbstregistrierung ist standardmäßig deaktiviert.
-- Der Code in diesem Repository steht unter Apache 2.0 (Name und Logo nicht), und hier veröffentlichte Funktionen bleiben
-  frei. [EDITIONS.md](EDITIONS.md) beschreibt den optionalen bezahlten Support und die
+- Hier veröffentlichte Funktionen bleiben frei.
+  [EDITIONS.md](EDITIONS.md) beschreibt den optionalen bezahlten Support und die
   Erweiterungen.
 
 ## Bekannte Einschränkungen
@@ -374,9 +349,12 @@ Die [API-Referenz](https://docs.getgeolens.com/guides/api/) und die
 ## Mitwirken
 
 Fehlerberichte, Korrekturen, Übersetzungen und Dokumentation sind willkommen.
-[CONTRIBUTING](.github/CONTRIBUTING.md) behandelt die Einrichtung (`make dev-init`, dann
-`make dev`), Tests und das DCO-Sign-off, und [ARCHITECTURE](.github/ARCHITECTURE.md) zeigt den
-Code. Stellen Sie Fragen in den
+[CONTRIBUTING](.github/CONTRIBUTING.md) behandelt Einrichtung, Tests und das DCO-Sign-off, und
+[ARCHITECTURE](.github/ARCHITECTURE.md) zeigt den Code. Auch die Repositories für das
+[QGIS-Plugin](https://github.com/geolens-io/qgis-geolens-plugin),
+[Beispiele](https://github.com/geolens-io/geolens-examples) und
+[Bereitstellungen](https://github.com/geolens-io/geolens-deployments) nehmen Issues und Pull
+Requests an. Stellen Sie Fragen in den
 [GitHub Discussions](https://github.com/geolens-io/geolens/discussions), melden Sie Fehler in den
 [Issues](https://github.com/geolens-io/geolens/issues) und Sicherheitsprobleme privat, wie in
 [SECURITY.md](.github/SECURITY.md) beschrieben. Die
