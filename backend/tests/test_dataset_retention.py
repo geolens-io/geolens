@@ -5,6 +5,9 @@ The DB-backed tests require the Docker test database.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import NamedTuple
@@ -1653,6 +1656,27 @@ class TestScheduling:
 
         assert periodic.cron == "23 * * * *"
         assert retention_jobs.apply_dataset_retention.queue == "ingest"
+
+    def test_a_fresh_worker_discovers_the_job_through_its_import_paths(self):
+        # This module already imports retention_jobs, so only a fresh interpreter
+        # shows whether the worker's own startup import finds it.
+        script = (
+            "import sys\n"
+            "from app.processing.ingest.tasks import task_app\n"
+            "assert 'app.modules.admin.retention_jobs' not in sys.modules\n"
+            "task_app.perform_import_paths()\n"
+            "print(any(k[1] == 'dataset-retention' for k in task_app.periodic_registry.periodic_tasks))\n"
+        )
+        backend = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=backend,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        assert result.stdout.strip().splitlines()[-1] == "True"
 
     async def test_each_tenant_runs_under_its_own_context(self, monkeypatch):
         tenants = [str(uuid.uuid4()), str(uuid.uuid4())]
