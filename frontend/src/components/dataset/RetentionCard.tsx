@@ -148,11 +148,13 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
             </div>
           </div>
         )}
-        {temporalColumns.length > 0 && (
+        {(temporalColumns.length > 0 || current) && (
           <div className="flex gap-2">
-            <Button size="sm" onClick={handleSave} disabled={!canSave}>
-              {mutation.isPending ? t('retention.saving') : t('retention.save')}
-            </Button>
+            {temporalColumns.length > 0 && (
+              <Button size="sm" onClick={handleSave} disabled={!canSave}>
+                {mutation.isPending ? t('retention.saving') : t('retention.save')}
+              </Button>
+            )}
             {current && (
               <Button size="sm" variant="outline" onClick={() => save(null)} disabled={mutation.isPending}>
                 {t('retention.turnOff')}

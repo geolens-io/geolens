@@ -61,6 +61,22 @@ describe('RetentionCard', () => {
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
   });
 
+  it('still offers Turn off when the retention column is gone', async () => {
+    const user = userEvent.setup();
+    vi.mocked(setDatasetRetention).mockResolvedValue({ retention: null, rows_past_cutoff: 0, cutoff: null });
+    render(
+      <RetentionCard
+        dataset={feed({ column_info: [{ name: 'label', type: 'text' }] })}
+        canEdit
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Turn off' }));
+
+    await waitFor(() => expect(setDatasetRetention).toHaveBeenCalledWith('ds-1', null, { dryRun: undefined }));
+  });
+
   it('asks before saving a setting that deletes rows now, showing how many', async () => {
     const user = userEvent.setup();
     vi.mocked(setDatasetRetention)

@@ -3522,10 +3522,11 @@ class TestNoCatalogModuleWritesAnAbsoluteTileVersion:
             "features/router.py": 1,
             "datasets/api/router.py": 1,
         }
-        # Every feature and column write also rolls the data revision a
-        # replacement compares; the remaining feature-router site rolls tiles
-        # for a table replaced outside GeoLens and writes nothing.
+        # Every feature and column write, and each retention batch, also rolls
+        # the data revision a replacement compares; the remaining feature-router
+        # site rolls tiles for a table replaced outside GeoLens and writes nothing.
         assert self._by_file("record_live_data_write") == {
+            "features/retention.py": 1,
             "features/router.py": 6,
             "layers/router.py": 4,
         }

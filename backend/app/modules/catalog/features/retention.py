@@ -2,12 +2,13 @@
 
 A dataset with retention keeps the rows whose retention column is no older
 than its last ``retention_days`` days; a row where that column is null is
-kept. A run deletes older rows in batches of ``BATCH_ROWS`` by ascending gid,
-committing each batch with an audit row recording it, so no transaction holds
-a large share of a table's row locks and no committed deletion goes
-unrecorded. After a dataset's last batch its feature count and extent are
-recomputed and its tile cache version rolls. A timestamp without time zone is
-read as UTC.
+kept. A run deletes older rows in batches of ``BATCH_ROWS`` by ascending gid.
+Each batch commits with the feature count lowered by what it deleted, the tile
+cache version and data revision rolled, and an audit row recording it, so no
+transaction holds a large share of a table's row locks and a committed batch
+needs nothing more. After a dataset's last batch its extent is recomputed;
+until then the stored extent can only be larger than the data. A timestamp
+without time zone is read as UTC.
 """
 
 from __future__ import annotations
@@ -18,19 +19,21 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.record_types import capabilities
 from app.modules.audit.service import AuditEvent, audit_emit_required
-from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import DatasetRetention
-from app.modules.catalog.datasets.domain.service import get_dataset
+from app.modules.catalog.datasets.domain.service import _safe_column_ref, get_dataset
 from app.modules.catalog.features.service import refresh_dataset_metadata
 from app.platform.catalog_locks import (
+    WORKER_LOCK_TIMEOUT,
     CatalogLockConflict,
+    lock_catalog_rows,
     record_live_data_write,
     worker_lock_budget,
 )
@@ -46,7 +49,7 @@ SETTLE_ATTEMPTS = 3
 TEMPORAL_TYPES = frozenset(
     {"date", "timestamp with time zone", "timestamp without time zone"}
 )
-# The name is spliced into SQL in double quotes, so only plain names qualify.
+# The name is spliced into SQL, quoted, so only plain names qualify.
 _PLAIN_COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _GID_FLOOR = -(2**63)
 
@@ -126,15 +129,15 @@ async def count_rows_past(
 ) -> int:
     """Rows whose ``column`` is older than ``cutoff``. The caller checked ``column``."""
     quoted = get_catalog_port().quote_table(table_name)
-    sql = f'SELECT count(*) FROM {quoted} WHERE "{column}" < :cutoff'
-    # codeql[py/sql-injection] column matched _PLAIN_COLUMN and exists in the table; table via quote_table; cutoff is bound
+    sql = f"SELECT count(*) FROM {quoted} WHERE {_safe_column_ref(column)} < :cutoff"
+    # codeql[py/sql-injection] column matched _PLAIN_COLUMN, exists in the table and is quoted by _safe_column_ref; table via quote_table; cutoff is bound
     return await session.scalar(text(sql), {"cutoff": cutoff})
 
 
 async def _window(
     session: AsyncSession, dataset_id: uuid.UUID, now: datetime
-) -> _Window | None:
-    """The dataset's retention as stored now, or None when nothing is to be deleted."""
+) -> tuple[Dataset, _Window] | None:
+    """The dataset and its retention as stored now, or None when nothing is due."""
     dataset = await get_dataset(session, dataset_id)
     if dataset is None or dataset.retention_column is None:
         return None
@@ -149,7 +152,7 @@ async def _window(
             column_type=type_name,
         )
         return None
-    return _Window(
+    return dataset, _Window(
         dataset.table_name,
         dataset.retention_column,
         dataset.retention_days,
@@ -163,26 +166,48 @@ async def _delete_batch(
     quoted = get_catalog_port().quote_table(window.table_name)
     sql = (
         f"DELETE FROM {quoted} WHERE gid IN (SELECT gid FROM {quoted} "
-        f'WHERE "{window.column}" < :cutoff AND gid > CAST(:after AS bigint) '
+        f"WHERE {_safe_column_ref(window.column)} < :cutoff "
+        "AND gid > CAST(:after AS bigint) "
         "ORDER BY gid LIMIT :limit FOR UPDATE SKIP LOCKED) RETURNING gid"
     )
     params = {"cutoff": window.cutoff, "after": after, "limit": limit}
     async with worker_lock_budget(session):
-        # codeql[py/sql-injection] column matched _PLAIN_COLUMN and exists in the table; table via quote_table; values are bound
+        # codeql[py/sql-injection] column matched _PLAIN_COLUMN, exists in the table and is quoted by _safe_column_ref; table via quote_table; values are bound
         result = await session.execute(text(sql), params)
     return list(result.scalars())
 
 
-async def _audit_batch(
-    session: AsyncSession, dataset_id: uuid.UUID, window: _Window, deleted: int
+async def _record_batch(
+    session: AsyncSession, dataset: Dataset, window: _Window, deleted: int
 ) -> None:
+    """Settle a batch's deletion in its own transaction, after the table work.
+
+    The catalog rows are taken after the delete, the order every feature
+    write uses, and the count moves by what was deleted rather than by a
+    recount of the table.
+    """
+    await lock_catalog_rows(
+        session,
+        dataset_cls=Dataset,
+        record_cls=Record,
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        lock_timeout=WORKER_LOCK_TIMEOUT,
+    )
+    await session.execute(
+        update(Dataset)
+        .where(Dataset.id == dataset.id, Dataset.feature_count.is_not(None))
+        .values(feature_count=func.greatest(Dataset.feature_count - deleted, 0))
+        .execution_options(synchronize_session=False)
+    )
+    await record_live_data_write(session, dataset)
     await audit_emit_required(
         session,
         AuditEvent(
             user_id=None,
             action="dataset.retention_prune",
             resource_type="dataset",
-            resource_id=dataset_id,
+            resource_id=dataset.id,
             details={
                 "deleted": deleted,
                 "column": window.column,
@@ -194,7 +219,7 @@ async def _audit_batch(
 
 
 async def _settle(dataset_id: uuid.UUID) -> None:
-    """Recompute count and extent and roll the tile version."""
+    """Recompute the extent, and the count from the table, after a run's batches."""
     from app.core.db import async_session
 
     for attempt in range(SETTLE_ATTEMPTS):
@@ -208,7 +233,6 @@ async def _settle(dataset_id: uuid.UUID) -> None:
                 if attempt + 1 == SETTLE_ATTEMPTS:
                     raise
                 continue
-            await record_live_data_write(session, dataset)
             await session.commit()
             return
 
@@ -233,12 +257,13 @@ async def prune_dataset(
     try:
         for _ in range(max_batches):
             async with async_session() as session:
-                window = await _window(session, dataset_id, now)
-                if window is None:
+                due = await _window(session, dataset_id, now)
+                if due is None:
                     break
+                dataset, window = due
                 gids = await _delete_batch(session, window, after, batch_rows)
                 if gids:
-                    await _audit_batch(session, dataset_id, window, len(gids))
+                    await _record_batch(session, dataset, window, len(gids))
                 await session.commit()
             if gids:
                 deleted += len(gids)

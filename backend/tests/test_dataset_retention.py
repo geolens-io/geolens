@@ -268,6 +268,7 @@ class TestRun:
             return gids
 
         monkeypatch.setattr(retention, "_delete_batch", counted)
+        before = await _catalog_state(test_db_session, dataset.id)
 
         pruned = await retention.prune_expired_rows(now=NOW, batch_rows=10)
 
@@ -276,9 +277,12 @@ class TestRun:
         assert await _names(test_db_session, dataset) == {"new"}
         audits = await _prune_audits(test_db_session, dataset.id)
         assert [audit.details["deleted"] for audit in audits] == [10, 10, 5]
-        assert (await _catalog_state(test_db_session, dataset.id)).feature_count == 1
+        after = await _catalog_state(test_db_session, dataset.id)
+        assert after.feature_count == 1
+        assert after.tile_cache_version == before.tile_cache_version + 3
+        assert after.data_revision == before.data_revision + 3
 
-    async def test_a_worker_lost_mid_run_leaves_each_committed_batch_audited(
+    async def test_a_worker_lost_mid_run_leaves_each_committed_batch_settled(
         self, seed, test_db_session, monkeypatch
     ):
         admin_id = await get_user_id(test_db_session, "admin")
@@ -304,12 +308,17 @@ class TestRun:
 
         monkeypatch.setattr(retention, "_delete_batch", second_batch_fails)
         monkeypatch.setattr(retention, "_settle", never_settles)
+        before = await _catalog_state(test_db_session, dataset.id)
 
         assert dataset.id not in await retention.prune_expired_rows(
             now=NOW, batch_rows=10
         )
 
         assert len(await _names(test_db_session, dataset)) == 15
+        after = await _catalog_state(test_db_session, dataset.id)
+        assert after.feature_count == 15
+        assert after.tile_cache_version == before.tile_cache_version + 1
+        assert after.data_revision == before.data_revision + 1
         audits = await _prune_audits(test_db_session, dataset.id)
         assert [audit.details["deleted"] for audit in audits] == [10]
         assert audits[0].details["cutoff"] == CUTOFF.isoformat()
