@@ -146,14 +146,15 @@ conjunto de datos importado sigue funcionando con la copia de GeoLens.
 
 Cada conjunto de datos vectorial es una colección OGC API Features, el propio catálogo es OGC API
 Records y STAC, y cada capa tiene una URL de teselas. Pruébalo con la demostración, sin instalar
-nada ni crear una cuenta:
+nada ni crear una cuenta (el segundo comando usa `jq`):
 
 ```sh
 # Search the catalog (OGC API Records)
-curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcano"
+curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions"
 
-# Read a dataset with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
-curl -G "https://demo.getgeolens.com/api/collections/3b549894-ad65-4fbf-8fe1-9a163a8e8215/items" \
+# Read the top match with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
+ID=$(curl -s "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions&limit=1" | jq -r '.features[0].id')
+curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
   --data-urlencode "filter=vei >= 6" -d limit=3
 ```
 
@@ -282,9 +283,10 @@ La [referencia de la API](https://docs.getgeolens.com/guides/api/) y las
 
 ## Privado por diseño
 
-- **Sin telemetría.** Salvo las teselas del mapa base predeterminado, GeoLens solo realiza
-  conexiones salientes para las funciones que un administrador activa. [EGRESS.md](EGRESS.md)
-  lista cada una y explica cómo operar en un entorno aislado de la red.
+- **Sin telemetría.** Salvo las teselas del mapa base predeterminado y los servicios remotos y
+  las fuentes STAC que tus usuarios eligen registrar, GeoLens solo realiza conexiones salientes
+  para las funciones que un administrador activa. [EGRESS.md](EGRESS.md) lista cada una y explica
+  cómo operar en un entorno aislado de la red.
 - **Tus datos siguen siendo legibles sin GeoLens.** Los conjuntos de datos vectoriales son tablas
   PostGIS normales en un esquema `data` de tu base de datos, los ráster son Cloud-Optimized
   GeoTIFF en tu propio almacenamiento (disco local, S3/MinIO o Azure Blob), y todo el catálogo se
