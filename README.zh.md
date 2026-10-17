@@ -195,7 +195,7 @@ curl -H "X-Api-Key: $GEOLENS_API_KEY" \
 
 `geolens publish` 会打印数据集的 URL，URL 末尾就是它的 id。要管理整个目录，可以在 `geolens.yaml` 清单中描述各个数据源，然后运行 `geolens apply`；[`examples/manifests/`](examples/manifests/) 提供了模板，[CLI 指南](https://docs.getgeolens.com/guides/cli/)说明了清单的结构。
 
-要把演示中的地图和数据集（公开的开放数据）加载到您的安装中，请运行种子脚本。如果修改过管理员用户名，请改用您自己的。
+要把演示中的地图和数据集加载到您的安装中，请运行种子脚本。它需要访问互联网，会从大约十几个来源下载公开的开放数据，其中包括约 466 MB 的地形起伏文件和 62 个地形瓦片；`--no-oceans` 和 `--no-terrain` 可跳过这些下载，[scripts/README.md](scripts/README.md) 列出了所有选项。如果修改过管理员用户名，请改用您自己的。
 
 ```sh
 pip install httpx                                     # the seed script needs Python 3.10+
