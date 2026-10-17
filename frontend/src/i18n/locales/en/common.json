@@ -445,6 +445,7 @@
     "layerNotFound": "Layer not found",
     "userNotFound": "User not found",
     "apiKeyNotFound": "API key not found",
+    "datasetKeyLimit": "This dataset already has 100 active write keys. Revoke one to create another.",
     "accessDenied": "Access denied",
     "couldNotValidateCredentials": "Could not validate credentials",
     "inactiveUser": "Inactive user",

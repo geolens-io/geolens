@@ -124,8 +124,9 @@ def sync_detailed(
     switched off. It must expire within 365 days. Requires write access to the
     dataset, the ``edit_metadata`` permission the feature writes need, and a
     signed-in session. A dataset that can't take feature edits (no feature
-    table or no geometry column) gets 422. The raw key is returned only in
-    this response.
+    table or no geometry column) gets 422. A dataset holds at most 100 keys
+    that aren't revoked, expired ones included; minting past that gets 409
+    until one is revoked. The raw key is returned only in this response.
 
     Args:
         dataset_id (UUID):
@@ -169,8 +170,9 @@ def sync(
     switched off. It must expire within 365 days. Requires write access to the
     dataset, the ``edit_metadata`` permission the feature writes need, and a
     signed-in session. A dataset that can't take feature edits (no feature
-    table or no geometry column) gets 422. The raw key is returned only in
-    this response.
+    table or no geometry column) gets 422. A dataset holds at most 100 keys
+    that aren't revoked, expired ones included; minting past that gets 409
+    until one is revoked. The raw key is returned only in this response.
 
     Args:
         dataset_id (UUID):
@@ -209,8 +211,9 @@ async def asyncio_detailed(
     switched off. It must expire within 365 days. Requires write access to the
     dataset, the ``edit_metadata`` permission the feature writes need, and a
     signed-in session. A dataset that can't take feature edits (no feature
-    table or no geometry column) gets 422. The raw key is returned only in
-    this response.
+    table or no geometry column) gets 422. A dataset holds at most 100 keys
+    that aren't revoked, expired ones included; minting past that gets 409
+    until one is revoked. The raw key is returned only in this response.
 
     Args:
         dataset_id (UUID):
@@ -252,8 +255,9 @@ async def asyncio(
     switched off. It must expire within 365 days. Requires write access to the
     dataset, the ``edit_metadata`` permission the feature writes need, and a
     signed-in session. A dataset that can't take feature edits (no feature
-    table or no geometry column) gets 422. The raw key is returned only in
-    this response.
+    table or no geometry column) gets 422. A dataset holds at most 100 keys
+    that aren't revoked, expired ones included; minting past that gets 409
+    until one is revoked. The raw key is returned only in this response.
 
     Args:
         dataset_id (UUID):

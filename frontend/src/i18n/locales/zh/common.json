@@ -445,6 +445,7 @@
     "layerNotFound": "未找到图层",
     "userNotFound": "未找到用户",
     "apiKeyNotFound": "未找到 API 密钥",
+    "datasetKeyLimit": "此数据集已有 100 个有效的写入密钥。请先撤销一个，再创建新的。",
     "accessDenied": "访问被拒绝",
     "couldNotValidateCredentials": "无法验证凭据",
     "inactiveUser": "用户未激活",

@@ -11,6 +11,14 @@ describe('API error localization boundary', () => {
     });
   });
 
+  it('tells an owner at the dataset key limit to revoke one first', () => {
+    const detail = 'This dataset already has 100 active keys. Revoke one to create another.';
+    expect(classifyApiError(detail, 409)).toEqual({ key: 'errors.datasetKeyLimit' });
+    expect(translateApiErrorDetail(detail, 409)).toBe(
+      'This dataset already has 100 active write keys. Revoke one to create another.',
+    );
+  });
+
   it('maps the trust-link refusals to their own keys', () => {
     expect(classifyApiError({ code: 'device_trust_link_invalid', message: 'x' }, 404)).toEqual({
       key: 'errors.deviceTrustLinkInvalid',

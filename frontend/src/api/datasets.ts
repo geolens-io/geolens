@@ -594,18 +594,11 @@ export async function commitFanOut(
 
 /** Active write keys bound to this dataset: every one for its owner or an admin. */
 export async function listDatasetApiKeys(datasetId: string): Promise<DatasetApiKeyResponse[]> {
-  // The endpoint's maximum page size. Every page is fetched so an owner can see
-  // and revoke each key, however many have been minted.
-  const pageSize = 200;
-  const keys: DatasetApiKeyResponse[] = [];
-  for (;;) {
-    const page = await apiFetch<{ items: DatasetApiKeyResponse[]; total: number }>(
-      `/datasets/${encodeURIComponent(datasetId)}/api-keys?skip=${keys.length}&limit=${pageSize}`,
-    );
-    keys.push(...page.items);
-    // An empty page ends a list that shrank while it was being read.
-    if (page.items.length === 0 || keys.length >= page.total) return keys;
-  }
+  // One page covers the list: minting stops at 100 unrevoked keys per dataset.
+  const data = await apiFetch<{ items: DatasetApiKeyResponse[]; total: number }>(
+    `/datasets/${encodeURIComponent(datasetId)}/api-keys?limit=200`,
+  );
+  return data.items;
 }
 
 export async function createDatasetApiKey(

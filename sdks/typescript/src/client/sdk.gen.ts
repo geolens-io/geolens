@@ -2081,8 +2081,9 @@ export const listDatasetApiKeysDatasetsDatasetIdApiKeysGet = <ThrowOnError exten
  * switched off. It must expire within 365 days. Requires write access to the
  * dataset, the ``edit_metadata`` permission the feature writes need, and a
  * signed-in session. A dataset that can't take feature edits (no feature
- * table or no geometry column) gets 422. The raw key is returned only in
- * this response.
+ * table or no geometry column) gets 422. A dataset holds at most 100 keys
+ * that aren't revoked, expired ones included; minting past that gets 409
+ * until one is revoked. The raw key is returned only in this response.
  */
 export const createDatasetApiKeyDatasetsDatasetIdApiKeysPost = <ThrowOnError extends boolean = false>(options: Options<CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostData, ThrowOnError>): RequestResult<CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses, CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostErrors, ThrowOnError> => (options.client ?? client).post<CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses, CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2101,8 +2102,8 @@ export const createDatasetApiKeyDatasetsDatasetIdApiKeysPost = <ThrowOnError ext
  *
  * The key's creator may revoke it while they can see the dataset, even
  * after losing write access to it; anyone with write access may revoke any
- * key bound to it. Answers 404 when no active key with this id is bound to
- * the dataset.
+ * key bound to it, checked again under the dataset's row lock. Answers 404
+ * when no active key with this id is bound to the dataset.
  */
 export const revokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDelete = <ThrowOnError extends boolean = false>(options: Options<RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteData, ThrowOnError>): RequestResult<RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteResponses, RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteErrors, ThrowOnError> => (options.client ?? client).delete<RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteResponses, RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteErrors, ThrowOnError>({
     security: [

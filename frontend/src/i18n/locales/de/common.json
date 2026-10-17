@@ -314,6 +314,7 @@
     "layerNotFound": "Layer nicht gefunden",
     "userNotFound": "Benutzer nicht gefunden",
     "apiKeyNotFound": "API-Schlüssel nicht gefunden",
+    "datasetKeyLimit": "Dieser Datensatz hat bereits 100 aktive Schreibschlüssel. Widerrufen Sie einen, um einen neuen zu erstellen.",
     "accessDenied": "Zugriff verweigert",
     "couldNotValidateCredentials": "Anmeldedaten konnten nicht überprüft werden",
     "inactiveUser": "Inaktiver Benutzer",

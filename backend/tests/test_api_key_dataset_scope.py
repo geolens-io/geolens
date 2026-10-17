@@ -809,6 +809,187 @@ async def test_minting_is_rate_limited(client: AsyncClient, owner, datasets):
     assert codes[30] == 429
 
 
+_FILL_KEYS = text(
+    "INSERT INTO catalog.api_keys "
+    "(user_id, key_hash, name, is_active, scope, dataset_id, key_epoch, expires_at) "
+    "SELECT u.id, 'fill-' || :tag || '-' || n, 'Filler ' || n, true, "
+    "'dataset_write', :dataset, u.key_epoch, "
+    "CASE WHEN n % 2 = 0 THEN now() - interval '1 day' "
+    "ELSE now() + interval '30 days' END "
+    "FROM catalog.users u, generate_series(1, :count) AS n WHERE u.id = :user"
+)
+
+
+async def test_a_dataset_holds_at_most_100_unrevoked_keys(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    """Expired keys count until revoked, so the owner frees a slot by revoking."""
+    headers, owner_id = owner
+    bound = datasets[0]
+    first = await _mint(client, headers, bound.id)
+    await test_db_session.execute(
+        _FILL_KEYS,
+        {"tag": uuid.uuid4().hex, "dataset": bound.id, "count": 99, "user": owner_id},
+    )
+    await test_db_session.commit()
+
+    body = {"name": "One too many", "expires_at": _in_days(30)}
+    url = f"/datasets/{bound.id}/api-keys"
+    resp = await client.post(url, json=body, headers=headers)
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == (
+        "This dataset already has 100 active keys. Revoke one to create another."
+    )
+
+    resp = await client.delete(f"{url}/{first['id']}", headers=headers)
+    assert resp.status_code == 204, resp.text
+    resp = await client.post(url, json=body, headers=headers)
+    assert resp.status_code == 201, resp.text
+    listed = (await client.get(f"{url}?limit=200", headers=headers)).json()
+    assert listed["total"] == 100 == len(listed["items"])
+
+
+async def _key_is_active(session, key_id: str) -> bool:
+    await session.commit()
+    return (
+        await session.execute(
+            text("SELECT is_active FROM catalog.api_keys WHERE id = :id"),
+            {"id": key_id},
+        )
+    ).scalar_one()
+
+
+async def _make_public(session, record_id) -> None:
+    await session.execute(
+        text("UPDATE catalog.records SET visibility = 'public' WHERE id = :id"),
+        {"id": record_id},
+    )
+    await session.commit()
+
+
+async def test_a_revoke_is_refused_when_the_dataset_changes_hands_mid_request(
+    client: AsyncClient,
+    owner,
+    datasets,
+    admin_auth_header,
+    test_db_session,
+    monkeypatch,
+):
+    from app.modules.catalog.datasets.api import router_api_keys
+    from tests.write_recheck_races import _then, _transfer_dataset
+
+    headers, _ = owner
+    bound = datasets[0]
+    await _make_public(test_db_session, bound.record_id)
+    admins = await _mint(client, admin_auth_header, bound.id)
+    _, peer_id = await create_user(client, admin_auth_header, "editor")
+
+    monkeypatch.setattr(
+        router_api_keys,
+        "check_dataset_write_access",
+        _then(
+            router_api_keys.check_dataset_write_access,
+            _transfer_dataset(bound.id, uuid.UUID(peer_id)),
+        ),
+    )
+    resp = await client.delete(
+        f"/datasets/{bound.id}/api-keys/{admins['id']}", headers=headers
+    )
+    assert resp.status_code == 403, resp.text
+    assert await _key_is_active(test_db_session, admins["id"])
+
+
+async def test_a_revoke_is_refused_when_an_admin_is_demoted_mid_request(
+    client: AsyncClient,
+    owner,
+    datasets,
+    admin_auth_header,
+    test_db_session,
+    monkeypatch,
+):
+    from app.modules.catalog.datasets.api import router_api_keys
+    from tests.write_recheck_races import _move_to_role, _then
+
+    headers, _ = owner
+    bound = datasets[0]
+    await _make_public(test_db_session, bound.record_id)
+    owners = await _mint(client, headers, bound.id)
+    admin_headers, admin_id = await create_user(client, admin_auth_header, "admin")
+
+    monkeypatch.setattr(
+        router_api_keys,
+        "check_dataset_write_access",
+        _then(
+            router_api_keys.check_dataset_write_access,
+            _move_to_role(uuid.UUID(admin_id), "editor"),
+        ),
+    )
+    resp = await client.delete(
+        f"/datasets/{bound.id}/api-keys/{owners['id']}", headers=admin_headers
+    )
+    assert resp.status_code == 403, resp.text
+    assert await _key_is_active(test_db_session, owners["id"])
+
+
+async def test_a_revoke_is_refused_when_the_caller_is_deactivated_mid_request(
+    client: AsyncClient,
+    owner,
+    datasets,
+    admin_auth_header,
+    test_db_session,
+    monkeypatch,
+):
+    from app.modules.catalog.datasets.api import router_api_keys
+    from tests.write_recheck_races import _deactivate, _then
+
+    headers, owner_id = owner
+    bound = datasets[0]
+    admins = await _mint(client, admin_auth_header, bound.id)
+
+    monkeypatch.setattr(
+        router_api_keys,
+        "check_dataset_write_access",
+        _then(router_api_keys.check_dataset_write_access, _deactivate(owner_id)),
+    )
+    resp = await client.delete(
+        f"/datasets/{bound.id}/api-keys/{admins['id']}", headers=headers
+    )
+    assert resp.status_code == 403, resp.text
+    assert await _key_is_active(test_db_session, admins["id"])
+
+
+async def test_a_creator_revokes_their_own_key_after_losing_write_access_mid_request(
+    client: AsyncClient,
+    owner,
+    datasets,
+    admin_auth_header,
+    test_db_session,
+    monkeypatch,
+):
+    from app.modules.catalog.datasets.api import router_api_keys
+    from tests.write_recheck_races import _then, _transfer_dataset
+
+    headers, _ = owner
+    bound = datasets[0]
+    await _make_public(test_db_session, bound.record_id)
+    own = await _mint(client, headers, bound.id)
+    _, peer_id = await create_user(client, admin_auth_header, "editor")
+
+    # Right after the dataset loads, so whichever guard runs sees the stale owner.
+    monkeypatch.setattr(
+        router_api_keys,
+        "get_dataset",
+        _then(
+            router_api_keys.get_dataset, _transfer_dataset(bound.id, uuid.UUID(peer_id))
+        ),
+    )
+    resp = await client.delete(
+        f"/datasets/{bound.id}/api-keys/{own['id']}", headers=headers
+    )
+    assert resp.status_code == 204, resp.text
+    assert not await _key_is_active(test_db_session, own["id"])
+
+
 def _mounted_route_pairs() -> set[tuple[str, str]]:
     from fastapi.routing import APIRoute, iter_route_contexts
 

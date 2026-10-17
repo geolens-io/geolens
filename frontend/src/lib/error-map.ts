@@ -33,6 +33,8 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Layer not found': 'errors.layerNotFound',
   'User not found': 'errors.userNotFound',
   'API key not found': 'errors.apiKeyNotFound',
+  'This dataset already has 100 active keys. Revoke one to create another.':
+    'errors.datasetKeyLimit',
   'Access denied': 'errors.accessDenied',
   'Could not validate credentials': 'errors.couldNotValidateCredentials',
   'Inactive user': 'errors.inactiveUser',

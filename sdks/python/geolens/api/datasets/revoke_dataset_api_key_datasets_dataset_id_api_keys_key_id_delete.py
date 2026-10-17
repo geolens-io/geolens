@@ -109,8 +109,8 @@ def sync_detailed(
 
     The key's creator may revoke it while they can see the dataset, even
     after losing write access to it; anyone with write access may revoke any
-    key bound to it. Answers 404 when no active key with this id is bound to
-    the dataset.
+    key bound to it, checked again under the dataset's row lock. Answers 404
+    when no active key with this id is bound to the dataset.
 
     Args:
         dataset_id (UUID):
@@ -148,8 +148,8 @@ def sync(
 
     The key's creator may revoke it while they can see the dataset, even
     after losing write access to it; anyone with write access may revoke any
-    key bound to it. Answers 404 when no active key with this id is bound to
-    the dataset.
+    key bound to it, checked again under the dataset's row lock. Answers 404
+    when no active key with this id is bound to the dataset.
 
     Args:
         dataset_id (UUID):
@@ -182,8 +182,8 @@ async def asyncio_detailed(
 
     The key's creator may revoke it while they can see the dataset, even
     after losing write access to it; anyone with write access may revoke any
-    key bound to it. Answers 404 when no active key with this id is bound to
-    the dataset.
+    key bound to it, checked again under the dataset's row lock. Answers 404
+    when no active key with this id is bound to the dataset.
 
     Args:
         dataset_id (UUID):
@@ -219,8 +219,8 @@ async def asyncio(
 
     The key's creator may revoke it while they can see the dataset, even
     after losing write access to it; anyone with write access may revoke any
-    key bound to it. Answers 404 when no active key with this id is bound to
-    the dataset.
+    key bound to it, checked again under the dataset's row lock. Answers 404
+    when no active key with this id is bound to the dataset.
 
     Args:
         dataset_id (UUID):

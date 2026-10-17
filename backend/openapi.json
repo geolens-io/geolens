@@ -35720,7 +35720,7 @@
         ]
       },
       "post": {
-        "description": "Create a key that reads and writes this dataset's features only.\n\nThe key has scope ``dataset_write`` and acts as the caller, so the\ncaller's own access to the dataset still applies to every request it\nmakes. It authenticates the dataset's feature routes and OGC API\nFeatures items, and is treated as an invalid key everywhere else. Its\nfeature writes go through even when the instance has dataset editing\nswitched off. It must expire within 365 days. Requires write access to the\ndataset, the ``edit_metadata`` permission the feature writes need, and a\nsigned-in session. A dataset that can't take feature edits (no feature\ntable or no geometry column) gets 422. The raw key is returned only in\nthis response.",
+        "description": "Create a key that reads and writes this dataset's features only.\n\nThe key has scope ``dataset_write`` and acts as the caller, so the\ncaller's own access to the dataset still applies to every request it\nmakes. It authenticates the dataset's feature routes and OGC API\nFeatures items, and is treated as an invalid key everywhere else. Its\nfeature writes go through even when the instance has dataset editing\nswitched off. It must expire within 365 days. Requires write access to the\ndataset, the ``edit_metadata`` permission the feature writes need, and a\nsigned-in session. A dataset that can't take feature edits (no feature\ntable or no geometry column) gets 422. A dataset holds at most 100 keys\nthat aren't revoked, expired ones included; minting past that gets 409\nuntil one is revoked. The raw key is returned only in this response.",
         "operationId": "create_dataset_api_key_datasets__dataset_id__api_keys_post",
         "parameters": [
           {
@@ -35868,7 +35868,7 @@
     },
     "/datasets/{dataset_id}/api-keys/{key_id}": {
       "delete": {
-        "description": "Revoke a key bound to this dataset.\n\nThe key's creator may revoke it while they can see the dataset, even\nafter losing write access to it; anyone with write access may revoke any\nkey bound to it. Answers 404 when no active key with this id is bound to\nthe dataset.",
+        "description": "Revoke a key bound to this dataset.\n\nThe key's creator may revoke it while they can see the dataset, even\nafter losing write access to it; anyone with write access may revoke any\nkey bound to it, checked again under the dataset's row lock. Answers 404\nwhen no active key with this id is bound to the dataset.",
         "operationId": "revoke_dataset_api_key_datasets__dataset_id__api_keys__key_id__delete",
         "parameters": [
           {

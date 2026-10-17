@@ -28,6 +28,7 @@ from app.modules.auth.service import create_api_key_for_user
 from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_write_access,
+    lock_dataset_rows_for_write,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.ratelimit import limiter
@@ -35,6 +36,14 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
     prefix="/datasets", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
+)
+
+# Unrevoked keys a dataset may hold, expired ones included. The card lists
+# them all in one page of the list endpoint.
+DATASET_KEY_LIMIT = 100
+DATASET_KEY_LIMIT_REACHED = (
+    f"This dataset already has {DATASET_KEY_LIMIT} active keys. "
+    "Revoke one to create another."
 )
 
 
@@ -71,8 +80,9 @@ async def create_dataset_api_key(
     switched off. It must expire within 365 days. Requires write access to the
     dataset, the ``edit_metadata`` permission the feature writes need, and a
     signed-in session. A dataset that can't take feature edits (no feature
-    table or no geometry column) gets 422. The raw key is returned only in
-    this response.
+    table or no geometry column) gets 422. A dataset holds at most 100 keys
+    that aren't revoked, expired ones included; minting past that gets 409
+    until one is revoked. The raw key is returned only in this response.
     """
     dataset = await _found_dataset(db, dataset_id)
     await check_dataset_write_access(db, dataset, dataset_id, user)
@@ -85,6 +95,22 @@ async def create_dataset_api_key(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only a dataset that takes feature edits can have a dataset key",
+        )
+    # Under the dataset's row lock, so two mints can't both take the last slot.
+    await lock_dataset_rows_for_write(db, dataset)
+    held = (
+        await db.execute(
+            select(func.count())
+            .select_from(ApiKey)
+            .where(
+                ApiKey.dataset_id == dataset_id,
+                ApiKey.is_active == True,  # noqa: E712
+            )
+        )
+    ).scalar_one()
+    if held >= DATASET_KEY_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=DATASET_KEY_LIMIT_REACHED
         )
     api_key, raw_key = await create_api_key_for_user(
         db,
@@ -199,8 +225,8 @@ async def revoke_dataset_api_key(
 
     The key's creator may revoke it while they can see the dataset, even
     after losing write access to it; anyone with write access may revoke any
-    key bound to it. Answers 404 when no active key with this id is bound to
-    the dataset.
+    key bound to it, checked again under the dataset's row lock. Answers 404
+    when no active key with this id is bound to the dataset.
     """
     dataset = await _found_dataset(db, dataset_id)
     api_key = (
@@ -220,6 +246,8 @@ async def revoke_dataset_api_key(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
         )
+    if api_key.user_id != user.id:
+        await lock_dataset_rows_for_write(db, dataset)
     api_key.is_active = False
     await audit_emit(
         db,

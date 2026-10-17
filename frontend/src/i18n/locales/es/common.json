@@ -314,6 +314,7 @@
     "layerNotFound": "Capa no encontrada",
     "userNotFound": "Usuario no encontrado",
     "apiKeyNotFound": "Clave API no encontrada",
+    "datasetKeyLimit": "Este conjunto de datos ya tiene 100 claves de escritura activas. Revoque una para crear otra.",
     "accessDenied": "Acceso denegado",
     "couldNotValidateCredentials": "No se pudieron validar las credenciales",
     "inactiveUser": "Usuario inactivo",
