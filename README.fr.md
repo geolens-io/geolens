@@ -107,9 +107,10 @@ flowchart LR
   <sub>Un jeu de données importé depuis le service de séismes de l’USGS.</sub>
 </p>
 
-Chaque jeu de données consigne le fichier, la table, le service ou l’élément STAC dont il provient
-et la date de sa dernière actualisation. Donnez une fréquence de mise à jour à un jeu de données importé et GeoLens le
-marque comme à jour, à actualiser ou en retard. Pour les services et les sources STAC, GeoLens
+Chaque jeu de données consigne son origine : un fichier chargé, une table de base de données, un
+service, un élément STAC ou un dessin réalisé dans le navigateur. Les jeux importés consignent aussi
+la date de leur dernière actualisation, et avec une fréquence de mise à jour, GeoLens les marque
+comme à jour, à actualiser ou en retard. Pour les services et les sources STAC, GeoLens
 vérifie aussi que la source répond encore et signale les changements de schéma en amont avant
 qu’ils n’atteignent vos cartes. Si un service disparaît, la copie importée continue de
 fonctionner.
