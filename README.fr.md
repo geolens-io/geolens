@@ -286,7 +286,7 @@ La [référence de l’API](https://docs.getgeolens.com/guides/api/) et les
 - La connexion utilise des comptes locaux ou OAuth 2.0/OIDC (Google, Microsoft, GitHub ou un
   fournisseur générique), avec rôles, permissions par jeu de données, clés d’API par utilisateur et
   journal d’audit. L’inscription libre est désactivée par défaut.
-- Tout ce qui se trouve dans ce dépôt est sous licence Apache 2.0, et les fonctions publiées ici
+- Le code de ce dépôt est sous licence Apache 2.0 (le nom et le logo ne le sont pas), et les fonctions publiées ici
   restent gratuites. [EDITIONS.md](EDITIONS.md) décrit le support payant et les modules
   complémentaires facultatifs.
 
