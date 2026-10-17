@@ -15,7 +15,7 @@ pip install geolens-cli      # installs the `geolens` command; Python 3.11 or ne
 ```bash
 geolens login https://geolens.example.com/api
 geolens publish ./data/cities.geojson
-geolens status DATASET_ID        # the ID that publish printed
+geolens status DATASET_ID        # the UUID at the end of the URL publish printed
 ```
 
 The CLI wraps the [`geolens`](https://pypi.org/project/geolens/) Python SDK package.
