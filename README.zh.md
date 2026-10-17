@@ -72,10 +72,10 @@ flowchart LR
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
-    <img src=".github/assets/geolens-catalog-search.png" alt="GeoLens 目录搜索“风暴袭击海岸的地方”，列出六个飓风和沿海数据集，带缩略图、来源徽章和时效徽章，旁边是类型、关键词、集合、位置和日期筛选器" width="100%">
+    <img src=".github/assets/geolens-catalog-search.png" alt="GeoLens 目录搜索“where storms hit the coast”，列出六个飓风和沿海数据集，带缩略图、来源徽章和时效徽章，旁边是类型、关键词、集合、位置和日期筛选器" width="100%">
   </picture>
   <br>
-  <sub>按含义搜索：“风暴袭击海岸的地方”能找到飓风路径、风暴走廊和沿海暴露图层，每个结果都标明了来源。</sub>
+  <sub>按含义搜索：“where storms hit the coast”能找到飓风路径、风暴走廊和沿海暴露图层，每个结果都标明了来源。</sub>
 </p>
 
 - **上传文件。** 支持 Shapefile、GeoPackage、GeoJSON、GeoParquet、FlatGeobuf、KML/KMZ、zip 压缩的 File Geodatabase、CSV 和 Excel。GeoTIFF 会转换为云优化 GeoTIFF，多个栅格可镶嵌为一个 VRT。3D Tiles 瓦片集和 COPC 点云会托管起来，供 CesiumJS、QGIS 和 Potree 使用。
@@ -152,10 +152,10 @@ curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="Major Hurricane Tracks 数据集上的“询问 AI”面板，回答“这些飓风中有多少登陆了？”：202 个中的 119 个，附两行计数表、说明如何解读登陆列的备注，以及“在构建器中打开”按钮" width="100%">
+    <img src=".github/assets/geolens-ask-ai.png" alt="Major Hurricane Tracks 数据集上的“询问 AI”面板，回答“How many of these hurricanes made landfall?”：202 个中的 119 个，附两行计数表、说明如何解读登陆列的备注，以及“在构建器中打开”按钮" width="100%">
   </picture>
   <br>
-  <sub>“这些飓风中有多少登陆了？”会得到计数、一张表和答案背后的假设，还有一个在地图构建器中打开结果的按钮。</sub>
+  <sub>“How many of these hurricanes made landfall?”会得到计数、一张表和答案背后的假设，还有一个在地图构建器中打开结果的按钮。</sub>
 </p>
 
 GeoLens 可以回答关于数据集的问题，根据自然语言请求编辑地图，起草元数据，并支持自然语言搜索。它可以使用任何 OpenAI 兼容端点（包括 Ollama 这样的本地模型服务器），也可以通过 Anthropic、Microsoft Foundry、Amazon Bedrock 或 Google Vertex AI 使用 Claude。在管理员配置提供方之前，这些功能全部关闭，没有它们，所有工作流依然可用。
