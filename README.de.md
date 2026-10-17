@@ -199,7 +199,7 @@ ein Administrator einen Anbieter konfiguriert, und jeder Arbeitsablauf funktioni
 
 ## Installation
 
-Sie brauchen Docker Engine 24+ und Docker Compose v2. Eine frische Installation startet sechs
+Sie brauchen Git, Docker Engine 24+ und Docker Compose v2. Eine frische Installation startet sechs
 Container mit etwa 1,3 GB Arbeitsspeicher auf linux/amd64 oder linux/arm64.
 
 ```sh
