@@ -52,8 +52,11 @@ These run in CI and do not require manual checking:
   so no lockfile needs a hand edit at release time.
 - **Published coherence** — `.github/workflows/verify-published.yml` runs after
   a release and confirms, in a clean container, that PyPI `geolens`,
-  `geolens-cli`, `geolens-mcp`, npm `@geolens/sdk`, the GHCR images, and the GitHub Release are
-  all present at the tagged version (with bounded retry for registry lag).
+  `geolens-cli` and `geolens-mcp` install at the tagged version (the MCP
+  server is imported as a smoke check), that npm `@geolens/sdk` and the GHCR
+  images `geolens-api`, `geolens-frontend` and `geolens-backup` are present, and
+  that the GitHub Release exists (with bounded retry for registry lag). It does
+  not pull `geolens-worker` or query the MCP Registry entry.
 
 ## Cutting a release
 

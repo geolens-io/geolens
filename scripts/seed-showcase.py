@@ -16,8 +16,9 @@ Check its source status before claiming it is current. Fixed Sentinel-2
 acquisitions are referenced remotely and are not a refresh cadence.
 
 ``prepare-showcase-canopy.sh`` and ``prepare-showcase-tiles3d.py`` build the
-external artifacts that ``--showcase-121`` takes. ``showcase-121-state.py
-restore`` rolls a guarded update back. This script needs httpx.
+external artifacts that ``--showcase-121`` takes. Pass ``--no-thumbnails`` with
+``--expected-state``: the thumbnail backfill is not captured by the snapshot, so
+``showcase-121-state.py restore`` cannot undo it. This script needs httpx.
 """
 
 import argparse
