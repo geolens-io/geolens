@@ -196,7 +196,7 @@ curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
   --data-urlencode "filter=vei >= 6" -d limit=3
 ```
 
-在 QGIS 中，把 `https://demo.getgeolens.com/api/` 添加为 WFS / OGC API Features 连接，即可把公开数据集列为图层。具体步骤见 [QGIS 指南](https://docs.getgeolens.com/guides/api/qgis/)。
+QGIS 可以把同一个 API 添加为 OGC API Features 连接，做法见 [QGIS 指南](https://docs.getgeolens.com/guides/api/qgis/)。[GeoLens QGIS 插件](https://github.com/geolens-io/qgis-geolens-plugin)还增加了目录搜索、私有数据集访问，以及同步回 GeoLens 的编辑。
 
 <p align="center">
   <img src=".github/assets/geolens-qgis.png" alt="QGIS 4 中以 OGC API Features 连接添加了 GeoLens 演示：浏览器面板列出演示的集合，近期地震、重大火山喷发、板块边界和国家数据作为图层加载到世界地图上" width="100%">
@@ -213,9 +213,9 @@ curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
 | 矢量瓦片和 COG 栅格瓦片 | 每个图层上的瓦片 URL | MapLibre、OpenLayers、Leaflet |
 | 3D Tiles 和 COPC | 每个 3D 数据集的页面 | CesiumJS、QGIS、Potree |
 
-矢量瓦片在缩放级别 10 以下会丢弃属性列；在瓦片 URL 上添加 `cols=<column>,<column>` 可保留指定列。数据可导出为 GeoJSON、Shapefile、GeoPackage、CSV、FlatGeobuf、GeoParquet、PMTiles 或云优化 GeoTIFF。
+数据可导出为 GeoJSON、Shapefile、GeoPackage、CSV、FlatGeobuf、GeoParquet、PMTiles 或云优化 GeoTIFF。
 
-`geolens` CLI 可发布文件并应用目录清单，Python 和 TypeScript SDK 覆盖整个 API，只读 MCP 服务器让 AI 代理搜索目录。[示例库](https://geolens-io.github.io/geolens-examples/)提供可运行的代码，涵盖 MapLibre、Leaflet、OpenLayers、ArcGIS Maps SDK、QGIS 和 DuckDB。
+`geolens` CLI 可发布文件并应用目录清单，Python 和 TypeScript SDK 覆盖整个 API，只读 MCP 服务器让 AI 代理搜索目录。[API 参考](https://docs.getgeolens.com/guides/api/)和 [SDK 指南](https://docs.getgeolens.com/guides/sdk/)有详细说明，[示例库](https://geolens-io.github.io/geolens-examples/)提供可运行的代码，涵盖 MapLibre、Leaflet、OpenLayers、ArcGIS Maps SDK、QGIS 和 DuckDB。
 
 ## 可选的 AI
 
@@ -232,7 +232,7 @@ GeoLens 可以回答关于数据集的问题，根据自然语言请求编辑地
 
 ## 安装
 
-需要 Git、curl、Docker Engine 24+ 和 Docker Compose v2。全新安装会运行六个容器，占用约 1.3 GB 内存，支持 linux/amd64 或 linux/arm64。
+需要 Git、curl 和带 Compose 插件的 Docker。[安装指南](https://docs.getgeolens.com/guides/quickstart/install/)列出了所需的版本、内存和端口。
 
 ```sh
 curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
@@ -240,49 +240,31 @@ cd geolens
 grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin password
 ```
 
-打开 http://localhost:8080 并以 `admin`（安装程序的默认用户名）登录。安装程序会生成密钥和管理员密码，拉取预构建镜像，并在约一分钟内启动整个服务栈。如需先验证脚本，请从同一个[发布版本](https://github.com/geolens-io/geolens/releases)下载 `install.sh` 和 `SHA256SUMS`，然后运行 `sha256sum -c SHA256SUMS`（macOS 上用 `shasum -a 256 -c SHA256SUMS`）。
+打开 http://localhost:8080，以 `admin` 和该密码登录。每个[发布版本](https://github.com/geolens-io/geolens/releases)都附带 `SHA256SUMS` 文件，可在运行前用来校验 `install.sh`。如需改为从源码构建，请克隆仓库并运行 `bash scripts/install.sh`；首次构建需要 5-10 分钟。
 
-- 从源码构建：克隆仓库并运行 `bash scripts/install.sh`。首次构建需要 5-10 分钟。
-- 预构建镜像是 `ghcr.io/geolens-io/geolens-api` 和 `ghcr.io/geolens-io/geolens-frontend`，`latest` 指向最新的稳定版本。
-- 生产环境：请阅读[安装指南](https://docs.getgeolens.com/guides/quickstart/install/)和[托管云服务](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/)的指南。Docker Compose 是受支持的方式；社区维护的实验性 Helm chart 位于 [geolens-deployments](https://github.com/geolens-io/geolens-deployments)。
+生产环境请阅读[云部署指南](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/)，其中也列出了外部数据库的要求。Docker Compose 是受支持的方式，[geolens-deployments](https://github.com/geolens-io/geolens-deployments) 提供社区维护的 Helm chart，以及适用于 AWS ECS Fargate 和 Azure Container Apps 的 Terraform 方案。
 
-外部数据库必须是 PostgreSQL 15+，并带有 PostGIS、pgvector 0.5+、pg_trgm 和 unaccent，其备份由您自行负责。内置数据库默认每日和每周备份，并可选择异地复制到 S3。升级预构建镜像的安装时，在安装目录中运行 `./scripts/upgrade.sh`：它会备份数据库、拉取新镜像，并在健康检查保护下完成迁移。从源码构建的安装则更新检出的代码并重新构建。[UPGRADING.md](UPGRADING.md) 涵盖两种情况，包括回滚。
-
-[RUNBOOK.md](RUNBOOK.md) 涵盖运维，`infra/monitoring/` 提供 Prometheus 告警规则和 Grafana 仪表板，[配置参考](https://docs.getgeolens.com/guides/quickstart/configuration/)列出了每一项设置。
+内置数据库每日备份，[备份指南](https://docs.getgeolens.com/guides/admin/backups/)涵盖异地复制和恢复。升级和回滚见 [UPGRADING.md](UPGRADING.md)，运维见 [RUNBOOK.md](RUNBOOK.md)，每一项设置见[配置参考](https://docs.getgeolens.com/guides/quickstart/configuration/)。
 
 ## 您的第一个数据集
 
-用 CLI 发布示例文件，然后通过 OGC API Features 把它读回来：
+安装 [CLI](https://docs.getgeolens.com/guides/cli/) 后，在安装目录中发布示例文件：
 
 ```sh
-python3 -m venv .venv && . .venv/bin/activate         # Python 3.11+; on Debian/Ubuntu, apt install python3-venv
-pip install geolens-cli
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
-export GEOLENS_API_KEY="paste-your-api-key-here"      # create one on your Settings page
-curl -H "X-Api-Key: $GEOLENS_API_KEY" \
-  "http://localhost:8080/api/collections/<dataset-id>/items?limit=5"
 ```
 
-`geolens publish` 会打印数据集的 URL，URL 末尾就是它的 id。要管理整个目录，可以在 `geolens.yaml` 清单中描述各个数据源，然后运行 `geolens apply`；[`examples/manifests/`](examples/manifests/) 提供了模板，[CLI 指南](https://docs.getgeolens.com/guides/cli/)说明了清单的结构。
+`geolens publish` 会打印新数据集的 URL。要管理整个目录，可以在 `geolens.yaml` 清单中描述各个数据源，然后运行 `geolens apply`；[`examples/manifests/`](examples/manifests/) 提供了模板。
 
-要把演示中的地图和数据集加载到您的安装中，请运行种子脚本。它需要访问互联网，会从大约十几个来源下载公开的开放数据，其中包括约 466 MB 的地形起伏文件和 62 个地形瓦片；`--no-oceans` 和 `--no-terrain` 可跳过这些下载，[scripts/README.md](scripts/README.md) 列出了所有选项。如果修改过管理员用户名，请改用您自己的。
-
-```sh
-python3 -m venv .venv && . .venv/bin/activate         # the same virtualenv as above
-pip install httpx
-GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  python scripts/seed-showcase.py --username admin
-```
-
-其余内容请参阅 [API 参考](https://docs.getgeolens.com/guides/api/)和 [SDK 指南](https://docs.getgeolens.com/guides/sdk/)。
+要加载演示中的地图和数据集，请从 `.env` 导出 `GEOLENS_ADMIN_PASSWORD`，然后运行 `python scripts/seed-showcase.py --username admin`。该脚本需要 Python 3.10+ 和 `httpx`，会从大约十几个来源下载公开数据；大小和选项见 [scripts/README.md](scripts/README.md)。
 
 ## 隐私与访问
 
 - GeoLens 不发送遥测数据。除默认底图瓦片以及您的用户注册的远程服务或 STAC 数据源外，它只会为管理员开启的功能发起出站连接。[EGRESS.md](EGRESS.md) 列出了这些连接，并说明如何在隔离网络中运行。
 - 没有 GeoLens 也能读取您的数据。矢量数据集是 `data` 模式中的普通 PostGIS 表，栅格是您自己存储（本地磁盘、S3/MinIO 或 Azure Blob）中的云优化 GeoTIFF，目录可通过 OGC API、STAC 和 DCAT 导出。
 - 登录使用本地账号或 OAuth 2.0/OIDC（Google、Microsoft、GitHub 或通用提供方），并提供角色、逐数据集权限、按用户的 API 密钥和审计日志。自助注册默认关闭。
-- 此仓库中的代码采用 Apache 2.0 许可（名称和标志除外），在这里发布的功能会一直免费。[EDITIONS.md](EDITIONS.md) 介绍了可选的付费支持和附加组件。
+- 在此仓库中发布的功能会一直免费。[EDITIONS.md](EDITIONS.md) 介绍了可选的付费支持和附加组件。
 
 ## 已知限制
 
@@ -293,7 +275,7 @@ GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" 
 
 ## 参与贡献
 
-欢迎提交缺陷报告、修复、翻译和文档。[CONTRIBUTING](.github/CONTRIBUTING.md) 涵盖开发环境搭建（`make dev-init`，然后 `make dev`）、测试和 DCO 签名，[ARCHITECTURE](.github/ARCHITECTURE.md) 描绘了代码结构。问题请发到 [GitHub Discussions](https://github.com/geolens-io/geolens/discussions)，缺陷请提交到 [Issues](https://github.com/geolens-io/geolens/issues)，安全问题请按 [SECURITY.md](.github/SECURITY.md) 中的说明私下报告。[路线图](https://docs.getgeolens.com/roadmap/)展示了计划中的工作。
+欢迎提交缺陷报告、修复、翻译和文档。[CONTRIBUTING](.github/CONTRIBUTING.md) 涵盖环境搭建、测试和 DCO 签名，[ARCHITECTURE](.github/ARCHITECTURE.md) 描绘了代码结构。[QGIS 插件](https://github.com/geolens-io/qgis-geolens-plugin)、[示例](https://github.com/geolens-io/geolens-examples)和[部署](https://github.com/geolens-io/geolens-deployments)仓库同样接受 issue 和 pull request。问题请发到 [GitHub Discussions](https://github.com/geolens-io/geolens/discussions)，缺陷请提交到 [Issues](https://github.com/geolens-io/geolens/issues)，安全问题请按 [SECURITY.md](.github/SECURITY.md) 中的说明私下报告。[路线图](https://docs.getgeolens.com/roadmap/)展示了计划中的工作。
 
 ## 许可证
 
