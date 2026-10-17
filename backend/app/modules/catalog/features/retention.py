@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
@@ -32,7 +32,7 @@ from app.modules.audit.service import AuditEvent, audit_emit_required
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import DatasetRetention
 from app.modules.catalog.datasets.domain.service import _safe_column_ref, get_dataset
-from app.modules.catalog.features.idempotency import held_table_oid
+from app.modules.catalog.features.idempotency import current_table_oid, held_table_oid
 from app.modules.catalog.features.service import refresh_dataset_metadata
 from app.platform.catalog_locks import (
     WORKER_LOCK_TIMEOUT,
@@ -79,6 +79,7 @@ class _Window:
     column: str
     days: int
     cutoff: datetime | date
+    table_oid: int | None
 
 
 def is_feature_dataset(dataset: Dataset) -> bool:
@@ -165,7 +166,32 @@ async def _window(
         dataset.retention_column,
         dataset.retention_days,
         cutoff_for(now, dataset.retention_days, type_name),
+        await current_table_oid(session, dataset.table_name),
     )
+
+
+async def _hold_live_window(
+    session: AsyncSession, window: _Window, now: datetime
+) -> _Window:
+    """Hold the table against DDL, then take the cutoff from its live column.
+
+    ``_window`` reads the column's type without a lock, so a retype or a
+    table swap can commit before the delete. ROW EXCLUSIVE conflicts with
+    the ACCESS EXCLUSIVE every ALTER and swap takes, so the type read here
+    holds until the batch ends. Raises ``_BatchStale`` when the table was
+    replaced or the column is no longer a date or timestamp.
+    """
+    quoted = get_catalog_port().quote_table(window.table_name)
+    async with worker_lock_budget(session):
+        # codeql[py/sql-injection] table via quote_table; the mode is a literal
+        await session.execute(text(f"LOCK TABLE {quoted} IN ROW EXCLUSIVE MODE"))
+    type_name = await column_type(session, window.table_name, window.column)
+    if (
+        await current_table_oid(session, window.table_name) != window.table_oid
+        or type_name not in TEMPORAL_TYPES
+    ):
+        raise _BatchStale("table_or_column_changed")
+    return replace(window, cutoff=cutoff_for(now, window.days, type_name))
 
 
 async def _delete_batch(
@@ -314,13 +340,16 @@ async def prune_dataset(
                     if due is None:
                         break
                     dataset, window = due
+                    window = await _hold_live_window(session, window, now)
                     gids = await _delete_batch(session, window, after, batch_rows)
                     if gids:
                         await _record_batch(session, dataset, window, len(gids))
                     await session.commit()
-            except _BatchStale:
+            except _BatchStale as stale:
                 logger.warning(
-                    "dataset_retention_batch_rolled_back", dataset_id=str(dataset_id)
+                    "dataset_retention_batch_rolled_back",
+                    dataset_id=str(dataset_id),
+                    reason=str(stale) or "dataset_or_setting_changed",
                 )
                 break
             if gids:

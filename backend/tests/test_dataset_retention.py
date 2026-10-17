@@ -657,6 +657,125 @@ class TestRace:
         for dataset_id in dataset_ids:
             assert await _prune_audits(test_db_session, dataset_id) == []
 
+    @pytest.fixture
+    def west_of_utc(self):
+        """A host clock behind UTC, where a cutoff of the wrong type moves."""
+        import os
+        import time
+
+        previous = os.environ.get("TZ")
+        os.environ["TZ"] = "America/New_York"
+        time.tzset()
+        yield
+        if previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous
+        time.tzset()
+
+    async def test_a_column_retyped_before_the_batch_uses_its_live_type(
+        self, seed, test_db_session, monkeypatch, west_of_utc
+    ):
+        """A naive timestamp retyped to timestamptz after the window was read.
+
+        The window's naive cutoff, bound to the new column, is read in the
+        host's zone, which moves it hours later west of UTC.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        naive_cutoff = CUTOFF.replace(tzinfo=None)
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_local",
+            days=30,
+            rows=[
+                {"name": "older", "seen_local": naive_cutoff - timedelta(hours=1)},
+                {
+                    "name": "after_cutoff",
+                    "seen_local": naive_cutoff + timedelta(hours=1),
+                },
+            ],
+        )
+        real_window = retention._window
+
+        async def window_then_retype(session, dataset_id, now):
+            due = await real_window(session, dataset_id, now)
+            await _commit_elsewhere(
+                f"ALTER TABLE data.{dataset.table_name} ALTER COLUMN seen_local "
+                "TYPE timestamptz USING seen_local AT TIME ZONE 'UTC'",
+                {},
+            )
+            return due
+
+        monkeypatch.setattr(retention, "_window", window_then_retype)
+
+        assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
+        assert await _names(test_db_session, dataset) == {"after_cutoff"}
+
+    async def test_a_column_retyped_to_text_ends_the_pass(
+        self, seed, test_db_session, monkeypatch
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[{"name": "old", "seen_at": NOW - timedelta(days=90)}],
+        )
+        real_window = retention._window
+
+        async def window_then_retype(session, dataset_id, now):
+            due = await real_window(session, dataset_id, now)
+            await _commit_elsewhere(
+                f"ALTER TABLE data.{dataset.table_name} ALTER COLUMN seen_at TYPE text",
+                {},
+            )
+            return due
+
+        monkeypatch.setattr(retention, "_window", window_then_retype)
+
+        assert await retention.prune_expired_rows(now=NOW) == {}
+        assert await _names(test_db_session, dataset) == {"old"}
+        assert await _prune_audits(test_db_session, dataset.id) == []
+        assert await _settle_pending(test_db_session, dataset.id) is False
+
+    async def test_a_retype_waits_for_the_batch_holding_the_table(
+        self, seed, test_db_session, monkeypatch
+    ):
+        import app.core.db as db_module
+        from sqlalchemy.exc import DBAPIError
+
+        from app.core.db.sqlstate import is_lock_conflict
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[{"name": "old", "seen_at": NOW - timedelta(days=90)}],
+        )
+        real_delete = retention._delete_batch
+        refused: list[bool] = []
+
+        async def retype_attempt_then_delete(session, window, after, limit):
+            async with db_module.async_session() as other:
+                await other.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                try:
+                    await other.execute(
+                        text(
+                            f"ALTER TABLE data.{dataset.table_name} "
+                            "ALTER COLUMN seen_at TYPE date"
+                        )
+                    )
+                except DBAPIError as exc:
+                    refused.append(is_lock_conflict(exc))
+                await other.rollback()
+            return await real_delete(session, window, after, limit)
+
+        monkeypatch.setattr(retention, "_delete_batch", retype_attempt_then_delete)
+
+        assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
+        assert refused == [True]
+
     async def test_a_dataset_detached_before_the_lock_loses_no_rows(
         self, seed, test_db_session, interleave
     ):
