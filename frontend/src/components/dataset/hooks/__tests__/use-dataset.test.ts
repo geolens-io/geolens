@@ -187,7 +187,7 @@ describe('useDatasetRows', () => {
 });
 
 /**
- * useReuploadCommit must invalidate
+ * REMED-01 (ingest-audit P2-06): useReuploadCommit must invalidate
  * jobStatusByDataset on success so the dataset-detail warnings banner
  * refetches the new job's warnings instead of holding the prior job's
  * cached value (staleTime: Infinity on useDatasetJobStatus).
@@ -363,7 +363,7 @@ describe('useDeleteDataset', () => {
 });
 
 /**
- * `placeholderData: keepPreviousData` shows the
+ * fix(#1285 codex round 2): `placeholderData: keepPreviousData` shows the
  * last successful result for ANY new query invocation, not just a re-fetch
  * of the same dataset's runs — so navigating straight from one
  * /datasets/:id to another briefly serves the PRIOR dataset's runs under
@@ -442,7 +442,7 @@ describe('useDatasetRefreshRuns', () => {
    * Build a client that mirrors main.tsx's global `false` instead, so a
    * refetch here can only be explained by this query's own override.
    *
-   * The override must be 'always', not `true`.
+   * fix(#1328 codex review): the override must be 'always', not `true`.
    * `true` only refetches when the cached data is already stale, but an
    * external run can start and this tab can regain focus inside the SAME
    * 15s staleTime window as this query's last fetch — the exact case a
@@ -509,7 +509,7 @@ describe('useDatasetRefreshRuns', () => {
 });
 
 /**
- * This hook is the extracted "watch a dispatched
+ * fix(#1285 codex round 4): this hook is the extracted "watch a dispatched
  * refresh run" concern, meant to be mounted at the dataset PAGE level so its
  * poll and its run-id tracking survive a tab switch away from "sources"
  * (SourceRefreshAction used to own this and lived inside a Radix
@@ -554,10 +554,10 @@ describe('useDatasetRefreshWatch', () => {
     queryKeys.maps.columnValuesPrefix('ds-1'),
     queryKeys.maps.columnStatsPrefix('ds-1'),
     queryKeys.search.all,
-    // The job-status key has staleTime Infinity and feeds the persistent
+    // fix(#1285 codex round 5): staleTime Infinity, feeds the persistent
     // ingest-warnings banner (mirrors useReuploadCommit's own invalidation).
     queryKeys.ingest.jobStatusByDataset('ds-1'),
-    // The joined related-record rows a mounted
+    // fix(#1285 codex round 5): the joined related-record rows a mounted
     // RelatedRecordsPanel section renders — stale after a data replace.
     queryKeys.relationships.recordsPrefix('ds-1'),
     // Relationship lists carry broken flags that depend on either endpoint.
@@ -633,7 +633,7 @@ describe('useDatasetRefreshWatch', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  // A bug to avoid: gating the whole
+  // fix(#1285 codex round 5): the core round-5 bug. Round 4 gated the whole
   // invalidation effect on `latestRunId === dispatchedRunId`, so a run this
   // hook never dispatched — the CLI, another editor's session, or one
   // already active when this hook mounted — could transition all the way to
