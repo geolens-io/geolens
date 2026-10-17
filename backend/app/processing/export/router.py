@@ -604,18 +604,18 @@ async def export_dataset_endpoint(
     dataset_has_geometry = dataset.geometry_type is not None
     dataset_extent = dataset.record.spatial_extent
     # Every in-app write to a table GeoLens owns rolls tile_cache_version or
-    # the title, both in the selection key; a registered table can change in
-    # place by direct SQL, which only the TTL bounds.
-    bytes_follow_key = geolens_owns_table(
+    # the title, both in the selection key. A registered table can change in
+    # place by direct SQL, and a `where` filter can resolve against the clock
+    # ('now', 'today'); only the TTL bounds either.
+    bytes_follow_key = where is None and geolens_owns_table(
         dataset.source_format, dataset.record.record_type, dataset.origin_ref
     )
     del dataset
     await db.rollback()
 
     # A HEAD with nothing fresh still answers a real length and validator when
-    # the stored artifact is the only bytes this URL holds; it never builds. Not
-    # with a `where` filter, which can resolve against the clock ('today').
-    if request.method == "HEAD" and bytes_follow_key and where is None:
+    # the stored artifact is the only bytes this URL holds; it never builds.
+    if request.method == "HEAD" and bytes_follow_key:
         settled = await artifact_cache.settled_artifact(
             dataset_id,
             selection,

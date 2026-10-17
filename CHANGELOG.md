@@ -28,9 +28,10 @@ and releases use semantic versioning.
   length. This covers datasets whose table GeoLens owns. A registered PostGIS
   table can change outside GeoLens, so its exports behave as before: a
   rebuild answers ranges with the whole file, and a HEAD after the cache
-  expires reports no length. An export with a `where` filter also keeps a
-  HEAD without a length after the cache expires, because a filter such as
-  `event_date = 'today'` can select different rows as time passes.
+  expires reports no length. An export with a `where` filter behaves as
+  before in the same two ways, because a filter such as
+  `event_date = 'today'` can select different rows as time passes. A
+  request whose `If-Range` names the current ETag still gets its range.
 
 ## [1.25.1] - 2026-10-16
 

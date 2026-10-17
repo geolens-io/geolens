@@ -5561,3 +5561,80 @@ async def test_a_head_with_a_where_filter_stays_size_less_after_the_ttl(
         f"with etag={if_match.headers.get('etag')!r}"
     )
     assert [r.status_code for r in revalidations] == [200, 200, 200]
+
+
+async def test_a_filtered_export_resuming_an_unrecorded_version_is_answered_whole(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """A filter can select A, then B, then A again with no version change.
+
+    ``starts_at <= 'now' AND ends_at > 'now'`` does that on a table GeoLens
+    owns. A is cached; B goes out through the publish-failure fallback and is
+    never recorded; the window closes and the rebuild produces A again. A
+    client resuming B must get the whole file, though A's digest is the only
+    one the cache knows.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Filtered Revert")
+    url = f"{_url(dataset.id)}&where=pop%20%3E%201000"
+    first = conversions.body
+
+    assert (await client.get(url, headers=admin_auth_header)).status_code == 200
+
+    async def _refuse(*args, **kwargs):
+        raise OSError("object store is full")
+
+    conversions.body = bytes(reversed(first))
+    cache._ttl_seconds = lambda: 0
+    try:
+        with monkeypatch.context() as m:
+            m.setattr(cache, "_put_with_reclaim", _refuse)
+            unrecorded = await client.get(url, headers=admin_auth_header)
+        assert unrecorded.content == conversions.body
+
+        conversions.body = first
+        resumed = await client.get(
+            url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 3
+    assert resumed.status_code == 200, (
+        f"a resume on a filtered export answered {resumed.status_code}; the "
+        f"client may hold the unrecorded version, so a slice of A splices"
+    )
+    assert "content-range" not in resumed.headers
+
+
+async def test_a_matching_if_range_still_slices_a_filtered_rebuild(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """A strong If-Range names the client's bytes, so a filter doesn't matter."""
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Filtered If-Range")
+    url = f"{_url(dataset.id)}&where=pop%20%3E%201000"
+    probe = await client.get(url, headers=admin_auth_header)
+
+    cache._ttl_seconds = lambda: 0
+    try:
+        resumed = await client.get(
+            url,
+            headers={
+                **admin_auth_header,
+                "Range": "bytes=100-199",
+                "If-Range": probe.headers["etag"],
+            },
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2
+    assert resumed.status_code == 206
+    assert resumed.content == conversions.body[100:200]
