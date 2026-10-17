@@ -185,7 +185,8 @@ grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin pass
 用 CLI 发布示例文件，然后通过 OGC API Features 把它读回来：
 
 ```sh
-pipx install geolens-cli                              # needs Python 3.11+
+python3 -m venv .venv && . .venv/bin/activate         # needs Python 3.11+
+pip install geolens-cli
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 export GEOLENS_API_KEY="paste-your-api-key-here"      # create one on your Settings page
@@ -198,9 +199,10 @@ curl -H "X-Api-Key: $GEOLENS_API_KEY" \
 要把演示中的地图和数据集加载到您的安装中，请运行种子脚本。它需要访问互联网，会从大约十几个来源下载公开的开放数据，其中包括约 466 MB 的地形起伏文件和 62 个地形瓦片；`--no-oceans` 和 `--no-terrain` 可跳过这些下载，[scripts/README.md](scripts/README.md) 列出了所有选项。如果修改过管理员用户名，请改用您自己的。
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install httpx  # the seed script needs Python 3.10+
+python3 -m venv .venv && . .venv/bin/activate         # the same virtualenv as above
+pip install httpx
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  .venv/bin/python scripts/seed-showcase.py --username admin
+  python scripts/seed-showcase.py --username admin
 ```
 
 其余内容请参阅 [API 参考](https://docs.getgeolens.com/guides/api/)和 [SDK 指南](https://docs.getgeolens.com/guides/sdk/)。
