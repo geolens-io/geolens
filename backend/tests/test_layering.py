@@ -1326,7 +1326,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table and records
     # the version it keeps.
-    "backend/app/processing/ingest/tasks_common.py": 1903,
+    "backend/app/processing/ingest/tasks_common.py": 1904,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, and a service re-upload's
@@ -1384,7 +1384,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 699,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1803,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1854,
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1454,
@@ -1415,7 +1415,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, and batch
     # inserts reuse the single-insert validation.
-    "backend/app/modules/catalog/features/service.py": 1501,
+    "backend/app/modules/catalog/features/service.py": 1502,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
     "backend/app/modules/catalog/authorization.py": 1176,

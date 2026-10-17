@@ -387,6 +387,12 @@ class Dataset(Base):
             "schema_drift_status IS NULL OR schema_drift_status IN ('none', 'drifted')",
             name="chk_datasets_schema_drift_status",
         ),
+        # Migration 0085 is the source of truth.
+        CheckConstraint(
+            "(retention_column IS NULL) = (retention_days IS NULL) "
+            "AND (retention_days IS NULL OR retention_days BETWEEN 1 AND 3650)",
+            name="chk_datasets_retention",
+        ),
         # feat(#1218): backs the duplicate-source guard (ADR-002 Decision 6,
         # re-keyed from source_url to origin_uri). Partial: most rows NULL.
         Index(
@@ -598,6 +604,15 @@ class Dataset(Base):
     # [...] -> admin-curated allowlist; only these columns flow into MVT.
     tile_columns: Mapped[list[str] | None] = mapped_column(
         ARRAY(String()), nullable=True
+    )
+
+    # Keep the last ``retention_days`` days of rows, judged by this temporal
+    # column of the live table. Both NULL keeps every row.
+    retention_column: Mapped[str | None] = mapped_column(String(63), nullable=True)
+    retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # A retention batch committed deletions its run has not settled yet.
+    retention_settle_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
     )
 
     # Relationships

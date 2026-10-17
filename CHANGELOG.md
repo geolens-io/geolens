@@ -55,6 +55,16 @@ and releases use semantic versioning.
   Settings and on the admin user page mark these keys "One dataset". Migration 0084 adds
   `api_keys.dataset_id`; its downgrade refuses while an active dataset write
   key exists.
+- A feature dataset can keep only its last N days of rows, judged by one of
+  its date or timestamp columns. Set it under Structure > Retention, or with
+  `PUT /datasets/{id}/retention/`. An hourly worker run deletes older rows in
+  batches, so a large backlog can take several runs. Each batch commits with
+  the feature count and tile version updated and a `dataset.retention_prune`
+  audit row of its count. A run that deleted rows then recomputes the
+  extent, and a run cut short before that is finished by the next one. Rows
+  with no value in the column are kept, and a timestamp without time zone is
+  read as UTC. Retention is off by default. Saving a setting that would
+  delete rows right away first shows how many and asks to confirm.
 
 ### Fixed
 
@@ -62,6 +72,10 @@ and releases use semantic versioning.
   (`!` to `~`), up to 128 characters, instead of only letters, digits and
   `._:-`. Timestamps with `+00:00`, base64 values and the quoted form of the
   IETF draft no longer get a 422. The key is still compared exactly as sent.
+- Deleting a feature so that no remaining row has a geometry now clears the
+  dataset's stored extent, even when rows without a geometry remain. The
+  extent used to keep the deleted features' bounds, so spatial search and
+  published bounds still matched them.
 - The dataset page header shows catalog status and visibility in one badge,
   such as "Catalog: Published · Private", so a published dataset that only
   some people can see no longer reads as public.

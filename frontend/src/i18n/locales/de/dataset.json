@@ -217,8 +217,12 @@
       "metadataEdit": "Metadaten aktualisiert",
       "datasetDelete": "Datensatz gelöscht",
       "datasetCreate": "Datensatz erstellt",
-      "datasetTransferOwner": "Besitzer geändert"
-    }
+      "datasetTransferOwner": "Besitzer geändert",
+      "datasetRetentionPrune": "Aufbewahrungsbereinigung"
+    },
+    "retentionPruned_one": "{{formattedCount}} Zeile gelöscht",
+    "retentionPruned_other": "{{formattedCount}} Zeilen gelöscht",
+    "retentionPruned_many": "{{formattedCount}} Zeilen gelöscht"
   },
   "versionHistory": {
     "title": "Versionsverlauf",
@@ -1248,5 +1252,30 @@
     "noKeys": "Keine Schreibschlüssel für diesen Datensatz.",
     "loadError": "Die Schreibschlüssel dieses Datensatzes konnten nicht geladen werden.",
     "revokeKey": "{{name}} widerrufen"
+  },
+  "retention": {
+    "title": "Aufbewahrung",
+    "description": "Löscht Zeilen, sobald sie älter als eine festgelegte Anzahl von Tagen sind. Zeilen ohne Wert in der Datumsspalte bleiben erhalten. Alte Zeilen werden stündlich in Stapeln gelöscht.",
+    "statusOn_one": "Zeilen des letzten {{count}} Tages werden behalten, gemessen an {{column}}.",
+    "statusOn_other": "Zeilen der letzten {{count}} Tage werden behalten, gemessen an {{column}}.",
+    "statusOn_many": "Zeilen der letzten {{count}} Tage werden behalten, gemessen an {{column}}.",
+    "statusOff": "Aus. Alle Zeilen bleiben erhalten.",
+    "noTemporalColumns": "Dieser Datensatz hat keine Datums- oder Zeitstempelspalte, daher ist die Aufbewahrung nicht verfügbar.",
+    "notFeatureDataset": "Dieser Datensatz hat keine Geometrie mehr, daher läuft die Aufbewahrung nicht. Schalten Sie sie aus, um die Einstellung zu entfernen.",
+    "columnLabel": "Datumsspalte",
+    "columnPlaceholder": "Spalte wählen",
+    "daysLabel": "Aufzubewahrende Tage",
+    "daysHint": "Eine ganze Zahl von 1 bis 3650.",
+    "save": "Speichern",
+    "saving": "Wird gespeichert…",
+    "turnOff": "Ausschalten",
+    "saved": "Aufbewahrung gespeichert",
+    "turnedOff": "Aufbewahrung ausgeschaltet",
+    "saveFailed": "Aufbewahrung konnte nicht gespeichert werden",
+    "confirmTitle": "Alte Zeilen löschen?",
+    "confirmDescription_one": "{{formattedCount}} Zeile ist älter als {{cutoff}} und wird bei einem stündlichen Lauf gelöscht. Das kann nicht rückgängig gemacht werden.",
+    "confirmDescription_other": "{{formattedCount}} Zeilen sind älter als {{cutoff}}. Stündliche Läufe löschen sie in Stapeln, ein großer Rückstand kann daher mehrere Läufe dauern. Das kann nicht rückgängig gemacht werden.",
+    "confirmDescription_many": "{{formattedCount}} Zeilen sind älter als {{cutoff}}. Stündliche Läufe löschen sie in Stapeln, ein großer Rückstand kann daher mehrere Läufe dauern. Das kann nicht rückgängig gemacht werden.",
+    "confirmAction": "Löschen und speichern"
   }
 }

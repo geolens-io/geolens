@@ -14,6 +14,7 @@ vi.mock('@/api/datasets', async (importOriginal) => {
     reuploadCommit: vi.fn(),
     deleteDataset: vi.fn(),
     getDatasetRefreshRuns: vi.fn(),
+    setDatasetRetention: vi.fn(),
   };
 });
 
@@ -23,6 +24,7 @@ import {
   reuploadCommit,
   deleteDataset,
   getDatasetRefreshRuns,
+  setDatasetRetention,
 } from '@/api/datasets';
 import {
   useDataset,
@@ -31,6 +33,7 @@ import {
   useDeleteDataset,
   useDatasetRefreshRuns,
   useDatasetRefreshWatch,
+  useSetDatasetRetention,
 } from '@/components/dataset/hooks/use-dataset';
 import { queryKeys } from '@/lib/query-keys';
 import type { DatasetRefreshRunResponse } from '@/types/api';
@@ -40,6 +43,7 @@ const mockGetDatasetRows = vi.mocked(getDatasetRows);
 const mockReuploadCommit = vi.mocked(reuploadCommit);
 const mockDeleteDataset = vi.mocked(deleteDataset);
 const mockGetDatasetRefreshRuns = vi.mocked(getDatasetRefreshRuns);
+const mockSetDatasetRetention = vi.mocked(setDatasetRetention);
 
 describe('useDataset', () => {
   beforeEach(() => {
@@ -301,6 +305,45 @@ describe('useReuploadCommit', () => {
  * had just been deleted — `/datasets/:id`, plus `/related/` and `/maps/`, which sit
  * under the ['datasets'] prefix the list invalidation matches. All three 404'd.
  */
+describe('useSetDatasetRetention', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function renderWithClient() {
+    let captured: QueryClient | null = null;
+    const { result } = renderHook(() => {
+      const qc = useQueryClient();
+      const ref = useRef<QueryClient | null>(null);
+      if (ref.current === null) ref.current = qc;
+      captured = ref.current;
+      return useSetDatasetRetention();
+    });
+    if (!captured) throw new Error('QueryClient capture failed');
+    return { result, qc: captured as QueryClient };
+  }
+
+  const STAMPED_KEYS = [queryKeys.datasets.detail('ds-1'), queryKeys.datasets.all, queryKeys.search.all];
+
+  it('refreshes the detail, browse and search caches after a save, since the save stamps the record', async () => {
+    mockSetDatasetRetention.mockResolvedValueOnce({} as never);
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync({ datasetId: 'ds-1', retention: { column: 'observed_at', days: 30 } });
+
+    for (const queryKey of STAMPED_KEYS) expect(spy).toHaveBeenCalledWith({ queryKey });
+  });
+
+  it('invalidates nothing after a dry run', async () => {
+    mockSetDatasetRetention.mockResolvedValueOnce({} as never);
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync({ datasetId: 'ds-1', retention: null, dryRun: true });
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 describe('useDeleteDataset', () => {
   beforeEach(() => vi.clearAllMocks());
 

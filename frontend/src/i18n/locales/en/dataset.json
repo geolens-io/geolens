@@ -217,8 +217,12 @@
       "metadataEdit": "Metadata updated",
       "datasetDelete": "Dataset deleted",
       "datasetCreate": "Dataset created",
-      "datasetTransferOwner": "Owner changed"
-    }
+      "datasetTransferOwner": "Owner changed",
+      "datasetRetentionPrune": "Retention cleanup"
+    },
+    "retentionPruned_one": "{{formattedCount}} row deleted",
+    "retentionPruned_other": "{{formattedCount}} rows deleted",
+    "retentionPruned_many": "{{formattedCount}} rows deleted"
   },
   "versionHistory": {
     "title": "Version History",
@@ -1248,5 +1252,30 @@
     "noKeys": "No write keys for this dataset.",
     "loadError": "Couldn't load this dataset's write keys.",
     "revokeKey": "Revoke {{name}}"
+  },
+  "retention": {
+    "title": "Retention",
+    "description": "Delete rows once they are older than a set number of days. Rows with no value in the date column are kept. Old rows are deleted in hourly batches.",
+    "statusOn_one": "Keeping the last {{count}} day of rows, judged by {{column}}.",
+    "statusOn_other": "Keeping the last {{count}} days of rows, judged by {{column}}.",
+    "statusOn_many": "Keeping the last {{count}} days of rows, judged by {{column}}.",
+    "statusOff": "Off. Every row is kept.",
+    "noTemporalColumns": "This dataset has no date or timestamp column, so retention is not available.",
+    "notFeatureDataset": "This dataset no longer has geometry, so retention does not run. Turn it off to clear the setting.",
+    "columnLabel": "Date column",
+    "columnPlaceholder": "Choose a column",
+    "daysLabel": "Days to keep",
+    "daysHint": "A whole number from 1 to 3650.",
+    "save": "Save",
+    "saving": "Saving…",
+    "turnOff": "Turn off",
+    "saved": "Retention saved",
+    "turnedOff": "Retention turned off",
+    "saveFailed": "Could not save retention",
+    "confirmTitle": "Delete old rows?",
+    "confirmDescription_one": "{{formattedCount}} row is older than {{cutoff}} and will be deleted by an hourly run. This cannot be undone.",
+    "confirmDescription_other": "{{formattedCount}} rows are older than {{cutoff}}. Hourly runs delete them in batches, so a large backlog can take several runs. This cannot be undone.",
+    "confirmDescription_many": "{{formattedCount}} rows are older than {{cutoff}}. Hourly runs delete them in batches, so a large backlog can take several runs. This cannot be undone.",
+    "confirmAction": "Delete and save"
   }
 }

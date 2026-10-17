@@ -8,6 +8,7 @@ a sub-module directly — enforced by
 """
 
 from app.modules.catalog.datasets.domain._sql_safety import (
+    _safe_column_ref,  # noqa: F401 -- re-exported for features/retention.py
     _safe_table_ref,  # noqa: F401 -- re-exported for tests/test_sql_safety.py
 )
 from app.modules.catalog.datasets.domain.service_analysis import (

@@ -217,8 +217,12 @@
       "metadataEdit": "Métadonnées mises à jour",
       "datasetDelete": "Jeu de données supprimé",
       "datasetCreate": "Jeu de données créé",
-      "datasetTransferOwner": "Propriétaire modifié"
-    }
+      "datasetTransferOwner": "Propriétaire modifié",
+      "datasetRetentionPrune": "Nettoyage de rétention"
+    },
+    "retentionPruned_one": "{{formattedCount}} ligne supprimée",
+    "retentionPruned_other": "{{formattedCount}} lignes supprimées",
+    "retentionPruned_many": "{{formattedCount}} lignes supprimées"
   },
   "versionHistory": {
     "title": "Historique des versions",
@@ -1248,5 +1252,30 @@
     "noKeys": "Aucune clé d'écriture pour ce jeu de données.",
     "loadError": "Impossible de charger les clés d'écriture de ce jeu de données.",
     "revokeKey": "Révoquer {{name}}"
+  },
+  "retention": {
+    "title": "Rétention",
+    "description": "Supprime les lignes dès qu’elles dépassent un nombre de jours donné. Les lignes sans valeur dans la colonne de date sont conservées. Les anciennes lignes sont supprimées par lots, une fois par heure.",
+    "statusOn_one": "Conservation des lignes du dernier {{count}} jour, selon {{column}}.",
+    "statusOn_other": "Conservation des lignes des {{count}} derniers jours, selon {{column}}.",
+    "statusOn_many": "Conservation des lignes des {{count}} derniers jours, selon {{column}}.",
+    "statusOff": "Désactivée. Toutes les lignes sont conservées.",
+    "noTemporalColumns": "Ce jeu de données n’a aucune colonne de date ou d’horodatage, la rétention n’est donc pas disponible.",
+    "notFeatureDataset": "Ce jeu de données n’a plus de géométrie, la rétention ne s’exécute donc pas. Désactivez-la pour effacer le réglage.",
+    "columnLabel": "Colonne de date",
+    "columnPlaceholder": "Choisir une colonne",
+    "daysLabel": "Jours à conserver",
+    "daysHint": "Un nombre entier de 1 à 3650.",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "turnOff": "Désactiver",
+    "saved": "Rétention enregistrée",
+    "turnedOff": "Rétention désactivée",
+    "saveFailed": "Impossible d’enregistrer la rétention",
+    "confirmTitle": "Supprimer les anciennes lignes ?",
+    "confirmDescription_one": "{{formattedCount}} ligne est antérieure au {{cutoff}} et sera supprimée lors d’une exécution horaire. Cette action est irréversible.",
+    "confirmDescription_other": "{{formattedCount}} lignes sont antérieures au {{cutoff}}. Les exécutions horaires les suppriment par lots, donc un gros volume peut demander plusieurs exécutions. Cette action est irréversible.",
+    "confirmDescription_many": "{{formattedCount}} lignes sont antérieures au {{cutoff}}. Les exécutions horaires les suppriment par lots, donc un gros volume peut demander plusieurs exécutions. Cette action est irréversible.",
+    "confirmAction": "Supprimer et enregistrer"
   }
 }

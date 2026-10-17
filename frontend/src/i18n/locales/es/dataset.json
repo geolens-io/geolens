@@ -217,8 +217,12 @@
       "metadataEdit": "Metadatos actualizados",
       "datasetDelete": "Conjunto de datos eliminado",
       "datasetCreate": "Conjunto de datos creado",
-      "datasetTransferOwner": "Propietario cambiado"
-    }
+      "datasetTransferOwner": "Propietario cambiado",
+      "datasetRetentionPrune": "Limpieza por retención"
+    },
+    "retentionPruned_one": "{{formattedCount}} fila eliminada",
+    "retentionPruned_other": "{{formattedCount}} filas eliminadas",
+    "retentionPruned_many": "{{formattedCount}} filas eliminadas"
   },
   "versionHistory": {
     "title": "Historial de versiones",
@@ -1248,5 +1252,30 @@
     "noKeys": "Este conjunto de datos no tiene claves de escritura.",
     "loadError": "No se pudieron cargar las claves de escritura de este conjunto de datos.",
     "revokeKey": "Revocar {{name}}"
+  },
+  "retention": {
+    "title": "Retención",
+    "description": "Elimina las filas cuando superan un número de días. Se conservan las filas sin valor en la columna de fecha. Las filas antiguas se eliminan en lotes cada hora.",
+    "statusOn_one": "Se conserva el último {{count}} día de filas, según {{column}}.",
+    "statusOn_other": "Se conservan los últimos {{count}} días de filas, según {{column}}.",
+    "statusOn_many": "Se conservan los últimos {{count}} días de filas, según {{column}}.",
+    "statusOff": "Desactivada. Se conservan todas las filas.",
+    "noTemporalColumns": "Este conjunto de datos no tiene ninguna columna de fecha o marca de tiempo, por lo que la retención no está disponible.",
+    "notFeatureDataset": "Este conjunto de datos ya no tiene geometría, así que la retención no se ejecuta. Desactívala para borrar la configuración.",
+    "columnLabel": "Columna de fecha",
+    "columnPlaceholder": "Elige una columna",
+    "daysLabel": "Días que se conservan",
+    "daysHint": "Un número entero de 1 a 3650.",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "turnOff": "Desactivar",
+    "saved": "Retención guardada",
+    "turnedOff": "Retención desactivada",
+    "saveFailed": "No se pudo guardar la retención",
+    "confirmTitle": "¿Eliminar las filas antiguas?",
+    "confirmDescription_one": "{{formattedCount}} fila es anterior a {{cutoff}} y se eliminará en una ejecución horaria. No se puede deshacer.",
+    "confirmDescription_other": "{{formattedCount}} filas son anteriores a {{cutoff}}. Las ejecuciones horarias las eliminan por lotes, así que un volumen grande puede llevar varias ejecuciones. No se puede deshacer.",
+    "confirmDescription_many": "{{formattedCount}} filas son anteriores a {{cutoff}}. Las ejecuciones horarias las eliminan por lotes, así que un volumen grande puede llevar varias ejecuciones. No se puede deshacer.",
+    "confirmAction": "Eliminar y guardar"
   }
 }

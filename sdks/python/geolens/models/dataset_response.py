@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ..models.dataset_response_stac_assets_type_0 import (
         DatasetResponseStacAssetsType0,
     )
+    from ..models.dataset_retention import DatasetRetention
     from ..models.derived_from_response import DerivedFromResponse
     from ..models.point_cloud_metadata import PointCloudMetadata
     from ..models.previous_version_response import PreviousVersionResponse
@@ -71,6 +72,7 @@ class DatasetResponse:
         source_format (None | str | Unset): Original file format, e.g. GPKG, SHP
         tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null uses zoom defaults, []
             emits geometry-only tiles, list emits those properties at any zoom.
+        retention (DatasetRetention | None | Unset): How long rows are kept; null keeps every row.
         original_srid (int | None | Unset): EPSG SRID of the uploaded source file
         current_version (int | Unset): Monotonic version counter Default: 1.
         source_url (None | str | Unset): URL the data was originally fetched from
@@ -168,6 +170,7 @@ class DatasetResponse:
     quality_detail: None | QualityDetail | Unset = UNSET
     source_format: None | str | Unset = UNSET
     tile_columns: list[str] | None | Unset = UNSET
+    retention: DatasetRetention | None | Unset = UNSET
     original_srid: int | None | Unset = UNSET
     current_version: int | Unset = 1
     source_url: None | str | Unset = UNSET
@@ -213,6 +216,7 @@ class DatasetResponse:
         from ..models.dataset_response_stac_assets_type_0 import (
             DatasetResponseStacAssetsType0,
         )
+        from ..models.dataset_retention import DatasetRetention
         from ..models.derived_from_response import DerivedFromResponse
         from ..models.point_cloud_metadata import PointCloudMetadata
         from ..models.previous_version_response import PreviousVersionResponse
@@ -366,6 +370,14 @@ class DatasetResponse:
 
         else:
             tile_columns = self.tile_columns
+
+        retention: dict[str, Any] | None | Unset
+        if isinstance(self.retention, Unset):
+            retention = UNSET
+        elif isinstance(self.retention, DatasetRetention):
+            retention = self.retention.to_dict()
+        else:
+            retention = self.retention
 
         original_srid: int | None | Unset
         if isinstance(self.original_srid, Unset):
@@ -650,6 +662,8 @@ class DatasetResponse:
             field_dict["source_format"] = source_format
         if tile_columns is not UNSET:
             field_dict["tile_columns"] = tile_columns
+        if retention is not UNSET:
+            field_dict["retention"] = retention
         if original_srid is not UNSET:
             field_dict["original_srid"] = original_srid
         if current_version is not UNSET:
@@ -735,6 +749,7 @@ class DatasetResponse:
         from ..models.dataset_response_stac_assets_type_0 import (
             DatasetResponseStacAssetsType0,
         )
+        from ..models.dataset_retention import DatasetRetention
         from ..models.derived_from_response import DerivedFromResponse
         from ..models.point_cloud_metadata import PointCloudMetadata
         from ..models.previous_version_response import PreviousVersionResponse
@@ -999,6 +1014,23 @@ class DatasetResponse:
             return cast(list[str] | None | Unset, data)
 
         tile_columns = _parse_tile_columns(d.pop("tile_columns", UNSET))
+
+        def _parse_retention(data: object) -> DatasetRetention | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                retention_type_0 = DatasetRetention.from_dict(data)
+
+                return retention_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DatasetRetention | None | Unset, data)
+
+        retention = _parse_retention(d.pop("retention", UNSET))
 
         def _parse_original_srid(data: object) -> int | None | Unset:
             if data is None:
@@ -1461,6 +1493,7 @@ class DatasetResponse:
             quality_detail=quality_detail,
             source_format=source_format,
             tile_columns=tile_columns,
+            retention=retention,
             original_srid=original_srid,
             current_version=current_version,
             source_url=source_url,

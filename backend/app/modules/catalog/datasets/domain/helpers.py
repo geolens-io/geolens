@@ -20,6 +20,7 @@ from app.modules.catalog.datasets.domain.source_freshness import (
 )
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetResponse,
+    DatasetRetention,
     PointCloudMetadata,
     RasterBandInfo,
     RasterConnect,
@@ -265,6 +266,14 @@ def dataset_to_response(
         source_format=dataset.source_format,
         source_filename=dataset.source_filename,
         tile_columns=dataset.tile_columns,
+        retention=(
+            DatasetRetention(
+                column=dataset.retention_column, days=dataset.retention_days
+            )
+            if dataset.retention_column is not None
+            and dataset.retention_days is not None
+            else None
+        ),
         original_srid=dataset.original_srid,
         current_version=dataset.current_version,
         source_url=dataset.source_url,

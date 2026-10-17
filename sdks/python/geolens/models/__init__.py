@@ -267,6 +267,9 @@ from .dataset_relationship_response import DatasetRelationshipResponse
 from .dataset_response import DatasetResponse
 from .dataset_response_origin_ref_type_0 import DatasetResponseOriginRefType0
 from .dataset_response_stac_assets_type_0 import DatasetResponseStacAssetsType0
+from .dataset_retention import DatasetRetention
+from .dataset_retention_response import DatasetRetentionResponse
+from .dataset_retention_update import DatasetRetentionUpdate
 from .dataset_rows_response import DatasetRowsResponse
 from .dataset_rows_response_rows_item import DatasetRowsResponseRowsItem
 from .dataset_version_list_response import DatasetVersionListResponse
@@ -1094,6 +1097,9 @@ __all__ = (
     "DatasetResponse",
     "DatasetResponseOriginRefType0",
     "DatasetResponseStacAssetsType0",
+    "DatasetRetention",
+    "DatasetRetentionResponse",
+    "DatasetRetentionUpdate",
     "DatasetRowsResponse",
     "DatasetRowsResponseRowsItem",
     "DatasetVersionListResponse",
