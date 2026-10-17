@@ -110,8 +110,8 @@ Jeder Datensatz hält fest, woher er stammt: eine hochgeladene Datei, eine Daten
 Dienst, ein STAC-Element oder eine Zeichnung im Browser. Importierte Datensätze halten außerdem
 fest, wann sie zuletzt aktualisiert wurden, und mit einem Aktualisierungsrhythmus markiert GeoLens
 sie als aktuell, fällig oder überfällig. Bei Diensten und STAC-Quellen prüft GeoLens
-außerdem, ob die Quelle noch antwortet, und meldet Schemaänderungen auf der Quellseite, bevor sie
-Ihre Karten erreichen. Verschwindet ein Dienst, funktioniert die importierte Kopie weiter.
+außerdem, ob die Quelle noch antwortet, und meldet bei Diensten Schemaänderungen auf der
+Quellseite, bevor sie Ihre Karten erreichen. Verschwindet ein Dienst, funktioniert die importierte Kopie weiter.
 
 ## Karten erstellen und teilen
 
