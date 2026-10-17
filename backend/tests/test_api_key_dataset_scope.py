@@ -329,6 +329,59 @@ async def test_the_mint_request_is_validated(client: AsyncClient, owner, dataset
     assert resp.status_code == 422, resp.text
 
 
+async def test_a_dataset_without_geometry_cannot_have_a_dataset_key(
+    client: AsyncClient, owner, test_db_session
+):
+    from tests.factories import create_dataset
+
+    headers, owner_id = owner
+    tabular = await create_dataset(
+        test_db_session, created_by=owner_id, geometry_type=None
+    )
+    resp = await client.post(
+        f"/datasets/{tabular.id}/api-keys",
+        json={"name": "Tabular", "expires_at": _in_days(30)},
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_minting_needs_the_edit_permission_the_writes_need(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    """An owner moved to a role without edit_metadata could mint a key whose
+    every write is then refused."""
+    headers, owner_id = owner
+    bound = datasets[0]
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.user_roles SET role_id = "
+            "(SELECT id FROM catalog.roles WHERE name = 'viewer') "
+            "WHERE user_id = :user"
+        ),
+        {"user": owner_id},
+    )
+    await test_db_session.commit()
+
+    resp = await client.post(
+        f"/datasets/{bound.id}/api-keys",
+        json={"name": "Viewer owner", "expires_at": _in_days(30)},
+        headers=headers,
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"] == "Missing permission: edit_metadata"
+    count = (
+        await test_db_session.execute(
+            text("SELECT count(*) FROM catalog.api_keys WHERE dataset_id = :id"),
+            {"id": bound.id},
+        )
+    ).scalar_one()
+    assert count == 0
+    # The owner can still see what is bound to the dataset.
+    listed = await client.get(f"/datasets/{bound.id}/api-keys", headers=headers)
+    assert listed.status_code == 200, listed.text
+
+
 async def test_a_raster_dataset_cannot_have_a_dataset_key(
     client: AsyncClient, owner, test_db_session
 ):

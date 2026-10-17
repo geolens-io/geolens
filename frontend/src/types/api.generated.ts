@@ -1997,8 +1997,10 @@ export interface paths {
          *     Features items, and is treated as an invalid key everywhere else. Its
          *     feature writes go through even when the instance has dataset editing
          *     switched off. It must expire within 365 days. Requires write access to the
-         *     dataset and a signed-in session; the raw key is returned only in this
-         *     response.
+         *     dataset, the ``edit_metadata`` permission the feature writes need, and a
+         *     signed-in session. A dataset that can't take feature edits (no feature
+         *     table or no geometry column) gets 422. The raw key is returned only in
+         *     this response.
          */
         post: operations["create_dataset_api_key_datasets__dataset_id__api_keys_post"];
         delete?: never;

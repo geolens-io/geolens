@@ -420,7 +420,11 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
         />
       )}
 
-      {canEdit && featureTable && <DatasetWriteKeys datasetId={dataset.id} />}
+      {/* The feature writes refuse a dataset with no geometry column, so a key
+          minted for one could never write. */}
+      {canEdit && featureTable && dataset.geometry_type !== null && (
+        <DatasetWriteKeys datasetId={dataset.id} />
+      )}
 
       {/* Visibility */}
       <Card>

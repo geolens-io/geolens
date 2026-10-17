@@ -14,6 +14,7 @@ from app.core.record_types import capabilities
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import (
     get_current_active_user,
+    require_permission,
     require_session_credential,
 )
 from app.modules.auth.models import ApiKey
@@ -57,6 +58,7 @@ async def create_dataset_api_key(
     body: DatasetApiKeyCreateRequest,
     request: Request,
     user: Identity = Depends(require_session_credential),
+    _editor: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyCreateResponse:
     """Create a key that reads and writes this dataset's features only.
@@ -67,15 +69,22 @@ async def create_dataset_api_key(
     Features items, and is treated as an invalid key everywhere else. Its
     feature writes go through even when the instance has dataset editing
     switched off. It must expire within 365 days. Requires write access to the
-    dataset and a signed-in session; the raw key is returned only in this
-    response.
+    dataset, the ``edit_metadata`` permission the feature writes need, and a
+    signed-in session. A dataset that can't take feature edits (no feature
+    table or no geometry column) gets 422. The raw key is returned only in
+    this response.
     """
     dataset = await _found_dataset(db, dataset_id)
     await check_dataset_write_access(db, dataset, dataset_id, user)
-    if not capabilities(dataset.record.record_type).feature_table:
+    # The feature write handlers refuse these two cases, so a key minted for
+    # either could never write.
+    if (
+        not capabilities(dataset.record.record_type).feature_table
+        or dataset.geometry_type is None
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Only a dataset with features can have a dataset key",
+            detail="Only a dataset that takes feature edits can have a dataset key",
         )
     api_key, raw_key = await create_api_key_for_user(
         db,

@@ -2079,8 +2079,10 @@ export const listDatasetApiKeysDatasetsDatasetIdApiKeysGet = <ThrowOnError exten
  * Features items, and is treated as an invalid key everywhere else. Its
  * feature writes go through even when the instance has dataset editing
  * switched off. It must expire within 365 days. Requires write access to the
- * dataset and a signed-in session; the raw key is returned only in this
- * response.
+ * dataset, the ``edit_metadata`` permission the feature writes need, and a
+ * signed-in session. A dataset that can't take feature edits (no feature
+ * table or no geometry column) gets 422. The raw key is returned only in
+ * this response.
  */
 export const createDatasetApiKeyDatasetsDatasetIdApiKeysPost = <ThrowOnError extends boolean = false>(options: Options<CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostData, ThrowOnError>): RequestResult<CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses, CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostErrors, ThrowOnError> => (options.client ?? client).post<CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses, CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

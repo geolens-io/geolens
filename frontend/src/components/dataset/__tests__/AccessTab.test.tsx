@@ -275,17 +275,27 @@ describe('AccessTab', () => {
 
   describe('write keys', () => {
     it('lets an editor of a feature dataset manage its write keys', () => {
-      render(<AccessTab dataset={makeDataset()} canEdit />);
+      render(<AccessTab dataset={makeDataset({ geometry_type: 'POINT' })} canEdit />);
       expect(screen.getByTestId('dataset-write-keys')).toHaveTextContent('ds-1');
     });
 
     it('is hidden from a reader', () => {
-      render(<AccessTab dataset={makeDataset()} />);
+      render(<AccessTab dataset={makeDataset({ geometry_type: 'POINT' })} />);
+      expect(screen.queryByTestId('dataset-write-keys')).not.toBeInTheDocument();
+    });
+
+    it('is hidden for a dataset without a geometry column', () => {
+      render(<AccessTab dataset={makeDataset({ geometry_type: null })} canEdit />);
       expect(screen.queryByTestId('dataset-write-keys')).not.toBeInTheDocument();
     });
 
     it('is hidden for a dataset without features', () => {
-      render(<AccessTab dataset={makeDataset({ record_type: 'raster_dataset' })} canEdit />);
+      render(
+        <AccessTab
+          dataset={makeDataset({ record_type: 'raster_dataset', geometry_type: 'POINT' })}
+          canEdit
+        />,
+      );
       expect(screen.queryByTestId('dataset-write-keys')).not.toBeInTheDocument();
     });
   });
