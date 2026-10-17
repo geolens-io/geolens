@@ -12,28 +12,29 @@ from typing import cast
 from typing import Literal
 
 if TYPE_CHECKING:
-    from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_dry_run_geo_json_feature_dry_run import (
-        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun,
+    from ..models.dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_collection_dry_run_geo_json_feature_dry_run import (
+        DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun,
     )
 
 
 T = TypeVar(
     "T",
-    bound="CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun",
+    bound="DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRun",
 )
 
 
 @_attrs_define
-class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun:
+class DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRun:
     """The features a FeatureCollection create would store, in request order.
 
     Attributes:
-        features (list[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun]):
+        features (list[DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRunGeoJSONFeatur
+            eDryRun]):
         type_ (Literal['FeatureCollection'] | Unset):  Default: 'FeatureCollection'.
     """
 
     features: list[
-        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun
+        DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun
     ]
     type_: Literal["FeatureCollection"] | Unset = "FeatureCollection"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -60,15 +61,15 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_dry_run_geo_json_feature_dry_run import (
-            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun,
+        from ..models.dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_collection_dry_run_geo_json_feature_dry_run import (
+            DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun,
         )
 
         d = dict(src_dict)
         features = []
         _features = d.pop("features")
         for features_item_data in _features:
-            features_item = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun.from_dict(
+            features_item = DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRun.from_dict(
                 features_item_data
             )
 
@@ -80,13 +81,13 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun:
                 f"type must match const 'FeatureCollection', got '{type_}'"
             )
 
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_dry_run = cls(
+        dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_collection_dry_run = cls(
             features=features,
             type_=type_,
         )
 
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_dry_run.additional_properties = d
-        return create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_dry_run
+        dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_collection_dry_run.additional_properties = d
+        return dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_collection_dry_run
 
     @property
     def additional_keys(self) -> list[str]:

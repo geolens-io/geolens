@@ -17,6 +17,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -223,14 +224,16 @@ async def _insert_scope(db: AsyncSession, dry_run: bool):
     """Run a create's inserts as they are, or in a savepoint rolled back on exit.
 
     A dry run keeps the real inserts so the database's own casts and
-    constraints refuse a bad value as they would for a real create. The rest
-    of the request's transaction is left as it was.
+    constraints refuse a bad value as they would for a real create. Deferred
+    constraints are checked before the rollback, since a real create meets
+    them at commit. The rest of the request's transaction is left as it was.
     """
     if not dry_run:
         yield
         return
     async with db.begin_nested() as savepoint:
         yield
+        await db.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
         await savepoint.rollback()
 
 
@@ -976,22 +979,6 @@ async def get_single_feature(
     response_class=JSONResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
-        200: {
-            "description": (
-                "Dry run: the feature or features as they would be stored. "
-                "Nothing was written."
-            ),
-            "content": {
-                "application/geo+json": {
-                    "schema": {
-                        "oneOf": [
-                            inline_json_schema(GeoJSONFeatureDryRun),
-                            inline_json_schema(GeoJSONFeatureCollectionDryRun),
-                        ]
-                    }
-                },
-            },
-        },
         201: {
             "content": {
                 "application/geo+json": {
@@ -1036,13 +1023,6 @@ async def create_feature(
             "each time the body is sent again. Counts as 1 when omitted."
         ),
     ),
-    dry_run: bool = Query(
-        False,
-        description=(
-            "Validate the body without storing it: run every check a create "
-            "runs, then answer 200 with what would have been stored."
-        ),
-    ),
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -1074,15 +1054,64 @@ async def create_feature(
     `table_id` and `tile_cache_version` also on the collection. It has no
     `Location` header since there is no single new resource.
     `Idempotency-Key` is refused with 422 for a FeatureCollection.
-
-    With `dry_run=true` the request runs every check a real create runs,
-    database casts and constraints included, and is refused the same way,
-    but writes nothing. It answers 200 with the feature as it would be
-    stored, or a FeatureCollection of them in request order, with no `id`,
-    `table_id`, `tile_cache_version` or `Location` header. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
-    `Idempotency-Key` is refused with 422 for a dry run.
     """
+    return await _create(
+        db, dataset_id, body, user, idempotency_key, idempotency_attempt, False
+    )
+
+
+@features_router.post(
+    "/{dataset_id}/features/dry-run/",
+    response_class=JSONResponse,
+    responses={
+        200: {
+            "description": (
+                "The feature or features as they would be stored. Nothing was written."
+            ),
+            "content": {
+                "application/geo+json": {
+                    "schema": {
+                        "oneOf": [
+                            inline_json_schema(GeoJSONFeatureDryRun),
+                            inline_json_schema(GeoJSONFeatureCollectionDryRun),
+                        ]
+                    }
+                },
+            },
+        },
+        **ERROR_RESPONSES_WRITE,
+    },
+)
+async def dry_run_create_feature(
+    dataset_id: uuid.UUID,
+    body: FeatureCreateBody,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Check a feature create without writing it.
+
+    Takes the body `POST /datasets/{dataset_id}/features/` takes and runs
+    every check that create runs, the database's own casts and constraints
+    included, so a body it would refuse is refused here with the same status
+    and body. A deferred constraint is checked here too: a create that breaks
+    one fails at commit with a 500, and this answers 400. Nothing is written. A body that passes gets 200 with the
+    feature as it would be stored, or a FeatureCollection of them in request
+    order, with no `id`, `table_id` or `tile_cache_version`. A dry run may use
+    up feature id sequence values, so stored ids can have gaps.
+    """
+    return await _create(db, dataset_id, body, user, None, None, True)
+
+
+async def _create(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    body: FeatureCreateBody,
+    user: Identity,
+    idempotency_key: str | None,
+    idempotency_attempt: int | None,
+    dry_run: bool,
+) -> JSONResponse:
+    """A feature create, or for a dry run its checks and inserts rolled back."""
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -1094,11 +1123,6 @@ async def create_feature(
     await require_dataset_editing_enabled(db, dataset_id)
     _require_feature_table(dataset)
 
-    if dry_run and idempotency_key is not None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Idempotency-Key is not supported with dry_run.",
-        )
     if isinstance(body, FeatureCollectionCreate):
         if idempotency_key is not None:
             raise HTTPException(

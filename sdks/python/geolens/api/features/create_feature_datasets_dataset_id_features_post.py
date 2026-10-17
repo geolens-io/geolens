@@ -11,14 +11,8 @@ from ... import errors
 from ...models.create_feature_datasets_dataset_id_features_post_geo_json_feature import (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature,
 )
-from ...models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_dry_run import (
-    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun,
-)
 from ...models.create_feature_datasets_dataset_id_features_post_geo_json_feature_collection_write import (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite,
-)
-from ...models.create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run import (
-    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun,
 )
 from ...models.feature_collection_create import FeatureCollectionCreate
 from ...models.feature_create import FeatureCreate
@@ -31,7 +25,6 @@ def _get_kwargs(
     dataset_id: UUID,
     *,
     body: FeatureCollectionCreate | FeatureCreate,
-    dry_run: bool | Unset = False,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -42,18 +35,11 @@ def _get_kwargs(
     if not isinstance(idempotency_attempt, Unset):
         headers["Idempotency-Attempt"] = str(idempotency_attempt)
 
-    params: dict[str, Any] = {}
-
-    params["dry_run"] = dry_run
-
-    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
-
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/datasets/{dataset_id}/features/".format(
             dataset_id=quote(str(dataset_id), safe=""),
         ),
-        "params": params,
     }
 
     if isinstance(body, FeatureCreate):
@@ -72,41 +58,9 @@ def _parse_response(
 ) -> (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
     | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun
     | ProblemDetail
     | None
 ):
-    if response.status_code == 200:
-
-        def _parse_response_200(
-            data: object,
-        ) -> (
-            CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun
-            | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun
-        ):
-            try:
-                if not isinstance(data, dict):
-                    raise TypeError()
-                response_200_geo_json_feature_dry_run = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun.from_dict(
-                    data
-                )
-
-                return response_200_geo_json_feature_dry_run
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            if not isinstance(data, dict):
-                raise TypeError()
-            response_200_geo_json_feature_collection_dry_run = CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun.from_dict(
-                data
-            )
-
-            return response_200_geo_json_feature_collection_dry_run
-
-        response_200 = _parse_response_200(response.json())
-
-        return response_200
-
     if response.status_code == 201:
 
         def _parse_response_201(
@@ -195,8 +149,6 @@ def _build_response(
 ) -> Response[
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
     | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun
     | ProblemDetail
 ]:
     return Response(
@@ -212,14 +164,11 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: FeatureCollectionCreate | FeatureCreate,
-    dry_run: bool | Unset = False,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
 ) -> Response[
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
     | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun
     | ProblemDetail
 ]:
     """Create Feature
@@ -254,18 +203,8 @@ def sync_detailed(
     `Location` header since there is no single new resource.
     `Idempotency-Key` is refused with 422 for a FeatureCollection.
 
-    With `dry_run=true` the request runs every check a real create runs,
-    database casts and constraints included, and is refused the same way,
-    but writes nothing. It answers 200 with the feature as it would be
-    stored, or a FeatureCollection of them in request order, with no `id`,
-    `table_id`, `tile_cache_version` or `Location` header. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
-    `Idempotency-Key` is refused with 422 for a dry run.
-
     Args:
         dataset_id (UUID):
-        dry_run (bool | Unset): Validate the body without storing it: run every check a create
-            runs, then answer 200 with what would have been stored. Default: False.
         idempotency_key (str | Unset): Optional key that makes a retried create safe. Any visible
             ASCII character (`!` to `~`, no spaces), 1 to 128 characters. The key is compared exactly
             as sent, so a quoted key and the same key unquoted are different keys. For example
@@ -279,13 +218,12 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun | ProblemDetail]
+        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
         body=body,
-        dry_run=dry_run,
         idempotency_key=idempotency_key,
         idempotency_attempt=idempotency_attempt,
     )
@@ -302,14 +240,11 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: FeatureCollectionCreate | FeatureCreate,
-    dry_run: bool | Unset = False,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
 ) -> (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
     | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun
     | ProblemDetail
     | None
 ):
@@ -345,18 +280,8 @@ def sync(
     `Location` header since there is no single new resource.
     `Idempotency-Key` is refused with 422 for a FeatureCollection.
 
-    With `dry_run=true` the request runs every check a real create runs,
-    database casts and constraints included, and is refused the same way,
-    but writes nothing. It answers 200 with the feature as it would be
-    stored, or a FeatureCollection of them in request order, with no `id`,
-    `table_id`, `tile_cache_version` or `Location` header. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
-    `Idempotency-Key` is refused with 422 for a dry run.
-
     Args:
         dataset_id (UUID):
-        dry_run (bool | Unset): Validate the body without storing it: run every check a create
-            runs, then answer 200 with what would have been stored. Default: False.
         idempotency_key (str | Unset): Optional key that makes a retried create safe. Any visible
             ASCII character (`!` to `~`, no spaces), 1 to 128 characters. The key is compared exactly
             as sent, so a quoted key and the same key unquoted are different keys. For example
@@ -370,14 +295,13 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun | ProblemDetail
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | ProblemDetail
     """
 
     return sync_detailed(
         dataset_id=dataset_id,
         client=client,
         body=body,
-        dry_run=dry_run,
         idempotency_key=idempotency_key,
         idempotency_attempt=idempotency_attempt,
     ).parsed
@@ -388,14 +312,11 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: FeatureCollectionCreate | FeatureCreate,
-    dry_run: bool | Unset = False,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
 ) -> Response[
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
     | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun
     | ProblemDetail
 ]:
     """Create Feature
@@ -430,18 +351,8 @@ async def asyncio_detailed(
     `Location` header since there is no single new resource.
     `Idempotency-Key` is refused with 422 for a FeatureCollection.
 
-    With `dry_run=true` the request runs every check a real create runs,
-    database casts and constraints included, and is refused the same way,
-    but writes nothing. It answers 200 with the feature as it would be
-    stored, or a FeatureCollection of them in request order, with no `id`,
-    `table_id`, `tile_cache_version` or `Location` header. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
-    `Idempotency-Key` is refused with 422 for a dry run.
-
     Args:
         dataset_id (UUID):
-        dry_run (bool | Unset): Validate the body without storing it: run every check a create
-            runs, then answer 200 with what would have been stored. Default: False.
         idempotency_key (str | Unset): Optional key that makes a retried create safe. Any visible
             ASCII character (`!` to `~`, no spaces), 1 to 128 characters. The key is compared exactly
             as sent, so a quoted key and the same key unquoted are different keys. For example
@@ -455,13 +366,12 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun | ProblemDetail]
+        Response[CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
         body=body,
-        dry_run=dry_run,
         idempotency_key=idempotency_key,
         idempotency_attempt=idempotency_attempt,
     )
@@ -476,14 +386,11 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: FeatureCollectionCreate | FeatureCreate,
-    dry_run: bool | Unset = False,
     idempotency_key: str | Unset = UNSET,
     idempotency_attempt: int | Unset = UNSET,
 ) -> (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature
     | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun
-    | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun
     | ProblemDetail
     | None
 ):
@@ -519,18 +426,8 @@ async def asyncio(
     `Location` header since there is no single new resource.
     `Idempotency-Key` is refused with 422 for a FeatureCollection.
 
-    With `dry_run=true` the request runs every check a real create runs,
-    database casts and constraints included, and is refused the same way,
-    but writes nothing. It answers 200 with the feature as it would be
-    stored, or a FeatureCollection of them in request order, with no `id`,
-    `table_id`, `tile_cache_version` or `Location` header. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
-    `Idempotency-Key` is refused with 422 for a dry run.
-
     Args:
         dataset_id (UUID):
-        dry_run (bool | Unset): Validate the body without storing it: run every check a create
-            runs, then answer 200 with what would have been stored. Default: False.
         idempotency_key (str | Unset): Optional key that makes a retried create safe. Any visible
             ASCII character (`!` to `~`, no spaces), 1 to 128 characters. The key is compared exactly
             as sent, so a quoted key and the same key unquoted are different keys. For example
@@ -544,7 +441,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionDryRun | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRun | ProblemDetail
+        CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite | ProblemDetail
     """
 
     return (
@@ -552,7 +449,6 @@ async def asyncio(
             dataset_id=dataset_id,
             client=client,
             body=body,
-            dry_run=dry_run,
             idempotency_key=idempotency_key,
             idempotency_attempt=idempotency_attempt,
         )

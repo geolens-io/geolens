@@ -164,6 +164,8 @@ _DATASET_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/datasets/{dataset_id}/features"),
         ("POST", "/datasets/{dataset_id}/features/"),
         ("POST", "/datasets/{dataset_id}/features"),
+        ("POST", "/datasets/{dataset_id}/features/dry-run/"),
+        ("POST", "/datasets/{dataset_id}/features/dry-run"),
         ("GET", "/datasets/{dataset_id}/features/{gid}"),
         ("PUT", "/datasets/{dataset_id}/features/{gid}"),
         ("PATCH", "/datasets/{dataset_id}/features/{gid}"),

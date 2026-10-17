@@ -7,31 +7,31 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_geo_json_geometry_type import (
-    check_create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_geo_json_geometry_type,
+from ..models.dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_dry_run_geo_json_geometry_type import (
+    check_dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_dry_run_geo_json_geometry_type,
 )
-from ..models.create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_geo_json_geometry_type import (
-    CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunGeoJSONGeometryType,
+from ..models.dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_dry_run_geo_json_geometry_type import (
+    DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureDryRunGeoJSONGeometryType,
 )
 from typing import cast
 
 
 T = TypeVar(
     "T",
-    bound="CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunGeoJSONGeometry",
+    bound="DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureDryRunGeoJSONGeometry",
 )
 
 
 @_attrs_define
-class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunGeoJSONGeometry:
+class DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureDryRunGeoJSONGeometry:
     """A GeoJSON geometry object (RFC 7946).
 
     Attributes:
-        type_ (CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunGeoJSONGeometryType):
+        type_ (DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureDryRunGeoJSONGeometryType):
         coordinates (list[Any]):
     """
 
-    type_: CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunGeoJSONGeometryType
+    type_: DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureDryRunGeoJSONGeometryType
     coordinates: list[Any]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -54,19 +54,19 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunGeoJSONGeome
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        type_ = check_create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_geo_json_geometry_type(
+        type_ = check_dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_dry_run_geo_json_geometry_type(
             d.pop("type")
         )
 
         coordinates = cast(list[Any], d.pop("coordinates"))
 
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_geo_json_geometry = cls(
+        dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_dry_run_geo_json_geometry = cls(
             type_=type_,
             coordinates=coordinates,
         )
 
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_geo_json_geometry.additional_properties = d
-        return create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_geo_json_geometry
+        dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_dry_run_geo_json_geometry.additional_properties = d
+        return dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_dry_run_geo_json_geometry
 
     @property
     def additional_keys(self) -> list[str]:

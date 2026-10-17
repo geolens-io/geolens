@@ -9,12 +9,12 @@ from attrs import field as _attrs_field
 
 T = TypeVar(
     "T",
-    bound="CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunProperties",
+    bound="DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRunProperties",
 )
 
 
 @_attrs_define
-class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunProperties:
+class DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureCollectionDryRunGeoJSONFeatureDryRunProperties:
     """ """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -29,10 +29,10 @@ class CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureDryRunProperties:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_properties = cls()
+        dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_collection_dry_run_geo_json_feature_dry_run_properties = cls()
 
-        create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_properties.additional_properties = d
-        return create_feature_datasets_dataset_id_features_post_geo_json_feature_dry_run_properties
+        dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_collection_dry_run_geo_json_feature_dry_run_properties.additional_properties = d
+        return dry_run_create_feature_datasets_dataset_id_features_dry_run_post_geo_json_feature_collection_dry_run_geo_json_feature_dry_run_properties
 
     @property
     def additional_keys(self) -> list[str]:

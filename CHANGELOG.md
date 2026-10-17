@@ -30,19 +30,20 @@ and releases use semantic versioning.
   `FeatureCreate | FeatureCollectionCreate` and returns a union of the two 201
   shapes, so TypeScript callers that read `id` from the result narrow it
   first.
-- `POST /datasets/{dataset_id}/features/?dry_run=true` checks a feature create
+- `POST /datasets/{dataset_id}/features/dry-run/` checks a feature create
   without writing it, so an integration can verify a webhook destination
-  without leaving a test feature behind. It runs every check a real create
-  runs, including the dataset editing switch, write access, and the
-  database's own column casts and constraints, and a bad body is refused with
-  the same status and body. A body that passes gets 200 with the Feature, or a
-  FeatureCollection of them, as it would be stored, without an `id`. The
+  without leaving a test feature behind. It takes the body the create route
+  takes and runs every check that route runs, including write access, the
+  dataset editing switch and the database's own column casts and
+  constraints. A body the create would refuse is refused with the same status
+  and body. A deferred constraint is checked too: a create that breaks one
+  fails with a 500 at commit, and the dry run answers 400. A body that passes gets 200 with the Feature,
+  or a FeatureCollection of them, as it would be stored, without an `id`. The
   request stores no feature and leaves the catalog entry, the tile cache and
   the audit log as they were. A dry run can use up feature id sequence values,
-  so stored ids may have gaps.
-  `Idempotency-Key` is refused with 422 on a dry run. The generated SDKs gain
-  a `dry_run` argument, and the create call's result union gains the two 200
-  shapes.
+  so stored ids may have gaps. A `dataset_write` key may dry-run its own
+  dataset, as it may write it. The create route and its SDK methods are
+  unchanged; the SDKs gain a separate dry-run method.
 - The Create Dataset dialog offers a Timestamp column type. It creates the
   same `timestamp with time zone` column as adding a timestamp column to an
   existing dataset, and `POST /datasets/create/` now accepts `timestamp` as a

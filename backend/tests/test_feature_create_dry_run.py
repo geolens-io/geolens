@@ -1,4 +1,4 @@
-"""POST /datasets/{id}/features/?dry_run=true checks a create and stores nothing.
+"""POST /datasets/{id}/features/dry-run/ checks a feature create and stores nothing.
 
 Requires the Docker test database.
 """
@@ -6,7 +6,7 @@ Requires the Docker test database.
 import uuid
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, text
 
 from app.modules.audit.models import AuditLog
@@ -121,7 +121,7 @@ async def _stored_state(session, dataset_id, table_name: str) -> dict:
 
 
 def _dry(dataset_id) -> str:
-    return f"/datasets/{dataset_id}/features/?dry_run=true"
+    return f"/datasets/{dataset_id}/features/dry-run/"
 
 
 def _real(dataset_id) -> str:
@@ -319,20 +319,86 @@ async def test_a_dry_run_on_a_missing_dataset_is_404(
     assert dry == real
 
 
-async def test_a_dry_run_refuses_an_idempotency_key(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+@pytest.mark.parametrize("path", ["features/dry-run/", "features/dry-run"])
+async def test_the_dry_run_path_reaches_the_dry_run(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer, path
 ):
+    """Neither spelling is taken for a feature id by the routes under features/."""
     dataset_id, table_name = point_layer
+
     resp = await client.post(
-        _dry(dataset_id),
-        json=_feature(POINT_A),
-        headers={**admin_auth_header, "Idempotency-Key": "verify-1"},
+        f"/datasets/{dataset_id}/{path}",
+        json=_feature(POINT_A, name="a"),
+        headers=admin_auth_header,
     )
 
-    assert resp.status_code == 422, resp.text
-    assert "dry_run" in resp.json()["detail"]
-    state = await _stored_state(test_db_session, dataset_id, table_name)
-    assert (state["rows"], state["keys"]) == (0, 0)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["properties"] == {"name": "a", "status": None}
+    assert (await _stored_state(test_db_session, dataset_id, table_name))["rows"] == 0
+
+
+async def test_a_dry_run_body_over_the_feature_write_limit_is_refused_as_a_create_is(
+    client: AsyncClient, admin_auth_header: dict, point_layer
+):
+    from app.api.middleware.body_limit import FEATURE_WRITE_BODY_LIMIT_BYTES
+
+    dataset_id, _ = point_layer
+    body = _feature(POINT_A, name="x" * FEATURE_WRITE_BODY_LIMIT_BYTES)
+
+    dry, real = await _both(client, admin_auth_header, dataset_id, body)
+
+    assert dry[0] == 413, dry
+    assert dry == real
+
+
+@pytest.fixture
+async def name_unique_deferred(test_db_session, point_layer):
+    """A deferred unique name on the point layer's table, and one row named taken."""
+    _, table_name = point_layer
+    await test_db_session.execute(
+        text(
+            f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_name_key "
+            "UNIQUE (name) DEFERRABLE INITIALLY DEFERRED"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (geom, geom_4326, name) VALUES "
+            "(ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+            "ST_SetSRID(ST_MakePoint(0, 0), 4326), 'taken')"
+        )
+    )
+    await test_db_session.commit()
+    return point_layer
+
+
+@pytest.mark.parametrize("as_collection", [False, True], ids=["feature", "collection"])
+async def test_a_dry_run_is_refused_by_a_deferred_constraint(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    name_unique_deferred,
+    as_collection,
+):
+    """A real create meets a deferred constraint at commit, after a dry run's rollback."""
+    from app.api.main import app
+
+    dataset_id, table_name = name_unique_deferred
+    feature = _feature(POINT_A, name="taken")
+    body = _collection(_feature(POINT_B), feature) if as_collection else feature
+
+    dry = await client.post(_dry(dataset_id), json=body, headers=admin_auth_header)
+    client._transport = ASGITransport(app=app, raise_app_exceptions=False)
+    real = await client.post(_real(dataset_id), json=body, headers=admin_auth_header)
+
+    assert (dry.status_code, dry.json()["detail"]) == (
+        400,
+        "Feature could not be written: a value is incompatible with a column's "
+        "type or constraints.",
+    )
+    # The real create fails at commit, past the handler's error mapping.
+    assert real.status_code == 500
+    assert (await _stored_state(test_db_session, dataset_id, table_name))["rows"] == 1
 
 
 async def test_a_real_create_after_a_dry_run_stores_its_feature(
