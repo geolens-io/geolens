@@ -69,7 +69,15 @@ _RELATION_FACTS = text(
     "AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A') "
     "AND t.tgtype & 11 = 11) AS before_delete_trigger, "
     "EXISTS (SELECT 1 FROM pg_rewrite r WHERE r.ev_class = c.oid "
-    "AND r.ev_type = '4') AS delete_rule "
+    "AND r.ev_type = '4') AS delete_rule, "
+    # The batch pages on gid, so it must be an integer, a domain's base included.
+    "(WITH RECURSIVE base(oid, typtype, typbasetype) AS ("
+    "SELECT t.oid, t.typtype, t.typbasetype FROM pg_attribute a "
+    "JOIN pg_type t ON t.oid = a.atttypid WHERE a.attrelid = c.oid "
+    "AND a.attname = 'gid' AND a.attnum > 0 AND NOT a.attisdropped "
+    "UNION ALL SELECT t.oid, t.typtype, t.typbasetype FROM pg_type t "
+    "JOIN base b ON t.oid = b.typbasetype WHERE b.typtype = 'd') "
+    "SELECT oid::regtype::text FROM base WHERE typtype <> 'd') AS gid_type "
     "FROM pg_class c WHERE c.oid = to_regclass(format("
     "'%I.%I', CAST(:schema AS text), CAST(:table AS text)))"
 )
@@ -151,9 +159,10 @@ async def unsupported_table(
 ) -> RetentionRefused | None:
     """Why retention can't delete from the dataset's live relation, or None.
 
-    Only a plain table qualifies whose deletes remove exactly the rows asked
-    for: no inheritance children, no foreign key pointing at it, no BEFORE
-    DELETE row trigger that could keep a row and no DELETE rule.
+    Only a plain table with an integer gid qualifies whose deletes remove
+    exactly the rows asked for: no inheritance children, no foreign key
+    pointing at it, no BEFORE DELETE row trigger that could keep a row and no
+    DELETE rule.
     """
     facts = (
         await session.execute(
@@ -169,6 +178,12 @@ async def unsupported_table(
             "Retention needs the dataset's data in a plain table; this dataset "
             "reads it from a view, a partitioned table or another relation.",
             code="retention_unsupported_relation",
+        )
+    if facts.gid_type not in {"smallint", "integer", "bigint"}:
+        return RetentionRefused(
+            "Retention pages through a table by its integer gid column, which "
+            "this table no longer has.",
+            code="retention_gid_unusable",
         )
     if facts.inherited:
         return RetentionRefused(

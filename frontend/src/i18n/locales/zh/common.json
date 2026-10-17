@@ -494,7 +494,8 @@
     "retentionDeleteRule": "此表有一条 DELETE 规则，会改变删除的效果。请移除该规则后再使用保留期限。",
     "retentionNotFeatureDataset": "保留期限仅适用于要素带有几何数据的数据集。",
     "retentionColumnMissing": "列 {{column}} 已不存在。请选择其他日期或时间戳列。",
-    "retentionColumnNotTemporal": "列 {{column}} 不是日期或时间戳列。请选择日期或时间戳列。"
+    "retentionColumnNotTemporal": "列 {{column}} 不是日期或时间戳列。请选择日期或时间戳列。",
+    "retentionGidUnusable": "保留期限按表的整数 gid 列逐批处理，而此表已不再有该列。请恢复整数 gid 列后再使用保留期限。"
   },
   "settings": {
     "apiKeys": {

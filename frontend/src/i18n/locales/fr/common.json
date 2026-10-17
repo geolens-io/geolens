@@ -365,7 +365,8 @@
     "retentionDeleteRule": "Cette table a une règle DELETE qui change l’effet d’une suppression. Retirez la règle pour utiliser la rétention.",
     "retentionNotFeatureDataset": "La rétention ne fonctionne que sur les jeux de données dont les entités ont une géométrie.",
     "retentionColumnMissing": "La colonne {{column}} n’existe plus. Choisissez une autre colonne de date ou d’horodatage.",
-    "retentionColumnNotTemporal": "La colonne {{column}} n’est pas une colonne de date ou d’horodatage. Choisissez une colonne de date ou d’horodatage."
+    "retentionColumnNotTemporal": "La colonne {{column}} n’est pas une colonne de date ou d’horodatage. Choisissez une colonne de date ou d’horodatage.",
+    "retentionGidUnusable": "La rétention parcourt la table par sa colonne gid de nombres entiers, que cette table n’a plus. Rétablissez une colonne gid entière pour utiliser la rétention."
   },
   "settings": {
     "apiKeys": {

@@ -11,6 +11,7 @@ describe('API error localization boundary', () => {
     ['retention_referenced', 'errors.retentionReferenced', 'Remove the foreign key'],
     ['retention_before_delete_trigger', 'errors.retentionBeforeDeleteTrigger', 'BEFORE DELETE trigger'],
     ['retention_delete_rule', 'errors.retentionDeleteRule', 'DELETE rule'],
+    ['retention_gid_unusable', 'errors.retentionGidUnusable', 'whole-number gid column'],
     ['retention_not_feature_dataset', 'errors.retentionNotFeatureDataset', 'features have geometry'],
     ['retention_column_missing', 'errors.retentionColumnMissing', 'The column seen_at no longer exists'],
     ['retention_column_not_temporal', 'errors.retentionColumnNotTemporal', 'The column seen_at isn\'t a date'],

@@ -365,7 +365,8 @@
     "retentionDeleteRule": "Diese Tabelle hat eine DELETE-Regel, die ändert, was ein Löschen bewirkt. Entfernen Sie die Regel, um die Aufbewahrung zu nutzen.",
     "retentionNotFeatureDataset": "Die Aufbewahrung funktioniert nur bei Datensätzen, deren Features eine Geometrie haben.",
     "retentionColumnMissing": "Die Spalte {{column}} existiert nicht mehr. Wählen Sie eine andere Datums- oder Zeitstempelspalte.",
-    "retentionColumnNotTemporal": "Die Spalte {{column}} ist keine Datums- oder Zeitstempelspalte. Wählen Sie eine Datums- oder Zeitstempelspalte."
+    "retentionColumnNotTemporal": "Die Spalte {{column}} ist keine Datums- oder Zeitstempelspalte. Wählen Sie eine Datums- oder Zeitstempelspalte.",
+    "retentionGidUnusable": "Die Aufbewahrung durchläuft die Tabelle über ihre ganzzahlige gid-Spalte, die diese Tabelle nicht mehr hat. Stellen Sie eine ganzzahlige gid-Spalte wieder her, um die Aufbewahrung zu nutzen."
   },
   "settings": {
     "apiKeys": {

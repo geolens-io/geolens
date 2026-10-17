@@ -245,6 +245,7 @@ const RETENTION_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   retention_column_missing: 'errors.retentionColumnMissing',
   retention_column_not_temporal: 'errors.retentionColumnNotTemporal',
   retention_delete_rule: 'errors.retentionDeleteRule',
+  retention_gid_unusable: 'errors.retentionGidUnusable',
   retention_has_children: 'errors.retentionHasChildren',
   retention_not_feature_dataset: 'errors.retentionNotFeatureDataset',
   retention_referenced: 'errors.retentionReferenced',

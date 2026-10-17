@@ -1587,6 +1587,25 @@ class TestRelationShape:
             await test_db_session.execute(text(f"DROP FUNCTION {keep}() CASCADE"))
             await test_db_session.commit()
 
+    @pytest.mark.parametrize(
+        "change",
+        ["DROP COLUMN gid", "ALTER COLUMN gid TYPE text"],
+        ids=["dropped", "retyped-to-text"],
+    )
+    async def test_a_table_without_an_integer_gid_is_refused_and_skipped(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, change
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{dataset.table_name} {change}")
+        )
+        await test_db_session.commit()
+
+        await self._refused(
+            client, admin_auth_header, dataset.id, "retention_gid_unusable"
+        )
+        await self._skipped(test_db_session, dataset)
+
     async def test_a_delete_rule_is_refused(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session
     ):

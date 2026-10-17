@@ -365,7 +365,8 @@
     "retentionDeleteRule": "Esta tabla tiene una regla DELETE que cambia lo que hace un borrado. Quita la regla para usar la retención.",
     "retentionNotFeatureDataset": "La retención solo funciona en conjuntos de datos cuyas entidades tienen geometría.",
     "retentionColumnMissing": "La columna {{column}} ya no existe. Elige otra columna de fecha o marca de tiempo.",
-    "retentionColumnNotTemporal": "La columna {{column}} no es de fecha ni de marca de tiempo. Elige una columna de fecha o marca de tiempo."
+    "retentionColumnNotTemporal": "La columna {{column}} no es de fecha ni de marca de tiempo. Elige una columna de fecha o marca de tiempo.",
+    "retentionGidUnusable": "La retención recorre la tabla por su columna gid de números enteros, que esta tabla ya no tiene. Restaura una columna gid entera para usar la retención."
   },
   "settings": {
     "apiKeys": {
