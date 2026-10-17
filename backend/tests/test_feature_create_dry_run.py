@@ -542,9 +542,10 @@ async def test_only_an_insert_rule_that_fires_refuses_a_dry_run(
 _USER_CODE_REFUSAL = (
     "A dry run is only available for a table without check constraints, "
     "foreign keys, row security, partitions, expression or partial indexes, "
-    "custom access methods, domain or composite columns, or index operator "
-    "classes with volatile functions, since a dry run cannot undo their "
-    "effects."
+    "generated columns, custom access methods, domain, enum, composite or "
+    "other user-defined column types, user-defined JSON casts, or index "
+    "operator classes with volatile functions, since a dry run cannot undo "
+    "their effects."
 )
 
 
@@ -594,6 +595,25 @@ def _user_code_ddl(kind: str, t: str) -> tuple[list[str], list[str]]:
             f"CREATE DOMAIN data.{t}_dom AS text",
             f"ALTER TABLE data.{t} ADD COLUMN tag data.{t}_dom{suffix}",
         ], [f"DROP DOMAIN data.{t}_dom CASCADE"]
+    if kind == "domain-over-array":
+        return [
+            f"CREATE DOMAIN data.{t}_tags AS text[]",
+            f"ALTER TABLE data.{t} ADD COLUMN tags data.{t}_tags",
+        ], [f"DROP DOMAIN data.{t}_tags CASCADE"]
+    if kind in ("enum", "enum-array"):
+        suffix = "[]" if kind == "enum-array" else ""
+        return [
+            f"CREATE TYPE data.{t}_mood AS ENUM ('calm')",
+            f"ALTER TABLE data.{t} ADD COLUMN mood data.{t}_mood{suffix}",
+        ], [f"DROP TYPE data.{t}_mood CASCADE"]
+    if kind in ("json-cast", "json-cast-array"):
+        suffix = "[]" if kind == "json-cast-array" else ""
+        return [
+            f"ALTER TABLE data.{t} ADD COLUMN amount money{suffix}",
+            f"CREATE FUNCTION data.{t}_tojson(money) RETURNS jsonb LANGUAGE sql "
+            "IMMUTABLE AS 'SELECT to_jsonb($1::text)'",
+            f"CREATE CAST (money AS jsonb) WITH FUNCTION data.{t}_tojson(money)",
+        ], ["DROP CAST (money AS jsonb)", f"DROP FUNCTION data.{t}_tojson(money)"]
     if kind == "composite":
         return [
             f"CREATE TYPE data.{t}_pair AS (a int, b int)",
@@ -649,6 +669,11 @@ async def teardown_ddl(test_db_session, point_layer):
         "index-access-method",
         "domain",
         "domain-array",
+        "domain-over-array",
+        "enum",
+        "enum-array",
+        "json-cast",
+        "json-cast-array",
         "composite",
         "opclass-support",
         "opclass-operator",
@@ -711,6 +736,24 @@ async def test_a_plain_table_with_built_in_and_postgis_indexes_allows_a_dry_run(
     assert resp.status_code == 200, resp.text
 
 
+async def test_built_in_and_extension_column_types_allow_a_dry_run(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+):
+    dataset_id, table_name = point_layer
+    await _ddl(
+        test_db_session,
+        f"ALTER TABLE data.{table_name} ADD COLUMN n int, ADD COLUMN seen "
+        "timestamptz, ADD COLUMN amount numeric, ADD COLUMN tags text[], "
+        "ADD COLUMN shapes geometry[]",
+    )
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A, name="a"), headers=admin_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
+
+
 async def test_an_index_access_method_from_an_extension_allows_a_dry_run(
     client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
 ):
@@ -735,29 +778,19 @@ async def test_an_index_access_method_from_an_extension_allows_a_dry_run(
     assert resp.status_code == 200, resp.text
 
 
-async def test_a_check_taking_an_advisory_lock_refuses_a_dry_run(
-    client: AsyncClient,
-    admin_auth_header: dict,
-    test_db_session,
-    point_layer,
-    monkeypatch,
-):
-    """A session advisory lock outlives the rollback, on the request's connection.
+async def _dry_run_then_try_lock(client, headers, dataset_id, key, monkeypatch):
+    """Dry-run, then try the advisory lock from a second connection.
 
-    The lock is probed from a second connection while the request still holds
-    its own, which a dry run that got as far as answering would.
+    The lock is tried while the request still holds its own connection, which
+    a dry run that got as far as answering would. Returns the response and
+    whether the lock was free.
     """
+    from app.core.db import async_session
     from app.modules.catalog.features import router as features_router
 
-    dataset_id, table_name = point_layer
-    key = uuid.uuid4().int % 2**31
-    await _ddl(
-        test_db_session,
-        f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
-        f"CHECK (pg_try_advisory_lock({key}))",
-    )
     answering, release = asyncio.Event(), asyncio.Event()
     real_response = features_router._dry_run_response
+    real_create = features_router._create
 
     def response_then_wait(rows, collection):
         answering.set()
@@ -769,23 +802,73 @@ async def test_a_check_taking_an_advisory_lock_refuses_a_dry_run(
             await release.wait()
         return response
 
-    real_create = features_router._create
     monkeypatch.setattr(features_router, "_dry_run_response", response_then_wait)
     monkeypatch.setattr(features_router, "_create", held_open)
     request = asyncio.create_task(
-        client.post(_dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header)
+        client.post(_dry(dataset_id), json=_feature(POINT_A), headers=headers)
     )
     try:
         waiting = asyncio.create_task(answering.wait())
         await asyncio.wait({request, waiting}, return_when=asyncio.FIRST_COMPLETED)
         waiting.cancel()
-        free = await test_db_session.scalar(text(f"SELECT pg_try_advisory_lock({key})"))
-        if free:
-            await test_db_session.execute(text(f"SELECT pg_advisory_unlock({key})"))
-        await test_db_session.commit()
+        async with async_session() as second:
+            free = await second.scalar(text(f"SELECT pg_try_advisory_lock({key})"))
+            if free:
+                await second.execute(text(f"SELECT pg_advisory_unlock({key})"))
     finally:
         release.set()
         resp = await request
+    return resp, free
+
+
+async def test_a_check_taking_an_advisory_lock_refuses_a_dry_run(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    monkeypatch,
+):
+    """A session advisory lock would outlive the rollback, on the pooled connection."""
+    dataset_id, table_name = point_layer
+    key = uuid.uuid4().int % 2**31
+    await _ddl(
+        test_db_session,
+        f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
+        f"CHECK (pg_try_advisory_lock({key}))",
+    )
+
+    resp, free = await _dry_run_then_try_lock(
+        client, admin_auth_header, dataset_id, key, monkeypatch
+    )
+
+    assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
+    assert free
+
+
+async def test_a_generated_column_refuses_a_dry_run(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    teardown_ddl,
+    monkeypatch,
+):
+    """Its function is only declared immutable, and runs though the body omits it."""
+    dataset_id, table_name = point_layer
+    key = uuid.uuid4().int % 2**31
+    fn = f"data.{table_name}_probe"
+    teardown_ddl.append(f"DROP FUNCTION {fn}(text)")
+    await _ddl(
+        test_db_session,
+        f"CREATE FUNCTION {fn}(v text) RETURNS boolean LANGUAGE sql IMMUTABLE "
+        f"AS 'SELECT pg_try_advisory_lock({key})'",
+        f"ALTER TABLE data.{table_name} ADD COLUMN probe boolean "
+        f"GENERATED ALWAYS AS ({fn}(name)) STORED",
+    )
+
+    resp, free = await _dry_run_then_try_lock(
+        client, admin_auth_header, dataset_id, key, monkeypatch
+    )
 
     assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
     assert free

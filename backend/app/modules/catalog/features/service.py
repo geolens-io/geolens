@@ -782,24 +782,42 @@ DryRunBlocker = Literal[
     "missing_table", "not_a_table", "insert_side_effects", "user_code"
 ]
 
-# A volatile function that is not part of an installed extension. PostGIS
-# declares its GiST support functions VOLATILE, so volatility alone would
-# refuse every indexed spatial table; no built-in support function is.
-_UNTRUSTED_VOLATILE = (
-    "p.provolatile = 'v' AND NOT EXISTS ("
-    "SELECT 1 FROM pg_depend e WHERE e.classid = 'pg_proc'::regclass "
-    "AND e.objid = p.oid AND e.deptype = 'e')"
+
+def _trusted(oid: str, catalog: str) -> str:
+    """SQL true when the object is built in or belongs to an installed extension."""
+    return (
+        f"{oid} < 16384 OR EXISTS (SELECT 1 FROM pg_depend e "
+        f"WHERE e.classid = '{catalog}'::regclass AND e.objid = {oid} "
+        "AND e.deptype = 'e')"
+    )
+
+
+# Each user column's type and, for an array, its element type, which to_jsonb
+# recurses into.
+_COLUMN_TYPES = (
+    "SELECT ty.oid FROM pg_attribute a JOIN pg_type ty ON ty.oid = a.atttypid "
+    "WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
+    "UNION SELECT ty.typelem FROM pg_attribute a "
+    "JOIN pg_type ty ON ty.oid = a.atttypid "
+    "WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
+    "AND ty.typcategory = 'A'"
 )
 
-# Shapes that let the insert run user code beyond column defaults, type input
-# and trusted index support functions: a CHECK or outgoing foreign key (whose
-# check runs the referenced side's operators and indexes), row security, a
-# partition (whose parent's partition key functions run), an expression or
-# partial index (whose functions are only declared immutable), a table access
-# method other than heap, an index access method neither built in nor from an
-# extension, a domain or composite column (directly or as an array element,
-# whose CHECKs and casts reach further), and an index operator class with an
-# untrusted volatile function.
+# PostGIS declares its GiST support functions VOLATILE, so volatility alone
+# would refuse every indexed spatial table.
+_UNTRUSTED_VOLATILE = f"p.provolatile = 'v' AND NOT ({_trusted('p.oid', 'pg_proc')})"
+
+# Shapes that let the insert or its readback run user code beyond column
+# defaults and trusted type and index functions: a CHECK or outgoing foreign
+# key (whose check runs the referenced side's operators and indexes), row
+# security, a partition (whose parent's partition key functions run), an
+# expression or partial index or a generated column (whose functions are only
+# declared immutable), a table access method other than heap, an index access
+# method neither built in nor from an extension, a column type neither built
+# in nor from an extension (domains, enums, composites and the like), a cast
+# from a column type to json or jsonb, which the readback's to_jsonb calls,
+# through a function neither built in nor from an extension, and an index
+# operator class with an untrusted volatile function.
 _USER_CODE = (
     "EXISTS (SELECT 1 FROM pg_constraint con "
     "WHERE con.contype IN ('c', 'f') AND con.conrelid = c.oid) "
@@ -809,13 +827,15 @@ _USER_CODE = (
     "OR NOT EXISTS (SELECT 1 FROM pg_am am "
     "WHERE am.oid = c.relam AND am.amname = 'heap' AND am.oid < 16384) "
     "OR EXISTS (SELECT 1 FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid "
-    "WHERE i.indrelid = c.oid AND ic.relam >= 16384 AND NOT EXISTS ("
-    "SELECT 1 FROM pg_depend e WHERE e.classid = 'pg_am'::regclass "
-    "AND e.objid = ic.relam AND e.deptype = 'e')) "
-    "OR EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_type ty ON ty.oid = a.atttypid "
-    "LEFT JOIN pg_type el ON el.oid = ty.typelem "
-    "WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
-    "AND (ty.typtype IN ('d', 'c') OR el.typtype IN ('d', 'c'))) "
+    f"WHERE i.indrelid = c.oid AND NOT ({_trusted('ic.relam', 'pg_am')})) "
+    "OR EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid "
+    "AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated <> '') "
+    f"OR EXISTS (SELECT 1 FROM ({_COLUMN_TYPES}) col WHERE NOT ("
+    f"{_trusted('col.oid', 'pg_type')})) "
+    f"OR EXISTS (SELECT 1 FROM ({_COLUMN_TYPES}) col JOIN pg_cast ca "
+    "ON ca.castsource = col.oid AND ca.casttarget IN "
+    "('json'::regtype, 'jsonb'::regtype) AND ca.castfunc <> 0 "
+    f"WHERE NOT ({_trusted('ca.castfunc', 'pg_proc')})) "
     "OR EXISTS (SELECT 1 FROM pg_index i, unnest(i.indclass::oid[]) oc(oid) "
     "JOIN pg_opclass opc ON opc.oid = oc.oid WHERE i.indrelid = c.oid AND ("
     "EXISTS (SELECT 1 FROM pg_amproc ap JOIN pg_proc p ON p.oid = ap.amproc "

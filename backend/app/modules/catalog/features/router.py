@@ -242,9 +242,10 @@ _DRY_RUN_REFUSALS = {
         status.HTTP_409_CONFLICT,
         "A dry run is only available for a table without check constraints, "
         "foreign keys, row security, partitions, expression or partial indexes, "
-        "custom access methods, domain or composite columns, or index operator "
-        "classes with volatile functions, since a dry run cannot undo their "
-        "effects.",
+        "generated columns, custom access methods, domain, enum, composite or "
+        "other user-defined column types, user-defined JSON casts, or index "
+        "operator classes with volatile functions, since a dry run cannot undo "
+        "their effects.",
     ),
 }
 
@@ -1139,10 +1140,11 @@ async def dry_run_create_feature(
     A dry run is only available for a dataset stored in an ordinary table
     that is not a partition, with no enabled user trigger or rule on INSERT,
     no CHECK constraint or outgoing foreign key, row security off, no
-    expression or partial index, the heap access method and built-in or
-    extension index access methods, no domain or composite columns, and no
-    index operator class with a volatile function, since those could run
-    code with effects outside the transaction. Any other dataset is refused with 409. The insert still
+    expression or partial index, no generated column, the heap access method
+    and built-in or extension index access methods, only built-in or
+    extension column types with no user-defined cast to JSON, and no index
+    operator class with a volatile function, since those could run code with
+    effects outside the transaction. Any other dataset is refused with 409. The insert still
     runs column defaults, type input functions and index support functions,
     volatile defaults included, so a dry run can consume sequence values and
     stored ids can have gaps.
