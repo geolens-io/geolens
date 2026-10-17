@@ -136,6 +136,9 @@ def _require_feature_table(dataset) -> None:
         )
 
 
+_TABLE_UNAVAILABLE = "Dataset table is temporarily unavailable."
+
+
 def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     """Classify a DB error raised by a feature write.
 
@@ -157,7 +160,7 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     if state in TABLE_ABSENT:
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dataset table is temporarily unavailable.",
+            detail=_TABLE_UNAVAILABLE,
         )
     if state in BAD_QUERY_INPUT or (state or "")[:2] in ("22", "23"):
         return HTTPException(
@@ -221,13 +224,22 @@ def _created_feature_response(
 
 
 _DRY_RUN_REFUSALS = {
-    "not_a_table": "A dry run is only available for a dataset stored in an "
-    "ordinary table.",
-    "insert_side_effects": "A dry run is not available for this dataset: its "
-    "table has an INSERT trigger or rule, whose effects a dry run cannot undo.",
-    "volatile_function": "A dry run is not available for this dataset: a check "
-    "constraint or row security policy on its table calls a volatile function, "
-    "whose effects a dry run cannot undo.",
+    "missing_table": (status.HTTP_503_SERVICE_UNAVAILABLE, _TABLE_UNAVAILABLE),
+    "not_a_table": (
+        status.HTTP_409_CONFLICT,
+        "A dry run is only available for a dataset stored in an ordinary table.",
+    ),
+    "insert_side_effects": (
+        status.HTTP_409_CONFLICT,
+        "A dry run is not available for this dataset: its table has an INSERT "
+        "trigger or rule, whose effects a dry run cannot undo.",
+    ),
+    "user_code": (
+        status.HTTP_409_CONFLICT,
+        "A dry run is only available for a table without check constraints, "
+        "row security, domain or composite columns, or index operator classes "
+        "with volatile functions, since a dry run cannot undo their effects.",
+    ),
 }
 
 
@@ -247,9 +259,8 @@ async def _insert_scope(db: AsyncSession, dry_run: bool, table_name: str):
         return
     blocker = await dry_run_blocker(db, table_name)
     if blocker is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_DRY_RUN_REFUSALS[blocker]
-        )
+        code, detail = _DRY_RUN_REFUSALS[blocker]
+        raise HTTPException(status_code=code, detail=detail)
     async with db.begin_nested() as savepoint:
         yield
         await db.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
@@ -1119,13 +1130,13 @@ async def dry_run_create_feature(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, and no CHECK constraint
-    (its own or a column domain's) or row security policy that calls a
-    volatile function, since those could have effects outside the
-    transaction. A view, a partitioned or foreign table, or a table with such
-    a trigger, rule, constraint or policy is refused with 409. Column defaults
-    still run, volatile ones included, so a dry run can consume sequence
-    values and stored ids can have gaps.
+    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
+    security off, no domain or composite columns, and no index operator class
+    with a volatile function, since those could run code with effects outside
+    the transaction. Any other dataset is refused with 409. The insert still
+    runs column defaults, type input functions and index support functions,
+    volatile defaults included, so a dry run can consume sequence values and
+    stored ids can have gaps.
     """
     return await _create(db, dataset_id, body, user, None, None, True)
 

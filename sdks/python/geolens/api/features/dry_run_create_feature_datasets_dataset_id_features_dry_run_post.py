@@ -173,13 +173,13 @@ def sync_detailed(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, and no CHECK constraint
-    (its own or a column domain's) or row security policy that calls a
-    volatile function, since those could have effects outside the
-    transaction. A view, a partitioned or foreign table, or a table with such
-    a trigger, rule, constraint or policy is refused with 409. Column defaults
-    still run, volatile ones included, so a dry run can consume sequence
-    values and stored ids can have gaps.
+    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
+    security off, no domain or composite columns, and no index operator class
+    with a volatile function, since those could run code with effects outside
+    the transaction. Any other dataset is refused with 409. The insert still
+    runs column defaults, type input functions and index support functions,
+    volatile defaults included, so a dry run can consume sequence values and
+    stored ids can have gaps.
 
     Args:
         dataset_id (UUID):
@@ -230,13 +230,13 @@ def sync(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, and no CHECK constraint
-    (its own or a column domain's) or row security policy that calls a
-    volatile function, since those could have effects outside the
-    transaction. A view, a partitioned or foreign table, or a table with such
-    a trigger, rule, constraint or policy is refused with 409. Column defaults
-    still run, volatile ones included, so a dry run can consume sequence
-    values and stored ids can have gaps.
+    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
+    security off, no domain or composite columns, and no index operator class
+    with a volatile function, since those could run code with effects outside
+    the transaction. Any other dataset is refused with 409. The insert still
+    runs column defaults, type input functions and index support functions,
+    volatile defaults included, so a dry run can consume sequence values and
+    stored ids can have gaps.
 
     Args:
         dataset_id (UUID):
@@ -281,13 +281,13 @@ async def asyncio_detailed(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, and no CHECK constraint
-    (its own or a column domain's) or row security policy that calls a
-    volatile function, since those could have effects outside the
-    transaction. A view, a partitioned or foreign table, or a table with such
-    a trigger, rule, constraint or policy is refused with 409. Column defaults
-    still run, volatile ones included, so a dry run can consume sequence
-    values and stored ids can have gaps.
+    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
+    security off, no domain or composite columns, and no index operator class
+    with a volatile function, since those could run code with effects outside
+    the transaction. Any other dataset is refused with 409. The insert still
+    runs column defaults, type input functions and index support functions,
+    volatile defaults included, so a dry run can consume sequence values and
+    stored ids can have gaps.
 
     Args:
         dataset_id (UUID):
@@ -336,13 +336,13 @@ async def asyncio(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, and no CHECK constraint
-    (its own or a column domain's) or row security policy that calls a
-    volatile function, since those could have effects outside the
-    transaction. A view, a partitioned or foreign table, or a table with such
-    a trigger, rule, constraint or policy is refused with 409. Column defaults
-    still run, volatile ones included, so a dry run can consume sequence
-    values and stored ids can have gaps.
+    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
+    security off, no domain or composite columns, and no index operator class
+    with a volatile function, since those could run code with effects outside
+    the transaction. Any other dataset is refused with 409. The insert still
+    runs column defaults, type input functions and index support functions,
+    volatile defaults included, so a dry run can consume sequence values and
+    stored ids can have gaps.
 
     Args:
         dataset_id (UUID):

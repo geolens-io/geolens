@@ -778,31 +778,40 @@ async def _geom_column_is_measured(session: AsyncSession, table_name: str) -> bo
     return typmod_type is not None and typmod_type.strip().upper().endswith("M")
 
 
-DryRunBlocker = Literal["not_a_table", "insert_side_effects", "volatile_function"]
+DryRunBlocker = Literal[
+    "missing_table", "not_a_table", "insert_side_effects", "user_code"
+]
 
-# The functions the insert evaluates outside the row itself: CHECK constraints
-# on the table and on a domain under one of its column types, and the table's
-# row security policies. Read from the stored expression trees, operators'
-# functions included, since pg_depend records nothing for built-ins such as
-# nextval or pg_try_advisory_lock.
-_VOLATILE_FUNCTION = (
-    "EXISTS (WITH RECURSIVE types(oid) AS ("
-    "SELECT a.atttypid FROM pg_attribute a "
+# A volatile function that is not part of an installed extension. PostGIS
+# declares its GiST support functions VOLATILE, so volatility alone would
+# refuse every indexed spatial table; no built-in support function is.
+_UNTRUSTED_VOLATILE = (
+    "p.provolatile = 'v' AND NOT EXISTS ("
+    "SELECT 1 FROM pg_depend e WHERE e.classid = 'pg_proc'::regclass "
+    "AND e.objid = p.oid AND e.deptype = 'e')"
+)
+
+# Shapes that let the insert run user code beyond column defaults, type input
+# and trusted index support functions: a CHECK constraint, row security, a
+# domain or composite column (directly or as an array element, whose CHECKs
+# and casts reach further), and an index operator class with an untrusted
+# volatile function.
+_USER_CODE = (
+    "EXISTS (SELECT 1 FROM pg_constraint con "
+    "WHERE con.contype = 'c' AND con.conrelid = c.oid) "
+    "OR c.relrowsecurity "
+    "OR EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_type ty ON ty.oid = a.atttypid "
+    "LEFT JOIN pg_type el ON el.oid = ty.typelem "
     "WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
-    "UNION SELECT v.oid FROM types t JOIN pg_type ty ON ty.oid = t.oid, "
-    "LATERAL (VALUES (ty.typbasetype), (ty.typelem)) v(oid) WHERE v.oid <> 0), "
-    "trees(tree) AS ("
-    "SELECT con.conbin::text FROM pg_constraint con WHERE con.contype = 'c' "
-    "AND (con.conrelid = c.oid OR con.contypid IN (SELECT oid FROM types)) "
-    "UNION ALL SELECT x.tree::text FROM pg_policy pol, "
-    "LATERAL (VALUES (pol.polqual), (pol.polwithcheck)) x(tree) "
-    "WHERE c.relrowsecurity AND pol.polrelid = c.oid) "
-    "SELECT 1 FROM trees t, LATERAL regexp_matches("
-    "t.tree, ':(funcid|opfuncid|opno) ([0-9]+)', 'g') m "
-    "LEFT JOIN pg_operator op ON m[1] = 'opno' AND op.oid = m[2]::oid "
-    "JOIN pg_proc p ON p.oid = CASE WHEN m[1] = 'opno' "
-    "THEN op.oprcode::oid ELSE m[2]::oid END "
-    "WHERE p.provolatile = 'v')"
+    "AND (ty.typtype IN ('d', 'c') OR el.typtype IN ('d', 'c'))) "
+    "OR EXISTS (SELECT 1 FROM pg_index i, unnest(i.indclass::oid[]) oc(oid) "
+    "JOIN pg_opclass opc ON opc.oid = oc.oid WHERE i.indrelid = c.oid AND ("
+    "EXISTS (SELECT 1 FROM pg_amproc ap JOIN pg_proc p ON p.oid = ap.amproc "
+    f"WHERE ap.amprocfamily = opc.opcfamily AND {_UNTRUSTED_VOLATILE}) "
+    "OR EXISTS (SELECT 1 FROM pg_amop ao "
+    "JOIN pg_operator o ON o.oid = ao.amopopr "
+    "JOIN pg_proc p ON p.oid = o.oprcode::oid "
+    f"WHERE ao.amopfamily = opc.opcfamily AND {_UNTRUSTED_VOLATILE})))"
 )
 
 _DRY_RUN_PROBE = text(
@@ -812,7 +821,7 @@ _DRY_RUN_PROBE = text(
     "OR EXISTS (SELECT 1 FROM pg_rewrite rw "
     "WHERE rw.ev_class = c.oid AND rw.ev_type = '3' "
     "AND rw.ev_enabled IN ('O', 'A')) AS side_effects, "
-    f"{_VOLATILE_FUNCTION} AS volatile_function "
+    f"{_USER_CODE} AS user_code "
     "FROM pg_class c WHERE c.oid = to_regclass(format('%I.%I', "
     "CAST(:schema AS text), CAST(:t AS text)))"
 )
@@ -824,13 +833,12 @@ async def dry_run_blocker(
     """Why a dry-run insert into the table could leave effects behind, or None.
 
     Only an ordinary table qualifies, and only while it has no enabled user
-    INSERT trigger, no enabled INSERT rule, and no CHECK constraint (its own
-    or a column domain's) or row security policy that calls a volatile
-    function: each may reach past the transaction, where the rolled-back
-    insert cannot undo it.
-    The table is locked in ROW EXCLUSIVE mode, the insert's own lock, first,
-    so none of these can be added before the insert; the lock lasts until the
-    transaction ends.
+    INSERT trigger or rule and none of the shapes in ``_USER_CODE``: each may
+    run code that reaches past the transaction, where the rolled-back insert
+    cannot undo it. The table is locked in ROW EXCLUSIVE mode, the insert's
+    own lock, before the second look, so none of these can be added before
+    the insert; the lock lasts until the transaction ends. A table that is
+    missing at the first look is reported, never inserted into.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
@@ -838,8 +846,7 @@ async def dry_run_blocker(
     params = {"schema": tenant_data_schema(current_tenant_var.get()), "t": table_name}
     row = (await session.execute(_DRY_RUN_PROBE, params)).first()
     if row is None:
-        # A missing table fails in the insert as it would for a real create.
-        return None
+        return "missing_table"
     if row.relkind != "r":
         return "not_a_table"
     quoted = get_catalog_port().quote_table(table_name)
@@ -850,7 +857,7 @@ async def dry_run_blocker(
         return "not_a_table"
     if row.side_effects:
         return "insert_side_effects"
-    return "volatile_function" if row.volatile_function else None
+    return "user_code" if row.user_code else None
 
 
 async def effective_geometry_type(session: AsyncSession, dataset) -> str:

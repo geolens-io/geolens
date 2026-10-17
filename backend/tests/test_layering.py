@@ -1392,7 +1392,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router.py": 1543,
     # Feature writes share the dataset guards, the database error mapping and the
     # catalog refresh; create also carries idempotent repeats and the dry run.
-    "backend/app/modules/catalog/features/router.py": 1603,
+    "backend/app/modules/catalog/features/router.py": 1614,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1423,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
@@ -1418,9 +1418,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, and the create dry run checks
-    # the table's kind, insert triggers and rules, and the functions its CHECK
-    # constraints and policies call, with the same catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1576,
+    # the table's kind, insert triggers and rules, and the shapes that run user
+    # code on insert, with the same catalog probes.
+    "backend/app/modules/catalog/features/service.py": 1583,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
     "backend/app/modules/catalog/authorization.py": 1176,

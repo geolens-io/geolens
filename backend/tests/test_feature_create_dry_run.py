@@ -539,110 +539,107 @@ async def test_only_an_insert_rule_that_fires_refuses_a_dry_run(
     assert await _effects(test_db_session, side_effects) == (0, False)
 
 
-_VOLATILE_REFUSAL = (
-    "A dry run is not available for this dataset: a check constraint or row "
-    "security policy on its table calls a volatile function, whose effects a "
-    "dry run cannot undo."
+_USER_CODE_REFUSAL = (
+    "A dry run is only available for a table without check constraints, row "
+    "security, domain or composite columns, or index operator classes with "
+    "volatile functions, since a dry run cannot undo their effects."
 )
 
 
-@pytest.fixture
-async def volatile_fn(test_db_session, point_layer, side_effects):
-    """A VOLATILE boolean function that writes nextval into the side table.
-
-    Yields its qualified name; drops it, and whatever uses it, afterwards.
-    """
-    _, table_name = point_layer
-    fn = f"data.{table_name}_vol"
-    await _ddl(
-        test_db_session,
-        f"CREATE FUNCTION {fn}(v text, w text DEFAULT NULL) RETURNS boolean "
-        "LANGUAGE plpgsql VOLATILE AS $$ BEGIN "
-        f"INSERT INTO data.{side_effects['side']} "
-        f"VALUES (nextval('data.{side_effects['seq']}')); RETURN true; END $$",
-    )
-    yield fn
-    await test_db_session.rollback()
-    await _ddl(
-        test_db_session,
-        f"ALTER TABLE data.{table_name} DROP CONSTRAINT IF EXISTS {table_name}_chk",
-        f"DROP DOMAIN IF EXISTS data.{table_name}_dom CASCADE",
-        f"DROP FUNCTION {fn}(text, text) CASCADE",
-    )
-
-
-def _volatile_ddl(through: str, table_name: str, fn: str, seq: str) -> list[str]:
-    if through == "table":
+def _user_code_ddl(kind: str, t: str) -> tuple[list[str], list[str]]:
+    """DDL that gives the table ``t`` one refused shape, and its teardown."""
+    if kind == "check":
         return [
-            f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
-            f"CHECK ({fn}(name))"
-        ]
-    if through == "domain":
+            f"ALTER TABLE data.{t} ADD CONSTRAINT {t}_chk "
+            "CHECK (name IS NULL OR length(name) < 100)"
+        ], []
+    if kind == "row-security":
+        return [f"ALTER TABLE data.{t} ENABLE ROW LEVEL SECURITY"], []
+    if kind in ("domain", "domain-array"):
+        suffix = "[]" if kind == "domain-array" else ""
         return [
-            f"CREATE DOMAIN data.{table_name}_dom AS text CHECK ({fn}(VALUE))",
-            f"ALTER TABLE data.{table_name} ADD COLUMN tag data.{table_name}_dom",
-        ]
-    if through == "operator":
+            f"CREATE DOMAIN data.{t}_dom AS text",
+            f"ALTER TABLE data.{t} ADD COLUMN tag data.{t}_dom{suffix}",
+        ], [f"DROP DOMAIN data.{t}_dom CASCADE"]
+    if kind == "composite":
         return [
-            f"CREATE OPERATOR data.=== (FUNCTION = {fn}, "
-            "LEFTARG = text, RIGHTARG = text)",
-            f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
-            "CHECK (name OPERATOR(data.===) status)",
-        ]
-    if through == "built-in":
+            f"CREATE TYPE data.{t}_pair AS (a int, b int)",
+            f"ALTER TABLE data.{t} ADD COLUMN pair data.{t}_pair",
+        ], [f"DROP TYPE data.{t}_pair CASCADE"]
+    if kind == "opclass-support":
         return [
-            f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
-            f"CHECK (nextval('data.{seq}') > 0)"
+            f"CREATE FUNCTION data.{t}_cmp(text, text) RETURNS int LANGUAGE sql "
+            "VOLATILE AS 'SELECT bttextcmp($1, $2)'",
+            f"CREATE OPERATOR CLASS data.{t}_ops FOR TYPE text USING btree AS "
+            "OPERATOR 1 <, OPERATOR 2 <=, OPERATOR 3 =, OPERATOR 4 >=, "
+            f"OPERATOR 5 >, FUNCTION 1 data.{t}_cmp(text, text)",
+            f"CREATE INDEX ON data.{t} (name data.{t}_ops)",
+        ], [
+            f"DROP OPERATOR FAMILY data.{t}_ops USING btree CASCADE",
+            f"DROP FUNCTION data.{t}_cmp(text, text)",
         ]
-    # A restrictive policy is ANDed with the permissive one, so it always runs.
     return [
-        f"CREATE POLICY {table_name}_all ON data.{table_name} "
-        "USING (true) WITH CHECK (true)",
-        f"CREATE POLICY {table_name}_pol ON data.{table_name} AS RESTRICTIVE "
-        f"FOR INSERT WITH CHECK ({fn}(name))",
-        f"ALTER TABLE data.{table_name} ENABLE ROW LEVEL SECURITY",
-        f"ALTER TABLE data.{table_name} FORCE ROW LEVEL SECURITY",
+        f"CREATE FUNCTION data.{t}_eq(text, text) RETURNS boolean LANGUAGE sql "
+        "VOLATILE AS 'SELECT $1 = $2'",
+        f"CREATE OPERATOR data.=== (FUNCTION = data.{t}_eq, "
+        "LEFTARG = text, RIGHTARG = text)",
+        f"CREATE OPERATOR CLASS data.{t}_hops FOR TYPE text USING hash AS "
+        "OPERATOR 1 data.===, FUNCTION 1 hashtext(text)",
+        f"CREATE INDEX ON data.{t} USING hash (name data.{t}_hops)",
+    ], [
+        f"DROP OPERATOR FAMILY data.{t}_hops USING hash CASCADE",
+        f"DROP FUNCTION data.{t}_eq(text, text) CASCADE",
     ]
 
 
+@pytest.fixture
+async def teardown_ddl(test_db_session, point_layer):
+    """Statements to run after the test, before the point layer is dropped."""
+    statements: list[str] = []
+    yield statements
+    await test_db_session.rollback()
+    _, table_name = point_layer
+    await _ddl(test_db_session, f"DROP TABLE data.{table_name} CASCADE", *statements)
+
+
 @pytest.mark.parametrize(
-    "through", ["table", "domain", "operator", "built-in", "policy"]
+    "kind",
+    [
+        "check",
+        "row-security",
+        "domain",
+        "domain-array",
+        "composite",
+        "opclass-support",
+        "opclass-operator",
+    ],
 )
-async def test_a_volatile_function_in_a_check_or_policy_refuses_a_dry_run(
+async def test_a_table_that_can_run_user_code_on_insert_refuses_a_dry_run(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     point_layer,
-    side_effects,
-    volatile_fn,
-    through,
+    teardown_ddl,
+    kind,
 ):
     dataset_id, table_name = point_layer
-    await _ddl(
-        test_db_session,
-        *_volatile_ddl(through, table_name, volatile_fn, side_effects["seq"]),
-    )
+    ddl, teardown = _user_code_ddl(kind, table_name)
+    teardown_ddl.extend(teardown)
+    await _ddl(test_db_session, *ddl)
 
     resp = await client.post(
         _dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header
     )
 
-    assert (resp.status_code, resp.json()["detail"]) == (409, _VOLATILE_REFUSAL)
-    assert await _effects(test_db_session, side_effects) == (0, False)
+    assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
 
 
 @pytest.mark.parametrize("path", ["features/dry-run/", "features/dry-run"])
-async def test_a_volatile_check_refuses_a_collection_dry_run_on_either_path(
-    client: AsyncClient,
-    admin_auth_header: dict,
-    test_db_session,
-    point_layer,
-    side_effects,
-    volatile_fn,
-    path,
+async def test_a_check_refuses_a_collection_dry_run_on_either_path(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer, path
 ):
     dataset_id, table_name = point_layer
-    await _ddl(test_db_session, *_volatile_ddl("table", table_name, volatile_fn, ""))
+    await _ddl(test_db_session, *_user_code_ddl("check", table_name)[0])
 
     resp = await client.post(
         f"/datasets/{dataset_id}/{path}",
@@ -650,8 +647,26 @@ async def test_a_volatile_check_refuses_a_collection_dry_run_on_either_path(
         headers=admin_auth_header,
     )
 
-    assert (resp.status_code, resp.json()["detail"]) == (409, _VOLATILE_REFUSAL)
-    assert await _effects(test_db_session, side_effects) == (0, False)
+    assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
+
+
+async def test_a_plain_table_with_a_gist_index_and_a_serial_id_allows_a_dry_run(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+):
+    """Built-in and PostGIS operator classes are trusted, volatile or not."""
+    dataset_id, table_name = point_layer
+    await _ddl(
+        test_db_session,
+        f"CREATE INDEX ON data.{table_name} USING gist (geom)",
+        f"CREATE INDEX ON data.{table_name} USING gist (geom_4326)",
+        f"CREATE INDEX ON data.{table_name} (name)",
+    )
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A, name="a"), headers=admin_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
 
 
 async def test_a_check_taking_an_advisory_lock_refuses_a_dry_run(
@@ -706,28 +721,49 @@ async def test_a_check_taking_an_advisory_lock_refuses_a_dry_run(
         release.set()
         resp = await request
 
-    assert (resp.status_code, resp.json()["detail"]) == (409, _VOLATILE_REFUSAL)
+    assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
     assert free
 
 
-@pytest.mark.parametrize(
-    "check", ["length(name) < 100", "now() IS NOT NULL"], ids=["immutable", "stable"]
-)
-async def test_a_check_calling_no_volatile_function_leaves_the_dry_run_alone(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer, check
+async def test_a_table_missing_at_the_check_is_never_inserted_into(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    side_effects,
+    monkeypatch,
 ):
+    """Recreated with an INSERT trigger right after the check, it still is not."""
+    from app.modules.catalog.features import router as features_router
+
     dataset_id, table_name = point_layer
-    await _ddl(
-        test_db_session,
-        f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
-        f"CHECK ({check})",
-    )
+    stash = f"{table_name}_away"
+    await _ddl(test_db_session, f"ALTER TABLE data.{table_name} RENAME TO {stash}")
+    real_blocker = features_router.dry_run_blocker
 
-    resp = await client.post(
-        _dry(dataset_id), json=_feature(POINT_A, name="a"), headers=admin_auth_header
-    )
+    async def blocker_then_recreate(session, name):
+        verdict = await real_blocker(session, name)
+        await _ddl(
+            test_db_session,
+            f"ALTER TABLE data.{stash} RENAME TO {table_name}",
+            _trigger_ddl(side_effects, table_name),
+        )
+        return verdict
 
-    assert resp.status_code == 200, resp.text
+    with monkeypatch.context() as patched:
+        patched.setattr(features_router, "dry_run_blocker", blocker_then_recreate)
+        dry = await client.post(
+            _dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header
+        )
+    await _ddl(test_db_session, f"ALTER TABLE data.{table_name} RENAME TO {stash}")
+    real = await client.post(
+        _real(dataset_id), json=_feature(POINT_A), headers=admin_auth_header
+    )
+    await _ddl(test_db_session, f"ALTER TABLE data.{stash} RENAME TO {table_name}")
+
+    assert (dry.status_code, dry.json()) == (real.status_code, real.json())
+    assert dry.status_code == 503, dry.text
+    assert await _effects(test_db_session, side_effects) == (0, False)
 
 
 @pytest.mark.parametrize("kind", ["disabled", "replica-only", "update-only"])
