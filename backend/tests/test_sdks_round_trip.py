@@ -664,6 +664,42 @@ class TestTiles3dFileDownload:
             assert result.payload.read() == body
 
 
+class TestRasterTileForbidden:
+    """A refused raster tile parses as a ProblemDetail rather than None."""
+
+    def test_sync_and_detailed_parse_the_403(self) -> None:
+        from geolens.api.tiles import (
+            raster_tile_proxy_tiles_raster_proxy_dataset_id_z_x_y_fmt_get as tile,
+        )
+        from geolens.models import ProblemDetail
+
+        problem = {
+            "type": "about:blank",
+            "title": "Forbidden",
+            "status": 403,
+            "detail": "Invalid or expired signature",
+        }
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                403, json=problem, headers={"Content-Type": "application/problem+json"}
+            )
+
+        client = Client(
+            base_url="http://sdk.test",
+            httpx_args={"transport": httpx.MockTransport(respond)},
+        )
+        args = {"dataset_id": uuid4(), "z": 0, "x": 0, "y": 0, "fmt": "png"}
+
+        synced = tile.sync(**args, client=client)
+        detailed = tile.sync_detailed(**args, client=client)
+        awaited = asyncio.run(tile.asyncio(**args, client=client))
+
+        for result in (synced, detailed.parsed, awaited):
+            assert isinstance(result, ProblemDetail)
+            assert result.detail == "Invalid or expired signature"
+
+
 class TestCogAndExportNotModified:
     """A 304 from the COG download or export is a declared status, so
     raise_on_unexpected_status=True doesn't raise on a cache hit.

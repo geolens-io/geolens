@@ -103,7 +103,11 @@ from app.processing.tiles.signing import (
     round_expiry,
     verify_tile_signature,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, RATE_LIMIT_RESPONSE
+from app.standards.ogc.errors import (
+    ERROR_RESPONSES_PUBLIC,
+    FORBIDDEN_RESPONSE,
+    RATE_LIMIT_RESPONSE,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -1129,7 +1133,15 @@ async def raster_auth_check(
             "image/jpeg",
             "image/webp",
             "image/tiff",
-        )
+        ),
+        403: {
+            **FORBIDDEN_RESPONSE,
+            "description": (
+                "Forbidden: the embed token or the signature parameters did not "
+                "authorize the request, or a multi-tenant request has no tenant "
+                "context"
+            ),
+        },
     },
 )
 @limiter.exempt

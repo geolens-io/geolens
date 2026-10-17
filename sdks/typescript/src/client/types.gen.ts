@@ -29412,6 +29412,10 @@ export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors = {
      */
     401: ProblemDetail;
     /**
+     * Forbidden: the embed token or the signature parameters did not authorize the request, or a multi-tenant request has no tenant context
+     */
+    403: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;

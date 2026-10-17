@@ -61939,6 +61939,16 @@
             },
             "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden: the embed token or the signature parameters did not authorize the request, or a multi-tenant request has no tenant context"
+          },
           "404": {
             "content": {
               "application/problem+json": {

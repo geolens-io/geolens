@@ -10,7 +10,11 @@ from app.core.config import settings
 from app.core.tile_scope import tile_signature_scope
 from app.processing.tiles.signing import generate_tile_signature
 from tests.factories import create_dataset, create_raster_dataset, get_user_id
-from tests.test_vector_tile_identity_2543 import mint_key, people  # noqa: F401
+from tests.test_vector_tile_identity_2543 import (  # noqa: F401
+    make_tiles,
+    mint_key,
+    people,
+)
 
 
 def _tile_url(dataset_id) -> str:
@@ -330,3 +334,90 @@ async def test_a_forged_signature_on_a_bare_private_raster_is_still_refused(
 
     assert resp.status_code == 403, resp.text
     assert resp.json()["detail"] == "Invalid or expired signature", resp.text
+
+
+_NON_ASCII_SIG = "\u00e9"
+_RASTER_HANDLERS = {
+    "raster_proxy": lambda dataset_id: (_tile_url(dataset_id), {}),
+    "raster_auth_check": lambda dataset_id: (
+        "/tiles/raster-auth-check/",
+        {"dataset_id": str(dataset_id)},
+    ),
+}
+
+
+def _non_ascii_signed(resource: str) -> dict:
+    exp = int(time.time()) + 300
+    return {
+        "sig": _NON_ASCII_SIG,
+        "exp": exp,
+        "scope": tile_signature_scope(resource, 0),
+    }
+
+
+@pytest.mark.parametrize("handler", sorted(_RASTER_HANDLERS))
+@pytest.mark.parametrize(
+    ("credential", "expected_status"), [(None, 403), ("bearer", 401)]
+)
+async def test_a_non_ascii_signature_is_refused_as_for_a_missing_dataset(
+    client: AsyncClient,
+    test_db_session,
+    handler: str,
+    credential: str | None,
+    expected_status: int,
+) -> None:
+    owner = await get_user_id(test_db_session, settings.geolens_admin_username)
+    ids = {
+        "raster": (
+            await create_raster_dataset(
+                test_db_session,
+                created_by=owner,
+                visibility="private",
+                create_raster_asset=True,
+            )
+        ).id,
+        "non_raster": (
+            await create_dataset(
+                test_db_session, created_by=owner, visibility="private"
+            )
+        ).id,
+        "no_asset": (
+            await create_raster_dataset(
+                test_db_session, created_by=owner, visibility="private"
+            )
+        ).id,
+        "missing": uuid.uuid4(),
+    }
+    extra = _DEAD_CREDENTIALS[credential] if credential else {}
+
+    answers = {}
+    for name, dataset_id in ids.items():
+        url, params = _RASTER_HANDLERS[handler](dataset_id)
+        signed = {**params, **_non_ascii_signed(str(dataset_id))}
+        answers[name] = _answer(await client.get(url, **_with(extra, params=signed)))
+
+    assert all(answer == answers["missing"] for answer in answers.values()), answers
+    assert answers["missing"][0] == expected_status, answers
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+async def test_a_non_ascii_signature_on_a_vector_tile_reads_as_an_unknown_table(
+    client: AsyncClient,
+    test_db_session,
+    make_tiles,  # noqa: F811
+) -> None:
+    owner = await get_user_id(test_db_session, settings.geolens_admin_username)
+    private = (await make_tiles(owner)).table_name
+    missing = f"vt_key_{uuid.uuid4().hex[:8]}"
+
+    answers = {
+        table: _answer(
+            await client.get(
+                f"/tiles/data.{table}/0/0/0.pbf", params=_non_ascii_signed(table)
+            )
+        )
+        for table in (private, missing)
+    }
+
+    assert answers[private] == answers[missing], answers
+    assert answers[missing][0] == 403, answers

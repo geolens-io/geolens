@@ -30,7 +30,10 @@ and releases use semantic versioning.
   caller who can't read a dataset that isn't a raster, or has no image, gets
   the same 404 "Dataset not found" as for a missing id, where the raster route
   said "Not a raster dataset" or "No raster asset". A credential that doesn't
-  resolve still answers 401.
+  resolve still answers 401. A tile signature with non-ASCII characters is
+  refused like any other invalid signature on the vector, cluster and raster
+  routes, where it failed with 500 for a dataset that exists. The raster tile
+  route now documents its 403 response, so generated clients parse it.
 
 ### Upgrade notes
 

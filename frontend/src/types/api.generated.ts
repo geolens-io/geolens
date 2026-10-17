@@ -42348,6 +42348,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description Forbidden: the embed token or the signature parameters did not authorize the request, or a multi-tenant request has no tenant context */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Not found */
             404: {
                 headers: {

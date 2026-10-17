@@ -102,9 +102,10 @@ def verify_tile_signature(scope: str, exp: int, sig: str) -> bool:
         sig: The signature to verify.
 
     Returns:
-        True if valid and not expired, False otherwise.
+        True if valid and not expired, False otherwise. A non-ASCII ``sig`` is
+        False too: ``hmac.compare_digest`` raises on one.
     """
-    if time.time() > exp:
+    if time.time() > exp or not sig.isascii():
         return False
     expected = generate_tile_signature(scope, exp)
     return hmac.compare_digest(expected, sig)
