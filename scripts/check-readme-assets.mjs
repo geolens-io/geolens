@@ -50,20 +50,37 @@ const assetDir = path.join(repoRoot, '.github/assets');
 // silently blessed. Clear a `capturedAt` by recapturing and updating
 // `width`/`height` to match it in the same commit.
 const README_ASSETS = {
-  // --- Shown in README.md, captured at 1600x900 ----------------------------
+  // --- Shown in README.md, 1600x900 on disk --------------------------------
   // Light and dark pairs, except QGIS, which has one theme. The provenance
   // shot is cropped to the Source panel.
   'geolens-manhattan-3d-hero.jpg': { width: 1600, height: 900 },
   'geolens-manhattan-3d-hero-dark.jpg': { width: 1600, height: 900 },
-  'geolens-catalog-search.png': { width: 1600, height: 900 },
-  'geolens-catalog-search-dark.png': { width: 1600, height: 900 },
   'geolens-provenance.png': { width: 1600, height: 872 },
   'geolens-provenance-dark.png': { width: 1600, height: 872 },
-  'geolens-matterhorn-terrain.jpg': { width: 1600, height: 900 },
-  'geolens-matterhorn-terrain-dark.jpg': { width: 1600, height: 900 },
   'geolens-qgis.png': { width: 1600, height: 900 },
   'geolens-ask-ai.png': { width: 1600, height: 900 },
   'geolens-ask-ai-dark.png': { width: 1600, height: 900 },
+  // The "A closer look" grid.
+  'geolens-catalog-search.png': { width: 1600, height: 900 },
+  'geolens-catalog-search-dark.png': { width: 1600, height: 900 },
+  'geolens-dataset-page.png': { width: 1600, height: 900 },
+  'geolens-dataset-page-dark.png': { width: 1600, height: 900 },
+  'geolens-import-preview.png': { width: 1600, height: 900 },
+  'geolens-import-preview-dark.png': { width: 1600, height: 900 },
+  'geolens-version-history.png': { width: 1600, height: 900 },
+  'geolens-version-history-dark.png': { width: 1600, height: 900 },
+  'geolens-builder-style.png': { width: 1600, height: 900 },
+  'geolens-builder-style-dark.png': { width: 1600, height: 900 },
+  'geolens-matterhorn-terrain.jpg': { width: 1600, height: 900 },
+  'geolens-matterhorn-terrain-dark.jpg': { width: 1600, height: 900 },
+  'geolens-stac-imagery.jpg': { width: 1600, height: 900 },
+  'geolens-stac-imagery-dark.jpg': { width: 1600, height: 900 },
+  'geolens-share-embed.png': { width: 1600, height: 900 },
+  'geolens-share-embed-dark.png': { width: 1600, height: 900 },
+  'geolens-admin-overview.png': { width: 1600, height: 900 },
+  'geolens-admin-overview-dark.png': { width: 1600, height: 900 },
+  'geolens-admin-permissions.png': { width: 1600, height: 900 },
+  'geolens-admin-permissions-dark.png': { width: 1600, height: 900 },
 
   // --- Not in README.md; linked from the translations or announcements -----
   'geolens-search.png': { width: 1600, height: 900 },
@@ -71,8 +88,6 @@ const README_ASSETS = {
   'geolens-ai-labels.png': { width: 1600, height: 900 },
   'geolens-dataset-chat.png': { width: 1200, height: 750 },
   'geolens-dataset-chat-dark.png': { width: 1200, height: 750 },
-  'geolens-admin-overview.png': { width: 1200, height: 750 },
-  'geolens-admin-overview-dark.png': { width: 1200, height: 750 },
   'geolens-admin-users.png': { width: 1200, height: 750 },
   'geolens-admin-users-dark.png': { width: 1200, height: 750 },
   // Wider than the sanitizer's 1200px cap, so one Read would shrink them.

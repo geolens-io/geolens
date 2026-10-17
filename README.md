@@ -46,6 +46,91 @@ on your own servers with Docker Compose, sends no telemetry and is licensed unde
 The [demo](https://demo.getgeolens.com) needs no install or account; sign in with Google, GitHub
 or Microsoft to use the map builder. Demo data may be wiped at any time.
 
+## A closer look
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
+<img src=".github/assets/geolens-catalog-search.png" alt="GeoLens catalog search for 'where storms hit the coast', signed out, listing hurricane and coastal datasets with type, source and freshness badges beside the dataset filters" width="100%">
+</picture>
+<br><sub>Search by meaning: "where storms hit the coast" finds hurricane tracks and coastal exposure layers.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
+<img src=".github/assets/geolens-dataset-page.png" alt="The dataset page for Atlantic Hurricane Tracks: storm tracks on a map preview, badges for vector, uploaded, source fresh, published and public, and the feature count, geometry, CRS, version and column count" width="100%">
+</picture>
+<br><sub>Every dataset has a page with a map preview, its metadata, its attributes and where it came from.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-import-preview-dark.png">
+<img src=".github/assets/geolens-import-preview.png" alt="The Import Data page's Service URL tab previewing the USGS Significant Earthquakes ArcGIS layer: CRS, geometry type, feature count, layer name and sample rows" width="100%">
+</picture>
+<br><sub>Before you import a service layer, GeoLens previews its columns and first rows.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
+<img src=".github/assets/geolens-version-history.png" alt="Version history of the Significant Volcanic Eruptions dataset: three GeoJSON versions with dates, file names and feature counts, the current one marked, and a Restore button on the previous version" width="100%">
+</picture>
+<br><sub>Replacing a dataset keeps the old versions, and you can restore the previous one.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
+<img src=".github/assets/geolens-builder-style.png" alt="The map builder with the Restless Earth map on a globe: an earthquake heatmap along the Pacific plate boundaries, the grouped layer list and the heatmap style panel with its color ramps" width="100%">
+</picture>
+<br><sub>Layers render as points, symbols, heatmaps or clusters, and the ramp list can be limited to colorblind-safe ones.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
+<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="The GeoLens map builder rendering the Matterhorn as 3D terrain from swissALTI3D lidar, with labeled peaks, climbing routes, the layer list and a legend" width="100%">
+</picture>
+<br><sub>3D terrain from your own elevation data, here the Matterhorn from swissALTI3D lidar.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
+<img src=".github/assets/geolens-stac-imagery.jpg" alt="The map builder showing four dated Sentinel-2 true-color scenes over New York City and northern New Jersey, referenced from the Earth Search STAC catalog, with the layer list and legend" width="100%">
+</picture>
+<br><sub>Sentinel-2 scenes referenced from a STAC catalog. The imagery stays where it is and is tiled on request.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-share-embed-dark.png">
+<img src=".github/assets/geolens-share-embed.png" alt="The Share dialog for a map: visibility set to Public, with Only you and All team members as the other options, a share link and an iframe embed code" width="100%">
+</picture>
+<br><sub>Keep a map to yourself, open it to your team, or make it public with a link and embed code.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
+<img src=".github/assets/geolens-admin-overview.png" alt="The admin Overview page: All Systems Operational, with database, storage, cache and tile cache status, total datasets, recent additions and storage used, beside the admin menu" width="100%">
+</picture>
+<br><sub>The admin overview shows service health next to dataset and storage totals.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-permissions-dark.png">
+<img src=".github/assets/geolens-admin-permissions.png" alt="The admin Permissions page: capabilities such as Upload Datasets, Export Data, Edit Metadata and Manage Users, with a checkbox for each of the viewer, editor and admin roles" width="100%">
+</picture>
+<br><sub>Viewer, editor and admin roles, with each capability switched on or off per role.</sub>
+</td>
+</tr>
+</table>
+
 ## How it fits together
 
 ```mermaid
@@ -73,15 +158,6 @@ flowchart LR
 ```
 
 ## One catalog for scattered data
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
-    <img src=".github/assets/geolens-catalog-search.png" alt="GeoLens catalog search for 'where storms hit the coast' listing six hurricane and coastal datasets with thumbnails, origin badges and freshness badges, beside type, keyword, collection, location and date filters" width="100%">
-  </picture>
-  <br>
-  <sub>Search by meaning: "where storms hit the coast" finds hurricane tracks, storm corridors and coastal exposure layers.</sub>
-</p>
 
 - Upload Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, zipped File
   Geodatabase, CSV, Excel or GeoTIFF (converted to Cloud-Optimized GeoTIFF). 3D Tiles and COPC
@@ -112,15 +188,6 @@ STAC sources, GeoLens also checks that the source still answers, and for service
 schema changes before they reach your maps. If a service disappears, the imported copy keeps working.
 
 ## Build and share maps
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-    <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="The GeoLens map builder rendering the Matterhorn as 3D terrain from swissALTI3D lidar, with labeled peaks, climbing routes, the layer list and a legend" width="100%">
-  </picture>
-  <br>
-  <sub>The Matterhorn as 3D terrain from swissALTI3D lidar, with peaks and climbing routes from OpenStreetMap.</sub>
-</p>
 
 - Point, symbol, heatmap, cluster, line, arrow, fill, 3D extrusion, raster and hillshade layers,
   with data-driven styles, labels, icons, patterns, filters and popups. Terrain comes from your own
