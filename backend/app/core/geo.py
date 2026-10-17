@@ -597,8 +597,9 @@ def wrapped_spatial_filter(
     piece keeps each probe to its own side of the seam. Intersection decomposes
     over pieces; ``within`` is checked against the whole fold.
 
-    ``extent_match(candidate, test)`` replaces the test on the stored extent,
-    for a caller whose rows may show a narrower extent than they store.
+    ``extent_match(candidate, test)`` replaces the test (``&&`` prefilter
+    included) on the stored extent, for a caller whose rows may show a
+    narrower extent than they store.
     """
     candidate = aliased(entity)
     pieces = func.ST_Dump(folded).table_valued("geom")
@@ -606,19 +607,19 @@ def wrapped_spatial_filter(
     target = folded if predicate == "within" else pieces.c.geom
 
     def test(extent: ColumnElement) -> ColumnElement:
-        return spatial_fn(extent, target)
+        return and_(
+            extent.op("&&")(func.ST_Envelope(pieces.c.geom)),
+            spatial_fn(extent, target),
+        )
 
     matches = (
         select(candidate.id)
         .select_from(pieces)
         .join(
             candidate,
-            and_(
-                candidate.spatial_extent.op("&&")(func.ST_Envelope(pieces.c.geom)),
-                test(candidate.spatial_extent)
-                if extent_match is None
-                else extent_match(candidate, test),
-            ),
+            test(candidate.spatial_extent)
+            if extent_match is None
+            else extent_match(candidate, test),
         )
     )
     return entity.id.in_(matches)

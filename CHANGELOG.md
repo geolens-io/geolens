@@ -124,16 +124,6 @@ and releases use semantic versioning.
   refused like any other invalid signature on the vector, cluster and raster
   routes, where it failed with 500 for a dataset that exists. The raster tile
   route now documents its 403 response, so generated clients parse it.
-
-### Upgrade notes
-
-- Anonymous requests for a non-public raster tile or tile token answer 404
-  instead of 401. A client that read that 401 as a cue to sign in needs
-  another signal, such as the dataset's own 404. Requests carrying an expired
-  or invalid credential still answer 401.
-
-### Security
-
 - A VRT's extent covers only the member rasters the requester can read.
   Every surface that showed or matched a VRT by its stored extent spanned all
   of its members, which showed where a member hidden from the requester lies,
@@ -156,7 +146,13 @@ and releases use semantic versioning.
   `IN`, `BETWEEN` or `LIKE`) answers 400 "Invalid CQL2 expression" instead of
   comparing stored coordinates.
 
-  Overlay authors: `EXTENSION_API_VERSION` is now 18. `ProcessingPort` gained
+### Upgrade notes
+
+- Anonymous requests for a non-public raster tile or tile token answer 404
+  instead of 401. A client that read that 401 as a cue to sign in needs
+  another signal, such as the dataset's own 404. Requests carrying an expired
+  or invalid credential still answer 401.
+- Overlay authors: `EXTENSION_API_VERSION` is now 18. `ProcessingPort` gained
   the required `vrts_beyond_member_audience`, which the tile-token endpoints
   call once for all the mosaics they mint.
 

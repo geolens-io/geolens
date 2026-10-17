@@ -19,7 +19,7 @@ from app.standards.stac.router import _apply_datetime_filter
 from tests.factories import create_dataset, get_user_id
 
 
-def _stored_extent(match, overlaps, **options):
+def _stored_extent(match, **options):
     return match(Record.spatial_extent)
 
 

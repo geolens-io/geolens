@@ -191,15 +191,9 @@ def _pin_timestamptz_literals(root: Any) -> None:
         )
 
 
-# Spatial operators whose every match also overlaps the literal's bounding box.
-_OVERLAPPING_SPATIAL_OPS = frozenset(
-    {"INTERSECTS", "CONTAINS", "WITHIN", "TOUCHES", "CROSSES", "OVERLAPS", "EQUALS"}
-)
-
-# ``extent_match(match, overlaps, missing_as_empty=True)``: rows whose extent
-# satisfies ``match``; ``overlaps`` is a test every match also passes on the
-# stored extent, or None. A missing extent is tested as an empty geometry
-# unless ``missing_as_empty`` is False.
+# ``extent_match(match, missing_as_empty=True)``: rows whose extent satisfies
+# ``match``. A missing extent is tested as an empty geometry unless
+# ``missing_as_empty`` is False.
 ExtentMatch = Callable[..., Any]
 
 # The pygeofilter nodes that may name the ``geometry`` queryable. Comparing,
@@ -242,18 +236,15 @@ def _extent_evaluator() -> type:
             super().__init__(FIELD_MAPPING, None)
             self.extent_match = extent_match
 
-        def _leaf(self, lhs, rhs, test, overlapping: bool):
+        def _leaf(self, lhs, rhs, test):
             extent = FIELD_MAPPING["geometry"]
             if lhs is extent and rhs is extent:
-                return self.extent_match(lambda geom: test(geom, geom), None)
+                return self.extent_match(lambda geom: test(geom, geom))
             if lhs is extent:
-                other, match = rhs, (lambda geom: test(geom, rhs))
-            elif rhs is extent:
-                other, match = lhs, (lambda geom: test(lhs, geom))
-            else:
-                return test(lhs, rhs)
-            overlaps = (lambda geom: geom.op("&&")(other)) if overlapping else None
-            return self.extent_match(match, overlaps)
+                return self.extent_match(lambda geom: test(geom, rhs))
+            if rhs is extent:
+                return self.extent_match(lambda geom: test(lhs, geom))
+            return test(lhs, rhs)
 
         @handle(pgf_ast.IsNull)
         def null(self, node, lhs):
@@ -261,9 +252,7 @@ def _extent_evaluator() -> type:
                 return super().null(node, lhs)
             op = "is_not_null" if node.not_ else "is_null"
             return self.extent_match(
-                lambda geom: filters.runop(geom, None, op),
-                None,
-                missing_as_empty=False,
+                lambda geom: filters.runop(geom, None, op), missing_as_empty=False
             )
 
         @handle(pgf_ast.SpatialComparisonPredicate, subclasses=True)
@@ -273,7 +262,6 @@ def _extent_evaluator() -> type:
                 lhs,
                 rhs,
                 lambda a, b: filters.spatial(a, b, op),
-                op in _OVERLAPPING_SPATIAL_OPS,
             )
 
         @handle(pgf_ast.Relate)
@@ -282,7 +270,6 @@ def _extent_evaluator() -> type:
                 lhs,
                 rhs,
                 lambda a, b: filters.spatial(a, b, "RELATE", pattern=node.pattern),
-                False,
             )
 
         @handle(pgf_ast.SpatialDistancePredicate, subclasses=True)
@@ -293,7 +280,6 @@ def _extent_evaluator() -> type:
                 lambda a, b: filters.spatial(
                     a, b, node.op.value, distance=node.distance, units=node.units
                 ),
-                False,
             )
 
         @handle(pgf_ast.BBox)
@@ -302,7 +288,7 @@ def _extent_evaluator() -> type:
                 [node.minx, node.miny, node.maxx, node.maxy], node.crs
             )
             return self._leaf(
-                lhs, box, lambda a, b: filters.spatial(a, b, "INTERSECTS"), True
+                lhs, box, lambda a, b: filters.spatial(a, b, "INTERSECTS")
             )
 
     return ExtentEvaluator

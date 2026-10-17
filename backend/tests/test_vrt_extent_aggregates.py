@@ -391,3 +391,113 @@ async def test_filters_and_responses_share_the_readable_envelope(
     )
     assert search.status_code == 200, search.text
     assert any(f["id"] == str(vrt_id) for f in search.json()["features"])
+
+
+async def _vrt_over(session, stored, members) -> uuid.UUID:
+    """An admin-owned public VRT with ``stored`` extent over ``members``."""
+    from tests.test_vrt_extent_visibility import (
+        _create_raster_dataset,
+        _create_vrt_dataset,
+        _get_admin_id,
+        _link_source,
+        _set_extent,
+    )
+
+    admin_id = await _get_admin_id(session)
+    vrt_id = await _create_vrt_dataset(
+        session, created_by=admin_id, visibility="public"
+    )
+    await _set_extent(session, vrt_id, stored)
+    for position, (visibility, bounds) in enumerate(members):
+        member = await _create_raster_dataset(
+            session, created_by=admin_id, visibility=visibility
+        )
+        await _set_extent(session, member, bounds)
+        await _link_source(session, vrt_id, member, position)
+    return vrt_id
+
+
+async def test_hidden_member_bounds_change_nothing_across_the_antimeridian(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Moving only a hidden member's eastern edge changes no answer the viewer gets."""
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    readable = [
+        ("public", (160.0, 10.0, 170.0, 11.0)),
+        ("public", (-170.0, 10.0, -160.0, 11.0)),
+    ]
+    point = {"type": "Point", "coordinates": [176.0, 10.5]}
+
+    async def answers(east: float) -> dict:
+        vrt_id = await _vrt_over(
+            test_db_session,
+            (-170.0, 10.0, east, 11.0),
+            [*readable, ("private", (-150.0, 10.0, east, 11.0))],
+        )
+        collection_id = await _collection_with(client, admin_auth_header, vrt_id)
+        detail = await client.get(f"/datasets/{vrt_id}", headers=viewer_headers)
+        token = detail.json()["title"].split(" ")[3]
+        stac = await client.get(
+            "/stac/search",
+            params={"ids": str(vrt_id), "bbox": "175.9,10.4,176.1,10.6"},
+            headers=viewer_headers,
+        )
+        search = await client.get(
+            "/search/datasets/",
+            params={"q": token, "bbox": "175.9,10.4,176.1,10.6"},
+            headers=viewer_headers,
+        )
+        collection = await client.get(
+            f"/catalog/collections/{collection_id}", headers=viewer_headers
+        )
+        cql2_json = json.dumps(
+            {"op": "s_intersects", "args": [{"property": "geometry"}, point]}
+        )
+        return {
+            "detail": _rounded(detail.json()["extent_bbox"]),
+            "search_bbox": any(
+                f["id"] == str(vrt_id) for f in search.json()["features"]
+            ),
+            "cql2_text": await _records_filter_hit(
+                client,
+                viewer_headers,
+                token,
+                vrt_id,
+                "S_INTERSECTS(geometry, POINT(176 10.5))",
+            ),
+            "cql2_json": await _records_filter_hit(
+                client, viewer_headers, token, vrt_id, cql2_json, "cql2-json"
+            ),
+            "stac_bbox": len(stac.json()["features"]) == 1,
+            "collection": _rounded(collection.json()["extent_bbox"]),
+        }
+
+    near, far = await answers(175.0), await answers(178.0)
+    assert near == far
+    assert all(near[k] for k in ("search_bbox", "cql2_text", "cql2_json", "stac_bbox"))
+    assert near["detail"] == (160.0, 10.0, -160.0, 11.0)
+    assert near["collection"] == (160.0, 10.0, -160.0, 11.0)
+
+
+async def test_a_fully_hidden_vrt_equals_an_empty_geometry(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    vrt_id = await _vrt_with_members(test_db_session, [("private", HIDDEN)])
+    token = (
+        (await client.get(f"/datasets/{vrt_id}", headers=admin_auth_header))
+        .json()["title"]
+        .split(" ")[3]
+    )
+    equals_empty = {
+        "op": "s_equals",
+        "args": [{"property": "geometry"}, {"type": "Polygon", "coordinates": []}],
+    }
+
+    async def hit(expr) -> bool:
+        return await _records_filter_hit(
+            client, viewer_headers, token, vrt_id, json.dumps(expr), "cql2-json"
+        )
+
+    assert await hit(equals_empty)
+    assert not await hit({"op": "not", "args": [equals_empty]})

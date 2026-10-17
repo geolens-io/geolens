@@ -300,7 +300,6 @@ def _apply_common_filters(
                 lambda extent: make_bbox_filter(
                     extent, bbox, predicate=filters.spatial_predicate
                 ),
-                overlaps=lambda extent: make_bbox_filter(extent, bbox),
             )
         )
     if filters.keywords:

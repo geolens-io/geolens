@@ -76,8 +76,8 @@ def _apply_search_only_filters(
             stmt,
             filters.cql2_filter,
             filters.cql2_filter_lang,
-            extent_match=lambda match, overlaps, **options: visible_extent_match(
-                user, user_roles, match, overlaps=overlaps, **options
+            extent_match=lambda match, **options: visible_extent_match(
+                user, user_roles, match, **options
             ),
         )
     return stmt

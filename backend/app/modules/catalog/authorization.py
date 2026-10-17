@@ -21,11 +21,11 @@ from sqlalchemy import (
     any_,
     bindparam,
     case,
+    cast,
     column,
     exists,
     func,
     literal,
-    null,
     or_,
     select,
     table,
@@ -512,10 +512,9 @@ def visible_extent_column(
     ``record`` defaults to ``Record`` in a statement that joins ``Dataset``; an
     aliased ``Record`` finds its dataset itself. A VRT's stored extent covers
     every member, so one with a member the requester cannot read shows the
-    envelope of the members they can read (:func:`rollup_envelope`), clipped
-    to its stored envelope, or NULL when none has an extent. Every other row
-    shows its own. Members are checked one by one, so the cost stays with VRT
-    rows.
+    envelope of the members they can read (:func:`rollup_envelope`), or NULL
+    when none has an extent. Every other row shows its own. Members are
+    checked one by one, so the cost stays with VRT rows.
     """
     from app.modules.catalog.datasets.domain.models import (
         Dataset,
@@ -546,26 +545,17 @@ def visible_extent_column(
         )
 
     of_row = links.c.vrt_dataset_id == dataset_id
-    readable_envelope = func.ST_Intersection(
-        readable(
-            select(rollup_envelope(member_record.spatial_extent))
-            .select_from(links.join(member, member.id == links.c.source_dataset_id))
-            .where(of_row)
-        ).scalar_subquery(),
-        func.ST_Envelope(record.spatial_extent),
-    )
+    readable_envelope = readable(
+        select(rollup_envelope(member_record.spatial_extent))
+        .select_from(links.join(member, member.id == links.c.source_dataset_id))
+        .where(of_row)
+    ).scalar_subquery()
     member_is_readable = readable(
         select(member.id).where(member.id == links.c.source_dataset_id)
     ).exists()
     hides_member = exists().where(of_row, ~member_is_readable)
     return case(
-        (
-            and_(record.record_type == "vrt_dataset", hides_member),
-            case(
-                (func.ST_IsEmpty(readable_envelope), null()),
-                else_=readable_envelope,
-            ),
-        ),
+        (and_(record.record_type == "vrt_dataset", hides_member), readable_envelope),
         else_=record.spatial_extent,
     )
 
@@ -575,22 +565,19 @@ def visible_extent_match(
     user_roles: set[str],
     match: Callable[[ColumnElement], ColumnElement],
     *,
-    overlaps: Callable[[ColumnElement], ColumnElement] | None = None,
     record: Any = None,
     missing_as_empty: bool = True,
 ) -> ColumnElement:
     """Rows whose extent, as this requester sees it, satisfies ``match``.
 
     Each arm tests one row's own extent, so the result composes under NOT and
-    OR like ``match`` itself. A VRT that shows no extent is tested as an empty
-    geometry, so a predicate and its negation both answer for it instead of
-    leaving NULL where its stored extent lies; ``missing_as_empty=False``
-    keeps the NULL for an IS NULL test. ``overlaps`` is a test that every
-    match also passes on the stored extent, which holds because the shown
-    extent lies inside the stored envelope; it lets VRT rows use the spatial
-    index too.
+    OR like ``match`` itself. The VRT arm never reads a stored VRT extent; the
+    VRTs' record ids, not their extents, give it an index path. A VRT that
+    shows no extent is tested as an empty geometry, so a predicate and its
+    negation both answer for it; ``missing_as_empty=False`` keeps the NULL for
+    an IS NULL test.
     """
-    from app.modules.catalog.datasets.domain.models import Record
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
 
     shown = visible_extent_column(user, user_roles, record)
     if missing_as_empty:
@@ -598,11 +585,23 @@ def visible_extent_match(
             shown, func.ST_GeomFromText("GEOMETRYCOLLECTION EMPTY", 4326)
         )
     record = Record if record is None else record
-    is_vrt = record.record_type == "vrt_dataset"
-    prefilter = [] if overlaps is None else [overlaps(record.spatial_extent)]
+    vrt = aliased(Dataset)
+    vrt_record_ids = (
+        select(
+            func.coalesce(
+                func.array_agg(vrt.record_id), cast(literal("{}"), ARRAY(Uuid))
+            )
+        )
+        .where(vrt.id.in_(select(_VRT_SOURCE_LINKS.c.vrt_dataset_id)))
+        .correlate(None)
+        .scalar_subquery()
+    )
+    own_view = and_(
+        record.record_type == "vrt_dataset",
+        record.id == any_(cast(vrt_record_ids, ARRAY(Uuid))),
+    )
     return or_(
-        and_(record.record_type != "vrt_dataset", match(record.spatial_extent)),
-        and_(is_vrt, *prefilter, match(shown)),
+        and_(~own_view, match(record.spatial_extent)), and_(own_view, match(shown))
     )
 
 

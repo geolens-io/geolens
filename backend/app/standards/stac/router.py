@@ -1373,7 +1373,6 @@ def _visible_bbox_filter(
         user,
         user_roles,
         lambda extent: make_bbox_filter(extent, bbox_vals),
-        overlaps=lambda extent: make_bbox_filter(extent, bbox_vals),
     )
 
 

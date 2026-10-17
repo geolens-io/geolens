@@ -1190,7 +1190,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
         # Record assembly keeps one format and asset branch per record type.
-        "backend/app/modules/catalog/search/service_records.py": 632,
+        "backend/app/modules/catalog/search/service_records.py": 631,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 516,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
@@ -1211,7 +1211,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # ProcessingPort signatures remain explicit across the catalog boundary.
         "backend/app/platform/extensions/defaults_processing_port.py": 586,
         "backend/app/platform/extensions/defaults_extensions.py": 433,
-        "backend/app/modules/catalog/search/service_filters.py": 377,
+        "backend/app/modules/catalog/search/service_filters.py": 376,
     }
 
     files_to_check = list(facade_line_budgets)
@@ -1302,7 +1302,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/db/tenant_adoption.py": 1258,
     # CQL2 parsing, feature-filter validation, record-filter literal handling and
     # the requester's spatial extent share one pygeofilter walk.
-    "backend/app/standards/ogc/filtering.py": 1136,
+    "backend/app/standards/ogc/filtering.py": 1122,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1706,
@@ -1393,10 +1393,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1423,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1940,
+    "backend/app/standards/stac/router.py": 1939,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2811,
+    "backend/app/processing/tiles/router.py": 2865,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1418,7 +1418,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1501,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1151,
+    "backend/app/modules/catalog/authorization.py": 1150,
 }
 
 
