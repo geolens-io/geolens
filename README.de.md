@@ -144,14 +144,15 @@ weg, funktioniert der importierte Datensatz mit der Kopie von GeoLens weiter.
 
 Jeder Vektordatensatz ist eine OGC-API-Features-Collection, der Katalog selbst ist OGC API Records
 und STAC, und jede Ebene hat eine Kachel-URL. Probieren Sie es gegen die Demo aus, ohne
-Installation und ohne Konto:
+Installation und ohne Konto (der zweite Befehl nutzt `jq`):
 
 ```sh
 # Search the catalog (OGC API Records)
-curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcano"
+curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions"
 
-# Read a dataset with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
-curl -G "https://demo.getgeolens.com/api/collections/3b549894-ad65-4fbf-8fe1-9a163a8e8215/items" \
+# Read the top match with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
+ID=$(curl -s "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions&limit=1" | jq -r '.features[0].id')
+curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
   --data-urlencode "filter=vei >= 6" -d limit=3
 ```
 
@@ -279,9 +280,10 @@ Die [API-Referenz](https://docs.getgeolens.com/guides/api/) und die
 
 ## Datenschutz von Grund auf
 
-- **Keine Telemetrie.** Abgesehen von den Standard-Basiskartenkacheln stellt GeoLens nur für
-  Funktionen ausgehende Verbindungen her, die ein Administrator aktiviert.
-  [EGRESS.md](EGRESS.md) listet jede davon auf und erklärt den Betrieb ohne Internetzugang.
+- **Keine Telemetrie.** Abgesehen von den Standard-Basiskartenkacheln und den entfernten Diensten
+  und STAC-Quellen, die Ihre Nutzer selbst registrieren, stellt GeoLens nur für Funktionen
+  ausgehende Verbindungen her, die ein Administrator aktiviert. [EGRESS.md](EGRESS.md) listet
+  jede davon auf und erklärt den Betrieb ohne Internetzugang.
 - **Ihre Daten bleiben auch ohne GeoLens lesbar.** Vektordatensätze sind gewöhnliche
   PostGIS-Tabellen in einem Schema `data` Ihrer Datenbank, Raster sind Cloud-Optimized GeoTIFFs in
   Ihrem eigenen Speicher (lokaler Datenträger, S3/MinIO oder Azure Blob), und der gesamte Katalog
