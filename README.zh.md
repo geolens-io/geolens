@@ -114,14 +114,15 @@ flowchart LR
 
 ## 在任何地方使用数据
 
-每个矢量数据集都是一个 OGC API Features 集合，目录本身提供 OGC API Records 和 STAC，每个图层都有瓦片 URL。可以直接对演示试用，无需安装或账号：
+每个矢量数据集都是一个 OGC API Features 集合，目录本身提供 OGC API Records 和 STAC，每个图层都有瓦片 URL。可以直接对演示试用，无需安装或账号（第二条命令用到 `jq`）：
 
 ```sh
 # Search the catalog (OGC API Records)
-curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcano"
+curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions"
 
-# Read a dataset with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
-curl -G "https://demo.getgeolens.com/api/collections/3b549894-ad65-4fbf-8fe1-9a163a8e8215/items" \
+# Read the top match with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
+ID=$(curl -s "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions&limit=1" | jq -r '.features[0].id')
+curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
   --data-urlencode "filter=vei >= 6" -d limit=3
 ```
 
@@ -206,7 +207,7 @@ python scripts/seed-showcase.py --username admin \
 
 ## 隐私优先的设计
 
-- **没有遥测。** 除默认底图瓦片外，GeoLens 只会为管理员开启的功能发起出站连接。[EGRESS.md](EGRESS.md) 列出了每一项，并说明如何在隔离网络中运行。
+- **没有遥测。** 除默认底图瓦片以及用户自行选择注册的远程服务和 STAC 数据源外，GeoLens 只会为管理员开启的功能发起出站连接。[EGRESS.md](EGRESS.md) 列出了每一项，并说明如何在隔离网络中运行。
 - **没有 GeoLens 也能读取您的数据。** 矢量数据集是您数据库 `data` 模式中的普通 PostGIS 表，栅格是您自己存储（本地磁盘、S3/MinIO 或 Azure Blob）中的云优化 GeoTIFF，整个目录可通过 OGC API、STAC 和 DCAT 导出。
 - **访问控制。** 本地账号或 OAuth 2.0/OIDC 登录（Google、Microsoft、GitHub 或通用提供方）、角色、逐数据集权限、按用户的 API 密钥，以及管理操作的审计日志。自助注册默认关闭。
 - **永久免费。** 此仓库中的一切均采用 Apache 2.0 许可，在这里发布的功能会一直免费。[EDITIONS.md](EDITIONS.md) 介绍了可选的付费支持和附加组件。
