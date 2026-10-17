@@ -95,12 +95,30 @@ class _Window:
     table_oid: int | None
 
 
+def _has_features(record_type: str | None, geometry_type: str | None) -> bool:
+    return capabilities(record_type).feature_table and geometry_type is not None
+
+
 def is_feature_dataset(dataset: Dataset) -> bool:
     """Whether the dataset has a feature table with geometry, as feature writes need."""
+    return _has_features(dataset.record.record_type, dataset.geometry_type)
+
+
+async def _locked_state(session: AsyncSession, dataset_id: uuid.UUID):
+    """The dataset's table, setting and modality, read under its catalog lock."""
     return (
-        capabilities(dataset.record.record_type).feature_table
-        and dataset.geometry_type is not None
-    )
+        await session.execute(
+            select(
+                Dataset.table_name,
+                Dataset.retention_column,
+                Dataset.retention_days,
+                Dataset.geometry_type,
+                Record.record_type,
+            )
+            .join(Record, Record.id == Dataset.record_id)
+            .where(Dataset.id == dataset_id)
+        )
+    ).one_or_none()
 
 
 async def column_type(
@@ -258,8 +276,8 @@ async def _record_batch(
     The catalog rows are taken after the delete, the order every feature
     write uses, and the count moves by what was deleted rather than by a
     recount of the table. Raises ``_BatchStale``, for the caller to roll the
-    delete back, when the dataset is gone or no longer names the table and
-    setting the delete used.
+    delete back, when the dataset is gone, no longer names the table and
+    setting the delete used, or no longer has features.
     """
     await lock_catalog_rows(
         session,
@@ -269,17 +287,12 @@ async def _record_batch(
         record_id=dataset.record_id,
         lock_timeout=WORKER_LOCK_TIMEOUT,
     )
-    stored = (
-        await session.execute(
-            select(
-                Dataset.table_name, Dataset.retention_column, Dataset.retention_days
-            ).where(Dataset.id == dataset.id)
-        )
-    ).one_or_none()
-    if stored is None or tuple(stored) != (
-        window.table_name,
-        window.column,
-        window.days,
+    stored = await _locked_state(session, dataset.id)
+    if (
+        stored is None
+        or (stored.table_name, stored.retention_column, stored.retention_days)
+        != (window.table_name, window.column, window.days)
+        or not _has_features(stored.record_type, stored.geometry_type)
     ):
         raise _BatchStale
     await session.execute(
@@ -320,7 +333,8 @@ async def _settle(dataset_id: uuid.UUID) -> None:
     deletion and replacement take them, so settlement waits on a held table
     without holding the pair. A batch committing meanwhile either finishes
     before the recount, which then sees it, or waits for the rows and marks
-    the dataset again.
+    the dataset again. A dataset replaced by one without features has no
+    spatial metadata to recompute, so only the mark is cleared.
     """
     from app.core.db import async_session
 
@@ -332,7 +346,19 @@ async def _settle(dataset_id: uuid.UUID) -> None:
             try:
                 async with worker_lock_budget(session):
                     await held_table_oid(session, dataset.table_name)
-                await refresh_dataset_metadata(session, dataset)
+                await lock_catalog_rows(
+                    session,
+                    dataset_cls=Dataset,
+                    record_cls=Record,
+                    dataset_id=dataset.id,
+                    record_id=dataset.record_id,
+                    lock_timeout=WORKER_LOCK_TIMEOUT,
+                )
+                stored = await _locked_state(session, dataset_id)
+                if stored is not None and _has_features(
+                    stored.record_type, stored.geometry_type
+                ):
+                    await refresh_dataset_metadata(session, dataset)
             except CatalogLockConflict:
                 if attempt + 1 == SETTLE_ATTEMPTS:
                     raise

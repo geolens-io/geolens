@@ -425,6 +425,44 @@ class TestRun:
         assert (await _catalog_state(test_db_session, dataset.id)).feature_count == 1
         assert await _settle_pending(test_db_session, dataset.id) is False
 
+    @pytest.mark.parametrize("cleared", [False, True], ids=["kept", "cleared"])
+    async def test_a_pending_settle_on_a_dataset_turned_non_spatial_clears(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, cleared
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[{"name": "recent", "seen_at": NOW}],
+        )
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.datasets SET retention_settle_pending = true "
+                "WHERE id = :id"
+            ),
+            {"id": dataset.id},
+        )
+        await test_db_session.commit()
+        await _make_non_spatial(dataset, swap=False)
+        if cleared:
+            resp = await client.put(
+                f"/datasets/{dataset.id}/retention/",
+                json={"retention": None},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200, resp.text
+
+        with structlog.testing.capture_logs() as first:
+            assert await retention.prune_expired_rows(now=NOW) == {}
+        assert await _settle_pending(test_db_session, dataset.id) is False
+        with structlog.testing.capture_logs() as second:
+            assert await retention.prune_expired_rows(now=NOW) == {}
+
+        for logs in (first, second):
+            assert not [e for e in logs if e["event"] == "dataset_retention_failed"]
+        assert await _names(test_db_session, dataset) == {"recent"}
+
     async def test_an_idle_run_leaves_the_catalog_rows_alone(
         self, seed, test_db_session, monkeypatch
     ):
@@ -825,6 +863,33 @@ async def _drop_view(session, view: str) -> None:
     await session.commit()
 
 
+async def _make_non_spatial(dataset, *, swap: bool) -> None:
+    """Turn the dataset non-spatial as a restore (swap) or a PostGIS refresh would."""
+    table = dataset.table_name
+    if swap:
+        await _commit_elsewhere(
+            f"ALTER TABLE data.{table} RENAME TO {table}_spatial", {}
+        )
+        await _commit_elsewhere(
+            f"CREATE TABLE data.{table} AS SELECT gid, seen_at, seen_on, "
+            f"seen_local, name FROM data.{table}_spatial",
+            {},
+        )
+    else:
+        await _commit_elsewhere(
+            f"ALTER TABLE data.{table} DROP COLUMN geom, DROP COLUMN geom_4326", {}
+        )
+    await _commit_elsewhere(
+        "UPDATE catalog.datasets SET geometry_type = NULL WHERE id = :id",
+        {"id": dataset.id},
+    )
+    await _commit_elsewhere(
+        "UPDATE catalog.records SET record_type = 'table' WHERE id = "
+        "(SELECT record_id FROM catalog.datasets WHERE id = :id)",
+        {"id": dataset.id},
+    )
+
+
 class TestRace:
     """A run or a save meeting a change another transaction committed first."""
 
@@ -998,6 +1063,37 @@ class TestRace:
             await self._assert_untouched(test_db_session, dataset, dataset.id)
         finally:
             await _drop_view(test_db_session, view)
+
+    @pytest.mark.parametrize("swap", [True, False], ids=["restore", "postgis-refresh"])
+    async def test_a_dataset_turned_non_spatial_before_the_batch_loses_no_rows(
+        self, seed, test_db_session, monkeypatch, swap
+    ):
+        dataset, _, _ = await self._old_layer(seed, test_db_session)
+        before = await _catalog_state(test_db_session, dataset.id)
+        real_get = retention.get_dataset
+
+        async def load_then_go_non_spatial(session, dataset_id):
+            loaded = await real_get(session, dataset_id)
+            if loaded is not None and loaded.geometry_type is not None:
+                await _make_non_spatial(dataset, swap=swap)
+            return loaded
+
+        monkeypatch.setattr(retention, "get_dataset", load_then_go_non_spatial)
+        try:
+            assert await retention.prune_expired_rows(now=NOW) == {}
+
+            assert await _names(test_db_session, dataset) == {"old0", "old1", "old2"}
+            assert await _prune_audits(test_db_session, dataset.id) == []
+            after = await test_db_session.scalar(
+                select(Dataset.data_revision).where(Dataset.id == dataset.id)
+            )
+            assert after == before.data_revision
+        finally:
+            if swap:
+                await test_db_session.execute(
+                    text(f"DROP TABLE IF EXISTS data.{dataset.table_name}_spatial")
+                )
+                await test_db_session.commit()
 
     async def test_a_dataset_detached_before_the_lock_loses_no_rows(
         self, seed, test_db_session, interleave
