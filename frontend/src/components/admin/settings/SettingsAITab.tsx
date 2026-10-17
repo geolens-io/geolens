@@ -90,7 +90,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const { data: embeddingStatsData } = useEmbeddingStats({ enabled: canManageUsers });
   const embeddingStats = canManageUsers ? embeddingStatsData : undefined;
   const backfill = useBackfillEmbeddings();
-  // fix(#1550 review P2): the id of the run this page queued, polled to its
+  // The id of the run this page queued, polled to its
   // terminal state so the coverage figure above refreshes when it lands.
   const [backfillJobId, setBackfillJobId] = useState<string | null>(null);
   const backfillJob = useBackfillJobStatus(backfillJobId);
@@ -130,7 +130,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
     // fix(#1542): the run is queued now, not done by the time this resolves —
     // a full regenerate takes minutes and used to hold the request open past
     // the 600s edge timeout. There are no counts to report yet.
-    // fix(#1550 review P2): keep the job id so the run is actually tracked to
+    // Keep the job id so the run is actually tracked to
     // its end, rather than acknowledged and forgotten.
     backfill.mutate({ force }, {
       onSuccess: (data) => {

@@ -29,7 +29,7 @@ describe('getAvailableModes', () => {
   });
 
   it('returns every draw mode for the generic GEOMETRY sentinel (fix #430 codex r11)', () => {
-    // Empty created datasets carry geometry_type='GEOMETRY' (BA-32); their
+    // Empty created datasets carry geometry_type='GEOMETRY'; their
     // generic column accepts any subtype, so the toolbar must offer all
     // modes — an empty list left new sketch layers with no way to add the
     // first feature.

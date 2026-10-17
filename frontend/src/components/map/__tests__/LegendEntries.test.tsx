@@ -104,7 +104,7 @@ describe('LegendClassesList', () => {
 
 // fix(#951): MapLibre draws a fill-pattern INSTEAD of the fill, so a solid chip
 // described a colour that appeared nowhere on the map.
-// fix(#1288 codex): the fill/pattern now lives on a nested div, split from the
+// The fill/pattern now lives on a nested div, split from the
 // border, so fillOpacity can dim one without the other — assertions below read
 // the inner div for fill/pattern styling and the outer for border/opacity.
 describe('GeometrySwatch — patterned polygons', () => {
@@ -152,7 +152,7 @@ describe('GeometrySwatch — patterned polygons', () => {
     expect(fill.style.backgroundColor).toBe('rgb(255, 90, 95)');
   });
 
-  // fix(#1288 codex): a partially-transparent pattern must dim independently of
+  // A partially-transparent pattern must dim independently of
   // the border, and for ANY color format — not just 6-digit hex — since opacity
   // is applied via plain CSS opacity on the fill layer, not string parsing.
   it('applies fillOpacity to the pattern layer only, not the border', () => {
@@ -190,7 +190,7 @@ describe('GeometrySwatch — stroke-only polygons (fix #1288)', () => {
     expect(fill.style.opacity).toBe('0');
   });
 
-  // fix(#1288 codex): #f00 (3-digit hex) is a valid CSS color the alpha-blend
+  // #f00 (3-digit hex) is a valid CSS color the alpha-blend
   // helper used to silently ignore — plain opacity on the fill layer handles it
   // (and every other CSS color syntax) with no format-specific parsing.
   it('dims a fill given in a non-6-digit-hex color format', () => {

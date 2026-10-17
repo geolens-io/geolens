@@ -29,13 +29,13 @@ interface DrawingState {
    */
   ownerId: string | null;
   /**
-   * fix(#1761 review P1): a monotonic counter, bumped ONLY by
+   * A monotonic counter, bumped ONLY by
    * `bumpSessionEpoch()`, which only the identity-change choke point
    * (lib/auth-cache-reset.ts) calls.
    *
-   * fix(#1761 review round 2 P1): round 1 stored the adopting epoch ON THE
-   * STORE (`targetEpoch`) and compared it to the live counter inside
-   * `setSelectedFeature`. That still had a hole: once a SECOND identity
+   * Storing the adopting epoch ON THE
+   * STORE (`targetEpoch`) and comparing it to the live counter inside
+   * `setSelectedFeature` has a hole: once a SECOND identity
    * adopts its own target after the identity change, its `setDrawing` call
    * re-stamps that stored epoch to the (now current) live value, so a
    * write from the FIRST identity's still-pending mutation — which reads
@@ -55,10 +55,10 @@ interface DrawingState {
   setMode: (mode: string | null) => void;
   clearDrawing: () => void;
   /**
-   * fix(#1761 review round 2 P1): `epoch` is mandatory and must be
+   * `epoch` is mandatory and must be
    * `useDrawingStore.getState().sessionEpoch` read by the CALLER before
    * its own `await` — never re-read at call time, which is exactly what
-   * broke in round 1 (see `sessionEpoch`'s doc comment). A call whose
+   * broke an earlier design (see `sessionEpoch`'s doc comment). A call whose
    * captured epoch no longer matches the live one is refused, whatever the
    * store's current target belongs to.
    */
@@ -67,7 +67,7 @@ interface DrawingState {
   setEditDirty: (dirty: boolean) => void;
   setHasUnsavedMapWork: (unsaved: boolean) => void;
   /**
-   * fix(#1761 review P1): invalidates every target/selection adopted before
+   * Invalidates every target/selection adopted before
    * this call. Called ONLY from lib/auth-cache-reset.ts's identity-change
    * subscription — never from component code, and never folded into
    * `clearDrawing()`, which ordinary component lifecycle (DatasetMap.tsx)
@@ -86,7 +86,7 @@ function currentUserId(): string | null {
  * fix(#1713): shared by the initial state and clearDrawing, so a reset can
  * never drift from what "nothing adopted" looks like.
  *
- * fix(#1761 review P1): deliberately excludes `sessionEpoch` — see its
+ * Deliberately excludes `sessionEpoch` — see its
  * doc comment for why the counter must never be reset by an ordinary clear.
  */
 const CLEARED_STATE = {
@@ -131,7 +131,7 @@ export const useDrawingStore = create<DrawingState>()((set, get) => ({
   // (components/dataset/hooks/use-feature-editing.ts) both read/derive a
   // feature, await a request, then call this with the result.
   //
-  // fix(#1761 review P1, then round 2): round 1 refused on
+  // An earlier version refused on
   // `ownerId !== currentUserId()`, which broke down right after a logout
   // (both read null). Storing an adopted-at epoch on the target and
   // comparing it to the live counter fixed that, but not the case where a
@@ -154,7 +154,7 @@ export const useDrawingStore = create<DrawingState>()((set, get) => ({
       return;
     }
     if (epoch !== state.sessionEpoch) {
-      // fix(#1761 review round 2 P1): a stale write for a target that may
+      // A stale write for a target that may
       // now belong to a DIFFERENT, later identity than the one that issued
       // it. That target could be a second identity's own legitimate,
       // freshly-adopted session — clearing it would let this stale write

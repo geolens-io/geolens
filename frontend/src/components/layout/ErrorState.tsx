@@ -8,7 +8,7 @@ interface ErrorStateProps {
   message: string;
   title?: string;
   /**
-   * fix(#438): UX-02 — pass a query's `refetch` here and ErrorState renders a
+   * Pass a query's `refetch` here and ErrorState renders a
    * standard "Try again" button. Previously the only recovery from a failed
    * list/detail query was a full-page reload. `action` still exists for the
    * rare non-retry recovery (e.g. a "Go back" link).

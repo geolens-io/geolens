@@ -35,7 +35,7 @@ describe('getPublicAppBaseUrl', () => {
   });
 
   /**
-   * fix(#1548 review r4): the third state. "Configured" is not a boolean —
+   * The third state. "Configured" is not a boolean
    * compose injects `${PUBLIC_APP_URL:-http://localhost:8080}`, so the value is
    * present, non-null, and wrong for every install that never set it. A null
    * check cannot see that; this is the case it must catch.
@@ -78,7 +78,7 @@ describe('getPublicAppBaseUrl', () => {
 
 describe('getShareableBaseUrl', () => {
   /**
-   * fix(#1548 review r4): the regression this guards. Ordinary share links and
+   * The regression this guards. Ordinary share links and
    * unrestricted embeds worked before any of this, using the serving origin.
    * Building them from an untrustworthy configured value points every default
    * install at localhost — a link nobody can open. A serving origin is usable
@@ -109,7 +109,7 @@ describe('getShareableBaseUrl', () => {
 });
 
 /**
- * fix(#1548 review r6): the states, asserted by name.
+ * The states, asserted by name.
  *
  * PUBLIC_APP_URL has been treated as a boolean three times on this PR — "is it
  * set" — and each round the missed case was a state nobody had written down.
@@ -201,7 +201,7 @@ describe('a malformed value is never handed out', () => {
 });
 
 /**
- * fix(#1548 review r8): the shape rule, from the one file that states it.
+ * The shape rule, from the one file that states it.
  *
  * The backend runs the same table against `is_usable_public_origin` in
  * backend/tests/test_public_app_url_shape_contract_1548.py. Two independent
@@ -240,7 +240,7 @@ describe('the shared PUBLIC_APP_URL shape rule', () => {
   });
 
   /**
-   * fix(#1548 review r9): same place is not the same STRING.
+   * Same place is not the same STRING.
    *
    * A browser serializes the shell's Origin with an IDNA ASCII host,
    * lowercased, no userinfo, default port dropped — and the backend compares
@@ -359,7 +359,7 @@ describe('an /api base is never handed out as the app URL', () => {
 });
 
 /**
- * fix(#1548 review r7): a domain-locked preview must satisfy two browser rules
+ * A domain-locked preview must satisfy two browser rules
  * at once, and for a split-horizon deployment nothing satisfies both.
  *
  *  1. Its API calls carry the SHELL's origin, and the backend accepts only the
@@ -428,7 +428,7 @@ describe('getLockedPreviewBaseUrl', () => {
 });
 
 /**
- * fix(#1548 review r3/r5): cover the class, not just the one call site.
+ * Cover the class, not just the one call site.
  *
  * SharePanel resolves three origins, and the question that picks between them
  * is WHO OPENS THE URL:
@@ -485,7 +485,7 @@ describe('SharePanel resolves each URL from the right origin', () => {
     const pane = source.slice(source.indexOf('<EmbedPreviewPane'));
     expect(pane.slice(0, pane.indexOf('/>'))).toContain('origin={previewBaseUrl}');
 
-    // fix(#1548 review r6): the preview is the one URL that is opened HERE and
+    // The preview is the one URL that is opened HERE and
     // must also satisfy the lock, so it is neither of the other two rules.
     // Unlocked it uses the origin this browser reached; locked it must use the
     // configured one, the only origin its own API calls may present.

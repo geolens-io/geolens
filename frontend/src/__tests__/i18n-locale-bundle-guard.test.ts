@@ -7,7 +7,7 @@
 // only; misses a renamed import or dynamic property access.
 import { describe, expect, it } from 'vitest';
 
-// fix(#1866 codex r1): matches vitest's own `include` in vite.config.ts,
+// Matches vitest's own `include` in vite.config.ts,
 // which also runs *.spec.{ts,tsx}, not just *.test.{ts,tsx}.
 const TEST_FILES = import.meta.glob('/src/**/*.{test,spec}.{ts,tsx}', {
   query: '?raw',
@@ -27,7 +27,7 @@ function stripComments(source: string): string {
 
 /** True when `source` calls changeLanguage/changeAppLanguage without importing the fix helper. */
 function callsWithoutHelper(source: string): boolean {
-  // fix(#1866 codex r1): both checks run on the same stripped text, or a
+  // Both checks run on the same stripped text, or a
   // commented-out import satisfies HELPER_IMPORT while a real call is missed.
   const stripped = stripComments(source);
   return CALL_PATTERN.test(stripped) && !HELPER_IMPORT.test(stripped);

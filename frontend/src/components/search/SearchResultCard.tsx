@@ -154,7 +154,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   // Quicklook: useQuicklook solves the Bearer-JWT mismatch — <img src> requests
   // do NOT carry the Authorization header, so private-dataset quicklooks 404'd
   // anonymously. useQuicklook routes the fetch through apiFetchBlob (Bearer-
-  // attached) and returns a blob URL. SP-07 negative-cache: genuine file-missing
+  // attached) and returns a blob URL. Genuine file-missing
   // 404s are cached in quicklook-cache.ts for the session so we skip re-fetching.
   const featureId = feature.id as string;
   const enableQuicklook = !isCollection && !isTable && Boolean(properties.has_quicklook);
@@ -199,7 +199,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   // Footer status badge — only for non-collection, non-published records
   const showStatusBadge = !isCollection && !!recordStatus && recordStatus !== 'published';
 
-  // fix(#438): PERF-04 — warm the dataset detail query on hover/focus so the
+  // Warm the dataset detail query on hover/focus so the
   // navigation doesn't pay chunk + query serially after the click. Cheap:
   // prefetchQuery is a no-op when the data is already fresh.
   const prefetchDetail = () => {

@@ -1,24 +1,16 @@
 /**
- * Plan 276-05 Task 3 — DOM-level smoke substitute for Playwright MCP UAT.
+ * DOM-level smoke test for the relocated zustand stores.
  *
- * Why this exists:
- * - The plan's Task 3 calls for a Playwright MCP visual UAT covering login,
- *   map builder, dataset map drawing, and search flows after CODE-04/CODE-05.
- * - The executor agent does not have `mcp__playwright__*` tools available
- *   (per the plan's <execution_rules>: "if mcp__playwright__* tools are
- *   available, run the UAT visually. Otherwise, mark as `## CHECKPOINT
- *   REACHED: Playwright UAT requires manual verification` and add DOM-level
- *   substitute tests proving the imports resolve").
- * - This file is that substitute. It imports each of the 4 zustand stores
- *   from their post-CODE-05 location (`@/stores/<name>-store`) and exercises
- *   each public API surface enough to prove:
- *     1. The module path resolves (CODE-05 — relocation complete)
+ * It imports each of the 4 stores from their post-location
+ * (`@/stores/<name>-store`) and exercises each public API surface enough to
+ * prove:
+ *     1. The module path resolves
  *     2. The store factory runs (zustand `create()` is invoked)
- *     3. The persisted auth store carries `version: 2` (CODE-04)
+ *     3. The persisted auth store carries `version: 2`
  *     4. Each store's actions update its observable state correctly
  *
- * Manual UAT remains a checkpoint requirement — see SUMMARY.md "Playwright
- * UAT" section for the human-verification checklist.
+ * It does not replace a manual browser check of login, the map builder,
+ * dataset map drawing and search.
  */
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';

@@ -1,5 +1,5 @@
 /**
- * SSO-03 (Phase 1236 Plan 02): LoginPage conditional render based on
+ * LoginPage conditional render based on
  * password_login_enabled from /auth/config.
  *
  * When password_login_enabled is false, the username/password form (LoginForm)
@@ -152,7 +152,7 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
   });
 
   it('reveals the password form via the admin break-glass link in SSO-only mode', async () => {
-    // Codex P2: a manage_settings admin retains a server-side password break-glass
+    // A manage_settings admin retains a server-side password break-glass
     // even when password_login_enabled is false; the UI must keep it reachable.
     const user = userEvent.setup();
     mockGetAuthConfig.mockResolvedValue({
@@ -181,7 +181,7 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
   });
 
   it('shows the username/password form (fail-open) when /auth/config fetch rejects', async () => {
-    // IN-02 (Phase 1236 Plan 03): when the config endpoint errors, the login
+    // When the config endpoint errors, the login
     // page must fail OPEN — default to showing the password form rather than
     // permanently hiding it. A network error must not lock users out.
     mockGetAuthConfig.mockRejectedValue(new Error('Network error'));

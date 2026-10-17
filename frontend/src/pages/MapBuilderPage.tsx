@@ -22,13 +22,13 @@ import type {
   ScreenReaderInstructions,
 } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-// PERF-06 (Phase 274): lazy-load BuilderMap so map-vendor chunk loads
+// Lazy-load BuilderMap so map-vendor chunk loads
 // only when the builder is about to render (post-data-fetch).
 const BuilderMap = lazy(() =>
   import('@/components/builder/BuilderMap').then((m) => ({ default: m.BuilderMap }))
 );
 import { UnifiedStackPanel } from '@/components/builder/UnifiedStackPanel';
-// PERF-05 (Phase 1047 Plan 02): lazy-load editor scenes so they only ship in their own
+// Lazy-load editor scenes so they only ship in their own
 // chunks and are fetched only when the user opens the corresponding scene panel.
 const DEMEditorScene = lazy(() =>
   import('@/components/builder/DEMEditorScene').then((m) => ({ default: m.DEMEditorScene }))
@@ -148,7 +148,7 @@ export function MapBuilderPage() {
   // which is the safe way round: the affordance appears once the capability is
   // known rather than 403ing after the user has named a dataset.
   //
-  // feat(#1241 codex r2): `export` as well. The snapshot hands the caller a
+  // `export` as well. The snapshot hands the caller a
   // durable, caller-owned copy of source attributes they may only be able to
   // READ, which is exactly why analysis materialize requires both (fix(#692),
   // `require_permission("upload", "export")` in
@@ -179,31 +179,31 @@ export function MapBuilderPage() {
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  // Phase 1199 STACK-02: session-local basemap visibility toggle. Client-only and
+  // Session-local basemap visibility toggle. Client-only and
   // intentionally NOT persisted to MapBasemapConfig — a backend field is deferred to
-  // GUARD-02/Phase 1203 to avoid the extra=forbid silent-422 class. Hiding is applied
+  // to avoid the extra=forbid silent-422 class. Hiding is applied
   // by rendering BLANK_BASEMAP_ID in the live map (BuilderMap's isBlank branch) while
   // the stack row's preset name still derives from the real basemap style.
   const [basemapVisible, setBasemapVisible] = useState(true);
-  // Phase 1135 AI-05: debounced viewport context for viewport-aware suggestion chips.
+  // Debounced viewport context for viewport-aware suggestion chips.
   // Updated on map idle (500ms debounce) and when the selected layer changes.
   const [viewport, setViewport] = useState<ViewportContext | undefined>(undefined);
 
-  // Phase 1040: Lifted DnD state — single DndContext wraps both the sidebar stack
+  // Lifted DnD state — single DndContext wraps both the sidebar stack
   // (UnifiedStackPanel) and the Add Dataset modal (BuilderDialogs) so catalog→stack
   // cross-panel drag is possible. Without this, @dnd-kit collision detection only
   // fires within one DndContext and cross-panel isOver events never fire.
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
 
-  // Phase 1041: Multi-selection state lifted to MapBuilderPage so handleDragStart
+  // Multi-selection state lifted to MapBuilderPage so handleDragStart
   // can clear it directly (drag + multi-select are mutually exclusive). This mirrors
-  // the Phase 1040 lift-DndContext architecture decision.
+  // the lift-DndContext architecture decision.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastToggleAnchor = useRef<string | null>(null);
   // fix(#833): selected rows the layer search hides are parked here instead of
   // being pruned outright, and rejoin the selection when the search stops
   // hiding them. Cleared on every explicit selection interaction — Escape/
-  // outside click, drag-start, bulk actions, and (codex round 2) cmd/shift
+  // outside click, drag-start, bulk actions, and cmd/shift
   // clicks, which replace the selection — so stale parked rows cannot
   // resurrect a selection the user's gesture already discarded.
   const searchHiddenSelectionRef = useRef<Set<string>>(new Set());
@@ -213,7 +213,7 @@ export function MapBuilderPage() {
   // has filtered out or that live inside a collapsed group.
   const [layerSearch, setLayerSearch] = useState('');
 
-  // Phase 1040 Plan 04: aria-live announcement for keyboard/mouse catalog drag (T-1040-10 / POL-05).
+  // aria-live announcement for keyboard/mouse catalog drag.
   // A sr-only region reads these strings to screen-reader users. We append a zero-width-space
   // + timestamp suffix to force aria-live re-fire when the same message is announced twice
   // (e.g. two consecutive "Drop cancelled." calls without an intermediate different message).
@@ -227,7 +227,7 @@ export function MapBuilderPage() {
   const dndSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // px — drag only after moving >= 8px from pointerdown origin (T-1040-01)
+        distance: 8, // px — drag only after moving >= 8px from pointerdown origin
       },
     }),
     useSensor(KeyboardSensor, {
@@ -242,7 +242,7 @@ export function MapBuilderPage() {
     const hasServerNotes = Object.prototype.hasOwnProperty.call(mapData, 'notes') && mapData.notes !== undefined;
     if (hasServerNotes) {
       setDockNotes(mapData.notes ?? '');
-      // fix(#438): ARC-06 — key + access via the typed storage helper.
+      // Key + access via the typed storage helper.
       removeStorage(storageKeys.mapNotes(id ?? ''));
     } else {
       setDockNotes(readStorage(storageKeys.mapNotes(id ?? '')) ?? '');
@@ -306,13 +306,13 @@ export function MapBuilderPage() {
     },
     [setBasemapConfig, setLocalBasemap, setLocalTerrainConfig, setShowBasemapLabels],
   );
-  // Phase 1199 STACK-02: session-local show/hide of the basemap. Toggles the live
+  // Session-local show/hide of the basemap. Toggles the live
   // map between the real basemap style and BLANK_BASEMAP_ID; not persisted.
   const handleToggleBasemapVisibility = useCallback(
     () => setBasemapVisible((v) => !v),
     [],
   );
-  // Phase 276 CODE-12: hand-rolled string keys are intentional value-equality
+  // Hand-rolled string keys are intentional value-equality
   // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
   // refetchOnMount / window-focus invalidations) produce shape-equivalent
   // but identity-different plugin arrays — declaring `[mapData?.plugins,
@@ -325,7 +325,7 @@ export function MapBuilderPage() {
   //
   // If a future author "simplifies" this back to raw object/array deps,
   // local plugin toggle state will silently regress on every refetch.
-  // Verify with the map-builder UAT in Plan 276-05: open builder, toggle a
+  // Verify in the map builder: open it, toggle a
   // plugin OFF, trigger a refetch (Cmd-R / window focus / queryClient
   // invalidateQueries), confirm the toggle stays OFF.
   const savedPluginKey = mapData ? `${mapData.id}:${JSON.stringify(mapData.plugins ?? null)}` : '';
@@ -339,7 +339,7 @@ export function MapBuilderPage() {
       ? getDefaultPluginIds(enabledPluginIds)
       : resolveAvailablePluginIds(mapData.plugins, enabledPluginIds);
     usePluginStore.getState().replace(nextPlugins);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- see Phase 276 CODE-12 block comment above
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see the block comment above
   }, [savedPluginKey, enabledPluginKey]);
 
   const save = useBuilderSave({
@@ -378,7 +378,7 @@ export function MapBuilderPage() {
     if (!mapInstance || !chatResultPendingRef.current) return;
     chatResultPendingRef.current = false;
     const result = takeChatResult();
-    // feat(#1241 codex r1): forward everything the stash carries, not just the
+    // Forward everything the stash carries, not just the
     // geometry. Without the completeness pair a clipped carried result reads as
     // a complete one here, and the save this issue adds would persist it as the
     // whole answer.
@@ -397,7 +397,7 @@ export function MapBuilderPage() {
       layers: layers.localLayers,
       mapId: id!,
       terrainConfig: layers.localTerrainConfig,
-      // ENH-06: map-level legend title + persistence callbacks for the
+      // Map-level legend title + persistence callbacks for the
       // LegendPlugin edit affordance.
       legendTitle: layers.localLegendTitle,
       onLegendTitleChange: layers.handleLegendTitleChange,
@@ -414,7 +414,7 @@ export function MapBuilderPage() {
     ],
   );
 
-  // Phase 1135 AI-05: subscribe to map idle events with 500ms debounce to update
+  // Subscribe to map idle events with 500ms debounce to update
   // viewport context for suggestion chips. Unsubscribes when mapInstance changes.
   useEffect(() => {
     if (!mapInstance) return;
@@ -438,7 +438,7 @@ export function MapBuilderPage() {
     };
   }, [mapInstance]);
 
-  // Phase 1135 AI-05: sync selectedLayerName from expandedLayerId into viewport context.
+  // Sync selectedLayerName from expandedLayerId into viewport context.
   useEffect(() => {
     setViewport((prev) => {
       const expanded = layers.expandedLayerId;
@@ -458,7 +458,7 @@ export function MapBuilderPage() {
   }, [layers.expandedLayerId, layers.localLayers]);
 
   const { byAnchor, sidebar: sidebarPlugins } = usePartitionedPlugins();
-  // activePlugins for Settings panel plugin toggles (Phase 1036)
+  // activePlugins for Settings panel plugin toggles
   const activePlugins = usePluginStore((state) => state.activePlugins);
   const togglePlugin = usePluginStore((state) => state.toggle);
 
@@ -521,7 +521,7 @@ export function MapBuilderPage() {
     onRevertToSaved: layers.requestCleanRecheck,
   }), [dispatchLayerAction, handleRenderModeChange, handleTabChange, layers.requestCleanRecheck]);
 
-  // fix(#913 review): the dock's notes live in page state the layers hook cannot
+  // The dock's notes live in page state the layers hook cannot
   // compare against server data, so this is the OPAQUE marker. Controls whose
   // fields the hook does compare (map name/description via MapTitleBar, basemap
   // swap/remove) use the plain markDirty instead.
@@ -579,7 +579,7 @@ export function MapBuilderPage() {
     else mapInstance.once?.('idle', apply);
   }, [mapInstance, localProjection]);
 
-  // A11Y-05 (Phase 1204-03): '?' hotkey opens the keyboard shortcut cheat-sheet.
+  // '?' hotkey opens the keyboard shortcut cheat-sheet.
   // Guarded so it does not fire while the user is typing in an input/textarea/select
   // or a contenteditable field — mirrors the Ctrl/Cmd+S guard in use-builder-save.ts.
   // Also no-ops when a Radix dialog/sheet is already open (same guard pattern).
@@ -600,11 +600,11 @@ export function MapBuilderPage() {
     return () => window.removeEventListener('keydown', handleShortcutKeyDown);
   }, []);
 
-  // Phase 1035: basemaps data for the BasemapGroupEditorScene preset grid
+  // Basemaps data for the BasemapGroupEditorScene preset grid
   // (placed early for useMemo/useState hooks — actual wiring happens after handleSelectLayer)
   const { data: basemaps = [] } = useBasemaps();
 
-  // Phase 1119: basemap group display object derived from the canonical
+  // Basemap group display object derived from the canonical
   // controller state, not runtime-only sublayer state.
   //
   // Bugbash fix: when the basemap is blank ("No basemap"), still return a
@@ -613,7 +613,7 @@ export function MapBuilderPage() {
   // is the only way to choose a real basemap again after the Add-Data Basemap
   // tab was removed) becomes unreachable. The flyout already excludes BLANK from
   // its preset list and its SUBLAYERS section already hides itself when
-  // sublayers is empty (BasemapGroupEditorScene WR-02), so an empty-sublayer
+  // sublayers is empty (BasemapGroupEditorScene), so an empty-sublayer
   // group renders cleanly and lets the user pick a real preset.
   const basemapGroup = useMemo(() => {
     if (!basemapState.hasVisibleBasemap) {
@@ -621,7 +621,7 @@ export function MapBuilderPage() {
         id: 'basemap-group',
         presetName: t('basemapGroup.noBasemap', { defaultValue: 'No basemap' }),
         providerLabel: undefined,
-        // Phase 1199 STACK-02: session-local visibility (was hardcoded true).
+        // Session-local visibility (was hardcoded true).
         visible: basemapVisible,
         opacity: basemapState.config.opacity ?? 1,
         sublayers: [],
@@ -642,7 +642,7 @@ export function MapBuilderPage() {
       id: 'basemap-group',
       presetName,
       providerLabel: undefined,
-      // Phase 1199 STACK-02: session-local visibility (was hardcoded true).
+      // Session-local visibility (was hardcoded true).
       visible: basemapVisible,
       opacity: basemapState.config.opacity ?? 1,
       sublayers: basemapState.sublayers,
@@ -679,28 +679,28 @@ export function MapBuilderPage() {
   const panelEditorScene: Exclude<BuilderEditorScene, 'group'> =
     editorScene === 'group' ? 'default' : editorScene;
 
-  // EASY-18 (Phase 1138-03): rendered-feature count for the active editing layer.
+  // Rendered-feature count for the active editing layer.
   // Returns null when no layer is being edited, when no filter is set, or when
   // the layer isn't yet on the map. Used to drive the empty-state hint inside
   // LayerFilterEditor.
   const filteredFeatureCount = useFilteredFeatureCount(mapInstance, editingLayer ?? null);
 
-  // Phase 1041: Boundary guard — true when id belongs to basemap group or its sublayers
+  // Boundary guard — true when id belongs to basemap group or its sublayers
   const isBasemapBoundaryId = useCallback((id: string): boolean => {
     if (!basemapGroup) return false;
     if (id === basemapGroup.id) return true;
     return basemapGroup.sublayers.some((s) => s.id === id);
   }, [basemapGroup]);
 
-  // Phase 1041: derive selectable row ids (ordered list, basemap excluded)
+  // Derive selectable row ids (ordered list, basemap excluded)
   // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler.
   // fix(#771): derived from the RENDERED row set (shared helper with
   // UnifiedStackPanel) instead of the raw flat array — the raw list let a
   // shift-click range select children of collapsed groups and rows hidden by
   // the layer search, so bulk delete/visibility/opacity acted on rows the
   // user could not see.
-  // fix(HT-03): terrain-mode DEM rows render in the stack again, so they are
-  // range-selectable like any other row (the BLDR-03 skip is obsolete).
+  // Terrain-mode DEM rows render in the stack again, so they are
+  // range-selectable like any other row (the skip is obsolete).
   const selectableRowIds = useMemo(
     (): string[] => computeSelectableRowIds(layers.localLayers, layers.groupMeta, layerSearch),
     [layers.localLayers, layers.groupMeta, layerSearch],
@@ -728,7 +728,7 @@ export function MapBuilderPage() {
     const liveIds = new Set(layers.localLayers.map((layer) => layer.id));
     const selectable = new Set(selectableRowIds);
     const parked = searchHiddenSelectionRef.current;
-    // fix(#833 codex round 3): park only rows the SEARCH itself hides, not any
+    // Park only rows the SEARCH itself hides, not any
     // unselectable row while a search happens to be active — a child hidden by
     // its collapsed group must stay pruned (restoring it on a later expand
     // would resurrect a selection the collapse discarded). Recomputing the
@@ -749,7 +749,7 @@ export function MapBuilderPage() {
         layers.localLayers.filter((layer) => !matching.has(layer.id)).map((layer) => layer.id),
       );
     }
-    // fix(#833 codex rounds 5+6): a row stays parked only while it would be
+    // A row stays parked only while it would be
     // selectable the moment the search cleared — the search must be what
     // hides it AND its group must be expanded under the REAL group state. A
     // collapse is a discarding gesture wherever it happens: after parking,
@@ -785,12 +785,12 @@ export function MapBuilderPage() {
     });
   }, [layers.localLayers, layers.groupMeta, layers.isDeleting, selectableRowIds, layerSearch]);
 
-  // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
+  // Multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
   // so plain/shift/cmd clicks all coordinate from the same authoritative source.
   const handleCmdClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
-    // fix(#833 codex round 2): an explicit selection gesture supersedes any
+    // An explicit selection gesture supersedes any
     // search-parked rows — keeping them would resurrect rows the gesture
     // discarded once the search clears (and a later bulk op would hit them).
     searchHiddenSelectionRef.current.clear();
@@ -809,7 +809,7 @@ export function MapBuilderPage() {
 
   const handleShiftClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
-    // fix(#833 codex round 2): same as handleCmdClick — a range gesture
+    // Same as handleCmdClick — a range gesture
     // replaces the selection, so parked rows must not outlive it.
     searchHiddenSelectionRef.current.clear();
     setSelectedIds((prev) => {
@@ -820,7 +820,7 @@ export function MapBuilderPage() {
         prev,
         lastToggleAnchor.current,
       );
-      // Phase 20260526-builder-audit #338 BLD-20260526-11: treat the helper's return as immutable. Range may include
+      // Treat the helper's return as immutable. Range may include
       // basemap-boundary ids if selectableRowIds drifts; build a fresh Set.
       const filtered = new Set<string>();
       for (const rid of selection) {
@@ -831,7 +831,7 @@ export function MapBuilderPage() {
     });
   }, [isBasemapBoundaryId, selectableRowIds]);
 
-  // SP-04: plain row click must record the anchor so a subsequent shift-click
+  // Plain row click must record the anchor so a subsequent shift-click
   // has somewhere to range from. handleSelectLayer below opens the editor;
   // this is the side-channel anchor capture without disturbing that flow.
   const handlePlainSelectAnchor = useCallback((id: string | null) => {
@@ -851,17 +851,17 @@ export function MapBuilderPage() {
     searchHiddenSelectionRef.current.clear();
   }, []);
 
-  // Phase 1041-02: clear-selection handler (used by UnifiedStackPanel's Escape/outside-click)
+  // Clear-selection handler (used by UnifiedStackPanel's Escape/outside-click)
   const handleClearSelection = useCallback(() => {
     resetMultiSelection();
     lastToggleAnchor.current = null;
   }, [resetMultiSelection]);
 
-  // Phase 1041-03: real bulk handlers — wired to use-builder-layers bulk ops.
+  // Real bulk handlers — wired to use-builder-layers bulk ops.
   // Each dep is the specific stable useCallback from use-builder-layers, NOT the
   // entire `layers` object (which is a plain literal re-created on every render).
   // Depending on `layers` defeats React.memo() on BulkActionBar / UnifiedStackPanel
-  // on every opacity-slider move, which fires at ~60fps (Phase 20260526-builder-audit #338 BLD-20260526-11).
+  // on every opacity-slider move, which fires at ~60fps.
   const handleBulkVisibility = useCallback((ids: Set<string>) => {
     applyBulkVisibility(ids);
     resetMultiSelection();
@@ -872,14 +872,14 @@ export function MapBuilderPage() {
     // Clearing selection on each intermediate event would break subsequent
     // drag events (selection would be empty). Selection is preserved during
     // drag; user dismisses via Escape or by clicking another row. This is
-    // documented in the Plan 03 SUMMARY as a deliberate UX decision.
+    // a deliberate UX decision.
     applyBulkOpacity(ids, opacity);
   }, [applyBulkOpacity]);
 
   const handleBulkGroup = useCallback((ids: Set<string>) => {
     // fix(#392): only clear the selection when a group was
     // actually created; an ineligible selection must stay intact so the user
-    // can see it, read the toast, and adjust instead of losing it silently. (audit B-004d/LM-04)
+    // can see it, read the toast, and adjust instead of losing it silently.
     if (applyBulkGroup(ids)) resetMultiSelection();
   }, [applyBulkGroup, resetMultiSelection]);
 
@@ -888,7 +888,7 @@ export function MapBuilderPage() {
     resetMultiSelection();
   }, [applyBulkUngroup, resetMultiSelection]);
 
-  // Phase 1201-01 ENH-03: apply one selected/copied style to compatible peers,
+  // Apply one selected/copied style to compatible peers,
   // then clear the multi-selection (mirrors group/ungroup wrappers).
   const handleBulkApplyStyle = useCallback((ids: Set<string>) => {
     applyBulkApplyStyle(ids);
@@ -910,7 +910,7 @@ export function MapBuilderPage() {
   // Derived: any row in selectedIds
   const isMultiSelectionActive = selectedIds.size > 0;
 
-  // Phase 1119: sublayer visibility/opacity handlers route through the
+  // Sublayer visibility/opacity handlers route through the
   // controller-backed persisted basemap_config fields.
   const handleToggleSublayerVisibility = useCallback((sublayerId: string) => {
     applyBasemapPatch(toggleBasemapSublayerVisibility(basemapState, sublayerId));
@@ -920,9 +920,9 @@ export function MapBuilderPage() {
     applyBasemapPatch(setBasemapSublayerOpacity(basemapState, sublayerId, opacity));
   }, [applyBasemapPatch, basemapState]);
 
-  // Phase 1059 BSE-01: helper that merges a single field into basemap_config.sublayer_overrides[sublayerId].
+  // Helper that merges a single field into basemap_config.sublayer_overrides[sublayerId].
   // Trims the entry if every field becomes null/undefined (no-op state).
-  // Uses setBasemapConfig which auto-marks dirty (Phase 20260526-builder-audit #338 BLD-20260526-11).
+  // Uses setBasemapConfig which auto-marks dirty.
   const updateSublayerOverride = useCallback(
     (sublayerId: string, field: keyof MapSublayerOverride, value: string | number | null) => {
       applyBasemapPatch(updateBasemapSublayerOverride(basemapState, sublayerId, field, value));
@@ -934,7 +934,7 @@ export function MapBuilderPage() {
     applyBasemapPatch(resetBasemapAppearance());
   }, [applyBasemapPatch]);
 
-  // Phase 1035: existing folder groups list for StackRow "Add to group…" sub-flow
+  // Existing folder groups list for StackRow "Add to group…" sub-flow
   const existingFolderGroups = useMemo(() => {
     return layers.localLayers
       .filter(isFolderGroupLayer)
@@ -1028,7 +1028,7 @@ export function MapBuilderPage() {
     setRailPanel('analysis');
   }, []);
 
-  // fix(#679 review P2): the prefill lives only for the handoff opening it
+  // The prefill lives only for the handoff opening it
   // triggered. Clearing it on any navigation away from the panel (rail close,
   // panel switch, mobile sheet dismiss) keeps a later ordinary opening from
   // remounting the form with stale handoff params.
@@ -1145,7 +1145,7 @@ export function MapBuilderPage() {
 
   // Adapter: UnifiedStackPanel/SidebarRail pass `string | null` (null = deselect);
   // handleToggleExpand accepts only string ('' = toggle off).
-  // SP-04 (Phase 1045): record the row id as the shift-click anchor on every
+  // Record the row id as the shift-click anchor on every
   // plain selection so a subsequent shift-click range-extends from this row.
   const handleSelectLayer = useCallback(
     (id: string | null) => {
@@ -1162,7 +1162,7 @@ export function MapBuilderPage() {
   // render. dispatchLayerAction and the other deps here are the stable
   // useCallbacks from use-builder-layers — NOT the per-render `layers` literal.
   const handleRowToggleVisibility = useCallback((layerId: string) => {
-    // P1-09: a folder group row is a synthetic row, not a map layer. Route its
+    // A folder group row is a synthetic row, not a map layer. Route its
     // eye toggle to toggle_group_visibility so every child (and its
     // companions) follows; loose/child rows use set_visibility.
     // fix(v1.6.0 audit D7): group-ness is read through the hook's ref-backed
@@ -1251,18 +1251,18 @@ export function MapBuilderPage() {
     handleSelectLayer('basemap-group');
   }, [handleSelectLayer]);
 
-  // Phase 1040: DnD handlers hoisted from UnifiedStackPanel — same behavior,
+  // DnD handlers hoisted from UnifiedStackPanel — same behavior,
   // lifted to MapBuilderPage so BuilderDialogs (catalog modal) shares the context.
-  // T-1040-01: preserve activationConstraint distance:8 and closestCenter verbatim.
+  // Preserve activationConstraint distance:8 and closestCenter verbatim.
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDragActiveId(String(event.active.id));
     handleSelectLayer(null);
-    // Phase 1041 POL-10: drag + multi-select are mutually exclusive. Clear selection at drag-start.
+    // Drag + multi-select are mutually exclusive. Clear selection at drag-start.
     resetMultiSelection();
     lastToggleAnchor.current = null;
     document.documentElement.classList.add('dragging-active');
     lastOverIdRef.current = null;
-    // Announce pick-up for catalog drags (POL-05 / T-1040-10)
+    // Announce pick-up for catalog drags
     const data = event.active.data.current as { source?: string; name?: string } | undefined;
     if (data?.source === 'catalog' && data.name) {
       announce(t('a11y.dragPickup', { name: data.name }));
@@ -1293,7 +1293,7 @@ export function MapBuilderPage() {
       if (!datasetId) return;
       const overId = String(over.id);
 
-      // Case 3: non-basemap row dropped onto the basemap group row → silent reject (UI-SPEC §3d).
+      // Case 3: non-basemap row dropped onto the basemap group row → silent reject.
       // (Basemaps are no longer draggable from the catalog; basemap swaps go through the
       // left-pane BasemapGroupEditorScene flyout instead.)
       if (basemapGroup && overId === basemapGroup.id) {
@@ -1301,12 +1301,12 @@ export function MapBuilderPage() {
         return;
       }
 
-      // Cases 4 & 5: non-basemap row dropped onto a folder-group (POL-03) or loose row (POL-01).
+      // Cases 4 & 5: non-basemap row dropped onto a folder-group or loose row.
       // When target is a folder group, parentGroupId is set so the new layer joins the group.
       const targetLayer = layers.localLayers.find((l) => l.id === overId);
       const parentGroupId = (targetLayer && isFolderGroupLayer(targetLayer)) ? overId : null;
-      // fix(#394) LM-03: announce the REAL landing position — loose catalog
-      // drops always PREPEND at top (position 1, BSR-18), and group drops land
+      // Announce the REAL landing position — loose catalog
+      // drops always PREPEND at top (position 1), and group drops land
       // after the group's last existing child; the drop-target index the SR
       // heard before was a lie for every drop below row 1.
       let announcePosition = 1;
@@ -1322,20 +1322,20 @@ export function MapBuilderPage() {
         }
         announcePosition = (lastChildIdx >= 0 ? lastChildIdx + 1 : groupIdx + 1) + 1;
       }
-      // Phase 20260526-builder-audit #338 BLD-20260526-11: announce fires inside onSuccessCb — only after the async mutation resolves
+      // Announce fires inside onSuccessCb — only after the async mutation resolves
       // successfully. If the mutation errors, the hook fires toast.error and the announce
       // is never called, avoiding contradictory screen-reader output.
-      // Modal stays open per POL-05 — onSuccessCb is not used to auto-select the layer.
+      // Modal stays open — onSuccessCb is not used to auto-select the layer.
       layers.handleAddDataset(datasetId, () => {
         announce(t('a11y.dragDropped', { name: datasetName, n: announcePosition }));
       }, parentGroupId, datasetName);
       return;
     }
 
-    // --- Intra-stack reorder (unchanged from Plan 01) ---
+    // --- Intra-stack reorder ---
     if (active.id === over.id) return;
 
-    // UX-03 (Phase 1051 Plan 06): basemap row drag — encode position in
+    // Basemap row drag — encode position in
     // MapBasemapConfig.basemap_position. Basemap is not in localLayers, so the
     // standard arrayMove path below cannot reorder it. Determine the new
     // position by comparing the drop target's index to the basemap's current
@@ -1364,7 +1364,7 @@ export function MapBuilderPage() {
     const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
 
-    // P2-07: dragging a folder group row moves the WHOLE group block (the row +
+    // Dragging a folder group row moves the WHOLE group block (the row +
     // all its child layers) atomically, so a single-row arrayMove can never
     // split the group by leaving its children behind. Loose/child row drags are
     // unchanged (the simple arrayMove below).
@@ -1398,7 +1398,7 @@ export function MapBuilderPage() {
       return;
     }
 
-    // fix(#525 B-040): derive group membership from the drop target — the
+    // Derive group membership from the drop target — the
     // bare arrayMove never touched parent_group_id, so dragging a child out
     // of its group was a silent no-op (childrenByGroup renders by membership,
     // not array position, so the row snapped back) and a loose layer dropped
@@ -1414,7 +1414,7 @@ export function MapBuilderPage() {
           ...l,
           parent_group_id: targetGroupId,
           // Leaving a group also clears the persisted folderGroupId — mirrors
-          // handleMoveLayerOutOfGroup (fix(#392) CR-01).
+          // handleMoveLayerOutOfGroup.
           ...(targetGroupId === null
             ? { style_config: clearPersistedFolderGroup(l.style_config) }
             : {}),
@@ -1436,7 +1436,7 @@ export function MapBuilderPage() {
     announce(t('a11y.dragCancelled'));
   }, [announce, t]);
 
-  // Phase 1040 Plan 04: announce position updates during catalog drag (best-effort).
+  // Announce position updates during catalog drag (best-effort).
   // Only fires when the over-target changes (via lastOverIdRef) to avoid excessive spam.
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const data = event.active.data.current as { source?: string } | undefined;
@@ -1518,7 +1518,7 @@ export function MapBuilderPage() {
       });
     } else if (expandedId) {
       requestAnimationFrame(() => {
-        // fix(HT-18): the row can be gone by the time focus returns (e.g. the
+        // The row can be gone by the time focus returns (e.g. the
         // layer was deleted from the editor footer). Falling back to the first
         // stack row keeps keyboard focus in the panel instead of dropping it
         // on <body>.
@@ -1530,12 +1530,12 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable refs
   }, [layers.handleToggleExpand, layers.expandedLayerId]);
 
-  // Phase 1035: open Add Data modal for "Add layer" in folder group (Plan 1037 will pass groupId)
+  // Open Add Data modal for "Add layer" in folder group (groupId is not forwarded yet)
   const handleAddLayerToFolderGroup = useCallback((_groupId: string) => {
     handleAddDataClick();
   }, [handleAddDataClick]);
 
-  // Phase 1035: breadcrumb click — navigate editor from Scene C → Scene B
+  // Breadcrumb click — navigate editor from Scene C → Scene B
   const onBreadcrumbClick = useCallback(() => {
     handleSelectLayer('basemap-group');
   }, [handleSelectLayer]);
@@ -1558,7 +1558,7 @@ export function MapBuilderPage() {
     ? (boundTerrainLayer.display_name ?? boundTerrainLayer.dataset_name ?? undefined)
     : undefined;
 
-  // codex(#451): a DEM whose 2D relief overlay is off (render_mode 'terrain')
+  // A DEM whose 2D relief overlay is off (render_mode 'terrain')
   // paints nothing unless it is the ACTIVE 3D terrain source. When it isn't, the
   // stack row would show a normal eye-on layer that draws nothing — flag those
   // so the row stays honest. Skip already-hidden rows (their eye is off, which
@@ -1575,14 +1575,14 @@ export function MapBuilderPage() {
     return ids;
   }, [layers.localLayers, isTerrainActive, boundTerrainLayer?.id]);
 
-  // Phase 1035+1036: scene-specific content + footer for LayerEditorPanel
+  // Scene-specific content + footer for LayerEditorPanel
   // Computed after handleSelectLayer and handleAddDataClick are in scope
   let sceneContent: ReactNode = null;
   let sceneFooter: ReactNode = null;
   let breadcrumbPresetName: string | undefined = undefined;
 
   if (editorScene === 'basemap-group' && basemapGroup) {
-    // IN-02 fix: exclude BLANK_BASEMAP_ID from the presets list — the component renders
+    // Exclude BLANK_BASEMAP_ID from the presets list — the component renders
     // a dedicated "No basemap" card before the presets loop; including 'blank' in both
     // would produce a duplicate card if an admin ever adds it to the basemaps catalog.
     const presets = basemaps
@@ -1605,9 +1605,9 @@ export function MapBuilderPage() {
               applyBasemapPatch(swapBasemapPreset(basemapState, presetId));
               layers.markDirty();
             }}
-            // onAddCustomBasemap intentionally omitted — custom-basemap support is a Plan
-            // 1037 follow-up. With the prop optional, the button stays hidden until a real
-            // handler is wired up here (was a visible no-op stub; B-015).
+            // onAddCustomBasemap intentionally omitted — custom-basemap support is a
+            // follow-up. With the prop optional, the button stays hidden until a real
+            // handler is wired up here (was a visible no-op stub).
             onSublayerVisibilityChange={handleToggleSublayerVisibility}
             onSublayerOpacityChange={handleSublayerOpacityChange}
             onMasterOpacityChange={(opacity) => {
@@ -1635,7 +1635,7 @@ export function MapBuilderPage() {
     const sublayer = basemapGroup.sublayers.find((s) => s.id === layers.expandedLayerId);
     breadcrumbPresetName = basemapGroup.presetName;
     if (sublayer) {
-      // Phase 20260526-builder-audit #338 BLD-20260526-11: translate the UI routing ID (e.g. 'basemap:roads') to the bare semantic
+      // Translate the UI routing ID (e.g. 'basemap:roads') to the bare semantic
       // key ('road') used in basemap_config.sublayer_overrides so reads and writes are
       // consistent with what applySublayerOverrides expects from SUBLAYER_CLASSIFIERS.
       const overrideKey = SUBLAYER_ID_OVERRIDE_KEY[sublayer.id] ?? sublayer.id;
@@ -1824,7 +1824,7 @@ export function MapBuilderPage() {
   // Column 2: LayerEditorPanel flyout (380px, only when layer selected AND viewport >= 800px)
   // Column 3 (or 2 when no editor): map canvas (1fr)
   //
-  // fix(#394) UX-05 (decision record): sidebar/editor widths are fixed and
+  // Sidebar/editor widths are fixed and
   // breakpoint-driven BY DESIGN — no user drag-resize, no persisted width.
   // The three-column budget is tuned per breakpoint (340/380px columns keep
   // the map ≥50% at 1280px) and a resizable panel would invalidate the
@@ -1844,7 +1844,7 @@ export function MapBuilderPage() {
     // than a hardcoded 100vh-navbar calc that ignored the demo banner and made
     // the whole page scroll. Matches PublicMapViewerPage's flex-1/min-h-0 layout.
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Phase 1040 Plan 04: sr-only aria-live region for keyboard/mouse catalog drag announcements.
+      {/* An sr-only aria-live region for keyboard/mouse catalog drag announcements.
           Renders at root of the builder so screen readers in any panel can read it.
           Zero-width-space + timestamp suffix in dragAnnouncement forces aria-live re-fire on
           identical consecutive messages (e.g. two "Drop cancelled." announcements). */}
@@ -1857,7 +1857,7 @@ export function MapBuilderPage() {
       >
         {dragAnnouncement}
       </div>
-      {/* fix(#438): A11Y-03 — the builder's heading outline started at <h2>. The
+      {/* The builder's heading outline started at <h2>. The
           map name is an editable <input>, not a heading, so this sr-only <h1>
           anchors the outline without altering the visible title bar. */}
       <h1 className="sr-only">
@@ -1865,7 +1865,7 @@ export function MapBuilderPage() {
           ? t('titleBar.builderHeading', { name: mapData.name, defaultValue: 'Map builder: {{name}}' })
           : t('common:pageTitle.mapBuilder')}
       </h1>
-      {/* fix(#438): UX-06 / LIVE-03 — below 768px the top bar cramps and the
+      {/* Below 768px the top bar cramps and the
           builder isn't a real editing surface; tell the user rather than
           presenting a broken-looking layout. */}
       {isMobile && (
@@ -1895,7 +1895,7 @@ export function MapBuilderPage() {
           onShowInfo: () => dialogs.setShowInfo(true),
           onFork: save.handleFork,
           isForkPending: save.isForkPending,
-          // fix(#430 V-15): new tab so the editor's in-progress builder session
+          // New tab so the editor's in-progress builder session
           // (and any unsaved-changes nav guard) is untouched.
           onViewAsViewer: id
             ? () => window.open(`/maps/${id}?preview=viewer`, '_blank', 'noopener,noreferrer')
@@ -1903,9 +1903,9 @@ export function MapBuilderPage() {
         }}
       />
 
-      {/* Phase 1040: single DndContext wraps sidebar (UnifiedStackPanel) and
+      {/* Single DndContext wraps sidebar (UnifiedStackPanel) and
           BuilderDialogs (Add Dataset modal) so catalog→stack drag shares one
-          collision-detection scope. T-1040-02: sensors declared via useSensors
+          collision-detection scope. Sensors declared via useSensors
           at MapBuilderPage level so identity is stable across renders. */}
       <DndContext
         sensors={dndSensors}
@@ -1932,7 +1932,7 @@ export function MapBuilderPage() {
           aria-label={t('layers.title')}
           className="border-e bg-background flex flex-col overflow-hidden"
         >
-          {/* fix(#394) UX-01/B-027: recoverable boundary — a stack-panel render
+          {/* Recoverable boundary — a stack-panel render
               error must not take down the whole builder (map + chat stay up). */}
           <PanelErrorBoundary panelId="builder-sidebar">
           {isRail ? (
@@ -1952,7 +1952,7 @@ export function MapBuilderPage() {
           ) : (
             <UnifiedStackPanel
               layers={layers.localLayers}
-              // fix(#430 V-17): drives the per-layer "hidden from public viewers"
+              // Drives the per-layer "hidden from public viewers"
               // badge — mapData is undefined only during initial load, before
               // the stack panel has anything to render anyway.
               mapVisibility={mapData?.visibility}
@@ -2030,7 +2030,7 @@ export function MapBuilderPage() {
           {/* Sidebar-placement plugins render below the layer stack. No built-in
               uses { mode: 'sidebar' } today, so PluginSidebar returns null and
               this is inert — but it keeps the declared sidebar placement mode
-              actually reachable for third-party plugins (plugin-audit finding). */}
+              actually reachable for third-party plugins. */}
           {!isRail && <PluginSidebar plugins={sidebarPlugins} ctx={pluginCtx} />}
           </PanelErrorBoundary>
         </aside>
@@ -2043,7 +2043,7 @@ export function MapBuilderPage() {
             aria-label={t('layerEditor.tabsLabel')}
             className="border-e bg-background flex flex-col overflow-hidden"
             onKeyDown={(e) => {
-              // fix(#394) UX-02/B-015: Escape closes the desktop editor flyout —
+              // Escape closes the desktop editor flyout;
               // the <800px Sheet gets this from Radix for free. Only fires when
               // focus is inside the flyout; nested Radix popovers/selects portal
               // to <body>, so an open picker's Escape never reaches this aside.
@@ -2075,7 +2075,7 @@ export function MapBuilderPage() {
           </aside>
         )}
 
-        {/* BSR-13: <800px drill-down — Sheet overlay when editor is hidden but a layer/scene is active */}
+        {/* <800px drill-down — Sheet overlay when editor is hidden but a layer/scene is active */}
         {isEditorHidden && isEditorOpen && (
           <Sheet
             open={true}
@@ -2086,16 +2086,16 @@ export function MapBuilderPage() {
               side="right"
               overlay={false}
               showCloseButton={false}
-              /* RESP-03 (Phase 1051 Plan 10): suppress shadcn Sheet's
+              /* Suppress shadcn Sheet's
                  built-in auto-close X. The wrapped LayerEditorPanel already
                  owns its canonical close affordance (header X at
                  LayerEditorPanel.tsx:316-325 with aria-label
                  "Close layer editor"). Pre-fix this overlay rendered TWO
                  close buttons. See regression test
                  MapBuilderPage.sheet-close-button.test.tsx. */
-              // MAP-07: 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
+              // 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
               // visually overlap the top-left NavigationControl at ≤800px. NavigationControl stays
-              // `top-left` per Pitfall #10; this is the sidebar-side fix.
+              // `top-left`; this is the sidebar-side fix.
               className="mt-12 h-[calc(100%-3rem)] w-full max-w-[380px] p-0 flex flex-col"
             >
               <SheetHeader className="sr-only">
@@ -2135,7 +2135,7 @@ export function MapBuilderPage() {
             <Suspense fallback={<LoadingState />}>
               <BuilderMap
                 layers={layers.localLayers}
-                // Phase 1199 STACK-02: when the basemap is toggled off (session-local),
+                // When the basemap is toggled off (session-local),
                 // render the blank basemap so imagery disappears while data layers remain.
                 basemapStyle={basemapVisible ? basemapState.basemapStyle : BLANK_BASEMAP_ID}
                 initialViewState={layers.initialViewState}
@@ -2179,7 +2179,7 @@ export function MapBuilderPage() {
                   disabled={btn.disabled}
                   data-unavailable={btn.unavailable || undefined}
                   title={btn.label}
-                  // MAP-22 rework: notes-presence folds into the button's own
+                  // Notes-presence folds into the button's own
                   // accessible name (aria-label replaces the subtree, so a
                   // label on the dot span was never exposed).
                   aria-label={
@@ -2204,10 +2204,10 @@ export function MapBuilderPage() {
                   ) : (
                     <btn.icon className="h-4 w-4" aria-hidden="true" />
                   )}
-                  {/* MAP-22: presence dot on mobile Notes button — mirrors the
-                      BuilderRail rail-button dot (search for MAP-22 there).
+                  {/* Presence dot on mobile Notes button — mirrors the
+                      BuilderRail rail-button dot.
                       BuilderRail is hidden at <800px (isEditorHidden); this dot keeps
-                      MAP-22 parity at 414×896. Decorative: the state is announced via
+                      parity at 414×896. Decorative: the state is announced via
                       the button's conditional aria-label above. */}
                   {btn.id === 'notes' && dockNotes.trim().length > 0 && (
                     <span
@@ -2234,7 +2234,7 @@ export function MapBuilderPage() {
       </div>
 
       {/* Right rail + panel */}
-      {/* fix(#527 B-054/U-08): boundary parity with the sidebar/map — a
+      {/* Boundary parity with the sidebar/map — a
           HistoryPanel/Notes render error must not take down the builder. */}
       {!isEditorHidden && (
         <PanelErrorBoundary panelId="builder-rail">
@@ -2248,13 +2248,13 @@ export function MapBuilderPage() {
           <SheetContent
             side="right"
             showCloseButton={false}
-            /* RESP-03 (Phase 1051 Plan 10): suppress shadcn Sheet's
+            /* Suppress shadcn Sheet's
                built-in auto-close X. The wrapped BuilderRail expanded panel
                already owns its canonical close affordance (ChevronRight at
                BuilderRail.tsx:125-132 with aria-label "Close panel"). */
-            // MAP-07: 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
+            // 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
             // visually overlap the top-left NavigationControl at ≤800px. NavigationControl stays
-            // `top-left` per Pitfall #10; this is the sidebar-side fix.
+            // `top-left`; this is the sidebar-side fix.
             className="mt-12 h-[calc(100%-3rem)] w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col"
           >
             <SheetHeader className="sr-only">
@@ -2309,7 +2309,7 @@ export function MapBuilderPage() {
         })}
         layers={layers.localLayers}
         isAdding={addLayer.isPending}
-        // fix(#526 B-050): which dataset is in flight — the global isAdding
+        // Which dataset is in flight — the global isAdding
         // flag disabled every Add button with no per-row feedback, so the user
         // couldn't tell whether their click registered.
         addingDatasetId={addLayer.isPending ? (addLayer.variables?.data?.dataset_id ?? null) : null}
@@ -2324,12 +2324,12 @@ export function MapBuilderPage() {
         onBlockerProceed={save.blocker.proceed}
       />
 
-      </DndContext>{/* close Phase 1040 DndContext */}
+      </DndContext>
 
-      {/* SF-03 (Phase 1049): gate the StyleJsonDialog mount on `showStyleJson`,
+      {/* Gate the StyleJsonDialog mount on `showStyleJson`,
           not just on `id`. The previous form always mounted the dialog (it just
           returned null when closed), which made React.lazy() resolve the import
-          on initial builder paint — defeating the whole PB-05 lazy-load split. */}
+          on initial builder paint — defeating the whole lazy-load split. */}
       {id && showStyleJson && (
         <LazyLoadErrorBoundary>
           <Suspense fallback={null}>
@@ -2360,7 +2360,7 @@ export function MapBuilderPage() {
         </LazyLoadErrorBoundary>
       )}
 
-      {/* A11Y-05 (Phase 1204-03): keyboard shortcut cheat-sheet overlay.
+      {/* Keyboard shortcut cheat-sheet overlay.
           Not lazy-loaded — component is small and needed on first ? keypress. */}
       <KeyboardShortcutsSheet
         open={showShortcuts}

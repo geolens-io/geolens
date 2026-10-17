@@ -149,7 +149,7 @@ export function JobList() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // fix(#1185 review): arriving here from OUTSIDE this component — the sidebar
+  // Arriving here from OUTSIDE this component — the sidebar
   // alert badge, a bookmark, the back button — must show the count the badge
   // advertised. React Router keeps this instance mounted for the same route,
   // so user/search/page would survive the navigation and silently narrow the

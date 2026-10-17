@@ -49,7 +49,7 @@ describe('BackfillRunStatus', () => {
     expect(screen.getByTestId('backfill-progress-bar')).toHaveStyle({ width: '32%' });
   });
 
-  // fix(#2025 review): the bar is a styled div. Without these the run advances
+  // The bar is a styled div. Without these the run advances
   // every four seconds and a screen reader is told nothing.
   it('exposes the run to assistive technology as it advances', () => {
     render(
@@ -166,7 +166,7 @@ describe('BackfillRunStatus', () => {
     ).not.toBeInTheDocument();
   });
 
-  // fix(#2025 review): `complete` with rejections is not a clean success. The
+  // `complete` with rejections is not a clean success. The
   // run reached every record it counted; some of them kept their old vector.
   it('says a finished run left gaps rather than reporting it clean', () => {
     render(

@@ -13,7 +13,7 @@ vi.mock('../SearchTypeahead', () => ({
 }));
 
 /**
- * fix(#1761 review P2): deliberately does NOT mock useDebouncedValue, unlike
+ * Deliberately does NOT mock useDebouncedValue, unlike
  * SearchBar.test.tsx — the bug this pins lives in the real 300ms window
  * between a keystroke and the debounced setQuery() call, so the test needs
  * the real timer.
@@ -65,13 +65,13 @@ describe('SearchBar identity reset (#1761 review P2)', () => {
     }
   });
 
-  // fix(#1761 review round 6): a NARROWER race than the one above — here
+  // A NARROWER race than the one above — here
   // the 300ms timer fires in the SAME React batch as the identity
   // transition, rather than before it. The earlier fix canceled a
   // still-PENDING timer by changing its input; it did nothing for a
   // result that has ALREADY fired but not yet been committed, which is
-  // exactly what codex reproduced by advancing the timer and switching
-  // users inside one act().
+  // exactly what happens when the timer advances and users switch
+  // inside one act().
   it('rejects a debounced value whose epoch is stale when the timer fires in the same batch as an identity change', async () => {
     // Deliberately NOT shouldAdvanceTime here (unlike the test above): that
     // option ticks the fake clock forward in step with real wall-clock time,
@@ -98,7 +98,7 @@ describe('SearchBar identity reset (#1761 review P2)', () => {
       expect(useSearchStore.getState().q).toBe('');
 
       // Identity change and the debounce timer's own commit happen inside
-      // the SAME act() — the exact reproduction codex described.
+      // the SAME act() — the exact reproduction.
       await act(async () => {
         useAuthStore.setState({ token: 't2', user: { id: 'user-2' } as UserResponse });
         await vi.advanceTimersByTimeAsync(500);

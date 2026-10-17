@@ -1,4 +1,4 @@
-// fix(#1532 review r15): structural gate for edge compression of the routes
+// Structural gate for edge compression of the routes
 // that serve byte ranges.
 //
 // nginx compresses a 200 but never a 206, and when it compresses it rewrites a
@@ -36,7 +36,7 @@ const RANGE_SERVING_PATHS = [
 
 // Routes that serve exactly one representation and no ranges. They must KEEP
 // compressing: #1540 fixed this same splice by excluding a media type, and
-// #1532 r11 had to undo that when it silenced compression on unrelated JSON and
+// that fix had to be undone when it silenced compression on unrelated JSON and
 // CSV endpoints. Without these, "turn gzip off everywhere" passes the test.
 const COMPRESSIBLE_PATHS = [
   '/api/collections/roads/items',

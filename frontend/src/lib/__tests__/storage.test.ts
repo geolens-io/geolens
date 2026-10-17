@@ -1,5 +1,5 @@
 /**
- * fix(#1535 codex P2): the session helpers under a store that is FULL rather
+ * The session helpers under a store that is FULL rather
  * than denied.
  *
  * These are two different failures and only one of them can strand a stale

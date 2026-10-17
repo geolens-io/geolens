@@ -148,7 +148,7 @@ describe('useDeleteMap', () => {
 
 });
 
-// BUG-039: map mutations must invalidate the dataset-scoped "used in maps"
+// Map mutations must invalidate the dataset-scoped "used in maps"
 // lists (queryKeys.datasets.maps = ['datasets', id, 'maps']). Pre-fix only
 // 'maps'-rooted keys were touched, so a dataset's panel kept showing a
 // deleted/renamed/newly-created map until the 60s staleTime elapsed.
@@ -225,7 +225,7 @@ describe('useMaps – empty list', () => {
   });
 });
 
-// fix(#1831 review): usePublishMap's onError used to fire the generic
+// usePublishMap's onError used to fire the generic
 // "failed to update visibility" toast on EVERY rejection, including the
 // non-public-datasets 400 that SharePanel now surfaces inline — so that one
 // case showed both a generic toast and the specific inline message. The hook

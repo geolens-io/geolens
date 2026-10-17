@@ -40,7 +40,7 @@ function clearChatSessionStorage(): void {
 }
 
 /**
- * fix(#430 codex r6): user-scoped queries (dataset search, map search, map
+ * User-scoped queries (dataset search, map search, map
  * lists) key their caches by request parameters only, so after a logout — or a
  * lower-privilege login in the same tab — the previous identity's cached rows
  * could render before any refetch. Rather than threading auth identity into
@@ -56,12 +56,12 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     const userId = state.user?.id ?? null;
     if (userId === lastUserId) return;
     lastUserId = userId;
-    // fix(#438): DATA-10 — a full clear() on every identity change is safe but
+    // A full clear() on every identity change is safe but
     // refetch-bursty. Kept whole because scoping which keys to drop per identity
     // is error-prone (a missed key leaks the prior user's data); revisit only if
     // the refetch burst is measured to matter.
     queryClient.clear();
-    // fix(#1663 review P1): the problem reporter's in-memory capture buffer is
+    // The problem reporter's in-memory capture buffer is
     // the same kind of identity-scoped residue. With the reporter visible to
     // anonymous visitors, a logout that leaves the buffer populated would show
     // the previous user's captured entries (and attach them to a report) in
@@ -74,7 +74,7 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     // intent. Same choke point, same rule: identity changed, drop everything
     // adopted or entered under the old one.
     //
-    // fix(#1761 review P1): bump the session epoch BEFORE clearing, so any
+    // Bump the session epoch BEFORE clearing, so any
     // write already in flight (captured against the old epoch) is refused
     // by drawing-store's own check even if it lands between these two
     // calls or after them, no matter what the next identity turns out to

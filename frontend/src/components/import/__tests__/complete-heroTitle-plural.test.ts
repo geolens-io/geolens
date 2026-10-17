@@ -2,7 +2,7 @@
 // `_one`/`_other` split, so i18next always served the (plural) bare key —
 // "1 datasets added to the catalog" — regardless of count.
 //
-// fix(#1863 P1, codex round 2): French and Spanish CLDR plural rules select
+// French and Spanish CLDR plural rules select
 // a distinct "many" category for an exact non-zero multiple of a million
 // (Intl.PluralRules('fr').select(1000000) === 'many'), and i18next does NOT
 // fall back from an unresolved heroTitle_many to heroTitle_other — a

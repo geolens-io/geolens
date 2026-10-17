@@ -36,7 +36,7 @@ function PanelErrorFallback({ onReset }: { onReset: () => void }) {
 }
 
 /**
- * fix(#394) UX-01/B-027: recoverable boundary for builder side panels. A render
+ * Recoverable boundary for builder side panels. A render
  * error inside the sidebar previously crashed the whole builder page even
  * though the map and chat were healthy. The `resetKey` remounts the children
  * on retry, mirroring MapErrorBoundary.

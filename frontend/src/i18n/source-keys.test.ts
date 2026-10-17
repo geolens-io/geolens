@@ -1,4 +1,4 @@
-// GAP-024: the existing resources.test.ts only checks bundle-internal
+// The existing resources.test.ts only checks bundle-internal
 // invariants (every namespace ships for every locale; locales keep key parity
 // with EN). It never reads component SOURCE, so a `t('some.key')` referencing a
 // key that exists in NO bundle — and has no defaultValue — ships green through

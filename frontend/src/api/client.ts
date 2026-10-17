@@ -14,7 +14,7 @@ export function isCredentialRejected(err: unknown): boolean {
   return err.status === 401 || err.status === 403;
 }
 
-// fix(#438): DATA-04 — a request whose socket hangs used to spin forever and
+// A request whose socket hangs used to spin forever and
 // stall the polling loop that issued it. 30s comfortably covers a slow catalog
 // query while still freeing a wedged loop. Applied to apiFetch (JSON) only;
 // streaming and blob-download callers manage their own longer-lived signals.
@@ -37,7 +37,7 @@ export class ApiError extends Error {
   }
 }
 
-// SP-09: module-level in-flight singleton. Concurrent 401s AND the proactive
+// Module-level in-flight singleton. Concurrent 401s AND the proactive
 // timer in use-auth.ts (which now also calls tryRefresh) collapse to one
 // /auth/refresh/ POST per refresh cycle. Cleared in finally so the next
 // expiration starts fresh.
@@ -148,7 +148,7 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   // The singleton MUST be cleared synchronously when the IIFE settles —
   // not in the outer try/finally — so a third caller that arrives between
   // resolution and the outer finally can't observe `inflightRefresh === null`
-  // and kick off a second refresh cycle. WR-02 (1045-REVIEW.md).
+  // and kick off a second refresh cycle.
   // fix(#1446): a logout can land while this request is in flight — most
   // easily when logout itself triggers the proactive refresh and then stops
   // waiting on it. Writing the rotated tokens afterwards would re-populate the
@@ -232,7 +232,7 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
 
 /**
  * Fetch wrapper that converts `TypeError: Failed to fetch` (offline / DNS
- * failure / CORS preflight error) into an ApiError with status 0 (RES-N1).
+ * failure / CORS preflight error) into an ApiError with status 0.
  * Without this, network failures propagate as opaque unhandled rejections
  * through every TanStack Query and the UI shows "Failed to fetch" literally.
  */
@@ -244,11 +244,11 @@ export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): P
     // (offline, DNS unresolvable, CORS preflight blocked, etc.). Other
     // errors (e.g. AbortError) should bubble through unchanged.
     if (err instanceof TypeError) {
-      // fix(#438): UX-10 — was hardcoded English; this is one of the errors a
+      // Was hardcoded English; this is one of the errors a
       // non-English user is most likely to hit.
       throw new ApiError(i18n.t('common:errors.networkUnavailable'), 0);
     }
-    // fix(#438): DATA-04 — a timeout-triggered abort becomes a normalized
+    // A timeout-triggered abort becomes a normalized
     // ApiError; a caller-initiated AbortError still bubbles unchanged.
     if (err instanceof DOMException && err.name === 'TimeoutError') {
       throw new ApiError(i18n.t('common:errors.requestTimeout'), 0);
@@ -304,7 +304,7 @@ export async function sendInSession<R extends { status: number }>(
   if (outcome === 'refreshed') {
     const refreshedToken = useAuthStore.getState().token;
     final = await send(refreshedToken);
-    // BUG-016: only a retry that is STILL 401 is an auth failure; anything
+    // Only a retry that is STILL 401 is an auth failure; anything
     // else goes back to the caller to handle normally.
     if (final.status !== 401) return { response: final, refresh: 'refreshed' };
     if (refreshedToken) void revokeCurrentSession(refreshedToken).catch(() => {});
@@ -321,7 +321,7 @@ export async function sendInSession<R extends { status: number }>(
 }
 
 /**
- * BUG-035: Shared refresh-aware fetch core that returns the RAW Response.
+ * Shared refresh-aware fetch core that returns the RAW Response.
  *
  * Streaming/download helpers (AI SSE streams, blob exports) can't go through
  * apiFetch because they need the live Response/ReadableStream/Blob rather than
@@ -363,7 +363,7 @@ export async function authenticatedRawFetch(
     throw unverified;
   }
   if (refresh === 'rejected') {
-    // fix(#438): UX-10 — was hardcoded English.
+    // Was hardcoded English.
     throw new ApiError(i18n.t('common:errors.unauthorized'), 401);
   }
   return response;
@@ -399,7 +399,7 @@ async function apiFetchResponse(
 ): Promise<Response | null> {
   const { expected404, timeoutMs, ...fetchOptions } = options;
 
-  // fix(#438): DATA-04 — bound the request. Compose with any caller signal so
+  // Bound the request. Compose with any caller signal so
   // an explicit cancel still works; whichever fires first wins. `timeoutMs`
   // raises the deadline for endpoints whose legitimate worst case exceeds the
   // default (a caller signal alone can only shorten it, never extend it).

@@ -31,7 +31,7 @@ export function CollectionsPage() {
   const [sortBy, setSortBy] = useState<'updated_at' | 'created_at' | 'name'>('updated_at');
   const [createOpen, setCreateOpen] = useState(false);
   const { t, i18n } = useTranslation('collections');
-  // fix(#438): UX-15 (partial) — filtering is still client-side because the
+  // (partial) — filtering is still client-side because the
   // backend collections list endpoint takes only skip/limit, no `search`
   // param (unlike the maps list, which MapsPage filters server-side). Raised
   // the fetch to the backend maximum (200) so the name filter covers every

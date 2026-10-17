@@ -39,7 +39,7 @@ describe('deleteDetachesTable', () => {
     ['explicitly null', null],
     ['not an object', 'data.parcels'],
   ] as const)('promises nothing when origin_ref is %s', (_label, origin_ref) => {
-    // fix(#1452 review round 4): `origin_ref` is owner-or-admin only, and the
+    // `origin_ref` is owner-or-admin only, and the
     // dataset response is cached under ['dataset', id] with no identity in the
     // key, so an owner can be handed a non-owner's redacted copy. Null is also
     // what migration 0036's backfill leaves on rows it could not resolve.
@@ -138,7 +138,7 @@ describe('DatasetDeleteDialog copy', () => {
   });
 
   it('says the surviving table can be registered again', () => {
-    // fix(#1452 review round 2): a detached table goes back to being an
+    // A detached table goes back to being an
     // unregistered table in the data schema, which /ingest/discover/ lists
     // and any upload-permission user can register — the same exposure it had
     // before its owner registered it. Silence about that is the part the

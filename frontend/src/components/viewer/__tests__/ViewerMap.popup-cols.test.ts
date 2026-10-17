@@ -3,7 +3,7 @@ import { toViewerSyncInput } from '@/components/viewer/ViewerMap';
 import { getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
 import type { SharedLayerResponse } from '@/types/api';
 
-// #350 (Codex P2): the INITIAL viewer render builds its source via
+// #350: the INITIAL viewer render builds its source via
 // toViewerSyncInput() -> syncMapComposition before any token-refresh path runs.
 // If popup_config is dropped in that conversion, a viewer opened at z<10 strips
 // the popup's selected fields and shows "No attributes". Pin the copy so the

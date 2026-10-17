@@ -1,5 +1,5 @@
 /**
- * fix(#1715 codex r2 P2): a self-reset must end the session the way every other
+ * A self-reset must end the session the way every other
  * deliberate sign-out does.
  *
  * The store's own `logout()` bumps `sessionEpoch`, which stops a late refresh

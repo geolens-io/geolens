@@ -126,7 +126,7 @@ describe('DatasetChatPanel', () => {
 
   it('carries a spatial query result into the builder via sessionStorage', async () => {
     setAvailable(true);
-    // feat(#1241 codex r1): one feature for one matched row — the overlay is
+    // One feature for one matched row — the overlay is
     // complete, so nothing about truncation rides along. The server never
     // emits an empty FeatureCollection (_extract_geojson returns None when no
     // row is mappable), so a features:[] fixture would exercise a state that
@@ -176,7 +176,7 @@ describe('DatasetChatPanel', () => {
     });
   });
 
-  // feat(#1241 codex r1): the builder can now SAVE a carried result, so the
+  // The builder can now SAVE a carried result, so the
   // handoff must say whether it is the whole answer. Geometry alone let a
   // clipped result arrive looking complete.
   it('carries the completeness pair when the overlay is clipped', async () => {

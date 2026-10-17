@@ -369,7 +369,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(recover).not.toHaveBeenCalled();
   });
 
-  // fix(#907) (codex P1): renewing the credential does not retry the raster
+  // Renewing the credential does not retry the raster
   // tiles that already 401'd — MapLibre resumes its fetches the moment the tab
   // is visible and races the refresh, and a raster descriptor is unchanged
   // across one, so nothing in the token→setTiles plumbing reloads them.
@@ -402,7 +402,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(onCredentialRenewed).toHaveBeenCalledTimes(1);
   });
 
-  // codex on #964: `tryRefresh` resolves `!!token`, so it comes back TRUE for a
+  // `tryRefresh` resolves `!!token`, so it comes back TRUE for a
   // transient failure that left the stale token in place. Reloading on that
   // boolean would retry against the same Bearer and 401 again.
   it('does not reload when the refresh failed and nothing rotated', async () => {
@@ -442,7 +442,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(onCredentialRenewed).toHaveBeenCalledTimes(1);
   });
 
-  // codex on #964: a dead session ends in `logout()`, which moves the token to
+  // A dead session ends in `logout()`, which moves the token to
   // null. Treating that as a rotation would refetch every raster tile with no
   // Authorization header — a second 401 burst under the signed-out dialog.
   it('does not treat a logout as a credential renewal', async () => {
@@ -463,7 +463,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(onCredentialRenewed).not.toHaveBeenCalled();
   });
 
-  // codex on #964: with the reload in place a raster 401 from the visibility
+  // With the reload in place a raster 401 from the visibility
   // race heals on its own, but the surfaces still told the user to reload the
   // page. This is the window they use to suppress that.
   it('marks a renewal pending for the surfaces, time-boxed', async () => {
@@ -490,7 +490,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(isSessionRenewalPending(startedAt + 60_000)).toBe(false);
   });
 
-  // codex on #964: refreshAccessToken rides an unbounded fetch, so a fixed
+  // refreshAccessToken rides an unbounded fetch, so a fixed
   // deadline could expire mid-flight and let a delayed raster 401 latch
   // DatasetMap's permanent error overlay for tiles the rotation then heals.
   it('stays pending for as long as the refresh is actually in flight', async () => {

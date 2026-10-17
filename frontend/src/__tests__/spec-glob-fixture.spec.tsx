@@ -1,4 +1,4 @@
-// fix(#1866 codex r1): a real .spec.tsx file, proving the guard's glob
+// A real .spec.tsx file, proving the guard's glob
 // reaches vitest's *.spec.{ts,tsx} convention, not only *.test.{ts,tsx}.
 import { afterEach, describe, expect, it } from 'vitest';
 import i18n from 'i18next';

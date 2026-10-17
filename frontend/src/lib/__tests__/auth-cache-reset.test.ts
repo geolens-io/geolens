@@ -6,7 +6,7 @@ import { useDrawingStore } from '@/stores/drawing-store';
 import { useSearchStore } from '@/stores/search-store';
 import type { UserResponse } from '@/types/api';
 
-// fix(#430 codex r6): identity changes evict the whole query cache; token
+// Identity changes evict the whole query cache; token
 // refresh (same user id) does not.
 describe('wireAuthCacheReset', () => {
   const initialAuthState = useAuthStore.getState();
@@ -64,7 +64,7 @@ describe('wireAuthCacheReset', () => {
       expect(getReportEntries()).toHaveLength(1);
 
       // Logout: buffer cleared — an anonymous tab must not inherit the
-      // previous user's captured entries (fix(#1663 review P1)).
+      // previous user's captured entries.
       useAuthStore.setState({ token: null, user: null });
       expect(getReportEntries()).toHaveLength(0);
     } finally {
@@ -123,7 +123,7 @@ describe('wireAuthCacheReset', () => {
     }
   });
 
-  // fix(#1761 review P1): the race the ownerId-only check missed —
+  // The race the ownerId-only check missed:
   // handleEditAttributeSubmit reads `selectedFeature` before an update
   // mutation and calls setSelectedFeature again once it resolves. These pin
   // that resolution being refused when it lands AFTER an identity change,
@@ -288,7 +288,7 @@ describe('wireAuthCacheReset', () => {
     }
   });
 
-  // fix(#1761 review P2): SearchBar keys its local input/debounce state on
+  // SearchBar keys its local input/debounce state on
   // this counter (see SearchBar.identity.test.tsx) precisely because `q`
   // can stay '' across the identity change and not signal anything on its
   // own — this pins that the counter itself always moves, even then.

@@ -133,7 +133,7 @@ describe('PluginHost', () => {
 
     // Healthy plugin still renders
     expect(screen.getByTestId('plugin-a')).toBeInTheDocument();
-    // Crashing plugin shows fallback (i18n value is renamed in Phase 1163, not here)
+    // Crashing plugin shows fallback
     expect(screen.getByText('This plugin encountered an error')).toBeInTheDocument();
     // Error logged with plugin ID
     expect(spy).toHaveBeenCalledWith(

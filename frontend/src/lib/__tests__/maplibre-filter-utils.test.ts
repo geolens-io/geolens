@@ -10,7 +10,7 @@ import {
 } from '../maplibre-filter-utils';
 
 // ---------------------------------------------------------------------------
-// EDIT-03: empty-array -> null boundary hardening in sanitizeNullableNumericFilter
+// Empty-array -> null boundary hardening in sanitizeNullableNumericFilter
 // ---------------------------------------------------------------------------
 describe('sanitizeNullableNumericFilter', () => {
   it('EDIT-03 — returns null for an empty-array filter (never lets [] reach setFilter)', () => {
@@ -55,7 +55,7 @@ describe('sanitizeNullableNumericFilter', () => {
 });
 
 // ---------------------------------------------------------------------------
-// builder-audit #338 FILT-01 / DRY-01: canonical parser
+// Canonical parser
 // ---------------------------------------------------------------------------
 describe('parseCanonicalFilter', () => {
   it('parses a bare comparison as one editable condition with rawValue', () => {
@@ -101,7 +101,7 @@ describe('parseCanonicalFilter', () => {
 });
 
 // ---------------------------------------------------------------------------
-// builder-audit #338 P1-04: raw-JSON filter validator/normalizer
+// Raw-JSON filter validator/normalizer
 // ---------------------------------------------------------------------------
 describe('validateRawFilter', () => {
   it('treats null and [] as clear (returns null)', () => {

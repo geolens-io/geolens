@@ -3,7 +3,7 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /**
- * fix(#438): DS-03 — a shared textarea primitive. Eight-plus components had
+ * A shared textarea primitive. Eight-plus components had
  * hand-rolled `<textarea>` styles whose focus ring, radius, and padding all
  * drifted from each other and from `<Input>`. This mirrors input.tsx's
  * treatment so a textarea and an input read as the same control family.

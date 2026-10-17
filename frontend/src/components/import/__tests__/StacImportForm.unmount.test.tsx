@@ -255,7 +255,7 @@ describe('StacImportForm unmount survival', () => {
     expect(screen.getByRole('link', { name: 'bulk.openDataset' })).toHaveAttribute('href', '/datasets/ds-1');
   });
 
-  // fix(codex #1763 r3): the session used to restore only `importResult` on
+  // The session used to restore only `importResult` on
   // adoption, so "Back to Results" (which sets `step` back to 'items')
   // rendered nothing — that branch guards on `selectedCollection` and
   // `catalogInfo`, both null on a fresh mount. The session now carries the
@@ -296,7 +296,7 @@ describe('StacImportForm unmount survival', () => {
     await waitFor(() => expect(screen.getByText(ITEM.title)).toBeInTheDocument());
     expect(screen.getByText('Test Collection')).toBeInTheDocument();
 
-    // fix(codex #1763 r3): one level further back — the collections
+    // One level further back — the collections
     // breadcrumb — used to render an empty list, because `collections`
     // was not part of the restored context (only `selectedCollection`
     // was). Clicking through has to show the catalog's real collection,
@@ -343,7 +343,7 @@ describe('StacImportForm unmount survival', () => {
     });
   });
 
-  // fix(codex #1763 r3): the app renders under React.StrictMode (main.tsx),
+  // The app renders under React.StrictMode (main.tsx),
   // whose dev-mode effect replay (setup, cleanup, setup) used to register
   // TWO settlement handlers on the same session promise, because the
   // adoption effect had no cleanup of its own — only mountedRef did, and

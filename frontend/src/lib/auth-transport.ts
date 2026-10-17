@@ -2,7 +2,7 @@ import { API_BASE } from '@/lib/constants';
 import { readStorage, writeStorage } from '@/lib/storage';
 
 /**
- * GH-1302: how this browser talks to /auth/login and /auth/refresh/.
+ * How this browser talks to /auth/login and /auth/refresh/.
  *
  * The refresh token moves into an httpOnly cookie, which the browser will only
  * replay to the origin that set it. Both shipped deployments put the API on the
@@ -12,7 +12,7 @@ import { readStorage, writeStorage } from '@/lib/storage';
  *
  * A deployment that repoints `API_BASE_URL` at a different origin cannot use
  * the cookie (its refresh POST is cross-site, and `SameSite=Lax` withholds it),
- * so those installs stay on the pre-GH-1302 body-token flow rather than being
+ * so those installs stay on the earlier body-token flow rather than being
  * handed a credential the browser would never send back.
  */
 export const AUTH_MODE_HEADER = 'X-GeoLens-Auth-Mode';

@@ -1,5 +1,5 @@
 /**
- * PERF-06 (Phase 274): regression-lock that map-rendering pages lazy-load
+ * regression-lock that map-rendering pages lazy-load
  * their Map child component, keeping map-vendor out of the eager page chunk.
  *
  * Uses Vite's `?raw` query suffix to load page sources as strings at build

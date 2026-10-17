@@ -2,15 +2,14 @@
  * SAML providers admin CRUD section.
  *
  * Mirrors the shape of `OAuthProvidersSection` (in
- * `frontend/src/components/admin/settings/SettingsAuthTab.tsx`) per Phase
- * 217 PATTERNS Detail 13 Analog B + Anti-Pattern A8 (do NOT pollute
- * SettingsAuthTab with enterprise-only logic).
+ * `frontend/src/components/admin/settings/SettingsAuthTab.tsx`), which stays
+ * free of enterprise-only logic.
  *
- * Uses the SAME backend endpoints as OAuth (`/settings/oauth-providers/...`,
- * D-12) via the SAML wrappers in `@/api/saml`. The update wrapper resolves
+ * Uses the SAME backend endpoints as OAuth (`/settings/oauth-providers/...`)
+ * via the SAML wrappers in `@/api/saml`. The update wrapper resolves
  * to HTTP PUT (verified at backend/app/modules/settings/router.py:399).
  *
- * sp_entity_id pre-fill (Pitfall 14): uses the authoritative
+ * sp_entity_id pre-fill: uses the authoritative
  * `getTileConfig().public_api_url` query as the primary source; falls back
  * to `window.location.origin` only if the API call fails or returns null.
  * Warning text near the field prompts admins that SP entityID must match
@@ -127,7 +126,7 @@ export function SamlProvidersSection() {
     queryFn: listSamlProviders,
   });
 
-  // Authoritative public_api_url source for sp_entity_id pre-fill (Pitfall 14).
+  // Authoritative public_api_url source for sp_entity_id pre-fill.
   // Falls back to window.location.origin only if this query fails or returns null.
   const { data: tileConfig } = useQuery({
     queryKey: queryKeys.settings.tileConfig,

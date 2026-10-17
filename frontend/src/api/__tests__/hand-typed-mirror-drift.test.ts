@@ -1,4 +1,4 @@
-// GAP-023: ~30 API response types in `src/api/*.ts` are hand-typed mirrors of
+// ~30 API response types in `src/api/*.ts` are hand-typed mirrors of
 // backend Pydantic models with NO codegen and NO compile-time guard. When the
 // backend schema changes a field name or its required/optional-ness, the mirror
 // silently desyncs — the documented "silent-422 / undefined-field" class.
@@ -80,7 +80,7 @@ const MIRRORS: MirrorShape[] = [
     source: 'settings.ts BasemapEntry',
     required: ['id', 'label', 'url', 'enabled', 'is_preset'],
     optional: ['attribution'],
-    // GAP-023 documented deviation: the mirror keeps an optional `api_key` for
+    // Documented deviation: the mirror keeps an optional `api_key` for
     // the admin shape, but GET /settings/basemaps/ returns BasemapPublicResponse
     // which intentionally EXCLUDES api_key. Allowed extra on the mirror only.
     allowExtraOnMirror: ['api_key'],

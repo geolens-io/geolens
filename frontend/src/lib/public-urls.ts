@@ -40,7 +40,7 @@ function isLoopbackHostname(hostname: string): boolean {
 /**
  * Every state `PUBLIC_APP_URL` can be in, named.
  *
- * fix(#1548 review r6): this enumeration is the point. The setting has been
+ * This enumeration is the point. The setting has been
  * treated as a boolean three separate times on this PR — "is it set" — and each
  * time the case that was missed was a state nobody had written down. Listing
  * them here means the next reader sees all of them at once instead of
@@ -73,7 +73,7 @@ type PublicAppUrlState =
 /**
  * Is this a value a browser could actually be sent to?
  *
- * fix(#1548 review r8): ONE shape rule for `PUBLIC_APP_URL` — an absolute
+ * ONE shape rule for `PUBLIC_APP_URL` — an absolute
  * HTTP(S) URL, with a host, and no query or fragment. The backend states the
  * same rule in `is_usable_public_origin` (backend/app/core/public_urls.py), and
  * `__tests__/public-app-url-shape.cases.json` is the single case table both are
@@ -117,7 +117,7 @@ function parseUsablePublicUrl(url: string): URL | null {
   // needed `_remove_dot_segments`: `urlsplit` leaves `/api/.` alone, so it used
   // to accept a value this side rejects.
   if (parsed.pathname.replace(/\/+$/, '').endsWith('/api')) return null;
-  // fix(#1548 review r9/r10): three refusals, all on the RAW string rather than
+  // Three refusals, all on the RAW string rather than
   // on `parsed`, because this parser has already decoded and punycoded by the
   // time we could look — the raw string is the only view Python can compare
   // against identically.
@@ -144,7 +144,7 @@ function parseUsablePublicUrl(url: string): URL | null {
 /**
  * Is the host spelled the way this parser serializes it?
  *
- * fix(#1548 review r11): Python and the browser disagree about the canonical
+ * Python and the browser disagree about the canonical
  * spelling of numeric hosts, and the backend stores Python's. Measured:
  * `192.168.1` is `192.168.1` to urlsplit and `192.168.0.1` here; `010.0.0.1` is
  * read as OCTAL and becomes `8.0.0.1`; `0x7f.1` becomes `127.0.0.1`; an
@@ -188,7 +188,7 @@ function hostIsAlreadyCanonical(url: string, parsed: URL): boolean {
 /**
  * The browser's own spelling of a usable value, or null.
  *
- * fix(#1548 review r9/r10): the configured value and the origin a browser
+ * The configured value and the origin a browser
  * presents have to be the same STRING, not merely the same place. Userinfo is
  * never sent, a default port is never sent, and the host is lowercased — so
  * storing the operator's spelling meant the domain lock was issued and then
@@ -282,7 +282,7 @@ export function getPublicAppBaseUrl(
  * The base URL a DOMAIN-LOCKED preview may load from, or null if it cannot be
  * previewed here at all.
  *
- * fix(#1548 review r7): a locked preview has to satisfy TWO browser rules at
+ * A locked preview has to satisfy TWO browser rules at
  * once, and for a split-horizon deployment nothing satisfies both.
  *
  *  1. Its API calls carry the SHELL's origin, and the backend accepts only the

@@ -1,5 +1,5 @@
 /**
- * codex review #1757: defaultPortalFor's three cases. Prefilling the
+ * defaultPortalFor's three cases. Prefilling the
  * service URL's own origin (the previous behavior) presented
  * services6.arcgis.com and similar ArcGIS Online feature-service hosts as a
  * valid sign-in portal, when the actual portal is www.arcgis.com; sign-in

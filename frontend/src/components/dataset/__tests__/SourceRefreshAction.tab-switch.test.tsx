@@ -6,7 +6,7 @@ import { SourceRefreshAction } from '../SourceRefreshAction';
 import type { DatasetRefreshRequest, DatasetRefreshRunListResponse, DatasetRefreshResponse, DatasetResponse } from '@/types/api';
 
 /**
- * fix(#1285 codex round 4): the root-cause test. SourceRefreshAction used to
+ * The root-cause test. SourceRefreshAction used to
  * own its dispatched-run tracking and poll directly, but it lives inside the
  * "sources" Radix TabsContent, which unmounts on tab switch — a refresh that
  * finished while the user was on another tab never invalidated anything.

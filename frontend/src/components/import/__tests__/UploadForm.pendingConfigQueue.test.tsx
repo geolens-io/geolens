@@ -204,7 +204,7 @@ describe('UploadForm — queued drops during config fetch', () => {
 
   it('re-applies extension and size gates from the settled config to queued drops', async () => {
     // During the fetch window the dropzone validated against nothing — the
-    // flush must reject what the settled config rejects (Codex P2 r2 on #432).
+    // flush must reject what the settled config rejects.
     mockConfig = { data: null, isFetching: true };
     const { rerender } = render(<UploadForm />);
 
@@ -233,8 +233,7 @@ describe('UploadForm — queued drops during config fetch', () => {
   it('passes permissive gates to the dropzone while fetching, the live ones after', async () => {
     // Cached stale values during the refetch window must not reach
     // react-dropzone's maxFiles/accept/maxSize — they would reject drops the
-    // fresh config allows before the queue could re-validate them (Codex P2
-    // rounds 1-3 on #432).
+    // fresh config allows before the queue could re-validate them.
     mockConfig = {
       data: {
         remaining_dataset_quota: 1,

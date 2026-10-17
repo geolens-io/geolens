@@ -47,7 +47,7 @@ export type StyleLayer = StyleSpecification['layers'][number] & {
   layout?: Record<string, unknown>;
 };
 
-// builder-audit #338 DUP-02: single source of truth for "is this style layer
+// Single source of truth for "is this style layer
 // basemap-owned vs a user data layer?". A layer is basemap-owned when its
 // source is NOT a string starting with the data `sourcePrefix` — this includes
 // background/style layers with no source and layers whose source is non-string.
@@ -237,7 +237,7 @@ function toPmtilesProtocolUrl(url: string): string {
  */
 export function toMaplibreStyle(url: string, attribution?: string): string | StyleSpecification {
   if (url === BLANK_BASEMAP_ID) {
-    // fix(#525 B-039): the blank basemap itself has zero symbol layers, but
+    // The blank basemap itself has zero symbol layers, but
     // user data layers (companion `*-label` layers, symbol-mode text) are
     // added to THIS style — without a glyphs URL MapLibre cannot render any
     // text-field, so feature labels silently failed in no-basemap mode.
@@ -256,7 +256,7 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
     };
   }
   const urlPath = url.split('?')[0];
-  // codex review (#1688 P1 round 4): classify a PMTiles archive BEFORE the
+  // Classify a PMTiles archive BEFORE the
   // generic `/styles/` substring heuristic. `/styles/` is not a MapLibre
   // protocol marker, just a common convention for style-JSON hosting paths
   // (e.g. https://tiles.openfreemap.org/styles/bright) -- a raster archive
@@ -410,7 +410,7 @@ function isBuildingLayer(layer: StyleLayer) {
   return layer.type === 'fill-extrusion' || matchesAny(layer, BUILDING_PATTERNS);
 }
 
-/** Phase 1059 BSE-01: semantic sublayer ID → MapLibre style-layer predicate map.
+/** Semantic sublayer ID → MapLibre style-layer predicate map.
  *  Used by `applySublayerOverrides` (frontend/src/lib/builder/basemap-style-mutation.ts)
  *  to resolve a sublayer override key ('road') to the set of actual style layers
  *  it applies to. Open key set — new sublayer IDs are added here. */
@@ -493,7 +493,7 @@ function applyReliefContrast(
 // Keep this set narrow: only canonical *-opacity scalars MapLibre treats
 // as numeric. Expression values (arrays/objects) and non-number scalars
 // are left untouched.
-// builder-audit #338 DUP-01: canonical opacity-key table. Exported and imported by
+// Canonical opacity-key table. Exported and imported by
 // basemap-style-mutation (per-sublayer overrides) so the two copies cannot drift
 // again — previously basemap-style-mutation omitted `circle-stroke-opacity`.
 export const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
@@ -506,14 +506,14 @@ export const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
   heatmap: ['heatmap-opacity'],
 };
 
-// CR-01 fix (quick-260516-9g9 followup): write absolute master-opacity values,
+// Write absolute master-opacity values,
 // composed with prominence stamps applied earlier in the same call.
 //
 // Previous design read `existingPaint[key]` and multiplied — but when
 // applyBasemapConfigToMap feeds map.getStyle() (live, post-mutation) as input,
 // `existing` already contains a prior master-opacity stamp. Compounding occurs
 // and masterOpacity >= 1 short-circuits the reset, leaving the slider monotonic-
-// downward (review finding CR-01).
+// downward.
 //
 // Fix: never read live paint. The `prominenceStamps` map tells us which keys
 // applyProminence set this call (with the canonical subtle values). Other keys
@@ -565,7 +565,7 @@ function applyBasemapLayerConfig(
   }
   // Track which paint keys applyProminence stamped this call so applyMasterOpacity
   // can compose against the canonical subtle values rather than live-mutated paint
-  // (CR-01 fix — prevents compound stamping on raster + full-mode vector layers).
+  // (prevents compound stamping on raster + full-mode vector layers).
   // Only `subtle` mode stamps paint; `hidden` writes layout.visibility and `full`
   // is a no-op on paint, so prominenceStamps stays empty in those cases.
   const prominenceStamps: Record<string, number> = {};
@@ -598,10 +598,10 @@ function applyBasemapLayerConfig(
     if (config.label_mode === 'subtle') Object.assign(prominenceStamps, subtle);
   }
 
-  // Path R (quick-260516-9g9): master-opacity applied LAST so it composes on
+  // Master-opacity is applied LAST so it composes on
   // top of per-sublayer prominence stamps. applyMasterOpacity writes absolute
   // values (stamp * master, or master if no stamp) — the previous multiplicative
-  // approach compounded on re-entry (CR-01). config.opacity is optional on
+  // approach compounded on re-entry. config.opacity is optional on
   // MapBasemapConfig but always set by normalizeBasemapConfig.
   next = applyMasterOpacity(next, config.opacity ?? 1, prominenceStamps);
 

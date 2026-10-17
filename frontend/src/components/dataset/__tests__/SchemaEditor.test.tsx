@@ -1,12 +1,12 @@
 /**
- * fix(#458 E-38/E-49/E-50): SchemaEditor accessibility + destructive-confirm
+ * SchemaEditor accessibility + destructive-confirm
  * guards. First direct suite for this component (StructureTab.test mocks it
  * away), covering:
- * - E-38: name-validation errors are announced (role="alert") and associated
+ * name-validation errors are announced (role="alert") and associated
  *   with the input (aria-invalid/aria-describedby).
- * - E-49: the name input and type select carry accessible names.
- * - E-50: the drop-column Confirm stays disabled until the map-references
- *   query resolves, so a fast confirm can't outrun the E-06 warning.
+ * The name input and type select carry accessible names.
+ * The drop-column Confirm stays disabled until the map-references
+ *   query resolves, so a fast confirm can't outrun the warning.
  */
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { vi } from 'vitest';

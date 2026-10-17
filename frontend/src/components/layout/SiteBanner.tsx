@@ -36,14 +36,14 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // Apostrophes are legitimate URL characters (/O'Reilly), so ' is NOT an
 // excluded body character; a single quote only acts as a delimiter when it
 // wraps the URL ('https://…'), handled by the paired-wrapper check below.
-// fix(#1662 review): a single greedy group with no trailing-group/lookahead
+// A single greedy group with no trailing-group/lookahead
 // split — the earlier lazy-body + punctuation-group pair let the engine retry
 // every split point on adversarial runs (quadratic). The trail is peeled in
 // plain code below instead, which is linear by construction.
 const URL_RE = /https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]+/gi;
 const TRAIL_RE = /[.,;:!?)\]\u2026\u3002\u3001]+$/;
 
-// fix(#1662 review): the linkifier runs per visitor render on admin-entered
+// The linkifier runs per visitor render on admin-entered
 // text with no schema length limit. Rather than proving every scan linear on
 // adversarial input, cap the work: a banner longer than this renders as plain
 // text (an announcement banner past 2,000 characters is broken UX regardless),
@@ -55,11 +55,11 @@ function renderBannerText(text: string) {
   const parts: Array<string | { url: string; trail: string }> = [];
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {
-    // fix(#1662 review): a verbatim <…> span advances `last` past characters
+    // A verbatim <…> span advances `last` past characters
     // matchAll has not seen; a scheme inside the consumed span must not
     // produce a second, overlapping link.
     if (m.index! < last) continue;
-    // fix(#1662 review): only linkify at a token boundary — an https:// embedded
+    // Only linkify at a token boundary — an https:// embedded
     // inside another token (nothttps://…, or a URL nested in another URL's
     // path) is not a link of its own.
     if (m.index! > 0 && !/[\s<>"'()[\]\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]/.test(text[m.index! - 1])) {
@@ -70,7 +70,7 @@ function renderBannerText(text: string) {
     const trailMatch = TRAIL_RE.exec(matched);
     let url = trailMatch ? matched.slice(0, trailMatch.index) : matched;
     let trail = trailMatch ? trailMatch[0] : '';
-    // fix(#1662 review): <https://…> is RFC 3986's own URL delimiting. Inside
+    // <https://…> is RFC 3986's own URL delimiting. Inside
     // angle brackets the URL is taken VERBATIM — trailing punctuation like
     // /wiki/Yahoo! stays in the href, and no wrapper/balance heuristics run.
     // This is also the documented escape hatch: an admin who needs an exact
@@ -78,7 +78,7 @@ function renderBannerText(text: string) {
     // The regex may stop early inside <…> (excluded characters like dashes are
     // allowed there), so the verbatim span runs to the closing bracket itself.
     if (m.index! > 0 && text[m.index! - 1] === '<') {
-      // fix(#1662 review): bound the '>' search to the current whitespace-free
+      // Bound the '>' search to the current whitespace-free
       // token — an unclosed '<' must not scan the whole remaining text, or
       // repeated unclosed spans would make the render quadratic.
       const ws = text.slice(m.index!).search(/\s/);
@@ -91,14 +91,14 @@ function renderBannerText(text: string) {
         continue;
       }
     }
-    // fix(#1662 review): 'https://…' wrapped in single quotes — the opening
+    // 'https://…' wrapped in single quotes — the opening
     // quote sits just before the match, so a trailing apostrophe is the
     // closing wrapper, not part of the URL. Unpaired apostrophes stay in.
     if (m.index! > 0 && text[m.index! - 1] === "'" && url.endsWith("'")) {
       url = url.slice(0, -1);
       trail = "'" + trail;
     }
-    // fix(#1662 review): a URL that legitimately ends in ')' or ']' — e.g. a
+    // A URL that legitimately ends in ')' or ']' — e.g. a
     // Wikipedia path like /Function_(mathematics) — should keep as many
     // closing brackets as it has unmatched opening ones of the same kind;
     // only the excess is sentence punctuation or a wrapping delimiter.

@@ -173,7 +173,7 @@ describe('LayerTypeIcon style-hint memoization (GUARD-04)', () => {
     expect(next.reads()).toBeGreaterThan(0);
   });
 
-  // The exact regression GUARD-04 exists for: with a NULL layer.paint, keying
+  // The exact regression exists for: with a NULL layer.paint, keying
   // the memo on the local `paint`/`layout` fallbacks (fresh `{}` per render)
   // would recompute on EVERY render. Count layout reads for a LINE layer
   // (extractStyleHints falls through to layout['line-dasharray'] when paint
@@ -219,7 +219,7 @@ describe('patterned polygon swatch (fix #951)', () => {
       />,
     );
     expect(container.querySelector('.lucide-pentagon')).toBeNull();
-    // fix(#1288 codex): the pattern now lives on a nested span so its opacity
+    // The pattern now lives on a nested span so its opacity
     // can be dimmed independently of the border — assert on that inner span.
     const chip = container.firstElementChild!.firstElementChild as HTMLElement;
     expect(chip.style.backgroundImage).toContain('radial-gradient');
@@ -240,7 +240,7 @@ describe('patterned polygon swatch (fix #951)', () => {
     expect(chip.style.color).toBe('rgb(29, 78, 216)');
   });
 
-  // fix(#1288 codex): a partially-transparent patterned fill (fillOpacity < 1)
+  // A partially-transparent patterned fill (fillOpacity < 1)
   // must dim the pattern pixels without touching the border.
   it('applies fillOpacity to the pattern layer only, not the border', () => {
     const { container } = render(

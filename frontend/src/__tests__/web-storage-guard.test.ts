@@ -191,7 +191,7 @@ const allModules = import.meta.glob('/src/**/*.{ts,tsx}', {
 }) as Record<string, string>;
 
 /**
- * fix(#1545 codex P2, round 8): every condition here is SCOPE. There is no
+ * Every condition here is SCOPE. There is no
  * exemption, and there must never be one.
  *
  * A `*.skip.tsx?` filter used to sit at the end of this list, and it was an
@@ -221,7 +221,7 @@ const sources = Object.entries(allModules).filter(([path]) => isProductionSource
 const excludedCount = Object.keys(allModules).length - sources.length;
 
 /**
- * fix(#1545 codex P2, round 6): the compiler's own wrapper peeling, not a list
+ * The compiler's own wrapper peeling, not a list
  * of wrapper kinds written here.
  *
  * TypeScript calls these OUTER EXPRESSIONS: parentheses, `as`, `satisfies`,
@@ -260,7 +260,7 @@ function unwrap(node: ts.Node): ts.Node {
 /**
  * A behavioural check, not a `typeof` check: the helpers must actually peel a
  * stack of wrappers down to the literal, or this file's matching is quietly
- * back to where round 6 found it.
+ * back to being wrong.
  */
 const OUTER_EXPRESSION_PEELING_WORKS = ((): boolean => {
   const probe = ts.createSourceFile(
@@ -281,7 +281,7 @@ const OUTER_EXPRESSION_PEELING_WORKS = ((): boolean => {
 })();
 
 /**
- * fix(#1545 codex P2, round 2): this list is an ALLOWLIST, and that is the
+ * This list is an ALLOWLIST, and that is the
  * whole design.
  *
  * The previous version asked the opposite question: it climbed toward the `try`
@@ -440,7 +440,7 @@ function catchStopsTheThrow(clause: ts.CatchClause): boolean {
  * Guarded means: some enclosing `try` CATCHES the throw, and every node between
  * the access and that try's block runs in the same frame.
  *
- * fix(#1545 codex P2, round 3): the old version asked "is there an enclosing
+ * The old version asked "is there an enclosing
  * try", which is a different question — `try { ... } finally { ... }` runs the
  * finally and then lets the SecurityError carry on out. That was the third
  * false negative in a gate whose docstring promises none, so here is the
@@ -504,7 +504,7 @@ function isGuarded(node: ts.Node): boolean {
 }
 
 /**
- * fix(#1545 codex P2): destructuring evaluates the getter too.
+ * Destructuring evaluates the getter too.
  *
  * `const { sessionStorage: store } = window` throws exactly like
  * `window.sessionStorage` does, because binding the property reads it. The
@@ -532,7 +532,7 @@ function isGuarded(node: ts.Node): boolean {
  * nonexistent in real code, and flagging it is a false positive, which this
  * walk already accepts. Precision here would be bought with the invariant.
  *
- * fix(#1545 codex P2, round 4): INVERTED, for the reason given at
+ * INVERTED, for the reason given at
  * RUNS_IN_ENCLOSING_FRAME. The old version asked "is the parent an `=`
  * expression", answered false for everything else, and so missed
  * `for ({ sessionStorage: store } of [window]) {}` — a target that binds the
@@ -642,7 +642,7 @@ function storageNameOfKey(key: ts.Node): string | null {
 }
 
 /**
- * fix(#1545 codex P2, round 7): `Reflect.get(window, 'sessionStorage')` invokes
+ * `Reflect.get(window, 'sessionStorage')` invokes
  * the getter exactly as `window.sessionStorage` does, and throws in the same
  * contexts, but nothing else here sees it: there is no storage-named identifier
  * and no element access, only a call whose second argument is a string.
@@ -696,7 +696,7 @@ function isReflectiveStorageRead(node: ts.Node): boolean {
 /**
  * Identifier positions that are names rather than value reads.
  *
- * fix(#1545 codex P2, round 4): audited, and deliberately left as it is. This
+ * Audited, and deliberately left as it is. This
  * one already fails the right way — the default is `false`, so an identifier in
  * a position nobody enumerated counts as a read and gets reported. Inverting it
  * would mean listing every position that IS a read, which is most of the
@@ -704,7 +704,7 @@ function isReflectiveStorageRead(node: ts.Node): boolean {
  * obligations with the same hole at the end.
  *
  * Two entries are silent only because another branch of `collectAccesses`
- * covers them, and that split is what round 4 tripped over. The key of a
+ * covers them, and that split is an easy place to lose a case. The key of a
  * `PropertyAssignment` and the `propertyName` of a `BindingElement` are skipped
  * here and matched there instead, so a storage key in a destructuring pattern
  * is seen exactly once. When the BindingElement branch says "always a pattern"
@@ -760,7 +760,7 @@ interface ScanResult {
 }
 
 /**
- * fix(#1545 codex P2, round 5): the kind is chosen from the extension, not
+ * The kind is chosen from the extension, not
  * assumed.
  *
  * Every file used to be parsed as TSX, which is wrong for `.ts` and wrong
@@ -902,7 +902,7 @@ describe('#1536: Web Storage access under src/ must be exception-safe', () => {
     expect(accesses.length).toBeGreaterThan(0);
   });
 
-  // fix(#1545 codex P2 round 6): the matchers below lean on the compiler to
+  // The matchers below lean on the compiler to
   // peel runtime-transparent wrappers. Those helpers are not in the published
   // .d.ts, so this asserts they still behave, and says so precisely instead of
   // letting ten wrapper fixtures fail with no explanation.
@@ -917,7 +917,7 @@ describe('#1536: Web Storage access under src/ must be exception-safe', () => {
     ).toBe(true);
   });
 
-  // fix(#1545 codex P2 round 5): the finest-grained vacuity guard of the three.
+  // The finest-grained vacuity guard of the three.
   // A file the parser could not read yields no identifiers, no identifiers
   // yields no findings, and the gate reports clean — the worst possible input
   // producing the most reassuring output. So an unreadable file is a gate
@@ -994,7 +994,7 @@ describe('#1536: detector fixtures', () => {
     ['callback declared inside try', `try { on('x', () => sessionStorage.getItem('k')); } catch {}`],
     ['inside catch block', `try { g(); } catch { sessionStorage.setItem('k', 'v'); }`],
     ['inside finally block', `try { g(); } finally { sessionStorage.setItem('k', 'v'); }`],
-    // fix(#1545 codex P2): the destructuring family. Binding the property runs
+    // The destructuring family. Binding the property runs
     // the getter, so every one of these throws under an opaque origin. The
     // renamed forms were the false negative; the unrenamed ones are pinned here
     // because they passed by falling through rather than by design.
@@ -1006,7 +1006,7 @@ describe('#1536: detector fixtures', () => {
     ['computed-key destructuring', `const { ['sessionStorage']: s } = window;`],
     ['assignment destructuring', `let s; ({ sessionStorage: s } = window);`],
     ['shorthand assignment destructuring', `let sessionStorage; ({ sessionStorage } = window);`],
-    // fix(#1545 codex P2 round 2): the deferred-execution class. Each of these
+    // The deferred-execution class. Each of these
     // sits lexically inside a try whose frame is gone by the time the code
     // runs. None is special-cased; they are all simply absent from
     // RUNS_IN_ENCLOSING_FRAME, which is the point of the inversion.
@@ -1038,7 +1038,7 @@ describe('#1536: detector fixtures', () => {
       'a constructor body inside a try',
       `try { class C { constructor() { sessionStorage.getItem('k'); } } } catch {}`,
     ],
-    // fix(#1545 codex P2 round 3): a try that does not CATCH does not guard.
+    // A try that does not CATCH does not guard.
     // `finally` runs and the SecurityError carries on out of the statement, so
     // every one of these still crashes the frame the access ran on.
     ['a try with only a finally', `try { sessionStorage.getItem('k'); } finally { done(); }`],
@@ -1068,7 +1068,7 @@ describe('#1536: detector fixtures', () => {
       'a catch that rethrows a wrapped error',
       `try { sessionStorage.getItem('k'); } catch (e) { throw (e as Error); }`,
     ],
-    // fix(#1545 codex P2 round 4): assignment patterns outside an `=`. Each of
+    // Assignment patterns outside an `=`. Each of
     // these binds the storage key on every iteration, so each reads the getter.
     [
       'a for-of assignment target',
@@ -1134,7 +1134,7 @@ describe('#1536: detector fixtures', () => {
       'a JSX attribute inside a try',
       `try { render(<div title={sessionStorage.getItem('k')} />); } catch {}`,
     ],
-    // fix(#1545 codex P2 round 3): the catching try is not always the nearest
+    // The catching try is not always the nearest
     // one — each of these reaches an outer `catch` that does stop the throw.
     // The old rule answered at the first TryStatement it met, so it reported
     // the last two outright; the middle pair passed only because stopping early
@@ -1177,7 +1177,7 @@ describe('#1536: detector fixtures', () => {
     // that separates a false positive from a real access.
     ['a local renamed FROM a non-storage key', `const { foo: sessionStorage } = cfg;`],
     ['a type annotation', `let s: Storage | null = null;`],
-    // fix(#1545 codex P2 round 4): the counterweight to inverting the
+    // The counterweight to inverting the
     // destructuring-target test. Treating every unrecognised position as a
     // target is only affordable if the positions where an object literal is a
     // VALUE are enumerated properly, so each of these pins one of them. Without
@@ -1206,8 +1206,8 @@ describe('#1536: detector fixtures', () => {
 /**
  * The parse layer's own fixtures.
  *
- * Everything above assumes a tree that reflects the source. Round 5 was the
- * round where that assumption broke instead of a predicate, so these pin the
+ * Everything above assumes a tree that reflects the source. That assumption can
+ * break instead of a predicate, so these pin the
  * two halves of it: the right ScriptKind per extension, and a parse failure
  * that is reported rather than swallowed.
  */
@@ -1269,7 +1269,7 @@ describe('#1536: the parse is asserted, not assumed', () => {
   });
 });
 /**
- * fix(#1545 codex P2, round 6): transparent wrappers.
+ * Transparent wrappers.
  *
  * `window['sessionStorage']` was matched; `window[('sessionStorage')]` was not,
  * because the argument is a ParenthesizedExpression rather than a string
@@ -1278,7 +1278,7 @@ describe('#1536: the parse is asserted, not assumed', () => {
  * and throws in a storage-denied context.
  *
  * The reported case was two of these. Measuring the family found ten, which is
- * the same lesson as rounds 1 and 4: the reported spelling is a sample, not the
+ * the same lesson as elsewhere in this file: the reported spelling is a sample, not the
  * set. They are pinned per form rather than as one representative case, because
  * the wrappers compose and each site that unwraps has to unwrap fully.
  */
@@ -1327,7 +1327,7 @@ describe('#1536: transparent wrappers do not hide an access', () => {
   });
 });
 /**
- * fix(#1545 codex P2, round 7): reflective reads.
+ * Reflective reads.
  *
  * `Reflect.get(window, 'sessionStorage')` invokes the same getter as
  * `window.sessionStorage` and throws in the same contexts, but the visitor saw
@@ -1397,7 +1397,7 @@ describe('#1536: reflective reads', () => {
   });
 });
 /**
- * fix(#1545 codex P2, round 8): exclusions must be SCOPE, never exemption.
+ * Exclusions must be SCOPE, never exemption.
  *
  * This gate ships with no allowlist, on the reasoning that an escape hatch is
  * never emptied once it exists. A `*.skip.ts` suffix filter was one anyway, and
@@ -1511,7 +1511,7 @@ describe('#1552: a captured alias is judged at the capture site, not the derefer
     expect(r.accesses[0].guarded).toBe(false);
   });
 
-  // fix(#1552 codex P2): documented gap, not a false pass — see #1552.
+  // Documented gap, not a false pass — see #1552.
   it('does NOT protect a later fallible call through the alias — a real, untracked gap', () => {
     const r = scan(
       `let s: Storage | undefined;

@@ -15,7 +15,7 @@
  *
  * Where the text comes from: the style's own per-source `attribution` values,
  * as a LIST. See `readRenderedAttribution` for why a list rather than the
- * rendered control's joined string (fix(#1541 codex P2): ` | ` is legal content
+ * rendered control's joined string (` | ` is legal content
  * inside a credit, so splitting the joined line cut credits in half and let the
  * dedupe delete them).
  *
@@ -78,7 +78,7 @@ function attributionFont(fontPx: number): string {
 
 /* ── HTML → credit text ────────────────────────────────────────────────────
  *
- * fix(#1541 codex P2 round 3): both readers used to take `textContent`, and a
+ * Both readers used to take `textContent`, and a
  * credit is HTML. `BasemapEntry.attribution` permits it, MapLibre renders it,
  * and a provider is entitled to credit itself with a logo:
  * `<img alt="© Provider" src="logo.svg">`. A text alternative is not DOM text,
@@ -127,7 +127,7 @@ const BREAK = '\u0000';
 /**
  * The text alternative an assistive technology would announce for `el`.
  *
- * fix(#1541 codex P2 round 7): `aria-label` OVERRIDES `alt`, it does not follow
+ * `aria-label` OVERRIDES `alt`, it does not follow
  * it. The accessible name computation takes ARIA first, the host-language
  * attribute second, `title` only as a fallback, and the realistic markup for a
  * provider logo is exactly the case the old order got wrong:
@@ -208,7 +208,7 @@ function collectCreditText(node: Node): string {
   const isImage =
     tag === 'IMG' || (tag === 'INPUT' && el.getAttribute('type')?.toLowerCase() === 'image');
   if (isImage) {
-    // fix(#1541 codex P2 round 4): alternatives FIRST. The decorative shortcut
+    // Alternatives FIRST. The decorative shortcut
     // used to run ahead of them, so `<img alt="" aria-label="© Provider">` was
     // suppressed even though the ARIA label gives it an accessible name and
     // MapLibre renders the logo. alt="" means decorative only when nothing
@@ -256,7 +256,7 @@ function normalizeCreditText(raw: string): string {
 /**
  * Credit text for a node whose owner DECLARED an attribution.
  *
- * fix(#1541 codex P2 round 4): honouring alt="" opened the gap beside it. A
+ * Honouring alt="" opened the gap beside it. A
  * source whose entire attribution is a lone decorative image derives no text,
  * and an empty derivation used to drop the source from the list — so it was
  * counted nowhere, marker included, which is the silent loss this module
@@ -265,7 +265,7 @@ function normalizeCreditText(raw: string): string {
  * image with no alternative gets, which both renders it and makes it one of
  * the `credits.length` the overflow marker counts.
  *
- * fix(#1541 codex P2 round 8): that fallback then recognised only `<img>`, so
+ * That fallback then recognised only `<img>`, so
  * an unlabelled inline `<svg>` or a CSS-backed logo — both of which MapLibre
  * renders perfectly visibly — derived no text, matched no image, and vanished
  * without even reaching the marker. Enumerating a third tag list would only
@@ -332,7 +332,7 @@ function dedupe(entries: string[]): string[] {
 /**
  * The credit entries currently shown for `map`, as plain text, AS A LIST.
  *
- * fix(#1541 codex P2): this used to read MapLibre's rendered control and split
+ * This used to read MapLibre's rendered control and split
  * the joined text on ` | `. That re-derived structure from a rendered string,
  * and the delimiter is legal content — the backend accepts it anywhere in a
  * 5,000-character credit. A credit reading `© Acme | © Acme` split into two
@@ -367,7 +367,7 @@ function dedupe(entries: string[]): string[] {
  *
  * Within (1), SHOWN SOURCES COME FIRST.
  *
- * fix(#1541 codex P1): the list used to be in whatever order the style declared
+ * The list used to be in whatever order the style declared
  * its sources, and "no `used` gating — over-crediting is the safe direction"
  * was an accepted cost of that. It stopped being safe the moment the outputs
  * gained a capacity limit and a prefix fit. Over-crediting is free only while
@@ -425,7 +425,7 @@ interface AttributionStyle {
 /**
  * Drop each credit that another credit already contains whole.
  *
- * fix(#1541 codex P2 round 8): MapLibre's own AttributionControl does this —
+ * MapLibre's own AttributionControl does this
  * `sort((a, b) => a.length - b.length)`, then drop any entry a later one
  * `includes` — so `© Acme` beside `© Acme — CC BY 4.0` shows once on screen and
  * showed twice in the image. The failure is asymmetric, which is why it earns a
@@ -502,14 +502,14 @@ function suppressContainedCredits(entries: string[]): string[] {
  * true`, where `isHidden` is `zoom < minzoom || zoom >= maxzoom || visibility
  * === 'none'`:
  *
- *   - `layout.visibility` (fix(#1541 codex P1))
- *   - the layer's zoom range (fix(#1541 codex P2 round 7)), with MapLibre's own
+ *   - `layout.visibility`
+ *   - the layer's zoom range, with MapLibre's own
  *     boundary semantics: minzoom inclusive, maxzoom exclusive, and a zero
  *     treated as absent exactly as its truthiness test does. Read from the
  *     serialized `minzoom`/`maxzoom`, not the builder-private
  *     `_minzoom`/`_maxzoom`, which `stripPrivateLayoutKeys` removes before
  *     MapLibre sees them and which reach the style through `setLayerZoomRange`.
- *   - terrain (fix(#1541 codex P2 round 6)), whose source renders with NO style
+ *   - Terrain, whose source renders with NO style
  *     layer at all: `ensureRasterDemTerrainSource` creates an attributed source
  *     that only `usedForTerrain` counts, so layer references alone put a credit
  *     for plainly visible 3D relief in the hidden group.
@@ -650,7 +650,7 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
  *
  * NO OUTPUT EVER DROPS A CREDIT, and none shrinks below its documented size.
  *
- * fix(#1541 codex P1 x2): both halves of this module used to elide. The export
+ * Both halves of this module used to elide. The export
  * band passed a two-line budget while its docstring promised the opposite, and
  * the two crops passed `maxLines: 1`. Measured on a real export: five credits
  * on a 1056px canvas lost two of them, the basemap's included, replaced by "…".
@@ -761,7 +761,7 @@ function wrapEntries(
 /**
  * Split `text` into user-perceived characters.
  *
- * fix(#1541 codex P2): the wrapper used to index and `slice()` by UTF-16 code
+ * The wrapper used to index and `slice()` by UTF-16 code
  * unit, which splits a surrogate pair down the middle and renders two
  * replacement glyphs instead of the provider's name. Mid-STRING wrapping is the
  * one residual limit we allow; mid-CHARACTER is just truncation wearing a
@@ -902,8 +902,8 @@ interface AttributionOverlaySpec {
 }
 
 /** 400x250. It has to carry the credit because `get_share_card_image_url`
- *  falls back to the thumbnail as the og:image for every map captured before
- *  SHARE-08 — that surface has no adjacent text at all. */
+ *  falls back to the thumbnail as the og:image for maps that have no
+ *  dedicated OG image. That surface has no adjacent text at all. */
 export const THUMBNAIL_ATTRIBUTION: AttributionOverlaySpec = {
   fontPx: 10,
   lineHeight: 13,
@@ -1048,7 +1048,7 @@ export function drawAttributionOverlay(
   });
   if (fitted.lines.length === 0) return false;
 
-  // fix(#1541 codex P1 round 2): removing the fitter's elision left one way to
+  // Removing the fitter's elision left one way to
   // lose a credit — `boxY` clamps at 0, so a band taller than the frame kept
   // calling fillText below the canvas and painted into nowhere. A DEV warning
   // did not cover it: production is exactly where it mattered.
@@ -1100,7 +1100,7 @@ const BAND_GAP = 12;
 /*
  * The export canvas's own ceiling, and why it has one.
  *
- * fix(#1541 codex P2 round 2): the band's measured height is assigned straight
+ * The band's measured height is assigned straight
  * to the export canvas, and #1541 review had ruled that growth UNLIMITED, on
  * the reasoning that the export canvas has no height constraint. Browsers do.
  * Every engine caps a canvas both per side and by total area, and past either
@@ -1124,7 +1124,7 @@ const BAND_GAP = 12;
  *             Firefox 63 11,180² = 124,992,400 · Safari on iOS 4,096² =
  *             16,777,216. We take iOS Safari's.
  *
- * fix(#1541 codex P2 round 4): iOS Safari's is deliberately conservative, and
+ * The iOS Safari figure is deliberately conservative, and
  * an earlier revision of this comment named it and then budgeted against the
  * desktop figure anyway. That is a bound that holds only where it was measured:
  * an iPad's 2048x2732 canvas is valid and exports today, and enough supported
@@ -1161,7 +1161,7 @@ export function exportCanvasHeightCeiling(canvasWidth: number): number {
  * map, legend, footer) have taken theirs. The band is the only elastic term in
  * the export's height, so it absorbs the whole clamp.
  *
- * fix(#1541 codex P2 round 5): this used to be floored at one minimum band, so
+ * This used to be floored at one minimum band, so
  * that a canvas whose fixed blocks had eaten the ceiling still got a credit.
  * A floor and a ceiling that did not know about each other: at width 2048, dpr
  * 2 and 8,140px reserved, the ceiling is 8,192, and the floor replaced the

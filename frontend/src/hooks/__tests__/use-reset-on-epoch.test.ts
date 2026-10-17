@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import { useResetOnEpoch } from '@/hooks/use-reset-on-epoch';
 
-// fix(#1761 review round 4): shared by SearchBar, FilterPanel and
+// Shared by SearchBar, FilterPanel and
 // FilterSheet — see their identity tests for the end-to-end behavior this
 // enables. These pin the hook's own contract in isolation.
 describe('useResetOnEpoch', () => {

@@ -261,7 +261,7 @@ function ImportSection() {
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [overwriteConfirm, setOverwriteConfirm] = useState('');
-  // fix(#438): UX-17 — keyword the admin types to confirm a full overwrite.
+  // Keyword the admin types to confirm a full overwrite.
   const OVERWRITE_KEYWORD = 'OVERWRITE';
 
   const dryRunMutation = useDryRunImport();
@@ -368,7 +368,7 @@ function ImportSection() {
     importMutation.reset();
   }
 
-  // fix(#438): UX-17 — overwrite replaces the whole config and cannot be undone,
+  // Overwrite replaces the whole config and cannot be undone,
   // so it is the one import path that warrants type-to-confirm. Merge applies
   // directly.
   function handleApply() {
@@ -624,7 +624,7 @@ function ImportSection() {
       </CardContent>
     </Card>
 
-    {/* fix(#438): UX-17 — type-to-confirm gate for the irreversible overwrite. */}
+    {/* Type-to-confirm gate for the irreversible overwrite. */}
     <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>

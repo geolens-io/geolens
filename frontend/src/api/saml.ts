@@ -2,7 +2,7 @@
  * SAML provider admin API client.
  *
  * SAML providers are persisted in the same `catalog.oauth_providers` table as
- * OAuth providers (Phase 217 D-01) and are CRUDed through the SAME admin
+ * OAuth providers and are CRUDed through the SAME admin
  * endpoints as OAuth providers (`/settings/oauth-providers/...`). This module
  * provides typed wrappers + the SAML-specific metadata fetch.
  *
@@ -86,13 +86,13 @@ export async function listSamlProviders(): Promise<SamlProviderConfig[]> {
     }));
 }
 
-// CRUD goes through the SAME endpoints as OAuth (D-12). The OAuth-typed
+// CRUD goes through the SAME endpoints as OAuth. The OAuth-typed
 // wrappers in settings.ts narrow `provider_type` to 'google' | 'microsoft'
 // | 'oidc' and require `client_id` / `client_secret`, which excludes the
 // SAML shape — so we wrap them here with SAML-specific types and a single
 // `as never` cast at the boundary. The wire shape is identical (the
-// backend Pydantic schema accepts both shapes after Plan 03 made
-// client_id/client_secret optional and added 'saml' to the discriminator;
+// backend Pydantic schema accepts both shapes now that
+// client_id/client_secret are optional and 'saml' is in the discriminator;
 // see backend/app/modules/auth/oauth/schemas.py).
 //
 // The update wrapper resolves to HTTP PUT (verified at

@@ -170,14 +170,14 @@ describe('buildClusterTileUrl', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#394) VT-04: MVT source-layer ↔ tile-layer-name parity pin.
+// MVT source-layer ↔ tile-layer-name parity pin.
 // The source-layer literal is produced by three derivation sites that must
 // never drift, or the layer silently renders empty:
 //   1. backend `app/processing/tiles/service.py` (`layer_name = f"{schema}.{table}"`,
 //      single_tenant schema == "data", hosted schema == data_t_<tid>) — pinned by
 //      `backend/tests/test_mvt_audit_fixes.py::test_get_tile_layer_name_is_schema_qualified`;
 //   2. this helper (the ONLY frontend derivation — builder map-sync, viewer
-//      ViewerMap, and use-map-layers all import it as of fix(#394) VT-03);
+//      ViewerMap, and use-map-layers all import it);
 //   3. the exported style.json `_mvt_source_layer` (backend style_json.py).
 // Tile-config supplies the server-resolved hosted prefix to the frontend.
 // ---------------------------------------------------------------------------
@@ -379,7 +379,7 @@ describe('buildTileTransformRequest', () => {
   });
 });
 
-// fix(#907) (codex P1): a raster descriptor does not change when the session
+// A raster descriptor does not change when the session
 // JWT rotates, so nothing in the token→setTiles plumbing retries the tiles that
 // 401'd while MapLibre raced the refresh. This is the explicit reload.
 describe('refreshRasterTileSources (fix #907)', () => {

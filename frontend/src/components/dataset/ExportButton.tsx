@@ -71,7 +71,7 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        {/* fix(#438): DS-08 — was a native <select>; ui/select restores the
+        {/* Was a native <select>; ui/select restores the
             themed, coarse-pointer-friendly dropdown. */}
         <Select value={effectiveFormat} onValueChange={setFormat} disabled={loading}>
           <SelectTrigger

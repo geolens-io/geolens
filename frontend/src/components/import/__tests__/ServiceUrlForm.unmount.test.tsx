@@ -219,7 +219,7 @@ describe('ServiceUrlForm unmount survival (#1712)', () => {
     expect(mockCommitImport).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#1834 round 1 P2): a remount used to restore only `previewData` —
+  // A remount used to restore only `previewData`
   // `url`, the credential method, and its fields all came back at
   // component defaults, so a resumed review's eventual `handleCommit`
   // rebuilt `auth` from EMPTY state and the recovered import failed

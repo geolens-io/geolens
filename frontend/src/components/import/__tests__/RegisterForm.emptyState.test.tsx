@@ -1,5 +1,5 @@
 /**
- * Regression tests for RegisterForm empty-state branching (IMPORT-05).
+ * Regression tests for RegisterForm empty-state branching.
  *
  * Two variants:
  *   1. allRegistered — tables=[], datasetCountHint > 0  → success framing

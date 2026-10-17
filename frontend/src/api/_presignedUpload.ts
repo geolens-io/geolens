@@ -5,7 +5,7 @@ import { reportNetworkError } from '@/lib/report';
  * Shared chunked-PUT helper for presigned S3 multipart uploads.
  *
  * Extracted from the identical loops previously duplicated in
- * `ingest.ts` and `datasets.ts` (INGEST-AUDIT P2-05).
+ * `ingest.ts` and `datasets.ts`.
  *
  * XHR, not `fetch`, is what PUTs each part — see the per-part timeout
  * comment below for why. Presigned URLs are pre-signed by the backend and
@@ -15,19 +15,19 @@ import { reportNetworkError } from '@/lib/report';
 
 interface UploadChunksOptions {
   /**
-   * fix(#438): DATA-02 — cancel a runaway multi-GB upload. Aborting rejects the
+   * Cancel a runaway multi-GB upload. Aborting rejects the
    * in-flight part's XHR; the loop then throws the AbortError without starting
    * the next part.
    */
   signal?: AbortSignal;
   /**
-   * fix(#438): DATA-02 — retry a failed part instead of discarding the whole
+   * Retry a failed part instead of discarding the whole
    * upload. One transient blip on part k of n used to throw and lose every part
    * already uploaded. Retries apply per part, so earlier parts are never re-sent.
    */
   maxRetries?: number;
   /**
-   * fix(review #1800 P2 round 3): called (best-effort, errors swallowed)
+   * Called (best-effort, errors swallowed)
    * before throwing on a missing ETag. S3 already accepted this part — and
    * possibly earlier ones — so without this the multipart upload is never
    * told to stop, leaving it open and consuming storage on every retry.
@@ -44,7 +44,7 @@ interface UploadChunksOptions {
 const DEFAULT_MAX_RETRIES = 3;
 
 /**
- * fix(review #1800 P2 round 3): `AbortSignal.timeout()` is a WALL-CLOCK
+ * `AbortSignal.timeout()` is a WALL-CLOCK
  * deadline, not a stall detector — it fires at a fixed elapsed time
  * regardless of whether bytes are still moving. A part at the backend's
  * credited minimum upload rate can legitimately take longer than that
@@ -267,7 +267,7 @@ export async function uploadChunks(
           // cause instead: the bucket is missing ExposeHeaders: ETag.
           if (etag === null) {
             if (onMissingEtag) {
-              // fix(review #1800 P2 round 3): S3 already accepted this part
+              // S3 already accepted this part
               // (and possibly earlier ones) — best-effort tell the backend
               // to abort the multipart upload before throwing, so it is not
               // left open consuming storage on every retry. The missing-ETag

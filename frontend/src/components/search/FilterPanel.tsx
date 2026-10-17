@@ -52,7 +52,7 @@ interface FilterPanelProps {
 }
 
 /**
- * KISS-5: parse an OGC datetime interval string into [start, end] for display
+ * Parse an OGC datetime interval string into [start, end] for display
  * in temporal extent inputs. Handles all four forms: empty, instant,
  * ``start/..``, ``../end``, and ``start/end``.
  */
@@ -152,7 +152,7 @@ export function FilterPanel({
 
   const { data: summaries } = useCatalogSummary();
 
-  // Parse OGC interval back to start/end for temporal extent inputs (KISS-5)
+  // Parse OGC interval back to start/end for temporal extent inputs
   const [temporalStart, temporalEnd] = parseTemporalInterval(datetime);
   const organizations = summaries?.source_organization ?? [];
   const srids = summaries?.srid ?? [];
@@ -214,7 +214,7 @@ export function FilterPanel({
     setLocalDateTo(useSearchStore.getState().date_to);
   };
 
-  // fix(#1761 review round 4): an identity change bumps resetEpoch (see
+  // An identity change bumps resetEpoch (see
   // search-store.ts's doc comment) whether or not date_from/date_to
   // actually changed value. Without this, an uncommitted date draft typed
   // under the previous identity survives the clear and Apply repopulates

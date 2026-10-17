@@ -40,7 +40,7 @@ vi.mock('../ImportPreview', () => ({
 }));
 
 vi.mock('../ImportMetadataForm', () => ({
-  // codex review #1757 round 3: exposes a real trigger for onCommit so a
+  // Exposes a real trigger for onCommit so a
   // test can reach handleCommit without re-implementing the real form.
   ImportMetadataForm: ({ onCommit }: { onCommit: (metadata: { title: string }) => void }) => (
     <div data-testid="import-metadata-form">
@@ -133,7 +133,7 @@ describe('ServiceUrlForm token input', () => {
   it('opts every password manager out of the service token field', async () => {
     const user = userEvent.setup();
     render(<ServiceUrlForm />);
-    // feat(#1746 B4): the non-ArcGIS credential field is now behind a
+    // The non-ArcGIS credential field is now behind a
     // method select; Bearer token is the method that reuses a plain
     // password-type input.
     await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
@@ -206,14 +206,14 @@ describe('ServiceUrlForm layer picker with a shared layer name', () => {
 });
 
 /**
- * Lane A2 (service-auth wave): ArcGIS auth method select. An ArcGIS-shaped
+ * ArcGIS auth method select. An ArcGIS-shaped
  * URL (matching /(FeatureServer|MapServer)/, mirroring the backend adapter's
  * own detection) swaps the plain optional token field for a three-way
  * Authentication select: no authentication, sign in, or paste a token.
  */
 const ARCGIS_URL = 'https://services6.arcgis.com/abcd1234/arcgis/rest/services/Foo/FeatureServer';
 
-// codex review #1757 round 2: the expiry timer (fires 30s ahead of
+// The expiry timer (fires 30s ahead of
 // expires_at) makes this a functionally significant value now, not just
 // display text. It must stay in the future relative to whenever the test
 // actually runs, or the token would be cleared immediately.
@@ -273,7 +273,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     expect(screen.getByLabelText('Password')).toHaveValue('');
   });
 
-  // codex review #1757 P1: a token entered for one origin (ArcGIS or not)
+  // A token entered for one origin (ArcGIS or not)
   // must not survive the service URL being edited to point at a different
   // origin, since handleConnect forwards whatever is in the token field.
   it('clears a pasted ArcGIS token when the service URL is edited to a different origin', async () => {
@@ -304,7 +304,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     await enterUrl(user, urlInput, 'https://example.test/wfs');
-    // feat(#1746 B4): the non-ArcGIS bearer field is now behind its own
+    // The non-ArcGIS bearer field is now behind its own
     // method select, sharing the `token` state with ArcGIS's 'token'
     // method — the very thing this test proves does not carry across.
     await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
@@ -336,7 +336,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     expect(screen.getByLabelText('Username')).toHaveValue('alice');
   });
 
-  // codex review #1757 round 3 P2: a same-origin edit that only flips the
+  // A same-origin edit that only flips the
   // URL's SHAPE (ArcGIS-looking or not) is a distinct axis from the origin
   // changing, and was not resetting the auth branch: a token typed for a
   // non-ArcGIS URL used to survive a path-only edit that turned the same
@@ -387,7 +387,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
 
     // No longer ArcGIS-shaped: the ArcGIS-specific method (and its pasted
     // token) is gone, replaced by the four-way WFS/OGC API Features select
-    // (feat #1746 B4), reset to its own 'none' default rather than
+    // reset to its own 'none' default rather than
     // carrying the ArcGIS token across.
     expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Authentication' })).toHaveTextContent(
@@ -482,7 +482,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     });
   });
 
-  // codex review #1757 P2: the credential inputs stay enabled while a
+  // The credential inputs stay enabled while a
   // sign-in is pending, so a user can correct the password before a slow
   // request settles. That edit bumps the generation (via
   // invalidateMintedCredential), which already keeps the stale response's
@@ -568,7 +568,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     });
   });
 
-  // codex review #1757 P1: the Authentication select disables itself while a
+  // The Authentication select disables itself while a
   // request is in flight, which already closes the method-switch route to
   // this race. The service URL field stays editable, though, so this
   // exercises the same generation guard through the one avenue still open:
@@ -605,7 +605,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     });
   });
 
-  // codex review #1757 round 2 P2: a minted token is bound to the
+  // A minted token is bound to the
   // credentials that produced it. Editing the username afterward must
   // clear it, and a resubmit must never reach Probe with the stale token.
   it('clears the minted token when the username changes after a successful sign-in, and never forwards it to Probe', async () => {
@@ -631,7 +631,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     expect(mockProbeService).not.toHaveBeenCalled();
   });
 
-  // codex review #1757 round 2 P2: the credential fields sit inside the
+  // The credential fields sit inside the
   // outer <form> (a <form> cannot nest), whose submit handler otherwise
   // runs Probe. Pressing Enter in the password field must sign in instead.
   it('routes Enter in the password field to sign-in instead of Probe', async () => {
@@ -647,7 +647,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     expect(mockProbeService).not.toHaveBeenCalled();
   });
 
-  // codex review #1757 round 2: a minted token stops being usable 30
+  // A minted token stops being usable 30
   // seconds ahead of ArcGIS's own deadline, even if the wizard sits open.
   it('expires the minted token 30 seconds before its stated deadline, clearing state and showing the expired message', async () => {
     // shouldAdvanceTime: real wall-clock keeps flowing (so userEvent and
@@ -709,7 +709,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     }
   });
 
-  // codex review #1757 round 3 P2: expireStaleTokenIfPast used to clear
+  // expireStaleTokenIfPast used to clear
   // state but its return value was discarded in handleConnect, so the
   // SAME invocation still closed over the pre-clear `token` and forwarded
   // it to probeService. Jumping the system clock forward without
@@ -717,7 +717,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
   // NOT fired) exercises exactly the throttled-background-tab path that
   // check exists for, as distinct from the timer having already run.
   //
-  // codex review #1757 round 4 P2: the jump lands at +45s of a 60s
+  // The jump lands at +45s of a 60s
   // deadline, inside the 30s margin window but short of the raw
   // expires_at. Before the shared EXPIRY_MARGIN_MS fix, isPast compared
   // only against the raw deadline and would have called this "not
@@ -754,7 +754,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     }
   });
 
-  // codex review #1757 round 3 P2: the expiry timer's own callback clears
+  // The expiry timer's own callback clears
   // BOTH `token` and `tokenExpiresAt` when it fires, so by the time Commit
   // runs on a later step, expireStaleTokenIfPast alone can no longer tell
   // "expired" apart from "never had one". The `tokenExpired` marker is

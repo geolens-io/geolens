@@ -6,7 +6,7 @@ import { getJobStatus } from '@/api/ingest';
 import { useBackfillJobStatus } from '@/hooks/use-admin';
 import { queryKeys } from '@/lib/query-keys';
 
-// fix(#1550 review): since #1542 the backfill returns as soon as it is queued,
+// Since #1542 the backfill returns as soon as it is queued,
 // so the coverage figure the panel shows is a pre-run number and stays one.
 // Invalidating at enqueue — which is what the synchronous version did — now
 // re-reads the same stale values and makes the panel look like it checked. The

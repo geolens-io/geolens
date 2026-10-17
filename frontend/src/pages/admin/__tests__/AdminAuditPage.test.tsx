@@ -1,5 +1,5 @@
 /**
- * Phase 279 ADMIN-08 (L-05) regression test: AdminAuditPage page-level
+ * Regression test: AdminAuditPage page-level
  * guard. Defense-in-depth on top of the backend's
  * require_permission("manage_settings") 403 on /admin/audit-logs/*. The
  * redirect short-circuits a flash of viewer chrome for users who paste
@@ -9,7 +9,7 @@
  * audit-log-viewer region) are preserved by mounting the page with
  * manage_settings granted in the same describe.
  *
- * Phase 281: capability key aligned to ALL_CAPABILITIES (`manage_settings`);
+ * Capability key aligned to ALL_CAPABILITIES (`manage_settings`);
  * the prior `view_audit` key was not in the server registry so the live
  * page-guard always redirected.
  */

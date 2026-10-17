@@ -12,7 +12,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// fix(#438): DS-08 — the geometry-mode picker is now a Radix Select. jsdom lacks
+// The geometry-mode picker is now a Radix Select. jsdom lacks
 // these pointer/scroll APIs Radix calls, and its options mount only once opened.
 beforeAll(() => {
   Element.prototype.hasPointerCapture = vi.fn(() => false);
@@ -475,7 +475,7 @@ describe('ImportMetadataForm', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // CRS Override auto-hide (Phase 1057 CRS-06 D-08)
+  // CRS Override auto-hide
   // ---------------------------------------------------------------------------
 
   describe('CRS Override field visibility (D-08)', () => {

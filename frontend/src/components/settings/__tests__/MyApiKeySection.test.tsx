@@ -1,12 +1,12 @@
 /**
- * GLUX-002 / GLUX-014 (Phase 1248): regression gate for the MyApiKeySection
+ * Regression gate for the MyApiKeySection
  * control semantics.
  *
  * Asserts:
- * - Create-form name input has an accessible name via FieldLabel (GLUX-002).
- * - Active / revoked status is rendered as visible text, not color+title only (GLUX-014).
- * - The icon-only revoke button has an accessible name (GLUX-002).
- * - Create and revoke mutation errors are announced via role=alert (GLUX-014).
+ * - Create-form name input has an accessible name via FieldLabel.
+ * - Active / revoked status is rendered as visible text, not color+title only.
+ * - The icon-only revoke button has an accessible name.
+ * - Create and revoke mutation errors are announced via role=alert.
  */
 import userEvent from '@testing-library/user-event';
 import { act } from '@testing-library/react';

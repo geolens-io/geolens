@@ -11,7 +11,7 @@ import { queryKeys } from '@/lib/query-keys';
  * Resolves whether the caller can use builder AI chat, combining AI readiness
  * with the caller's `use_ai_chat` capability.
  *
- * ## Two readiness sources (builder-audit #338 P1-11)
+ * ## Two readiness sources
  *
  * - **AI-status readers** (the mode-aware capability mirrored by
  *   `useAIStatusReader()` — fix(#815): was gated on the `isAdmin` flag, which
@@ -26,12 +26,11 @@ import { queryKeys } from '@/lib/query-keys';
  * - **Viewers (no `use_ai_chat`)** fire NEITHER endpoint, so there is no 401/403
  *   console noise; they get a safe disabled state with `reason = 'permission'`.
  *
- * Both endpoints are gated on `!!token` so anonymous sessions never probe them
- * (CONSOLE-01 / Phase 1054).
+ * Both endpoints are gated on `!!token` so anonymous sessions never probe them.
  *
- * ## reason field (Phase 1135 AI-02 — BuilderRail disabled-state UI)
+ * ## reason field
  *
- * The `reason` field gives the disabled-state UI (UI-SPEC Surface 3) a
+ * The `reason` field gives the disabled-state UI a
  * per-cause taxonomy without re-deriving the gate logic from raw query data.
  *
  * Precedence (first match wins):

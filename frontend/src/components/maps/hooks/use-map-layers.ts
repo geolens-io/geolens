@@ -15,7 +15,7 @@ import { DEFAULT_HILLSHADE_PAINT } from '@/components/builder/layer-adapters/bui
 /** Empty GeoJSON FeatureCollection */
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-// fix(#394) VT-04: use the shared helper — a local duplicate is exactly the
+// Use the shared helper — a local duplicate is exactly the
 // silent-drift class the source-layer parity test pins down.
 const getSourceLayerName = getMvtSourceLayerName;
 
@@ -112,7 +112,7 @@ interface UseMapLayersOptions {
   mapRef: React.RefObject<MaplibreMap | null>;
   /** Column name containing height/elevation data for 3D extrusion (polygon datasets only) */
   elevationColumn?: string | null;
-  /** fix(#1472 review): the dataset's required credit line. Applied as the
+  /** The dataset's required credit line. Applied as the
    *  MapLibre source `attribution`, which the map's default attribution control
    *  reads off whichever sources are live — the preview map has no explicit
    *  control to pass `customAttribution` to. */
@@ -162,7 +162,7 @@ export function useMapLayers({
       try {
         map.addSource(sourceId, preview.source);
 
-        // fix(#430 codex r21): a generic sketch dataset (GEOMETRY sentinel /
+        // A generic sketch dataset (GEOMETRY sentinel /
         // GEOMETRYCOLLECTION) can hold every family at once — install all
         // three renderers with $type filters so no family disappears when the
         // display type degrades to generic after a cross-family draw.
@@ -310,7 +310,7 @@ export function useMapLayers({
       if (!rasterTileUrl || rasterLayersAdded.current) return;
       if (map.getSource('raster-tile-source')) return;
       try {
-        // #1362 codex r2: the raster tile route is a fixed per-dataset path
+        // The raster tile route is a fixed per-dataset path
         // (never re-added, see the guard above), and the api response for a
         // public dataset carries `Cache-Control: public, max-age=3600` — so
         // the browser's OWN cache can keep serving pre-replace tile bytes

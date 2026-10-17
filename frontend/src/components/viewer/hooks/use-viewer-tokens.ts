@@ -45,7 +45,7 @@ function refreshIntervalMs(data: TileTokenBatchResponse | undefined): number | f
  * `useVisibleTileTokenRefresh` in ViewerMap) owns the tab-return case. That
  * deletes the timer/cancellation machinery behind fix(#831) and fix(#850)
  * outright, and makes ViewerMap's existing `useInvalidateTileTokens()` (WebGL
- * context restore, fix(#438) BLD-04) actually reach the viewer's tokens.
+ * context restore) actually reach the viewer's tokens.
  */
 export function useViewerTokens({
   layers,
@@ -63,7 +63,7 @@ export function useViewerTokens({
   // Sorted so a layer reorder reuses the cached batch instead of re-minting.
   const sortedIds = useMemo(() => [...layerDatasetIds].sort().join(','), [layerDatasetIds]);
 
-  // fix(#394) SH-04: embed mode does not skip token fetching — the batch
+  // Embed mode does not skip token fetching — the batch
   // endpoint accepts X-Embed-Token, so embeds get the same raster/DEM tile
   // descriptors (bounds, resolution-derived maxzoom) as normal viewers instead
   // of building the terrain source from empty defaults.

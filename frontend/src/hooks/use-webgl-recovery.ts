@@ -11,7 +11,7 @@ export function useWebGLRecovery(
   mapRef: RefObject<MaplibreMap | null>,
   mapReady: boolean,
   /**
-   * fix(#438): BLD-04 — fired after a successful context restore, before the
+   * Fired after a successful context restore, before the
    * style is re-applied. Callers use it to invalidate tile tokens: a GPU outage
    * can outlast a signed token's expiry, and re-applying the same style would
    * otherwise reinstall tile URLs carrying a now-dead token.
@@ -30,7 +30,7 @@ export function useWebGLRecovery(
     const onLost = (e: Event) => {
       e.preventDefault(); // allow context restoration
       setContextLost(true);
-      // RES-N6: surface WebGL context loss as a structured console.warn so
+      // Surface WebGL context loss as a structured console.warn so
       // production issues are detectable in browser logs / error trackers.
       // Common causes: GPU driver crash, GPU eviction under memory pressure,
       // extension blocking canvas2d interop, tab kill-switch under Chrome.
@@ -43,7 +43,7 @@ export function useWebGLRecovery(
 
     const onRestored = () => {
       if (import.meta.env.DEV) console.warn('[map] WebGL context restored');
-      // BLD-04: refresh tile tokens before re-applying the style, so the
+      // Refresh tile tokens before re-applying the style, so the
       // reinstalled tile URLs pick up freshly-minted (non-expired) tokens.
       onRestore?.();
       // Force a full re-render of the map style

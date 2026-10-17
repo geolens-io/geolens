@@ -148,7 +148,7 @@ describe('useMapLayers vector source', () => {
   });
 });
 
-// #1362 codex r2: the raster tile route is a fixed per-dataset path, and a
+// The raster tile route is a fixed per-dataset path, and a
 // public dataset's tile response carries `Cache-Control: public,
 // max-age=3600` — so the browser's own HTTP cache can keep serving
 // pre-replace bytes for an identical URL. tileVersion busts that the same

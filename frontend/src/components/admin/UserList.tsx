@@ -224,7 +224,7 @@ export function UserList() {
     }
   }
 
-  // fix(#438): UX-01 — was `window.open('/api/admin/users/export.csv')`, which
+  // Was `window.open('/api/admin/users/export.csv')`, which
   // carries no Authorization header and so returned a 401 JSON body in a new tab.
   async function handleExportCsv() {
     setIsExporting(true);
@@ -355,7 +355,7 @@ export function UserList() {
                   { width: 'w-8' },
                 ]} />
               ) : isEmpty ? (
-                /* fix(#438): UX-05 — filtering to zero used to render an empty
+                /* Filtering to zero used to render an empty
                    table body, which reads as a broken page. Siblings (JobList,
                    AuditLog, SharedMaps) all say something here. */
                 <TableRow>

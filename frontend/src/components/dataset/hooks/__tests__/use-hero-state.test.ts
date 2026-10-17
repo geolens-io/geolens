@@ -114,7 +114,7 @@ describe('useHeroState', () => {
     expect(result.current.mapKey).toBe(1);
   });
 
-  // #1362 codex r4: a completed replacement is not a failed-tile retry —
+  // A completed replacement is not a failed-tile retry
   // routing it through handleRetry would spend the 3-attempt manual-retry
   // budget on a SUCCESS, leaving a later genuine tile failure unretryable.
   it('handleReplaceComplete resets to loading, bumps mapKey, and does NOT spend the retry budget', () => {

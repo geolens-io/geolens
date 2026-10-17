@@ -1,5 +1,5 @@
 /**
- * PRIV-1: belt-and-braces client-side scheme guard for an operator-configured
+ * Belt-and-braces client-side scheme guard for an operator-configured
  * URL rendered as a raw `<a href>` (privacy_url).
  *
  * The backend already validates this three times — at admin write (PUT

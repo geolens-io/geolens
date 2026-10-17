@@ -1,11 +1,11 @@
 /**
- * FRONT-01/FRONT-02 (Phase 1223): Root-route guard for the landing-first flag.
+ * Root-route guard for the landing-first flag.
  *
  * Renders <SearchPage/> in every case EXCEPT:
  *   flag ON  AND  no auth token  AND  no guest-browse session marker
  *   → <Navigate to="/login" replace/>
  *
- * This keeps the index route public (FRONT-03): datasets/:id, collections,
+ * This keeps the index route public: datasets/:id, collections,
  * maps, etc. are NOT affected — only the "/" index route uses this guard.
  *
  * The guest-browse marker ("gl-guest-browse") is written to sessionStorage

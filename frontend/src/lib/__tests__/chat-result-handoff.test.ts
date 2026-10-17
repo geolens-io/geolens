@@ -45,7 +45,7 @@ describe('stashChatResult / takeChatResult', () => {
     expect(sessionStorage.getItem('geolens-chat-result')).toBeNull();
   });
 
-  // feat(#1241 codex r1): the builder can save a carried result as a dataset,
+  // The builder can save a carried result as a dataset,
   // so the stash has to say whether it is the whole answer. Geometry alone
   // arrived on the other side looking complete.
   it('round-trips the completeness pair and the prompt', () => {

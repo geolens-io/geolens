@@ -111,7 +111,7 @@ export const MAP_COLORS = {
      *  fixed light-scrim/dark-text pair stays legible over both light and dark
      *  tiles — and over the globe's space backdrop (#1479). */
     attributionScrim: 'rgba(255,255,255,0.78)',
-    /** fix(#1479 Codex P2 round 1): the void a globe leaves around itself is
+    /** The void a globe leaves around itself is
      *  transparent in the WebGL canvas, so a capture composited over
      *  `background` puts the sphere back on white — the exact problem #1479
      *  fixes on screen. Captures fill the map region with this instead
