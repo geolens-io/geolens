@@ -116,6 +116,8 @@ export function useSetDatasetRetention() {
     onSuccess: (_data, variables) => {
       if (variables.dryRun) return;
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
     },
   });
 }
