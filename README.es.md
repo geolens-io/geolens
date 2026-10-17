@@ -94,7 +94,7 @@ flowchart LR
 - Dibuja conjuntos de datos nuevos en el navegador.
 - Encuentra datos con búsqueda aproximada, o por significado una vez configurado un proveedor de
   embeddings. Filtra por tipo, lugar y fecha, agrupa los conjuntos de datos en colecciones, edita
-  los metadatos y restaura versiones anteriores.
+  los metadatos y restaura la versión anterior de un conjunto de datos tras un reemplazo.
 
 ## Conoce el origen de cada conjunto de datos
 
