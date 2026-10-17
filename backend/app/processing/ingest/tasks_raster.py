@@ -767,11 +767,11 @@ async def ingest_raster(
             # variable, so every exit from this handler sets it — the bounded
             # error write above can raise past a positional assignment.
             final_status = "failed"
-        # Notify on ingest failed (non-fatal, after commit — deferred import).
-        # status="failed" is already committed above (err_session.commit) so a
-        # notification error cannot roll back or alter the terminal job write.
-        # Placed BEFORE the re-raise so the notification fires on the terminal
-        # write without suppressing the re-raise.
+        # Notify on ingest failed (non-fatal, deferred import). This runs after
+        # the terminal write was attempted, so a notification error cannot roll
+        # back a committed failed status; if that write raised DBAPIError, the
+        # job may still read running. Placed BEFORE the re-raise so the
+        # notification fires without suppressing the re-raise.
         _late_reason = redact_failure_reason(exc)
         _late_job_id = job_id
         from app.platform.notifications.events import (
