@@ -149,15 +149,15 @@ Every dataset is also an API. Publish the sample file from the command line, the
 the way any OGC API Features client would:
 
 ```sh
-pip install geolens-cli
+pip install geolens-cli                               # needs Python 3.11+
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
+export GEOLENS_API_KEY=<your-api-key>                 # create one on your Settings page
 curl -H "X-Api-Key: $GEOLENS_API_KEY" \
   "http://localhost:8080/api/collections/<dataset-id>/items?limit=5"
 ```
 
-`geolens publish` prints the new dataset's URL, which ends in its id. Create the API key on your
-Settings page. Vector tiles leave out attribute columns below zoom 10; add `cols=<column>,<column>`
+`geolens publish` prints the new dataset's URL, which ends in its id. Vector tiles leave out attribute columns below zoom 10; add `cols=<column>,<column>`
 to a tile URL to keep specific columns at every zoom. In QGIS, add `http://localhost:8080/api/` as a WFS / OGC API Features connection
 (the [QGIS guide](https://docs.getgeolens.com/guides/api/qgis/) has the steps). For a whole
 catalog, describe the sources in a `geolens.yaml` manifest and run `geolens apply`;
