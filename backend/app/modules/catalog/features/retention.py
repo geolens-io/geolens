@@ -57,6 +57,13 @@ TEMPORAL_TYPES = frozenset(
 _PLAIN_COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _GID_FLOOR = -(2**63)
 
+# The relations a batch can delete from by (tableoid, ctid): ordinary and
+# partitioned tables. A view, even an updatable one, has neither column.
+TABLE_KINDS = frozenset({"r", "p"})
+_TABLE_KIND = text(
+    "SELECT c.relkind::text FROM pg_class c WHERE c.oid = to_regclass(format("
+    "'%I.%I', CAST(:schema AS text), CAST(:table AS text)))"
+)
 _COLUMN_TYPE = text(
     "SELECT a.atttypid::regtype::text FROM pg_attribute a "
     "WHERE a.attrelid = to_regclass(format('%I.%I', "
@@ -106,6 +113,14 @@ async def column_type(
     )
 
 
+async def table_kind(session: AsyncSession, table_name: str) -> str | None:
+    """The pg_class relkind of the dataset's live relation, None when it is absent."""
+    return await session.scalar(
+        _TABLE_KIND,
+        {"schema": tenant_data_schema(current_tenant_var.get()), "table": table_name},
+    )
+
+
 def cutoff_for(now: datetime, days: int, type_name: str) -> datetime | date:
     """The value a row's column must be older than to be deleted."""
     instant = now.astimezone(timezone.utc) - timedelta(days=days)
@@ -122,6 +137,11 @@ async def check_retention(
     """Refuse a setting the dataset can't take; return its cutoff as of now."""
     if not is_feature_dataset(dataset):
         raise RetentionRefused("Retention applies only to datasets with features.")
+    if await table_kind(session, dataset.table_name) not in TABLE_KINDS:
+        raise RetentionRefused(
+            "Retention needs the dataset's data in a table; this dataset reads "
+            "it from a view or another kind of relation."
+        )
     type_name = await column_type(session, dataset.table_name, retention.column)
     if type_name is None:
         raise RetentionRefused(f"Column {retention.column!r} does not exist.")
@@ -179,7 +199,8 @@ async def _hold_live_window(
     table swap can commit before the delete. ROW EXCLUSIVE conflicts with
     the ACCESS EXCLUSIVE every ALTER and swap takes, so the type read here
     holds until the batch ends. Raises ``_BatchStale`` when the table was
-    replaced or the column is no longer a date or timestamp.
+    replaced, is no longer an ordinary or partitioned table, or the column is
+    no longer a date or timestamp.
     """
     quoted = get_catalog_port().quote_table(window.table_name)
     async with worker_lock_budget(session):
@@ -188,6 +209,7 @@ async def _hold_live_window(
     type_name = await column_type(session, window.table_name, window.column)
     if (
         await current_table_oid(session, window.table_name) != window.table_oid
+        or await table_kind(session, window.table_name) not in TABLE_KINDS
         or type_name not in TEMPORAL_TYPES
     ):
         raise _BatchStale("table_or_column_changed")

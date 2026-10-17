@@ -709,6 +709,28 @@ _SET_RETENTION = (
 )
 
 
+async def _point_dataset_at_a_view(session, dataset) -> str:
+    """Register the dataset against an updatable view over its own table."""
+    view = f"{dataset.table_name}_v"
+    await session.execute(
+        text(
+            f"CREATE VIEW data.{view} AS SELECT gid, geom, geom_4326, seen_at, "
+            f"seen_on, seen_local, name FROM data.{dataset.table_name}"
+        )
+    )
+    await session.execute(
+        text("UPDATE catalog.datasets SET table_name = :view WHERE id = :id"),
+        {"view": view, "id": dataset.id},
+    )
+    await session.commit()
+    return view
+
+
+async def _drop_view(session, view: str) -> None:
+    await session.execute(text(f"DROP VIEW IF EXISTS data.{view}"))
+    await session.commit()
+
+
 class TestRace:
     """A run or a save meeting a change another transaction committed first."""
 
@@ -867,6 +889,21 @@ class TestRace:
 
         assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
         assert refused == [True]
+
+    async def test_a_view_backed_setting_deletes_nothing_and_fails_nothing(
+        self, seed, test_db_session
+    ):
+        dataset, _, _ = await self._old_layer(seed, test_db_session)
+        view = await _point_dataset_at_a_view(test_db_session, dataset)
+        try:
+            with structlog.testing.capture_logs() as logs:
+                assert await retention.prune_expired_rows(now=NOW) == {}
+            events = [entry["event"] for entry in logs]
+            assert "dataset_retention_failed" not in events
+            assert "dataset_retention_batch_rolled_back" in events
+            await self._assert_untouched(test_db_session, dataset, dataset.id)
+        finally:
+            await _drop_view(test_db_session, view)
 
     async def test_a_dataset_detached_before_the_lock_loses_no_rows(
         self, seed, test_db_session, interleave
@@ -1163,6 +1200,26 @@ class TestSetting:
         test_db_session.expire_all()
         stored = await test_db_session.get(Dataset, dataset.id)
         assert stored.retention_column is None
+
+    @pytest.mark.parametrize("dry_run", [True, False], ids=["dry-run", "save"])
+    async def test_a_dataset_read_from_a_view_is_refused(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, dry_run
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, rows=[])
+        view = await _point_dataset_at_a_view(test_db_session, dataset)
+        try:
+            resp = await self._put(
+                client,
+                dataset.id,
+                {"retention": {"column": "seen_at", "days": 30}},
+                admin_auth_header,
+                dry_run=dry_run,
+            )
+            assert resp.status_code == 422, resp.text
+            assert await _stored_setting(test_db_session, dataset.id) == (None, None)
+        finally:
+            await _drop_view(test_db_session, view)
 
     @pytest.mark.parametrize(
         ("record_type", "geometry_type"),
