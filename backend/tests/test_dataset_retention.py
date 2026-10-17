@@ -1311,6 +1311,111 @@ class TestRace:
         )
 
 
+_DELETE_ACTIONS = ["CASCADE", "SET NULL", "SET DEFAULT", "RESTRICT", "NO ACTION"]
+
+
+class TestForeignKeys:
+    """A table a foreign key points at never takes retention."""
+
+    async def _family(self, seed, test_db_session):
+        """An expired parent with a recent and an undated child, retention on."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[
+                {"name": "parent", "seen_at": NOW - timedelta(days=90)},
+                {"name": "recent_child", "seen_at": NOW},
+                {"name": "undated_child", "seen_at": None},
+            ],
+        )
+        return dataset
+
+    async def _put(self, client, dataset_id, headers, dry_run):
+        return await client.put(
+            f"/datasets/{dataset_id}/retention/",
+            params={"dry_run": "true"} if dry_run else None,
+            json={"retention": {"column": "seen_at", "days": 30}},
+            headers=headers,
+        )
+
+    @pytest.mark.parametrize("action", _DELETE_ACTIONS)
+    async def test_a_self_referenced_table_is_refused_and_never_pruned(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, action
+    ):
+        dataset = await self._family(seed, test_db_session)
+        table = dataset.table_name
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{table} ADD COLUMN parent_gid integer "
+                f"REFERENCES data.{table}(gid) ON DELETE {action}"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{table} SET parent_gid = (SELECT gid FROM "
+                f"data.{table} WHERE name = 'parent') WHERE name <> 'parent'"
+            )
+        )
+        await test_db_session.commit()
+
+        for dry_run in (True, False):
+            resp = await self._put(client, dataset.id, admin_auth_header, dry_run)
+            assert resp.status_code == 422, resp.text
+
+        with structlog.testing.capture_logs() as logs:
+            assert await retention.prune_expired_rows(now=NOW) == {}
+        assert not [e for e in logs if e["event"] == "dataset_retention_failed"]
+        assert await _names(test_db_session, dataset) == {
+            "parent",
+            "recent_child",
+            "undated_child",
+        }
+        assert await _prune_audits(test_db_session, dataset.id) == []
+
+    @pytest.mark.parametrize("action", _DELETE_ACTIONS)
+    async def test_a_table_another_table_references_is_refused_and_never_pruned(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, action
+    ):
+        dataset = await self._family(seed, test_db_session)
+        table = dataset.table_name
+        referrer = f"{table}_ref"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{referrer} (id serial PRIMARY KEY, "
+                f"event_gid integer REFERENCES data.{table}(gid) ON DELETE {action})"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{referrer} (event_gid) SELECT gid FROM "
+                f"data.{table} WHERE name = 'parent'"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            for dry_run in (True, False):
+                resp = await self._put(client, dataset.id, admin_auth_header, dry_run)
+                assert resp.status_code == 422, resp.text
+
+            with structlog.testing.capture_logs() as logs:
+                assert await retention.prune_expired_rows(now=NOW) == {}
+            assert not [e for e in logs if e["event"] == "dataset_retention_failed"]
+            assert "parent" in await _names(test_db_session, dataset)
+            assert (
+                await test_db_session.scalar(
+                    text(
+                        f"SELECT count(*) FROM data.{referrer} WHERE event_gid IS NOT NULL"
+                    )
+                )
+                == 1
+            )
+        finally:
+            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{referrer}"))
+            await test_db_session.commit()
+
+
 class TestScheduling:
     def test_the_job_runs_hourly_on_the_ingest_queue(self):
         periodic = task_app.periodic_registry.periodic_tasks[

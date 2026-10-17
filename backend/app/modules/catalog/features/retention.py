@@ -65,6 +65,17 @@ _TABLE_KIND = text(
     "'%I.%I', CAST(:schema AS text), CAST(:table AS text)))"
 )
 # A domain resolves to its base type, as the feature table's column info does.
+# Whether a foreign key points at the table or any partition or inheritance
+# child of it. Deleting a referenced row also cascades to, rewrites or is
+# refused for the rows that point at it, whatever their date.
+_REFERENCED = text(
+    "WITH RECURSIVE tree(oid) AS ("
+    "SELECT to_regclass(format('%I.%I', CAST(:schema AS text), "
+    "CAST(:table AS text)))::oid "
+    "UNION SELECT i.inhrelid FROM pg_inherits i JOIN tree t ON i.inhparent = t.oid) "
+    "SELECT EXISTS (SELECT 1 FROM pg_constraint c JOIN tree t "
+    "ON c.confrelid = t.oid WHERE c.contype = 'f')"
+)
 _COLUMN_TYPE = text(
     "WITH RECURSIVE base(oid, typtype, typbasetype) AS ("
     "SELECT t.oid, t.typtype, t.typbasetype FROM pg_attribute a "
@@ -145,6 +156,19 @@ async def table_kind(session: AsyncSession, table_name: str) -> str | None:
     )
 
 
+async def is_referenced(session: AsyncSession, table_name: str) -> bool:
+    """Whether any foreign key, a self-reference included, points at the table."""
+    return bool(
+        await session.scalar(
+            _REFERENCED,
+            {
+                "schema": tenant_data_schema(current_tenant_var.get()),
+                "table": table_name,
+            },
+        )
+    )
+
+
 def cutoff_for(now: datetime, days: int, type_name: str) -> datetime | date:
     """The value a row's column must be older than to be deleted."""
     instant = now.astimezone(timezone.utc) - timedelta(days=days)
@@ -165,6 +189,11 @@ async def check_retention(
         raise RetentionRefused(
             "Retention needs the dataset's data in a table; this dataset reads "
             "it from a view or another kind of relation."
+        )
+    if await is_referenced(session, dataset.table_name):
+        raise RetentionRefused(
+            "Retention can't run on a table that a foreign key references; "
+            "deleting its rows would also change the rows that point at them."
         )
     type_name = await column_type(session, dataset.table_name, retention.column)
     if type_name is None:
@@ -222,9 +251,10 @@ async def _hold_live_window(
     ``_window`` reads the column's type without a lock, so a retype or a
     table swap can commit before the delete. ROW EXCLUSIVE conflicts with
     the ACCESS EXCLUSIVE every ALTER and swap takes, so the type read here
-    holds until the batch ends. Raises ``_BatchStale`` when the table was
-    replaced, is no longer an ordinary or partitioned table, or the column is
-    no longer a date or timestamp.
+    holds until the batch ends, and no foreign key to the table can be added
+    meanwhile. Raises ``_BatchStale`` when the table was replaced, is no
+    longer an ordinary or partitioned table, is referenced by a foreign key,
+    or the column is no longer a date or timestamp.
     """
     quoted = get_catalog_port().quote_table(window.table_name)
     async with worker_lock_budget(session):
@@ -234,6 +264,7 @@ async def _hold_live_window(
     if (
         await current_table_oid(session, window.table_name) != window.table_oid
         or await table_kind(session, window.table_name) not in TABLE_KINDS
+        or await is_referenced(session, window.table_name)
         or type_name not in TEMPORAL_TYPES
     ):
         raise _BatchStale("table_or_column_changed")
