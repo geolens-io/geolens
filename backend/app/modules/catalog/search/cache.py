@@ -1,4 +1,4 @@
-"""Anonymous response cache for search hot-path endpoints (PERF-2, PERF-7)."""
+"""Anonymous response cache for search hot-path endpoints."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from app.platform.cache import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
-SEARCH_CACHE_TTL = 30  # seconds — CONTEXT.md decision
+SEARCH_CACHE_TTL = 30  # seconds
 _COLLECTION_META_CACHE: dict[str, tuple[float, dict]] = {}
 _COLLECTION_META_TTL = 60
 _COLLECTION_META_MAX_SIZE = 200

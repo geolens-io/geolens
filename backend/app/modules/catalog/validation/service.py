@@ -36,9 +36,9 @@ async def validate_record(
 ) -> ValidationResult:
     """Validate a record for publishing readiness.
 
-    Hard (VAL-01, blocks publish): title, summary, license, spatial_extent,
+    Hard (blocks publish): title, summary, license, spatial_extent,
     CRS, lineage_summary, >=1 contact, >=1 keyword.
-    Soft (VAL-02, warnings only): temporal extent, update_frequency,
+    Soft (warnings only): temporal extent, update_frequency,
     quality_statement, attribute descriptions, source_url.
     """
     errors: list[ValidationIssue] = []

@@ -419,7 +419,7 @@ async def reupload_dataset(
             detail=refusal_detail(exc),
         )
 
-    # QUOTA-01/02: per-user quota check before any staging or job creation.
+    # Per-user quota check before any staging or job creation.
     # fix(#1290): the REPLACEMENT variant. The creation-shaped check
     # refused at the dataset-count cap, which locked an owner at their limit
     # out of replacing datasets they already own, and charged the incoming file
@@ -562,7 +562,7 @@ async def reupload_service_preview(
         )
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
-    # IA-P1-02: surface cross-record-type swaps as a useful 400 before the
+    # Surface cross-record-type swaps as a useful 400 before the
     # pipeline executes (vector→raster or any→VRT explodes deep otherwise).
     _assert_compatible_record_type(dataset, None, service_type=request.service_type)
 
@@ -693,7 +693,7 @@ def _diffable_columns(columns: list[dict]) -> list[dict]:
 async def reupload_preview(
     dataset_id: uuid.UUID,
     job_id: uuid.UUID,
-    # GPKG-01 Phase 1058: optional body allows callers to specify a layer_name
+    # Optional body allows callers to specify a layer_name
     # for multi-layer files; single-layer callers may omit the body entirely.
     request: ReuploadPreviewRequest | None = None,
     user: Identity = Depends(require_permission("edit_metadata")),
@@ -765,10 +765,10 @@ async def reupload_preview(
             file_path = resolved_file_path
             downloaded_preview_path = Path(file_path)
 
-    # GPKG-01 Phase 1058: thread layer_name from request body to ogrinfo helper
+    # Thread layer_name from the request body to the ogrinfo helper.
     layer_name = request.layer_name if request else None
 
-    # Validate layer_name against the file's actual layers (T-1058A-03).
+    # Validate layer_name against the file's actual layers.
     # We run ogrinfo without layer_name first to get the full layer list,
     # then validate — or use the targeted call if no validation needed.
     try:
@@ -807,8 +807,8 @@ async def reupload_preview(
         if downloaded_preview_path is not None:
             downloaded_preview_path.unlink(missing_ok=True)
 
-    # GPKG-01 Phase 1058: validate user-supplied layer_name appears in the file.
-    # WR-02 fix: also check against info["layer_name"] for single-layer files where
+    # Validate that the user-supplied layer_name appears in the file.
+    # Also check against info["layer_name"] for single-layer files where
     # all_layers is None (ogr.py only sets all_layers when len(layers) > 1).
     # Without this branch a mistyped layer_name on a single-layer file silently
     # falls through and returns data for the wrong layer.
@@ -859,8 +859,8 @@ async def reupload_preview(
         live_geometry=prior_geometry,
     )
 
-    # GPKG-01 Phase 1058: read the most-recent completed IngestJob's source_layer
-    # to provide a pre-selection hint for the frontend layer-select UI (D-02).
+    # Read the most-recent completed IngestJob's source_layer to provide a
+    # pre-selection hint for the frontend layer-select UI.
     from sqlalchemy import desc
 
     prior_result = await db.execute(
@@ -1151,7 +1151,7 @@ async def reupload_commit(
 
     # Merge commit request params into user_metadata, preserving existing
     # keys. token + layer_name stay request-only (layer_name goes into the
-    # dedicated source_layer column, D-03 below).
+    # dedicated source_layer column, set below).
     #
     # feat(#1746): `auth` is excluded for the same reason -- user_metadata
     # is a durable JSONB column and this model_dump is a whitelist by
@@ -1169,10 +1169,10 @@ async def reupload_commit(
         existing_meta["service_auth_required"] = True
     job.user_metadata = existing_meta
 
-    # GPKG-01 (D-03): persist to the dedicated IngestJob.source_layer
+    # Persist to the dedicated IngestJob.source_layer
     # column; user_metadata is not consulted by the worker for this.
     if request.layer_name is not None:
-        job.source_layer = request.layer_name  # GPKG-01 Phase 1058
+        job.source_layer = request.layer_name
 
     # feat(#1219) ADR-002 Decision 4b: the run row is written HERE, before
     # the task is deferred, not at swap commit -- a worker dying mid-fetch
@@ -1367,7 +1367,7 @@ async def request_presigned_reupload(
             },
         )
 
-    # QUOTA-01/02: per-user quota check before any staging or job creation.
+    # Per-user quota check before any staging or job creation.
     # fix(#1290): identical admission to the direct door — same function,
     # same arguments — so the two doors cannot diverge on who may replace what.
     await check_replacement_quota(

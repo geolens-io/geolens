@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from app.core.url_redaction import has_url_credentials
 
 # fix(#1746): ServiceAuthRequest lives in app.platform.service_auth, not here
-# — processing/ cannot import app.modules.catalog.* (test_layering
-# PROCESS-02/04), and importers there need this schema too. Import, don't redefine.
+# — processing/ cannot import app.modules.catalog.* (test_layering), and importers
+# there need this schema too. Import, don't redefine.
 from app.platform.service_auth import (
     DEPRECATED_TOKEN_SUFFIX,
     SERVICE_AUTH_BASIC_POLICY,

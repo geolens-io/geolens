@@ -272,7 +272,7 @@ async def create_dataset(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )  # LAZY
 
     await audit_emit(
         session,

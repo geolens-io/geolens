@@ -86,9 +86,9 @@ async def shared_map_card_endpoint(
     if token_obj is not None and not isinstance(token_obj, str):
         map_obj = await get_map(db, token_obj.map_id)
     if map_obj is None or map_obj.visibility != "public":
-        # fix(#526): "Copy Link" copies this /card URL — return 200 HTML
+        # "Copy Link" copies this /card URL — return 200 HTML
         # with a meta-refresh into the SPA shell (not bare 404 JSON) so it
-        # lands on the same "link expired" page as /m/{token} (SH-01/SH-07).
+        # lands on the same "link expired" page as /m/{token}.
         viewer_url = f"/m/{html.escape(token)}"
         fallback_html = (
             "<!doctype html>\n"

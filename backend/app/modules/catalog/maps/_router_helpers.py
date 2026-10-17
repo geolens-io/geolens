@@ -39,10 +39,10 @@ logger = structlog.stdlib.get_logger(__name__)
 def _build_frame_ancestors(origins: list[str] | None) -> str:
     """Build a CSP frame-ancestors directive value from an allowed_origins list.
 
-    SEC-S08: two defense-in-depth filters on top of the schema-layer 422 at
+    Two defense-in-depth filters on top of the schema-layer 422 at
     create/update time, guarding any stale DB row that bypassed it — CRLF
     entries (would split the response header) and wildcard entries ('*' in
-    frame-ancestors disables clickjacking protection entirely, SHARE-06).
+    frame-ancestors disables clickjacking protection entirely).
     """
     if not origins:
         return "frame-ancestors 'self'"

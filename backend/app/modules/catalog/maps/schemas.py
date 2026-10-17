@@ -58,11 +58,11 @@ LEGACY_BUILDER_PAINT_KEYS = {
 }
 _STYLE_CONFIG_BUILDER_KEY = "builder"
 
-# fix(Phase 1060 G-x): the frontend normalizes builder keys to camelCase
+# The frontend normalizes builder keys to camelCase
 # on layer load, so a duplicated layer's POST would persist camelCase
 # while the original stays snake_case without this rewrite.
 #
-# builder-audit #338 STYLE-01/SPEC-08: the AUTHORITATIVE alias map — the
+# The AUTHORITATIVE alias map. The
 # inverse (below) is what style_json.py imports, so a hand-written copy
 # can't drift and leak snake_case keys into exported style.json.
 _BUILDER_CAMEL_TO_SNAKE_KEYS = {
@@ -95,7 +95,7 @@ _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "folderGroupExpanded": "folder_group_expanded",
 }
 
-# builder-audit #338 STYLE-01/SPEC-08: derived inverse of the table
+# Derived inverse of the table
 # above, imported by `style_json.py` instead of a hand-written copy, so
 # export can't drift (exhaustive — includes prior-missed folder_group_* keys).
 BUILDER_SNAKE_TO_CAMEL_KEYS = {
@@ -317,7 +317,7 @@ class TerrainConfig(BaseModel):
 
     @model_validator(mode="after")
     def _enabled_requires_source(self) -> "TerrainConfig":
-        # fix(HT-15): an enabled mesh with no source produces dangling
+        # An enabled mesh with no source produces dangling
         # status text; coerce to disabled rather than raise, since this
         # model also validates stored JSONB on read (MapResponse).
         if self.enabled and self.source_dataset_id is None:
@@ -366,7 +366,7 @@ class BasemapProjection(str, Enum):
 
 # Regex for #RRGGBB validation: exact 6 hex digits, case-insensitive.
 # Rejects raw names, short/long hex, and URI schemes ("javascript:",
-# "data:") — security: T-1059A-01.
+# "data:"), for security.
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -447,7 +447,7 @@ class SublayerOverride(BaseModel):
 
     @model_validator(mode="after")
     def _validate_zoom_order(self) -> "SublayerOverride":
-        """WR-02: Ensure min_zoom <= max_zoom when both are specified.
+        """Ensure min_zoom <= max_zoom when both are specified.
 
         MapLibre's behavior with an inverted range is undefined and
         version-dependent — in practice the layer becomes permanently
@@ -558,12 +558,11 @@ class LabelTextAnchor(str, Enum):
 
 
 class LabelConfig(BaseModel):
-    """Per-layer text-label configuration (builder-audit #338 P2-05).
+    """Per-layer text-label configuration.
 
-    Previously ``label_config`` was an untyped ``dict`` at the API boundary
-    while the frontend adapters (``label-layer-utils.ts``) assumed specific
-    camelCase fields. This schema gives the editable fields bounds/enums while
-    staying forward-compatible:
+    The frontend adapters (``label-layer-utils.ts``) read specific camelCase
+    fields. This schema gives the editable fields bounds/enums while staying
+    forward-compatible:
 
     * ``model_config = ConfigDict(extra="allow")`` keeps unknown / future keys
       (migration-safe for rows written by older or newer clients);
@@ -621,7 +620,7 @@ class LabelConfig(BaseModel):
 def _validate_label_config_dict(v: dict | None) -> dict | None:
     """Validate label_config bounds/enums through LabelConfig, return a dict.
 
-    builder-audit #338 P2-05: stays a plain ``dict`` on the wire/storage
+    Stays a plain ``dict`` on the wire/storage
     boundary, but every write is validated against ``LabelConfig`` (422 on
     out-of-range/bad-enum values). ``extra="allow"`` plus the None-dropping
     serializer keep unknown keys and the minimal shape, so old rows
@@ -634,8 +633,8 @@ def _validate_label_config_dict(v: dict | None) -> dict | None:
 
 
 class MapLayerInput(BaseModel):
-    # fix(#430): without an id here, _replace_layers' by-id reconcile
-    # (V-14) never matched on real PUTs. Optional: ids match only against
+    # Without an id here, _replace_layers' by-id reconcile
+    # never matched on real PUTs. Optional: ids match only against
     # THIS map's existing layers, so a foreign id can't hijack another map's row.
     id: uuid.UUID | None = Field(
         default=None,
@@ -675,16 +674,16 @@ class MapLayerInput(BaseModel):
 
     _validate_paint = field_validator("paint")(_validate_maplibre_style_dict)
     _validate_layout = field_validator("layout")(_validate_maplibre_style_dict)
-    # builder-audit #338 P2-05: validate label_config bounds/enums via LabelConfig but
+    # Validate label_config bounds/enums via LabelConfig but
     # keep the stored value a plain dict so downstream JSONB assignment is
     # unchanged (see _validate_label_config_dict).
     _validate_label_config = field_validator("label_config")(
         _validate_label_config_dict
     )
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
-    # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
+    # Validate/normalize the editable MapLibre filter subset
     # (shared with style import/export and AI set_filter via filter_grammar).
-    # fix(#1778): through _validate_filter_field, which adds the size cap the
+    # Goes through _validate_filter_field, which adds the size cap the
     # other open columns already carry on top of the shared grammar.
     _validate_filter = field_validator("filter")(_validate_filter_field)
     layer_type: str | None = Field(
@@ -702,7 +701,7 @@ class MapLayerInput(BaseModel):
             self.paint,
             self.style_config,
         )
-        # Phase 1060: canonicalize builder keys to snake_case (storage shape)
+        # Canonicalize builder keys to snake_case (storage shape)
         # so frontend-normalized camelCase keys don't persist as a separate
         # schema after layer duplication. See canonicalize_builder_style_config.
         self.style_config = canonicalize_builder_style_config(self.style_config)
@@ -737,23 +736,23 @@ class MapLayerPatch(BaseModel):
 
     _validate_paint = field_validator("paint")(_validate_maplibre_style_dict)
     _validate_layout = field_validator("layout")(_validate_maplibre_style_dict)
-    # builder-audit #338 P2-05: validate label_config bounds/enums via LabelConfig but
+    # Validate label_config bounds/enums via LabelConfig but
     # keep the stored value a plain dict so downstream JSONB assignment is
     # unchanged (see _validate_label_config_dict).
     _validate_label_config = field_validator("label_config")(
         _validate_label_config_dict
     )
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
-    # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
+    # Validate/normalize the editable MapLibre filter subset
     # (shared with style import/export and AI set_filter via filter_grammar).
-    # fix(#1778): through _validate_filter_field, which adds the size cap the
+    # Goes through _validate_filter_field, which adds the size cap the
     # other open columns already carry on top of the shared grammar.
     _validate_filter = field_validator("filter")(_validate_filter_field)
 
     @model_validator(mode="before")
     @classmethod
     def _normalize_paint_boundary(cls, data: Any) -> Any:
-        # fix(HT-14): MUST run in before-mode — an after-validator adding
+        # MUST run in before-mode — an after-validator adding
         # self.paint/style_config unconditionally defeats exclude_unset=True,
         # so a partial patch like {id, visible} erases stored DEM/builder metadata.
         if not isinstance(data, dict):
@@ -768,7 +767,7 @@ class MapLayerPatch(BaseModel):
             # Let field validation reject the wrong type.
             return data
         paint, style_config = split_legacy_builder_paint(paint, style_config)
-        # Phase 1060: canonicalize builder keys to snake_case (storage shape)
+        # Canonicalize builder keys to snake_case (storage shape)
         # so frontend-normalized camelCase keys don't persist as a separate
         # schema after layer duplication. See canonicalize_builder_style_config.
         style_config = canonicalize_builder_style_config(style_config)
@@ -966,9 +965,8 @@ class MapLayerResponse(BaseModel):
     is_dem: bool | None = None
     dem_vertical_units: str | None = None
     band_count: int | None = None
-    # fix(#394) VT-02: dataset content version. Feeds the client `_v=` tile-URL
-    # cache-buster (map-sync.ts); the server-side Valkey purge is B-019.
-    # fix(#525): now reads Dataset.tile_cache_version (bumped by feature
+    # Dataset content version. Feeds the client `_v=` tile-URL
+    # cache-buster (map-sync.ts). Reads Dataset.tile_cache_version (bumped by feature
     # edits, column DDL, tile_columns changes, AND reupload) instead of
     # current_version (reupload-only), so every content mutation rolls the URL.
     tile_version: int | None = None
@@ -1222,7 +1220,7 @@ class SharedLayerResponse(BaseModel):
     dem_vertical_units: str | None = None
     is_3d: bool | None = None
     feature_count: int | None = None
-    # fix(#394) VT-02: dataset content version for the `_v=` tile cache-buster
+    # Dataset content version for the `_v=` tile cache-buster
     # (viewer parity with MapLayerResponse.tile_version).
     tile_version: int | None = None
     # feat(#1472): viewer parity with MapLayerResponse.dataset_attribution. The
@@ -1356,9 +1354,8 @@ class VisibilityCheckResponse(BaseModel):
     )
 
 
-# fix(Phase 1047, milestone exception PB-03/PERF-03): one additive
-# endpoint permitted per REQUIREMENTS.md Out-of-Scope, to reduce N
-# sequential DELETEs to one batched bulk-delete call.
+# Additive endpoint that reduces N sequential DELETEs to one batched
+# bulk-delete call.
 
 
 class BulkDeleteLayersRequest(BaseModel):

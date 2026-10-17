@@ -409,8 +409,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
         # Prefer the middleware-generated UUID stashed on request.state — this
         # is the same ID bound to structlog contextvars and emitted by the
-        # access log, so client errors correlate cleanly with server logs
-        # (RESILIENCE-9). Fall back to client-supplied header for legacy compat.
+        # access log, so client errors correlate cleanly with server logs. Fall back to client-supplied header for legacy compat.
         request_id = (
             getattr(request.state, "request_id", None)
             or request.headers.get("x-request-id")
@@ -439,7 +438,7 @@ def register_error_handlers(app: FastAPI) -> None:
             exc_type=type(exc).__name__,
         )
         # Echo the request ID on the error response so clients can include
-        # it in support tickets (RESILIENCE-5).
+        # it in support tickets.
         headers = {"X-Request-ID": request_id} if request_id else {}
         return JSONResponse(
             status_code=500,

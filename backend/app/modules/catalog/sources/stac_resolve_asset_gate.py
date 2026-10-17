@@ -439,7 +439,7 @@ def _horizontal_bbox(stated: Any) -> list[float] | None:
         return None
     indices = (0, 1, 2, 3) if len(stated) == 4 else (0, 1, 3, 4)
     values = [stated[index] for index in indices]
-    # fix(#1266): math.isfinite mirrors SEC-FU-06 in parse_bbox — JSON
+    # math.isfinite mirrors parse_bbox: JSON
     # 1e400/NaN would reach ST_GeomFromText and persist a malformed extent.
     if not all(
         isinstance(value, (int, float))

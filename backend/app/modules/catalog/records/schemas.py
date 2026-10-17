@@ -101,7 +101,7 @@ class ContactUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _reject_null_required(self) -> "ContactUpdate":
-        # fix(#458): PATCH follows the dataset E-04 contract — an
+        # PATCH follows the dataset update contract: an
         # explicitly-set null clears the field. `role` is NOT NULL in the
         # model, so an explicit null there is a 422, not a silent drop.
         for field in ("role", "sort_order"):
@@ -246,7 +246,7 @@ class DistributionUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _reject_null_required(self) -> "DistributionUpdate":
-        # fix(#458): explicit null clears optional fields (E-04 contract);
+        # Explicit null clears optional fields (dataset update contract);
         # the NOT NULL trio must 422 instead of silently dropping the null.
         for field in ("distribution_type", "format", "url", "is_primary"):
             if field in self.model_fields_set and getattr(self, field) is None:

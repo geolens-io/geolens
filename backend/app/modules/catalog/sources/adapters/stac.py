@@ -297,7 +297,7 @@ def _following_page(
 def _make_client(credential_header: str | None = None) -> httpx.AsyncClient:
     """Shared httpx client for STAC API requests.
 
-    Phase 1061 SEC-S04: uses make_safe_client() so the per-hop SSRF
+    Uses make_safe_client() so the per-hop SSRF
     revalidation hook covers every redirect a STAC probe follows.
 
     feat(#1764): ``credential_header`` names the header this request carries,
@@ -578,7 +578,7 @@ async def search_stac_items(
         dt_start = props.get("start_datetime") or dt
         dt_end = props.get("end_datetime") or dt
 
-        # EW-05: surface file:size so the frontend can show an estimated
+        # Surface file:size so the frontend can show an estimated
         # download size before the user commits to a multi-GB fetch.
         data_asset_size_bytes = data_asset.get("file:size") if data_asset else None
         if not isinstance(data_asset_size_bytes, int):

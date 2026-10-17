@@ -82,7 +82,7 @@ def _embedding_cache_clear() -> None:
 
 
 # fix(#1903): coordinates the SPA's unordered results/facets pair so only
-# one request pays the SEC-S11 token; keyed on (client, tenant, text),
+# one request pays the rate-limit token; keyed on (client, tenant, text),
 # single-use, bounded by TTL + LRU. fix(#2018): a configured shared store
 # answers first, so this is the fallback for one that does not answer, and
 # the pairing window is that store's, not a second copy of it.

@@ -51,7 +51,7 @@ class Collection(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
     )
-    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    # Dormant tenant_id: nullable, no FK enforcement.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -66,7 +66,7 @@ class Collection(Base):
 class CollectionDataset(Base):
     __tablename__ = "collection_datasets"
     __table_args__ = (
-        # T-3: trailing composite-PK FK; covering index added in migration 0001_baseline.
+        # Trailing composite-PK FK; covering index added in migration 0001_baseline.
         Index("ix_collection_datasets_dataset_id", "dataset_id"),
         Index(
             "ix_collection_datasets_added_by",
@@ -95,7 +95,7 @@ class DatasetVersion(Base):
     __tablename__ = "dataset_versions"
     __table_args__ = (
         UniqueConstraint("dataset_id", "version_number", name="uq_dataset_version"),
-        # DBM-10 covering index added in migration 0001_baseline.
+        # Covering index added in migration 0001_baseline.
         Index("ix_dataset_versions_dataset_id", "dataset_id"),
         Index(
             "ix_dataset_versions_uploaded_by",

@@ -388,7 +388,7 @@ async def run_service_preview(
                         },
                     ) from None
 
-                # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
+                # Mirror the ogr2ogr commit path.
                 # GDAL_HTTP_HEADERS would leak the credential via subprocess env
                 # (/proc/<pid>/environ) and let a CR/LF inject outbound HTTP
                 # headers under libcurl. Use a 0600 GDAL_HTTP_HEADER_FILE instead,

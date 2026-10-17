@@ -1,7 +1,7 @@
 """Map layer-diff and full-replace helpers, private to service_crud.
 
 Internal-helper-only: not re-exported by the maps service facade
-(``service.py``). Direct imports of this module are blocked by the BOUND-01
+(``service.py``). Direct imports of this module are blocked by the
 architecture guard (``test_layering.py``).
 """
 
@@ -82,7 +82,7 @@ def _prepare_layer_storage(
 ) -> dict:
     """Normalize one *added* layer's storage shape before it is persisted.
 
-    builder-audit #338 STYLE-08: the single normalization boundary on the
+    The single normalization boundary on the
     add/full-replace write path — resolves layer_type, fills default
     paint/layout/style_config, runs ``split_legacy_builder_paint`` (idempotent;
     already split once at the API boundary), and normalizes DEM style_config.

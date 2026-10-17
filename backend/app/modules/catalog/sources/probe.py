@@ -3,8 +3,8 @@
 Coordinates WFS, OGC API Features, and ArcGIS probing to detect what kind of
 service a URL points to and return a unified layer list.
 
-fix(Phase 1057 D-05): OGC API/WFS probe results carry geometry_type=None,
-feature_count=None, and a backend-classified kind (D-09/CLASS-07) instead of
+OGC API/WFS probe results carry geometry_type=None,
+feature_count=None, and a backend-classified kind instead of
 running per-layer ogrinfo enrichment; preview.py runs ogrinfo lazily for the
 single layer the user selects. ArcGIS enrichment stays — it uses fast HTTP
 returnCountOnly queries, not ogrinfo.
@@ -83,7 +83,7 @@ def _build_probe_response(result: dict, layers: list[dict], url: str) -> ProbeRe
     """Build a ProbeResponse from WFS or OGC API Features detection results.
 
     Layers arrive with geometry_type=None, feature_count=None, and a
-    pre-classified kind field set by probe_ogcapi/probe_wfs (D-05).
+    pre-classified kind field set by probe_ogcapi/probe_wfs.
     """
     layer_infos = [
         LayerInfo(
@@ -253,7 +253,7 @@ async def detect_service_type(
         )  # fix(#430)
         result = await _header_auth_probe(probe_wfs)
         if result is not None:
-            # D-05: no enrichment — layers already have geometry_type=None,
+            # No enrichment — layers already have geometry_type=None,
             # feature_count=None, kind='vector' from probe_wfs.
             return _build_probe_response(result, result["layers"], url)
         # Fast-path failed — fall through to slow path
@@ -264,14 +264,14 @@ async def detect_service_type(
     # Try OGC API Features landing page probe
     ogcapi_result = await _header_auth_probe(probe_ogcapi)
     if ogcapi_result is not None:
-        # D-05: no enrichment — layers already have geometry_type=None,
+        # No enrichment — layers already have geometry_type=None,
         # feature_count=None, kind classified by classify_layer_kind from probe_ogcapi.
         return _build_probe_response(ogcapi_result, ogcapi_result["layers"], url)
 
     # Try WFS
     wfs_result = await _header_auth_probe(probe_wfs)
     if wfs_result is not None:
-        # D-05: no enrichment — same as fast-path WFS branch above.
+        # No enrichment — same as fast-path WFS branch above.
         return _build_probe_response(wfs_result, wfs_result["layers"], url)
 
     # Try ArcGIS

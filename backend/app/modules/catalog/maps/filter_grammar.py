@@ -1,6 +1,6 @@
 """Shared MapLibre filter-expression validator/normalizer.
 
-Single source of truth (builder-audit #338 P1-04) for the editable subset
+Single source of truth for the editable subset
 of MapLibre expression-form layer filters, shared by layer schemas, style
 export/import, and the AI ``set_filter`` path.
 
@@ -167,7 +167,7 @@ def _assert_depth_within_bound(value: Any) -> None:
 
 
 def validate_filter(value: list | None) -> list | None:
-    """Validate + normalize a MapLibre layer filter (builder-audit #338 P1-04).
+    """Validate + normalize a MapLibre layer filter.
 
     ``None``/``[]`` clear the filter. A recognized form with invalid arity
     raises ``FilterValidationError``; opaque forms pass through verbatim.
@@ -180,7 +180,7 @@ def validate_filter(value: list | None) -> list | None:
     if not isinstance(value, list):
         raise FilterValidationError("filter must be a JSON array or null")
     if len(value) == 0:
-        # EDIT-03: an empty array is not a valid MapLibre filter; treat as clear.
+        # An empty array is not a valid MapLibre filter; treat as clear.
         return None
     _assert_depth_within_bound(value)
     return _normalize_node(value)

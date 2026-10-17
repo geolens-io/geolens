@@ -1,6 +1,6 @@
 """Sprite-backed icon asset helpers for map symbols.
 
-builder-audit #338 STYLE-05: hand-rolled SVG path parser (``_path_points``)
+Hand-rolled SVG path parser (``_path_points``)
 and rasterizer (``_draw_svg_element``), a deliberate no-native-dependency
 tradeoff over a Cairo binding. Bezier/arc commands (C/S/Q/T/A) are
 approximated by endpoint only, rendering curved icons as straight segments
@@ -171,7 +171,7 @@ def validate_icon_upload(
 
     For SVG, ``sanitized_content`` is the defusedxml-re-serialized form —
     normalizes entity encodings (``&#106;avascript:`` -> ``javascript:``)
-    BEFORE the active-content denylist runs (SEC-09/M-71). Callers MUST
+    BEFORE the active-content denylist runs. Callers MUST
     persist ``sanitized_content``, not the original bytes. For PNG,
     ``sanitized_content`` is unchanged.
     """
@@ -331,7 +331,7 @@ async def create_icon_asset(
     # test_icon_storage_keys_stay_global_under_tenant_context enforces this.
     storage_key = f"maps/icons/{icon_id}{extension}"
     # Persist the sanitized form so the bytes on disk match what validation
-    # accepted (SEC-09). For PNG this is the original bytes unchanged.
+    # accepted. For PNG this is the original bytes unchanged.
     # fix(#1778): recorded before the write, like the image
     # handlers — a PUT can land and still fail the client, so a fresh,
     # never-reused key means rollback is either real cleanup or a no-op.
@@ -459,7 +459,7 @@ def _point(
 
 
 def _path_points(path_data: str) -> list[list[tuple[float, float]]]:
-    # builder-audit #338 STYLE-05: hand-rolled tokenizer/state machine (see
+    # Hand-rolled tokenizer/state machine (see
     # module docstring); output is pinned by golden tests in test_map_sprites.py.
     tokens = _PATH_TOKEN_RE.findall(path_data.replace(",", " "))
     paths: list[list[tuple[float, float]]] = []

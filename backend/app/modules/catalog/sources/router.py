@@ -853,7 +853,7 @@ def _build_preview_response(
     )
 
 
-# ROUTE-01: dual-shape decorator — both trailing-slash and no-trailing-slash
+# Dual-shape decorator — both trailing-slash and no-trailing-slash
 # variants register against the same handler. Slash form stays canonical
 # (already in OpenAPI); no-slash is a hidden alias closing the 404
 # regression from redirect_slashes=False (api/main.py).
@@ -1102,7 +1102,7 @@ async def probe_service_url(
     return response
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /probe above.
+# Dual-shape decorator; see /probe above.
 @router.post("/preview", response_model=ServicePreviewResponse, include_in_schema=False)
 @router.post("/preview/", response_model=ServicePreviewResponse)
 async def preview_service_layer(
@@ -1574,7 +1574,7 @@ _ARCGIS_SIGNIN_RESPONSES = {
 }
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator, see /probe above.
+# Dual-shape decorator; see /probe above.
 @router.post(
     "/arcgis/signin",
     response_model=ArcGISSignInResponse,
