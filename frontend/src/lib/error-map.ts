@@ -239,13 +239,25 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   zip_too_many_entries: 'errors.uploadZipTooManyEntries',
 };
 
+/** The dataset retention setting's refusal codes (`RetentionRefused` in `backend/app/modules/catalog/features/retention.py`). */
+const RETENTION_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
+  retention_before_delete_trigger: 'errors.retentionBeforeDeleteTrigger',
+  retention_column_missing: 'errors.retentionColumnMissing',
+  retention_column_not_temporal: 'errors.retentionColumnNotTemporal',
+  retention_delete_rule: 'errors.retentionDeleteRule',
+  retention_has_children: 'errors.retentionHasChildren',
+  retention_not_feature_dataset: 'errors.retentionNotFeatureDataset',
+  retention_referenced: 'errors.retentionReferenced',
+  retention_unsupported_relation: 'errors.retentionUnsupportedRelation',
+};
+
 /**
- * A coded upload-refusal detail: `{code, message, ...values}`, matching
+ * A coded refusal detail: `{code, message, ...values}`, matching
  * `refusal_detail()` in `backend/app/core/upload_errors.py`.
  */
 function uploadRefusalDescriptor(value: Record<string, unknown>): ApiErrorDescriptor | undefined {
   if (typeof value.code !== 'string') return undefined;
-  const key = UPLOAD_REFUSAL_CODE_KEYS[value.code];
+  const key = UPLOAD_REFUSAL_CODE_KEYS[value.code] ?? RETENTION_REFUSAL_CODE_KEYS[value.code];
   if (!key) return undefined;
   const { code: _code, message: _message, ...values } = value;
   return { key, values: values as TranslationValues };

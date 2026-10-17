@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
 from app.core.identity import Identity
+from app.core.upload_errors import refusal_detail
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import (
@@ -78,7 +79,8 @@ async def set_dataset_retention(
             cutoff = await check_retention(db, dataset, retention)
         except RetentionRefused as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=refusal_detail(exc),
             )
         if dry_run:
             rows_past_cutoff = await count_rows_past(

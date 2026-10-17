@@ -938,6 +938,11 @@ async def _make_non_spatial(dataset, *, swap: bool) -> None:
     )
 
 
+def _refusal_code(resp) -> str | None:
+    detail = resp.json().get("detail")
+    return detail.get("code") if isinstance(detail, dict) else None
+
+
 class TestRace:
     """A run or a save meeting a change another transaction committed first."""
 
@@ -1342,6 +1347,7 @@ class TestForeignKeys:
         for dry_run in (True, False):
             resp = await self._put(client, dataset.id, admin_auth_header, dry_run)
             assert resp.status_code == 422, resp.text
+            assert _refusal_code(resp) == "retention_referenced"
 
         with structlog.testing.capture_logs() as logs:
             assert await retention.prune_expired_rows(now=NOW) == {}
@@ -1377,6 +1383,7 @@ class TestForeignKeys:
             for dry_run in (True, False):
                 resp = await self._put(client, dataset.id, admin_auth_header, dry_run)
                 assert resp.status_code == 422, resp.text
+                assert _refusal_code(resp) == "retention_referenced"
 
             with structlog.testing.capture_logs() as logs:
                 assert await retention.prune_expired_rows(now=NOW) == {}
@@ -1410,7 +1417,7 @@ class TestRelationShape:
             ],
         )
 
-    async def _refused(self, client, headers, dataset_id) -> None:
+    async def _refused(self, client, headers, dataset_id, code) -> None:
         for dry_run in (True, False):
             resp = await client.put(
                 f"/datasets/{dataset_id}/retention/",
@@ -1419,6 +1426,7 @@ class TestRelationShape:
                 headers=headers,
             )
             assert resp.status_code == 422, resp.text
+            assert _refusal_code(resp) == code
 
     async def _skipped(self, test_db_session, dataset) -> None:
         with structlog.testing.capture_logs() as logs:
@@ -1453,7 +1461,9 @@ class TestRelationShape:
         )
         await test_db_session.commit()
         try:
-            await self._refused(client, admin_auth_header, dataset.id)
+            await self._refused(
+                client, admin_auth_header, dataset.id, "retention_unsupported_relation"
+            )
         finally:
             await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{parted}"))
             await test_db_session.commit()
@@ -1468,7 +1478,9 @@ class TestRelationShape:
         )
         await test_db_session.commit()
         try:
-            await self._refused(client, admin_auth_header, dataset.id)
+            await self._refused(
+                client, admin_auth_header, dataset.id, "retention_has_children"
+            )
             await self._skipped(test_db_session, dataset)
         finally:
             await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{child}"))
@@ -1493,7 +1505,9 @@ class TestRelationShape:
         )
         await test_db_session.commit()
         try:
-            await self._refused(client, admin_auth_header, dataset.id)
+            await self._refused(
+                client, admin_auth_header, dataset.id, "retention_has_children"
+            )
         finally:
             await test_db_session.execute(text(f"DROP SERVER {server} CASCADE"))
             await test_db_session.commit()
@@ -1565,7 +1579,9 @@ class TestRelationShape:
         )
         await test_db_session.commit()
         try:
-            await self._refused(client, admin_auth_header, dataset.id)
+            await self._refused(
+                client, admin_auth_header, dataset.id, "retention_before_delete_trigger"
+            )
             await self._skipped(test_db_session, dataset)
         finally:
             await test_db_session.execute(text(f"DROP FUNCTION {keep}() CASCADE"))
@@ -1582,7 +1598,9 @@ class TestRelationShape:
             )
         )
         await test_db_session.commit()
-        await self._refused(client, admin_auth_header, dataset.id)
+        await self._refused(
+            client, admin_auth_header, dataset.id, "retention_delete_rule"
+        )
 
     async def test_an_after_delete_trigger_still_prunes(self, seed, test_db_session):
         dataset = await self._layer(seed, test_db_session)
@@ -1845,6 +1863,10 @@ class TestSetting:
         )
 
         assert resp.status_code == 422, resp.text
+        assert _refusal_code(resp) == {
+            "name": "retention_column_not_temporal",
+            "missing": "retention_column_missing",
+        }.get(retention_body["column"])
         test_db_session.expire_all()
         stored = await test_db_session.get(Dataset, dataset.id)
         assert stored.retention_column is None
@@ -1907,6 +1929,7 @@ class TestSetting:
                 dry_run=dry_run,
             )
             assert resp.status_code == 422, resp.text
+            assert _refusal_code(resp) == "retention_unsupported_relation"
             assert await _stored_setting(test_db_session, dataset.id) == (None, None)
         finally:
             await _drop_view(test_db_session, view)
@@ -1941,6 +1964,7 @@ class TestSetting:
         )
 
         assert resp.status_code == 422, resp.text
+        assert _refusal_code(resp) == "retention_not_feature_dataset"
 
     @pytest.mark.parametrize(
         ("visibility", "expected"), [("public", 403), ("private", 404)]

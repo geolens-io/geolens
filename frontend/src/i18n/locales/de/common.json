@@ -357,7 +357,15 @@
     "mapMessage": "Kartenfehler — einige Ebenen werden möglicherweise nicht korrekt angezeigt.",
     "networkUnavailable": "Netzwerk nicht verfügbar. Prüfen Sie Ihre Verbindung.",
     "requestTimeout": "Die Anfrage hat zu lange gedauert. Versuchen Sie es erneut.",
-    "unauthorized": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an."
+    "unauthorized": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an.",
+    "retentionUnsupportedRelation": "Die Aufbewahrung braucht die Daten des Datensatzes in einer gewöhnlichen Tabelle. Dieser Datensatz liest sie aus einer Sicht, einer partitionierten Tabelle oder einer anderen Relation, daher lässt sie sich hier nicht einschalten.",
+    "retentionHasChildren": "Die Aufbewahrung kann nicht auf einer Tabelle laufen, von der andere Tabellen erben, weil ein Löschen deren Zeilen erreichen könnte. Entfernen Sie die erbenden Tabellen, um die Aufbewahrung zu nutzen.",
+    "retentionReferenced": "Ein Fremdschlüssel verweist auf diese Tabelle, daher würde das Löschen alter Zeilen auch die verweisenden Zeilen ändern. Entfernen Sie den Fremdschlüssel, um die Aufbewahrung zu nutzen.",
+    "retentionBeforeDeleteTrigger": "Diese Tabelle hat einen BEFORE-DELETE-Trigger, der das Löschen von Zeilen verhindern kann. Entfernen oder deaktivieren Sie den Trigger, um die Aufbewahrung zu nutzen.",
+    "retentionDeleteRule": "Diese Tabelle hat eine DELETE-Regel, die ändert, was ein Löschen bewirkt. Entfernen Sie die Regel, um die Aufbewahrung zu nutzen.",
+    "retentionNotFeatureDataset": "Die Aufbewahrung funktioniert nur bei Datensätzen, deren Features eine Geometrie haben.",
+    "retentionColumnMissing": "Die Spalte {{column}} existiert nicht mehr. Wählen Sie eine andere Datums- oder Zeitstempelspalte.",
+    "retentionColumnNotTemporal": "Die Spalte {{column}} ist keine Datums- oder Zeitstempelspalte. Wählen Sie eine Datums- oder Zeitstempelspalte."
   },
   "settings": {
     "apiKeys": {

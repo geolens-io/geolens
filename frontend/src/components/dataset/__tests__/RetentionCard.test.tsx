@@ -2,6 +2,9 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { RetentionCard } from '@/components/dataset/RetentionCard';
 import { setDatasetRetention } from '@/api/datasets';
+import { ApiError } from '@/api/client';
+import { translateApiErrorDetail } from '@/lib/error-map';
+import { toast } from 'sonner';
 import type { DatasetResponse } from '@/types/api';
 
 vi.mock('@/api/datasets', () => ({
@@ -33,6 +36,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.mocked(setDatasetRetention).mockReset();
+  vi.mocked(toast.error).mockClear();
 });
 
 describe('RetentionCard', () => {
@@ -155,6 +159,34 @@ describe('RetentionCard', () => {
     await user.click(screen.getByRole('button', { name: 'Turn off' }));
 
     await waitFor(() => expect(setDatasetRetention).toHaveBeenCalledWith('ds-1', null, { dryRun: undefined }));
+  });
+
+  it.each([
+    ['retention_unsupported_relation', 'Retention needs the dataset\'s data in an ordinary table'],
+    ['retention_referenced', 'Remove the foreign key to use retention'],
+  ])('explains the %s refusal on the dry run and on the save', async (code, text) => {
+    const user = userEvent.setup();
+    const refused = () => {
+      const detail = { code, message: 'English diagnostic' };
+      return new ApiError(translateApiErrorDetail(detail, 422), 422, detail);
+    };
+    vi.mocked(setDatasetRetention)
+      .mockRejectedValueOnce(refused())
+      .mockResolvedValueOnce({ retention: { column: 'seen_at', days: 7 }, rows_past_cutoff: 0, cutoff: null })
+      .mockRejectedValueOnce(refused());
+    render(<RetentionCard dataset={feed()} canEdit />);
+
+    const days = screen.getByLabelText('Days to keep');
+    await user.clear(days);
+    await user.type(days, '7');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(2));
+
+    for (const call of vi.mocked(toast.error).mock.calls) {
+      expect(String(call[0])).toContain(text);
+    }
   });
 
   it('asks before saving a setting that deletes rows now, showing how many', async () => {

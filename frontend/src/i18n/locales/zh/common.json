@@ -486,7 +486,15 @@
     "forbiddenEditor": "禁止访问——需要编辑者或管理员权限",
     "networkUnavailable": "网络不可用。请检查您的网络连接。",
     "requestTimeout": "请求耗时过长。请重试。",
-    "unauthorized": "您的会话已过期。请重新登录。"
+    "unauthorized": "您的会话已过期。请重新登录。",
+    "retentionUnsupportedRelation": "保留期限要求数据集的数据位于普通表中。此数据集从视图、分区表或其他类型的关系读取数据，因此无法在此开启保留期限。",
+    "retentionHasChildren": "保留期限无法在被其他表继承的表上运行，因为删除操作可能波及这些表的行。请移除继承它的表后再使用保留期限。",
+    "retentionReferenced": "有外键指向此表，删除其中的旧行也会改变引用它们的行。请移除该外键后再使用保留期限。",
+    "retentionBeforeDeleteTrigger": "此表有一个 BEFORE DELETE 触发器，可能阻止行被删除。请移除或禁用该触发器后再使用保留期限。",
+    "retentionDeleteRule": "此表有一条 DELETE 规则，会改变删除的效果。请移除该规则后再使用保留期限。",
+    "retentionNotFeatureDataset": "保留期限仅适用于要素带有几何数据的数据集。",
+    "retentionColumnMissing": "列 {{column}} 已不存在。请选择其他日期或时间戳列。",
+    "retentionColumnNotTemporal": "列 {{column}} 不是日期或时间戳列。请选择日期或时间戳列。"
   },
   "settings": {
     "apiKeys": {

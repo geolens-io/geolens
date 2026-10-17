@@ -5,6 +5,21 @@ import {
 } from '@/lib/error-map';
 
 describe('API error localization boundary', () => {
+  it.each([
+    ['retention_unsupported_relation', 'errors.retentionUnsupportedRelation', 'needs the dataset\'s data in an ordinary table'],
+    ['retention_has_children', 'errors.retentionHasChildren', 'other tables inherit from'],
+    ['retention_referenced', 'errors.retentionReferenced', 'Remove the foreign key'],
+    ['retention_before_delete_trigger', 'errors.retentionBeforeDeleteTrigger', 'BEFORE DELETE trigger'],
+    ['retention_delete_rule', 'errors.retentionDeleteRule', 'DELETE rule'],
+    ['retention_not_feature_dataset', 'errors.retentionNotFeatureDataset', 'features have geometry'],
+    ['retention_column_missing', 'errors.retentionColumnMissing', 'The column seen_at no longer exists'],
+    ['retention_column_not_temporal', 'errors.retentionColumnNotTemporal', 'The column seen_at isn\'t a date'],
+  ])('maps the retention refusal %s to its own message', (code, key, text) => {
+    const detail = { code, message: 'English diagnostic', column: 'seen_at' };
+    expect(classifyApiError(detail, 422).key).toBe(key);
+    expect(translateApiErrorDetail(detail, 422)).toContain(text);
+  });
+
   it('maps known backend details to stable keys', () => {
     expect(classifyApiError('Dataset not found', 404)).toEqual({
       key: 'errors.datasetNotFound',

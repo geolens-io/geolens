@@ -486,7 +486,15 @@
     "forbiddenEditor": "Forbidden — Editor or Admin access required",
     "networkUnavailable": "Network unavailable. Check your connection.",
     "requestTimeout": "The request took too long. Try again.",
-    "unauthorized": "Your session has expired. Sign in again."
+    "unauthorized": "Your session has expired. Sign in again.",
+    "retentionUnsupportedRelation": "Retention needs the dataset's data in an ordinary table. This dataset reads it from a view, a partitioned table or another kind of relation, so retention can't be turned on here.",
+    "retentionHasChildren": "Retention can't run on a table that other tables inherit from, because deleting from it could reach their rows. Remove the inheriting tables to use retention.",
+    "retentionReferenced": "A foreign key points at this table, so deleting its old rows would also change the rows that refer to them. Remove the foreign key to use retention.",
+    "retentionBeforeDeleteTrigger": "This table has a BEFORE DELETE trigger that can stop rows from being deleted. Remove or disable the trigger to use retention.",
+    "retentionDeleteRule": "This table has a DELETE rule that changes what a delete does. Remove the rule to use retention.",
+    "retentionNotFeatureDataset": "Retention works only on datasets whose features have geometry.",
+    "retentionColumnMissing": "The column {{column}} no longer exists. Choose another date or timestamp column.",
+    "retentionColumnNotTemporal": "The column {{column}} isn't a date or timestamp column. Choose a date or timestamp column."
   },
   "settings": {
     "apiKeys": {

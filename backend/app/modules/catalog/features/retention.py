@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.record_types import capabilities
+from app.core.upload_errors import CodedRefusal
 from app.modules.audit.service import AuditEvent, audit_emit_required
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import DatasetRetention
@@ -86,8 +87,8 @@ _COLUMN_TYPE = text(
 )
 
 
-class RetentionRefused(ValueError):
-    """A retention setting the dataset cannot take."""
+class RetentionRefused(CodedRefusal):
+    """A retention setting the dataset cannot take, with a stable ``code``."""
 
 
 class _BatchStale(Exception):
@@ -145,7 +146,9 @@ async def column_type(
     )
 
 
-async def unsupported_table(session: AsyncSession, table_name: str) -> str | None:
+async def unsupported_table(
+    session: AsyncSession, table_name: str
+) -> RetentionRefused | None:
     """Why retention can't delete from the dataset's live relation, or None.
 
     Only a plain table qualifies whose deletes remove exactly the rows asked
@@ -162,24 +165,33 @@ async def unsupported_table(session: AsyncSession, table_name: str) -> str | Non
         )
     ).one_or_none()
     if facts is None or facts.kind != "r":
-        return (
+        return RetentionRefused(
             "Retention needs the dataset's data in a plain table; this dataset "
-            "reads it from a view, a partitioned table or another relation."
+            "reads it from a view, a partitioned table or another relation.",
+            code="retention_unsupported_relation",
         )
     if facts.inherited:
-        return "Retention can't run on a table that other tables inherit from."
+        return RetentionRefused(
+            "Retention can't run on a table that other tables inherit from.",
+            code="retention_has_children",
+        )
     if facts.referenced:
-        return (
+        return RetentionRefused(
             "Retention can't run on a table that a foreign key references; "
-            "deleting its rows would also change the rows that point at them."
+            "deleting its rows would also change the rows that point at them.",
+            code="retention_referenced",
         )
     if facts.before_delete_trigger:
-        return (
+        return RetentionRefused(
             "Retention can't run on a table with a BEFORE DELETE row trigger, "
-            "which can keep rows a delete asks for."
+            "which can keep rows a delete asks for.",
+            code="retention_before_delete_trigger",
         )
     if facts.delete_rule:
-        return "Retention can't run on a table with a DELETE rule."
+        return RetentionRefused(
+            "Retention can't run on a table with a DELETE rule.",
+            code="retention_delete_rule",
+        )
     return None
 
 
@@ -198,17 +210,26 @@ async def check_retention(
 ) -> datetime | date:
     """Refuse a setting the dataset can't take; return its cutoff as of now."""
     if not is_feature_dataset(dataset):
-        raise RetentionRefused("Retention applies only to datasets with features.")
-    reason = await unsupported_table(session, dataset.table_name)
-    if reason is not None:
-        raise RetentionRefused(reason)
+        raise RetentionRefused(
+            "Retention applies only to datasets with features.",
+            code="retention_not_feature_dataset",
+        )
+    refusal = await unsupported_table(session, dataset.table_name)
+    if refusal is not None:
+        raise refusal
     type_name = await column_type(session, dataset.table_name, retention.column)
     if type_name is None:
-        raise RetentionRefused(f"Column {retention.column!r} does not exist.")
+        raise RetentionRefused(
+            f"Column {retention.column!r} does not exist.",
+            code="retention_column_missing",
+            values={"column": retention.column},
+        )
     if type_name not in TEMPORAL_TYPES:
         raise RetentionRefused(
             f"Column {retention.column!r} is {type_name}; retention needs a "
-            "date or timestamp column."
+            "date or timestamp column.",
+            code="retention_column_not_temporal",
+            values={"column": retention.column},
         )
     return cutoff_for(datetime.now(timezone.utc), retention.days, type_name)
 
