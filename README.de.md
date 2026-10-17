@@ -27,14 +27,14 @@
 </div>
 
 <p align="center">
-  <a href="https://demo.getgeolens.com/maps/146eddc1-30af-4c8e-aa6f-a6569e663823">
+  <a href="https://demo.getgeolens.com/maps">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-manhattan-3d-hero-dark.jpg">
       <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Der GeoLens-Karteneditor zeigt Manhattans Gebäude, bis zu ihren vermessenen Dachhöhen extrudiert und nach Bauzeit eingefärbt, dazu das U-Bahn-Netz, die Ebenenliste und eine Legende" width="100%">
     </picture>
   </a>
   <br>
-  <sub>Manhattans Gebäude in ihren vermessenen Dachhöhen, nach Bauzeit eingefärbt, mit dem U-Bahn-Netz. <a href="https://demo.getgeolens.com/maps/146eddc1-30af-4c8e-aa6f-a6569e663823">Diese Karte in der Demo öffnen</a>.</sub>
+  <sub>Manhattans Gebäude in ihren vermessenen Dachhöhen, nach Bauzeit eingefärbt, mit dem U-Bahn-Netz. <a href="https://demo.getgeolens.com/maps">Die Karten der Demo ansehen</a>.</sub>
 </p>
 
 Geodaten liegen oft an vielen Orten zugleich: auf Dateifreigaben, in PostGIS-Datenbanken, in
