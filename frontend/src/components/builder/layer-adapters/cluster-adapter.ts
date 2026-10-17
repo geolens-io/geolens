@@ -67,7 +67,7 @@ function numericBuilderValue(value: unknown, fallback: number, min: number, max:
     : fallback;
 }
 
-// #347: the cluster circle-color ramp as MapLibre reads it. With a 2+ stop ramp
+// The cluster circle-color ramp as MapLibre reads it. With a 2+ stop ramp
 // (sorted ascending by point_count) the lowest stop is the base color and each later stop
 // starts at its count. Step inputs must be strictly ascending and > 0, so duplicate or
 // out-of-order thresholds are dropped. Null when fewer than two usable stops remain.

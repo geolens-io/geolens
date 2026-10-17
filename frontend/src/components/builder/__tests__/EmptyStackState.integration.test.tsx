@@ -24,7 +24,7 @@ import { SUGGESTED_DATASETS } from '@/components/builder/suggested-datasets';
 
 // Override the shipped (empty) SUGGESTED_DATASETS with a populated fixture so
 // the suggest-card flow can be exercised here. The real module ships an empty
-// array by default (per commit 4a5ee284) — operators populate it
+// array by default, and operators populate it
 // per deployment. The IDs MUST be valid UUID v4 (8-4-4-4-12 hex) or
 // SuggestCard's UUID_RE gate (EmptyStackState.tsx:46-59) hides the cards
 // before they reach the DOM.

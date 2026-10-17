@@ -1,5 +1,5 @@
 /**
- * EDITOR grep guard (phase-scoped).
+ * EDITOR grep guard, scoped to the paint-ownership editor files.
  *
  * Asserts that the editor source files modified for the paint-ownership work
  * (RasterEditor.tsx is not in the set: it was dead code and is deleted)

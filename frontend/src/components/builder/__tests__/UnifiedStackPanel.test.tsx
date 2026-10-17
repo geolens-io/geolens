@@ -719,7 +719,7 @@ describe('MAP-16 — rename-group rAF-deferred focus integration', () => {
     // the requestAnimationFrame wrapper from the editing focus effect. That logic now lives in the shared useInlineRename hook,
     // consumed by both FolderGroupRow and StackRow. The rAF deferral is load-bearing — without it,
     // Radix DropdownMenu's restoreFocus wins the focus race in real browsers and the
-    // rename input never receives focus. Cross-reference: commit 80bddc14.
+    // rename input never receives focus.
     //
     // Pattern: Vite ?raw import (see preserve-drawing-buffer.test.ts for precedent).
     const fileSrc = useInlineRenameSrc;

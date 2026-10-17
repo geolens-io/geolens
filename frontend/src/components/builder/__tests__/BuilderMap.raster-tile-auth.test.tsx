@@ -1,4 +1,4 @@
-// The #755 double-log shape was still live for raster/DEM tiles.
+// Raster/DEM tile auth failures were still logged twice after the vector fix.
 // `isHandledTileAuthError` excludes `/raster-tiles/` because a
 // fresh tile sig cannot fix raster auth — that rides the Authorization header —
 // but BuilderMap's own error handler reported a suppressed "re-mint requested"
