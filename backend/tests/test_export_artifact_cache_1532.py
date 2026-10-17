@@ -435,6 +435,7 @@ async def test_head_answers_a_real_length_once_an_artifact_exists(
         {"dataset_title": "Renamed"},
         {"table_name": "other_table"},
         {"tile_cache_version": 9},
+        {"exporter_version": "2.0.0"},
     ],
 )
 def test_every_input_that_changes_the_bytes_changes_the_key(changed):
@@ -459,6 +460,7 @@ def test_every_input_that_changes_the_bytes_changes_the_key(changed):
         "target_crs": None,
         "bbox": None,
         "where": None,
+        "exporter_version": "1.0.0",
     }
 
     assert artifact_cache.selection_key(**base) != artifact_cache.selection_key(
@@ -482,6 +484,7 @@ def test_an_absent_filter_is_not_an_empty_one():
         "format_key": "geojson",
         "target_crs": None,
         "bbox": None,
+        "exporter_version": "1.0.0",
     }
     assert artifact_cache.selection_key(**base, where=None) != (
         artifact_cache.selection_key(**base, where="")
@@ -4570,6 +4573,7 @@ async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
     """
     import asyncio
 
+    from app.api.main import app as api_app
     from app.processing.export import artifact_cache as cache
     from app.processing.export import router as export_router
 
@@ -4599,6 +4603,7 @@ async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
         target_crs=None,
         bbox=None,
         where=None,
+        exporter_version=api_app.version,
     )
     artifact = await cache.lookup(
         dataset.id, selection, filename="x.geojson", media_type="application/geo+json"
@@ -5226,6 +5231,7 @@ async def test_url_held_only_these_bytes_refuses_any_other_bytes(
         target_crs=None,
         bbox=None,
         where=None,
+        exporter_version="1.0.0",
     )
 
     async def _held() -> bool:
@@ -5409,6 +5415,7 @@ async def test_a_sibling_that_appeared_during_the_build_is_not_a_predecessor(
     time earlier than the request's start. Nothing was cached when the request
     began, so its bare Range must still be answered whole.
     """
+    from app.api.main import app as api_app
     from app.processing.export import artifact_cache as cache
 
     dataset = await _dataset(test_db_session, "Sibling During Build")
@@ -5422,6 +5429,7 @@ async def test_a_sibling_that_appeared_during_the_build_is_not_a_predecessor(
         target_crs=None,
         bbox=None,
         where=None,
+        exporter_version=api_app.version,
     )
     from app.processing.export import parquet as parquet_export
 
@@ -5706,30 +5714,82 @@ async def test_an_ogr_format_rebuild_keeps_the_whole_answer(
     assert "content-range" not in footer.headers
 
 
-def test_an_exporter_upgrade_moves_the_key_but_not_the_url(monkeypatch):
-    """Bytes written before an upgrade must not vouch for the same selection after.
+async def test_an_app_upgrade_moves_the_export_key_but_not_the_url(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """Bytes built before an upgrade must not vouch for the same selection after.
 
-    The version segment moves, so neither the settled HEAD nor the rebuild
-    slice finds the old artifacts; the URL segment stays, so the URL's history
-    still counts them as other bytes.
+    The route keys on the running app's version. A new version lands on a new
+    version segment, so neither the settled HEAD nor the rebuild slice finds
+    the old artifact; the URL segment stays, so the URL's history still counts
+    it as other bytes.
     """
-    from app.processing.export import artifact_cache as cache
+    from app.api.main import app as api_app
 
-    def _key() -> str:
-        return cache.selection_key(
-            dataset_id=uuid.UUID(int=7),
-            table_name="t",
-            dataset_title="T",
-            tile_cache_version=3,
-            format_key="parquet",
+    dataset = await _dataset(test_db_session, "App Upgrade")
+    url = _url(dataset.id)
+
+    monkeypatch.setattr(api_app, "version", "1.25.1")
+    assert (await client.get(url, headers=admin_auth_header)).status_code == 200
+    monkeypatch.setattr(api_app, "version", "1.26.0")
+    assert (await client.get(url, headers=admin_auth_header)).status_code == 200
+
+    assert conversions.count == 2, "the upgraded app reused a pre-upgrade artifact"
+    keys = await get_storage().list(
+        f"export-cache/{artifact_cache._tenant_segment()}/{dataset.id}/"
+    )
+    selections = {k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0] for k in keys}
+    assert len(selections) == 2
+    assert len({selection.split("/")[0] for selection in selections}) == 1
+
+
+async def test_without_package_metadata_the_key_carries_the_release_version(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """A uv deployment installs the backend as a virtual project, with no metadata.
+
+    The app then reports the fallback version ``make bump`` rewrites, and the
+    export keys on that, never on a constant every release would share.
+    """
+    import importlib.metadata
+
+    from app.api import main
+
+    def _missing(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", _missing)
+    monkeypatch.setattr(main.app, "version", main._resolve_app_version())
+
+    dataset = await _dataset(test_db_session, "No Metadata")
+    assert (
+        await client.get(_url(dataset.id), headers=admin_auth_header)
+    ).status_code == 200
+    (key,) = await get_storage().list(
+        f"export-cache/{artifact_cache._tenant_segment()}/{dataset.id}/"
+    )
+    stored_selection = key.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
+
+    def _selection(version: str) -> str:
+        return artifact_cache.selection_key(
+            dataset_id=dataset.id,
+            table_name=dataset.table_name,
+            dataset_title=dataset.record.title,
+            tile_cache_version=dataset.tile_cache_version,
+            format_key="geojson",
             target_crs=None,
             bbox=None,
             where=None,
+            exporter_version=version,
         )
 
-    before = _key()
-    monkeypatch.setattr(cache, "_EXPORTER_VERSION", "99.0.0")
-    after = _key()
-
-    assert before != after
-    assert before.split("/")[0] == after.split("/")[0]
+    assert stored_selection == _selection(main._FALLBACK_APP_VERSION)
+    assert stored_selection != _selection("source")

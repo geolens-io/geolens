@@ -437,6 +437,7 @@ async def export_dataset_endpoint(
         target_crs=target_crs,
         bbox=bbox,
         where=where,
+        exporter_version=request.app.version,
     )
     # fix(#1532): filename/media_type are derived, not stored —
     # `export_descriptor` answers both from title+format without touching

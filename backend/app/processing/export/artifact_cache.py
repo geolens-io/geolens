@@ -50,19 +50,6 @@ _MAX_PUBLISH_SECONDS = 600
 _BUDGET_BYTES = 8 * 1024 * 1024 * 1024
 
 
-def _exporter_version() -> str:
-    from importlib.metadata import PackageNotFoundError, version
-
-    try:
-        return version("geolens-backend")
-    except PackageNotFoundError:
-        return "source"
-
-
-# In every selection key: an upgrade can write different bytes for the same
-# selection, and nothing from before it may vouch for them.
-_EXPORTER_VERSION = _exporter_version()
-
 _last_sweep_at = 0.0
 
 
@@ -124,14 +111,17 @@ def selection_key(
     target_crs: str | None,
     bbox: str | None,
     where: str | None,
+    exporter_version: str,
 ) -> str:
     """Identity of the requested bytes, as a storage path segment.
 
     Includes ``table_name`` (a replace swaps the physical table) and
     ``dataset_title`` (becomes the GPKG layer name). ``tile_cache_version`` is
     keyed here rather than checked at freshness time: a missed bump then only
-    costs bounded staleness, not a wrong download. ``None``/``""`` stay
-    distinct through the JSON encoding (#1546).
+    costs bounded staleness, not a wrong download. ``exporter_version`` is
+    the running app's version: an upgrade can write different bytes for the
+    same selection, and nothing built before it may vouch for them.
+    ``None``/``""`` stay distinct through the JSON encoding (#1546).
     """
     # #1585: two segments (URL identity, then version) so every artifact of
     # one URL shares a prefix for `url_answered_other_bytes_recently`.
@@ -140,7 +130,7 @@ def selection_key(
         separators=(",", ":"),
     )
     version_payload = json.dumps(
-        [table_name, dataset_title, tile_cache_version, _EXPORTER_VERSION],
+        [table_name, dataset_title, tile_cache_version, exporter_version],
         separators=(",", ":"),
     )
     url_part = hashlib.sha256(url_payload.encode()).hexdigest()[:20]
