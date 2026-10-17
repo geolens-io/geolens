@@ -75,7 +75,7 @@ guide's
 section lists the file names and formats.
 
 The globals dump is the piece a database-only `pg_dump` can never give back, and
-it is what makes the fresh-cluster role reconstruction in [§ 2](#2-restore--bundled-postgres-mode)
+it is what makes the fresh-cluster role reconstruction in [§ 2](#role-reconstruction-after-a-fresh-cluster-restore)
 work. It contains **role password verifiers**, so it is written mode `0600` and
 must keep the same protection as the dump itself wherever it is copied. A
 `pg_dumpall` failure fails the whole cycle: a backup set that cannot restore its
@@ -521,17 +521,11 @@ mandatory post-restore reconciliation reapplies that boundary.
 **Never** use `psql < <dump>` on a custom-format (`-Fc`) dump file — it is binary,
 not plain SQL, and will fail.
 
-> **If `catalog.tenants` has rows, `restore.sh` is not the whole recipe.** Its
-> step 6 reconciles the single-tenant runtime role and the shared `data` schema;
-> it does not touch per-tenant schemas, per-tenant roles, or the two SECURITY
-> DEFINER provisioning functions, which the restore leaves owned by the restore
-> login with `EXECUTE` granted to `PUBLIC`. Step 7 then restarts `api` and
-> `worker`, so following this section alone puts traffic on a database in
-> exactly that state. Use the stop / restore / adopt sequence in the
-> role-reconstruction section immediately below instead, and run its dry run
-> afterwards as the check that nothing was left behind.
+> **If `catalog.tenants` has rows, `restore.sh` is not the whole recipe.**
+> Deployments with tenant isolation enabled follow the Cloud overlay's own
+> restore runbook instead of this section.
 
-### Multi-tenant role reconstruction after a fresh-cluster restore
+### Role reconstruction after a fresh-cluster restore
 
 PostgreSQL roles are cluster objects and are not included in a database-only
 `pg_dump`. A same-cluster restore normally retains the roles themselves — but
@@ -543,8 +537,8 @@ post-restore step.
 Nothing about roles travels inside a GeoLens dump: `scripts/backup-entrypoint.sh`
 writes it `--no-owner --no-acl` and `scripts/restore.sh` replays it `--no-owner`.
 A fresh cluster therefore needs both halves rebuilt — the role *definitions*
-(step 1) and the *ownership and grants* on restored tenant objects (step 2).
-Run both before starting API, worker, or tile traffic.
+(step 1) and the *ownership and grants* on restored objects (step 2).
+Step 1 comes before `restore.sh`, and step 2 is `restore.sh` itself.
 
 **Step 1 — put the roles on the new cluster.**
 
@@ -589,12 +583,12 @@ For managed/external Postgres there is no `db` container to exec into: drop the
 to `pg_dumpall`/`psql` directly.
 
 If no globals dump exists, create the five fixed NOLOGIN groups with the block
-below, and do it now rather than later. Adoption creates them too, but that is
-step 2d, and two things ahead of it need them already there: 0024's upgrade in
-2b runs `ALTER FUNCTION … OWNER TO geolens_tenant_provisioner`, and 2c grants
-memberships in all five. Skip this only when a globals replay has already put
-the roles back. The block is idempotent, needs CREATEROLE, and the attributes
-match what 0019 creates and validates:
+below, and do it now rather than later. Migration 0019 creates them in every
+tenancy mode, and 0024's upgrade runs `ALTER FUNCTION … OWNER TO
+geolens_tenant_provisioner`, so a dump whose schema is at 0019 through 0023
+cannot migrate to head on a cluster without them. Skip this only when a globals
+replay has already put the roles back. The block is idempotent, needs
+CREATEROLE, and the attributes match what 0019 creates and validates:
 
 ```sql
 DO $$
@@ -622,277 +616,18 @@ END
 $$;
 ```
 
-**Step 2 — restore the dump, then re-own its tenant objects.**
+**Step 2 — restore the dump.**
 
-Everything below runs through the Compose containers, because the bundled
-database listens on `127.0.0.1:${DB_PORT}` rather than a host socket and the
-Alembic config lives in `backend/`, not the repo root. Do **not** use
-`scripts/restore.sh` here — it restarts `api` and `worker` on exit, and nothing
-may serve traffic until 2b has finished. Managed/external Postgres: drop the
-`docker compose exec -T db` prefix and pass the provider's `-h`, `-p`, and `-U`
-instead.
+Run `scripts/restore.sh` as in
+[Step-by-step: full restore](#step-by-step-full-restore-db--object-storage).
+Step 6 of the [canonical entry point](#canonical-restore-entry-point) rebuilds
+the grants and `data.*` ownership a restored dump lacks, and step 7 starts
+`api` and `worker` only after that succeeds.
 
-Keep `$POSTGRES_USER`/`$POSTGRES_DB` set in this shell (via
-`scripts/env-value.sh`, as in step 1) — they expand on the host, not in the
-container.
-The dump path is a host path; copy the dump out of the `backup_data` volume
-first, exactly as in "Step-by-step: full restore" below.
-
-**2a. Check the archive, stop the services, restore the dump.**
-
-`restore.sh` validates the archive, stops `api` and `worker`, restores, and
-restarts them on the way out; this recipe replaces it, so all of that is yours
-to do. Without the stop, traffic races a `--clean` restore and can reach the
-restore-owned SECURITY DEFINER functions during the window where `PUBLIC` can
-execute them. Nothing starts again until 2g is done.
-
-Validate the archive before anything destructive, exactly as `restore.sh` does:
-`--list` only reads the table of contents, which a truncated file still passes,
-so read every data block. A `--clean` restore that discovers the corruption
-halfway through has already dropped the database that was working.
-
-```bash
-docker compose exec -T db pg_restore -f /dev/null \
-  < ./restore/geolens_<timestamp>.dump
-```
-
-Then stop the services. That applies to managed/external Postgres too: the
-database is elsewhere, but `api` and `worker` are still the things that would
-write to it.
-
-Stop the backup service with them. A scheduled cycle landing mid-window dumps
-the half-restored database as the newest artifact — one that passes the
-validation above — and advances retention pruning against the copies you still
-need.
-
-```bash
-docker compose stop api worker backup
-
-docker compose exec -T db pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  --clean --if-exists --no-owner --no-acl < ./restore/geolens_<timestamp>.dump
-```
-
-**2b. Bring the restored schema to head.**
-
-A dump older than the running release restores an older schema, and adoption
-works only at head — it refuses on a boundary function that a later migration
-installed. `--no-deps` is what stops the `migrate` one-shot and the API
-entrypoint from doing this for you, so do it here, with the same override:
-
-A non-superuser migrator — a managed provider's admin, for instance — needs two
-privileges first, because 0024's upgrade transfers ownership of the boundary
-functions to `geolens_tenant_provisioner`, and PostgreSQL wants the incoming
-owner to hold `CREATE` on the schema and the caller to hold that owner's
-privileges. A superuser has both implicitly and can skip this. Grant them as the
-same admin identity that ran step 1's role block, and hand them back in 2g:
-
-```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-GRANT CREATE ON SCHEMA catalog TO geolens_tenant_provisioner;
-GRANT geolens_tenant_provisioner TO "<migrator-role>" WITH INHERIT TRUE, SET TRUE;
-SQL
-```
-
-No `ADMIN OPTION`: if the migrator is the same identity that ran step 1's block,
-PostgreSQL 16+ already gave it ADMIN there and refuses to grant ADMIN back to
-its own grantor. On PostgreSQL 13-15 drop the `WITH` clause — per-membership
-`INHERIT`/`SET` arrived in 16, and before that a membership simply carries the
-member's privileges.
-
-```bash
-docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
-  migrate sh -c "uv run --no-dev alembic upgrade heads"
-```
-
-Skip the upgrade only if the dump came from the running release. Running it
-anyway is a no-op on a database already at head.
-
-**2c. Normalize the fixed-group memberships.**
-
-Run these whatever step 1 did, and run them before adoption. They are needed
-outright when the roles were rebuilt by hand, and still needed after a globals
-replay from a PostgreSQL 13-15 cluster: those dumps carry plain grants, which
-pick up the target server's defaults rather than the control inherit-only and
-writer/sandbox/tile SET-only shapes adoption requires. Adoption refuses a wrong
-shape rather than rewriting somebody else's grant, so leaving one here stops 2d
-before it starts. Re-issuing them is a no-op when they already match.
-
-First clear every membership row the replay restored, whatever grantor it
-recorded. Re-granting on top does not rewrite a restored row — on PostgreSQL
-16+ it adds a second row under your grantor and the old default-INHERIT/SET
-row survives to make 2d refuse the topology. This block is version-aware and
-safe to run on any supported release:
-
-```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-DO $$
-DECLARE m RECORD;
-BEGIN
-  FOR m IN SELECT granted.rolname AS granted_name,
-                  member.rolname AS member_name,
-                  grantor.rolname AS grantor_name
-           FROM pg_catalog.pg_auth_members AS am
-           JOIN pg_catalog.pg_roles AS granted ON granted.oid = am.roleid
-           JOIN pg_catalog.pg_roles AS member ON member.oid = am.member
-           LEFT JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = am.grantor
-           WHERE granted.rolname IN ('geolens_tenant_control',
-                                     'geolens_tenant_writer',
-                                     'geolens_tenant_sandbox',
-                                     'geolens_tile_gateway')
-  LOOP
-    IF current_setting('server_version_num')::int >= 160000
-       AND m.grantor_name IS NOT NULL THEN
-      EXECUTE format('REVOKE %I FROM %I GRANTED BY %I',
-                     m.granted_name, m.member_name, m.grantor_name);
-    ELSE
-      EXECUTE format('REVOKE %I FROM %I', m.granted_name, m.member_name);
-    END IF;
-  END LOOP;
-END $$;
-SQL
-```
-
-Then issue the canonical grants — these are the ones `.env.example` documents
-alongside `GEOLENS_RUNTIME_DB_ROLE`; substitute your own login names, and
-never give the tile login any of the first three:
-
-```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-GRANT geolens_tenant_control TO "<runtime-login>" WITH INHERIT TRUE, SET FALSE;
-GRANT geolens_tenant_writer  TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
-GRANT geolens_tenant_sandbox TO "<runtime-login>" WITH INHERIT FALSE, SET TRUE;
-GRANT geolens_tile_gateway   TO "<tile-login>"    WITH INHERIT FALSE, SET TRUE;
-SQL
-```
-
-That is the PostgreSQL 16+ form. On 13-15 there are no per-membership options,
-so drop every `WITH` clause. Leave the runtime login `INHERIT` there: it calls
-the provisioning functions directly and needs `geolens_tenant_control`'s
-`EXECUTE` to arrive by inheritance. What keeps the per-tenant roles behind a
-`SET ROLE` on those releases is the `NOINHERIT` attribute on the four fixed
-gateway roles, not anything about the login:
-
-```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-GRANT geolens_tenant_control TO "<runtime-login>";
-GRANT geolens_tenant_writer  TO "<runtime-login>";
-GRANT geolens_tenant_sandbox TO "<runtime-login>";
-GRANT geolens_tile_gateway   TO "<tile-login>";
-SQL
-```
-
-**2d. Adopt the restored tenant objects.**
-
-Replaying globals restores role definitions only. The restored tables, views,
-and sequences are all owned by whoever ran `pg_restore`, with no per-tenant
-grants on any of them, and the two SECURITY DEFINER functions that guard tenant
-provisioning come back owned by that same login. One command puts all of it back
-under the provisioning boundary:
-
-```bash
-docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
-  migrate sh -c "uv run --no-dev python -m app.core.db.tenant_adoption --apply"
-```
-
-Run it before `api`, `worker`, or tile traffic starts. Both parts of the command
-shape matter: `api`'s entrypoint runs `alembic upgrade heads` of its own accord
-before it would execute your command
-(`backend/scripts/api-entrypoint.sh`), and `api` declares `depends_on: migrate`,
-so without `--no-deps` Compose starts the `migrate` one-shot with `.env`'s
-runtime credential rather than your override. The `migrate` service has
-`entrypoint: []` and depends only on a healthy `db`, so it does exactly what you
-ask and nothing else. The migrator credential is required: the least-privilege
-runtime login in `.env` is deliberately not allowed to do any of this.
-Managed/external Postgres uses the same command with `DATABASE_URL_OVERRIDE`
-pointed at the provider. A non-superuser migrator there needs `CREATEROLE`,
-ownership of the restored objects, and the privileges of
-`geolens_tenant_provisioner`, because PostgreSQL will not hand that role
-ownership of the boundary functions otherwise; the command prints the exact
-`GRANT` if it is missing.
-
-Drop `--apply` for a read-only report of what it would change. That form exits
-non-zero while anything is still pending, so it also works as a post-restore
-check.
-
-What it does, walking `catalog.tenants` with each tenant in its own transaction:
-
-- Creates the five fixed NOLOGIN cluster roles if they are missing, and refuses
-  on an unsafe existing topology — the same validation 0019 performs.
-- Re-owns `catalog.provision_tenant_data_schema` and
-  `catalog.deprovision_tenant_data_schema` to `geolens_tenant_provisioner`, and
-  takes back the `EXECUTE` that `PUBLIC` holds after a `--no-acl` restore.
-  PostgreSQL's default for a function carrying no ACL is `EXECUTE` to `PUBLIC`,
-  so until this runs both functions are SECURITY DEFINER, owned by the restoring
-  superuser, and callable by every login in the database. It never installs a
-  function body — the migrations own those, and adoption refuses if either
-  function is absent or is not the migration-installed shape.
-- Transfers the tenant schema to the provisioner, calls the guarded
-  provisioning function to recreate the reader/writer roles and their SET-only
-  gateway memberships, moves every restored relation, routine and type to the
-  per-tenant writer, and has that writer grant the paired reader `SELECT`.
-- Rewrites only the grants it made itself. A pre-existing anomaly — a membership
-  some third party granted, a default-privilege entry owned by a role it cannot
-  act as, a `SECURITY DEFINER` or untrusted-language routine in a tenant schema
-  — is reported with the exact statement to run and the role to run it as, and
-  that tenant is left for the next run. The automatic membership PostgreSQL
-  gives a role's creator is tolerated only for the login running adoption. On
-  any other login it is refused — `ADMIN` alone lets that login grant itself a
-  usable edge — and the report names the remedy: `DROP ROLE` the retired
-  login, or revoke the membership as its recorded grantor.
-
-The end state is the one migration 0019 produced. Idempotence is keyed on
-database state rather than on a marker or a timestamp: a tenant already in that
-shape issues no DDL at all, so re-running is safe and a run interrupted partway
-is resumed by running it again. A tenant that refuses is named in the report
-while the rest continue, and adopted tenants stay adopted.
-
-**What it does not do.** Reapply the runtime login grants from `.env.example`
-afterwards; those login credentials are deliberately not stored in the database
-dump. Enabling and FORCEing row-level security stays the API's job at boot
-(`apply_tenancy_rls`), and adoption does not turn it on for you. It does refuse
-to report a clean database while any boundary table on a control plane that has
-tenants is missing it, and while any table has row security enabled without
-`FORCE` — the table owner bypasses a policy that is not FORCEd. Which tables
-those are is read from the live insert-stamping triggers rather than from a list
-frozen into a migration, so a table that joined the boundary after 0018 is
-visible here, and a trigger left DISABLED by a restore is reported rather than
-counted. Object storage is a separate artifact; see step 0 of the full restore
-below.
-
-A dump carries row-security state, so a source cluster that was already
-enforcing it restores with it still on.
-
-**2e. Re-apply the runtime grants.**
-
-`--no-acl` drops them and this recipe does not run `scripts/restore.sh`, which
-is what normally re-applies them. The same privileged reconciler the bootstrap
-and restore paths use lives in the `db` container:
-
-```bash
-docker compose exec -T db /usr/local/bin/configure-runtime-db-role
-```
-
-The script is mounted into the bundled `db` container, so there is nothing to
-exec into on managed/external Postgres. A provider snapshot or PITR restore
-keeps its ACLs, so the grants come back with it and this step does not apply; a
-logical `pg_restore --no-acl` into a managed instance does not, and there the
-equivalent is to replay the grants from `.env.example` by hand — see the
-single-tenant runtime-role section above for exactly which ones.
-
-Then check it took, the way `restore.sh` does — a reader without schema access
-breaks every read-only consumer silently:
-
-```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
-  "SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');"
-```
-
-**2f. Let the tile login connect.**
-
-Unconditional, and after 2e: that reconciler revokes `PUBLIC CONNECT`
-and grants it back to the current, migration and runtime roles only, in every
-path, so the tile login cannot reach the database at all after a restart without
-this — including when a globals replay restored everything else about it:
+If `TILE_DATABASE_URL_OVERRIDE` names a separate tile login, admit it to the
+database again before serving tiles. The reconciler revokes `PUBLIC CONNECT`
+in every path, and the database on a new cluster holds no named grant for that
+login. With `$POSTGRES_USER` and `$POSTGRES_DB` set as in step 1:
 
 ```bash
 docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
@@ -900,58 +635,6 @@ docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
 GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
 ```
-
-**2g. Give the temporary privileges back.**
-
-Only if you granted them in 2b. Adoption manages its own borrow when it has to
-take one, and hands that back on its own; these two are yours, and left in place
-they are a standing `CREATE` on `catalog` for the provisioner and a membership
-that makes the next recovery refuse under a rotated migrator credential:
-
-```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-REVOKE CREATE ON SCHEMA catalog FROM geolens_tenant_provisioner;
-REVOKE geolens_tenant_provisioner FROM "<migrator-role>";
-SQL
-```
-
-Then start the services again:
-
-```bash
-docker compose start api worker backup
-```
-
-And verify by hand: the API login can `SET ROLE` to one tenant writer/reader,
-the tile login can set only that tenant reader, and neither login owns catalog
-RLS tables or a `data_t_*` schema. The backend re-checks the runtime login at
-boot (`assert_multi_tenant_runtime_role`) and refuses to start on an unsafe
-role, so a misconfigured restore fails loudly rather than serving cross-tenant
-data.
-
-#### Do not reach for `alembic downgrade 0016`
-
-Until this command existed, downgrading below 0019 and coming back up was the
-only way to reach that migration's adoption pass. It is not a supported
-recovery path, and it is no longer necessary. It walks back through
-every migration between head and 0019, and several of them either refuse on data
-the current schema legitimately holds or discard state the re-upgrade cannot
-rebuild:
-
-| Migration | What its `downgrade()` does |
-|---|---|
-| 0030 | **Refuses** while any `catalog.records` row holds a MULTIPOLYGON `spatial_extent` — i.e. any antimeridian-crossing footprint, which the current schema exists to store |
-| 0029 | **Refuses** while any API key carries an expiry or any user's `key_epoch` has been bumped. Dropping `api_keys.expires_at` and both `key_epoch` columns would turn time-limited keys into permanent ones and un-revoke keys a `key_epoch` bump had invalidated; the error message lists the affected keys and the SQL that revokes them |
-| 0027 | **Refuses** while any dataset uses a `parquet`, `json`, `xlsx`, or `xls` source format — all currently supported |
-| 0022 | **Discards** `tenant_id` on `catalog.audit_logs` and `catalog.ingest_jobs`. The re-upgrade re-derives it from each row's live parent, so rows whose parent is gone lose tenant attribution permanently |
-| 0021, 0020 | **Refuse** when two tenants share a collection name, OAuth subject, or `datasets.table_name` — all legal under the current per-tenant scoping |
-
-The refusals are correct: forcing them would corrupt the restored data. And a
-failed downgrade is not recoverable in place. Several of these migrations do
-index work inside Alembic's `autocommit_block()` (0020, 0021 and 0022 among
-them), which commits the DDL preceding it, so a refusal at 0021 leaves you past
-0022's discards with no transaction to undo them — drop the database and start
-over from the dump. Step 2 above touches none of that: it runs forward, at head,
-and never moves the schema version.
 
 ### Step-by-step: full restore (DB + object storage)
 
@@ -996,8 +679,9 @@ directory as the dump — here `./restore`). For the staging archive it prints t
 `docker run` line above with the real paths filled in; copy the printed command
 from the restore output rather than hand-editing it. For the globals dump it
 reports, **before** anything destructive runs, which roles the target cluster is
-missing — replay it first if that list is non-empty, following the role
-reconstruction procedure earlier in this section.
+missing — replay it first if that list is non-empty, following
+[Role reconstruction after a fresh-cluster restore](#role-reconstruction-after-a-fresh-cluster-restore)
+earlier in this section.
 
 ### Finding the dump to restore
 
@@ -2068,13 +1752,8 @@ docker compose up -d --wait --scale backup=0
 #    If the shell that ran step 1 is gone, $DUMP is unset — pick the newest
 #    verified dump explicitly:
 #      ls -t ./backups/pre-upgrade/*.dump | head -1
-# If catalog.tenants has rows, restore.sh is not the whole recipe — it
-# restarts api and worker on a database whose tenant objects are still owned by
-# the restore login. Use §2's stop / restore / adopt sequence instead, and run
-#   docker compose run --rm --no-deps -e DATABASE_URL_OVERRIDE="<migrator-url>" \
-#     migrate sh -c "uv run --no-dev python -m app.core.db.tenant_adoption"
-# afterwards: without --apply it changes nothing and exits non-zero while
-# anything is still pending.
+# If catalog.tenants has rows, restore.sh is not the whole recipe: follow the
+# Cloud overlay's own restore runbook for this step instead.
 ./scripts/restore.sh "$DUMP"
 
 # 5. Bring the backup service up now that the cluster holds real data, and
@@ -2093,11 +1772,6 @@ docker compose up -d --wait
 docker compose exec db psql -U geolens -c 'select version();'
 curl -fsS http://localhost:8080/api/health
 ```
-
-Deployments with tenant isolation enabled: after the fresh-cluster restore,
-rebuild the tenant data-plane roles exactly as documented in the
-role-reconstruction subsection of section 2 before starting API, worker, or
-tile traffic.
 
 ### Managed / external Postgres mode
 

@@ -386,7 +386,7 @@ backup_staging() {
 }
 
 # ---------------------------------------------------------------------------
-# fix(#995): cluster globals (roles + cluster-wide grants)
+# Cluster globals (roles + cluster-wide grants)
 # ---------------------------------------------------------------------------
 # Writes globals-<timestamp>.sql next to the dump, same timestamp so a restore
 # can pair them. Prints the path on stdout (consumed by run_backup); all human
@@ -396,7 +396,8 @@ backup_staging() {
 # verifiers; under the default 022 umask the file lands world-readable in the
 # backup volume and, with BACKUP_S3_ENABLED=true, in the bucket. The subshell
 # scopes the umask to the redirect that creates the file and nothing else —
-# this is the form RUNBOOK § "Multi-tenant role reconstruction" documents.
+# this is the form RUNBOOK § "Role reconstruction after a fresh-cluster restore"
+# documents.
 #
 # Unlike backup_staging there is no salvageable partial: a truncated globals
 # file replays as a partial set of roles, which is worse than none, so any

@@ -151,7 +151,7 @@ if [ -n "$_globals_dump" ]; then
             echo "           ${_missing_roles}"
             echo "         Replay them BEFORE continuing, or restored objects will carry"
             echo "         neither their owners nor their grants (RUNBOOK.md"
-            echo "         §\"Multi-tenant role reconstruction after a fresh-cluster restore\"):"
+            echo "         §\"Role reconstruction after a fresh-cluster restore\"):"
             echo ""
             echo "           docker compose exec -T db psql -U \"\$POSTGRES_USER\" -d postgres \\"
             echo "             < ${_globals_dump}"
