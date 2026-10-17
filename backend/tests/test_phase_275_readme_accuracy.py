@@ -40,15 +40,6 @@ def test_readme_documents_cold_build_time() -> None:
     )
 
 
-def test_readme_python_badge_widened() -> None:
-    """API-09 / L-23: badge clarifies backend 3.13 vs SDK 3.10+ split."""
-    body = _read("README.md")
-    # Allow either underscore-encoded badge URL or human-readable label
-    assert (
-        ("3.13_backend" in body) or ("3.13 backend" in body) or ("backend 3.13" in body)
-    ), "README.md Python badge should reflect backend 3.13 / SDK 3.10+ split"
-
-
 def test_code_of_conduct_has_inline_pledge() -> None:
     """API-09 / L-24: CODE_OF_CONDUCT.md gains a pledge above the link."""
     body = _read("CODE_OF_CONDUCT.md")

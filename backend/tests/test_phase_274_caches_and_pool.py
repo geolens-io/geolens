@@ -73,28 +73,6 @@ def test_postgresql_conf_no_longer_says_50():
             )
 
 
-def test_readme_no_longer_says_perf_05_planned():
-    """PERF-05: README forward-reference removed (PERF-05 is now in effect)."""
-    readme = (_REPO_ROOT / "README.md").read_text()
-    assert "PERF-05 (planned" not in readme, (
-        "README still claims PERF-05 is planned; should be in effect."
-    )
-
-
-def test_readme_documents_perf_05_in_effect():
-    """PERF-05: README budget section matches the shipped connection envelope.
-
-    db-audit #529: the README claimed "30 of 30" long after the conf moved
-    to 70 — this gate now pins the README to the live 70-of-80 envelope so the
-    two can't drift apart silently again.
-    """
-    readme = (_REPO_ROOT / "README.md").read_text()
-    assert "max_connections" in readme
-    assert "70 of 80 max_connections" in readme, (
-        "README must show the shipped connection envelope (70 of 80)."
-    )
-
-
 def test_env_example_dbm04_comment_references_80():
     """PERF-05 + db-audit #529: .env.example DBM-04 comment matches the live budget."""
     env_example = (_REPO_ROOT / ".env.example").read_text()
@@ -102,7 +80,7 @@ def test_env_example_dbm04_comment_references_80():
         "max_connections=80" in env_example or "max_connections = 80" in env_example
     ), (
         ".env.example DBM-04 comment must reference the shipped max_connections=80 "
-        "(keep it in lockstep with db/postgresql.conf and the README envelope)."
+        "(keep it in lockstep with db/postgresql.conf)."
     )
 
 

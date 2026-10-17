@@ -7,9 +7,8 @@ tooling* out of this public repo (see "Where the tooling lives" below).
 
 ## Current set
 
-The README hero plus a six-step Find -> Inspect -> Ask your data -> Build ->
-Ask AI -> Operate story. Displayed at `width="900"`; the five `capture:readme`
-shots are 1600×900 sources. Use PNG for UI shots (crisp text) and JPG for photographic 3D terrain
+The README hero at full width, then an eight-tile tour in a two-column table,
+each tile at half width. The five `capture:readme` shots are 1600×900 sources. Use PNG for UI shots (crisp text) and JPG for photographic 3D terrain
 (smaller). Files with a `-dark` sibling are light/dark pairs wired into the
 README via `<picture>` + `prefers-color-scheme` so GitHub serves the right
 variant per theme.
@@ -19,11 +18,12 @@ variant per theme.
 | `geolens-manhattan-3d-hero.jpg` | Hero | Manhattan footprints extruded to roof height, colored by era, with the layer editor open | **Manhattan - A Century of Skyline** map, Buildings (3D) layer selected |
 | `geolens-search.png` | Find | Semantic search: "tallest peaks in Europe" finds the Matterhorn terrain model with zero word overlap | Public catalog (logged out), search `tallest peaks in Europe` (1 result) |
 | `geolens-dataset.png` | Inspect | Dataset map preview + typed metadata over a dense point cloud | **Significant Volcanic Eruptions** dataset detail (900 points, NOAA NCEI) |
+| `source-panel-service.png` | Source state | Source panel of a WFS import: owned copy, health inaccessible, freshness overdue, schema drift detected | Fixture dataset `sample` from `data.example.test`; a capture from the seeded stack would read better |
 | `geolens-dataset-chat{,-dark}.png` | Ask your data | Dataset Q&A in natural language: question -> answer + result table -> open in builder | **Meteorite Landings** detail, Ask AI: "How many meteorites were seen falling versus found later?" |
 | `geolens-matterhorn-terrain.jpg` | Build | Matterhorn 3D terrain mesh + layer stack + legend | **The Matterhorn in 3D** map |
 | `geolens-ai-labels.png` | Ask AI | AI editing a map in natural language | **Restless Earth** map, Ask AI: "Label the volcanoes with their names" |
 | `geolens-admin-overview{,-dark}.png` | Operate | Admin overview: live health panel, dataset/storage totals, AI status | Admin -> Overview, seeded demo users |
-| `geolens-admin-users{,-dark}.png` | — (announcements) | Admin user management: roles, status, quotas, CSV export | Admin -> Users; not embedded in the README — kept here as a stable public URL for announcement posts |
+| `geolens-admin-users{,-dark}.png` | Users | Admin user management: roles, status, quotas, CSV export | Admin -> Users, seeded demo users; also used as a stable public URL in announcement posts |
 
 ## Seeding the data
 
@@ -87,7 +87,8 @@ the gate fails on an unpinned file rather than ignoring it.
 
 ## Capture notes
 
-- The recipe captures at 1600×900 and the README renders at `width="900"`.
+- The recipe captures at 1600×900; the README renders the hero at full width
+  and tour tiles at half width.
   The five `capture:readme` shots are committed at exactly that size
   (recaptured 2026-08-15), and `check-readme-assets.mjs` pins them there.
   Optionally strip/optimize before committing (e.g. `magick in.png -strip out.png`;
