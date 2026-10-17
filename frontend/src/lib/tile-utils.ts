@@ -140,7 +140,7 @@ export function isMvtSourceLayerConfigReady(
  * `extraCols` (2026-05-18): runtime opt-in column names that any
  * layer rendering from this source needs at all zoom levels —
  * typically data-driven styling columns (`style_config.column`,
- * heatmap weight column, etc.). Without these, 's
+ * heatmap weight column, etc.). Without these, the
  * z<10 attribute budget strips the data from MVT tiles and
  * data-driven paint expressions fall to their default branch.
  * Names are joined with a comma and sorted for cache-key stability;

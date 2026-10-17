@@ -42,7 +42,7 @@ type UrlStep =
  *
  * `JobStatusResponse.status` is pending | running | complete | failed |
  * cancelled | fanned_out. Reset has to be reachable from EVERY terminal
- * state (the r22 invariant), and r22 satisfied that by listing the terminal
+ * state (the reset invariant), and the original check satisfied that by listing the terminal
  * statuses that existed then — so when #1709 made `cancelled` reachable for
  * an import job, a cancelled URL import pinned this tab to a finished job
  * with no way to start another. Neither PR could see it alone: #1709's
@@ -317,7 +317,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   }, [step, jobId, trackedJob, runPreview, t]);
 
   // SUBSCRIBE to the commit rather than sampling a
-  // flag. r20 stored a boolean set before the await, so a mount arriving
+  // flag. An earlier version stored a boolean set before the await, so a mount arriving
   // mid-commit read "committed" and entered tracking; a commit that then
   // failed flipped the flag back at module scope while this component kept
   // polling a job that was still pending and previewable. Awaiting the
@@ -395,8 +395,8 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     // with `previewing` and then UNCONDITIONALLY with `review`, which
     // re-enabled Start Over and the commit button against a request that
     // cannot be recalled — orphaning the queued job, or offering a second
-    // commit for one already started. Same cell of the r22 table as reset;
-    // the event axis, not the state axis, was what that round missed.
+    // commit for one already started. Same cell of the lifecycle table as reset;
+    // the event axis, not the state axis, is what this guards.
     if (!jobId || commitInFlight) return;
     setStep('previewing');
     setError(null);
@@ -430,8 +430,8 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
       // Registered BEFORE the await, so an unmount
       // mid-commit still leaves a session that resumes into tracking. The
       // `committed` flag is what stops a remount from re-previewing a job
-      // the API would refuse with 400 — clearing the session here (r19)
-      // is what made the tracking phase unresumable in the first place.
+      // the API would refuse with 400 — clearing the session here, as an
+      // earlier version did, is what made the tracking phase unresumable in the first place.
       const commitPromise = commitImport(
         jobId,
         layerName ? { ...metadata, layer_name: layerName } : metadata,

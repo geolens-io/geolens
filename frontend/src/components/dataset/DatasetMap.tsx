@@ -285,7 +285,7 @@ export const DatasetMap = memo(function DatasetMap({
 
   // Generic datasets use the GEOMETRY sentinel for
   // BOTH drawing and rendering — use-map-layers installs all-family
-  // renderers for it (r21), so a point-only generic sketch still renders a
+  // renderers for it, so a point-only generic sketch still renders a
   // line drawn in the same visit. elevationColumn above stays keyed on the
   // concrete display type (extrusion never applies to generic sketches).
   const drawGeometryType = hasGenericGeometry ? 'GEOMETRY' : geometryType;

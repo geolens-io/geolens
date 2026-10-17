@@ -177,7 +177,7 @@ describe('buildClusterTileUrl', () => {
 //      single_tenant schema == "data", hosted schema == data_t_<tid>) — pinned by
 //      `backend/tests/test_mvt_audit_fixes.py::test_get_tile_layer_name_is_schema_qualified`;
 //   2. this helper (the ONLY frontend derivation — builder map-sync, viewer
-//      ViewerMap, and use-map-layers all import it as);
+//      ViewerMap, and use-map-layers all import it);
 //   3. the exported style.json `_mvt_source_layer` (backend style_json.py).
 // Tile-config supplies the server-resolved hosted prefix to the frontend.
 // ---------------------------------------------------------------------------

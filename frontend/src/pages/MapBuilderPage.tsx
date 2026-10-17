@@ -1824,7 +1824,7 @@ export function MapBuilderPage() {
   // Column 2: LayerEditorPanel flyout (380px, only when layer selected AND viewport >= 800px)
   // Column 3 (or 2 when no editor): map canvas (1fr)
   //
-  // sidebar/editor widths are fixed and
+  // Sidebar/editor widths are fixed and
   // breakpoint-driven BY DESIGN — no user drag-resize, no persisted width.
   // The three-column budget is tuned per breakpoint (340/380px columns keep
   // the map ≥50% at 1280px) and a resizable panel would invalidate the
@@ -2043,7 +2043,7 @@ export function MapBuilderPage() {
             aria-label={t('layerEditor.tabsLabel')}
             className="border-e bg-background flex flex-col overflow-hidden"
             onKeyDown={(e) => {
-              // Escape closes the desktop editor flyout
+              // Escape closes the desktop editor flyout;
               // the <800px Sheet gets this from Radix for free. Only fires when
               // focus is inside the flyout; nested Radix popovers/selects portal
               // to <body>, so an open picker's Escape never reaches this aside.

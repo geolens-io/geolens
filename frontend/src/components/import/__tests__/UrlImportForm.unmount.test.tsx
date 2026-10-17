@@ -174,7 +174,7 @@ describe('UrlImportForm unmount survival', () => {
   });
 
   test('unmounting mid-commit resumes into tracking, not a blank form', async () => {
-    // r19 covered fetch+preview but cleared the
+    // An earlier version covered fetch+preview but cleared the
     // session on commit success, so an unmount while commitImport() was in
     // flight wrote `tracking` into a dead component and left the user with
     // a blank form on return — while the ingest was really running.
@@ -202,7 +202,7 @@ describe('UrlImportForm unmount survival', () => {
     await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
 
     // The user switches tabs while the commit is still in flight, and
-    // comes back BEFORE it settles — the r21 case: there is no outcome to
+    // comes back BEFORE it settles — the mid-commit case: there is no outcome to
     // sample yet, so the mount must subscribe.
     view.unmount();
     expect(peekUrlImport()?.commit).not.toBeNull();

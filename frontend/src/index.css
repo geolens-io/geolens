@@ -55,8 +55,8 @@
   --muted-foreground: oklch(0.45 0.005 250);
   --accent: oklch(0.97 0.003 85);
   --accent-foreground: oklch(0.205 0.005 250);
-  /* fix(#441): darkened from 0.577 like the semantic status colors below —
-   * 's soft badge recipe puts text-destructive on a bg-destructive/10
+  /* Darkened from 0.577 like the semantic status colors below. The soft
+   * badge recipe puts text-destructive on a bg-destructive/10
    * tint, which measured 3.89:1 at the stock value. Now 4.95:1 on the /10
    * tint and 5.96:1 for white-on-solid (buttons). */
   --destructive: oklch(0.50 0.245 27.325);

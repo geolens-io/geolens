@@ -29,7 +29,7 @@ import type { CommitImportResponse, UrlUploadKind, UploadResponse } from '@/type
  * flag a mount samples. Outcomes are delivered to whatever is mounted when
  * they resolve, and captured here when nothing is.
  *
- * The distinction is not stylistic. r20 recorded the commit as a boolean
+ * The distinction is not stylistic. An earlier version recorded the commit as a boolean
  * set before its await, so a mount arriving mid-commit sampled "committed"
  * and entered job tracking; if the commit then failed, the module flipped
  * the flag back but the mounted component never learned, and it polled a
@@ -38,8 +38,8 @@ import type { CommitImportResponse, UrlUploadKind, UploadResponse } from '@/type
  * arrives.
  *
  * Phase by phase:
- *   - fetch  — `promise`, subscribed by every mount (r19).
- *   - commit — `commit`, subscribed by every mount (r21).
+ *   - fetch  — `promise`, subscribed by every mount.
+ *   - commit — `commit`, subscribed by every mount.
  *   - preview — deliberately NOT stored. It is re-derived from `jobId` on
  *     each mount and is idempotent while the job is `pending`, so it has
  *     the same property by construction: nothing is sampled, and there is
@@ -63,7 +63,7 @@ export interface UrlImportSession {
    * A promise, not a boolean. A mount that arrives
    * while this is in flight subscribes and learns the real outcome —
    * success moves to tracking, failure returns to review with the job
-   * still previewable. See the INVARIANT above for why the r20 boolean
+   * still previewable. See the INVARIANT above for why the earlier boolean
    * could not express that.
    */
   commit: Promise<CommitImportResponse> | null;
@@ -200,7 +200,7 @@ export function peekUrlImport(): UrlImportSession | null {
 /*
  * `urlImportIsUncancellable()` was removed here.
  *
- * It was written for the r22 reset guard, never imported, and it could not
+ * It was written for the reset guard, never imported, and it could not
  * have served that guard correctly: `commit != null` means "a commit was
  * ever ISSUED", which stays true through job tracking, where reset must
  * work. The session cannot tell an in-flight commit from a settled one —
@@ -215,7 +215,7 @@ export function peekUrlImport(): UrlImportSession | null {
  * reset, or starting another.
  *
  * Deliberately NOT called on commit success any more.
- * r19 cleared it there, which is exactly what made the tracking phase
+ * An earlier version cleared it there, which is exactly what made the tracking phase
  * unresumable: the job was running, the user had nothing to look at, and
  * the id was gone. The `commit` promise now carries that phase instead, so
  * the session survives into tracking and is released when the flow ends.

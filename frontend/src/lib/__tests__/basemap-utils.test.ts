@@ -532,7 +532,7 @@ describe('applyBasemapConfigToStyle master opacity', () => {
   });
 
   it('opacity=1 writes absolute 1.0 so previously-dimmed values are reset (CR-01)', () => {
-    // After, master opacity is always absolute (never multiplicative
+    // Master opacity is always absolute (never multiplicative
     // against live paint). At opacity=1 we write 1.0 explicitly so the map-sync
     // diff loop can reset any previously-stamped value back to MapLibre default.
     // Without this, a slider drag down then back up would leave the basemap

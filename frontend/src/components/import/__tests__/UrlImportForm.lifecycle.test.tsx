@@ -1,8 +1,8 @@
 /**
  * The URL-import lifecycle as a state machine.
  *
- * Four consecutive review rounds landed on this component, each a single
- * cell of the same table being wrong. These tests are written against the
+ * Several past bugs in this component were each a single cell of the
+ * same table being wrong. These tests are written against the
  * table rather than against the individual findings, so the next change has
  * to keep every transition true, not just the one it was aiming at.
  *
@@ -11,8 +11,8 @@
  * Events: mount · unmount · reset · commit resolve · commit reject ·
  *         job reaches terminal · layer change · commit submit
  *
- * The last two events are the ones r22 missed. Its
- * state axis was right and its event axis was a list of remembered events,
+ * The last two events are the ones an earlier version of these tests
+ * missed. Its state axis was right and its event axis was a list of remembered events,
  * so `committing × layer-change` was simply absent. The axis is now taken
  * from the component's RENDERED CONTROLS instead: every control that can
  * mutate `step`, the module session, or an in-flight request is an event
@@ -117,7 +117,7 @@ const VECTOR_PREVIEW = {
   layer_name: 'roads',
   layers: null,
 };
-// Only a MULTI-layer container renders the layer picker, so the r24 cell is
+// Only a MULTI-layer container renders the layer picker, so the layer-change cell is
 // unreachable without one.
 const MULTI_LAYER_PREVIEW = {
   ...VECTOR_PREVIEW,
@@ -227,7 +227,7 @@ describe('URL import lifecycle', () => {
     );
   });
 
-  // ── r24: the two events the r22 axis never had ──
+  // ── the two events the state axis never covered ──
 
   // The counterfactual for the test below: with nothing in flight the picker
   // is enabled and this exact event DOES re-preview. So when the same event
@@ -356,7 +356,7 @@ describe('URL import lifecycle', () => {
     expect(mockUploadFromUrl).toHaveBeenCalledTimes(2);
   });
 
-  // ── r25: `cancelled` became reachable when #1709 shipped job cancellation ──
+  // ── `cancelled` became reachable once job cancellation shipped ──
   test.each([
     ['cancelled', 'an admin cancelled the job from the job list'],
     ['fanned_out', 'a terminal status this flow should not reach, handled anyway'],
@@ -371,7 +371,7 @@ describe('URL import lifecycle', () => {
     );
 
     // JobProgress renders an action block only for complete/failed, so before
-    // r25 this state had NO control at all and pinned the tab for the rest of
+    // the fix this state had NO control at all and pinned the tab for the rest of
     // the SPA session.
     expect(
       within(screen.getByTestId('job-progress')).queryByRole('button'),

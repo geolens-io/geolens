@@ -1,9 +1,9 @@
 /**
  * An unknown row-count delta is not zero.
  *
- * `row_count_delta` became nullable in r24, because coercing an unknown count
- * to 0 invented a delta the size of whichever side was known. r26 found the
- * other half of that in this component: `?? 0` turned the deliberately null
+ * `row_count_delta` is nullable because coercing an unknown count
+ * to 0 invented a delta the size of whichever side was known. The other half
+ * of that was in this component: `?? 0` turned the deliberately null
  * delta back into zero, so a re-upload whose row count nobody had established
  * reported "No schema changes detected" whenever the columns matched.
  *

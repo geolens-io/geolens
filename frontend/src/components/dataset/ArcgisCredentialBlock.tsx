@@ -99,7 +99,7 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
   const [signInError, setSignInError] = useState<string | null>(null);
   // Bookkeeping only for the raw value; a ref avoids an extra re-render
   // on every mint/clear. Still explicitly cleared alongside the token
-  // itself (, P2).
+  // itself.
   const expiresAtRef = useRef<string | null>(null);
   // Distinct from `signInError` -- an expiry is not a
   // rejected sign-in, it is a credential that WAS valid going stale while

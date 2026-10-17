@@ -339,8 +339,7 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.rateLimited' });
   });
 
-  // The
-  // limiter's own message names the ArcGIS account, not GeoLens or the
+  // The limiter's own message names the ArcGIS account, not GeoLens or the
   // portal (the limit is keyed on the target account: three attempts per
   // fifteen minutes per ArcGIS account shared across all GeoLens users,
   // plus three per GeoLens user and portal). The fallback below does not

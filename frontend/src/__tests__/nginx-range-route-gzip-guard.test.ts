@@ -36,7 +36,7 @@ const RANGE_SERVING_PATHS = [
 
 // Routes that serve exactly one representation and no ranges. They must KEEP
 // compressing: #1540 fixed this same splice by excluding a media type, and
-// #1532 r11 had to undo that when it silenced compression on unrelated JSON and
+// that fix had to be undone when it silenced compression on unrelated JSON and
 // CSV endpoints. Without these, "turn gzip off everywhere" passes the test.
 const COMPRESSIBLE_PATHS = [
   '/api/collections/roads/items',
