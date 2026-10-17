@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
@@ -57,6 +57,7 @@ export function CreateDatasetDialog({ open, onOpenChange }: CreateDatasetDialogP
   const [title, setTitle] = useState('');
   const [columns, setColumns] = useState<ColumnRow[]>(() => [createEmptyColumn()]);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const focusColumnId = useRef<number | null>(null);
 
   const isDirty =
     title.trim() !== '' || columns.some((c) => c.name.trim() !== '' || c.type !== 'text');
@@ -88,8 +89,18 @@ export function CreateDatasetDialog({ open, onOpenChange }: CreateDatasetDialogP
   }, [open]);
 
   function addColumn() {
-    setColumns((prev) => [...prev, createEmptyColumn()]);
+    const column = createEmptyColumn();
+    focusColumnId.current = column.id;
+    setColumns((prev) => [...prev, column]);
   }
+
+  useEffect(() => {
+    if (focusColumnId.current === null) return;
+    const input = document.getElementById(`column-name-${focusColumnId.current}`);
+    focusColumnId.current = null;
+    input?.scrollIntoView({ block: 'nearest' });
+    input?.focus();
+  }, [columns]);
 
   function removeColumn(id: number) {
     setColumns((prev) => prev.filter((c) => c.id !== id));
@@ -143,65 +154,73 @@ export function CreateDatasetDialog({ open, onOpenChange }: CreateDatasetDialogP
   return (
     <>
       <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : requestClose())}>
-        <DialogContent className="sm:max-w-lg" showCloseButton={!createMutation.isPending}>
+        <DialogContent
+          className="sm:max-w-lg max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)]"
+          showCloseButton={!createMutation.isPending}>
           <DialogHeader>
             <DialogTitle>{t('create.title')}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="dataset-title">{t('create.datasetTitle')}</Label>
-              <Input
-                id="dataset-title"
-                placeholder={t('create.datasetTitlePlaceholder')}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>{t('create.columns')}</Label>
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-col gap-4">
+            <div
+              data-testid="create-dataset-body"
+              className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1"
+            >
               <div className="space-y-2">
-                {columns.map((col) => (
-                  <div key={col.id} className="flex items-center gap-2">
-                    <Input
-                      placeholder={t('create.columnName')}
-                      value={col.name}
-                      onChange={(e) => updateColumn(col.id, 'name', e.target.value)}
-                      className="flex-1"
-                    />
-                    <Select
-                      value={col.type}
-                      onValueChange={(v) => updateColumn(col.id, 'type', v)}
-                    >
-                      <SelectTrigger className="w-32" aria-label={t('create.columnType')}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {typeOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeColumn(col.id)}
-                      disabled={columns.length <= 1}
-                      aria-label={t('create.removeColumn')}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
+                <Label htmlFor="dataset-title">{t('create.datasetTitle')}</Label>
+                <Input
+                  id="dataset-title"
+                  placeholder={t('create.datasetTitlePlaceholder')}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  required
+                />
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={addColumn}>
-                <Plus className="h-4 w-4 me-1" />
-                {t('create.addColumn')}
-              </Button>
+
+              <div className="space-y-2">
+                <Label>{t('create.columns')}</Label>
+                <div className="space-y-2">
+                  {columns.map((col) => (
+                    <div key={col.id} className="flex items-center gap-2">
+                      <Input
+                        id={`column-name-${col.id}`}
+                        placeholder={t('create.columnName')}
+                        value={col.name}
+                        onChange={(e) => updateColumn(col.id, 'name', e.target.value)}
+                        className="flex-1"
+                      />
+                      <Select
+                        value={col.type}
+                        onValueChange={(v) => updateColumn(col.id, 'type', v)}
+                      >
+                        <SelectTrigger className="w-32" aria-label={t('create.columnType')}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {typeOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeColumn(col.id)}
+                        disabled={columns.length <= 1}
+                        aria-label={t('create.removeColumn')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addColumn}>
+                  <Plus className="h-4 w-4 me-1" />
+                  {t('create.addColumn')}
+                </Button>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2">

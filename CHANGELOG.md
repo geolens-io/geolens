@@ -46,6 +46,9 @@ and releases use semantic versioning.
 - A dataset made with Create Dataset accepts dates in feature writes. It
   stored its column types in upper case (`DATE`), which the write path didn't
   recognise, so `POST /datasets/{id}/features/` with a date value got a 400.
+- The Create Dataset dialog fits short windows. The title, column list and Add
+  Column button scroll while the Cancel and Create Dataset buttons stay in view,
+  and Add Column scrolls the new row into view and focuses its name field.
 - Closing the Create Dataset dialog with Escape, an outside click, the close
   button or the new Cancel button asks before throwing away what you entered.
   An empty form and a successful create still close straight away.
