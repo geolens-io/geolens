@@ -17,6 +17,18 @@ async def _table_and_info(session, dataset_id: str) -> tuple[str, list[dict]]:
     return row.table_name, row.column_info
 
 
+async def _drop(session, dataset_id: str, table: str) -> None:
+    await session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+    await session.execute(
+        text(
+            "DELETE FROM catalog.records WHERE id = "
+            "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+        ),
+        {"id": uuid.UUID(dataset_id)},
+    )
+    await session.commit()
+
+
 async def _pg_type(session, table: str, column: str) -> str:
     return (
         await session.execute(
@@ -85,6 +97,5 @@ async def test_created_timestamp_column_matches_add_column_path(
         assert feature.status_code == 201, feature.text
         assert feature.json()["properties"]["seen_at"].startswith("2026-10-17T07:00:00")
     finally:
-        for table in (created_table, layer_table):
-            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
-        await test_db_session.commit()
+        await _drop(test_db_session, created_id, created_table)
+        await _drop(test_db_session, layer_id, layer_table)
