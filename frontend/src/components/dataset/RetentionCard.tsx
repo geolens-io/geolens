@@ -25,6 +25,9 @@ const MAX_DAYS = 3650;
 // The record types the API gives a feature table; it also requires geometry.
 const FEATURE_RECORD_TYPES = new Set(['vector_dataset', 'table']);
 
+// The names the API accepts for a retention column (DatasetRetention.validate_column).
+const PLAIN_COLUMN_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 function isTemporalType(type: string): boolean {
   const t = type.toLowerCase();
   return t === 'date' || t.startsWith('timestamp');
@@ -52,7 +55,9 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
   const mutation = useSetDatasetRetention();
   const current = dataset.retention ?? null;
   const temporalColumns = useMemo(
-    () => (dataset.column_info ?? []).filter((column) => isTemporalType(column.type)),
+    () => (dataset.column_info ?? []).filter(
+      (column) => isTemporalType(column.type) && PLAIN_COLUMN_RE.test(column.name),
+    ),
     [dataset.column_info],
   );
   const savedColumn = current?.column ?? '';

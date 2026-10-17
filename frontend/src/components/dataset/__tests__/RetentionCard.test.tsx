@@ -24,6 +24,13 @@ function feed(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
   } as DatasetResponse;
 }
 
+beforeAll(() => {
+  // jsdom lacks the pointer and scroll APIs the Radix select calls.
+  Element.prototype.hasPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
 beforeEach(() => {
   vi.mocked(setDatasetRetention).mockReset();
 });
@@ -47,6 +54,41 @@ describe('RetentionCard', () => {
     expect(screen.getByTestId('retention-status')).toHaveTextContent(
       'Keeping the last 30 days of rows, judged by seen_at.',
     );
+  });
+
+  it('offers only temporal columns whose names the API accepts', async () => {
+    const user = userEvent.setup();
+    render(
+      <RetentionCard
+        dataset={feed({
+          retention: null,
+          column_info: [
+            { name: 'Event Time', type: 'timestamp with time zone' },
+            { name: 'seen_at', type: 'timestamp with time zone' },
+          ],
+        })}
+        canEdit
+      />,
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Date column' }));
+
+    expect(screen.getByRole('option', { name: 'seen_at' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Event Time' })).not.toBeInTheDocument();
+  });
+
+  it('shows the no-column state when no temporal name is usable', () => {
+    render(
+      <RetentionCard
+        dataset={feed({
+          retention: null,
+          column_info: [{ name: 'event-time', type: 'date' }],
+        })}
+        canEdit
+      />,
+    );
+
+    expect(screen.getByText(/no date or timestamp column/)).toBeInTheDocument();
   });
 
   it('offers no form when the dataset has no temporal column', () => {
