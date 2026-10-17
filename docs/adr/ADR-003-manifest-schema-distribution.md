@@ -17,7 +17,8 @@ Anyone can read the exact installed schema with `geolens schema` or
 A second package would add a release and version-skew surface without a
 demonstrated independent consumer. The CLI is already the canonical tool for
 authoring and validating manifests, so schema changes and CLI versions ship
-together, and a wheel test locks that the schema resource is included.
+together, and a package-resource test checks that the schema ships inside
+`geolens_cli`.
 
 ## Revisit when
 
