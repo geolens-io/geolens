@@ -2240,7 +2240,7 @@ def _capabilities_10_ops(operations: dict[str, str]) -> str:
 class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
     """fix(#1770 round 36 P2, `service_endpoints.py:292`).
 
-    `_wfs_operation_hrefs` used to collect every `Get`/`Post` in the whole
+    `_operation_hrefs` used to collect every `Get`/`Post` in the whole
     capabilities document, regardless of which `ows:Operation` (or, for 1.0,
     which top-level request element) advertised it. A service hosting
     `Transaction` or `LockFeature` on a different origin from its read
@@ -2259,7 +2259,7 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
     def test_transaction_on_another_origin_is_ignored_getfeature_still_checked(
         self,
     ) -> None:
-        from app.platform.service_endpoints import _wfs_operation_hrefs
+        from app.platform.service_endpoints import _operation_hrefs, _wfs_root
 
         document = _capabilities_ows(
             {
@@ -2268,12 +2268,12 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
             }
         )
 
-        hrefs = _wfs_operation_hrefs(document.encode())
+        hrefs = _operation_hrefs(_wfs_root(document.encode()))
 
         assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
 
     def test_lockfeature_on_another_origin_is_also_ignored(self) -> None:
-        from app.platform.service_endpoints import _wfs_operation_hrefs
+        from app.platform.service_endpoints import _operation_hrefs, _wfs_root
 
         document = _capabilities_ows(
             {
@@ -2282,13 +2282,13 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
             }
         )
 
-        hrefs = _wfs_operation_hrefs(document.encode())
+        hrefs = _operation_hrefs(_wfs_root(document.encode()))
 
         assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
 
     def test_describefeaturetype_and_getpropertyvalue_are_still_checked(self) -> None:
         """Both are read operations the driver can actually issue."""
-        from app.platform.service_endpoints import _wfs_operation_hrefs
+        from app.platform.service_endpoints import _operation_hrefs, _wfs_root
 
         document = _capabilities_ows(
             {
@@ -2299,14 +2299,14 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
             }
         )
 
-        hrefs = _wfs_operation_hrefs(document.encode())
+        hrefs = _operation_hrefs(_wfs_root(document.encode()))
 
         assert f"{_FOREIGN}/describe" in hrefs
         assert f"{_FOREIGN}/value" in hrefs
 
     def test_wfs_1_0_transaction_is_ignored_getfeature_still_checked(self) -> None:
         """1.0's shape: the operation is the element, not an attribute."""
-        from app.platform.service_endpoints import _wfs_operation_hrefs
+        from app.platform.service_endpoints import _operation_hrefs, _wfs_root
 
         document = _capabilities_10_ops(
             {
@@ -2315,13 +2315,13 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
             }
         )
 
-        hrefs = _wfs_operation_hrefs(document.encode())
+        hrefs = _operation_hrefs(_wfs_root(document.encode()))
 
         assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
 
     def test_an_endpoint_outside_any_operation_is_still_checked(self) -> None:
         """Fail closed: the excluded set is who is OUT, not who is let in."""
-        from app.platform.service_endpoints import _wfs_operation_hrefs
+        from app.platform.service_endpoints import _operation_hrefs, _wfs_root
 
         document = f"""<?xml version="1.0"?>
 <WFS_Capabilities version="2.0.0"
@@ -2331,7 +2331,7 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
   </SomeUnexpectedWrapper>
 </WFS_Capabilities>"""
 
-        hrefs = _wfs_operation_hrefs(document.encode())
+        hrefs = _operation_hrefs(_wfs_root(document.encode()))
 
         assert hrefs == [f"{_FOREIGN}/wfs"]
 
@@ -2494,7 +2494,7 @@ class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
 
     `_xml_preflight` only refused a document deeper than `MAX_DOCUMENT_DEPTH`
     -- at 1,000, exactly Python's own default recursion ceiling
-    (`sys.getrecursionlimit()`) -- and `_wfs_operation_hrefs`'s tree walk was
+    (`sys.getrecursionlimit()`) -- and `_operation_hrefs`'s tree walk was
     recursive, with no depth check of its own. An otherwise recognisable WFS
     capabilities response carrying one unrelated branch nested to that depth
     passed the preflight and then blew the interpreter's own stack: an
@@ -2593,17 +2593,17 @@ class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
 
     def test_the_walk_itself_never_recurses_at_any_depth(self) -> None:
         """Pure-function pin, one level below the async pipeline: calls
-        `_wfs_operation_hrefs` directly at a depth (5,000) far past
+        `_operation_hrefs` directly at a depth (5,000) far past
         `MAX_DOCUMENT_DEPTH` -- `_xml_preflight` would refuse a document
         this deep long before this ever ran in production, but the walk's
         OWN safety must not depend on that outer gate. An explicit stack has
         no recursion depth of its own to exceed, at any nesting at all.
         """
-        from app.platform.service_endpoints import _wfs_operation_hrefs
+        from app.platform.service_endpoints import _operation_hrefs, _wfs_root
 
         document = self._document(5_000, _SVC_WFS)
 
-        hrefs = _wfs_operation_hrefs(document.encode())
+        hrefs = _operation_hrefs(_wfs_root(document.encode()))
 
         assert hrefs == [_SVC_WFS]
 
@@ -2627,7 +2627,7 @@ class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
     async def test_one_level_over_the_budget_is_refused_by_the_preflight(
         self, monkeypatch
     ) -> None:
-        """Refused before `_wfs_operation_hrefs` ever runs -- `_xml_preflight`
+        """Refused before `_operation_hrefs` ever runs -- `_xml_preflight`
         (inside `fetch_document`/`require_decodable`) trips first, on the
         document's raw bytes, with no tree built at all.
         """

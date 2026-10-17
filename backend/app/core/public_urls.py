@@ -323,14 +323,6 @@ def _request_origin_decision(request: Request | None) -> tuple[str | None, bool]
     return candidate, False
 
 
-def _request_origin(request: Request | None) -> str | None:
-    """The allowlist-approved request origin, or None. See
-    :func:`_request_origin_decision` for why callers that fall back to
-    anything else need the two-value form instead."""
-    origin, _rejected = _request_origin_decision(request)
-    return origin
-
-
 def resolve_public_api_url(
     app_url: str | None,
     api_url: str | None,

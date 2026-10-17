@@ -391,16 +391,6 @@ def load_api_key(instance: str) -> Optional[ApiKey]:
         return None
 
 
-def load_refresh_token(instance: str) -> Optional[str]:
-    """Tolerant: a keyring read failure degrades to "not found." See
-    ``load_refresh_token_strict()`` for the pairing check's own
-    three-state read, which must NOT make this mistake."""
-    try:
-        return load_refresh_token_strict(instance)
-    except KeyringCredentialUnreadable:
-        return None
-
-
 def load_refresh_token_strict(instance: str) -> Optional[str]:
     """Three-state STRICT refresh-token read (fix(#1778 round 32)):
     returns the stored value, ``None`` if genuinely absent, or raises
@@ -1409,12 +1399,12 @@ def _detect_credential_backend(instance: str) -> bool:
     """Return True (no_keyring=True / file backend) if the refresh token was
     read from credentials.toml, False (keyring backend) otherwise.
 
-    We check the credentials file first because load_refresh_token uses the
+    We check the credentials file first because load_refresh_token_strict uses the
     same file-before-keyring precedence — if the file has a refresh token,
     the credential lives in the file backend.
 
     fix(#1778 review round 22): tolerant on a corrupt file, same as
-    load_refresh_token() itself -- this runs as try_refresh()'s very
+    load_refresh_token_strict() itself -- this runs as try_refresh()'s very
     first step, before the refresh HTTP call. Assuming "not file-backed"
     (False) is the safe default: it means try_refresh() proceeds
     assuming keyring, which is exactly right when the refresh token

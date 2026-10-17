@@ -23,7 +23,6 @@ from app.modules.auth.models import ApiKey, User
 from app.modules.auth.permissions import get_user_roles
 from app.platform.extensions import get_identity_extension, get_permission_extension
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(
     tokenUrl="/api/auth/login", auto_error=False
 )
@@ -697,35 +696,6 @@ async def get_cached_user_roles(
     roles = await get_user_roles(db, user)
     request.state._user_roles = roles
     return roles
-
-
-def require_role(*roles: str):
-    """Factory that returns a dependency enforcing role-based access.
-
-    Usage::
-
-        @router.get("/admin", dependencies=[Depends(require_role("admin"))])
-        async def admin_only(): ...
-
-    The dependency resolves to the current User so endpoints can also
-    consume it as a parameter.
-    """
-
-    async def _role_checker(
-        request: Request,
-        current_user: Annotated[Identity, Depends(get_current_active_user)],
-        db: AsyncSession = Depends(get_db),
-    ) -> Identity:
-        user_roles = await get_cached_user_roles(request, db, current_user)
-
-        if not user_roles.intersection(roles):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions",
-            )
-        return current_user
-
-    return _role_checker
 
 
 def require_permission(*capabilities: str):

@@ -42,13 +42,6 @@ def _get_titiler_base_url() -> str:
     return _TITILER_BASE_URL
 
 
-# WR-01: path-traversal defense, checked before any VSI path is built.
-# Defense-in-depth — asset_uri is DB-set by ingest, not user-controlled here.
-_BLOCKED_ASSET_URI_PATTERNS: tuple[str, ...] = (
-    "..",  # path traversal (relative or absolute)
-)
-
-
 def _validate_asset_uri(asset_uri: str) -> None:
     """Raise ValueError if asset_uri contains path-traversal or injection patterns.
 

@@ -39,7 +39,7 @@ class TestKeyringStore:
     def test_load_returns_none_when_missing(self, tmp_xdg_home, mock_keyring) -> None:
         assert _auth.load_bearer_token(INSTANCE) is None
         assert _auth.load_api_key(INSTANCE) is None
-        assert _auth.load_refresh_token(INSTANCE) is None
+        assert _auth.load_refresh_token_strict(INSTANCE) is None
 
 
 class TestNoKeyringFallback:

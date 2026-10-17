@@ -1249,7 +1249,7 @@ class TestFindOrCreateOAuthUser:
         admin = AdminService(test_db_session)
         await admin.approve_user(user_id, "viewer")
         email = f"corrected-{uuid.uuid4().hex[:6]}@example.com"
-        await admin.update_user(user_id, UserUpdate(email=email))
+        await admin.update_user_with_snapshot(user_id, UserUpdate(email=email))
         provider = await self._create_test_provider(test_db_session)
         await test_db_session.commit()
 

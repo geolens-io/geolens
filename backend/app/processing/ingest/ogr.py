@@ -507,7 +507,6 @@ _SUBPROCESS_FLOOR_SECONDS = 1.0
 
 OGRINFO_TIMEOUT_SECONDS = 300  # 5 min — metadata probe, should be fast
 OGR2OGR_FILE_TIMEOUT_SECONDS = 3600  # 1 hour — large files legitimately take a while
-OGR2OGR_SERVICE_TIMEOUT_SECONDS = 1800  # 30 min — existing value, now a named constant
 
 
 async def _kill_and_reap_subprocess(proc: asyncio.subprocess.Process) -> None:

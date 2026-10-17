@@ -1555,8 +1555,8 @@ def _signin_portal_key(request: Request) -> str:
 
 
 # fix(#1758): the router-level ERROR_RESPONSES_WRITE covers 4xx and
-# 500 only, so the 429 this route raises and the 502/504 mint_portal_token
-# returns were undocumented. That is not cosmetic: the generated Python SDK
+# 500 only, so the 429 this route raises and the 502/504 the portal
+# sign-in returns were undocumented. That is not cosmetic: the generated Python SDK
 # returns None or raises UnexpectedStatus for a status the spec does not
 # declare, and the TypeScript error union omits it, so a caller cannot
 # distinguish "the portal is unreachable" from a bug in their own code.

@@ -77,9 +77,8 @@ _DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE = 1000
 def _validate_or_fallback(cfg: PersistentConfig[T], raw: Any) -> tuple[T, bool]:
     """Validate `raw` against cfg's TypeAdapter; return (value, validated_ok).
 
-    Used by `PersistentConfig.get()` and `get_all_registry_values()` on the
-    DB-hit branch. On failure: logs a warning and returns
-    `(cfg.env_default, False)` without raising or caching.
+    Used by `PersistentConfig.get()` on the DB-hit branch. On failure: logs a
+    warning and returns `(cfg.env_default, False)` without raising or caching.
 
     Security: `exc.errors()` includes the offending input value. No
     registered config currently stores secrets — a future secret-containing
@@ -1019,30 +1018,6 @@ async def _load_registry_values(db: AsyncSession) -> dict[str, Any]:
                 )
                 value, _ok = _validate_or_fallback(cfg, unwrapped)
                 settings_dict[cfg.key] = value
-    return settings_dict
-
-
-async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
-    """Batch-load all registry settings in a single DB query.
-
-    Returns a dict mapping each registered key to its effective value
-    (DB override if present, otherwise env_default). Bypassed when
-    ENV_ONLY_CONFIG is set — returns env_defaults directly without
-    hitting the DB.
-
-    .. note::
-        Consumed only by tests today; kept as a forward-looking helper for
-        an admin/settings dump endpoint that needs an atomic snapshot
-        without N round-trips.
-    """
-    settings_dict = await _load_registry_values(db)
-
-    # A model without an override resolves against this snapshot's provider.
-    for model in (LLM_MODEL, LLM_MODEL_LIGHT):
-        if not settings_dict[model.key].strip():
-            settings_dict[model.key] = await model.default_for(
-                db, settings_dict[LLM_PROVIDER.key]
-            )
     return settings_dict
 
 

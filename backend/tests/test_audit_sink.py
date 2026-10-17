@@ -16,7 +16,7 @@ import pytest
 
 def test_audit_sink_protocol_shape() -> None:
     """AUDIT-01: AuditSink Protocol + DefaultAuditSink + AuditEvent exist with correct shape."""
-    from app.modules.audit.events import AuditEvent
+    from app.platform.audit import AuditEvent
     from app.platform.extensions.defaults import DefaultAuditSink
     from app.platform.extensions.protocols import AuditSink
 
@@ -61,7 +61,7 @@ async def test_raising_sink_does_not_break_business_op(test_db_session, caplog) 
     depend on Plan 03's 65-site call-site rewrite. Plan 04 covers the
     end-to-end integration via the admin user.create endpoint.
     """
-    from app.modules.audit.events import AuditEvent
+    from app.platform.audit import AuditEvent
     from app.modules.audit.models import AuditLog
     from app.modules.audit.service import audit_emit
     from app.platform.extensions import _extensions
@@ -152,7 +152,7 @@ async def test_fixture_sink_receives_events_alongside_default(
     """
     from sqlalchemy import select
 
-    from app.modules.audit.events import AuditEvent
+    from app.platform.audit import AuditEvent
     from app.modules.audit.models import AuditLog
     from app.platform.extensions import _extensions
     from app.platform.extensions.defaults import DefaultAuditSink

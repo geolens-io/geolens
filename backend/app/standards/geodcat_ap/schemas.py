@@ -15,10 +15,8 @@ from __future__ import annotations
 # (The 3.0.0 line is still a working draft at time of writing.) We pin 2.0.0
 # the way DCAT-US pins DCAT_US_SCHEMA_VERSION / DCAT_US_SCHEMA_COMMIT.
 GEODCAT_AP_SCHEMA_VERSION = "2.0.0"
-GEODCAT_AP_SCHEMA_REPOSITORY = "https://github.com/SEMICeu/GeoDCAT-AP"
 # Pinned to the 2.0.0 release tag of the SEMIC GeoDCAT-AP specification.
 GEODCAT_AP_SCHEMA_COMMIT = "2.0.0"
-GEODCAT_AP_SPEC_URI = "https://semiceu.github.io/GeoDCAT-AP/releases/2.0.0/"
 
 # Mandatory properties per the GeoDCAT-AP / DCAT-AP cardinality tables.
 # Used by the structural validator. Property names match the serialized

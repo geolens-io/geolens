@@ -1132,19 +1132,6 @@ async def open_portal_signin(portal_url: str) -> AsyncIterator[PortalSignIn]:
         yield PortalSignIn(client, token_service, scope, rest_base, note)
 
 
-async def mint_portal_token(
-    portal_url: str, username: str, password: str
-) -> MintedToken:
-    """Both phases in one call, for callers that need no scope in between.
-
-    The route does not use this: it needs the token-service scope from phase
-    one to key its locks and budgets before phase two runs. This is the shape
-    the rest of the codebase and the tests can hold on to.
-    """
-    async with open_portal_signin(portal_url) as portal:
-        return await portal.mint(username, password)
-
-
 # fix(#1758): the in-flight guard that used to live here was a
 # process-local set, which is worth nothing on an install that runs two
 # uvicorn workers. It is now a PostgreSQL advisory lock next to the route,

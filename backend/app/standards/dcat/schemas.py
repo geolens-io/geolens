@@ -14,10 +14,8 @@ from __future__ import annotations
 # W3C DCAT version 3 (the "DCAT 3" Recommendation). Pinned the way DCAT-US
 # pins DCAT_US_SCHEMA_VERSION and GeoDCAT-AP pins GEODCAT_AP_SCHEMA_VERSION.
 DCAT3_SCHEMA_VERSION = "3.0"
-DCAT3_SCHEMA_REPOSITORY = "https://www.w3.org/TR/vocab-dcat-3/"
 # DCAT 3 reached W3C Recommendation status on 2024-08-22.
 DCAT3_SCHEMA_COMMIT = "REC-vocab-dcat-3-20240822"
-DCAT3_SPEC_URI = "https://www.w3.org/TR/vocab-dcat-3/"
 
 # Mandatory properties per the DCAT 3 Recommendation cardinality expectations.
 # Property names match the serialized JSON-LD keys (compact IRIs) produced by

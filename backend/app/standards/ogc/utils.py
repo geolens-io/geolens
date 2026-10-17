@@ -6,8 +6,6 @@ from fastapi import Request
 
 from app.core.public_urls import get_env_public_api_url, join_public_url
 
-# Languages supported by the GeoLens catalog (ISO 639-1)
-_SUPPORTED_LANGS = {"en", "de", "fr", "es"}
 _LANGUAGE_TAG_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 _DCAT_ROUTE_SEGMENTS = {"dcat", "dcat-us", "geodcat-ap"}
 
@@ -51,26 +49,11 @@ def build_url(
     return join_public_url(resolved_base, path)
 
 
-def parse_accept_language(request: Request) -> str:
-    """Extract the preferred language from Accept-Language, falling back to 'en'.
-
-    Supports simple parsing of the ``Accept-Language`` header with quality
-    values (e.g. ``de-DE,de;q=0.9,en;q=0.8``).  Returns the best match
-    from ``_SUPPORTED_LANGS``, or ``"en"`` when no match is found.
-    """
-    for lang in parse_accept_languages(request):
-        base = lang.split("-")[0].lower()
-        if base in _SUPPORTED_LANGS:
-            return base
-    return "en"
-
-
 def parse_accept_languages(request: Request) -> list[str]:
     """Return accepted language tags in quality and header order.
 
-    Unlike :func:`parse_accept_language`, this parser is not restricted to the
-    four UI locales.  Standards endpoints use it to negotiate any language for
-    which a record has stored localized metadata.
+    Standards endpoints use it to negotiate any language for which a record has
+    stored localized metadata.
     """
     header = request.headers.get("accept-language", "")
     entries: list[tuple[float, int, str]] = []

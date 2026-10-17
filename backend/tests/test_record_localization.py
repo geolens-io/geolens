@@ -4,7 +4,7 @@ import pytest
 from starlette.requests import Request
 
 from app.modules.catalog.records.localization import select_localized_record_text
-from app.standards.ogc.utils import parse_accept_language, parse_accept_languages
+from app.standards.ogc.utils import parse_accept_languages
 
 
 def _request(header: str) -> Request:
@@ -33,11 +33,6 @@ def _record():
 def test_parse_accept_languages_honors_quality_and_zero_weight():
     request = _request("de;q=0, pt-BR;q=0.8, fr-CA;q=0.9, en;q=0.7")
     assert parse_accept_languages(request) == ["fr-CA", "pt-BR", "en"]
-
-
-def test_ui_language_parser_remains_restricted_to_supported_languages():
-    request = _request("pt-BR, fr;q=0.8")
-    assert parse_accept_language(request) == "fr"
 
 
 def test_localized_text_prefers_exact_then_base_language():

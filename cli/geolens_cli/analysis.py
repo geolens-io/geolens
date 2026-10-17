@@ -29,10 +29,6 @@ import typer
 
 from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap, long_request_timeout
 
-#: Distances are metres on the wire, matching the API and the map builder's
-#: unit picker (AnalysisPanel converts feet/miles before it POSTs).
-DISTANCE_UNIT = "metres"
-
 #: fix(#685 review): there is no defensible fixed wait, so the default is not
 #: one. publish's 120s, then 600s, then an hour were each a guess about how
 #: long the work takes, and the queue makes that unanswerable. #703 ranks

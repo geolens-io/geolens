@@ -5,23 +5,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, SkipValidation
 
 
-class ConfigExportResponse(BaseModel):
-    """Full configuration export."""
-
-    version: str = Field(
-        description="Schema version of the export format. Used by import to determine compatibility."
-    )
-    exported_at: str = Field(
-        description="ISO 8601 timestamp when the export was generated."
-    )
-    settings: dict[str, Any] = Field(
-        description="All admin-configurable settings keyed by setting name."
-    )
-    oauth_providers: list[dict] = Field(
-        description="OAuth provider configurations. Client secrets are NOT included in exports."
-    )
-
-
 class ConfigImportRequest(BaseModel):
     """Payload for importing configuration."""
 

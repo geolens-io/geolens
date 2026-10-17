@@ -70,11 +70,8 @@ _ARCGIS_TOKEN_ERROR_CODES = frozenset({498, _ARCGIS_TOKEN_REQUIRED_CODE})
 # These limits deliberately make the stronger policy a bounded capability.  A
 # returnIdsOnly response is one ArcGIS response rather than a cursor protocol;
 # accepting a partial or oversized response would turn a transport limit into a
-# false completeness claim.  ID chunks stay below the service import page size
-# and keep generated query URLs well below ordinary proxy limits.
-ARCGIS_ID_PLAN_POLICY = "arcgis_id_set_v1"
+# false completeness claim.
 ARCGIS_ID_PLAN_MAX_IDS = 100_000
-ARCGIS_ID_FETCH_CHUNK_SIZE = 1_000
 _ARCGIS_OID_MAX = (1 << 63) - 1
 
 # The remote service decides how many layers it lists, so the probe counts

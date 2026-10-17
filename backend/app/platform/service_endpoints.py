@@ -296,11 +296,6 @@ def _wfs_root(xml_bytes: bytes) -> Element:
     return ET.fromstring(xml_bytes, forbid_dtd=True)
 
 
-def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
-    """`_operation_hrefs` of a capabilities document parsed here."""
-    return _operation_hrefs(_wfs_root(xml_bytes))
-
-
 def _operation_hrefs(root: Element) -> list[str]:
     """The operation endpoints a capabilities document advertises for a read.
 

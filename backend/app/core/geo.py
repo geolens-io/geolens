@@ -260,9 +260,8 @@ def rollup_bbox_columns(geom_col: ColumnElement) -> list[ColumnElement]:
     keep whichever is narrower.
 
     Returns ``[xmin, ymin, xmax, ymax, shifted_xmin, shifted_xmax]``; splat as
-    the leading columns of a ``select()`` for :func:`rollup_bbox` /
-    :func:`rollup_span_bbox`. Latitudes come from the unshifted extent since
-    shifting longitude cannot change them.
+    the leading columns of a ``select()`` for :func:`rollup_bbox`. Latitudes
+    come from the unshifted extent since shifting longitude cannot change them.
     """
     normal = func.ST_Extent(geom_col)
     shifted = func.ST_Extent(_shifted_longitude_geom(geom_col))
@@ -317,27 +316,9 @@ def rollup_bbox(values: Sequence[object]) -> list[float] | None:
 
     Returns ``[west, south, east, north]`` with ``west > east`` when the rollup
     honestly crosses the antimeridian --- the STAC / OGC / GeoJSON encoding.
-    Consumers that cannot express a crossing box want
-    :func:`rollup_span_bbox`.
     """
     nums = _rollup_floats(values)
     return None if nums is None else _narrower_domain(*nums)
-
-
-def rollup_span_bbox(values: Sequence[object]) -> list[float] | None:
-    """Fold a :func:`rollup_bbox_columns` row into monotonic bounds.
-
-    fix(#886): sibling of :func:`rollup_bbox` for span arithmetic or a viewer
-    with no antimeridian handling. A crossing rollup reads -180..180: over-
-    broad, never inverted.
-    """
-    nums = _rollup_floats(values)
-    if nums is None:
-        return None
-    west, south, east, north = _narrower_domain(*nums)
-    if west > east:
-        return [-180.0, south, 180.0, north]
-    return [west, south, east, north]
 
 
 async def seam_extent_wkt_for_table(

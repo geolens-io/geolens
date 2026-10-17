@@ -291,9 +291,6 @@ class DriftReport:
         self.resolved_known_drift: list[tuple[str, list[str]]] = []
         self.skipped: list[str] = []
 
-    def has_new_drift(self) -> bool:
-        return bool(self.new_drift)
-
     def should_fail(self) -> bool:
         """fix(#1778): a maintained model this checker could not compare at
         all (absent from openapi.json or from the FE mirror) is exactly the

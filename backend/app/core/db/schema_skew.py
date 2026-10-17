@@ -36,7 +36,6 @@ logger = structlog.stdlib.get_logger(__name__)
 #: target the same schema or it sees an empty/absent version table and
 #: wrongly reports "DB behind".
 _VERSION_TABLE_SCHEMA = "catalog"
-_VERSION_TABLE = "alembic_version"
 
 #: Resolves the backend root and alembic config/versions dir relative to this
 #: file, so the guard does not depend on the process CWD.

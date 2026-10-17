@@ -16,7 +16,6 @@ import pytest
 def test_schemas_importable():
     """Config ops schemas should be importable."""
     from app.platform.config_ops.schemas import (
-        ConfigExportResponse,
         ConfigImportRequest,
         DryRunResponse,
         ImportResult,
@@ -24,7 +23,6 @@ def test_schemas_importable():
         OAuthProviderChange,
     )
 
-    assert ConfigExportResponse is not None
     assert ConfigImportRequest is not None
     assert DryRunResponse is not None
     assert ImportResult is not None
@@ -43,21 +41,6 @@ def test_service_importable():
     assert export_config is not None
     assert import_config is not None
     assert dry_run_import is not None
-
-
-def test_config_export_response_shape():
-    """ConfigExportResponse should accept version, exported_at, settings, oauth_providers."""
-    from app.platform.config_ops.schemas import ConfigExportResponse
-
-    resp = ConfigExportResponse(
-        version="1.0",
-        exported_at="2026-03-07T00:00:00Z",
-        settings={"log_level": "INFO"},
-        oauth_providers=[],
-    )
-    assert resp.version == "1.0"
-    assert resp.settings == {"log_level": "INFO"}
-    assert resp.oauth_providers == []
 
 
 def test_config_import_request_defaults():

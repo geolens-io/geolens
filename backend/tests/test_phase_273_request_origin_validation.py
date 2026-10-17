@@ -1,4 +1,4 @@
-"""SEC-05: _request_origin validates derived origin against CORS allowlist.
+"""SEC-05: _request_origin_decision validates derived origin against CORS allowlist.
 
 Pins the v13.13 closure of M-67. When CORS_ALLOWED_ORIGINS is set, an
 attacker who steers X-Forwarded-Host or Origin to a non-allowlisted host
@@ -12,7 +12,6 @@ from unittest.mock import patch
 from app.core.public_urls import (
     _DEFAULT_PUBLIC_API_URL,
     _DEFAULT_PUBLIC_APP_URL,
-    _request_origin,
     _request_origin_decision,
     resolve_public_api_url,
     resolve_public_app_url,
@@ -39,7 +38,7 @@ def test_no_cors_config_returns_request_origin():
     with patch("app.core.public_urls.settings") as mock_settings:
         mock_settings.cors_origins_list = []
         req = _mock_request({"origin": "http://localhost:5173"})
-        assert _request_origin(req) == "http://localhost:5173"
+        assert _request_origin_decision(req)[0] == "http://localhost:5173"
 
 
 def test_origin_in_allowlist_returns_origin():
@@ -47,7 +46,7 @@ def test_origin_in_allowlist_returns_origin():
     with patch("app.core.public_urls.settings") as mock_settings:
         mock_settings.cors_origins_list = ["https://app.example.com"]
         req = _mock_request({"origin": "https://app.example.com"})
-        assert _request_origin(req) == "https://app.example.com"
+        assert _request_origin_decision(req)[0] == "https://app.example.com"
 
 
 def test_origin_not_in_allowlist_returns_none():
@@ -55,7 +54,7 @@ def test_origin_not_in_allowlist_returns_none():
     with patch("app.core.public_urls.settings") as mock_settings:
         mock_settings.cors_origins_list = ["https://app.example.com"]
         req = _mock_request({"origin": "https://attacker.com"})
-        assert _request_origin(req) is None
+        assert _request_origin_decision(req)[0] is None
 
 
 def test_xforwarded_host_attack_blocked():
@@ -70,7 +69,7 @@ def test_xforwarded_host_attack_blocked():
             scheme="https",
             netloc="attacker.com",
         )
-        assert _request_origin(req) is None
+        assert _request_origin_decision(req)[0] is None
 
 
 def test_origin_normalization_case_and_trailing_slash():
@@ -79,7 +78,7 @@ def test_origin_normalization_case_and_trailing_slash():
         mock_settings.cors_origins_list = ["https://app.example.com/"]
         req = _mock_request({"origin": "HTTPS://APP.EXAMPLE.COM"})
         # normalize_public_url strips trailing slash; lower() handles case
-        result = _request_origin(req)
+        result = _request_origin_decision(req)[0]
         assert result is not None
         assert result.lower() == "https://app.example.com"
 
@@ -89,7 +88,7 @@ def test_referer_resolves_to_host_only():
     with patch("app.core.public_urls.settings") as mock_settings:
         mock_settings.cors_origins_list = ["https://app.example.com"]
         req = _mock_request({"referer": "https://app.example.com/foo/bar"})
-        assert _request_origin(req) == "https://app.example.com"
+        assert _request_origin_decision(req)[0] == "https://app.example.com"
 
 
 def test_referer_to_attacker_blocked():
@@ -97,21 +96,21 @@ def test_referer_to_attacker_blocked():
     with patch("app.core.public_urls.settings") as mock_settings:
         mock_settings.cors_origins_list = ["https://app.example.com"]
         req = _mock_request({"referer": "https://attacker.com/login"})
-        assert _request_origin(req) is None
+        assert _request_origin_decision(req)[0] is None
 
 
 def test_no_request_returns_none():
     """request=None returns None unchanged — pre-existing behavior preserved."""
     with patch("app.core.public_urls.settings") as mock_settings:
         mock_settings.cors_origins_list = ["https://app.example.com"]
-        assert _request_origin(None) is None
+        assert _request_origin_decision(None)[0] is None
 
 
 # ---------------------------------------------------------------------------
 # fix(#1778): codebase audit 2026-08-30, "SEC-05's CORS-allowlist gate on
 # request-derived origins is bypassed two lines later by a raw Host fallback".
 #
-# _request_origin returning None was read by both resolvers as "no origin to
+# _request_origin_decision returning None was read by both resolvers as "no origin to
 # derive", so they fell through to request.url.netloc -- Starlette's read of
 # the Host header, which frontend/nginx.conf forwards verbatim from the client
 # with no server_name restriction. The allowlist decided which of two code

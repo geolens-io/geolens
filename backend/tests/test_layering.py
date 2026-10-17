@@ -1283,15 +1283,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/manifest_service.py": 1271,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
-    "backend/app/platform/service_endpoints.py": 1360,
+    "backend/app/platform/service_endpoints.py": 1355,
     # Pagination and materialization keep credentials and remote page traversal out of
     # GDAL.
     "backend/app/platform/service_items.py": 777,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1151,
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1138,
     # ArcGIS identity enumeration and bounded verification share this adapter.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1077,
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1074,
     # Source API router debt; split discovery, preview and dispatch endpoints before
     # raising.
     "backend/app/modules/catalog/sources/router.py": 1735,
@@ -1349,7 +1349,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/config.py": 1487,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
-    "backend/app/core/persistent_config.py": 1196,
+    "backend/app/core/persistent_config.py": 1171,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 919,
@@ -1367,7 +1367,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1168,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1604,
+    "backend/app/processing/ingest/ogr.py": 1603,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
@@ -1375,7 +1375,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # boundary.
     "backend/app/modules/auth/oauth/service.py": 1150,
     # Admin mutations share locking and audit outcomes.
-    "backend/app/modules/admin/service.py": 1044,
+    "backend/app/modules/admin/service.py": 1029,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
     "backend/app/processing/ingest/service.py": 1566,
@@ -1395,7 +1395,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1891,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2816,
+    "backend/app/processing/tiles/router.py": 2811,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection

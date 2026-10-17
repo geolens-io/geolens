@@ -17,9 +17,7 @@ from pydantic import (
 from app.core.text import reject_html_markup
 
 NonEmptyString100 = Annotated[str, Field(min_length=1, max_length=100)]
-NonEmptyString320 = Annotated[str, Field(min_length=1, max_length=320)]
 NonEmptyString500 = Annotated[str, Field(min_length=1, max_length=500)]
-NonEmptyString2000 = Annotated[str, Field(min_length=1, max_length=2000)]
 NonEmptyString5000 = Annotated[str, Field(min_length=1, max_length=5000)]
 
 ManifestDatasetKey = Annotated[

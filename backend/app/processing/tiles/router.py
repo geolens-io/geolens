@@ -502,11 +502,6 @@ _ALLOWED_COLORMAPS: frozenset[str] = frozenset(
     {"gray", "viridis", "inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"}
 )
 
-# Accepted stretch strategies. minmax (default) keeps the default rescale;
-# percentile/stddev compute a stats-based rescale from Titiler band statistics
-# (RASTER-STRETCH-01/02). Single-band scope; multi-band is Future RASTER-STRETCH-03.
-_ALLOWED_STRETCH: frozenset[str] = frozenset({"minmax", "percentile", "stddev"})
-
 # stddev stretch uses mean ± _STDDEV_SIGMA·σ, clamped to the band [min, max].
 _STDDEV_SIGMA = 2.0
 

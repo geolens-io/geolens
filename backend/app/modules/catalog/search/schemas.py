@@ -2,64 +2,9 @@
 
 import json
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
-
-from app.modules.catalog.features.service import parse_bbox
-
-
-class SearchParams(BaseModel):
-    """Query parameters for dataset search."""
-
-    q: str | None = Field(
-        default=None,
-        description="Free-text search query (supports full-text + semantic)",
-    )
-    bbox: str | None = Field(
-        default=None, description="Spatial filter as minx,miny,maxx,maxy (EPSG:4326)"
-    )
-    keywords: list[str] | None = Field(
-        default=None, description="Filter by one or more keyword tags"
-    )
-    geometry_type: str | None = Field(
-        default=None, description="Filter by OGC geometry type, e.g. Point"
-    )
-    srid: int | None = Field(default=None, description="Filter by EPSG SRID")
-    source_organization: str | None = None
-    date_from: date | None = Field(
-        default=None, description="Include records created on or after this date"
-    )
-    date_to: date | None = Field(
-        default=None, description="Include records created on or before this date"
-    )
-    vintage_start: date | None = Field(
-        default=None, description="Minimum data vintage start date"
-    )
-    vintage_end: date | None = Field(
-        default=None, description="Maximum data vintage end date"
-    )
-    sort_by: str = Field(
-        default="relevance",
-        description="Sort order: relevance, title, created, updated",
-    )
-    offset: int = Field(default=0, description="Number of results to skip (pagination)")
-    limit: int = Field(
-        default=10, ge=1, le=1000, description="Max results to return (1-1000)"
-    )
-    exclude_synthetic: bool = Field(
-        default=True, description="Exclude VRT mosaics and derived records"
-    )
-
-    @field_validator("bbox")
-    @classmethod
-    def validate_bbox(cls, v: str | None) -> str | None:
-        # Validate through the shared parser rather than a third copy of the
-        # split/collapse/compare logic: the copies drifted before, and the one
-        # here was also missing the SEC-FU-06 non-finite guard.
-        if v is not None:
-            parse_bbox(v)
-        return v
 
 
 class OGCRasterBand(BaseModel):

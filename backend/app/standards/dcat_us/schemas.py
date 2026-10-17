@@ -9,8 +9,6 @@ from typing import Any
 
 DCAT_US_SCHEMA_VERSION = "3.0.0"
 DCAT_US_SCHEMA_COMMIT = "98408dc000f0b71131a03920e2dec6247a84abff"
-DCAT_US_SCHEMA_REPOSITORY = "https://github.com/GSA/dcat-us"
-DCAT_US_SCHEMA_BASE_URI = "https://resources.data.gov/dcat-us/3.0.0/definitions"
 
 
 @lru_cache(maxsize=1)

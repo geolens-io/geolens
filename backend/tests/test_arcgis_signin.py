@@ -46,7 +46,7 @@ from app.modules.catalog.sources.arcgis_signin import (
     ArcGISSignInError,
     DEFAULT_SIGNIN_REFERER,
     _rest_base,
-    mint_portal_token,
+    open_portal_signin,
     portal_host,
     signin_account_key,
     signin_referer,
@@ -3331,7 +3331,8 @@ async def test_the_error_that_crosses_the_boundary_carries_only_a_code(allow_ssr
     )
     with _install(exchange):
         with pytest.raises(ArcGISSignInError) as caught:
-            await mint_portal_token(_portal(), FIXTURE_USERNAME, FIXTURE_SECRET)
+            async with open_portal_signin(_portal()) as portal:
+                await portal.mint(FIXTURE_USERNAME, FIXTURE_SECRET)
 
     exc = caught.value
     assert str(exc) == "network_error"

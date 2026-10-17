@@ -72,37 +72,37 @@ def test_api_suffix_helpers_preserve_existing_path_prefixes() -> None:
 
 def test_request_origin_prefers_origin_then_referer_then_forwarded_host() -> None:
     assert (
-        public_urls._request_origin(
+        public_urls._request_origin_decision(
             _make_request(headers={"origin": " https://catalog.example.com/ "})
-        )
+        )[0]
         == "https://catalog.example.com"
     )
     assert (
-        public_urls._request_origin(
+        public_urls._request_origin_decision(
             _make_request(
                 headers={"referer": "https://catalog.example.com/search?q=roads"}
             )
-        )
+        )[0]
         == "https://catalog.example.com"
     )
     assert (
-        public_urls._request_origin(
+        public_urls._request_origin_decision(
             _make_request(
                 headers={
                     "x-forwarded-proto": "http",
                     "x-forwarded-host": "forwarded.example.com:8443",
                 }
             )
-        )
+        )[0]
         == "http://forwarded.example.com:8443"
     )
 
 
 def test_request_origin_returns_none_without_host() -> None:
     assert (
-        public_urls._request_origin(
+        public_urls._request_origin_decision(
             _make_request(headers={}, netloc="", scheme="https")
-        )
+        )[0]
         is None
     )
 

@@ -339,21 +339,6 @@ class AdminService:
         await self.db.refresh(user)
         return user
 
-    async def update_user(
-        self,
-        user_id: uuid.UUID,
-        updates: UserUpdate,
-        current_user_id: uuid.UUID | None = None,
-    ) -> User:
-        """Update a user's fields and/or role.
-
-        Raises ValueError if user not found or role not found.
-        """
-        user, _, _ = await self.update_user_with_snapshot(
-            user_id, updates, current_user_id=current_user_id
-        )
-        return user
-
     async def update_user_with_snapshot(
         self,
         user_id: uuid.UUID,

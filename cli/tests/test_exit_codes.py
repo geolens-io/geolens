@@ -419,7 +419,7 @@ class TestLoginAtomicCredentialSwap:
         loaded_bearer = _auth.load_bearer_token(canonical)
         assert loaded_bearer is not None
         assert loaded_bearer.value == "old-bearer-token"
-        assert _auth.load_refresh_token(canonical) == "old-refresh-token"
+        assert _auth.load_refresh_token_strict(canonical) == "old-refresh-token"
         assert _auth.load_api_key(canonical) is None
 
     def test_a_successful_swap_leaves_exactly_the_new_kind(
@@ -438,7 +438,7 @@ class TestLoginAtomicCredentialSwap:
 
         assert result.exit_code == 0, result.output
         assert _auth.load_bearer_token(canonical) is None
-        assert _auth.load_refresh_token(canonical) is None
+        assert _auth.load_refresh_token_strict(canonical) is None
         loaded_key = _auth.load_api_key(canonical)
         assert loaded_key is not None
         assert loaded_key.value == "new-key"
@@ -468,7 +468,7 @@ class TestLoginAtomicCredentialSwap:
         loaded_bearer = _auth.load_bearer_token(instance)
         assert loaded_bearer is not None
         assert loaded_bearer.value == "old-bearer-token"
-        assert _auth.load_refresh_token(instance) == "old-refresh-token"
+        assert _auth.load_refresh_token_strict(instance) == "old-refresh-token"
         assert _auth.load_api_key(instance) is None
 
     def test_delete_step_failure_restores_the_snapshot(
@@ -506,7 +506,7 @@ class TestLoginAtomicCredentialSwap:
         loaded_bearer = _auth.load_bearer_token(instance)
         assert loaded_bearer is not None
         assert loaded_bearer.value == "old-bearer-token"
-        assert _auth.load_refresh_token(instance) == "old-refresh-token"
+        assert _auth.load_refresh_token_strict(instance) == "old-refresh-token"
         assert _auth.load_api_key(instance) is None
 
 
@@ -1190,7 +1190,7 @@ class TestInteractiveLoginRefreshTokenIsTransactional:
         assert loaded_bearer is not None
         assert loaded_bearer.value == "old-access-token"
 
-        loaded_refresh = _auth.load_refresh_token(canonical)
+        loaded_refresh = _auth.load_refresh_token_strict(canonical)
         assert loaded_refresh == "old-refresh-token"
 
         # The marker must also be back to whatever it was before this
@@ -1293,7 +1293,7 @@ class TestRefreshTokenSharesAccessTokenBackend:
 
         assert backend == "keyring"
         assert _auth.load_bearer_token(canonical).value == "new-access"
-        assert _auth.load_refresh_token(canonical) == "new-refresh"
+        assert _auth.load_refresh_token_strict(canonical) == "new-refresh"
         # Confirms via the file, not just load_*() (which would also
         # resolve a keyring value) -- the file section must be empty.
         file_section = _auth._read_credentials_file().get(canonical, {})
