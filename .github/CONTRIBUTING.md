@@ -1,17 +1,12 @@
 # Contributing to GeoLens
 
-Thanks for your interest in contributing to GeoLens. This guide covers the development setup, code conventions, and pull request process.
-
-No CLA required -- the Apache 2.0 license covers all contributions. We do ask that every commit is signed off under the [Developer Certificate of Origin](#developer-certificate-of-origin).
+Thanks for your interest in contributing to GeoLens. This guide covers the development setup, code conventions, and pull request process. No CLA is required; the Apache 2.0 license covers all contributions.
 
 ## Documentation
 
 Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**. The docs site's source isn't public yet, so report doc problems as [issues in this repo](https://github.com/geolens-io/geolens/issues/new?labels=documentation) with the `documentation` label and we'll port the fixes over.
 
-Full narrative product docs live in the sibling `getgeolens.com` repo and are
-served at `docs.getgeolens.com`. Keep README images under `.github/assets/`,
-release notes in `CHANGELOG.md`, support routing in `SUPPORT.md`, and
-private/internal material out of the public repository tree.
+Keep README images under `.github/assets/`, release notes in `CHANGELOG.md`, support routing in `SUPPORT.md`, and private or internal material out of the public repository tree.
 
 ## Development Setup
 
@@ -129,7 +124,7 @@ feat: add bbox spatial filter to catalog search
 fix: correct CRS reprojection for EPSG:4326 exports
 docs: update install guide with MinIO configuration
 test: add unit tests for tile token validation
-chore: bump maplibre-gl to v5.1
+chore: bump vite to the latest minor
 refactor: extract tile URL builder into shared utility
 ```
 
@@ -137,7 +132,7 @@ Keep the subject line under 72 characters. Use the body for additional context w
 
 ## Developer Certificate of Origin
 
-We use the [Developer Certificate of Origin](https://developercertificate.org) (DCO). Each commit must be signed off with `git commit -s`, which adds a `Signed-off-by: Name <email>` trailer. This certifies that you have the right to submit the contribution under the Apache 2.0 license. No CLA is required.
+We use the [Developer Certificate of Origin](https://developercertificate.org) (DCO). Each commit must be signed off with `git commit -s`, which adds a `Signed-off-by: Name <email>` trailer. This certifies that you have the right to submit the contribution under the Apache 2.0 license.
 
 ## Pull Requests
 
@@ -161,82 +156,7 @@ If a PR template exists at `.github/PULL_REQUEST_TEMPLATE.md`, your PR descripti
 
 ## Project Structure
 
-For how these pieces fit together at runtime - the request and upload lifecycles,
-extension points, and a "where do I change X?" map - see [ARCHITECTURE.md](ARCHITECTURE.md).
-The tree below is the file layout.
-
-```
-geolens/
-├── backend/                    # FastAPI application
-│   ├── alembic/                # Database migrations
-│   ├── app/
-│   │   ├── api/                # FastAPI app factory, root router, lifespan
-│   │   ├── core/               # Runtime flags, persistent config, permissions
-│   │   ├── modules/            # Domain areas
-│   │   │   ├── admin/          # Admin dashboard stats & user management
-│   │   │   ├── audit/          # Audit log (who changed what)
-│   │   │   ├── auth/           # Authentication (JWT, OAuth, API keys)
-│   │   │   ├── catalog/        # Datasets, records, maps, layers, search,
-│   │   │   │                   # collections, sources, validation, features
-│   │   │   ├── embed_tokens/   # Secure embed/share token management
-│   │   │   └── settings/       # App settings (basemaps, auth, toggles)
-│   │   ├── observability/      # Logging config, metrics, structlog setup
-│   │   ├── platform/           # Shared platform services
-│   │   │   ├── assets/         # Static asset URL helpers
-│   │   │   ├── audit.py        # AuditSink protocol + dispatcher
-│   │   │   ├── cache/          # Caching layer (memory, Redis, tile cache)
-│   │   │   ├── config_ops/     # Import/export of server configuration
-│   │   │   ├── extensions/     # Runtime extension protocol seams
-│   │   │   ├── jobs/           # Background job tracking
-│   │   │   ├── sandbox/        # Safe SQL execution sandbox
-│   │   │   └── storage/        # File storage abstraction (local, S3)
-│   │   └── processing/         # Ingest, export, and tile pipelines
-│   │       ├── ai/             # AI chat, metadata generation
-│   │       ├── embeddings/     # pgvector semantic search embeddings
-│   │       ├── export/         # Data export (GeoPackage, Shapefile, etc.)
-│   │       ├── ingest/         # File & service ingestion (ogr2ogr pipeline)
-│   │       ├── raster/         # Raster/COG processing and VRT mosaics
-│   │       ├── tiles/          # Vector tile serving & token signing
-│   │       └── vector/         # Vector quicklook generation
-│   │   └── standards/          # OGC, STAC, DCAT integrations
-│   │       ├── dcat/           # DCAT metadata serialization
-│   │       ├── ogc/            # OGC API - Features and Records endpoints
-│   │       └── stac/           # STAC catalog endpoint
-│   ├── scripts/                # Backend helper scripts
-│   └── tests/                  # pytest tests (flat directory of test_*.py)
-├── frontend/                   # React + Vite application
-│   └── src/
-│       ├── api/                # API client functions (one file per domain)
-│       ├── components/
-│       │   ├── admin/          # Admin dashboard & settings panels
-│       │   ├── auth/           # Login/register forms
-│       │   ├── builder/        # Map builder (layers, styles, filters)
-│       │   ├── collections/    # Collection cards & membership
-│       │   ├── create/         # Dataset creation dialog
-│       │   ├── dataset/        # Dataset detail tabs & editors
-│       │   ├── drawing/        # Spatial drawing tools
-│       │   ├── error/          # Error boundaries & fallbacks
-│       │   ├── import/         # File/service import workflow
-│       │   ├── layout/         # Navbar, page chrome
-│       │   ├── map/            # Shared map components (popups, basemap)
-│       │   ├── map-plugins/    # Map plugins (measure, etc.)
-│       │   ├── maps/           # Map list & create dialog
-│       │   ├── search/         # Search bar, filters, result cards
-│       │   ├── settings/       # User settings panels
-│       │   ├── ui/             # Reusable primitives (shadcn/ui)
-│       │   └── viewer/         # Public map viewer components
-│       ├── hooks/              # React hooks (one per feature domain)
-│       ├── i18n/               # i18next config & locale files (en/fr/es/de/zh)
-│       ├── lib/                # Pure utility functions & constants
-│       ├── pages/              # Top-level route pages
-│       │   └── admin/          # Admin sub-pages
-│       ├── stores/             # Zustand stores (auth, search, drawing)
-│       └── types/              # Shared TypeScript type definitions
-├── docker-compose.yml          # Dev stack (db, api, worker, frontend, titiler)
-├── scripts/                    # Project-level scripts (DB init, etc.)
-├── e2e/                        # End-to-end tests
-└── .github/assets/             # README and repository profile assets
-```
+[ARCHITECTURE.md](ARCHITECTURE.md) covers the runtime layout, extension points and a "where do I change X?" map. `AGENTS.md` at the repository root lists the top-level directories.
 
 Most backend domain modules under `backend/app/modules/<domain>/` follow a consistent pattern:
 
@@ -260,14 +180,7 @@ If you're unsure where to start, open an issue describing what you'd like to wor
 
 ## Reporting Security Issues
 
-If you discover a security vulnerability, please report it responsibly. **Do not open a public issue.** Instead, follow the process in our [Security Policy](SECURITY.md).
-
-Include:
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-
-We will acknowledge your report within 48 hours and work with you on a fix before any public disclosure.
+Do not open a public issue for a vulnerability. Follow the process in our [Security Policy](SECURITY.md).
 
 ## Reporting Issues
 

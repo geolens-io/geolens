@@ -1,9 +1,8 @@
 # GeoLens Architecture
 
 A map of how GeoLens fits together — the runtime pieces, how a request and an upload
-flow through them, and **where to make the most common changes**. For the full file
-tree, the per-module file pattern, and dev setup, see
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+flow through them, and **where to make the most common changes**. For the per-module file
+pattern and dev setup, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 This document describes things that rarely change. If you find it out of date, a PR
 fixing it is a great first contribution.

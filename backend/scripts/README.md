@@ -31,7 +31,7 @@ private overlay's own CI supplies the real installed package and database.
 
 Runs `alembic upgrade head` against a freshly-initialized, throwaway
 PostGIS container. This is the semantic complement to the syntactic
-`down_revision` linkage check that v1015's close-gate ran. It confirms
+`down_revision` linkage check. It confirms
 the full migration chain from 0001 to latest actually applies without error
 on a clean DB and that the revision graph is well-formed.
 
@@ -70,10 +70,8 @@ including Ctrl-C and unexpected signals (via `trap cleanup EXIT INT TERM`).
 
 ### When to run
 
-- At every milestone close-gate (Phase XXXX-CLOSE) after the last
-  migration lands and before the version tag is cut.
-- When adding a new migration to v1016-and-later phases: local
-  smoke before pushing the PR.
+- Before cutting a release, after the last migration has landed.
+- When adding a new migration: a local smoke run before pushing the PR.
 - Suspected migration-chain rot (e.g. an out-of-order `down_revision`
   that the linkage check missed because both sides referenced the same
   revision).
@@ -86,7 +84,7 @@ including Ctrl-C and unexpected signals (via `trap cleanup EXIT INT TERM`).
 - Does NOT run the application after migration. It only confirms alembic
   exits 0. Application boot is exercised by the existing pytest
   `test_db_session` fixture and by `docker compose up`.
-- The `POSTGIS_IMAGE_TAG` constant in the script (currently `17-3.5`)
+- The `POSTGIS_IMAGE_TAG` constant in the script (currently `18-3.6`)
   documents the base image the test container is layered on top of.
   The script builds the local `./db` image, so the resulting test
   image always tracks `db/Dockerfile`'s `FROM` line, but if you bump
@@ -99,18 +97,4 @@ including Ctrl-C and unexpected signals (via `trap cleanup EXIT INT TERM`).
 
 **Script:** `rotate_secrets.py`
 
-Rewrites `catalog.oauth_providers.client_secret_encrypted` and
-`idp_certificate` under the newest configured encryption key. Run it after
-setting `SECRET_ENCRYPTION_KEY` on an existing install, and after replacing an
-existing `SECRET_ENCRYPTION_KEY` with a new one.
-
-```bash
-docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets --dry-run
-docker compose exec api /app/.venv/bin/python -m scripts.rotate_secrets
-```
-
-It refuses to run when `SECRET_ENCRYPTION_KEY` is unset, decrypts every row
-before writing any of them (a row no configured key opens aborts the run and
-leaves the table untouched), holds a row lock across the sweep so a provider
-saved mid-run is not overwritten, and is safe to re-run. `RUNBOOK.md` section 11 is
-the operator procedure, including which rotation invalidates what.
+The operator procedure for `rotate_secrets.py`, which re-encrypts stored OAuth and IdP secrets under the newest `SECRET_ENCRYPTION_KEY`, is [RUNBOOK.md section 11](../../RUNBOOK.md#11-secret-rotation).

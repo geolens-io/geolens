@@ -17,16 +17,18 @@ A release at version `X.Y.Z` is coherent when all of these agree:
 
 1. **Git tag + GitHub Release** — tag `vX.Y.Z` and the GitHub Release built from
    the matching `CHANGELOG.md` section.
-2. **GHCR images** — `geolens-api`, the worker (built from the same API image),
-   and `geolens-frontend`, all tagged `X.Y.Z`.
-3. **PyPI packages** — `geolens` (`sdks/python/pyproject.toml`) and
-   `geolens-cli` (`cli/pyproject.toml`).
+2. **GHCR images** — `geolens-api`, `geolens-worker`, `geolens-frontend` and
+   `geolens-backup`, all tagged `X.Y.Z`.
+3. **PyPI packages** — `geolens` (`sdks/python/pyproject.toml`),
+   `geolens-cli` (`cli/pyproject.toml`) and `geolens-mcp`
+   (`mcp/pyproject.toml`), plus the MCP Registry manifest `mcp/server.json`,
+   whose version and package version must match the PyPI release.
 4. **npm package** — `@geolens/sdk` (`sdks/typescript/package.json`).
 5. **OpenAPI + generated SDKs** — `backend/openapi.json` `info.version`, the
    generated Python SDK (`sdks/python/pyproject.toml`,
    `sdks/python/.openapi-python-client.yaml`), and the generated TypeScript SDK.
-6. **CHANGELOG + docs** — a `## [X.Y.Z]` section in `CHANGELOG.md` and any
-   version references in the docs.
+6. **CHANGELOG + docs** — a `## [X.Y.Z]` section in `CHANGELOG.md`, any
+   version references in the docs, and the `version` in `docs-contract.json`.
 7. **Installer default** — `scripts/install.sh` resolves the highest published
    release tag and writes it to `GEOLENS_VERSION`, so a fresh install pulls the
    `X.Y.Z` images by default.
@@ -49,8 +51,8 @@ These run in CI and do not require manual checking:
   The companion writer, `scripts/bump_version.py`, stamps the same set of sites,
   so no lockfile needs a hand edit at release time.
 - **Published coherence** — `.github/workflows/verify-published.yml` runs after
-  a release and confirms, in a clean container, that PyPI `geolens` +
-  `geolens-cli`, npm `@geolens/sdk`, the GHCR images, and the GitHub Release are
+  a release and confirms, in a clean container, that PyPI `geolens`,
+  `geolens-cli`, `geolens-mcp`, npm `@geolens/sdk`, the GHCR images, and the GitHub Release are
   all present at the tagged version (with bounded retry for registry lag).
 
 ## Cutting a release
@@ -64,21 +66,11 @@ commit:
 2. Tag the merge commit `vX.Y.Z`. The tag auto-builds the GitHub Release and the
    GHCR images, and triggers the PyPI/npm publishes.
 3. Once the Release job publishes a GA tag as the latest release, it dispatches
-   a `geolens-release` event to `geolens-io/getgeolens.com` (see
-   `.github/workflows/release.yml`'s "Notify the site of the release" step),
-   which runs that repo's `release-drift` check immediately and opens a PR
-   syncing the vendored docs contract, OpenAPI snapshot, and installer. This
-   needs the `SITE_DISPATCH_TOKEN` secret on this repo: a fine-grained PAT with
-   Contents: read/write on `geolens-io/getgeolens.com`. Absent, the step is a
-   no-op logged as a `::notice::` rather than a failure — the release still
-   publishes normally, and the site's own scheduled `release-drift` check
-   catches the gap on its own cadence. Getting an actual sync PR (not just the
-   dispatch) also needs a `RELEASE_SYNC_TOKEN` secret on the site repo itself,
-   same scope plus Pull requests: read/write — one fine-grained PAT with both
-   scopes can be stored under both names. Until that sync PR merges, the
-   site's `release-drift` job (which also runs on this dispatch) is expected
-   to go red and file or comment on its `nightly-red` issue (site #95) — that
-   is the intended signal that a sync is pending, not a regression.
+   a `geolens-release` event to `geolens-io/getgeolens.com`, which opens a PR
+   syncing the vendored docs contract, OpenAPI snapshot, and installer (see
+   `.github/workflows/release.yml`'s "Notify the site of the release" step).
+   Without the dispatch token the step is a logged no-op and the release still
+   publishes.
 4. SDK and CLI publishes pause for one-click approval before they ship; image
    and release builds do not.
 5. `verify-published.yml` runs after the publishes complete and confirms every

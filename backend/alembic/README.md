@@ -18,7 +18,7 @@ that persists its preamble DDL (schema + version table). That rollback clears
 SQLAlchemy's empty autobegun transaction so that `context.begin_transaction()`
 owns a real, committing transaction. **Without it, `op.get_context().autocommit_block()`
 raises `AssertionError`** (`context.begin_transaction()` would return a
-`nullcontext` and never set `ctx._transaction`). See finding CV-1.
+`nullcontext` and never set `ctx._transaction`).
 
 Because the run is one transaction, statements that **cannot** run inside a
 transaction (notably `CREATE INDEX CONCURRENTLY`) must use an autocommit escape
@@ -86,8 +86,7 @@ The `ACCESS EXCLUSIVE` from `ADD ... NOT VALID` is held until commit, so the
 split only helps when `VALIDATE` runs in a separate (autocommit) transaction.
 Migration `0018` (`chk_ingest_jobs_status`) is deliberately left as a single
 `ADD CONSTRAINT`: `ingest_jobs` is small/transient, so its full-scan validation
-is cheap and re-validating an already-released migration is unwarranted churn
-(finding CV-3).
+is cheap and re-validating an already-released migration is unwarranted churn.
 
 If existing rows need repair before validation, commit the idempotent `ADD ...
 NOT VALID` first, repair only changed rows in the restarted transaction, then

@@ -15,8 +15,9 @@ The USGS earthquake feed is a refreshed snapshot, not a streaming layer.
 Check its source status before claiming it is current. Fixed Sentinel-2
 acquisitions are referenced remotely and are not a refresh cadence.
 
-Preparation commands, artifact checksums, staging checks, and rollback steps
-are in ``scripts/showcase-121/README.md``. This script needs httpx.
+``prepare-showcase-canopy.sh`` and ``prepare-showcase-tiles3d.py`` build the
+external artifacts that ``--showcase-121`` takes. ``showcase-121-state.py
+restore`` rolls a guarded update back. This script needs httpx.
 """
 
 import argparse

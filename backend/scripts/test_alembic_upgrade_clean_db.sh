@@ -2,10 +2,9 @@
 # test_alembic_upgrade_clean_db.sh — exercise the full migration chain
 # against a freshly-initialized PostGIS container.
 #
-# KNOWN-02 (v1016 Phase 1071): v1015's close-gate only verified migration
-# ordering via down_revision linkage (a syntactic check on the Python files).
-# This script provides the semantic complement — does the chain actually
-# APPLY against a clean DB? It builds the project's custom PostGIS+pgvector
+# A down_revision linkage check only verifies migration ordering. This
+# script is the semantic complement: does the chain actually APPLY against
+# a clean DB? It builds the project's custom PostGIS+pgvector
 # image (./db/Dockerfile), spins up a throwaway container with the
 # extensions-init script mounted, then runs `alembic upgrade head` from
 # `backend/` against that DB. Container is `docker rm -f`'d on every exit
@@ -34,7 +33,7 @@ set -euo pipefail
 # in the same Dockerfile). The script builds the local ./db image (which
 # layers pgvector on top), so the resulting test image always matches the
 # production-tier image used by `docker compose up`.
-POSTGIS_IMAGE_TAG="17-3.5"
+POSTGIS_IMAGE_TAG="18-3.6"
 
 CONTAINER_NAME="geolens-alembic-test-$$"
 PG_PORT="${ALEMBIC_TEST_DB_PORT:-54399}"

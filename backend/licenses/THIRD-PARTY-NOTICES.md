@@ -12,7 +12,7 @@ carries.
 The license texts referenced below sit next to this file, and the whole
 directory lands at `/app/licenses/` in the image.
 
-## psycopg 3.3.4, psycopg-pool 3.3.0 — LGPL-3.0-only
+## psycopg 3.3.6, psycopg-pool 3.3.0 — LGPL-3.0-only
 
 PostgreSQL driver and connection pool. Copyright © The Psycopg Team.
 `psycopg-pool` arrives both directly and through `procrastinate[pool]`.

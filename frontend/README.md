@@ -1,6 +1,6 @@
 # GeoLens Frontend
 
-The GeoLens frontend is a React 19 + Vite + TypeScript application. It powers the catalog, dataset detail, map builder, and admin surfaces. MapLibre GL v5 (via `@vis.gl/react-maplibre` v8) renders maps; TanStack Query manages server state; Tailwind CSS handles styling.
+The GeoLens frontend is a React 19 + Vite + TypeScript application. It powers the catalog, dataset detail, map builder, and admin surfaces. MapLibre GL v6 (via `@vis.gl/react-maplibre` v8) renders maps; TanStack Query manages server state; Tailwind CSS handles styling.
 
 For installation, environment configuration, and running the full stack with Docker Compose, see the repository root [README.md](../README.md). For contributing guidelines and development setup, see [.github/CONTRIBUTING.md](../.github/CONTRIBUTING.md).
 
@@ -20,7 +20,7 @@ npm run build      # Production build (tsc -b && vite build)
 ## Layout
 
 - `src/components/`: feature-scoped UI components (catalog, dataset, builder, admin, shared).
-- `src/api/`: typed API client wrappers around the auto-generated `@geolens/sdk`.
+- `src/api/`: typed API client functions built on `apiFetch()` in `client.ts`.
 - `src/hooks/`: TanStack Query hooks and store subscriptions.
 - `src/stores/`: global Zustand stores (auth, theme, search, drawing).
 - `src/i18n/`: translation files (en/es/fr/de/zh).
@@ -28,6 +28,6 @@ npm run build      # Production build (tsc -b && vite build)
 
 ## Documentation
 
-Developer-facing docs that don't fit the public README live under `frontend/docs/` (e.g., custom map widgets in [`frontend/docs/widgets.md`](docs/widgets.md), translation workflow in [`frontend/docs/i18n.md`](docs/i18n.md)).
+Developer-facing docs that don't fit the public README live under `frontend/docs/` (e.g., the translation workflow in [`frontend/docs/i18n.md`](docs/i18n.md)).
 
 For the public-facing user, admin, and API documentation, visit [docs.getgeolens.com](https://docs.getgeolens.com).

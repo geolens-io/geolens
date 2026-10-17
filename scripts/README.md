@@ -51,19 +51,7 @@ python scripts/seed-showcase.py \
   --refresh-quakes
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--base-url` | `http://localhost:8080` (`$GEOLENS_BASE_URL`, fallback `$GEOLENS_URL`) | GeoLens base URL |
-| `--username` | `admin` (`$GEOLENS_ADMIN_USERNAME`) | Admin username |
-| `--password` | `$GEOLENS_ADMIN_PASSWORD` | Admin password |
-| `--no-terrain` | off | Skip the Matterhorn terrain hero (~62 swissALTI3D COG downloads) |
-| `--no-sentinel2` | off | Skip the Sentinel-2 by-reference map (needs Titiler→S3 egress at view time) |
-| `--no-oceans` | off | Skip the ETOPO relief layer (saves a ~466 MB server-side download) |
-| `--only` | unset | Build one item (`catalog`, `restless`, `manhattan`, `hurricanes`, `hurricane-exposure`, `meteorites`, `matterhorn`, `sentinel2`, `collections`, `embed`) |
-| `--no-semantic` | off | Skip the semantic-search step below |
-| `--force` | off | Re-create showcase maps/datasets even if they already exist |
-| `--prune` | off | First delete the retired first-generation showcase maps/datasets |
-| `--refresh-quakes` | off | Refresh the earthquake datasets from the USGS feed, then exit |
+Run `python scripts/seed-showcase.py --help` for the flags and their defaults.
 
 Requires internet access to the upstream open-data sources (NYC Open Data, MTA
 via data.ny.gov, USDA ERS, USGS, NOAA NHC/NCEI, NASA, Natural Earth,
@@ -91,6 +79,7 @@ needs the `upload` and `export` capabilities on the seeding account.
 | Script | Purpose |
 |--------|---------|
 | `install.sh` | First-run installer (see below) |
+| `upgrade.sh` | One-command upgrade for a prebuilt-image install: pre-upgrade backup, migrate, restart, and a printed rollback recipe (`RUNBOOK.md` §10) |
 | `preflight-env.sh` | Refuse a `.env` line Compose cannot load, then validate the boot-required settings (JWT secret, admin creds, encryption key shape) as Compose will resolve them, shell environment first and then `.env`, via `make preflight` / `make dev` |
 | `check-env.sh` | Probe the running stack's env, DB connectivity, and GDAL via `make doctor` (requires the stack up) |
 | `check-demo-config.sh` | Read-only check that the public demo's rendered Compose config and API container have `LANDING_FIRST=false`, no `landing_first` DB override exists, and the effective public value is `false` |

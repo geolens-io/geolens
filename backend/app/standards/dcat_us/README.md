@@ -27,8 +27,8 @@ The schema definitions are vendored so validation is deterministic and does not 
 
 ## Known gaps
 
-- DatasetSeries is not first-class in the current catalog model. Use future requirement `DCAT-FU-01` before adding authoring or persistence.
-- Structured `AccessRestriction`, `UseRestriction`, and `CUIRestriction` are not first-class in the current metadata model. Current free-text access/use constraints can be surfaced, but structured authoring is future requirement `DCAT-FU-02`.
+- DatasetSeries is not first-class in the current catalog model. Authoring or persistence needs a model change first.
+- Structured `AccessRestriction`, `UseRestriction`, and `CUIRestriction` are not first-class in the current metadata model. Current free-text access/use constraints can be surfaced, but structured authoring would need a model change first.
 - Dataset `contactPoint` is mandatory in DCAT-US 3.0. GeoLens never invents an address: operators may configure a monitored organization role mailbox with `DCAT_CONTACT_EMAIL`. Without a record contact or this setting, validation reports the gap and export returns an RFC 7807 `503` instead of publishing a deceptive feed.
 
 ## Routes
