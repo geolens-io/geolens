@@ -6,10 +6,12 @@ kept. A run deletes older rows in batches of ``BATCH_ROWS`` by ascending gid.
 Each batch commits with the feature count lowered by what it deleted, the tile
 cache version and data revision rolled, and an audit row recording it, so no
 transaction holds a large share of a table's row locks and a committed batch
-is current for tiles, exports and the count. Every run then recomputes the
-extent and the derived geometry type of each dataset it visited, whether or
-not it deleted anything, so a run cut short is repaired by the next. A
-timestamp without time zone is read as UTC.
+is current for tiles, exports and the count. The batch also marks the
+dataset ``retention_settle_pending``, and the run that deleted then
+recomputes the extent and derived geometry type and clears the mark. A run
+cut short before that leaves the mark set, and the next run settles every
+marked dataset, retention on or off, so the repair survives the setting
+being cleared. A timestamp without time zone is read as UTC.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import func, select, text, update
+from sqlalchemy import case, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_schema import tenant_data_schema
@@ -217,8 +219,14 @@ async def _record_batch(
         raise _BatchStale
     await session.execute(
         update(Dataset)
-        .where(Dataset.id == dataset.id, Dataset.feature_count.is_not(None))
-        .values(feature_count=func.greatest(Dataset.feature_count - deleted, 0))
+        .where(Dataset.id == dataset.id)
+        .values(
+            feature_count=case(
+                (Dataset.feature_count.is_(None), None),
+                else_=func.greatest(Dataset.feature_count - deleted, 0),
+            ),
+            retention_settle_pending=True,
+        )
         .execution_options(synchronize_session=False)
     )
     if await record_live_data_write(session, dataset) is None:
@@ -241,11 +249,13 @@ async def _record_batch(
 
 
 async def _settle(dataset_id: uuid.UUID) -> None:
-    """Recompute count, extent and derived geometry type from the table.
+    """Recompute count, extent and derived geometry type, and clear the mark.
 
     The table is held first, then the catalog rows, the order column DDL,
     deletion and replacement take them, so settlement waits on a held table
-    without holding the pair.
+    without holding the pair. A batch committing meanwhile either finishes
+    before the recount, which then sees it, or waits for the rows and marks
+    the dataset again.
     """
     from app.core.db import async_session
 
@@ -262,6 +272,12 @@ async def _settle(dataset_id: uuid.UUID) -> None:
                 if attempt + 1 == SETTLE_ATTEMPTS:
                     raise
                 continue
+            await session.execute(
+                update(Dataset)
+                .where(Dataset.id == dataset_id)
+                .values(retention_settle_pending=False)
+                .execution_options(synchronize_session=False)
+            )
             await session.commit()
             return
 
@@ -272,19 +288,20 @@ async def prune_dataset(
     now: datetime,
     batch_rows: int = BATCH_ROWS,
     max_batches: int = RUN_BATCHES,
+    settle_pending: bool = False,
 ) -> int:
     """Delete up to ``max_batches`` batches of the dataset's expired rows.
 
     Each batch re-reads the setting, so turning retention off stops a run
     after the batch in flight, and a batch whose dataset or setting changed
     before its lock deletes nothing and ends the dataset's run. Rows another
-    transaction holds are skipped until a later run. Returns the number
-    deleted.
+    transaction holds are skipped until a later run. The dataset is settled
+    when this run deleted rows or ``settle_pending`` says an earlier one
+    did not settle. Returns the number deleted.
     """
     from app.core.db import async_session
 
     deleted = 0
-    visited = False
     after = _GID_FLOOR
     try:
         for _ in range(max_batches):
@@ -294,7 +311,6 @@ async def prune_dataset(
                     if due is None:
                         break
                     dataset, window = due
-                    visited = True
                     gids = await _delete_batch(session, window, after, batch_rows)
                     if gids:
                         await _record_batch(session, dataset, window, len(gids))
@@ -310,9 +326,8 @@ async def prune_dataset(
             if len(gids) < batch_rows:
                 break
     finally:
-        # Every visit, so a run that died before settling is repaired by the
-        # next even when it has nothing left to delete.
-        if visited:
+        # Also after a failed batch, for the batches already committed.
+        if deleted or settle_pending:
             await _settle(dataset_id)
     return deleted
 
@@ -325,24 +340,34 @@ async def prune_expired_rows(
 ) -> dict[uuid.UUID, int]:
     """Run retention for every dataset in the current tenant scope that has it.
 
-    Returns the number of rows deleted per dataset that lost any.
+    A dataset whose retention was cleared after an unsettled batch is only
+    settled. Returns the number of rows deleted per dataset that lost any.
     """
     from app.core.db import async_session
 
     now = now or datetime.now(timezone.utc)
     async with async_session() as session:
-        dataset_ids = list(
-            await session.scalars(
-                select(Dataset.id)
-                .where(Dataset.retention_days.is_not(None))
+        due = (
+            await session.execute(
+                select(Dataset.id, Dataset.retention_settle_pending)
+                .where(
+                    or_(
+                        Dataset.retention_days.is_not(None),
+                        Dataset.retention_settle_pending,
+                    )
+                )
                 .order_by(Dataset.id)
             )
-        )
+        ).all()
     pruned: dict[uuid.UUID, int] = {}
-    for dataset_id in dataset_ids:
+    for dataset_id, settle_pending in due:
         try:
             deleted = await prune_dataset(
-                dataset_id, now=now, batch_rows=batch_rows, max_batches=max_batches
+                dataset_id,
+                now=now,
+                batch_rows=batch_rows,
+                max_batches=max_batches,
+                settle_pending=settle_pending,
             )
         except Exception:  # broad: one dataset's failure must not stop the rest
             logger.warning(

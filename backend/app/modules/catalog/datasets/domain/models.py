@@ -610,6 +610,10 @@ class Dataset(Base):
     # column of the live table. Both NULL keeps every row.
     retention_column: Mapped[str | None] = mapped_column(String(63), nullable=True)
     retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # A retention batch committed deletions its run has not settled yet.
+    retention_settle_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
 
     # Relationships
     record: Mapped["Record"] = relationship(

@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import NamedTuple
 
 import pytest
+import structlog
 from httpx import AsyncClient
 from sqlalchemy import func, select, text
 
@@ -148,6 +149,13 @@ async def _catalog_state(session, dataset_id: uuid.UUID):
             .where(Dataset.id == dataset_id)
         )
     ).one()
+
+
+async def _settle_pending(session, dataset_id: uuid.UUID) -> bool:
+    session.expire_all()
+    return await session.scalar(
+        select(Dataset.retention_settle_pending).where(Dataset.id == dataset_id)
+    )
 
 
 async def _prune_audits(session, dataset_id: uuid.UUID) -> list[AuditLog]:
@@ -348,8 +356,17 @@ class TestRun:
         assert dataset.id not in await retention.prune_expired_rows(now=NOW)
         assert await _names(test_db_session, dataset) == {"old"}
 
+    @pytest.mark.parametrize(
+        "cleared_before_next_run", [False, True], ids=["kept", "cleared"]
+    )
     async def test_the_next_run_repairs_what_a_lost_settle_left_behind(
-        self, seed, test_db_session, monkeypatch
+        self,
+        client: AsyncClient,
+        admin_auth_header,
+        seed,
+        test_db_session,
+        monkeypatch,
+        cleared_before_next_run,
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await seed(
@@ -392,12 +409,49 @@ class TestRun:
         await retention.prune_expired_rows(now=NOW)
         assert await _names(test_db_session, dataset) == {"new"}
         assert await geometry_and_west_edge() == ("GEOMETRY", 0.0)
+        assert await _settle_pending(test_db_session, dataset.id) is True
 
+        if cleared_before_next_run:
+            resp = await client.put(
+                f"/datasets/{dataset.id}/retention/",
+                json={"retention": None},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200, resp.text
         monkeypatch.setattr(retention, "_settle", real_settle)
         assert await retention.prune_expired_rows(now=NOW) == {}
 
         assert await geometry_and_west_edge() == ("POLYGON", 10.0)
         assert (await _catalog_state(test_db_session, dataset.id)).feature_count == 1
+        assert await _settle_pending(test_db_session, dataset.id) is False
+
+    async def test_an_idle_run_leaves_the_catalog_rows_alone(
+        self, seed, test_db_session, monkeypatch
+    ):
+        import app.core.db as db_module
+        from app.platform import catalog_locks
+
+        # A refresh would wait this long on the held row, then fail the dataset.
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "100ms")
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[{"name": "new", "seen_at": NOW}],
+        )
+        before = await _catalog_state(test_db_session, dataset.id)
+
+        async with db_module.async_session() as holder:
+            await holder.execute(
+                select(Dataset.id).where(Dataset.id == dataset.id).with_for_update()
+            )
+            with structlog.testing.capture_logs() as logs:
+                assert await retention.prune_expired_rows(now=NOW) == {}
+            await holder.rollback()
+
+        assert not [e for e in logs if e["event"] == "dataset_retention_failed"]
+        assert await _catalog_state(test_db_session, dataset.id) == before
 
     async def test_a_run_stops_at_its_batch_bound_and_the_next_run_goes_on(
         self, seed, test_db_session
@@ -580,6 +634,7 @@ class TestRace:
 
         assert await retention.prune_expired_rows(now=NOW) == {}
         await self._assert_untouched(test_db_session, dataset, dataset.id)
+        assert await _settle_pending(test_db_session, dataset.id) is False
 
     @pytest.mark.parametrize(
         ("start", "concurrent", "requested"),

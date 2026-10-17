@@ -60,11 +60,11 @@ and releases use semantic versioning.
   `PUT /datasets/{id}/retention/`. An hourly worker run deletes older rows in
   batches, so a large backlog can take several runs. Each batch commits with
   the feature count and tile version updated and a `dataset.retention_prune`
-  audit row of its count, and every run recomputes the extent of each
-  dataset it visits. Rows with no value in the column are kept, and a
-  timestamp without time zone is read as UTC. Retention is off by default.
-  Saving a setting that would delete rows right away first shows how many
-  and asks to confirm.
+  audit row of its count. A run that deleted rows then recomputes the
+  extent, and a run cut short before that is finished by the next one. Rows
+  with no value in the column are kept, and a timestamp without time zone is
+  read as UTC. Retention is off by default. Saving a setting that would
+  delete rows right away first shows how many and asks to confirm.
 
 ### Fixed
 
