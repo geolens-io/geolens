@@ -7,6 +7,23 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.25.1] - 2026-10-16
+
+1.25.1 is the first release with API and worker container images for the
+changes listed under 1.25.0. The 1.25.0 release published its Python and
+TypeScript packages and its frontend and backup images, but the release scan
+stopped its API and worker images. The packages in 1.25.1 match 1.25.0 apart
+from the version number. Read the 1.25.0 upgrade notes when you move from
+1.24.x.
+
+### Fixed
+
+- The release image scan follows the repository's Trivy ignore policy, which
+  now accepts the GCP service-account secret rule inside the Anthropic SDK
+  package only. Docstrings there show the example
+  `{"type": "service_account"}`, which the rule matched in the API and worker
+  images. The files hold no key material. (#3090)
+
 ## [1.25.0] - 2026-10-16
 
 ### Added
@@ -5731,7 +5748,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.25.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.25.1...HEAD
+[1.25.1]: https://github.com/geolens-io/geolens/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/geolens-io/geolens/compare/v1.24.0...v1.25.0
 [1.24.0]: https://github.com/geolens-io/geolens/compare/v1.23.1...v1.24.0
 [1.23.1]: https://github.com/geolens-io/geolens/compare/v1.23.0...v1.23.1
