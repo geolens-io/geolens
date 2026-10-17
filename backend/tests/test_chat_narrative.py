@@ -115,7 +115,7 @@ def test_error_message_mapping():
     expected_categories = {
         "query_timeout",
         "query_busy",
-        # fix(#1014): distinct from query_busy — "the server is at capacity" is
+        # Distinct from query_busy — "the server is at capacity" is
         # a different condition from "your own query is already running", and
         # the chat surface maps categories to its own wording, so folding them
         # together would tell a user their first request was a duplicate.
@@ -307,7 +307,7 @@ async def test_add_layer_resolves_dataset_name_end_to_end():
     )
 
 
-# --- fix(#392): set_style heatmap-radius tweak survives validation ---
+# --- set_style heatmap-radius tweak survives validation ---
 
 
 @pytest.mark.anyio

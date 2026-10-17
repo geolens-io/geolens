@@ -541,7 +541,7 @@ class TestReuploadCommitDoor:
         assert secret not in str((run.error_message, run.error_code, run.origin_kind))
         assert secret not in str(captured)
 
-        # feat(#1746 B2b) plan D9: this job's origin is a WFS service, whose
+        # This job's origin is a WFS service, whose
         # credential travels as a header, so what is staged is the composed
         # line. The import door above stages a bare token because its job is
         # an ArcGIS one, and an ArcGIS credential goes into the URL.

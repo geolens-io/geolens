@@ -229,7 +229,7 @@ class TestGetJobStatus:
     async def test_get_job_auto_fails_analysis_job_at_materialize_lease(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#691): an analysis job's lease is the short materialize window.
+        """An analysis job's lease is the short materialize window.
 
         The route the frontend polls flips a hard-killed worker's analysis
         job to failed within ANALYSIS_MATERIALIZE_LEASE_SECONDS (not the
@@ -311,7 +311,7 @@ class TestGetJobStatus:
             test_db_session,
             created_by=admin_id,
             status="pending",
-            # fix(#1744): the row this test is about is one whose dispatch was
+            # The row this test is about is one whose dispatch was
             # attempted and never landed. An unstamped pending row is an
             # upload nobody committed, which the poll settles `cancelled`.
             user_metadata=commit_attempted_marker(),
@@ -380,7 +380,7 @@ class TestGetJobStatus:
     async def test_get_job_surfaces_mercator_clip_warning(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#888): the Mercator-clamp drop count reaches the job status API.
+        """The Mercator-clamp drop count reaches the job status API.
 
         Built through the real producer chain (clip accounting ->
         ``_append_mercator_clip_warning`` -> ``user_metadata``) rather than a
@@ -408,8 +408,8 @@ class TestGetJobStatus:
         assert len(data["warnings"]) == 1
         assert data["warnings"][0] == {
             "kind": "mercator_clip",
-            # fix(#906): `clip_skipped` is an additive detail field with a
-            # False default, so a stored pre-#906 warning still validates and
+            # `clip_skipped` is an additive detail field with a
+            # False default, so a stored warning without it still validates and
             # serializes with the flag present and clear.
             "details": {
                 "dropped_features": 12,
@@ -831,7 +831,7 @@ class TestGetJobStatusByDataset:
         assert resp.status_code == 404
 
     # ------------------------------------------------------------------
-    # fix(#1860): who sees the job DETAIL, as opposed to who sees that a
+    # Who sees the job DETAIL, as opposed to who sees that a
     # job exists. The dataset gate is a visibility check and admits any
     # signed-in reader of a public or internal dataset, so these three cases
     # pin the disclosure decision separately from it: a stranger, the job's
@@ -1341,7 +1341,7 @@ class TestCleanupStaleJobs:
         )
         operation_id = completed["details"]["operation_id"]
         details = dict(completed["details"])
-        # fix(#1556): the audit detail carries one count the published response
+        # The audit detail carries one count the published response
         # model does not. `pending_cancelled` reaches this JSONB blob (and the
         # multi-tenant fleet totals) so an operator can see that a pass settled
         # abandoned uploads rather than failing anything; StaleCleanupResponse

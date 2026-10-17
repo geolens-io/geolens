@@ -101,7 +101,7 @@ async def test_revoke_by_map_denies_validation_and_clears_cache(
     assert revoked == 1
 
     # The positive cache entry must not outlive the revocation.
-    # fix(#1778): the entry is REPLACED by a denial rather than deleted, so a
+    # The entry is REPLACED by a denial rather than deleted, so a
     # request that raced the revoke cannot re-publish a positive under the same
     # key. See the module note on EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS in
     # app/modules/embed_tokens/service.py.

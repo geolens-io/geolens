@@ -1,10 +1,10 @@
-"""fix(#1778): the COG redirect must not outlive the token that authorized it.
+"""The COG redirect must not outlive the token that authorized it.
 
-The s3 branch of the COG download signed a bucket URL for 3600 seconds. The
-credential that gates the route is deliberately short-lived: POST
-/auth/download-token/{id} mints a typ='download', scope='dataset:{id}' JWT with
-a 120s TTL. The presigned URL carries its SigV4 signature in the query string
-and is bound to neither the caller, the session, nor the dataset grant, so
+The credential that gates the COG download route is deliberately short-lived:
+POST /auth/download-token/{id} mints a typ='download', scope='dataset:{id}' JWT
+with a 120s TTL. The s3 branch signs a bucket URL, and that URL carries its
+SigV4 signature in the query string and is bound to neither the caller, the
+session, nor the dataset grant, so
 revoking the grant, flipping the record to private, disabling the account or
 discarding the token does not invalidate it. The access gate above this branch
 is the full RBAC path, so it is reached for private and internal datasets too.
@@ -37,7 +37,7 @@ def test_the_ceiling_is_on_the_order_of_the_mint_ttl():
 
 
 def test_there_is_no_floor_only_sigv4s_own_minimum():
-    """fix(#1778): a floor mints a URL that outlives its credential.
+    """A floor mints a URL that outlives its credential.
 
     `require_signable_job_lifetime` settled this for the upload doors: there is
     no `ExpiresIn` value meaning "already dead", so the only way not to hand
@@ -68,12 +68,12 @@ def test_a_long_lived_deadline_is_still_capped():
     "remaining", [30.0, 5.0, 2.0, 1.9, 1.0, 0.9, 0.5, 0.0, -0.5, -120.0]
 )
 def test_the_signature_never_outlives_the_token(remaining: float) -> None:
-    """fix(#1778): the invariant, across the boundary.
+    """The invariant, across the boundary.
 
     Signed now for N seconds, the URL dies at now+N, and that must land at or
-    before the token's own expiry. The 60-second floor broke this for every
-    token with under a minute left: one second of credential bought a minute of
-    access to a private COG.
+    before the token's own expiry. A 60-second floor would break this for every
+    token with under a minute left: one second of credential would buy a minute
+    of access to a private COG.
 
     Stated as raise-or-fit rather than as an outcome per input, because at
     exactly one second left the answer is a race between this function's clock

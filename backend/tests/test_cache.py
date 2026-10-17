@@ -402,7 +402,7 @@ def test_update_sync_cache_key_allowlist_covers_new_rate_limits():
     )
 
 
-# --- fix(#1778): eviction must reach BOTH stores in BOTH circuit states ---
+# --- Eviction must reach BOTH stores in BOTH circuit states ---
 #
 # Codebase audit 2026-08-30, "Cache invalidation never reaches the in-memory
 # fallback, so a revoked embed token can be served as valid during the next

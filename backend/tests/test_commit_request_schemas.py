@@ -130,7 +130,7 @@ class TestRasterCommitRequest:
         assert r.strict_cog is False
 
 
-# fix(#1961): the four options `check_and_prepare_cog` treats as custom, in the
+# The four options `check_and_prepare_cog` treats as custom, in the
 # spelling a commit body uses for each.
 _REWRITING_OPTIONS = {
     "compression": "LZW",
@@ -295,7 +295,7 @@ class TestFieldDistribution:
             "temporal_start",
             "temporal_end",
             "token",
-            # feat(#1746 B2b): the structured spelling of the same credential.
+            # The structured spelling of the same credential.
             "auth",
         }
 

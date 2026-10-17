@@ -146,7 +146,7 @@ async def test_overlay_provider_is_dispatched():
 
 @pytest.mark.asyncio
 async def test_anthropic_complete_aborts_at_token_budget():
-    """fix(#448): the non-streaming tool loop must stop once cumulative
+    """The non-streaming tool loop must stop once cumulative
     input+output tokens exceed MAX_REQUEST_TOKEN_BUDGET (parity with
     the streaming path). A tool_use round that reports a huge usage makes the
     next round-top guard raise instead of calling the provider again."""

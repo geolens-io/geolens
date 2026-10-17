@@ -2,8 +2,8 @@
 be a subset of the records CHECK constraints they feed, as those constraints
 are actually enforced by the migrated database.
 
-fix(#1778): the ISO metadata dropdowns offer four values the records CHECK
-constraint rejects, so picking them 500s the whole pending-edit batch.
+The ISO metadata dropdowns must not offer values the records CHECK
+constraint rejects: picking one 500s the whole pending-edit batch.
 
   `frontend/src/lib/iso-constants.ts` declares `UPDATE_FREQUENCY_OPTIONS` and
   `SENSITIVITY_OPTIONS`, rendered directly as `<SelectItem>` options in
@@ -18,33 +18,31 @@ constraint rejects, so picking them 500s the whole pending-edit batch.
 
   Contract direction: frontend_options is a subset of constraint_values. The
   constraint may accept values the frontend never offers (e.g.
-  `public`/`internal` were missing from the old SENSITIVITY_OPTIONS, which is
-  a UX gap, not a 500) -- that is not what this guard checks.
+  `public`/`internal` missing from SENSITIVITY_OPTIONS is a UX gap, not a
+  500) -- that is not what this guard checks.
 
-Review of the first version found two
-gaps:
+Two details keep the guard honest:
 
-1. The backend vocabulary was read off `Record.__table__` -- the ORM's
+1. The backend vocabulary is not read off `Record.__table__` -- the ORM's
    *declared* `CheckConstraint`, not what deployed PostgreSQL actually
    enforces. Widening the ORM constraint while a migration is missing or
    wrong would keep both subset tests green while the migrated database
    still rejects the value. `test_check_constraint_parity.py` only compares
    (table, name) pairs, not expressions, and Alembic autogenerate does not
-   detect CHECK-expression drift either -- nothing else closes this. Fixed
-   by reading `pg_get_constraintdef(oid)` from `pg_constraint` against the
-   migrated test database (the same `test_db_session` fixture
-   `test_check_constraint_parity.py` uses) and deriving the vocabulary from
-   that text instead of the ORM's.
-2. The frontend option regex was letter-only (`[A-Za-z]+`), so a value
-   containing an underscore, hyphen, or digit (e.g. `'as_needed'`) was
-   silently absent from the parsed set rather than caught as a real,
-   comparable value -- both the nonempty assertion and the subset checks
-   stayed green. Fixed by extracting the complete quoted contents
-   (`[^']+`), matching the pattern already used on the constraint side.
+   detect CHECK-expression drift either -- nothing else closes this. So the
+   vocabulary is derived from `pg_get_constraintdef(oid)` in `pg_constraint`
+   against the migrated test database (the same `test_db_session` fixture
+   `test_check_constraint_parity.py` uses).
+2. The frontend option regex extracts the complete quoted contents
+   (`[^']+`), matching the pattern used on the constraint side. A
+   letter-only pattern (`[A-Za-z]+`) would leave a value containing an
+   underscore, hyphen, or digit (e.g. `'as_needed'`) silently absent from the
+   parsed set rather than caught as a real, comparable value -- both the
+   nonempty assertion and the subset checks would stay green.
 
-  Fail-before is provable two ways: add `'fortnightly'` back to
+  Fail-before is provable two ways: add `'fortnightly'` to
   `UPDATE_FREQUENCY_OPTIONS` (or `'secret'`/`'topSecret'`/`'unclassified'`
-  back to `SENSITIVITY_OPTIONS`) in `iso-constants.ts`, or widen
+  to `SENSITIVITY_OPTIONS`) in `iso-constants.ts`, or widen
   `chk_records_update_frequency` on the ORM model without touching the
   migration -- either fails a subset test, naming the offending value.
 """

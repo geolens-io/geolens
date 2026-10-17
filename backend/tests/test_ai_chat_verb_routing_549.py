@@ -1,4 +1,4 @@
-"""fix(#549): exactly one site classifies user verbs for chat tool selection.
+"""Exactly one site classifies user verbs for chat tool selection.
 
 "Show the ADA accessible stations served by the A line" applied a persistent
 layer filter while "Run a query selecting ..." returned a query result, so a
@@ -75,7 +75,7 @@ def test_prompt_classifies_the_change_verbs(verb):
 
 
 def test_prompt_reads_the_object_before_the_verb():
-    """fix(#549): verb alone is not enough. "find datasets about
+    """Verb alone is not enough. "find datasets about
     flood zones" is a QUESTION verb whose object is the CATALOG, and
     query_data can only reach layers already on the map, so routing on the
     verb turned a valid catalog lookup into a failed SQL question."""
@@ -87,7 +87,7 @@ def test_prompt_reads_the_object_before_the_verb():
 
 
 def test_prompt_separates_label_visibility_from_layer_visibility():
-    """fix(#549): toggle_visibility's schema only shows or hides the
+    """toggle_visibility's schema only shows or hides the
     whole layer, so routing "hide the labels" there removes the features too.
     Labels are turned off with set_label(column: null)."""
     prompt = _prompt()
@@ -97,7 +97,7 @@ def test_prompt_separates_label_visibility_from_layer_visibility():
 
 
 def test_prompt_keeps_layer_narrowing_on_the_visibility_tool():
-    """fix(#549): "show only @Parks" among several layers means hide
+    """ "show only @Parks" among several layers means hide
     the others. set_filter cannot do that — it only filters features inside
     one layer — so the two narrowing cases have to be told apart."""
     prompt = _prompt()
@@ -124,13 +124,13 @@ def test_prompt_settles_bare_show():
 @pytest.mark.parametrize(
     ("shape", "phrase"),
     [
-        # fix(#549): "show the layer" is the phrase the builder
+        # "show the layer" is the phrase the builder
         # contract already uses for toggle_visibility
         # (frontend ChatPanel.test.tsx). Routing it to query_data would query a
         # hidden layer instead of making it visible.
         ("visibility", '"show the layer"'),
         ("feature narrowing", '"show only the accessible ones"'),
-        # fix(#549): with a filter already applied, "show all features
+        # With a filter already applied, "show all features
         # again" asks to CLEAR it. Answering it as a question returns a
         # temporary result and leaves the persistent filter in place.
         ("broadening", '"show all"'),
@@ -170,7 +170,7 @@ def test_prompt_keeps_transform_outranking_the_verb_lists():
 # wins, which is the thing that was being decided in two places.
 _ROUTING_SIDE_TOOLS = ("query_data", "run_analysis")
 
-# fix(#549): naming a sibling is not the only way to classify
+# Naming a sibling is not the only way to classify
 # phrasing. query_data's own description said "use this when the user asks a
 # question about their data ... do NOT use this for map styling", which
 # competes with the prompt's verb classes from a second site while naming no

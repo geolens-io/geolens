@@ -220,7 +220,7 @@ class TestSelectionIsExact:
         """The ST_Dimension term, and the reason it exists.
 
         _load_mask_dataset rejects a non-polygonal mask DATASET, but the
-        catalog classifies geometry_type from the FIRST feature (fix(#682)), so
+        catalog classifies geometry_type from the FIRST feature, so
         a POLYGON-typed layer can still hold a line row. Clip drops those in
         _mask_pieces; without the dimension term a selection would honour them,
         and clipping and selecting against one layer would disagree.

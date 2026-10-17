@@ -1,4 +1,4 @@
-"""fix(#642): schema-invalid LLM map specs get one bounded repair round.
+"""Schema-invalid LLM map specs get one bounded repair round.
 
 Parse failures already had _retry_parse_map_spec; these tests cover the
 sibling path for valid-JSON-wrong-shape output (the failure mode observed

@@ -61,7 +61,7 @@ def _write_plain_parquet(path) -> None:
 
 @pytest.mark.anyio
 async def test_geometry_only_without_geometry_raises(tmp_path):
-    """fix(#569): geometry-only file + include_geometry=False must fail fast
+    """geometry-only file + include_geometry=False must fail fast
     instead of silently publishing an empty dataset."""
     from shapely.geometry import Point
 
@@ -74,7 +74,7 @@ async def test_geometry_only_without_geometry_raises(tmp_path):
 
 
 class TestParquetIngestBudget:
-    """fix(#948): row and cell ceilings, checked from the footer.
+    """Row and cell ceilings, checked from the footer.
 
     The constants are monkeypatched down rather than generating a
     five-million-row fixture — being module constants is half the reason they
@@ -486,7 +486,7 @@ class TestParquetRoundTrip:
         import shutil
         from pathlib import Path
 
-        # fix(#1513): plan then write — the two phases the export route uses.
+        # Plan then write — the two phases the export route uses.
         from app.processing.export.parquet import plan_parquet_export
 
         plan = await plan_parquet_export(test_db_session, seeded_table, schema="data")
@@ -679,8 +679,8 @@ class TestParquetRoundTrip:
 
 
 class TestParquetZGeometry:
-    """fix(#641): Z-bearing WKB used to fail INSERT because the staging
-    column was declared with a 2D typmod (geometry(Geometry, srid))."""
+    """Z-bearing WKB must not fail INSERT because the staging
+    column is declared with a 2D typmod (geometry(Geometry, srid))."""
 
     @pytest.fixture
     async def z_table(self, test_db_session):

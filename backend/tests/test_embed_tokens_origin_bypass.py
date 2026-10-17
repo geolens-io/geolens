@@ -23,12 +23,12 @@ from app.modules.embed_tokens import service as embed_service
 
 @pytest.fixture(autouse=True)
 def _self_origin_is_configured(monkeypatch):
-    """fix(#1548 review P2): stand in for the #1531 self-origin lookup.
+    """Stand in for the self-origin lookup.
 
-    These tests pass an ``AsyncMock`` database. Since #1531 the domain-lock
+    These tests pass an ``AsyncMock`` database. The domain-lock
     check resolves the deployment's own origin through ``get_configured_public_app_url``,
     which reads an AppSetting row, so on a cold public-URL cache the mock DB
-    reaches ``_load_public_url_overrides`` and raises. The service now fails
+    reaches ``_load_public_url_overrides`` and raises. The service fails
     closed on that, which means these tests would still report False and pass
     for the wrong reason: proving the lookup exploded, not that a foreign
     origin is rejected. Patch it so they exercise the real decision. A

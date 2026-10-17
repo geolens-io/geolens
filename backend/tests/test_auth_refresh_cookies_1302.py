@@ -61,7 +61,7 @@ def _cookie_attrs(resp, name: str) -> dict[str, str]:
 def _path_matches(request_path: str, cookie_path: str) -> bool:
     """RFC 6265 5.1.4 path-match, so tests reason the way a browser does.
 
-    fix(#1446): `_arm_cookies` loads the jar with an UNSCOPED cookie, which is
+    `_arm_cookies` loads the jar with an UNSCOPED cookie, which is
     convenient for exercising handlers but structurally blind to `Path=` being
     wrong. The cookie-authenticated logout route was unreachable in a real
     browser while its handler test passed. Assert the scope explicitly.
@@ -130,13 +130,13 @@ class TestProgrammaticCallersUnchanged:
 
 
 class TestDeclaredHeadersStayInert:
-    """fix(#1496): both headers are published OpenAPI parameters now.
+    """Both headers are published OpenAPI parameters.
 
     Declaring them is a documentation change and has to stay one. FastAPI
     validates declared parameters, so the risk the class covers is a parameter
     that grows a required flag, a pattern, or a default and starts rejecting or
     reshaping calls that used to succeed. Every case below sends a header value
-    the handler does not act on and expects the pre-GH-1302 behaviour.
+    the handler does not act on and expects the unchanged behaviour.
     """
 
     async def test_an_unrecognised_auth_mode_still_returns_the_body_token(
@@ -220,7 +220,7 @@ class TestBrowserCookieFlow:
     ):
         """The Path must cover BOTH routes that consume the cookie. Scoped to
         /auth/refresh alone, a browser never sent it to /auth/logout and the
-        cookie-authenticated logout path could not fire (fix(#1446))."""
+        cookie-authenticated logout path could not fire."""
         resp = await _login(client, cookie_mode=True)
         cookie_path = _cookie_attrs(resp, REFRESH_COOKIE_NAME)["path"]
 
@@ -397,7 +397,7 @@ class TestLogoutClearsCookies:
             assert cleared["path"] == path
             assert cleared["value"] in ("", '""')
 
-    # fix(#1446): a user returning after their 15-minute access token expired
+    # A user returning after their 15-minute access token expired
     # would otherwise get a 401 here while their multi-day refresh cookie
     # stayed valid — the UI reports a clean logout and the session survives it.
     async def test_the_cookie_alone_can_authenticate_logout(self, client: AsyncClient):
@@ -444,7 +444,7 @@ class TestLogoutClearsCookies:
         resp = await client.post("/auth/logout/")
         assert resp.status_code == 401
 
-    # fix(#1446): a split-origin deployment has no usable cookie and keeps its
+    # A split-origin deployment has no usable cookie and keeps its
     # refresh token in the store. Without a body transport, an expired access
     # token there means logout 401s and the session outlives it.
     async def test_a_body_refresh_token_can_authenticate_logout(
@@ -473,7 +473,7 @@ class TestLogoutClearsCookies:
     async def test_a_dead_cookie_does_not_shadow_a_live_body_token(
         self, client: AsyncClient
     ):
-        """fix(#1446): logout tries every presented credential. A revoked
+        """Logout tries every presented credential. A revoked
         cookie left in the jar must not eat the logout of a split-origin
         caller presenting its live body token — that 401 would leave the
         live session unrevoked while the UI reports a clean sign-out."""
@@ -522,7 +522,7 @@ class TestLogoutClearsCookies:
 
 
 class TestDuplicateCookieRefusal:
-    """fix(#1446): a sibling-subdomain attacker can toss a parent-Domain shadow
+    """A sibling-subdomain attacker can toss a parent-Domain shadow
     of the refresh cookie; the browser then sends BOTH and a parser keeps one.
     Duplicates are the attack's fingerprint — the attacker can add a shadow but
     never remove the victim's host cookie — so the server refuses them."""
@@ -585,9 +585,8 @@ class TestDuplicateCookieRefusal:
 
 
 class TestDuplicateCsrfCookieRefusal:
-    """fix(#1778): codebase audit 2026-08-30, "The CSRF cookie has none of the
-    duplicate-cookie hardening its paired refresh cookie got, so a sibling
-    subdomain can choose its value".
+    """The CSRF cookie needs the same duplicate-cookie hardening as its paired
+    refresh cookie, or a sibling subdomain can choose its value.
 
     Double-submit rests on the attacker not being able to read the cookie. A
     sibling subdomain cannot read it but CAN set a parent-Domain cookie of the
@@ -664,7 +663,7 @@ class TestDuplicateCsrfCookieRefusal:
 
 
 class TestRotationRevocationRace:
-    """fix(#1446): a rotation that read its row before a concurrent logout must
+    """A rotation that read its row before a concurrent logout must
     not commit a still-active replacement afterwards. Client-side guards cannot
     help here — the browser applies the late Set-Cookie and the row is already
     in the database — so rotation and revocation serialize on the owner row."""
@@ -823,7 +822,7 @@ class TestGraceWindowCannotRatchetOpen:
 
 
 class TestOriginComparison:
-    """fix(#1446): the OAuth callback decides cookie-vs-fragment delivery from
+    """The OAuth callback decides cookie-vs-fragment delivery from
     this, comparing the deployment's two CONFIGURED public URLs. Deriving one
     side from the live request was wrong under any Host-rewriting proxy (the
     shipped Vite dev proxy sets changeOrigin: true), and spelling out a default
@@ -851,7 +850,7 @@ class TestOriginComparison:
 
 
 class TestApiPathMustMatchCookieScope:
-    """fix(#1446): same origin is necessary but not sufficient. root_path is
+    """Same origin is necessary but not sufficient. root_path is
     fixed at /api, so a deployment that mounts the API elsewhere would get a
     cookie the browser never sends — and cookie mode ships no fragment token to
     fall back on."""

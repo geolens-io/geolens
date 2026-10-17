@@ -1,11 +1,11 @@
-"""fix(#886): extent rollups across the antimeridian.
+"""Extent rollups across the antimeridian.
 
-Distinct from #892/#884: here *no individual record wraps*, but the aggregate
-does. Two ordinary Fiji datasets at lon 179 and -179 used to roll up to
-``-180..180`` --- a global bbox for two footprints 2 degrees apart --- because
-the min/max fold spans the globe the wrong way.
+Here *no individual record wraps*, but the aggregate does. Two ordinary Fiji
+datasets at lon 179 and -179 must not roll up to ``-180..180`` --- a global
+bbox for two footprints 2 degrees apart --- as a plain min/max fold would,
+spanning the globe the wrong way.
 
-The fix aggregates in two longitude domains (as stored, and ``+360``-shifted)
+The rollup aggregates in two longitude domains (as stored, and ``+360``-shifted)
 and keeps whichever range is narrower, so ``rollup_bbox`` emits the RFC 7946
 §5.2 ``west > east`` pair when that is the honest answer.
 """

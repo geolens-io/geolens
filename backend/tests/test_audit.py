@@ -98,7 +98,7 @@ async def test_create_empty_dataset_creates_audit_log(
     client: AsyncClient,
     admin_auth_header: dict,
 ):
-    """fix(#1230): POST /datasets/create/ writes a dataset.create audit log entry.
+    """POST /datasets/create/ writes a dataset.create audit log entry.
 
     create_empty_dataset() calls into create_dataset() (service_create.py),
     the single function every dataset-creation path funnels through -- this
@@ -138,7 +138,7 @@ async def test_audit_log_resolves_dataset_resource_name(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """fix(#620): list endpoint returns the dataset title as resource_name."""
+    """List endpoint returns the dataset title as resource_name."""
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await create_dataset(
         test_db_session, created_by=admin_id, name="Audit Name Target"
@@ -365,7 +365,7 @@ async def test_export_audit_logs_csv_community(
     assert "timestamp" in body
     lines = body.strip().splitlines()
     assert len(lines) >= 2, "CSV should have header + at least one data row"
-    # fix(#620): exports carry the resolved resource name (appended last so
+    # Exports carry the resolved resource name (appended last so
     # positional consumers of the previous column layout keep working).
     assert lines[0].endswith("resource_name")
     assert "Test Dataset" in body
@@ -523,7 +523,7 @@ async def test_export_audit_logs_json_community(
     data = resp.json()
     assert isinstance(data, list)
     assert len(data) >= 1
-    # fix(#620): the viewed dataset's row resolves its record title.
+    # The viewed dataset's row resolves its record title.
     ds_rows = [r for r in data if r["resource_id"] == str(ds.id)]
     assert ds_rows and all(r["resource_name"] == "Test Dataset" for r in ds_rows)
 
@@ -543,7 +543,7 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     tenant_id = str(uuid.uuid4())
     streamed_rows = [
         SimpleNamespace(
-            # fix(#1248): the JSON export emits the row's own id, so a fake row
+            # The JSON export emits the row's own id, so a fake row
             # must carry one -- AuditLog.id is the primary key and never absent.
             id=uuid.uuid4(),
             created_at=datetime.now(timezone.utc),
@@ -582,7 +582,7 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
         outcome_events.append(event)
 
     async def fake_resolve_names(_db, _logs):
-        # fix(#620): the fake async_session yields a bare object(), so the
+        # The fake async_session yields a bare object(), so the
         # real batched name lookup cannot run here; names aren't under test.
         return {}
 
@@ -625,7 +625,7 @@ async def test_export_completion_counts_rows_visible_when_stream_starts(monkeypa
     # the fresh streaming SELECT establishes its MVCC statement snapshot.
     streamed_rows.append(
         SimpleNamespace(
-            # fix(#1248): the JSON export emits the row's own id, so a fake row
+            # The JSON export emits the row's own id, so a fake row
             # must carry one -- AuditLog.id is the primary key and never absent.
             id=uuid.uuid4(),
             created_at=datetime.now(timezone.utc),

@@ -318,7 +318,7 @@ async def test_token_version_bumped_on_saml_to_local_conversion(
         f"Expected token_version > {version_before}, got {user_after.token_version}. "
         "SAML-to-local conversion must bump token_version (SEC-S15)."
     )
-    # fix(#821): key_epoch must bump too — an auth-provider conversion is a
+    # key_epoch must bump too — an auth-provider conversion is a
     # credential reset, so API keys minted before it must stop resolving.
     assert user_after.key_epoch > epoch_before, (
         f"Expected key_epoch > {epoch_before}, got {user_after.key_epoch}. "

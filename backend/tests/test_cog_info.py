@@ -1,7 +1,6 @@
-"""fetch_cog_info's georeferencing extraction (#1334).
+"""fetch_cog_info's georeferencing extraction.
 
-Titiler's ``/cog/info`` reply already carries ``crs`` (an OGC CRS URI),
-which nothing downstream ever read out of it before this fix. Every other
+Titiler's ``/cog/info`` reply already carries ``crs`` (an OGC CRS URI). Every other
 test in this codebase that touches ``fetch_cog_info`` stubs the function
 wholesale (see ``test_stac_refresh_1266.py``'s ``cog_info`` fixture and
 ``test_stac_import.py``), which would never catch a regression in the
@@ -9,11 +8,9 @@ extraction itself — these are unit tests of that extraction, against
 Titiler's actual response shape (captured live against a 2.2.1 instance,
 see ``cog_info.py``'s ``_georeferencing`` docstring for the exact payload).
 
-fix(#1334 review): ``res_x``/``res_y`` are still not derived from
-``/cog/info`` — a prior version of this file computed them from
-``bounds``/pixel-dimensions and asserted on the result, and that computation
-is gone. fix(#1375): they come instead from ``/cog/stac``'s
-``proj:transform``, an endpoint that publishes the real affine, so
+``res_x``/``res_y`` are not derived from ``/cog/info``; they come from
+``/cog/stac``'s ``proj:transform``, an endpoint that publishes the real
+affine, so
 ``TestGeotransform`` below asserts on measured numbers rather than on their
 absence.
 """
@@ -123,7 +120,7 @@ def _install(
 
 class TestGeoreferencing:
     async def test_crs_wkt_comes_from_titilers_own_reply(self, monkeypatch) -> None:
-        """fix(#1334): the value was retrievable all along — this shows
+        """The value was retrievable all along — this shows
         fetch_cog_info actually reading it out, not just Titiler having sent
         it."""
         _install(monkeypatch, _TITILER_INFO)
@@ -142,7 +139,7 @@ class TestGeoreferencing:
     async def test_epsg_comes_from_the_same_parsed_crs_as_the_wkt(
         self, monkeypatch
     ) -> None:
-        """fix(#1334 review): both keys have to come off the SAME parsed CRS
+        """Both keys have to come off the SAME parsed CRS
         object, or a caller preferring this EPSG over a stale item
         declaration could still end up with an EPSG and a WKT that name
         different projections."""
@@ -332,11 +329,11 @@ class TestAuthorityCrsOnly:
 
 
 class TestGeotransform:
-    """fix(#1375): the resolution pair and the rotation flag, from
+    """The resolution pair and the rotation flag, from
     ``/cog/stac``'s ``proj:transform``.
 
-    ``/cog/info`` still carries no transform — that is why #1334 refused to
-    divide its bounding envelope by pixel dimensions, and why the numbers
+    ``/cog/info`` still carries no transform — that is why its bounding
+    envelope is not divided by pixel dimensions, and why the numbers
     come from a second endpoint rather than a smarter reading of the first.
     """
 
@@ -358,7 +355,7 @@ class TestGeotransform:
     async def test_a_rotated_resolution_is_the_pixel_vector_not_its_x_component(
         self, monkeypatch
     ) -> None:
-        """fix(#1375 review): the finding this file exists to keep fixed.
+        """The case this file exists to guard.
 
         Element 0 of this fixture's affine is 8.66 — the x-COMPONENT of a
         pixel vector whose length is 10. Reading the resolution off elements

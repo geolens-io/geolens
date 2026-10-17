@@ -1,4 +1,4 @@
-"""fix(#1778): a single-feature edit must not seq-scan the whole layer.
+"""A single-feature edit must not seq-scan the whole layer.
 
 `_refresh_count_and_extent` runs one unqualified COUNT(*) + ST_Extent over the
 entire table, inside the request transaction, on every insert, replace, delete
@@ -505,7 +505,7 @@ def test_the_geometry_type_merge_matches_the_scan_it_replaces(current, added, ex
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): the prior envelope must come from the mutation itself.
+# The prior envelope must come from the mutation itself.
 # ---------------------------------------------------------------------------
 
 # Far outside the seeded extent, so an extent computed with this row present

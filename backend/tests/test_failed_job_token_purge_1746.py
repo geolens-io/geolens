@@ -1,9 +1,9 @@
-"""fix(#1746) finding 2: a failed queue row must not keep the service token.
+"""A failed queue row must not keep the service token.
 
 With no credential store configured — the default, since `.env.example` ships
 `REDIS_URL` commented out — the import-commit and reupload-commit doors hand
 the service tasks a raw `token` in the job kwargs. The worker deletes
-SUCCESSFUL rows only, so a terminal failure used to leave
+SUCCESSFUL rows only, so a terminal failure would leave
 `catalog.procrastinate_jobs.args->>'token'` holding the secret for the whole
 retention window, and forever when retention is off.
 
@@ -175,7 +175,7 @@ class TestTheStalledSweepStripsWhatItFails:
     async def test_a_named_row_loses_its_token_while_a_live_one_keeps_everything(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1755 item 12): the stalled sweep names the rows it just failed.
+        """The stalled sweep names the rows it just failed.
 
         Both rows are `doing`, which the status-gated backstop deliberately
         skips, so only the by-id statement can be what stripped one of them.
@@ -321,8 +321,8 @@ class TestBothServiceTasksAreWired:
 
 
 class TestCleanupFailuresDoNotMaskTheOriginalException:
-    """fix(#1755 item 11): a `finally`-block cleanup failure must not replace
-    the ingest exception, and the #1753 token purge must still run.
+    """A `finally`-block cleanup failure must not replace
+    the ingest exception, and the token purge must still run.
 
     Each test fails the task with a distinctive exception from well past
     staging-table setup (so `stop_ingest_job_heartbeat` and
@@ -330,9 +330,9 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
     BOTH cleanup calls in the `finally` block also raise. The mocked cleanup
     still runs the real cleanup underneath (cancels the real heartbeat task,
     drops the real staging table) before raising, so this pins the wrapping
-    itself rather than merely skipping the cleanup work. Without the item-11
-    fix, the ingest exception raised below is replaced by whichever cleanup
-    call runs first — `pytest.raises` would see `ValueError`/`KeyError`
+    itself rather than merely skipping the cleanup work. Without the
+    wrapping, the ingest exception raised below would be replaced by whichever
+    cleanup call runs first — `pytest.raises` would see `ValueError`/`KeyError`
     instead of the ingest exception, which is exactly what these tests
     refuse.
     """
@@ -429,7 +429,7 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
                     token=FAKE_TOKEN,
                 )
 
-            # fix(#1755 item 11): the second step ran even though the first
+            # The second step ran even though the first
             # raised. Per-step isolation, not per-`finally`.
             assert cleanup_calls == ["heartbeat", "staging"]
             after = await _read_args(test_db_session, row_id)

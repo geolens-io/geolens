@@ -1,10 +1,9 @@
-"""End-to-end coverage for the dataset attribution field (feat(#1472)).
+"""End-to-end coverage for the dataset attribution field.
 
-``ManifestMetadata.attribution`` was validated at manifest apply and written to
-``ingest_jobs.user_metadata['manifest_attribution']``, then dropped: no column,
-no read model, nothing displayed. These tests pin the three seams that carry it
-now — the PATCH round-trip, the dataset and map-layer read models, and the
-ingest tail that seeds the column from the job ledger.
+``ManifestMetadata.attribution`` is validated at manifest apply and written to
+``ingest_jobs.user_metadata['manifest_attribution']``. These tests pin the three seams
+that carry it onward — the PATCH round-trip, the dataset and map-layer read models, and
+the ingest tail that seeds the column from the job ledger.
 """
 
 import uuid
@@ -138,7 +137,7 @@ class TestAttributionPatchRoundTrip:
 
 
 class TestAttributionMarkupIsRejected:
-    """fix(#1472 review): attribution reaches MapLibre's attribution control,
+    """Attribution reaches MapLibre's attribution control,
     which assigns it to innerHTML. MapLibre's sanitizer strips only <script>,
     on* handlers, and javascript:/data: URLs — <img src>, <iframe src>, and
     inline style all survive it — so an editor-supplied credit would otherwise
@@ -386,7 +385,7 @@ class TestManifestAttributionCommit:
         assert record.attribution is None
 
     async def test_a_reapply_replaces_a_previous_credit(self):
-        """fix(#1472 review): the reupload case. A manifest re-apply whose
+        """The reupload case. A manifest re-apply whose
         fingerprint changed classifies as "update" and swaps new data onto the
         existing record, so the helper has to OVERWRITE the credit already
         there — leaving the old one would name a source the new bytes did not

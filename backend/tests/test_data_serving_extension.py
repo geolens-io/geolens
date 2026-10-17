@@ -328,8 +328,8 @@ async def test_hosted_tile_endpoints_share_cache_policy_and_limit_only_db_misses
 
     app = FastAPI()
     app.include_router(tile_router.router)
-    # fix(#1451): the endpoints re-check the catalog before acting on cached
-    # metadata, so `None` no longer stands in for a session they never touched.
+    # The endpoints re-check the catalog before acting on cached
+    # metadata, so `None` does not stand in for a session they never touched.
     app.dependency_overrides[get_db] = lambda: _session_answering_liveness_probe()
     app.dependency_overrides[get_optional_user] = lambda: None
     transport = ASGITransport(app=app)

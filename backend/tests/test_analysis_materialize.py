@@ -147,14 +147,14 @@ def _slot_cleanup_engine():
 
 @pytest.fixture(autouse=True)
 def _release_analysis_job_slots(request, _slot_cleanup_engine):
-    """fix(#789): fail whatever analysis jobs a test leaves behind.
+    """Fail whatever analysis jobs a test leaves behind.
 
     The materialize endpoint admits one non-terminal analysis job per user, and
     the tests here share a database, so a test that enqueues a job and leaves it
     pending 429s whatever runs next — under `pytest -n 4`, some unrelated
     victim in another file. Releasing the slot by hand at the end of each test
-    worked right up until someone forgot, which is why this is autouse rather
-    than opt-in: forgetting is the whole failure mode.
+    is easy to forget, which is why this is autouse rather than opt-in:
+    forgetting is the whole failure mode.
 
     Analysis jobs only, keyed on the same ``user_metadata`` marker the endpoint
     counts, so an upload job a test is still asserting on is left alone. Not
@@ -165,12 +165,10 @@ def _release_analysis_job_slots(request, _slot_cleanup_engine):
     autouse ASYNC fixture applies to every test in the module and pytest
     refuses to hand one to a sync test, so the moment any session adds a plain
     ``def`` test here it errors at setup — and takes the rest of the file with
-    it, because a failed fixture corrupts pytest's finalizer state. That is not
-    hypothetical: it is what this did in an integration batch beside two sync
-    tests from another PR. A per-class override patches one occurrence and
-    loses to the next, so the fixture must not care what shape the tests are.
-    Owning its connection also makes teardown ordering irrelevant, which the
-    async version got wrong in the other direction.
+    it, because a failed fixture corrupts pytest's finalizer state. A per-class
+    override patches one occurrence and loses to the next, so the fixture must
+    not care what shape the tests are. Owning its connection also makes
+    teardown ordering irrelevant.
     """
     yield
     # A test that never took a client cannot have enqueued anything, so there
@@ -222,7 +220,7 @@ class TestMaterializeEndpoint:
         kwargs = mock_defer.await_args.kwargs
         assert kwargs["operation"] == "buffer"
         assert kwargs["dataset_id"] == str(ds.id)
-        # fix(#695): queue names don't rank in Procrastinate — the analysis
+        # Queue names don't rank in Procrastinate — the analysis
         # defer must carry a below-default per-job priority (still on the
         # shared "ingest" queue) so queued uploads always fetch first.
         deferrer = mock_defer.await_args.args[0]
@@ -232,9 +230,9 @@ class TestMaterializeEndpoint:
         job = await test_db_session.get(IngestJob, uuid.UUID(data["job_id"]))
         assert job is not None
         assert job.status == "pending"
-        # fix(#789): the enqueue stamps a step (ux(#698)) so a pending job reads
-        # as "queued" rather than as a broken one. Load-bearing since #703 put
-        # analysis below the default priority: a queued job now waits behind
+        # The enqueue stamps a step so a pending job reads
+        # as "queued" rather than as a broken one. Load-bearing because analysis
+        # runs below the default priority: a queued job waits behind
         # uploads by design, sometimes for minutes, and this stamp is the only
         # honest "waiting" signal the UI has to distinguish that from a stall.
         assert job.current_step == "queued"
@@ -287,7 +285,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#682 review): the active-job check keys on the analysis marker
+        """The active-job check keys on the analysis marker
         in user_metadata, not source_filename — that column holds the user's
         own upload filename, so uploading "analysis-data.geojson" must not
         lock them out of analysis."""
@@ -317,8 +315,8 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1015): the per-user cap let a tenant with N users hold N active
-        CTASes. A tenant ceiling sits above it, and its 429 has to say which
+        """The per-user cap alone lets a tenant with N users hold N active
+        CTASes, so a tenant ceiling sits above it, and its 429 has to say which
         cap was hit — the per-user message would be a lie here, since this
         user has nothing running.
 
@@ -367,21 +365,20 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1015): admission is a reservation, not a check-then-insert.
+        """Admission is a reservation, not a check-then-insert.
 
         Without serialization, simultaneous callers in one tenant all read the
         same count below the ceiling and all create a job, so the tenant ends
         up over by however many arrived together — the unbounded concurrency
-        the ceiling exists to stop, and what #1012's raised work_mem makes
+        the ceiling exists to stop, and what the raised work_mem makes
         expensive.
 
-        This asserts the MECHANISM rather than racing real requests. Under
-        ASGITransport the interleaving is not controllable: a four-way race
-        against the unfixed code reproduced the overshoot once in three runs,
-        so an outcome assertion would pass while the bug was present, which is
-        worse than no test. What is deterministic, and what the fix actually
-        is, is that a transaction-scoped advisory lock is taken BEFORE either
-        count runs.
+        This asserts the MECHANISM rather than racing real requests. Under ASGITransport
+        the interleaving is not controllable: a four-way race reproduces the overshoot
+        only about once in three runs, so an outcome assertion would pass while the bug
+        was present, which is worse than no test. What is deterministic, and what the
+        guarantee actually is, is that a transaction-scoped advisory lock is taken
+        BEFORE either count runs.
         """
         executed: list[str] = []
         from sqlalchemy.ext.asyncio import AsyncSession as _AS
@@ -441,7 +438,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1015): the tenant cap shares the heartbeat lease rather than
+        """The tenant cap shares the heartbeat lease rather than
         inventing a liveness rule, so a hard-killed worker (SIGKILL/OOM) gives
         its slot back here too instead of holding the whole tenant out until
         the 60-minute JOB_TIMEOUT_SECONDS backstop."""
@@ -541,14 +538,14 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#691): elapsed time is NOT a liveness signal — a 45-minute job
+        """Elapsed time is NOT a liveness signal — a 45-minute job
         whose worker is still renewing its heartbeat keeps the slot.
 
         The 300s statement_timeout bounds each statement, not the job — a
         materialize runs a CTAS, a DELETE, an EXISTS probe, two ALTERs, a
         primary key, add_4326_column and registration in sequence, so a
         legitimate run over a large dataset can outlive any elapsed-time
-        window (fix(#682 review)). The lease keys on heartbeat freshness
+        window. The lease keys on heartbeat freshness
         instead.
         """
         from datetime import datetime, timedelta, timezone
@@ -579,7 +576,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#691): a running job whose lease went stale is a hard-killed
+        """A running job whose lease went stale is a hard-killed
         worker (SIGKILL/OOM between heartbeat renewal and the sweep). The
         next materialize must be admitted immediately rather than waiting
         the 60-minute JOB_TIMEOUT_SECONDS backstop."""
@@ -613,7 +610,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#691): the coalesce(heartbeat_at, started_at) leg — a running
+        """The coalesce(heartbeat_at, started_at) leg — a running
         row with no heartbeat yet but a fresh started_at (the pre-migration
         row shape, or the instant between claim stamping the pair) must keep
         blocking rather than being dropped by a NULL comparison."""
@@ -664,10 +661,9 @@ class TestMaterializeEndpoint:
         editor_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """test(#761): Rule 1 applies to the MASK dataset on the write path
+        """Rule 1 applies to the MASK dataset on the write path
         too. The preview suite pins this; the materialize branch sits between
-        two size gates that were each rewritten twice in two weeks (#693,
-        #701) and had no test of its own."""
+        two size gates and needs a test of its own."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
         private_mask = await _create_mask_dataset(
@@ -693,7 +689,7 @@ class TestMaterializeEndpoint:
         viewer_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#692): materialize creates a dataset, so it carries the same
+        """Materialize creates a dataset, so it carries the same
         `upload` permission as every ingest endpoint that creates one — a
         viewer gets 403 even on a dataset they can read. Preview must stay
         open to viewers: read-only, nothing persisted, and the chat tool's
@@ -767,7 +763,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#766): PG has no equality operator for `json` (GDAL maps
+        """PG has no equality operator for `json` (GDAL maps
         nested GeoJSON objects to it), so the CTAS GROUP BY would burn the
         queue wait and the per-user job slot on an opaque 42883. Reject at
         enqueue, naming the column."""
@@ -863,7 +859,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#694): dissolve/buffer are size-gated at enqueue on the cached
+        """dissolve/buffer are size-gated at enqueue on the cached
         feature_count — dissolve's ST_Union can OOM the shared db container,
         and buffer amplifies storage with no byte quota. Centroid is 1:1 and
         stays ungated."""
@@ -922,7 +918,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#693): the shared mask loader caps the mask layer's cached
+        """The shared mask loader caps the mask layer's cached
         feature_count — the whole layer is unioned before any row limit can
         bite — so materialize rejects it before creating a job."""
         admin_id = await get_user_id(test_db_session, "admin")
@@ -947,7 +943,7 @@ class TestMaterializeEndpoint:
         assert resp.status_code == 422
         assert "mask layer has too many features" in resp.json()["detail"].lower()
 
-        # fix(#701 review): a NULL snapshot must not read as zero — the mask
+        # A NULL snapshot must not read as zero — the mask
         # table (1 row) is counted live against the patched cap.
         mask_ds.feature_count = None
         await test_db_session.commit()
@@ -970,7 +966,7 @@ class TestMaterializeEndpoint:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#701 review): a NULL feature_count (legacy imports,
+        """A NULL feature_count (legacy imports,
         register_existing_table paths) must not read as zero — that admits
         exactly the unknown-size datasets the OOM gate exists for. The gate
         falls back to a LIMIT-bounded live count of the physical table."""
@@ -1040,7 +1036,7 @@ class TestMaterializeWorker:
         # fix(v1.6.0 audit B12): the terminal write must stamp completed_at —
         # without it the jobs UI renders '-' and retention ages on queue time.
         assert job.completed_at is not None
-        # fix(#682 review): without started_at the row carries no liveness
+        # Without started_at the row carries no liveness
         # signal, so the platform's stale-job sweep (which matches on
         # coalesce(heartbeat_at, started_at)) could never recover a crashed
         # analysis job.
@@ -1110,7 +1106,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#789): centroid is this suite's cheap lifecycle op — every other
+        """Centroid is this suite's cheap lifecycle op — every other
         occurrence of it is job-slot or permission scaffolding that never looks
         at what got written. Preview does assert the output geometry, which is
         what makes the write path easy to misread as covered. Mirrors the
@@ -1162,9 +1158,9 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#763): GDAL launders only case/`-`/`#`, so ingested tables
-        legitimately carry columns like `Área` or `2020_pop`; the old
-        identifier-shaped filter silently dropped them from every analysis
+        """GDAL launders only case/`-`/`#`, so ingested tables
+        legitimately carry columns like `Área` or `2020_pop`; an
+        identifier-shaped filter would silently drop them from every analysis
         output."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
@@ -1217,7 +1213,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#692): the preview filters NULL/EMPTY results in SQL, so the
+        """The preview filters NULL/EMPTY results in SQL, so the
         saved dataset must agree — buffer of a NULL geometry is NULL and must
         not survive into the registered output."""
         admin_id = await get_user_id(test_db_session, "admin")
@@ -1257,7 +1253,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#692): the worker claims pending→running fenced on the attempt
+        """The worker claims pending→running fenced on the attempt
         token. A job that already reached a terminal state — the pending
         sweeper failing a backlogged job, or the defer orphan-guard failing
         the row after the queue INSERT committed — must stay there; before
@@ -1287,7 +1283,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#786): the terminal 'complete' write is fenced on the attempt
+        """The terminal 'complete' write is fenced on the attempt
         token like the claim — if a stalled heartbeat lets the lease expire
         and the stale-job sweep fails the row mid-run, the worker must not
         overwrite failed → complete and hand the user a dataset for a job
@@ -1357,10 +1353,10 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#786): _mark_job_failed is fenced like _fail_cancelled_job —
+        """_mark_job_failed is fenced like _fail_cancelled_job —
         when another actor already moved the row to a terminal state, this
         worker's later failure must not clobber the message the user saw.
-        fix(v1.6.0 audit B13): the failure path CAN now tell a swept row
+        The failure path CAN tell a swept row
         from a completed one — no dataset row adopted the table here, so it
         is a provable orphan and gets dropped instead of leaking forever."""
         import app.processing.ingest.service as ingest_service
@@ -1637,11 +1633,11 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#786): the rename generate_table_name reports on a collision
-        was discarded — the upload path persists it to
+        """The rename generate_table_name reports on a collision
+        must reach the user. The upload path persists it to
         user_metadata['collision_warning'], which the job-status endpoint
-        surfaces as warning_message, so an analysis output landing in e.g.
-        parcels_buffered_3 said nothing to the user."""
+        surfaces as warning_message; an analysis output landing in e.g.
+        parcels_buffered_3 has to do the same."""
         from app.processing.ingest.service import generate_table_name
 
         admin_id = await get_user_id(test_db_session, "admin")
@@ -1672,12 +1668,12 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#786): NULL/EMPTY-geometry rows are excluded in the CTAS
+        """NULL/EMPTY-geometry rows are excluded in the CTAS
         itself — a DELETE cannot shrink pg_total_relation_size (dead tuples
-        keep their pages until a rewrite), so the early ceiling probe used
-        to measure rows the cleanup removes and could fail a small analysis
-        as oversized. Same shape as the clip-by-layer case from the #719
-        review, extended to the render_geometry_expr operations."""
+        keep their pages until a rewrite), so the early ceiling probe would
+        measure rows the cleanup removes and could fail a small analysis
+        as oversized. Same shape as the clip-by-layer case, extended to the
+        render_geometry_expr operations."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
         # 2,025 NULL-geometry decoys: centroid maps them to NULL and the
@@ -1718,7 +1714,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#692): graceful worker shutdown cancels the task mid-CTAS. The
+        """Graceful worker shutdown cancels the task mid-CTAS. The
         job must fail immediately with a comprehensible message — not strand
         in 'running' holding the slot until the 60-minute sweep — and the
         CancelledError must propagate so the queue records the abort."""
@@ -1766,7 +1762,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#700 review): a cancel can land while the working session's
+        """A cancel can land while the working session's
         open transaction still holds the job-row lock (e.g. mid-commit,
         after flush). The cleanup must roll that session back before its
         fenced update, or it blocks on its own lock until the shield
@@ -1833,7 +1829,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#1097 review): the by_field guard has the overlay guard's array
+        """The by_field guard has the overlay guard's array
         blind spot. The router's snapshot says 'ARRAY' for a json[] column, so
         enqueue admits it, and without the worker's live recheck the dissolve
         CTAS dies on SQLSTATE 42883 after the queue wait with an error naming
@@ -2043,20 +2039,19 @@ class TestMaterializeWorker:
         """When CREATE TABLE loses a name race, cleanup must not drop the
         winner's table — only a table this job actually created.
 
-        fix(#692): generate_table_name now sidesteps live relations, so the
+        generate_table_name sidesteps live relations, so the
         lost race is simulated by pinning the generated name to the occupied
         one — exactly what happens when two jobs draw the same name in the
         window between generation and CREATE.
 
         The occupied table is created at the name this
-        JOB will derive, because the output name is scoped by the job now. The
-        race is the same one; only where the name comes from has changed.
+        JOB will derive, because the output name is scoped by the job.
 
-        The collision-check now runs against the SCOPED
+        The collision check runs against the SCOPED
         candidate (`resolve_analysis_output_table`), which reads pg_class
         before CREATE and would self-heal to a `_2` suffix if it saw the
         occupied name sitting there when it probed. So pinning only
-        `generate_table_name` is no longer enough to reproduce a lost race --
+        `generate_table_name` is not enough to reproduce a lost race --
         the probe would just avoid the collision this test means to force.
         `resolve_analysis_output_table` is pinned too, to the occupied name,
         which is what a probe that ran a moment before the other job's CREATE
@@ -2120,17 +2115,16 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#692): a table committed without a catalog row (worker killed
-        during registration) used to poison its title forever — the name
-        generator collided only against the catalog, so every retry died on
-        CREATE TABLE. It now probes information_schema too: the retry lands
-        on a _2 suffix and the orphan is left untouched for an operator.
+        """A table committed without a catalog row (worker killed
+        during registration) must not poison its title forever. The name
+        generator probes information_schema as well as the catalog: the retry
+        lands on a _2 suffix and the orphan is left untouched for an operator.
 
-        The output name carries a job scope now, so the
-        suffix walk is no longer what keeps the retry off the orphan. The walk
-        still runs and still lands on _2, and this keeps asserting it, but the
-        guarantee underneath is stronger: a name embedding a job id could not
-        have collided with the orphan even without it."""
+        The output name carries a job scope, so the
+        suffix walk is not what keeps the retry off the orphan. The walk
+        still runs and still lands on _2, and this asserts it, but the
+        guarantee underneath is stronger: a name embedding a job id cannot
+        collide with the orphan even without it."""
         from app.processing.analysis.tasks import analysis_output_table_name
         from app.processing.ingest.service import generate_table_name
 
@@ -2219,13 +2213,13 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#719): the subdivided join must equal clipping against the
-        whole-layer union it replaced.
+        """The subdivided join must equal clipping against the
+        whole-layer union.
 
-        The old materialize shape unioned the mask layer into one geometry and
-        intersected every source row against it. This one subdivides the mask
-        and unions the per-piece intersections instead — 33.2s -> 3.4s on a
-        972-polygon mask over 22k source rows. Intersection distributes over
+        The whole-layer shape unions the mask layer into one geometry and
+        intersects every source row against it. Materialize subdivides the
+        mask and unions the per-piece intersections instead, which is far
+        faster on a large mask. Intersection distributes over
         union so the two are equal in theory; this pins it in practice, on a
         MULTI-row overlapping mask where the distinction actually bites (a
         single-row mask subdivides to pieces that trivially reassemble).
@@ -2300,13 +2294,13 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#719 review): ST_Union does not sew line segments.
+        """ST_Union does not sew line segments.
 
         The subdivided join intersects per mask piece and unions the results.
         For polygons that reassembles exactly, but a LineString crossing a
-        seam between two touching mask polygons came back as an artificially
-        fragmented MultiLineString where the old whole-mask intersection
-        returned one continuous LineString — which changes the geometry type
+        seam between two touching mask polygons comes back as an artificially
+        fragmented MultiLineString where a whole-mask intersection
+        returns one continuous LineString — which changes the geometry type
         the new dataset is registered with. ST_LineMerge on single-part
         LineString sources restores it; a line with a REAL gap must stay
         multi-part.
@@ -2382,14 +2376,14 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#719 review): seam repair must not merge REAL components.
+        """Seam repair must not merge REAL components.
 
         The seam fix above keys on ``GeometryType(...) = 'LINESTRING'``, not
         ``ST_Dimension(...) = 1``. A MultiLineString whose components merely
         touch at an endpoint is dimension 1 too, so a dimension test sews
         those genuine components into one LineString — a change the mask never
-        asked for, and one the whole-mask intersection does not make. Measured
-        against the old shape: MULTILINESTRING/2 parts, both before and after.
+        asked for, and one the whole-mask intersection does not make. That
+        intersection gives MULTILINESTRING/2 parts, and so must this.
 
         Both components sit well inside a single mask polygon, so the mask
         introduces no seam here at all; anything but a passthrough is wrong.
@@ -2460,13 +2454,13 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#719 review): NULL rows must not be measured as output.
+        """NULL rows must not be measured as output.
 
         The row filter admits a source row on a bounding-box overlap, so a
         concave mask lets through rows that never actually intersect it; their
         lateral aggregates over zero pieces and yields geom_out = NULL.
         ``_enforce_output_size`` runs against the CTAS BEFORE the NULL/EMPTY
-        cleanup, so those rows used to count toward the ceiling — and clip has
+        cleanup, so those rows would count toward the ceiling — and clip has
         no source-feature cap bounding how many of them there are.
 
         The mask is the lower-right triangle of a 0..40 box (hypotenuse along
@@ -2549,13 +2543,12 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#719 review): "geom_out" is a legal attribute name.
+        """ "geom_out" is a legal attribute name.
 
         The CTAS selects the carry columns from _src alongside the lateral's
         own geom_out, so an unqualified predicate is rejected outright:
-        `column reference "geom_out" is ambiguous`. The whole-mask shape this
-        PR replaced had no lateral and so no collision, making this a
-        regression on datasets that happen to use the name.
+        `column reference "geom_out" is ambiguous`. A dataset that happens to use
+        the name must still work.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         table_name = f"ds_{uuid.uuid4().hex[:12]}"
@@ -2632,7 +2625,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#692): the output table is ANALYZEd before the mid-task commit
+        """The output table is ANALYZEd before the mid-task commit
         (tile queries land before autovacuum's pass), and registration gets a
         fresh statement_timeout (SET LOCAL died with that commit). Pin both
         by inspecting the statements the worker actually ran."""
@@ -2668,9 +2661,9 @@ class TestMaterializeWorker:
         # The registration budget is set after the ANALYZE (i.e. in the new
         # transaction), not before.
         assert executed.index(timeouts[1]) > executed.index(analyzes[0])
-        # Only dissolve flips the aggregation strategy (fix(#694)).
+        # Only dissolve flips the aggregation strategy.
         assert not [s for s in executed if "enable_hashagg" in s]
-        # fix(#701 review): the size ceiling is probed twice — a cheap early
+        # The size ceiling is probed twice — a cheap early
         # exit after the CTAS, and the authoritative check on the finished
         # relation (post-4326-rewrite, so heap + TOAST + GIST all count),
         # which must land before the ANALYZE that precedes the commit.
@@ -2678,7 +2671,7 @@ class TestMaterializeWorker:
         # list.index() would find the first one twice.
         size_pos = [i for i, s in enumerate(executed) if "pg_total_relation_size" in s]
         assert len(size_pos) == 2
-        # fix(#1113): registration now runs the linearize-enforcement UPDATE
+        # Registration runs the linearize-enforcement UPDATE
         # (uniquely marked by ST_HasArc) AFTER the probes; the position under
         # test is the BUILD's last geom_4326 write, so exclude the enforcer.
         rewrite_pos = max(
@@ -2693,7 +2686,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#694): hash aggregation holds every group's union state in
+        """Hash aggregation holds every group's union state in
         memory simultaneously; the dissolve CTAS transaction must switch to
         sorted aggregation, which bounds memory to one group at a time."""
         executed: list[str] = []
@@ -2730,11 +2723,11 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#1012): the CTAS gets a raised work_mem, SET LOCAL so it reverts
+        """The CTAS gets a raised work_mem, SET LOCAL so it reverts
         with the transaction and the other connections keep the 8MB default.
 
         Paired with the dissolve case below, which is the shape that most needs
-        it: #694's `enable_hashagg = off` forces sorted aggregation, and sorting
+        it: `enable_hashagg = off` forces sorted aggregation, and sorting
         is exactly what work_mem governs.
         """
         executed: list[str] = []
@@ -2777,7 +2770,7 @@ class TestMaterializeWorker:
         # the hashagg flip whose sort it pays for.
         assert executed.index(work_mems[0]) < executed.index(ctas[0])
         assert executed.index(hashaggs[0]) < executed.index(ctas[0])
-        # fix(#1012 review): parallelism is pinned alongside it, so the "x2
+        # Parallelism is pinned alongside it, so the "x2
         # backends" the budget is sized for is guaranteed rather than assumed
         # from db/postgresql.conf — which says nothing about an external server.
         par = [s for s in executed if "max_parallel_workers_per_gather" in s]
@@ -2794,7 +2787,7 @@ class TestMaterializeWorker:
         test_db_session: AsyncSession,
         monkeypatch,
     ):
-        """fix(#1012 review): 0 must issue NO statement, not a small one.
+        """0 must issue NO statement, not a small one.
 
         An operator who has tuned their own cluster needs a way to say "leave
         work_mem alone"; a clamped small value would still raise the session
@@ -2839,7 +2832,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#701 review): the enqueue gate's count can go stale while the
+        """The enqueue gate's count can go stale while the
         job waits in the queue (a source or mask can be re-uploaded past its
         cap), and the post-CTAS size check is too late to protect the
         dissolve/mask union itself from OOM — the worker re-counts the live
@@ -2890,7 +2883,7 @@ class TestMaterializeWorker:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#694): the enqueue gates read a cached feature_count snapshot;
+        """The enqueue gates read a cached feature_count snapshot;
         the post-CTAS pg_total_relation_size backstop is the enforcement that
         can't go stale. The job fails with an actionable message, no dataset
         is registered, and the cleanup path drops the built table."""
@@ -2999,7 +2992,7 @@ class TestMaterializeWorker:
 
 
 # ---------------------------------------------------------------------------
-# Antimeridian and high-latitude edge fixtures (fix(#697))
+# Antimeridian and high-latitude edge fixtures
 # ---------------------------------------------------------------------------
 
 
@@ -3060,10 +3053,10 @@ class TestBufferAtDateline:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#697): a 10 km buffer of a point at lon 179.95 used to register
-        as ONE self-intersecting polygon with vertices on both sides of ±180.
-        Probed before the fix: ST_IsValid false, planar envelope 359.99° wide
-        for a footprint 0.25° across, and the stored geometry ST_Intersects a
+        """A 10 km buffer of a point at lon 179.95 must not register
+        as ONE self-intersecting polygon with vertices on both sides of ±180,
+        which is ST_IsValid false, a planar envelope 359.99° wide
+        for a footprint 0.25° across, and a stored geometry that ST_Intersects a
         bbox over central France — a feature-level false positive ~15 000 km
         out, reaching OGC /items, tile queries, and bbox-filtered exports.
         """
@@ -3099,16 +3092,11 @@ class TestBufferAtDateline:
         # matches a bbox on the far side of the world.
         assert row.hits_france is False
 
-        # fix(#934): this block used to pin the PRE-fold extent — a single
-        # POLYGON spanning the whole -180..180 band, 360° wide to describe a
-        # footprint 0.25° across — and its comment named the follow-up that
-        # would change it ("teaching the analysis extent rollup to emit one is
-        # the separate follow-up"). #934 is that follow-up: analysis registers
-        # through `register_existing_table`, so it shares the ingest extent
-        # producer, which now emits the honest two-ring seam form #892 widened
-        # the column to hold. Nothing above this point changed — the #697
-        # guarantees about the buffer RESULT geometry are asserted separately
-        # and still hold.
+        # Analysis registers through `register_existing_table`, so it shares
+        # the ingest extent producer, which emits the honest two-ring seam form
+        # for a footprint 0.25° across rather than a single POLYGON spanning
+        # the whole -180..180 band. The guarantees about the buffer RESULT
+        # geometry are asserted separately above.
         extent = (
             await test_db_session.execute(
                 text(
@@ -3160,7 +3148,7 @@ class TestBufferAtDateline:
         self,
         test_db_session: AsyncSession,
     ):
-        """The other half of fix(#697): the split must not fire on ordinary
+        """The split must not fire on ordinary
         input. ST_ShiftLongitude maps negative longitudes to 180..360, so an
         unguarded normalization would cut geometry at the PRIME meridian — a
         10 km buffer at lon 0 measured 2 parts covering 49x the correct area.
@@ -3273,7 +3261,7 @@ class TestBufferAtDateline:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#883 review): the split decision has to be per component.
+        """The split decision has to be per component.
 
         A MULTIPOINT holding (179.95, 45) and (0, 45) buffers to one
         antimeridian-wrapping polygon plus one Greenwich-straddling polygon, and
@@ -3375,7 +3363,7 @@ async def _component_radius_range(
 
 
 class TestBufferMultipartProjection:
-    """fix(#891): ``ST_Buffer(...::geography, d)`` picks ONE planar working SRID
+    """``ST_Buffer(...::geography, d)`` picks ONE planar working SRID
     for the whole input, so a multipart feature whose components sit far apart in
     longitude is buffered in a projection local to at most one of them.
     """
@@ -3418,9 +3406,8 @@ class TestBufferMultipartProjection:
         assert row.gtype == "MULTIPOLYGON"
         assert row.parts == 2
         assert row.valid is True
-        # vs the ideal circle area, not vs the unfixed output: #891 is precisely
-        # the pre-existing error that made fixed-vs-raw the only honest
-        # comparison in fix(#883).
+        # vs the ideal circle area, not vs the raw buffer, which carries the
+        # very projection error under test.
         assert row.area == pytest.approx(2 * math.pi * 10_000**2, rel=0.01)
 
         radii = await self._radius_range(test_db_session, out.table_name, wkt)
@@ -3466,7 +3453,7 @@ class TestBufferMultipartProjection:
         pass must not run at all: the saved geometry has to match the bare
         whole-input buffer byte for byte, not merely be spatially equal.
 
-        This is what keeps the fix(#883) exact assertions — and the polar
+        This is what keeps the exact assertions — and the polar
         POLYGON fixture above — meaningful rather than accidentally satisfied.
         """
         for lon, lat in ((0.0, 45.0), (0.0, 85.06), (0.0, 89.9)):
@@ -3561,7 +3548,7 @@ class TestBufferMultipartProjection:
         """Both passes on one feature, in the order that works.
 
         A MULTIPOINT holding a seam-crossing component and one 100° away trips
-        the projection guard AND the fix(#883) seam guard. The seam split has to
+        the projection guard AND the seam guard. The seam split has to
         run before the dissolve: unioning a component that still wraps ±180
         raises ``TopologyException: side location conflict`` and aborts the
         statement instead of saving anything.
@@ -3608,12 +3595,12 @@ class TestBufferMultipartProjection:
 
 
 class TestWideSingleComponentBuffer:
-    """fix(#902): a SINGLE component wider than one UTM zone was still buffered
-    in one non-local projection — per-component dumping (#891/#900) cannot touch
-    it because there is nothing to dump into. The wide branch now slices the
+    """A SINGLE component wider than one UTM zone must not be buffered
+    in one non-local projection — per-component dumping cannot touch
+    it because there is nothing to dump into, so the wide branch slices the
     geography-segmentized input into sub-zone longitude bands and dissolves.
 
-    Two metrics, per the issue's warning that pooled area hides the failure:
+    Two metrics, because pooled area hides the failure:
 
     - per SOURCE VERTEX: nearest geodesic distance to the buffer boundary,
       asserted within ±1% of the requested distance (the acceptance bar);
@@ -3623,8 +3610,8 @@ class TestWideSingleComponentBuffer:
       the INTERIOR of circle-approximation chords (sagitta 0.48% at the
       default quad_segs=8, plus the neighbor slice's own ±0.25% projection
       error), which even an exact whole-input buffer exhibits as chord dip —
-      its vertices just happen to sit on the circle. Both unfixed failure
-      modes sit far outside the bracket: world Mercator produced 7 079 -
+      its vertices just happen to sit on the circle. Both single-projection
+      failure modes sit far outside the bracket: world Mercator produces 7 079 -
       7 087 m (-29%) and the wide Lambert 9 240 - 10 824 m (±8%).
     """
 
@@ -3914,7 +3901,7 @@ class TestWideSingleComponentBuffer:
     ):
         """The gate must not fire below the span threshold: a 2°-wide
         LINESTRING keeps the bare whole-input buffer byte for byte. If this
-        moves, the gate is wrong — the blast radius accepted for fix(#902) is
+        moves, the gate is wrong — the blast radius accepted is
         wide inputs only."""
         wkt = "LINESTRING(0 45, 2 45)"
         out = await _materialize_buffer(
@@ -3938,7 +3925,7 @@ class TestWideSingleComponentBuffer:
 
 
 # ---------------------------------------------------------------------------
-# Adversarial dissolve by_field and source-shape edges (fix(#699))
+# Adversarial dissolve by_field and source-shape edges
 # ---------------------------------------------------------------------------
 
 
@@ -4241,7 +4228,7 @@ class TestMaterializeSourceShapeEdges:
 
 class TestUserErrorMessage:
     def test_db_error_hides_generated_sql(self):
-        """fix(#692): SQLAlchemy appends `[SQL: …]` to DB errors — schema and
+        """SQLAlchemy appends `[SQL: …]` to DB errors — schema and
         table names must never reach GET /jobs/{id}."""
         from sqlalchemy.exc import ProgrammingError
 
@@ -4253,7 +4240,7 @@ class TestUserErrorMessage:
         assert "CREATE TABLE" not in msg
 
     def test_sqlstate_42_is_named_a_column_problem(self):
-        """fix(#766): SQLSTATE class 42 (e.g. no equality operator for
+        """SQLSTATE class 42 (e.g. no equality operator for
         `json` in a dissolve GROUP BY) is a parameter problem, not a
         generic database error — say so, without leaking the SQL."""
         from sqlalchemy.exc import ProgrammingError
@@ -4269,7 +4256,7 @@ class TestUserErrorMessage:
         assert "CREATE TABLE" not in msg
 
     def test_other_class_42_states_stay_generic(self):
-        """codex(#791): 42501 (privilege), 42P01 (missing table) and the
+        """42501 (privilege), 42P01 (missing table) and the
         like are server/configuration faults — mapping them onto "choose a
         different column" would bury the actionable failure."""
         from sqlalchemy.exc import ProgrammingError
@@ -4302,8 +4289,8 @@ class TestUserErrorMessage:
         assert _user_error_message(exc) is exc
 
     def test_timeout_message_names_the_budget_that_fired(self, monkeypatch):
-        """fix(#1013 review): the two budgets are independently configurable
-        now, so a registration timeout quoting the materialize budget would
+        """The two budgets are independently configurable,
+        so a registration timeout quoting the materialize budget would
         send an operator to tune the setting that did not fire."""
         from sqlalchemy.exc import OperationalError
 
@@ -4322,7 +4309,7 @@ class TestUserErrorMessage:
         assert "300s" not in _user_error_message(exc, registered=True)
 
     def test_analysis_timeouts_track_their_settings(self, monkeypatch):
-        """fix(#1013): the budgets are operator settings now, and they are read
+        """The budgets are operator settings, and they are read
         at call time — a module-level snapshot would freeze whatever the
         settings object held when this module was first imported."""
         from app.core.config import settings
@@ -4350,13 +4337,13 @@ class TestUserErrorMessage:
 
 
 class TestMaterializeWorkMem:
-    """fix(#1085): the sync half of the #1012 work_mem tests. Their async
+    """The sync half of the work_mem tests. Their async
     siblings stay in TestMaterializeWorker, which runs _materialize against a
     real table; these only read settings, so they belong beside the other
     pure ones rather than in a class of DB-backed tests."""
 
     def test_work_mem_is_divided_across_worker_slots(self, monkeypatch):
-        """fix(#1012): the budget is per worker PROCESS, so parallel job slots
+        """The budget is per worker PROCESS, so parallel job slots
         share it — otherwise raising WORKER_CONCURRENCY silently multiplies the
         db container's exposure."""
         from app.core.config import settings
@@ -4385,10 +4372,10 @@ class TestMaterializeWorkMem:
         # falling back to the cluster's value honours the budget.
 
     def test_work_mem_ceiling_is_operator_configurable(self, monkeypatch):
-        """fix(#1012 review): the safe value depends on DB_MEM_LIMIT and on how
+        """The safe value depends on DB_MEM_LIMIT and on how
         many worker services consume the ingest queue, neither of which this
         process can see — DB_MEM_LIMIT is a compose mem_limit and is never in
-        this container's environment. A hardcoded ceiling was therefore only
+        this container's environment. A hardcoded ceiling is only
         valid for the default 2 GB single-worker deployment, and could OOM a
         smaller database or a scaled-out one."""
         from app.core.config import settings

@@ -1,4 +1,4 @@
-"""A credential header stays on the origin it was given to (fix(#1746)).
+"""A credential header stays on the origin it was given to.
 
 httpx removes ``Authorization`` when a redirect changes origin and forwards
 every other header unchanged. The header-key auth method sends a credential

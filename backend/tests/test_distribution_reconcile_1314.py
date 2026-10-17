@@ -1,4 +1,4 @@
-"""Reconciling auto-generated distributions when a dataset's modality changes (#1314).
+"""Reconciling auto-generated distributions when a dataset's modality changes.
 
 ``generate_distributions`` runs once, at dataset creation, and merges rather
 than replaces. Everything below is about the write that closes the gap that
@@ -11,8 +11,8 @@ These tests are what stop it from being only a docstring — including the
 limitation it admits to, which is pinned here deliberately so that relaxing it
 later fails a test instead of quietly changing behaviour.
 
-fix(#1370) extends the file to the other half of "merges rather than replaces":
-whose rows the merge is allowed to see. A row the user authored is no longer a
+The file also covers the other half of "merges rather than replaces":
+whose rows the merge is allowed to see. A row the user authored is not a
 reason to withhold the platform's own export link for that format, so a record
 can carry two rows for one format — see ``TestUserRowsDoNotSuppressGenerated``
 and ``TestTwoRowsForOneFormat``.
@@ -380,12 +380,11 @@ class TestPrimaryFlag:
     ) -> None:
         """The record must never end up with none.
 
-        Picking the primary from the modality alone cleared the CSV flag to
-        promote a row that was never created. fix(#1370) narrowed the way in —
-        a user's own GeoPackage entry at their own url now gets the generated
-        row beside it — but left this one: a user row sitting at the exact url
-        the template would insert makes the insert a no-op, so there is again
-        no generated GeoPackage row for the preferred pair to name.
+        Picking the primary from the modality alone would clear the CSV flag to
+        promote a row that was never created. A user's own GeoPackage entry at
+        their own url gets the generated row beside it, but a user row sitting
+        at the exact url the template would insert makes the insert a no-op, so
+        there is no generated GeoPackage row for the preferred pair to name.
         """
         dataset = await _tabular_dataset(test_db_session)
         await create_distribution(
@@ -461,15 +460,15 @@ class TestTheConstraintTheInsertTargets:
 
 
 class TestUserRowsDoNotSuppressGenerated:
-    """fix(#1370): the existence probe reads only the rows this module owns.
+    """The existence probe reads only the rows this module owns.
 
-    The probe used to match on ``(distribution_type, format)`` across every
-    row, so one ``POST /records/{id}/distributions/`` for ``download``/``gpkg``
-    retired the built-in ``/datasets/{id}/export?format=gpkg`` row for the life
-    of the record. Nothing recreated it: not a later ``generate_distributions``
-    call, not the ``reconcile_distributions`` promote. The export endpoint went
-    on working while the catalog record, the DCAT feeds and the STAC assets
-    stopped naming it.
+    A probe matching on ``(distribution_type, format)`` across every row would
+    let one ``POST /records/{id}/distributions/`` for ``download``/``gpkg``
+    retire the built-in ``/datasets/{id}/export?format=gpkg`` row for the life
+    of the record. Nothing would recreate it: not a later
+    ``generate_distributions`` call, not the ``reconcile_distributions``
+    promote. The export endpoint would go on working while the catalog record,
+    the DCAT feeds and the STAC assets stopped naming it.
     """
 
     async def _rows(

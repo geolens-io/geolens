@@ -1,9 +1,8 @@
-"""fix(#435): a failed export must remove its own staging temp directory.
+"""A failed export must remove its own staging temp directory.
 
-Pre-fix, `export_dataset()` created `<staging>/exports/<uuid>/` before running
-ogr2ogr and attached cleanup only to a successful `FileResponse`. Every ogr2ogr
-failure, ZIP failure, or client disconnect leaked a directory until some later
-process startup swept it.
+`export_dataset()` creates `<staging>/exports/<uuid>/` before running ogr2ogr,
+so every ogr2ogr failure, ZIP failure, or client disconnect must clean it up
+rather than leak a directory until some later process startup sweeps it.
 """
 
 from pathlib import Path

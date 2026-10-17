@@ -1,8 +1,8 @@
-"""fix(#1778): a request that races a revoke must not re-cache the token.
+"""A request that races a revoke must not re-cache the token.
 
-Codebase audit 2026-08-30, "Embed-token revocation invalidates the Redis
-positive cache BEFORE the caller's commit, so a concurrent request can re-cache
-the still-active token and keep it serving for 300s".
+Embed-token revocation invalidates the Redis positive cache BEFORE the
+caller's commit, so a concurrent request can re-cache the still-active token
+and keep it serving for 300s.
 
 The interleaving, in full:
 

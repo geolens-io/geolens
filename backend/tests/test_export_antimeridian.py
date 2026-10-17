@@ -1,12 +1,12 @@
-"""fix(#885): an antimeridian-crossing (west>east) bbox must narrow an ogr2ogr
+"""An antimeridian-crossing (west>east) bbox must narrow an ogr2ogr
 export the same way it narrows /features and format=parquet.
 
 ``parse_bbox`` documents west>east as valid, but ogr2ogr's ``-spat`` takes ONE
 rectangle and GDAL reads its corners as an envelope, so
-``-spat 170 -20 -170 -15`` silently became the *complement* band
-(lon -170..170): the export succeeded and dropped every feature the caller had
-asked for. A Fiji or Aleutians AOI came back empty from GPKG/GeoJSON/SHP/CSV
-while the same bbox returned rows from /features and from parquet.
+``-spat 170 -20 -170 -15`` would silently become the *complement* band
+(lon -170..170): the export would succeed and drop every feature the caller had
+asked for. A Fiji or Aleutians AOI would come back empty from GPKG/GeoJSON/SHP/CSV
+while the same bbox returns rows from /features and from parquet.
 
 The command-shape and unit tests here run everywhere. The end-to-end format
 tests need a real ogr2ogr against the test PostGIS database, so they carry the
@@ -324,7 +324,7 @@ class TestAntimeridianExportEndToEnd:
         )
         features_names = sorted(r["properties"]["name"] for r in page.rows)
 
-        # fix(#1513): planning (introspection + filter validation + the bounded
+        # Planning (introspection + filter validation + the bounded
         # count) is a separate phase from writing, so the route can decide a
         # HEAD's status without producing bytes. Same two steps here.
         from app.processing.export.parquet import plan_parquet_export

@@ -517,9 +517,9 @@ async def test_the_pre_commit_check_holds_the_relation_lock(
 ):
     """Check-then-act is only sound while the thing checked cannot move.
 
-    fix(#1579): the pre-commit drift check reads
-    `pg_attribute`, which locks nothing. Running it before the rows were sent
-    left a window in which an `ALTER TABLE` could take ACCESS EXCLUSIVE, commit,
+    The pre-commit drift check reads
+    `pg_attribute`, which locks nothing. Running it before the rows are sent
+    would leave a window in which an `ALTER TABLE` could take ACCESS EXCLUSIVE, commit,
     and be missed entirely — and when that ALTER widens the column to an
     unconstrained `vector`, the old-width inserts then SUCCEED and the run
     reports success over a column that moved under it. That is exactly the
@@ -619,14 +619,13 @@ async def test_a_move_during_the_last_retry_is_drift_not_a_counted_error(
 ):
     """The last retried record has no successor to catch what it missed.
 
-    fix(#1579): the retry's width judgement asked "does this
-    vector fit?" before "is the column still the one we pinned?", and returned
-    early when the vector matched. A column that moved to a DIFFERENT fixed
-    width during the provider call therefore went unnoticed: the flush raised
-    the typmod error, the broad handler counted it as a bad record, and the run
-    finished reporting one error where it should have reported a configuration
-    change. Every other record is covered by the next one's pre-call check. The
-    last one has no next.
+    The retry's width judgement must ask "is the column still the one we pinned?" before
+    "does this vector fit?", and not return early when the vector matches. Otherwise a
+    column that moved to a DIFFERENT fixed width during the provider call goes
+    unnoticed: the flush raises the typmod error, the broad handler counts it as a bad
+    record, and the run finishes reporting one error where it should have reported a
+    configuration change. Every other record is covered by the next one's pre-call
+    check. The last one has no next.
 
     Reaching that state needs a retry loop with exactly one record in it, so the
     run is set up as a non-force run over a catalog where exactly one record

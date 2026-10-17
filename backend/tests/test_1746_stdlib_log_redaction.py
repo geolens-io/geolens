@@ -1,10 +1,10 @@
-"""fix(#1746): stdlib log records must not leak service tokens (findings 1, 13).
+"""Stdlib log records must not leak service tokens.
 
 httpx (and its httpcore transport) logs the full outgoing request URL at INFO
 for every call, e.g. ``HTTP Request: GET <url>?f=json&token=<value> "HTTP/1.1
 200 OK"``. That line reaches every deployment's logs by default, because root
 defaults to INFO (``app.core.config``), and it fires twice per refresh on the
-credential-store path (finding 13). Procrastinate's worker separately logs
+credential-store path. Procrastinate's worker separately logs
 ``task_kwargs`` rendered by ``Job.call_string`` (pinned procrastinate 3.9.0,
 ``procrastinate/jobs.py``): ``", ".join(f"{key}={value!r}" ...)`` — a bare
 keyword-argument rendering, e.g.
@@ -20,10 +20,10 @@ root logger instead and read back what it actually received.
 
 ``tests/_logging_state.configured_logging()`` saves and restores every
 logger ``setup_logging()`` is documented to mutate — root, the three uvicorn
-loggers, and (as of fix #1746) ``httpx``/``httpcore`` (see
+loggers, and ``httpx``/``httpcore`` (see
 ``_logging_state.py``'s own docstring). ``.disabled`` is outside that snapshot
-because ``setup_logging()`` never touches it; fix(#1755 item 8) removed the
-only thing that did, so this file no longer restores it either.
+because ``setup_logging()`` never touches it, so this file does not restore
+it either.
 """
 
 import base64
@@ -48,7 +48,7 @@ from app.core.url_redaction import URL_LIKE_RE
 from tests._logging_state import configured_logging
 
 _TOKEN = "SECRETTOKEN123"
-# fix(#1844): the throwaway credential the job-context tests below put on the
+# The throwaway credential the job-context tests below put on the
 # wire. Deliberately unmistakable filler rather than anything that reads like a
 # real credential, while still carrying every SHAPE the scrubber has to
 # recognise: a finished basic header line, the base64 blob inside it, and the
@@ -59,7 +59,7 @@ _BASIC_BLOB = base64.b64encode(f"{_BASIC_USER}:{_BASIC_SECRET}".encode()).decode
 _BASIC_LINE = f"Authorization: Basic {_BASIC_BLOB}"
 _CREDENTIAL_REF = "REF00000000000001"
 _ARCGIS_URL = f"https://services6.arcgis.com/x/FeatureServer/0?f=json&token={_TOKEN}"
-# fix(#1746): an apostrophe in the URL PATH (not the token) stops
+# An apostrophe in the URL PATH (not the token) stops
 # URL_LIKE_RE's match before the query ever starts -- see _QUERY_TAIL_RE's
 # comment in logging_config.py.
 _APOSTROPHE_URL = f"https://example.com/it'works/FeatureServer/0?f=json&token={_TOKEN}"
@@ -93,12 +93,11 @@ def _emit_through_real_pipeline(
     exercised exactly as it runs in production rather than by calling the
     processor function directly.
 
-    fix(#1844): `extra` is passed straight through to the stdlib call.
-    Every test written for #1746 emitted a message and nothing else, which is
-    exactly why the leak stayed green through that whole review: the
-    processor chain's `structlog.stdlib.ExtraAdder()` lifts a stdlib record's
-    `extra` mapping into the event dict, and no test here ever put anything
-    there. `json_logs` / `log_level` are exposed for the same reason -- the
+    `extra` is passed straight through to the stdlib call: the processor
+    chain's `structlog.stdlib.ExtraAdder()` lifts a stdlib record's `extra`
+    mapping into the event dict, so a test that emits only a message never
+    exercises that path. `json_logs` / `log_level` are exposed for the same
+    reason -- the
     worker's first job line is a DEBUG one, and the structured half of a
     record is far easier to assert on when the renderer emits JSON.
     """
@@ -146,15 +145,15 @@ def test_httpx_info_request_line_never_reaches_the_handler():
 def test_httpx_warning_request_line_is_delivered_but_redacted():
     """A WARNING-or-above httpx record still reaches logs, minus the token.
 
-    Silencing httpx to WARNING (finding 1's primary fix) must not become the
+    Silencing httpx to WARNING (the primary fix) must not become the
     only defense — an httpx warning (e.g. a retry log) carries the same URL
     shape, so the event-string scrub is the backstop this test pins.
 
-    fix(#1746): the query is now redacted WHOLE (`?<redacted>`)
+    The query is redacted WHOLE (`?<redacted>`)
     whenever it carries any credential, not just the token's value -- see
     `_redact_url_match()` for why a partial parse is not trustworthy enough
-    to leave the rest of the query in place. `"token="` itself no longer
-    survives here; the host and path do.
+    to leave the rest of the query in place. `"token="` itself does not
+    survive here; the host and path do.
     """
     message = f'HTTP Request: GET {_ARCGIS_URL} "HTTP/1.1 200 OK"'
     lines = _emit_through_real_pipeline("httpx", logging.WARNING, message)
@@ -709,15 +708,14 @@ _WORKER_JOB_RECORDS = (
     ids=[record[0] for record in _WORKER_JOB_RECORDS],
 )
 def test_worker_job_context_never_carries_a_credential(action, level, template):
-    """fix(#1844): the structured half of every worker job line.
+    """The structured half of every worker job line.
 
-    #1746 scrubbed the `event` STRING of exactly these three records and
-    stopped there, because `_redact_sensitive_fields` only looked at top-level
-    keys and no test in this file ever passed an `extra=`. The worker's
-    `extra["job"]` is `Job.log_context()`, which carries `task_kwargs`
-    verbatim AND a second rendered copy in `call_string`, so the credential
-    went out twice per line, at INFO, before the task body ran -- early enough
-    that nothing the task does about its own log context can help.
+    Scrubbing the `event` STRING of these three records is not enough: the
+    worker's `extra["job"]` is `Job.log_context()`, which carries
+    `task_kwargs` verbatim AND a second rendered copy in `call_string`, so an
+    unscrubbed credential goes out twice per line, at INFO, before the task
+    body runs -- early enough that nothing the task does about its own log
+    context can help.
     """
     job = _authenticated_service_job()
     extra = _worker_log_extra(job, action)
@@ -856,7 +854,7 @@ def test_a_flat_record_is_left_alone_by_the_deep_walk():
         assert data[key] == value
 
 
-# fix(#1857 item 9): exercised through the real pipeline rather than by
+# Exercised through the real pipeline rather than by
 # calling redact_nested, because the processor decides whether to walk at all:
 # a shape can be walkable and still never be handed to the walk.
 

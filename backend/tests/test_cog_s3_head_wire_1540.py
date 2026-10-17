@@ -1,10 +1,10 @@
-"""fix(#1540) review P1: the S3 HEAD, over a socket, against a real bucket.
+"""The S3 HEAD, over a socket, against a real bucket.
 
 ``test_cog_head_ranges_1528.py`` proves the route's intent through
 ``httpx.ASGITransport`` and a moto bucket. Neither can show the defect this
 module is about, because moto does not verify SigV4 signatures at all — it
-accepts a presigned URL for any HTTP method, so the redirect the route used to
-send would have "worked" there.
+accepts a presigned URL for any HTTP method, so a redirect to a GET-signed URL
+would "work" there.
 
 Real S3 and real MinIO do not. The method is part of the SigV4 canonical
 request, so a URL signed for ``get_object`` is not a URL you may HEAD.
@@ -23,10 +23,10 @@ and it is what names the failure: ``SignatureDoesNotMatch``.
 End to end through this route on the same MinIO, HEAD with redirects followed
 the way curl -L and GDAL's /vsicurl/ follow them:
 
-  before   302 -> 403.  The probe every /vsicurl/ open begins with fails, on
+  redirect 302 -> 403.  The probe every /vsicurl/ open begins with fails, on
            every deployment that keeps its COGs in a bucket — which is the
-           entire population fix(#1528) was written for.
-  after    200, content-length = the object's real size, accept-ranges: bytes,
+           entire population byte-range support is for.
+  served   200, content-length = the object's real size, accept-ranges: bytes,
            in one hop with no redirect at all.
 
 Requirements:
@@ -218,9 +218,10 @@ async def uvicorn_url(client):
 async def test_head_on_an_s3_backed_cog_answers_200_over_the_wire(uvicorn_url, s3_cog):
     """A redirect-following client HEADs the route and gets a usable answer.
 
-    ``follow_redirects=True`` is the point. Before fix(#1540) this returned a
-    302, httpx re-issued the HEAD against the presigned URL exactly as curl -L
-    and vsicurl do, and MinIO answered 403 because that URL is signed for GET.
+    ``follow_redirects=True`` is the point. A route that returned a
+    302 would have httpx re-issue the HEAD against the presigned URL exactly as
+    curl -L and vsicurl do, and MinIO would answer 403 because that URL is
+    signed for GET.
     Nothing about that failure is visible without a client that follows and a
     bucket that checks signatures.
     """

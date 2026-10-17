@@ -1,7 +1,7 @@
-"""fix(#875): per-key scopes — least-privilege machine credentials.
+"""Per-key scopes — least-privilege machine credentials.
 
-An API key impersonated its owner completely, so anyone building an
-application on GeoLens had to embed a credential that could also mutate or
+An API key that impersonates its owner completely forces anyone building an
+application on GeoLens to embed a credential that could also mutate or
 delete everything its owner could. The deprecated ``?api_key=`` query lane
 makes that sharper: a credential in a URL lands in access logs and any
 upstream proxy's logs, and a read-only one is far less dangerous there.
@@ -9,7 +9,7 @@ upstream proxy's logs, and a read-only one is far less dangerous there.
 Enforcement is HTTP-method based at the key-resolution chokepoint, not
 capability based. These tests pin the three things that can go wrong:
 the refusal must be a 403 and not a fallthrough 401, existing keys must be
-untouched, and the single #565 carve-out must stay a named route rather than
+untouched, and the single carve-out must stay a named route rather than
 a "POST that looks like a read" category.
 """
 
@@ -410,9 +410,8 @@ def test_unsafe_methods_are_refused_off_the_exempt_list():
 # a read_only key would have been refused on the one endpoint the maintainer
 # decision says it may call, silently.
 #
-# feat(#565): POST /query/ is mounted now, so its pair moved out of here and
-# under the live resolution check below. Empty until the next pre-announced
-# carve-out.
+# Empty: POST /query/ is mounted, so its pair is covered by the live
+# resolution check below.
 _PENDING_EXEMPT_ROUTES: frozenset[tuple[str, str]] = frozenset()
 
 
@@ -515,10 +514,9 @@ def test_an_unresolvable_route_fails_closed():
 
 
 def test_565_route_is_mounted_in_both_shapes():
-    """feat(#565): the carve-out is live. Both exempted templates resolve.
+    """The carve-out is live. Both exempted templates resolve.
 
-    Replaces the pre-landing ``test_565_route_is_not_mounted_yet`` hook, per
-    its own instructions. The trailing-slash form is the canonical
+    The trailing-slash form is the canonical
     registration; the bare form is the hidden alias.
     """
     mounted = _mounted_route_pairs()
@@ -530,7 +528,7 @@ def test_565_route_is_mounted_in_both_shapes():
 async def test_read_only_key_carve_out_works_in_both_directions(
     client: AsyncClient, test_db_session
 ):
-    """feat(#565): the live assertion the pre-landing hook demanded.
+    """A read_only key resolves the carve-out live.
 
     A read_only key SUCCEEDS on POST /query/ (a read in POST clothing), and
     the very same key still gets 403 on another POST — so the carve-out is the
@@ -740,7 +738,7 @@ def test_the_stac_search_carve_out_is_required_by_the_acceptance_criteria():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1845): the deprecated ?api_key= transport carries reads only
+# The deprecated ?api_key= transport carries reads only
 # ---------------------------------------------------------------------------
 
 
@@ -917,7 +915,7 @@ def test_an_unresolvable_route_fails_closed_on_the_transport_gate():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1845): the refusal warning is throttled, not one line per request
+# The refusal warning is throttled, not one line per request
 # ---------------------------------------------------------------------------
 
 

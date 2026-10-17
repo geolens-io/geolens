@@ -1,12 +1,12 @@
-"""fix(#961): every "is this CRS degree-based" site must give the same answer.
+"""Every "is this CRS degree-based" site must give the same answer.
 
 The question is asked in four places, in three languages, and they cannot all
 be merged: two Python helpers over a WKT string, one Python helper over a live
 ``rasterio.crs.CRS``, and two SQL predicates that run inside a query against
 ``spatial_ref_sys.srtext``, where there is no Python-side CRS object to hand to
-PROJ. #961 consolidated what could be consolidated (the unit comparison now
-lives once, in ``core.geo.crs_has_degree_unit``) and recorded the SQL pair as a
-standing sync obligation. This file is that obligation as a gate rather than a
+PROJ. What could be consolidated is (the unit comparison lives once, in
+``core.geo.crs_has_degree_unit``); the SQL pair remains a standing sync
+obligation. This file is that obligation as a gate rather than a
 comment.
 
 The proving case is a grads GEOGCS. EPSG:4807 (NTF Paris) and its relatives —
@@ -15,7 +15,7 @@ circle of 400, not 360. Every site has to agree that they are lon/lat AND that
 they are not degrees, because the two callers do different damage when wrong:
 ``_shift_zero_to_360_longitudes`` would translate a valid feature by -360 grads
 into empty space, and ``vrt.py``'s re-framing would emit a 40-grad hull where
-10 was intended (#887).
+10 was intended.
 
 Reads srtext from the database rather than from fixtures on purpose: the SQL
 predicates are only meaningful against the strings PostGIS actually ships, and
@@ -41,7 +41,7 @@ CASES = [
     (4901, True, False),  # ATF (Paris) — the same family
     (3857, False, False),  # Web Mercator — projected, X in metres
     (2263, False, False),  # NY Long Island ftUS — projected, X in feet
-    # fix(#961 review): a top-level-keyword matrix is not enough. A stock
+    # A top-level-keyword matrix is not enough. A stock
     # spatial_ref_sys carries 277 COMPD_CS rows and a family of BOUNDCRS-wrapped
     # geographic CRSs whose srtext starts with the WRAPPER, and the sites split
     # on those — see test_the_shift_gate_is_sound_not_complete below for why

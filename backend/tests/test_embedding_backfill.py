@@ -40,9 +40,9 @@ def _make_query_result(records):
 def _written_rows(session) -> list[dict]:
     """Return the embedding rows the run wrote.
 
-    fix(#1546): rows go in through a Core INSERT ... ON CONFLICT DO UPDATE
+    Rows go in through a Core INSERT ... ON CONFLICT DO UPDATE
     rather than `session.add`, because a record whose only row for the active
-    model came from a different configuration is now offered as missing and a
+    model came from a different configuration is offered as missing and a
     plain INSERT would answer it with a unique violation. So these tests count
     what the statement carries instead of counting `session.add` calls.
     """
@@ -62,7 +62,7 @@ def _written_rows(session) -> list[dict]:
 def _patch_backfill_gates(stack: ExitStack, *, ai_enabled=True):
     """Patch the run-level PersistentConfig gates the backfill reads once.
 
-    fix(#1511): the model and dimensions are now captured as one
+    The model and dimensions are captured as one
     snapshot that re-reads both and aborts if either moved, so a stubbed run
     has to answer both keys and answer them consistently. EMBEDDING_MODEL is
     patched on `persistent_config` because backfill reaches it through
@@ -109,7 +109,7 @@ class TestBackfillEmbeddings:
             mock_batch.return_value = [[0.1] * 3, [0.2] * 3]
             result = await backfill_embeddings(session)
 
-        # fix(#448): both records ride ONE provider call, not one call each.
+        # Both records ride ONE provider call, not one call each.
         assert mock_batch.call_count == 1
         assert result["processed"] == 2
         assert result["created"] == 2
@@ -117,7 +117,7 @@ class TestBackfillEmbeddings:
 
         rows = _written_rows(session)
         assert len(rows) == 2
-        # fix(#1546): every row carries the identity of the configuration that
+        # Every row carries the identity of the configuration that
         # produced it, and it is the pinned one — the same (model, dimensions,
         # endpoint) triple handed to the provider call above.
         from app.processing.embeddings.helpers import embedding_config_fingerprint
@@ -151,7 +151,7 @@ class TestBackfillEmbeddings:
                     new_callable=AsyncMock,
                 )
             )
-            # fix(#449): a failed batch is retried per record, so the failing
+            # A failed batch is retried per record, so the failing
             # single-record batch consumes TWO calls (batch, then retry).
             mock_batch.side_effect = [
                 RuntimeError("API error"),
@@ -166,7 +166,7 @@ class TestBackfillEmbeddings:
 
     @pytest.mark.asyncio
     async def test_failed_batch_retries_per_record(self):
-        """fix(#449): one rejected input must not sink its batchmates —
+        """One rejected input must not sink its batchmates —
         the failed batch is retried per record and only the bad one errors."""
         from app.processing.embeddings.backfill import backfill_embeddings
 

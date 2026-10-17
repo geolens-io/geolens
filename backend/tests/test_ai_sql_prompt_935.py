@@ -1,22 +1,16 @@
-"""fix(#935) / fix(#1589): what the NL->SQL prompt teaches about metric buffers.
+"""What the NL->SQL prompt teaches about metric buffers.
 
-#935: the prompt used to hand-write ``ST_Buffer(geom::geography, N)::geometry``
-in four places, so it inherited neither the antimeridian split (#883) nor the
-per-projection pass (#891/#902) applied to the real analysis path — twice. The
-fix embedded ``render_geodesic_buffer``'s own output at import time, which
-removed the drift class by construction.
+A hand-written ``ST_Buffer(geom::geography, N)::geometry`` would inherit
+neither the antimeridian split nor the per-projection pass applied to the real
+analysis path. The light model also cannot reproduce the rendered buffer (about
+6 000 characters) exactly. So the prompt teaches a short marker,
+``geolens_buffer(<geom>, <metres>)``, and ``app.processing.ai.buffer_marker``
+renders the real expression server-side.
 
-#1589: it also asked the model to reproduce 6 090 characters of rendered buffer
-exactly (a 3 017-character template plus a 3 073-character worked example), and
-the light model could not. Six of nine nightly eval runs failed on a dropped
-parenthesis or a paraphrase back to the bare geography-cast form. The prompt
-now teaches a short marker, ``geolens_buffer(<geom>, <metres>)``, and
-``app.processing.ai.buffer_marker`` renders the real expression server-side.
-
-So the property has moved rather than gone away. The prompt must no longer
-carry the expression at all, and the expansion of what it DOES teach must be
-exactly what the sandbox admits — which is still ``render_geodesic_buffer``'s
-output, still compared by re-render in ``_matches_canonical_buffer``.
+The prompt must therefore not carry the expression at all, and the expansion
+of what it DOES teach must be exactly what the sandbox admits: the output of
+``render_geodesic_buffer``, compared by re-render in
+``_matches_canonical_buffer``.
 """
 
 import re
@@ -46,7 +40,7 @@ def test_prompt_teaches_the_marker():
 
 
 def test_prompt_no_longer_carries_the_rendered_expression():
-    """fix(#1589): the 3 KB embed is gone, and nothing may quietly restore it.
+    """The 3 KB embed is gone, and nothing may quietly restore it.
 
     Checked by the scaffold's own fingerprints rather than by length: the
     renderer's internal alias and its dissolve are in every render it produces
@@ -86,7 +80,7 @@ def test_function_reference_line_declares_degrees():
 
 
 def test_prompt_states_the_bounded_input_rule():
-    """fix(#1001): the sandbox admits the rendered buffer only around a stored
+    """The sandbox admits the rendered buffer only around a stored
     geometry, because the expression's cost scales with its input's extent.
 
     The model has to be told, or it emits a shape that is silently refused —
@@ -94,20 +88,20 @@ def test_prompt_states_the_bounded_input_rule():
     marker changed who writes the expression, not which inputs it accepts.
     """
     assert "must be the managed geom_4326 column" in SQL_SYSTEM_PROMPT
-    # fix(#1001): the scaffold interposes its own scope, so a bare
+    # The scaffold interposes its own scope, so a bare
     # top-level column is undecidable and refused. The prompt has to say so.
     assert "it must be QUALIFIED" in SQL_SYSTEM_PROMPT
     assert "s.geom_4326" in SQL_SYSTEM_PROMPT
     assert "A reprojection, a nested buffer, a constructed geometry" in (
         SQL_SYSTEM_PROMPT
     )
-    # fix(#1001): a dataset's original projected geom column is the
+    # A dataset's original projected geom column is the
     # non-obvious one, so the prompt has to name it.
     assert "original geom column in another CRS" in SQL_SYSTEM_PROMPT
 
 
 def test_prompt_states_the_distance_rule():
-    """fix(#1589): the expander takes a plain number and caps it, so a model
+    """The expander takes a plain number and caps it, so a model
     writing `500 * 2` or `200000` gets a refusal. Say so up front."""
     assert f"{MAX_BUFFER_METERS:.0f}" in SQL_SYSTEM_PROMPT
 
@@ -139,23 +133,15 @@ def test_the_worked_example_expands_and_the_sandbox_admits_it():
 
 
 def test_rendered_buffer_expression_validates():
-    """fix(#1001): the sandbox has to admit what the expander produces.
+    """The sandbox has to admit what the expander produces.
 
-    This test spent one release inverted. #935 admitted the buffer's
-    functions and bounded them with per-call cost guards; #990 then rebuilt the
-    renderer and those guards, written against the older shape, rejected the
-    very expression the prompt mandates. Three attempts to recalibrate them
-    each drew a real P1 (#1002), because proving a call's argument is safe and
-    admitting the canonical buffer are contradictory under any
-    argument-inspection scheme — the buffer segmentizes an alias, `_pb_d0.c0`,
-    several derived levels from its input. #1003 took the guards and the
-    allowlist entries back out, which left the prompt teaching an expression
-    the sandbox refused, and this test asserting that refusal.
-
-    #1001 admits it a different way: nothing is allowlisted per call, and a
-    subtree is exempted only when it is exactly what the renderer emits around
-    its own input. fix(#1589) moved the rendering from the model to the server
-    and left that rule untouched, which is why this still reads the same.
+    Nothing is allowlisted per call: a subtree is exempted only when it is
+    exactly what the renderer emits around its own input. Per-call cost guards
+    cannot do this job, because proving a call's argument is safe and admitting
+    the canonical buffer are contradictory under any argument-inspection
+    scheme — the buffer segmentizes an alias, `_pb_d0.c0`, several derived
+    levels from its input. Moving the rendering from the model to the server
+    leaves that rule untouched.
     """
     denver = render_geodesic_buffer(
         "(SELECT geom_4326 FROM data.us_state_capitals WHERE name = 'Denver')",

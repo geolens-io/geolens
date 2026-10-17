@@ -1,6 +1,6 @@
 """Every producer of a registered credential secret registers the right shape.
 
-fix(#1857 item 10). ``register_credential_secret`` feeds the exact-value scrub
+``register_credential_secret`` feeds the exact-value scrub
 that runs last over every log line. ``_secret_variants`` expands a registered
 HEADER LINE into the bare token, the basic blob and the basic cleartext, and it
 recognises a line by the ``": "`` in it, so registering the VALUE instead
@@ -152,9 +152,8 @@ def _rebinding_lines(fn: ast.AST, name: str, before: int) -> list[int]:
 def _carried_name_rejection(fn: ast.AST | None, name: str, lineno: int) -> str | None:
     """Why this name cannot be read as the whole line, or None if it can.
 
-    fix(#1857 item 10, codex review): being a parameter was the whole test, and
-    a parameter reassigned before the call is a local again. That is the #1844
-    shape exactly, spelled so it still reads like the signature.
+    Being a parameter is not enough: a parameter reassigned before the call is
+    a local again, spelled so it still reads like the signature.
     """
     if name not in _parameter_names(fn):
         return (
@@ -380,7 +379,7 @@ def test_an_aliased_import_of_the_builder_still_reads_as_the_builder():
     assert [shape for _lineno, shape, _d in found] == [BUILDER_CALL], found
 
 
-# fix(#1857 item 10, codex review): the two halves of "is this name the line".
+# The two halves of "is this name the line".
 _REASSIGNED_PARAMETER = """
 from app.core.service_tokens import register_credential_secret
 

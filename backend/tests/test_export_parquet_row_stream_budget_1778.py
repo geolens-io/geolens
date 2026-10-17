@@ -1,16 +1,16 @@
-"""GeoParquet's row stream has a wall clock too (#1778, codebase audit 2026-08-30).
+"""GeoParquet's row stream has a wall clock too.
 
-fix(#1781) bounded every ogr2ogr export format by what is left of the edge
+Every ogr2ogr export format is bounded by what is left of the edge
 proxy's read-timeout window (``export_subprocess_timeout_seconds`` in
 ``export/ogr.py``): a kill-on-timeout for the subprocess plus a matching libpq
 ``statement_timeout`` on its own connection. GeoParquet (``export/parquet.py``)
-has no subprocess — it streams SELECT rows straight into the file writer — and
-inherited none of that: an unindexed table or a wide selection could stream
-well past the edge's window with nothing to stop it, holding the request open
-(and its pooled connection with it) long after nginx had already answered the
-client with a 504.
+has no subprocess — it streams SELECT rows straight into the file writer — so
+it needs its own bound: an unindexed table or a wide selection could otherwise
+stream well past the edge's window with nothing to stop it, holding the request
+open (and its pooled connection with it) long after nginx had already answered
+the client with a 504.
 
-The fix reuses ``export_subprocess_timeout_seconds`` rather than deriving a
+The bound reuses ``export_subprocess_timeout_seconds`` rather than deriving a
 second bound, and wraps the row stream and its encoding in ``asyncio.wait_for``
 on that budget, raising the SAME ``ExportError`` the ogr2ogr timeout raises — so
 the router's ``except ExportError`` handling (one 500, not a hang past the
@@ -125,7 +125,7 @@ class TestParquetRowStreamBudget:
         self, monkeypatch, tmp_path
     ):
         """The budget must come from ``export_subprocess_timeout_seconds``
-        (fix(#1781)'s helper) rather than a parquet-specific reimplementation —
+        (the ogr2ogr formats' helper) rather than a parquet-specific reimplementation —
         a second bound could drift from the edge window the first one tracks."""
         calls: list[float | None] = []
         real = export_parquet_module.export_subprocess_timeout_seconds

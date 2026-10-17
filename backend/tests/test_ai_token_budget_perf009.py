@@ -196,7 +196,7 @@ async def test_anthropic_loop_does_not_stop_below_budget(monkeypatch):
 
 @pytest.mark.anyio
 async def test_chat_stream_records_usage_per_round(monkeypatch):
-    """fix(#402) codex P1: streaming chat records usage PER ROUND, not
+    """Streaming chat records usage PER ROUND, not
     once at the end.
 
     A mid-stream client disconnect raises GeneratorExit at a yield and skips any

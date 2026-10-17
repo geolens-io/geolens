@@ -454,11 +454,11 @@ class TestManifestApplyEndpointRoundTrip:
         test_db_session,
         clean_tables,
     ):
-        """fix(#430, refuted): the write gate dereferences
+        """The write gate dereferences
         dataset.record synchronously, which is only safe because the
         Dataset.record relationship is lazy='joined' (models.py) — the
         completed-manifest-job query has no explicit eager-load of its own.
-        Nothing pinned the legitimate NON-admin owner update path: the admin
+        The legitimate NON-admin owner update path is pinned here: the admin
         dry-run test short-circuits before touching record, and the
         cross-user test asserts an error entry. If the model-level eager
         load is ever weakened, this test catches the MissingGreenlet."""
@@ -502,8 +502,8 @@ class TestManifestApplyEndpointRoundTrip:
         assert entry["action"] == "update", entry
         assert entry["dataset_id"] == str(dataset.id)
 
-        # fix(#430): the OWNER's same-fingerprint submit still
-        # returns the skip entry WITH ids (the new skip gates only bite
+        # The OWNER's same-fingerprint submit still
+        # returns the skip entry WITH ids (the skip gates only bite
         # non-owners).
         with patch(
             "app.platform.security.validate_url_for_ssrf",
@@ -526,11 +526,11 @@ class TestManifestApplyEndpointRoundTrip:
         test_db_session,
         clean_tables,
     ):
-        """fix(#430): submitting a manifest whose key+fingerprint
-        matches ANOTHER user's completed or in-flight job previously returned
+        """Submitting a manifest whose key+fingerprint
+        matches ANOTHER user's completed or in-flight job must not return
         that user's job/dataset UUIDs in a 'skip' entry — the same
-        enumeration oracle closed on the update path. Both skip paths
-        now yield an error entry with no ids for non-owners."""
+        enumeration oracle as on the update path. Both skip paths
+        yield an error entry with no ids for non-owners."""
         owner = await _admin_user(test_db_session)
 
         # -- skip_complete: victim has a COMPLETED job for this key --

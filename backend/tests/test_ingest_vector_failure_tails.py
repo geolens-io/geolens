@@ -1,13 +1,14 @@
-"""fix(#1778): the two exits a vector import takes when it does not succeed.
+"""The two exits a vector import takes when it does not succeed.
 
-Both were copies. The upload-safety validation exit is pasted into four ingest
-tasks and the #1290 "NO unlink" correction reached only the two raster ones, so
-on a local-storage install a worker-side validation failure deleted the user's
-only copy of the file it had just recorded as failed. The terminal failure
-write is pasted into four tasks as well, and the shared helper the re-upload
-doors use is the one that emits ``ingest_failed`` — so an operator who had
-switched failure mail on heard about raster imports and re-uploads and heard
-nothing when a vector file import, a service import or a VRT build failed.
+Both are copied across tasks. The upload-safety validation exit is pasted into
+four ingest tasks, so a "NO unlink" rule that reached only the two raster ones
+would let a worker-side validation failure on a local-storage install delete
+the user's only copy of the file it had just recorded as failed. The terminal
+failure write is pasted into four tasks as well, and the shared helper the
+re-upload doors use is the one that emits ``ingest_failed`` — so an operator
+who had switched failure mail on would hear about raster imports and
+re-uploads and hear nothing when a vector file import, a service import or a
+VRT build failed.
 
 Both are asserted by driving the real task, not by reading the source.
 """
@@ -395,7 +396,7 @@ class TestVectorFailureEmitsTheOperatorNotification:
 
     @staticmethod
     def _break_ogrinfo(monkeypatch, message: str) -> None:
-        # fix(#1953): the type production raises here. A library exception
+        # The type production raises here. A library exception
         # stores `internal_error` under ADR-002 Decision 3, so a stand-in
         # would assert the operator reads text no real failure produces.
         async def _raise(*args, **kwargs):
@@ -499,14 +500,15 @@ class TestNoImportTailStillHandRollsItsFailureWrite:
 
 
 class TestACleanupFailureCannotSwallowTheFailureWrite:
-    """fix(#1778): the order inside the shared helper.
+    """The order inside the shared helper.
 
     PostgreSQL aborts the whole transaction on any statement error, so with
     the staging DROP running first, a drop that hit a lock or statement
-    timeout left the session unusable and the failure UPDATE that followed it
-    raised `current transaction is aborted`. The job stayed `running` until
-    the stale sweep, and the reason nobody recorded was the one the user
-    needed. The failure row is written and committed first now.
+    timeout would leave the session unusable and the failure UPDATE that
+    followed it would raise `current transaction is aborted`. The job would
+    stay `running` until the stale sweep, and the reason nobody recorded would
+    be the one the user needed. So the failure row is written and committed
+    first.
     """
 
     @staticmethod

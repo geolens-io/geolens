@@ -27,7 +27,7 @@ def _make_mock_response(json_data: dict, status_code: int = 200) -> MagicMock:
 
 def _streaming_json_response(data: dict) -> httpx.Response:
     """A response whose body supports the streaming read `probe_arcgis_
-    service` now uses (fix(#1770 P1)).
+    service` uses.
 
     `httpx.Response(200, json=...)` materialises the body at construction, so
     `client.stream(...)`'s `aiter_raw()` over one raises `StreamConsumed` --
@@ -91,7 +91,7 @@ async def test_arcgis_probe_sends_the_token_as_an_esri_authorization_header():
 
 @pytest.mark.asyncio
 async def test_arcgis_probe_falls_back_to_an_encoded_query_token_on_499():
-    """fix(#1746) and feat(C2): the pre-10.5.1 fallback still encodes.
+    """The pre-10.5.1 fallback still encodes.
 
     A token with URL-reserved characters must be percent-encoded when it does
     travel in a query string: a raw ``#`` truncates the URL at a fragment
@@ -133,15 +133,14 @@ async def test_arcgis_probe_falls_back_to_an_encoded_query_token_on_499():
 
 @pytest.mark.asyncio
 async def test_enrich_arcgis_feature_counts_uses_the_header_and_the_one_builder():
-    """fix(#1755 item 14) and feat(C2).
+    """The per-layer count query uses the shared URL builder and the header.
 
-    Two things at once, because the fold is what made the second possible.
-    The per-layer count query is composed by ``build_arcgis_count_query_url``
-    now rather than by a third hand-rolled concatenation, and the token it
-    would have concatenated is an ``X-Esri-Authorization`` header, so the URL this
-    site issues is byte-identical to the one the health probe issues.
+    The query is composed by ``build_arcgis_count_query_url`` rather than by a
+    hand-rolled concatenation, and the token travels as an
+    ``X-Esri-Authorization`` header, so the URL this site issues is
+    byte-identical to the one the health probe issues.
 
-    this read goes through `bounded_probe_read`
+    This read goes through `bounded_probe_read`
     (`client.stream`), so `AsyncMock(spec=httpx.AsyncClient)` -- which cannot
     fake the async-context-manager protocol `.stream()` returns -- is
     replaced with a real client over `MockTransport`, per this file's own
@@ -517,20 +516,16 @@ async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
 
 
 class TestArcGISReadsAreBounded:
-    """fix(#1770 P1, `adapters/arcgis.py:291,353,386,441,485`).
+    """The five request-scoped-token reads in `adapters/arcgis.py` are bounded.
 
     `enrich_arcgis_feature_counts`/`fetch_arcgis_feature_count`/
     `fetch_arcgis_pagination_info`/`fetch_arcgis_layer_preview` (two sites)
-    all carry the request-scoped ArcGIS ``token=`` in the URL and used a
-    plain `client.get`. An earlier docstring justified leaving these out
-    of `bounded_probe_read`'s reach on the theory that
-    `assert_endpoints_stay_on_origin` had already vetted the target -- wrong
-    for ArcGIS specifically, since that function returns immediately for any
-    `service_format` outside `HEADER_AUTH_SERVICE_FORMATS`, which ArcGIS is
-    deliberately not a member of (its token travels in the URL, never a
-    header). No bound of any kind ran for these five reads before this
-    round. All five now read through `bounded_probe_read` under
-    `DEFAULT_CHECK_TIMEOUT`, matching the four service-type probes.
+    all carry the request-scoped ArcGIS ``token=`` in the URL, so all five
+    read through `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT`, matching
+    the four service-type probes. `assert_endpoints_stay_on_origin` does not
+    vet them for ArcGIS: it returns immediately for any `service_format`
+    outside `HEADER_AUTH_SERVICE_FORMATS`, which ArcGIS is deliberately not a
+    member of (its token travels in the URL, never a header).
     """
 
     pytestmark = pytest.mark.asyncio
@@ -711,25 +706,23 @@ _NON_DICT_ARCGIS_BODIES = ("5", "[]", '"x"', "null")
 
 
 class TestArcGISNonDictResponsesDoNotCrash:
-    """fix(#1770 P2, `adapters/arcgis.py:317,397,516,564`).
+    """The non-dict guard covers every bounded read, not only the service root.
 
-    The non-dict guard was added only to `probe_arcgis_service`'s
-    service-root response. The four reads converted to
-    `bounded_probe_read` in the same file -- `_fetch_count`,
-    `fetch_arcgis_feature_count`, and `fetch_arcgis_layer_preview`'s
-    metadata and sample-row reads -- still do `"error" in data` /
-    `data.get(...)` straight after `json.loads`, with no `isinstance`
-    guard. A layer endpoint answering `200 5` raises `TypeError` on
-    `"error" in data`; `200 []` raises `AttributeError` on `.get(...)`.
-    `_fetch_count`'s own except lists `ValueError`/`KeyError` only,
-    `fetch_arcgis_feature_count` has no local `except` at all, and neither
-    the preview caller's own body nor the router's ArcGIS except clause
-    catches `TypeError`/`AttributeError`, so a probe (`enrich_arcgis_
-    feature_counts` under `asyncio.gather`) or a preview returned a bare
-    500 instead of a degraded result.
+    `probe_arcgis_service`'s service-root response is guarded against a
+    non-dict body. The reads converted to `bounded_probe_read` in the same
+    file -- `_fetch_count`, `fetch_arcgis_feature_count`, and
+    `fetch_arcgis_layer_preview`'s metadata and sample-row reads -- must be
+    guarded too: without an `isinstance` check, a layer endpoint answering
+    `200 5` raises `TypeError` on `"error" in data` and `200 []` raises
+    `AttributeError` on `.get(...)`. `_fetch_count`'s own except lists
+    `ValueError`/`KeyError` only, `fetch_arcgis_feature_count` has no local
+    `except` at all, and neither the preview caller's own body nor the
+    router's ArcGIS except clause catches `TypeError`/`AttributeError`, so a
+    probe (`enrich_arcgis_feature_counts` under `asyncio.gather`) or a
+    preview would return a bare 500 instead of a degraded result.
 
-    fix(#1770 P3, `adapters/arcgis.py:462`): the fifth sibling,
-    `fetch_arcgis_pagination_info`, had the same shape (`"error" in data` with no
+    The fifth sibling,
+    `fetch_arcgis_pagination_info`, has the same shape (`"error" in data` with no
     local `except`), same class, same fix.
     """
 

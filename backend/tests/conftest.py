@@ -211,7 +211,7 @@ _CONFIG_SHARED_ENGINE_MODULES = {
 _DISPOSE_SHARED_ENGINE_MODULES = {
     "test_worker",
     "test_schema_skew_guard",
-    # fix(#1436): validate_embed_token_access's usage-bump now opens its own side
+    # validate_embed_token_access's usage-bump opens its own side
     # session via app.core.db.async_session (the shared pooled engine)
     # instead of committing the caller's session. TestEmbedTokenTenantPinning
     # exercises that cache-miss path from tests that otherwise stay entirely
@@ -446,9 +446,9 @@ _install_stdout_safe_structlog_baseline()
 # "" is the root logger. tests/_logging_state.py keeps the same list for the
 # per-test helper; both are derived from that source, not from each other.
 #
-# fix(#1746): httpx/httpcore (set to WARNING there) were missing
-# from this list, so this guard could not undo a direct setup_logging() call
-# that left them pinned at WARNING for the rest of the worker.
+# httpx/httpcore (set to WARNING there) are listed so this guard can undo a
+# direct setup_logging() call that would otherwise leave them pinned at WARNING
+# for the rest of the worker.
 _LOGGING_MUTATED_LOGGERS = (
     "",
     "uvicorn",
@@ -1473,7 +1473,7 @@ class _RetryingAsyncEngine:
         return getattr(self._underlying, name)
 
 
-# fix(#435): fixtures whose setup needs a reachable Postgres. When the database is
+# Fixtures whose setup needs a reachable Postgres. When the database is
 # unreachable, only tests that request one of these (directly or transitively) are
 # skipped — pure unit, schema, AST, and architecture tests still execute.
 #
@@ -1499,10 +1499,10 @@ _db_unavailable_reason: str | None = None
 def _skip_if_db_unavailable(request):
     """Skip DB-backed tests — and only those — when Postgres is unreachable.
 
-    fix(#435): `_test_db_lifecycle` used to call `pytest.skip()` from session-scoped
-    autouse setup, which skipped every collected item. A targeted run of
-    `test_layering.py` then exited 0 with 48 skipped and 0 executed, so the
-    architecture gates could report green while asserting nothing.
+    `_test_db_lifecycle` must not call `pytest.skip()` from session-scoped
+    autouse setup: that skips every collected item, so a targeted run of
+    `test_layering.py` would exit 0 with nothing executed and the architecture
+    gates could report green while asserting nothing.
     """
     if _db_unavailable_reason is None:
         return
@@ -1884,7 +1884,7 @@ async def client(tmp_path):
         db_module.engine = test_engine
         db_module.async_session = test_session_factory
 
-        # fix(#909): the health service late-binds engine from app.core.db, so
+        # The health service late-binds engine from app.core.db, so
         # the db_module patch above covers it — no per-module re-point needed.
 
         # Override the get_db dependency
@@ -2110,12 +2110,11 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
     (or a class-level ``pytestmark``) trigger the monkeypatch. All
     other tests are unaffected.
 
-    fix(#885): the export wrapper used to do ``from app.processing.ingest.ogr
-    import build_pg_conn_str`` at module scope, holding its OWN binding —
-    patching only the ingest module left ``run_ogr2ogr_export`` reading the
-    dev/prod database. fix(#909): the export wrapper now late-binds at call
-    scope (enforced by test_layering.py), so the origin-module patch below is
-    the single binding again.
+    A module-scope ``from app.processing.ingest.ogr import build_pg_conn_str``
+    in the export wrapper would hold its OWN binding, and patching only the
+    ingest module would leave ``run_ogr2ogr_export`` reading the dev/prod
+    database. The wrapper therefore late-binds at call scope (enforced by
+    test_layering.py), so the origin-module patch below is the single binding.
     """
     if "requires_ogr2ogr" not in request.keywords:
         return

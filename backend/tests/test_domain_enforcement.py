@@ -40,7 +40,7 @@ _ALLOWLIST = [_ALLOWED_DOMAIN]
 
 @pytest.fixture(autouse=True)
 def _registration_on(monkeypatch):
-    """fix(#1778): JIT provisioning now honours REGISTRATION_ENABLED, whose
+    """JIT provisioning honours REGISTRATION_ENABLED, whose
     shipped default is False, so an unknown OAuth identity is refused before it
     reaches the domain gate. This module is about the DOMAIN checks, so it runs
     with the operator switch on; the switch has its own tests in

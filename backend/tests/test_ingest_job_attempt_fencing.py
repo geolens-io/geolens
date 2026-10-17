@@ -129,7 +129,7 @@ async def test_vrt_generation_heartbeat_fences_stale_recovery(test_db_session):
 
     generation.heartbeat_at = datetime.now(timezone.utc) - timedelta(hours=2)
     await test_db_session.commit()
-    # feat(#1322): the 3rd element is the dead attempt's resolved (not
+    # The 3rd element is the dead attempt's resolved (not
     # yet deleted) storage keys — deletion is the caller's job, strictly
     # after ITS commit lands, so sweep_stale_vrt_assets itself never touches
     # storage.
@@ -148,7 +148,7 @@ async def test_vrt_generation_heartbeat_fences_stale_recovery(test_db_session):
     await test_db_session.refresh(generation)
     await test_db_session.refresh(asset)
     assert generation.status == "failed"
-    # feat(#1267): restored to 'ready' — the dead attempt never touched the
+    # Restored to 'ready' — the dead attempt never touched the
     # asset's published pointer, so it keeps serving what it served before.
     assert asset.status == "ready"
     assert asset.current_generation_id is None

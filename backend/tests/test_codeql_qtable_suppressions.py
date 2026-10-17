@@ -277,7 +277,7 @@ def test_no_full_ssrf_marker_sits_above_a_non_sink_line() -> None:
     )
 
 
-# fix(#1942): a pure move carries a marker and its call into a new file
+# A pure move carries a marker and its call into a new file
 # together, so the placement test above keeps passing even when the two come
 # apart, and CodeQL's PR run cannot dismiss what it re-reports at a new location.
 PATH_SINK_METHODS = frozenset({"open", "stat", "unlink"})

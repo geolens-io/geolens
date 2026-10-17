@@ -1,11 +1,11 @@
-"""fix(#934): per-dataset extent producers must not fold a crossing table naively.
+"""Per-dataset extent producers must not fold a crossing table naively.
 
-Since #888 shifts a 0..360 Pacific source onto both sides of the antimeridian
-instead of clipping it, an ordinary ingest can produce a table whose naive
+Ingest shifts a 0..360 Pacific source onto both sides of the antimeridian
+instead of clipping it, so an ordinary ingest can produce a table whose naive
 ``ST_Extent`` reads -170..170 — a 340-degree bbox for a 100-degree footprint.
 The producer sites (``ingest/metadata_extent.py`` ``get_extent`` /
 ``extract_metadata`` and ``catalog/features/service.py``
-``_refresh_count_and_extent``) now emit the two-ring MULTIPOLYGON via
+``_refresh_count_and_extent``) emit the two-ring MULTIPOLYGON via
 ``bbox_to_extent_wkt`` when the honest extent crosses
 the seam, and stay byte-identical otherwise.
 
@@ -116,7 +116,7 @@ class TestGetExtent:
     async def test_positive_seam_edge_still_covers_the_stored_row(
         self, test_db_session
     ):
-        """fix(#934): features at +180 and -170. The winning shifted
+        """Features at +180 and -170. The winning shifted
         fold is west == 180, whose west..180 half has zero width;
         ``bbox_to_extent_wkt`` drops such halves, which would leave only the
         -180..-170 lobe — and that ring does not contain the row stored at the
@@ -146,7 +146,7 @@ class TestGetExtent:
             await _drop_table(test_db_session, table)
 
     async def test_negative_seam_edge_still_reads_as_crossing(self, test_db_session):
-        """fix(#934): features at -180 and 170. ST_ShiftLongitude
+        """Features at -180 and 170. ST_ShiftLongitude
         maps the stored -180 to +180, so the winning shifted fold read as the
         apparently non-crossing [170..180] and the producer fell back to the
         naive 350-degree extent. The helper re-expresses it as the crossing
@@ -239,9 +239,9 @@ class TestRefreshCountAndExtent:
 
 
 class TestCreateDatasetSink:
-    """fix(#934): the dataset-creation sink accepted only POLYGON
-    extents, so a first-ingest two-ring MULTIPOLYGON silently became a NULL
-    ``Record.spatial_extent``."""
+    """The dataset-creation sink must accept a two-ring MULTIPOLYGON, not only
+    POLYGON extents; otherwise a first-ingest crossing extent silently becomes
+    a NULL ``Record.spatial_extent``."""
 
     async def test_two_ring_extent_survives_dataset_creation(self, test_db_session):
         from geoalchemy2.shape import to_shape as _to_shape  # noqa: F401

@@ -1,8 +1,8 @@
-"""Provenance written onto materialized analysis outputs (feat(#765)).
+"""Provenance written onto materialized analysis outputs.
 
-A materialized result used to land with an empty lineage, no keywords, and no
-durable link to the dataset it came from. These tests pin the three products of
-that fix end to end: ``records.lineage_summary``, ``records.derived_from``, and
+A materialized result must carry a lineage sentence, keywords, and a durable
+link to the dataset it came from. These tests pin the three products end to
+end: ``records.lineage_summary``, ``records.derived_from``, and
 inherited ``record_keywords`` child rows.
 
 Requirements:
@@ -210,12 +210,12 @@ class TestMaterializedProvenance:
         assert str(out.id) in ids
 
     def test_the_buffer_distance_survives_the_sentence(self):
-        """fix(#765 review): the lineage sentence must record the distance the
+        """The lineage sentence must record the distance the
         geometry was actually built with.
 
-        `:g` defaults to SIX significant digits, so it rounded silently. These
-        are the measured cases: an ordinary 8-digit distance, a repeating
-        decimal, and a value just under MAX_BUFFER_METERS that rounded UP past
+        `:g` defaults to SIX significant digits and would round silently. The
+        cases are an ordinary 8-digit distance, a repeating
+        decimal, and a value just under MAX_BUFFER_METERS that would round UP past
         the ceiling it was checked against.
         """
         for distance, expected in (
@@ -253,12 +253,12 @@ class TestMaterializedProvenance:
         )
 
     def test_every_operation_names_its_second_layer(self):
-        """fix(#1097 review): the four new operations had no branch, so they
-        fell through to "<operation> applied to <source>".
+        """Each operation needs its own branch, or it
+        falls through to "<operation> applied to <source>".
 
         That sentence is a product surface — the dataset page renders it,
         search indexes it, and DCAT exports it — so an overlay whose entire
-        point is the second layer was described without naming one.
+        point is the second layer would be described without naming one.
         """
         cases = [
             (
@@ -303,7 +303,7 @@ class TestMaterializedProvenance:
             assert "applied to" not in sentence, operation
 
     def test_the_sentence_never_names_a_private_layers_columns(self):
-        """fix(#1097 review): lineage_summary has no per-requester form.
+        """lineage_summary has no per-requester form.
 
         It is stored once and served raw — the dataset page returns it, search
         indexes it, three DCAT services export it — and none of those pass it
@@ -313,8 +313,7 @@ class TestMaterializedProvenance:
         So anything the redaction treats as sensitive must not reach this
         prose. join_fields is a dependent of join_dataset_id in
         _DATASET_ID_PARAMS precisely because a column list is most of a
-        schema, and the previous round routed it around that redaction while
-        making the sentence more useful.
+        schema.
         """
         from app.modules.catalog.authorization import _DATASET_ID_PARAMS
 
@@ -416,7 +415,7 @@ class TestDerivedFromParamsVisibility:
     async def test_a_private_mask_id_is_dropped_from_visible_params(
         self, test_db_session: AsyncSession
     ):
-        """fix(#765 review): a clip carries a SECOND dataset id in its params.
+        """A clip carries a SECOND dataset id in its params.
 
         Source public, mask private: a requester who passes the source check
         would otherwise be handed the private mask's UUID, and with it the
@@ -471,11 +470,11 @@ class TestDerivedFromParamsVisibility:
     async def test_a_private_join_layer_takes_its_column_names_with_it(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1097 review): the mask was not the last dataset id in params.
+        """The mask is not the only dataset id in params.
 
-        Spatial join carries join_dataset_id, and the redaction covered only
-        the mask — so a public join output derived through a PRIVATE join layer
-        published that layer's id to every viewer.
+        Spatial join carries join_dataset_id, and the redaction has to cover
+        more than the mask — otherwise a public join output derived through a
+        PRIVATE join layer publishes that layer's id to every viewer.
 
         join_fields goes with it. Dropping the id alone would still publish the
         private layer's column names, which is most of what its schema is: an
@@ -542,13 +541,12 @@ class TestDerivedFromParamsVisibility:
     async def test_a_spatial_join_records_the_layer_and_fields_it_used(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1097 review): end to end, through the real worker.
+        """End to end, through the real worker.
 
         The unit-level whitelist check above says the key is allowed through.
         This says it actually arrives, because the two are separable: the
         params reach apply_analysis_provenance and are then filtered, so a
-        whitelist assertion alone would have passed throughout the window when
-        nothing was being stored.
+        whitelist assertion alone would pass while nothing was being stored.
         """
         from tests.test_analysis_spatial_join import (
             _create_probe_points,
@@ -586,11 +584,11 @@ class TestDerivedFromParamsVisibility:
     async def test_a_drawn_selection_still_records_that_it_was_drawn(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1097 review): mask_source was recorded for clip alone.
+        """mask_source must be recorded for a drawn area, not for clip alone.
 
         The drawn geometry itself is deliberately kept out of provenance — it
         can be kilobytes — so this discriminator is the ONLY trace that an area
-        shaped the selection. Without it a drawn select_by_location serialised
+        shaped the selection. Without it a drawn select_by_location would serialise
         empty params: a lineage saying a selection happened by no visible
         means.
         """
@@ -643,13 +641,11 @@ class TestDerivedFromParamsVisibility:
         """Structural: everything STORED that names a dataset must be
         access-checked per requester.
 
-        fix(#1097 review): this reads PARAM_KEYS now, not the params dict at
-        the _materialize call site. The first version parsed the call site and
-        was checking the wrong layer — join_dataset_id was passed there and
-        then dropped by build_derived_from's PARAM_KEYS filter, so it never
-        reached records.derived_from at all. The test passed, and it was
-        confirming a pairing between two things that had no bearing on what
-        was stored.
+        This reads PARAM_KEYS, not the params dict at the _materialize call
+        site: join_dataset_id is passed there and then dropped by
+        build_derived_from's PARAM_KEYS filter, so it never reaches
+        records.derived_from, and checking the call site would confirm a
+        pairing that has no bearing on what is stored.
 
         PARAM_KEYS is the storage contract, so it is the one that matters: a
         key added there becomes visible to every requester who can see the
@@ -838,14 +834,14 @@ async def _published_clip_output(
 
 
 class TestLineageSummaryVisibility:
-    """fix(#1103): the prose is stored once; the redaction is per requester.
+    """The prose is stored once; the redaction is per requester.
 
     ``lineage_summary`` names the TITLE of every dataset an analysis output was
-    built from, and it was served raw to everyone who could see the output — so
-    a published clip of a public layer against a private mask told every viewer
-    that mask's name and that it exists. That is the disclosure
-    ``visible_derived_from`` prevents for the mask's ID, arriving by a channel
-    that had no redaction.
+    built from. Served raw to everyone who can see the output, a published clip
+    of a public layer against a private mask would tell every viewer that
+    mask's name and that it exists. That is the disclosure
+    ``visible_derived_from`` prevents for the mask's ID, here arriving by a
+    channel with no redaction of its own.
     """
 
     async def test_a_private_masks_title_reaches_only_requesters_who_can_open_it(
@@ -883,7 +879,7 @@ class TestLineageSummaryVisibility:
         lineage = other.json()["lineage_summary"]
         assert clip.mask_title not in lineage
         assert str(clip.mask_id) not in lineage
-        # fix(#1108 review): all-or-nothing — the sentence interleaves
+        # all-or-nothing — the sentence interleaves
         # attacker-influenced free text with the titles, so no in-place edit of
         # it is trustworthy. A viewer missing ANY referenced dataset gets the
         # constant; the source title they could look up stays available in the
@@ -981,14 +977,14 @@ class TestLineageSummaryVisibility:
         assert clip.mask_title in owner_detail.text
 
     async def test_prose_is_never_edited_only_passed_or_replaced(self):
-        """fix(#1108 review): the forgery family that killed span editing.
+        """The forgery family that rules out span editing.
 
-        Three review rounds each broke an in-place edit of the sentence: an
-        unnamed source shifted every span onto the wrong dataset; embedded
-        quotes in a hidden title (odd or even) corrupted the span boundaries so
-        fragments survived between them; and quote characters in NON-title free
-        text (an actor name) compensated for a missing title so even a
-        quote-character count read as aligned. The sentence interleaves
+        Each of these breaks an in-place edit of the sentence: an
+        unnamed source shifts every span onto the wrong dataset; embedded
+        quotes in a hidden title (odd or even) corrupt the span boundaries so
+        fragments survive between them; and quote characters in NON-title free
+        text (an actor name) compensate for a missing title so even a
+        quote-character count reads as aligned. The sentence interleaves
         attacker-influenced free text with the secrets, so the rule is binary —
         and this pins that no shape of stored prose changes it: whatever the
         text contains, a restricted viewer gets the constant and nothing else.
@@ -1075,8 +1071,8 @@ class TestLineageSummaryVisibility:
             "app/modules/catalog/validation/service.py": (
                 "VAL-01 completeness — tests presence, never emits the value"
             ),
-            # fix(#1042): follows _score_metadata_completeness out of
-            # ingest/metadata.py into the module the facade split gave it.
+            # _score_metadata_completeness is split out of
+            # ingest/metadata.py into this module.
             "app/processing/ingest/metadata_quality.py": (
                 "metadata completeness scoring on the record's own fields"
             ),

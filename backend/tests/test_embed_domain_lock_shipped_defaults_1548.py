@@ -1,15 +1,15 @@
-"""fix(#1548 review P2): the #1531 domain-lock fix, measured under the SHIPPED
+"""The domain-lock self-origin rule, measured under the SHIPPED
 configuration rather than a corrected one.
 
-#1531 taught the API-layer allowlist to accept this deployment's own origin, so
-that an embed shell's subresource requests — which carry the SHELL's origin,
-never the embedder's — stop being denied. The origin it compares against comes
+The API-layer allowlist accepts this deployment's own origin, so that an embed
+shell's subresource requests — which carry the SHELL's origin, never the
+embedder's — are not denied. The origin it compares against comes
 from ``PUBLIC_APP_URL``, and that setting has a default which is wrong for
 almost every real install: ``docker-compose.yml`` and ``docker-compose.prod.yml``
 both inject ``${PUBLIC_APP_URL:-http://localhost:8080}``, and ``.env.example``
 ships the line commented out. A self-hoster reached at https://maps.example.com
 who never set it therefore resolves a self-origin of ``http://localhost:8080``,
-matches nothing, and gets the pre-#1531 behaviour: an embed that loads and stays
+matches nothing, and gets an embed that loads and stays
 empty, with nothing said at the moment the lock was turned on.
 
 Every other test of this feature configures ``PUBLIC_APP_URL`` to a real

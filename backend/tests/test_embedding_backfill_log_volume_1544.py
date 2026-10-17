@@ -269,8 +269,7 @@ def test_compact_error_redacts_a_credential_in_an_endpoint():
     Asserted as equality on the whole line rather than as a substring. It pins
     the redactor's actual output, which a containment check does not, and it
     keeps the endpoint visible without writing `"…example.com" in compact` —
-    a shape CodeQL flags as incomplete URL sanitization wherever it appears
-    (fix(#1577)).
+    a shape CodeQL flags as incomplete URL sanitization wherever it appears.
     """
     from app.processing.embeddings.backfill import _compact_error
 

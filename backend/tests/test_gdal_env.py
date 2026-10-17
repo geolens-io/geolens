@@ -1,5 +1,5 @@
-"""fix(#579): GDAL /vsis3/ AWS_* derivation from the app's S3_* settings, and
-fix(#1828): the schema-import clamp both vector subprocess envs carry."""
+"""GDAL /vsis3/ AWS_* derivation from the app's S3_* settings, and
+the schema-import clamp both vector subprocess envs carry."""
 
 import os
 import pathlib
@@ -134,7 +134,7 @@ def _assigned_values(line: str) -> list[tuple[str, str]]:
 
 
 class TestSchemaFetchesStayOffByValue:
-    """fix(#1828): `GML_USE_SCHEMA_IMPORT` and `GML_DOWNLOAD_SCHEMA` are NO in
+    """`GML_USE_SCHEMA_IMPORT` and `GML_DOWNLOAD_SCHEMA` are NO in
     both GDAL vector envs.
 
     The GML driver reads both from the process env. At YES the first fetches

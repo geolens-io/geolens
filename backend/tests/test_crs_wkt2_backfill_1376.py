@@ -127,11 +127,10 @@ def _wkt1_root_re() -> str:
 def _revision_below_0041() -> str:
     """The revision 0041 sits on, read from 0041's own ``down_revision``.
 
-    fix(#1383): this round trip used ``downgrade -1``, which reverts whatever
-    the CURRENT head is — 0041 only while nothing sat above it. The moment a
-    new migration landed (0042, the distribution primary-flag index), the
-    downgrade stepped over THAT one and the re-upgrade re-ran nothing, so the
-    WKT1 row came back unconverted and this test failed for a reason that had
+    A bare ``downgrade -1`` reverts whatever the CURRENT head is — 0041 only
+    while nothing sits above it. The moment a new migration lands, the
+    downgrade steps over THAT one and the re-upgrade re-runs nothing, so the
+    WKT1 row comes back unconverted and the test fails for a reason that has
     nothing to do with the backfill. Naming the target keeps the test about
     its own migration whatever else is stacked on top; reading it from the
     module keeps it correct if 0041 is ever re-chained.

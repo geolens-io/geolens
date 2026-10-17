@@ -142,7 +142,7 @@ class TestP001EmbedRevokeWiring:
         )
         token = row.scalar_one()
         assert token.is_active is False
-        # fix(#1778): the entry is REPLACED by a denial rather than deleted, so
+        # The entry is REPLACED by a denial rather than deleted, so
         # a request that raced the revoke cannot re-publish a positive under the
         # same key. See EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS in
         # app/modules/embed_tokens/service.py.
@@ -310,7 +310,7 @@ class TestP114ShareExpirationEdition:
             json={"expires_at": _future_expires_at().isoformat()},
             headers=admin_auth_header,
         )
-        # fix(#435): 422, not 400 — the gate moved from the handler into
+        # 422, not 400 — the gate lives in
         # ShareTokenRequest, matching the embed-token controls.
         assert resp.status_code == 422, resp.text
         assert ADVANCED_SHARING_ERROR in resp.text
@@ -421,7 +421,7 @@ class TestP114ShareExpirationEdition:
             json={"expires_at": _future_expires_at().isoformat()},
             headers=admin_auth_header,
         )
-        # fix(#435): schema-layer gate → 422 (see the create-path test above).
+        # schema-layer gate → 422 (see the create-path test above).
         assert resp.status_code == 422, resp.text
         assert ADVANCED_SHARING_ERROR in resp.text
 

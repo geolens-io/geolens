@@ -1,7 +1,7 @@
-"""fix(#1957): the five worker error-write paths #1950 left unbounded.
+"""The five worker error-write paths outside the six ingest tails.
 
 Each settles a failed job by UPDATEing ``ingest_jobs`` on a session holding no
-lock on that row. They now share ``write_job_failure_for_attempt``, whose
+lock on that row. They share ``write_job_failure_for_attempt``, whose
 budget ends the write on a held row instead of parking the worker there.
 """
 

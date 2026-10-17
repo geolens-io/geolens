@@ -216,7 +216,7 @@ _CASES = (
         name="show_ada_stations",
         message="Show the ADA accessible stations served by the A line",
         expects="query_data",
-        stable=True,  # fix(#1135): query_data in all three validation runs
+        stable=True,  # query_data in all three validation runs
         note=(
             "The #549 regression itself: this landed on set_filter, leaving a "
             "persistent filter on the layer instead of answering. The prompt's "
@@ -230,7 +230,7 @@ _CASES = (
         name="filter_ada_stations",
         message="Filter to ADA accessible stations on the A line",
         expects="set_filter",
-        stable=True,  # fix(#1135): set_filter in all three validation runs
+        stable=True,  # set_filter in all three validation runs
         note=(
             "The over-correction guard: a prompt edit pushing 'show' towards "
             "query_data must not drag 'filter to' along with it. The prompt "
@@ -243,7 +243,7 @@ _CASES = (
         name="centroid_of_parcels",
         message="Show the centre point of each parcel",
         expects="run_analysis",
-        stable=True,  # fix(#1135): run_analysis in all three validation runs
+        stable=True,  # run_analysis in all three validation runs
         note=(
             "'Show' is a QUESTION verb, so this only routes correctly if the "
             "TRANSFORM rule outranks the verb, the exact ordering the prompt "
@@ -255,7 +255,7 @@ _CASES = (
         name="count_near_schools",
         message="How many parcels are within 500 meters of a school?",
         expects="query_data",
-        stable=True,  # fix(#1135): query_data in all three validation runs
+        stable=True,  # query_data in all three validation runs
         note=(
             "The adversarial direction of pair 2: reuses the buffer phrasing "
             "the prompt cites for run_analysis ('within 500 m of the schools') "
@@ -272,7 +272,7 @@ _CASES = (
         message="Filter to ADA accessible stations on the A line",
         forbids=frozenset(_EDIT_TOOLS),
         can_edit=False,
-        stable=True,  # fix(#1135): no edit tool emitted in any validation run
+        stable=True,  # No edit tool emitted in any validation run
         note=(
             "can_edit=False builds BOTH restricted inputs from production "
             "code, CHAT_TOOLS_READONLY and the prompt's read-only directive, "
@@ -292,7 +292,7 @@ _CASES = (
         forbids=frozenset({"run_analysis"}),
         can_edit=False,
         has_map=False,
-        stable=True,  # fix(#1135): query_data (never run_analysis) in all three runs
+        stable=True,  # query_data (never run_analysis) in all three runs
         note=(
             "run_analysis's whole output is a map overlay, so offering it on "
             "dataset-scoped chat would let the model promise a preview the "

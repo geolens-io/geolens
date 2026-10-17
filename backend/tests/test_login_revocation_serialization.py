@@ -1,10 +1,9 @@
 """Credential issuance is serialized against revocation. Nothing else pins it.
 
-fix(#1459): that issue was filed on the belief that a login whose transaction
-BEGINS inside a revoking transaction reads the pre-bump ``token_version``,
-mints from that stale state, and lands an unrevoked refresh row that rotates
-into a session outliving its own logout. It was closed as not planned: the
-interleaving does not occur, because every path that issues a refresh token
+A login whose transaction BEGINS inside a revoking transaction might read
+the pre-bump ``token_version``, mint from that stale state, and land an
+unrevoked refresh row that rotates into a session outliving its own logout.
+The interleaving does not occur, because every path that issues a refresh token
 writes the user row before minting and therefore queues behind
 ``revoke_all_tokens``'s ``SELECT ... FOR UPDATE``.
 
@@ -12,7 +11,7 @@ writes the user row before minting and therefore queues behind
     before ``create_access_token`` / ``create_refresh_token``
   - OAuth login: the same assignment, same ordering (auth/oauth/router.py)
   - rotation: an explicit ``SELECT ... FOR UPDATE`` on the owner row, added
-    deliberately by fix(#1446)
+    deliberately
 
 Only two orderings exist and both are correct: the login finishes first and
 the revocation's UPDATE sees and revokes its row, or the login blocks and
@@ -33,22 +32,22 @@ anyway. It rests on two things that look like implementation detail:
      optimisation target: deleting it is exactly the change a reviewer would
      wave through, and it would move the version read in front of the lock.
 
-Either edit silently opens the window #1459 imagined, with no test failing and
+Either edit silently opens the window described above, with no test failing and
 no reviewer prompted to think about revocation. This test fails instead.
 
-fix(#1715): half of that is no longer accidental. Admin password reset needs a
+Half of that is not accidental. Admin password reset needs a
 login to see the reset's write, so ``LocalAuthProvider.authenticate()`` takes an
 explicit ``SELECT ... FOR NO KEY UPDATE`` on the account row before verifying
-the hash. A racing password login now queues there, one step earlier than
-before and ahead of the ``token_version`` read rather than just ahead of the
-mint, so on that path the window is shut by construction.
+the hash. A racing password login queues there, ahead of the ``token_version`` read
+rather than just ahead of the mint, so on that path the window is shut by
+construction.
 
 The accidental mechanism is still the only thing holding the OAuth path, which
-has no such lock, so both structural guards below still matter and both are
-kept. What changed here is only WHERE a blocked login is observed: the stall
-signals from ``authenticate`` instead of ``create_access_token``, because the
-login can no longer reach the latter while the lock it is waiting for is the
-one the stall is holding.
+has no such lock, so both structural guards below matter. What the test
+accounts for is WHERE a blocked login is observed: the stall signals from
+``authenticate`` instead of ``create_access_token``, because the login cannot
+reach the latter while the lock it is waiting for is the one the stall is
+holding.
 """
 
 import uuid
@@ -123,7 +122,7 @@ class TestLoginIsSerializedAgainstRevocation:
         first = await _login(client, username)
         original_emit = audit_mod.audit_emit
 
-        # fix(#1460): both ends of the window are synchronized on events,
+        # Both ends of the window are synchronized on events,
         # not on elapsed time. Neither side may drift out of the interleaving.
         #
         # Start: audit_emit runs after revoke_all_tokens and before the commit,
@@ -149,27 +148,23 @@ class TestLoginIsSerializedAgainstRevocation:
             # Signal BEFORE delegating, so the signal cannot depend on the very
             # lock this is about to wait for.
             #
-            # fix(#1715): this used to wrap create_access_token, because the
-            # login blocked at the autoflushed last_login_at write that its
-            # version re-SELECT triggered. authenticate() now takes an explicit
-            # SELECT ... FOR NO KEY UPDATE on the account row, so the login
-            # blocks HERE instead, one step earlier and before it reads
-            # token_version at all. Signalling from create_access_token became
-            # unreachable: the login could not get there without the lock the
-            # stall was holding while waiting for the signal, so the pair
-            # deadlocked and both died on the 30s deadline.
+            # authenticate() takes an explicit SELECT ... FOR NO KEY UPDATE on
+            # the account row, so the login blocks HERE, before it reads
+            # token_version at all. Signalling from create_access_token would
+            # be unreachable: the login could not get there without the lock
+            # the stall is holding while waiting for the signal, so the pair
+            # would deadlock and both die on the 30s deadline.
             login_reached_the_lock.set()
             return await original_authenticate(self, *args, **kwargs)
 
         async def _login_write_is_waiting_on_the_lock() -> bool:
             """True once a backend is blocked on a lock inside the racing login.
 
-            fix(#1715): still matched by ``last_login_at`` without change. The
-            login now blocks on its locking SELECT of the account row, and that
-            statement lists every user column, ``last_login_at`` among them, so
-            the same predicate identifies the new waiter as well as the old
-            autoflushed UPDATE. The OAuth path, which has no explicit lock,
-            still blocks on that UPDATE.
+            Matched by ``last_login_at``. The login blocks on its locking
+            SELECT of the account row, and that statement lists every user
+            column, ``last_login_at`` among them, so the same predicate
+            identifies that waiter as well as the autoflushed UPDATE. The
+            OAuth path, which has no explicit lock, blocks on that UPDATE.
 
             Read over ``test_db_session``, a connection belonging to neither
             transaction in the race, because both of theirs are occupied.
@@ -315,7 +310,7 @@ class TestTheSerializationPointsStillExist:
         ):
             source = (backend / rel).read_text()
             assign = source.find("last_login_at = func.now()")
-            # fix(#1460): compare against create_access_token, NOT
+            # Compare against create_access_token, NOT
             # create_refresh_token. The boundary that matters is the version
             # re-SELECT, because that is the query the pending write
             # autoflushes into. Measuring against the refresh mint leaves a gap

@@ -1,8 +1,8 @@
-"""fix(#1528): HEAD and byte ranges on /datasets/{id}/download/cog.
+"""HEAD and byte ranges on /datasets/{id}/download/cog.
 
 Two defects, and the second is the one that matters for the format.
 
-**HEAD answered 405.** Same FastAPI/starlette gap #1513 documented: ``APIRoute``
+**HEAD answered 405.** Same FastAPI/starlette gap as the export route: ``APIRoute``
 does not add HEAD alongside GET the way starlette's plain ``Route`` does, so a
 bare ``@router.get`` answers ``405 allow: GET``.
 
@@ -19,16 +19,16 @@ under RFC 9110 section 9.3.2. This route serves STORED bytes. ``storage.size()``
 is one stat, so HEAD carries a real Content-Length and a truthful
 ``Accept-Ranges: bytes``, and the GET it describes actually honours a Range.
 
-The failure class these tests are built around is not "405" — #1513 established
-a 405 alone does not hang GDAL, because vsicurl falls back to a plain GET. The
+The failure class these tests are built around is not "405" — a 405 alone
+does not hang GDAL, because vsicurl falls back to a plain GET. The
 class is a response that is CONFIDENTLY WRONG: a Content-Length of 0 on a HEAD
 (what starlette supplies for an empty body if the explicit header is dropped),
 or a 206 whose Content-Range does not describe the bytes in the body. Both are
 worse than the 405 they replace, because the 405 did not lie. Every length and
 every range here is checked against the real stored bytes.
 
-The review findings on the PR belong to that same class, which is why they live
-here rather than in a module of their own. The last section is the sharpest case
+The conditional-request and S3 cases belong to that same class, which is why
+they live here rather than in a module of their own. The last section is the sharpest case
 of it: two 206 responses that are each individually truthful, taken from either
 side of a raster replacement, assembling into a file that is neither COG.
 
@@ -81,7 +81,7 @@ async def _raster_dataset(
 
     ``sha256`` is the digest of the COG bytes, which real ingest always stamps
     (``tasks_raster_common.py`` on create, ``tasks_raster_swap.py`` on replace)
-    and which fix(#1540 review P2) turns into the response ETag. It stays
+    and which becomes the response ETag. It stays
     optional because rows predating the column exist and must still download.
     """
     admin_id = await get_user_id(session, "admin")
@@ -366,10 +366,9 @@ async def test_head_cog_matches_get_on_storage_failure(
     miss, because HEAD reaches storage by a different call (``size``) than the
     GET's (``get_stream``).
 
-    ``size`` is the call to break, and since fix(#1540 review P2) it is the ONLY
-    one the stat makes: breaking ``exists`` used to fail both verbs here and now
-    fails neither, because nothing calls it. A ``RuntimeError`` rather than a
-    ``FileNotFoundError`` on purpose — the latter is the 404 the sibling test
+    ``size`` is the call to break, and it is the ONLY one the stat makes: breaking
+    ``exists`` fails neither verb, because nothing calls it. A ``RuntimeError`` rather
+    than a ``FileNotFoundError`` on purpose — the latter is the 404 the sibling test
     covers, and this one is about the 503 the broad handler is for.
     """
     dataset, _ = local_cog
@@ -399,18 +398,18 @@ async def test_head_cog_matches_get_on_storage_failure(
 async def test_a_delete_racing_the_stat_is_a_404_not_a_503(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):
-    """fix(#1540 review P2): an object that vanished is gone, not broken.
+    """An object that vanished is gone, not broken.
 
-    The stat used to be ``exists()`` and then ``size()``, and a delete landing
-    between them produced exactly the pair asserted here: ``exists()`` answering
-    yes about an object that was there when it looked, and ``size()`` raising
+    A delete landing between an ``exists()`` and a ``size()`` stat would
+    produce exactly the pair asserted here: ``exists()`` answering yes about
+    an object that was there when it looked, and ``size()`` raising
     ``FileNotFoundError`` about the same key a moment later. The broad handler
-    caught that raise and called it 503 — telling the client the backend was
+    would catch that raise and call it 503 — telling the client the backend was
     unwell and to come back later, about a COG that is never coming back.
 
     ``exists`` is monkeypatched to the stale answer rather than the test trying
     to win a real race; the ``FileNotFoundError`` is real, raised by ``stat()``
-    on a file that genuinely is not there. Since the fix, ``exists`` is not
+    on a file that genuinely is not there. ``exists`` is not
     consulted at all — which is why the lie changes nothing and the missing
     bytes answer 404 on both verbs.
     """
@@ -589,13 +588,12 @@ async def test_head_cog_redirect_matches_get(
     carrying a length this service never measured, which would be inventing
     metadata for bytes it does not hold.
 
-    ``s3`` used to be parametrized here too and no longer is: fix(#1540) review
-    P1. That URL IS signed by this service, for ``get_object``, and the HTTP
-    method is part of an S3/MinIO SigV4 signature — so the redirect a HEAD
-    followed landed on a 403. See
-    ``test_head_cog_on_s3_is_answered_from_object_metadata`` for the fix, and
-    ``test_s3_head_and_get_are_deliberately_asymmetric`` for the invariant that
-    replaces this one on that backend.
+    ``s3`` is not parametrized here: that URL IS signed by this service, for
+    ``get_object``, and the HTTP method is part of an S3/MinIO SigV4
+    signature, so a redirect a HEAD followed would land on a 403. See
+    ``test_head_cog_on_s3_is_answered_from_object_metadata`` and
+    ``test_s3_head_and_get_are_deliberately_asymmetric`` for what holds on
+    that backend.
 
     The presign is stubbed because the test storage singleton is a
     ``LocalStorageProvider``, which raises NotImplementedError for it; the
@@ -692,15 +690,15 @@ def s3_storage(monkeypatch):
 async def test_head_cog_on_s3_is_answered_from_object_metadata(
     client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
 ):
-    """fix(#1540) review P1: the S3 HEAD must not be a redirect.
+    """The S3 HEAD must not be a redirect.
 
     ``generate_presigned_get_url`` signs ``get_object``, and the HTTP method is
     part of an S3/MinIO SigV4 canonical request. A 302 does not rewrite the
     method (RFC 9110 section 15.4 reserves that for 303), so a redirect-
-    following client re-issued its HEAD against a URL signed for GET and was
-    refused — MEASURED at 403 against MinIO RELEASE.2025-09-07. Every
-    ``/vsicurl/`` open starts with that probe, so the feature this PR exists to
-    deliver was broken on exactly the deployments that store COGs in a bucket.
+    following client would re-issue its HEAD against a URL signed for GET and
+    be refused — MEASURED at 403 against MinIO RELEASE.2025-09-07. Every
+    ``/vsicurl/`` open starts with that probe, so the feature would be broken
+    on exactly the deployments that store COGs in a bucket.
 
     The assertion is the feature, not the plumbing: a real client, following
     redirects the way curl and GDAL do, gets 200 with ``Accept-Ranges`` and the
@@ -726,7 +724,7 @@ async def test_head_cog_on_s3_is_answered_from_object_metadata(
         f"{len(head.history)} redirect(s); a presigned GET URL refuses HEAD, so "
         f"this route has to answer the probe itself."
     )
-    # fix(#1540 review P2): this HEAD is the only answer an s3 deployment gets
+    # This HEAD is the only answer an s3 deployment gets
     # from this process — the GET redirects, and the bucket then applies its own
     # validator to any range. A client that wants to resume safely picks the
     # version up here or nowhere.
@@ -753,12 +751,11 @@ async def test_s3_head_and_get_are_deliberately_asymmetric(
 ):
     """HEAD 200 / GET 302 on s3, on purpose. This replaces a parity assertion.
 
-    ``test_head_cog_redirect_matches_get`` used to run for ``s3`` as well and
-    asserted that HEAD and GET agree on status. fix(#1540) review P1 retires
-    that invariant for this backend rather than dropping it silently, because
-    the asymmetry IS the fix: HEAD no longer travels the redirect, since the
-    presigned URL at the end of it is signed for GET and answers a HEAD with
-    403. Parity with a broken GET-shaped answer was the bug.
+    ``test_head_cog_redirect_matches_get`` does not run for ``s3``, where HEAD
+    and GET deliberately disagree on status: the asymmetry IS the design. HEAD
+    does not travel the redirect, since the presigned URL at the end of it is
+    signed for GET and answers a HEAD with 403. Parity with a broken
+    GET-shaped answer would be the bug.
 
     The GET is deliberately untouched. The bytes must keep coming from the
     bucket rather than through this process — a presigned GET honours a Range
@@ -808,10 +805,10 @@ async def test_head_cog_on_a_missing_s3_object_is_404(
 
     Routing both branches through ``_cog_object_size`` is what stops the S3
     HEAD drifting into its own error vocabulary — the local counterpart is
-    ``test_head_cog_matches_get_on_missing_object``. Before fix(#1540) the S3
-    branch stat'd nothing at all: it answered 302 to a presigned URL for a key
-    with no object behind it, so the 404 arrived from the bucket one hop later
-    and only for a client that followed.
+    ``test_head_cog_matches_get_on_missing_object``. Without the stat, the S3
+    branch would answer 302 to a presigned URL for a key with no object behind
+    it, so the 404 would arrive from the bucket one hop later and only for a
+    client that followed.
     """
     dataset, _ = await _raster_dataset(
         test_db_session,
@@ -1066,20 +1063,21 @@ async def test_an_ordinary_range_makes_one_object_store_request(
 async def test_the_stale_resume_fallback_makes_one_object_store_request(
     client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
 ):
-    """fix(#1540 review P1): the fallback must not re-request the object per MiB.
+    """The fallback must not re-request the object per MiB.
 
     Answering a stale resume with the whole representation is the RFC 9110
     section 13.1.5 contract and is not in question. How the body is produced
-    was: streaming it through ``_iter_storage_range`` issued a ranged
-    ``get_object`` per 1 MiB, so a 5 GiB COG cost 5,120 object-store requests
-    and the per-request rate limiter counted the lot as one.
+    is the question: streaming it through ``_iter_storage_range`` would issue a
+    ranged ``get_object`` per 1 MiB, so a 5 GiB COG would cost 5,120
+    object-store requests and the per-request rate limiter would count the lot
+    as one.
 
     It is selectable, too. Any caller who can reach this route — including an
     anonymous holder of a download token for a public dataset — sends one stale
     validator and picks the expensive branch on purpose.
 
     3 MiB rather than the module's usual payload because the amplification is
-    invisible below the chunk size: at 204,800 bytes the old loop and the new
+    invisible below the chunk size: at 204,800 bytes the loop and the
     stream both make exactly one request.
     """
     big = bytes(range(256)) * (3 * 1024 * 4)  # 3 MiB exactly
@@ -1212,15 +1210,14 @@ async def test_get_cog_advertises_ranges_and_length(
 ):
     """The full GET must state the size and admit it serves ranges.
 
-    The missing Content-Length is the second ingredient in the GDAL hang #1513
-    documented: a fallback GET that carries no length leaves vsicurl deciding
-    the object is empty.
+    The missing Content-Length is the second ingredient in the GDAL hang: a fallback GET
+    that carries no length leaves vsicurl deciding the object is empty.
 
-    No ``Accept-Encoding`` workaround any more. This assertion used to need
-    ``identity`` because the global GZipMiddleware compressed the response and
-    deleted its length; fix(#1540 review P2) excluded ``image/tiff`` there, and
-    ``test_one_etag_names_one_byte_stream_whatever_the_client_accepts`` is what
-    now holds that ground — including for a client that does ask for gzip.
+    No ``Accept-Encoding`` workaround is needed: ``image/tiff`` is excluded
+    from the global GZipMiddleware, which would otherwise compress the
+    response and delete its length, and
+    ``test_one_etag_names_one_byte_stream_whatever_the_client_accepts`` holds
+    that ground — including for a client that does ask for gzip.
     """
     dataset, _ = local_cog
 
@@ -1244,23 +1241,23 @@ async def test_get_cog_advertises_ranges_and_length(
 async def test_one_etag_names_one_byte_stream_whatever_the_client_accepts(
     client: AsyncClient, admin_auth_header: dict, local_cog
 ):
-    """fix(#1540 review P2): a strong validator identifies ONE representation.
+    """A strong validator identifies ONE representation.
 
     ``GZipMiddleware`` compresses a 200 and skips a 206 by design
-    (``self.partial_response = status == 206``). While ``image/tiff`` was
-    missing from its exclusion list, that asymmetry made one strong ETag name
-    two different byte streams: gzip bytes on the full download, raw bytes on
+    (``self.partial_response = status == 206``). Were ``image/tiff``
+    missing from its exclusion list, that asymmetry would make one strong ETag
+    name two different byte streams: gzip bytes on the full download, raw bytes on
     every range. RFC 9110 section 8.8.3 requires a strong validator to change
     when the representation does, and a content coding is part of the
     representation — so a client that resumed the encoded one could have its
     validator accepted and splice raw bytes at encoded offsets. Everything it
-    did was correct, and the file it assembled was not.
+    did would be correct, and the file it assembled would not be.
 
-    ``image/tiff`` is excluded at the middleware now, which is also free CPU: a
+    ``image/tiff`` is excluded at the middleware, which is also free CPU: a
     COG is internally compressed, so DEFLATE over one buys nearly nothing.
 
-    The assertion is the invariant, not the mechanism: the same request that
-    used to come back gzipped returns the raw object with its real length, and
+    The assertion is the invariant, not the mechanism: a request that accepts
+    gzip still gets the raw object with its real length, and
     a range of it is a slice of exactly those bytes.
     """
     dataset, raster_asset = local_cog
@@ -1382,10 +1379,8 @@ async def test_range_spanning_multiple_chunks_is_byte_exact(
     many boundaries; at the production 1 MiB every range in this file would fit
     in a single read and the loop would never be exercised.
 
-    The knob moved in fix(#1540 review P1). The route used to do its own
-    chunking, one ``get_range`` call per chunk, which is what made an ordinary
-    range cost a request per MiB; the provider now streams the window from one
-    read and owns the chunk size. Same assertion, one layer down.
+    The provider streams the window from one read and owns the chunk size, so
+    the knob lives there rather than in the route.
     """
     from app.platform.storage import local as local_storage
 
@@ -1409,16 +1404,16 @@ async def test_range_spanning_multiple_chunks_is_byte_exact(
 async def test_the_range_unit_is_matched_case_insensitively(
     unit, client: AsyncClient, admin_auth_header: dict, local_cog
 ):
-    """fix(#1540 review P2): ``Bytes=0-99`` is a conforming request.
+    """``Bytes=0-99`` is a conforming request.
 
     A range unit is a token (RFC 9110 section 14.1) and tokens compare
-    case-insensitively. Matching only lowercase did not reject the odd-looking
+    case-insensitively. Matching only lowercase would not reject the odd-looking
     request — "unusable Range" means ignore it and serve the whole
-    representation, so a 16 KiB tile read came back as the entire COG with a
-    200. The client cannot even tell: it asked for a window, got a valid
+    representation, so a 16 KiB tile read would come back as the entire COG
+    with a 200. The client cannot even tell: it asked for a window, got a valid
     response, and reads gigabytes.
 
-    Every case pattern, not just the capitalized one the review named: a
+    Every case pattern, not just the capitalized one: a
     ``.lower()`` on the header, a case-folded prefix check and an
     ``re.IGNORECASE`` all pass the first two and only one of them passes
     ``bYtEs``.
@@ -1591,19 +1586,19 @@ async def test_an_overlong_range_number_does_not_500(
     admin_auth_header: dict,
     local_cog,
 ):
-    """fix(#1540) review P2: a huge Range digit string must not reach ``int()``.
+    """A huge Range digit string must not reach ``int()``.
 
     CPython refuses to convert an integer literal longer than
     ``sys.get_int_max_str_digits()`` (4300 by default) and raises ValueError.
     Each of these headers is syntactically valid under RFC 9110 section 14.1.1
-    (``first-pos = 1*DIGIT``), so it matched the route's pattern and went
+    (``first-pos = 1*DIGIT``), so it matches the route's pattern and goes
     straight into ``int()`` — turning a header the RFC lets a server handle in
     stride into a 500.
 
     One case per numeric field, because the three do not share a code path:
     ``first`` decides 416-vs-206, ``last`` is clamped against the size, and the
-    suffix is subtracted from it. A guard on only the one a reviewer happened to
-    anchor to would leave the other two live.
+    suffix is subtracted from it. A guard on only one of them would leave the
+    other two live.
 
     The status is asserted exactly rather than as "not 500". Saturating instead
     of ignoring matters: ignoring an unusable Range and replying 200 is the
@@ -1777,7 +1772,7 @@ async def test_range_request_does_not_read_the_whole_object(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1540) review P2: a range must name the version it is a slice of
+# A range must name the version it is a slice of
 # ---------------------------------------------------------------------------
 
 
@@ -2078,12 +2073,12 @@ async def test_if_none_match_answers_304_for_every_request_shape(
 async def test_a_stale_if_match_refuses_the_range_instead_of_splicing(
     client: AsyncClient, admin_auth_header: dict, test_db_session, local_cog
 ):
-    """fix(#1540 review P2): the same splice, through the other spelling.
+    """The same splice, through the other spelling.
 
     ``If-Match`` and ``If-Range`` are two ways for a resuming client to say the
     same thing: only give me bytes if this is still the representation I have.
-    Evaluating one and ignoring the other meant a conforming client that chose
-    ``If-Match`` had its precondition dropped, the absent ``If-Range`` read as
+    Evaluating one and ignoring the other would let a conforming client that
+    chose ``If-Match`` have its precondition dropped, the absent ``If-Range`` read as
     permission, and a 206 of the replacement appended to a prefix of the COG it
     started with.
 
@@ -2299,13 +2294,13 @@ async def test_a_star_if_none_match_revalidates_and_a_foreign_one_downloads(
 async def test_a_conditional_request_for_bytes_that_are_gone_is_a_404(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#1540 review P2): a validator cannot vouch for an object that is gone.
+    """A validator cannot vouch for an object that is gone.
 
     The catalog row outliving its stored bytes is the case
     ``test_head_cog_matches_get_on_missing_object`` already covers: 404, on both
-    verbs. Add a matching ``If-None-Match`` and the route used to answer 304
-    before it ever looked at storage — so the same URL disagreed with itself
-    about whether the resource existed, depending on whether the client held a
+    verbs. With a matching ``If-None-Match`` the route must not answer 304
+    before it looks at storage — otherwise the same URL disagrees with itself
+    about whether the resource exists, depending on whether the client holds a
     validator. The 304 is the worse half: it tells a cache its stale copy is a
     current representation of something that no longer exists, and the cache
     goes on serving it.
@@ -2357,10 +2352,9 @@ async def test_a_conditional_request_that_transfers_still_stats_once(
     """The existence check must not reintroduce the double stat.
 
     Answering a precondition needs the object's size, and so does the response
-    that follows when the precondition passes. Measuring twice would undo
-    fix(#1540 review P2)'s first finding — two ``head_object`` round trips per
-    request — on any client that sends a validator, which after this PR is
-    every well-behaved resumable downloader.
+    that follows when the precondition passes. Measuring twice would cost
+    two ``head_object`` round trips per request on any client that sends a
+    validator, which is every well-behaved resumable downloader.
 
     The size is carried from the precondition block into the response instead.
     """
@@ -2481,14 +2475,14 @@ async def test_a_remote_cog_publishes_no_validator(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1554): the wildcard, on rows this route can publish no validator for
+# The wildcard, on rows this route can publish no validator for
 # ---------------------------------------------------------------------------
 
 
 async def test_a_wildcard_revalidation_is_304_on_a_row_with_no_digest(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#1554): ``If-None-Match: *`` asks about existence, not about a digest.
+    """``If-None-Match: *`` asks about existence, not about a digest.
 
     RFC 9110 section 13.1.2: for GET and HEAD, ``*`` matches when ANY current
     representation of the target resource exists. Nothing in that sentence is
@@ -2496,9 +2490,9 @@ async def test_a_wildcard_revalidation_is_304_on_a_row_with_no_digest(
     not need to carry one when the 200 it replaces would not have carried one
     either (section 15.4.5 asks for the header fields the 200 would send).
 
-    fix(#1540 review P2) evaluated ``If-None-Match`` only when the row had a
-    ``sha256`` to compare against, which is the right guard for a specific tag
-    and the wrong one for the wildcard. On a legacy row the client got 200 —
+    Evaluating ``If-None-Match`` only when the row has a ``sha256`` to compare
+    against is the right guard for a specific tag and the wrong one for the
+    wildcard. On a legacy row the client would get 200 —
     multiple gigabytes of COG, transferred to answer a question it had already
     been told the answer to by its own cache.
 
@@ -2589,8 +2583,8 @@ async def test_a_wildcard_is_the_only_tag_that_matches_a_digest_less_row(
     representation with no entity-tag matches no tag at all — so the condition
     is true and the client gets the bytes.
 
-    That is the same answer this route gave before fix(#1554), and it is the
-    half a wrong fix breaks: reading "unverifiable" as "unchanged" hands every
+    That is the answer for a row with no digest, and it is the half a wrong fix
+    breaks: reading "unverifiable" as "unchanged" hands every
     client holding a stale copy of a legacy COG a 304 forever.
 
     The weak spelling and the list are here because the wildcard branch runs
@@ -2625,11 +2619,10 @@ async def test_a_wildcard_revalidation_for_bytes_that_are_gone_is_still_404(
 ):
     """``*`` matches a representation that EXISTS, so the stat still comes first.
 
-    The catalog row can outlive its stored bytes, and the unconditional GET has
-    always answered 404 for that (``test_head_cog_matches_get_on_missing
-    _object``). fix(#1540 review P2) moved the stat above the precondition block
-    so a validator could not talk a cache into keeping a copy of something that
-    is gone; the wildcard has to stay behind that same stat.
+    The catalog row can outlive its stored bytes, and the unconditional GET has always
+    answered 404 for that (``test_head_cog_matches_get_on_missing_object``). The stat
+    sits above the precondition block so a validator cannot talk a cache into keeping a
+    copy of something that is gone; the wildcard has to stay behind that same stat.
 
     This is the wrong fix that reads most naturally: `*` asks whether a current
     representation exists, the RasterAsset row looks like the answer, and
@@ -2704,7 +2697,7 @@ async def test_an_unverifiable_if_range_on_s3_is_ignored_rather_than_honoured(
     """RFC 9110 section 13.1.5 has one answer for a validator that does not match.
 
     Ignore the Range and serve the complete representation. Not 206 — that is
-    the splice fix(#1540 review P2) closed — and not 412, which the section
+    the splice — and not 412, which the section
     gives ``If-Range`` no license for at all: unlike ``If-Match`` it is an
     optimization the server may decline, so refusing the request outright would
     break a client that was only trying to save bandwidth.
@@ -2802,7 +2795,7 @@ async def test_a_row_with_no_digest_refuses_a_specific_if_match_on_s3_too(
 async def test_cog_head_stays_out_of_the_openapi_schema(client: AsyncClient):
     """The HEAD route is derived, not new API surface.
 
-    Same call ``_clone_api_route`` and fix(#1513) make: a derived route
+    Same call ``_clone_api_route`` makes: a derived route
     documents nothing the canonical one does not, and publishing it would add a
     ``headDownloadCog`` to both SDKs and the CLI for no gain.
     """

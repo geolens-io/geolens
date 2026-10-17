@@ -117,7 +117,7 @@ def _no_assets_path(url: str | None) -> bool:
 
 
 class TestRemoteHrefPassThrough:
-    """feat(#1692): a by-reference origin href is served verbatim.
+    """A by-reference origin href is served verbatim.
 
     A STAC import persists the publisher's absolute http(s) COG URL as a
     ``dataset_assets`` href. That URL is already public in the origin

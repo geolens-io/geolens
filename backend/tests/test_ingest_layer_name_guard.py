@@ -1,7 +1,7 @@
-"""Tests for the fix(#823) layer_name guards.
+"""Tests for the layer_name guards.
 
-The v1.6.0 deep audit found that a user-supplied ``layer_name`` reached GDAL
-argv (ogrinfo/ogr2ogr) unvalidated. Two layers of defense were added:
+A user-supplied ``layer_name`` must not reach GDAL argv (ogrinfo/ogr2ogr)
+unvalidated. Two layers of defense:
 
   1. Argv-level guard (``validate_layer_name_argv`` in ingest/ogr.py): every
      spawner that forwards a layer name rejects option-like values (leading

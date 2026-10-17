@@ -18,7 +18,7 @@ from app.api.middleware.logging import safe_access_log_path
             "/api/maps/shared/SYNTHETIC_SENTINEL/card",
             "/api/maps/shared/[REDACTED]/card",
         ),
-        # fix(#1778): the embed shell, which frontend/nginx.conf has always
+        # The embed shell, which frontend/nginx.conf has always
         # redacted at the edge and the Python regex did not.
         ("/m/SYNTHETIC_SENTINEL", "/m/[REDACTED]"),
         ("/m/SYNTHETIC_SENTINEL/anything", "/m/[REDACTED]/anything"),
@@ -44,7 +44,7 @@ def test_safe_access_log_path(path: str, expected: str) -> None:
 
 @pytest.mark.anyio
 async def test_access_log_never_contains_query_credentials(monkeypatch) -> None:
-    """fix(#821): the deprecated ?api_key= lane puts the credential in the URL.
+    """The deprecated ?api_key= lane puts the credential in the URL.
 
     Our own access log line must never include the query string — the
     middleware logs request.url.path only. This test pins that contract so a
@@ -83,11 +83,11 @@ async def test_access_log_never_contains_query_credentials(monkeypatch) -> None:
 
 
 def test_the_two_5xx_handlers_redact_the_path_they_log() -> None:
-    """fix(#1778): a 500 or a 503 must not publish a share capability.
+    """A 500 or a 503 must not publish a share capability.
 
-    Both handlers logged ``request.url.path`` raw, so the access-log line for
-    a failing ``/api/maps/shared/{token}`` request was redacted while the
-    error line beside it carried the token in full. Asserted on the source so
+    Both handlers must log a redacted path: the access-log line for a failing
+    ``/api/maps/shared/{token}`` request is redacted, so the error line beside
+    it must not carry the token in full. Asserted on the source so
     the check does not depend on provoking a DB failure inside a request.
     """
     import inspect

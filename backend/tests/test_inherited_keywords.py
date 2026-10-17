@@ -280,11 +280,11 @@ class TestDisclosureWarning:
     async def test_no_warning_for_actor_without_source_access(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1178): the warning must not be a membership oracle.
+        """The warning must not be a membership oracle.
 
         An output owner whose access to the now-private source was revoked
         adds a GUESSED keyword to their own record and sends a no-op
-        visibility echo. Before the actor gate, the warning named the guess —
+        visibility echo. Without the actor gate, the warning would name the guess —
         confirming it exists on a source the actor cannot open. The gate is
         the same ``visible_derived_from`` rule the keywords endpoint applies,
         so no access means silence, on the same grounds as the reference
@@ -412,7 +412,7 @@ class TestKeywordsEndpointShape:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1070 sec-audit): the counterfactual is an ownership oracle.
+        """The counterfactual is an ownership oracle.
 
         ``audience_visibility=private`` collapses the derived audience to
         "the owner (plus admins)", so the returned gap reduces to "the output's
@@ -424,8 +424,8 @@ class TestKeywordsEndpointShape:
 
         The state is built here rather than borrowed from a fixture role
         because the whole point is the actor's exact position: a NON-owner who
-        DOES hold source access, the one actor the file did not previously
-        cover.
+        DOES hold source access, the one actor that needs its own
+        case.
         """
         grant_role = Role(name=f"kw-audit-{uuid.uuid4().hex[:8]}")
         test_db_session.add(grant_role)
@@ -519,7 +519,7 @@ class TestKeywordsEndpointShape:
 
 
 class TestStatusEndpointWarningSurface:
-    """fix(#1178): the publication-status endpoints bypass
+    """The publication-status endpoints bypass
     update_user_metadata, so they must run the same resolved-state check."""
 
     async def test_target_status_publish_carries_the_warning(

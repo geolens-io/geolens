@@ -201,7 +201,7 @@ async def test_health_endpoint_does_not_leak_provider_error(client):
 
 @pytest.mark.anyio
 async def test_health_endpoint_reports_version_and_build(client, monkeypatch):
-    """fix(#441): /health carries the running version and the build commit.
+    """/health carries the running version and the build commit.
 
     Production disables /docs, so /health is the surface an operator can use
     to verify what a deployment runs. `build` comes from the GEOLENS_BUILD_SHA

@@ -305,7 +305,7 @@ class TestCreateEmbedToken:
 
 
 class TestEmbedScopeVisibility:
-    """fix(#1860): the mint may not outlive the minter's own access.
+    """The mint may not outlive the minter's own access.
 
     Adding a layer is gated and a shared map cannot be dropped to private
     under one, so the reachable case is a map owner who LOSES access to a
@@ -1074,7 +1074,7 @@ class TestTileDomainLocking:
 async def _drain_embed_token_usage_bump_tasks() -> None:
     """Wait for any in-flight fire-and-forget usage-bump tasks to finish.
 
-    fix(#1436) codex review: validate_embed_token_access no longer awaits its
+    ``validate_embed_token_access`` does not await its
     use_count/last_used_at bump -- it fires it via asyncio.create_task so a
     slow pool checkout can never delay authorization. A test asserting on the
     bumped value right after the call would otherwise race that background
@@ -1195,9 +1195,9 @@ class TestUsageTracking:
             await _cleanup_data_table(test_db_session, table_name)
 
     async def test_bump_does_not_commit_callers_pending_state(self, test_db_session):
-        """fix(#1436): the usage bump must not commit the caller's own pending writes.
+        """The usage bump must not commit the caller's own pending writes.
 
-        ``validate_embed_token_access`` previously bumped use_count/
+        ``validate_embed_token_access`` must not bump use_count/
         last_used_at via ``async with db.begin_nested(): ...`` then
         ``await db.commit()`` on the CALLER's session. A read-path
         authorization helper committing the caller's transaction silently
@@ -1253,7 +1253,7 @@ class TestUsageTracking:
         await test_db_session.rollback()
 
     async def test_bump_persists_via_its_own_session(self, test_db_session):
-        """fix(#1436): moving the bump off the caller's session must not lose it."""
+        """Moving the bump off the caller's session must not lose it."""
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_private_dataset(test_db_session, created_by=user_id)
         map_obj = Map(

@@ -1,4 +1,4 @@
-"""fix(#1528): a real GDAL client must be able to open the COG over HTTP.
+"""A real GDAL client must be able to open the COG over HTTP.
 
 Every other test for this route asserts on headers through
 ``httpx.ASGITransport``, which never builds an HTTP message — it hands ASGI
@@ -17,7 +17,7 @@ present wherever these tests run.
 MEASURED, GDAL 3.13.0 CLI and rasterio 1.5.1 / GDAL 3.12.4, against this same
 harness on a bare uvicorn — no nginx, no production edge:
 
-  before (main)   HEAD -> 405 allow: GET, and the GET is a StreamingResponse
+  without         HEAD -> 405 allow: GET, and the GET is a StreamingResponse
                   with no length, so uvicorn frames it chunked. vsicurl logs
                   ``HEAD not allowed. Retrying with GET``, the fallback GET
                   teaches it nothing either, and it concludes ``Request at
@@ -26,18 +26,16 @@ harness on a bare uvicorn — no nginx, no production edge:
                   rasterio raises OpenFailedError. The COG cannot be opened AT
                   ALL.
 
-  after           HEAD -> 200 with content-length and accept-ranges. vsicurl
+  with            HEAD -> 200 with content-length and accept-ranges. vsicurl
                   logs ``GetFileSize``, then ``Downloading 0-16383`` ->
                   ``Got response_code=206``, and opens the file. gdalinfo exits
                   0; rasterio reports the overviews and reads a window.
 
-Worth recording because it corrects the premise this issue was filed with:
-#1513 found that a 405 alone does not break GDAL, because the fallback GET
-still carries a Content-Length on a bare uvicorn and only the production edge
-strips it. That reasoning does not transfer here. This route's GET was a
-``StreamingResponse`` with no Content-Length, so uvicorn *itself* frames it
-chunked — the second ingredient was already inside the route, and no edge was
-needed to reproduce the failure.
+A 405 alone does not break GDAL, because the fallback GET still carries a
+Content-Length on a bare uvicorn and only the production edge strips it. That
+reasoning does not transfer here: a GET that is a ``StreamingResponse`` with no
+Content-Length is framed chunked by uvicorn *itself* — the second ingredient is
+inside the route, and no edge is needed to reproduce the failure.
 
 Requirements:
   - Docker database must be running (docker compose up db)

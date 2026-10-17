@@ -217,12 +217,11 @@ async def test_oauth_provider_create_429(
 async def test_alias_bypass_guard(client: AsyncClient, admin_auth_header: dict) -> None:
     """The no-trailing-slash alias of a dual-shape admin endpoint is ALSO rate-limited.
 
-    fix(#1778): the limiter is built with key_style="endpoint", so both shapes
+    The limiter is built with key_style="endpoint", so both shapes
     of the dual-shape decorator key on the one handler they share and draw on a
-    single 30/minute bucket. They used to be keyed by URL, giving each alias its
-    own allowance. Either way the guarantee this test states holds, and it is
-    the guarantee that matters: the no-slash form is NOT an unlimited bypass.
-    Sharing one bucket is the stricter of the two.
+    single 30/minute bucket. The guarantee this test states is that the
+    no-slash form is NOT an unlimited bypass; sharing one bucket is the
+    stricter way to hold it.
 
     Strategy: exhaust the limit via the no-slash form (POST /admin/users), then
     assert that further calls to the same no-slash alias return 429.

@@ -107,7 +107,7 @@ async def _create_mask_dataset(
     created_by: uuid.UUID,
     visibility: str = "public",
 ):
-    """feat(#683): a polygon layer usable as a clip mask.
+    """A polygon layer usable as a clip mask.
 
     Covers SQUARE's lower-left quarter, so a clip against it survives with a
     genuinely smaller geometry rather than passing the whole input through.
@@ -175,7 +175,7 @@ class TestRunAnalysisToolSelection:
         assert "set_style" in edit_names
 
     def test_clip_is_offered_and_dissolve_is_not(self) -> None:
-        """feat(#683): clip joined the enum once #682 shipped the layer mask.
+        """Clip is in the enum because the layer mask exists.
         dissolve stays out on its own merits — materialize-only, an aggregate
         with no preview shape — so the enum must not tempt the model with it."""
         tool = next(t for t in CHAT_TOOLS_ANTHROPIC if t["name"] == "run_analysis")
@@ -224,7 +224,7 @@ class TestRunAnalysisActionCollection:
         assert ChatAction(**action).geojson is not None
 
     def test_truncated_result_carries_the_disclosure_pair(self) -> None:
-        """fix(#674 audit): a capped preview must not be presented as the whole
+        """A capped preview must not be presented as the whole
         result — EphemeralBadge renders "N of TOTAL" when both ride along."""
         action = _collect_chat_action(
             "run_analysis",
@@ -262,10 +262,9 @@ class TestRunAnalysisActionCollection:
     def test_truncated_with_unknown_total_omits_the_count_not_the_flag(self) -> None:
         """A result with no known total must not yield "500 of None".
 
-        fix(#683 codex P2): it must still say it was capped, though. This used
-        to drop the flag along with the count, which reads as a complete result
-        — fine while every chat operation reported a total, wrong the moment
-        clip (which filters rows, so it reports none) joined them.
+        It must still say it was capped, though. Dropping the flag along with
+        the count would read as a complete result, which is wrong for clip
+        (it filters rows, so it reports no total).
         """
         action = _collect_chat_action(
             "run_analysis",
@@ -283,9 +282,9 @@ class TestRunAnalysisActionCollection:
         assert "row_count" not in action
 
     def test_truncated_clip_discloses_the_cap_without_a_total(self) -> None:
-        """fix(#683 codex P2): clip filters rows, so the preview returns no
+        """Clip filters rows, so the preview returns no
         source_feature_count — the clipped total is genuinely unknown. Requiring
-        one dropped the disclosure entirely, presenting a capped clip preview as
+        one would drop the disclosure entirely, presenting a capped clip preview as
         the whole result. The flag rides alone; row_count stays absent."""
         action = _collect_chat_action(
             "run_analysis",
@@ -312,7 +311,7 @@ class TestRunAnalysisActionCollection:
         assert action is None
 
     def test_action_carries_the_analysis_handoff_params(self) -> None:
-        """feat(#675): operation/layer_id/distance ride the action so the
+        """operation/layer_id/distance ride the action so the
         builder can prefill the Analysis panel ("Save as dataset") from the
         chat preview instead of making the user re-enter everything."""
         action = _collect_chat_action(
@@ -368,10 +367,10 @@ class TestRunAnalysisActionCollection:
         assert dumped["distance_meters"] == 500.0
 
     def test_empty_result_emits_a_geometry_less_marker(self) -> None:
-        """fix(#676): no features still emits a geometry-less action — the
+        """No features still emits a geometry-less action — the
         frontend uses it to clear a stale overlay from an earlier turn.
-        Previously None was returned and the previous overlay (plus its
-        feature-count badge) stayed on the map beside a "nothing found" reply."""
+        Returning None would leave the previous overlay (plus its
+        feature-count badge) on the map beside a "nothing found" reply."""
         action = _collect_chat_action(
             "run_analysis",
             {"layer_id": "l1"},
@@ -406,7 +405,7 @@ class TestRunAnalysisHandler:
             "MultiPolygon",
         )
         assert len(result["bbox"]) == 4
-        # feat(#675): the sanitized buffer distance rides along for the
+        # The sanitized buffer distance rides along for the
         # Analysis-panel handoff.
         assert result["distance_meters"] == 1000
 
@@ -423,7 +422,7 @@ class TestRunAnalysisHandler:
         )
         assert "error" not in result, result
         assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"
-        # feat(#675): only buffer consumes a distance, so none rides along here.
+        # Only buffer consumes a distance, so none rides along here.
         assert "distance_meters" not in result
 
     async def test_unknown_layer_is_rejected(self, test_db_session: AsyncSession):
@@ -464,7 +463,7 @@ class TestRunAnalysisHandler:
     async def test_centroid_ignores_any_distance_meters(
         self, test_db_session: AsyncSession, distance
     ):
-        """fix(#674 review P2): the tool schema calls distance_meters "ignored
+        """The tool schema calls distance_meters "ignored
         otherwise", so a model may send a placeholder on a centroid call. Those
         values must not reach AnalysisPreviewRequest's gt=0 / le=100000 bounds
         and fail an otherwise valid preview."""
@@ -516,7 +515,7 @@ class TestRunAnalysisHandler:
 
 
 class TestRunAnalysisClipByLayer:
-    """feat(#683): the two-layer operation. What matters is that the SECOND
+    """The two-layer operation. What matters is that the SECOND
     dataset gets its own Rule-1 check — seeing the source buys no claim on the
     mask — and that a mask that cannot clip is refused with something the model
     can act on rather than an empty result reported as an answer."""
@@ -610,7 +609,7 @@ class TestRunAnalysisClipByLayer:
     async def test_two_layers_over_one_dataset_are_refused(
         self, test_db_session: AsyncSession
     ):
-        """fix(#683 codex P2): a duplicated rendering is two layer ids over one
+        """A duplicated rendering is two layer ids over one
         dataset, so comparing layer ids alone lets that pair through — and
         clipping a table by itself is an expensive way to return the input."""
         admin = await _get_admin(test_db_session)
@@ -697,7 +696,7 @@ class TestRunAnalysisClipByLayer:
         assert "POINT" in result["error"]
 
     async def test_oversized_mask_layer_is_refused(self, test_db_session: AsyncSession):
-        """fix(#683 codex P1): a resource rail, not a correctness one. The
+        """A resource rail, not a correctness one. The
         preview's _mask_pieces CTE materializes and subdivides every mask row
         before the row cap can bite, so the work scales with the whole mask
         however small the source is. The REST route rejects this in
@@ -728,7 +727,7 @@ class TestRunAnalysisClipByLayer:
     async def test_unknown_mask_size_is_counted_live(
         self, test_db_session: AsyncSession
     ):
-        """fix(#701 review) parity: a NULL feature_count must not read as zero,
+        """Parity with the REST gate: a NULL feature_count must not read as zero,
         or the gate admits exactly the unknown-size layers it exists for. The
         one-row mask table is counted live against a patched cap."""
         admin = await _get_admin(test_db_session)
@@ -759,7 +758,7 @@ class TestRunAnalysisClipByLayer:
     async def test_a_legacy_port_still_serves_buffer_and_centroid(
         self, test_db_session: AsyncSession
     ):
-        """fix(#683 codex P1): a separately distributed overlay implementing the
+        """A separately distributed overlay implementing the
         PRE-clip ProcessingPort rejects an unknown `mask_dataset` keyword. If
         the caller passed it unconditionally, every chat analysis against such
         an overlay would break rather than only the new operation — so it rides
@@ -814,7 +813,7 @@ class TestRunAnalysisClipByLayer:
     async def test_user_id_is_still_readable_after_the_tool_returns(
         self, test_db_session: AsyncSession
     ):
-        """fix(#716): chat must NOT pass release_session=True. The rollback
+        """Chat must NOT pass release_session=True. The rollback
         that returns the pooled connection expires every ORM instance on the
         session, the authenticated User included, so the next `user.id` read
         would raise MissingGreenlet. Both chat paths do exactly that read after
@@ -873,7 +872,7 @@ class TestModelSafeToolResult:
 class TestToolResultSerializationSites:
     """The pure function above is not the guarantee that matters.
 
-    fix(#699): what protects the model's context is that EVERY provider call
+    What protects the model's context is that EVERY provider call
     site routes its tool result through ``model_safe_tool_result`` before
     ``json.dumps``. A site that drops the wrapper passes every test in the
     class above, and ``test_extensions.py`` only asserts the extension
@@ -886,18 +885,17 @@ class TestToolResultSerializationSites:
     alongside an ``output`` key, must set that value to
     ``tool_result_content(...)``.
 
-    The gate used to match ``json.dumps(model_safe_tool_result
-    (...), ...)``, spelled out at each site. The sites now share one helper,
-    which trims the map-only payload AND wraps the result in the untrusted
-    trust fence, so the property this gate protects got strictly stronger and
-    the shape it matches got simpler: one name, called once, at every site.
-    Hand-rolling the old two-call form no longer passes, which is the point:
-    a site that built its own JSON would be trimmed but unfenced.
+    The sites share one helper, which trims the map-only payload AND wraps
+    the result in the untrusted trust fence, so the gate matches one name,
+    called once, at every site. Hand-rolling a two-call
+    ``json.dumps(model_safe_tool_result(...), ...)`` form does not pass, which
+    is the point: a site that built its own JSON would be trimmed but
+    unfenced.
 
-    fix(#699 codex P2): the walk covers all of ``backend/app/``, not a fixed
+    The walk covers all of ``backend/app/``, not a fixed
     list of the modules that happen to build these messages today, following
     ``test_rule2_structural.py``. A fourth provider adapter added in a new
-    module is exactly the case this is for, and an allowlist would have let it
+    module is exactly the case this is for, and an allowlist would let it
     through while the assertion still read as if it were covered.
 
     The known sites below are an anti-vacuity anchor, not the scan's scope:
@@ -929,11 +927,11 @@ class TestToolResultSerializationSites:
     def _content_value(cls, node: ast.AST) -> ast.expr | None:
         """Return the ``content`` of a tool-result message, however it is built.
 
-        fix(#699 codex P2): a dict LITERAL is only the shape these happen to
+        A dict LITERAL is only the shape these happen to
         take today. `dict(tool_call_id=..., content=...)`, or any provider's
         own message class constructed with the same keywords, is the identical
-        payload and was invisible to a literal-only walk — so a fourth adapter
-        written in either style would have serialized an untrimmed result while
+        payload and is invisible to a literal-only walk — so a fourth adapter
+        written in either style would serialize an untrimmed result while
         all three known-module counts stayed satisfied.
 
         Matching on the key names rather than the construction style is what

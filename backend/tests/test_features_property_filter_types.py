@@ -1,13 +1,13 @@
-"""fix(#1778): property filters on non-text columns must work, and must not 503.
+"""Property filters on non-text columns must work, and must not 503.
 
-`get_features` bound every property-filter value as the raw query-string
-string, so SQLAlchemy typed the bind VARCHAR and PostgreSQL had no
-`bigint = character varying` operator. Every non-text property filter failed
-with 42883, and the OGC items handler classified that as
+`get_features` must not bind every property-filter value as the raw
+query-string string: SQLAlchemy would type the bind VARCHAR and PostgreSQL has
+no `bigint = character varying` operator, so every non-text property filter
+would fail with 42883, and the OGC items handler would classify that as
 `503 Dataset table is temporarily unavailable` because its caller-fault branch
-was gated on a CQL2 `filter=` being present. Clients retried forever against
+is gated on a CQL2 `filter=` being present. Clients would retry forever against
 what is a query-shape bug, and the Part 3 queryables document advertises those
-columns as integer/number/boolean/date, so a conformant client was led
+columns as integer/number/boolean/date, so a conformant client is led
 straight into it.
 
 Requires the Docker test database.
@@ -221,7 +221,7 @@ async def test_cql2_filter_fault_message_is_unchanged(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): a value the driver cannot encode for the bound type.
+# A value the driver cannot encode for the bound type.
 # ---------------------------------------------------------------------------
 
 OUT_OF_RANGE = [

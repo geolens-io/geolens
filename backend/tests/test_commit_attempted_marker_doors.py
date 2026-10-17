@@ -1,4 +1,4 @@
-"""fix(#1744): every door that dispatches an ``IngestJob`` stamps the marker.
+"""Every door that dispatches an ``IngestJob`` stamps the marker.
 
 ``abandoned_upload`` in ``jobs/sweep.py`` reads the ABSENCE of
 ``user_metadata["commit_attempted_at"]`` as "nothing was ever dispatched for
@@ -321,7 +321,7 @@ class _FailedTransactionSession:
 
 @pytest.mark.anyio
 async def test_a_failed_marker_write_resets_the_session_before_settling() -> None:
-    """fix(#1774 review, codex P2): the settlement needs a usable session.
+    """The settlement needs a usable session.
 
     A serialization failure or deadlock on the marker write leaves the session
     in a failed transaction. Handing it straight to the rollback closure makes

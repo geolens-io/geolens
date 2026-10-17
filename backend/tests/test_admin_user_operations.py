@@ -28,7 +28,7 @@ from tests.conftest import _create_test_user
 async def backfill_slot(test_db_session: AsyncSession):
     """Free the one in-flight backfill slot around a test that takes it.
 
-    fix(#1542): the backfill is queued now, and a second run is refused while
+    The backfill is queued, and a second run is refused while
     one is in flight. Nothing here runs a worker, so each enqueue would leave a
     pending row behind and 409 the next test in this file for the wrong reason.
     """
@@ -112,9 +112,9 @@ async def test_list_api_keys_ordered_newest_first(
     client: AsyncClient,
     admin_auth_header: dict,
 ):
-    """fix(#1778): the admin key list had no ORDER BY, so the LIMIT-capped
+    """The admin key list needs an ORDER BY: without one the LIMIT-capped
     page could return an arbitrary, planner-chosen subset that changed
-    between refetches — a key seen once could vanish on reload. Pin a
+    between refetches, and a key seen once could vanish on reload. Pin a
     deterministic newest-first order.
     """
     _, user_id = await _create_test_user(client, admin_auth_header, "editor")
@@ -252,7 +252,7 @@ async def test_backfill_embeddings_force_admin(
 ):
     """POST /admin/backfill-embeddings/?force=true queues a run for an admin.
 
-    fix(#1542): the run happens on the job queue, so the response is a job id
+    The run happens on the job queue, so the response is a job id
     and the completion audit is emitted by the worker (covered in
     test_embedding_backfill_queue_1542.py). This test is about admin
     authorization and the request half of the audit trail.
@@ -304,7 +304,7 @@ async def test_backfill_failure_after_force_delete_has_durable_safe_audit(
 ):
     """A committed force-delete remains bracketed by requested/failed audits.
 
-    fix(#1542): the delete now happens in the worker, so the bracket spans the
+    The delete happens in the worker, so the bracket spans the
     queue hop — the route commits "requested" with the job row before anything
     can pick the run up, and the worker emits "failed" after. The
     requested-before-delete ordering is what makes a destroyed catalog
@@ -417,7 +417,7 @@ async def test_backfill_embeddings_without_force(
     admin_auth_header: dict,
     backfill_slot,
 ):
-    """POST /admin/backfill-embeddings/ (no force) queues a run (fix(#1542))."""
+    """POST /admin/backfill-embeddings/ (no force) queues a run."""
     from unittest.mock import AsyncMock, patch
 
     from app.modules.admin import router as admin_router

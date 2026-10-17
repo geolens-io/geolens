@@ -1,18 +1,14 @@
-"""fix(#1589): the NL->SQL prompt asks for a marker; the server expands it.
+"""The NL->SQL prompt asks for a marker; the server expands it.
 
-Before this, the prompt embedded ``render_geodesic_buffer``'s rendered output
-twice — a 3 017-character template and a 3 073-character worked example, 6 090
-of the prompt's 16 786 characters — and told the model to reproduce it
-character for character. The light model managed that about half the time. The
-nightly buffer evals
-failed on six of nine runs between 08-12 and 08-18, every failure a sandbox
-refusal of a dropped parenthesis or a paraphrase back to the bare
-``ST_Buffer(::geography)`` form, never a wrong answer that ran.
+Asking the light model to reproduce ``render_geodesic_buffer``'s roughly
+3 000-character output character for character does not work: it drops a
+parenthesis or paraphrases back to the bare ``ST_Buffer(::geography)`` form,
+and the sandbox refuses the result.
 
-So the model now writes ``geolens_buffer(<geom>, <metres>)`` and
+So the model writes ``geolens_buffer(<geom>, <metres>)`` and
 ``app.processing.ai.buffer_marker`` substitutes the canonical render before
-anything sees the SQL. The shape can no longer be wrong, because the model no
-longer writes it.
+anything sees the SQL. The shape cannot be wrong, because the model never
+writes it.
 
 What these tests hold down:
 
@@ -24,9 +20,8 @@ What these tests hold down:
   endpoint takes user-written SQL and must keep refusing ``geolens_buffer``
   as the unknown function it is;
 - the geometry argument stays fully under the sandbox's authority. The
-  expander decides syntax, never policy — #1002 is the record of what
-  happens when two layers both try to decide whether a buffer's argument is
-  safe.
+  expander decides syntax, never policy, because two layers both
+  deciding whether a buffer's argument is safe is the failure to avoid.
 """
 
 from unittest.mock import AsyncMock
@@ -174,9 +169,9 @@ def test_a_qualified_name_ending_in_the_marker_is_not_a_call(qualified):
     """``public.geolens_buffer(...)`` names some other schema's function, and
     substituting our expression for it would answer a different question.
 
-    fix(#1589): the rule used to read the character immediately
-    before the name, so anything between the dot and the name defeated it —
-    a comment (the scan had already skipped it and saw ``/``) or even a plain
+    The rule must not read only the character immediately
+    before the name: anything between the dot and the name would defeat it —
+    a comment (the scan has already skipped it and sees ``/``) or even a plain
     space. All of these are one qualified name to PostgreSQL.
     """
     sql = f"SELECT {qualified}(s.geom_4326, 500) FROM data.stations s"
@@ -204,10 +199,10 @@ def test_a_comment_before_an_unqualified_marker_still_reads_as_a_call(prefix):
 def test_the_nested_check_agrees_with_the_top_level_scan_on_qualified_names():
     """A qualified name is not our marker in either place.
 
-    Before fix(#1589) the two disagreed for
-    ``public./**/geolens_buffer``: the top-level scan expanded it, while the
-    same string inside a geometry argument was rejected as nesting. Whichever
-    answer is right, one of those was wrong.
+    The top-level scan and the geometry-argument scan must agree for
+    ``public./**/geolens_buffer``: expanding it at the top level while
+    rejecting the same string inside a geometry argument as nesting would make
+    one of the two wrong.
     """
     inner = "public./**/geolens_buffer(s.geom_4326, 10)"
 
@@ -232,7 +227,7 @@ def test_a_comment_between_the_name_and_its_parenthesis_still_reads_as_a_call():
 
 
 # ---------------------------------------------------------------------------
-# Comments inside the call (fix(#1589))
+# Comments inside the call
 # ---------------------------------------------------------------------------
 
 
@@ -274,8 +269,8 @@ def test_a_comment_inside_the_call_does_not_ride_into_the_expression(geom):
     ],
 )
 def test_a_comment_around_the_distance_does_not_refuse_the_call(distance):
-    """fix(#1589): the distance argument gets the same treatment as
-    the geometry one. Leaving it out would have kept half the failure class:
+    """The distance argument gets the same treatment as
+    the geometry one. Leaving it out would keep half the failure class:
     a correct call, refused with a message nobody sees."""
     expanded = expand_buffer_markers(_wrap(f"geolens_buffer(s.geom_4326, {distance})"))
     assert expanded == _wrap(render_geodesic_buffer("s.geom_4326", 500.0))
@@ -290,7 +285,7 @@ def test_a_comment_that_looks_like_one_inside_a_literal_is_kept():
 
 
 # ---------------------------------------------------------------------------
-# Redundant parentheses (fix(#1589))
+# Redundant parentheses
 # ---------------------------------------------------------------------------
 
 
@@ -553,9 +548,9 @@ def test_a_comment_cannot_smuggle_sql_through_the_argument_split():
     What is left is ``s.geom_4326``, and the statement VALIDATES. That is the
     right outcome rather than a lucky one: the attempt failed as an attempt,
     and the query that remains is the ordinary buffer the model asked for.
-    Before fix(#1589) this was refused instead, which looked like
-    security and was really the comment breaking the canonical re-render — the
-    same collateral damage a plain ``/* the stop */`` took.
+    Refusing it instead would look like security but really be the comment
+    breaking the canonical re-render, the same collateral damage a plain
+    ``/* the stop */`` would take.
     """
     smuggle = "s.geom_4326 /*, 1) AS g, pg_sleep(9) FROM data.t --*/"
     expanded = expand_buffer_markers(_wrap(f"geolens_buffer({smuggle}, 100)"))
@@ -593,8 +588,8 @@ def test_a_cast_around_the_call_does_not_break_the_exemption():
 
 def test_the_expansion_is_what_the_validator_recognises_as_canonical():
     """Not merely 'the statement validates' — the buffer's own machinery is
-    admitted through the fix(#1001) exemption, which is only granted to an
-    exact re-render."""
+    admitted through the canonical-buffer exemption, which is only granted to
+    an exact re-render."""
     from app.platform.sandbox.validator import _canonical_buffer_exempt_ids
 
     expanded = expand_buffer_markers(_wrap("geolens_buffer(s.geom_4326, 500)"))
@@ -715,7 +710,7 @@ async def test_the_raw_query_endpoint_does_not_expand_a_marker(
 
 
 def test_the_chat_path_rewrites_that_follow_expansion_keep_the_buffer_valid():
-    """fix(#1589): the two rewrites ``query_data`` applies AFTER
+    """The two rewrites ``query_data`` applies AFTER
     ``generate_sql`` returns, run over the expanded 3 KB scaffold.
 
     ``ensure_geometry_selected`` parses the statement with sqlglot and prints

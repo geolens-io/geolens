@@ -1,6 +1,6 @@
 """Cancelling a ``vrt_regenerate`` job reconciles the VRT state it dispatched.
 
-fix(#1709 review P1). VRT dispatch (regenerate/add-source/remove-source)
+VRT dispatch (regenerate/add-source/remove-source)
 commits a ``pending`` VrtGeneration and flips the RasterAsset to
 ``regenerating`` BEFORE deferring the job, and the asset's ``regenerating``
 status is exactly what 409-blocks every later regeneration and source
@@ -224,10 +224,10 @@ async def test_cancel_blocked_by_publish_lock_leaves_worker_state_intact(
 async def test_reconciliation_lock_conflict_is_409_not_500(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#1709 P2): the whole cancel transaction shares the
+    """The whole cancel transaction shares the
     lock-conflict handling, and for a VRT job its FIRST acquisition is the
     RasterAsset row — the same lock the worker's publish transaction takes
-    first (tasks_vrt phase 2), so the old AB-BA inversion (worker:
+    first (tasks_vrt phase 2), so an AB-BA inversion (worker:
     asset->job vs cancel: job->asset) cannot form and a finalize holding the
     asset surfaces as a retryable 409 job_finishing, never a 500."""
     _vrt, asset, generation, job = await _seed_vrt_regeneration(

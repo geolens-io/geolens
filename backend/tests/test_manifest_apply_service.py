@@ -234,7 +234,7 @@ class TestManifestApplyHelpers:
         assert "draft, ready, internal, published" in message
 
     def test_publication_intent_follows_an_overlay_defined_status_order(self):
-        """fix(#1201): the allowed set is the live extension's, not a frozen one.
+        """The allowed set is the live extension's, not a frozen one.
 
         Both directions matter. `review` is not a community status and has to
         pass while the overlay defines it; `internal` IS a community status
@@ -278,9 +278,9 @@ class TestManifestApplyHelpers:
     def test_source_filename_and_extension_derivation_tier1_formats(
         self, uri: str, expected_filename: str, expected_extension: str
     ):
-        """fix(#1683): FlatGeobuf, KML, KMZ, and zipped-FileGDB manifest
+        """FlatGeobuf, KML, KMZ, and zipped-FileGDB manifest
         sources derive the same filename/extension as any other vector
-        source — the tier-1 upload formats added in #1682."""
+        source — the tier-1 upload formats."""
         source = ManifestSource(type="vector", uri=uri)
 
         assert derive_source_filename(source) == expected_filename
@@ -294,10 +294,9 @@ class TestManifestApplyHelpers:
     async def test_classify_manifest_source_accepts_tier1_vector_formats(
         self, uri: str
     ):
-        """fix(#1683): these formats used to be rejected by
-        `MANIFEST_SOURCE_EXTENSIONS` before ever reaching ingest, even
-        though the upload door has accepted the identical bytes since
-        #1682."""
+        """These formats must not be rejected by
+        `MANIFEST_SOURCE_EXTENSIONS` before reaching ingest, since the
+        upload door accepts the identical bytes."""
         source = ManifestSource(type="vector", uri=uri)
 
         prepared = await classify_manifest_source(source)
@@ -385,7 +384,7 @@ class TestManifestApplyHelpers:
 
     @pytest.mark.anyio
     async def test_storage_seed_key_under_staging_prefix_is_rejected(self, monkeypatch):
-        """fix(#1216): `staging/` object keys are system-owned transient
+        """`staging/` object keys are system-owned transient
         presigned-upload storage — the ingest tail reaps them at terminal
         job status, so an operator-declared manifest source under that
         prefix would be deleted. Declaration must refuse the key."""
@@ -1263,9 +1262,9 @@ class TestManifestApplyService:
         assert quota_check.await_args.args[1] == user_id
         assert quota_check.await_args.args[2] == 4096
         queue.assert_not_awaited()
-        # fix(#1814): the reservation is inserted before the download, so a
+        # The reservation is inserted before the download, so a
         # denial after it leaves that row settled rather than leaving none.
-        # fix(#1984): scoped to this key, not order-dependent on a lone row.
+        # Scoped to this key, not order-dependent on a lone row.
         reservation = (
             await test_db_session.execute(
                 select(IngestJob).where(
@@ -1322,7 +1321,7 @@ class TestManifestApplyService:
     async def test_downloaded_http_source_is_removed_if_staging_bind_fails(
         self, test_db_session, clean_tables, tmp_path
     ):
-        """fix(#1814): the row is durable before the download now, so the write
+        """The row is durable before the download, so the write
         that can still fail is the one binding the staged path to it. The
         downloaded bytes belong to that attempt and must not outlive it."""
         user = await _admin_user(test_db_session)
@@ -1367,7 +1366,7 @@ class TestManifestApplyService:
         assert "database unavailable" in response.results[0].message
         assert not staged.exists()
         queue.assert_not_awaited()
-        # fix(#1984): scoped to this key, not order-dependent on a lone row.
+        # Scoped to this key, not order-dependent on a lone row.
         reservation = (
             await test_db_session.execute(
                 select(IngestJob).where(
@@ -1519,7 +1518,7 @@ class TestManifestDryRun:
     async def test_dry_run_reports_an_intent_the_extension_does_not_define(
         self, test_db_session, clean_tables
     ):
-        """fix(#1201): dry_run is how an operator validates a manifest.
+        """dry_run is how an operator validates a manifest.
 
         The intent check therefore has to run before the dry-run early
         return, or the branch built for validation is the one branch that
@@ -1548,7 +1547,7 @@ class TestManifestDryRun:
     async def test_dry_run_reports_a_crs_the_database_does_not_know(
         self, test_db_session, clean_tables
     ):
-        """fix(#2032): the manifest's spelling of srid_override, refused before staging."""
+        """The manifest's spelling of srid_override, refused before staging."""
         user = await _admin_user(test_db_session)
         request = _request(
             _manifest_dataset(key="manifest-dry-crs", crs="EPSG:99999"),
@@ -1652,7 +1651,7 @@ class TestManifestMetadataPropagation:
     async def test_vector_finalize_applies_license_organization_and_tags(
         self, test_db_session, clean_tables
     ):
-        """fix(#2039): the ledger's other three metadata fields reach the record."""
+        """The ledger's other three metadata fields reach the record."""
         from app.modules.catalog.datasets.domain.models import RecordKeyword
         from app.processing.ingest.tasks_common import IngestContext, _finalize_ingest
 
@@ -1722,7 +1721,7 @@ class TestManifestMetadataPropagation:
     async def test_manifest_tags_are_not_reinserted_on_a_reapply(
         self, test_db_session, clean_tables
     ):
-        """fix(#2039): uq_record_keyword would fail the whole swap transaction."""
+        """uq_record_keyword would fail the whole swap transaction."""
         from app.modules.catalog.datasets.domain.models import RecordKeyword
         from app.processing.ingest.tasks_common import apply_manifest_record_metadata
 
@@ -1746,7 +1745,7 @@ class TestManifestMetadataPropagation:
     async def test_manifest_tags_dedupe_only_against_theme_keywords(
         self, test_db_session, clean_tables
     ):
-        """fix(#2039): `uq_record_keyword` is per keyword_type, case-sensitive."""
+        """`uq_record_keyword` is per keyword_type, case-sensitive."""
         from app.modules.catalog.datasets.domain.models import RecordKeyword
         from app.processing.ingest.tasks_common import apply_manifest_record_metadata
 
@@ -1760,7 +1759,7 @@ class TestManifestMetadataPropagation:
                 RecordKeyword(
                     record_id=dataset.record.id, keyword="Transit", keyword_type="theme"
                 ),
-                # fix(#2039): `uq_record_keyword` COALESCEs this to '',
+                # `uq_record_keyword` COALESCEs this to '',
                 # so the row collides with the NULL the read-back would write.
                 RecordKeyword(
                     record_id=dataset.record.id,

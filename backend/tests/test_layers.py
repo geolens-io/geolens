@@ -509,7 +509,7 @@ class TestCreateLayerAllGeometryTypes:
 async def test_create_layer_service_rejects_unallowlisted_geometry_type(
     test_db_session,
 ):
-    """fix(#1988): the guard is on the service, not only the request schema.
+    """The guard is on the service, not only the request schema.
 
     ``geometry_type`` is interpolated into the CREATE TABLE statement. The
     schema validator only covers the one route that reaches this function

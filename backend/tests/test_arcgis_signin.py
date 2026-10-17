@@ -108,7 +108,7 @@ def _parent_domain() -> str:
 def _scope(host: str | None = None, path: str = "/sharing/rest") -> str:
     """The identity the limits key on: authority plus web-adaptor path.
 
-    fix(#1758): a hostname is not an account store. The default is
+    A hostname is not an account store. The default is
     this test's portal answering on its own conventional endpoint.
     """
     return f"{host or _host()}:443{path}"
@@ -126,7 +126,7 @@ def _body(username: str = FIXTURE_USERNAME, secret: str = FIXTURE_SECRET) -> dic
 class _AsyncBytes(httpx.AsyncByteStream):
     """A response body that actually streams.
 
-    fix(#1758): `httpx.Response(json=...)` materializes its content,
+    `httpx.Response(json=...)` materializes its content,
     and `aiter_raw()` on a materialized response raises `StreamConsumed`. A
     real transport streams, so the double has to as well, or it would only
     ever exercise a path production does not take. It also counts the chunks
@@ -148,9 +148,9 @@ class _AsyncBytes(httpx.AsyncByteStream):
 class _Reply:
     """A reply DESCRIPTION, built fresh for each request.
 
-    fix(#1758): a streaming `httpx.Response` can be read once, so a
-    route that handed the same object back twice made every attempt after the
-    first look like a truncated body. The exchange now builds a new response
+    A streaming `httpx.Response` can be read once, so a
+    route that handed the same object back twice would make every attempt after
+    the first look like a truncated body. The exchange builds a new response
     per request, which is what a real transport does.
     """
 
@@ -243,7 +243,7 @@ def _install(exchange: _Exchange):
     """Patch make_safe_client with a MockTransport client over *exchange*.
 
     ``follow_redirects`` and ``max_redirects`` mirror ``make_safe_client``
-    exactly (fix(#1758)). Without that the stand-in would default to
+    exactly. Without that the stand-in would default to
     NOT following, every redirect assertion below would pass whether or not
     the code sets the per-request flag, and the test would be evidence about
     httpx's default rather than about this module.
@@ -273,7 +273,7 @@ def allow_ssrf():
 async def _clear_unknown_host_rows(session) -> None:
     """Drop the sign-in rows audited before a destination host was known.
 
-    fix(#1758): every other assertion in this file is isolated by the
+    Every other assertion in this file is isolated by the
     per-test portal host, but a phase-one refusal happens before there is a
     host to bucket under, so those rows all land under "unknown" and would
     otherwise accumulate across tests on one worker's database.
@@ -324,7 +324,7 @@ def _base_of(given: str) -> str:
         f"{SAMPLE_PORTAL}/",
         f"{SAMPLE_PORTAL}/sharing",
         f"{SAMPLE_PORTAL}/sharing/rest",
-        # fix(#1758): a dot segment in the portal is resolved by the
+        # A dot segment in the portal is resolved by the
         # same canonicalizer the advertised URL takes, percent-encoded or not,
         # so it cannot reach the fallback as a spelling of its own.
         f"{SAMPLE_PORTAL}/a/../sharing/rest",
@@ -349,8 +349,8 @@ def test_rest_base_normalizes_the_forms_a_user_pastes(given):
     ],
 )
 def test_a_portal_url_that_cannot_be_pinned_down_is_refused(given):
-    """fix(#1758): the caller's URL takes the same road, refusals
-    included. It used to be stripped into shape by a parser of its own."""
+    """The caller's URL takes the same road, refusals
+    included, with no parser of its own."""
     assert arcgis_signin.usable_service_url(given) is None
 
 
@@ -374,15 +374,14 @@ def test_rest_base_keeps_an_explicit_port():
     ids=["plain", "dot-segment", "encoded-dot-segment", "two-levels"],
 )
 def test_one_canonicalizer_serves_portal_advertised_and_fallback(prefix):
-    """fix(#1758): no input has a normalization path of its own.
+    """No input has a normalization path of its own.
 
     One hostile spelling, fed through all three roles a URL plays here: the
     portal a caller types, the fallback composed from that portal, and the
     token service a portal advertises. All three reach one scope, because all
-    three go through ``usable_service_url``. The portal used to reach the
-    fallback through a separate ``urlsplit``, which resolves no
-    percent-encoded dot segments, so ``/a/%2e%2e`` and ``/b/%2e%2e`` were two
-    scopes for one endpoint.
+    three go through ``usable_service_url``. A separate ``urlsplit`` would resolve no
+    percent-encoded dot segments, so ``/a/%2e%2e`` and ``/b/%2e%2e`` would be
+    two scopes for one endpoint.
     """
     expected = "gis.example.test:443/sharing/rest"
 
@@ -469,8 +468,8 @@ async def test_signin_returns_only_a_token_and_an_expiry(
 async def test_signin_follows_the_advertised_token_service(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf
 ):
-    # fix(#1758): a SUBDOMAIN of the portal. A sibling under the
-    # same organisation domain no longer qualifies, because that rule could
+    # A SUBDOMAIN of the portal. A sibling under the
+    # same organisation domain does not qualify, because that rule could
     # not be told apart from a public suffix without a suffix list.
     advertised = f"https://federated.{_host()}/arcgis/tokens/generateToken"
     exchange = _Exchange(
@@ -543,7 +542,7 @@ async def test_discovery_falls_back_when_the_portal_refuses_the_info_document(
 async def test_an_advertised_token_service_that_fails_ssrf_is_refused(
     client: AsyncClient, admin_auth_header: dict
 ):
-    # fix(#1758): a TRUSTED delegate, because an untrusted one is
+    # A TRUSTED delegate, because an untrusted one is
     # refused before it is ever resolved. The SSRF verdict only applies to a
     # candidate the sign-in would go on to contact.
     advertised = f"https://tokens.{_host()}/generateToken"
@@ -670,7 +669,7 @@ async def test_a_redirect_on_the_credential_post_is_never_followed(
     status_code,
     location,
 ):
-    """fix(#1758): httpx replays a form body on 307 and 308.
+    """httpx replays a form body on 307 and 308.
 
     The redirect target is chosen by the response, so following one resends
     the username and password to whatever it names, an http address or
@@ -703,7 +702,7 @@ async def test_a_redirect_on_the_credential_post_is_never_followed(
 async def test_a_redirect_the_ssrf_hook_refuses_still_spends_the_budget(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
 ):
-    """fix(#1758): the per-hop SSRF hook runs on every response.
+    """The per-hop SSRF hook runs on every response.
 
     A 3xx whose Location is private raises SSRFError out of the hook before
     the redirect branch can read the status, and the outer handler recorded
@@ -761,7 +760,7 @@ async def test_a_redirect_the_ssrf_hook_refuses_still_spends_the_budget(
 async def test_a_discovery_redirect_is_never_followed(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, location
 ):
-    """fix(#1758): the discovery document decides where the password
+    """The discovery document decides where the password
     goes, so a redirect on it is a way to rewrite that decision.
 
     An https-to-http hop hands the document to anyone on the path, and the
@@ -793,7 +792,7 @@ async def test_a_discovery_redirect_is_never_followed(
 async def test_a_token_service_on_an_unrelated_host_is_not_followed(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
 ):
-    """fix(#1758): tokenServicesUrl was followed to any host that
+    """tokenServicesUrl was followed to any host that
     passed https and SSRF, which made the discovery document a way to redirect
     a credential to an attacker's own server."""
     exchange = _Exchange(
@@ -828,7 +827,7 @@ async def test_a_token_service_on_an_unrelated_host_is_not_followed(
         # A subdomain of the portal is the only other delegation left.
         ("gis.example.test", "tokens.gis.example.test", True),
         ("gis.example.test", "gis.example.test", True),
-        # fix(#1758): siblings are gone, and this is why. "Host
+        # Siblings do not qualify, and this is why. "Host
         # minus its leftmost label" is the organisation domain only when the
         # portal sits exactly one label above its public suffix; for
         # agency.co.uk it is co.uk, and attacker.co.uk read as a sibling.
@@ -854,7 +853,7 @@ def test_the_delegate_bound_matches_the_federations_that_exist(
 async def test_a_stalling_resolver_is_cut_by_the_deadline(
     client: AsyncClient, admin_auth_header: dict, monkeypatch, test_db_session
 ):
-    """fix(#1758): the SSRF validation resolves DNS, and the resolver
+    """The SSRF validation resolves DNS, and the resolver
     is outside every httpx phase timeout, so it has to sit inside the sign-in
     deadline rather than ahead of it. The caller holds a request transaction
     and the advisory-lock session for the whole call."""
@@ -881,11 +880,11 @@ async def test_a_stalling_resolver_is_cut_by_the_deadline(
     assert resp.status_code == 504
     assert resp.json()["detail"]["code"] == "network_error"
     assert exchange.requests == []
-    # fix(#1758): discovery has its own outcomes, because nothing was
+    # Discovery has its own outcomes, because nothing was
     # sent and an unreachable portal must not spend a real account's budget.
     rows = await _audit_rows(test_db_session, host="unknown")
     assert [row.details["result"] for row in rows] == ["discovery_timeout"]
-    # fix(#1758): and it is uncounted, so the ledger never moved.
+    # And it is uncounted, so the ledger never moved.
     assert (
         await test_db_session.scalar(
             select(func.count()).select_from(ArcGISSignInAttempt)
@@ -901,14 +900,14 @@ async def test_a_post_cancelled_by_the_deadline_spends_the_resolved_budget(
     test_db_session,
     monkeypatch,
 ):
-    """fix(#1758): a cut-short POST still spent an attempt.
+    """A cut-short POST still spent an attempt.
 
     Discovery resolves, the credential POST goes out, and a portal that drips
     slowly enough eats the rest of the deadline. `asyncio.timeout` converts
     that cancellation at the CONTEXT boundary rather than where it fired, so
     it unwinds past the mint's own handler and past the locks. Charged to the
-    synthetic `unknown` bucket, as it was, the resolved account's ledger
-    stayed empty and a caller could repeat credential POSTs against a real
+    synthetic `unknown` bucket, the resolved account's ledger would
+    stay empty and a caller could repeat credential POSTs against a real
     ArcGIS account forever without ever spending the cluster-global budget.
     """
     await _clear_unknown_host_rows(test_db_session)
@@ -977,9 +976,9 @@ async def test_the_deadline_does_not_cover_the_durable_bookkeeping(
     test_db_session,
     monkeypatch,
 ):
-    """fix(#1758): the ledger insert and the commit are not cancellable.
+    """The ledger insert and the commit are not cancellable.
 
-    A single scope around both phases also covered the caller's bookkeeping
+    A single cancellation scope around both phases would also cover the caller's bookkeeping
     between them. A cancellation landing in the flush, the sweep or the commit
     leaves the request session in a failed transaction, the refusal path then
     runs on an unusable session and 500s, and the row saying a credential POST
@@ -1028,7 +1027,7 @@ async def test_a_refusal_rolls_back_a_failed_session_and_still_records(
     test_db_session,
     monkeypatch,
 ):
-    """fix(#1758): a broken session must not swallow the outcome.
+    """A broken session must not swallow the outcome.
 
     Whatever leaves the request transaction failed, the refusal still has to
     land: the row is what says a credential POST went out, and without it the
@@ -1084,7 +1083,7 @@ async def test_a_refusal_rolls_back_a_failed_session_and_still_records(
     ids=["ports", "web-adaptors"],
 )
 def test_one_hostname_can_carry_two_account_stores(first, second, why):
-    """fix(#1758): keyed on the host alone, three attempts against
+    """Keyed on the host alone, three attempts against
     one Enterprise portal exhausted and serialized its neighbour."""
     assert arcgis_signin.canonical_token_service_scope(
         f"{first}/sharing/rest/generateToken"
@@ -1138,10 +1137,10 @@ async def test_dot_segments_do_not_buy_a_fresh_budget(
     test_db_session,
     advertised_path,
 ):
-    """fix(#1758): urlsplit kept `/a/../`, httpx removed it.
+    """urlsplit keeps `/a/../`, httpx removes it.
 
-    So the scope was derived from a spelling the request never used, and a
-    caller controlling the portal could rotate `/a/../`, `/b/../`, ... to
+    A scope derived from a spelling the request never uses would let a
+    caller controlling the portal rotate `/a/../`, `/b/../`, ... to
     collect a fresh account key, lock and ledger bucket per spelling while
     every POST landed on one ArcGIS account. All three spellings must be one
     scope, and the POST must go where the scope says.
@@ -1264,11 +1263,11 @@ def test_a_url_that_cannot_be_pinned_down_is_refused(raw):
 async def test_a_compressed_body_is_refused_without_decoding(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, encoding
 ):
-    """fix(#1758): a decompression bomb never reaches a decoder.
+    """A decompression bomb never reaches a decoder.
 
     `aiter_bytes()` decodes each transport chunk BEFORE yielding it, so a few
     kilobytes of gzip becomes hundreds of megabytes inside the decoder before
-    any cap on the output can look at it. Both requests now ask for
+    any cap on the output can look at it. Both requests ask for
     `identity`, and a portal that answers with a content-encoding anyway is
     refused unread.
 
@@ -1302,7 +1301,7 @@ async def test_an_oversized_body_stops_at_the_cap(
 ):
     """The cap bounds RAW transport bytes, and the read stops at it.
 
-    fix(#1758): counted in chunks the double actually handed over,
+    Counted in chunks the double actually handed over,
     which is the only way to show the body was not drained. One chunk past
     the cap is inherent to append-then-check; a hundred would mean the cap
     was decorative.
@@ -1327,13 +1326,13 @@ async def test_an_oversized_body_stops_at_the_cap(
 async def test_an_untrusted_delegate_that_cannot_resolve_still_falls_back(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#1758): the delegate check runs before the resolver.
+    """The delegate check runs before the resolver.
 
     An untrusted sibling that is private, split-horizon or simply
-    unresolvable used to turn a configuration that would fall back cleanly
-    into `ssrf_refused` or a discovery network error, because
-    `validate_url_for_ssrf` resolved a candidate this instance was never
-    going to contact. Only the fallback is resolved here, and it signs in.
+    unresolvable must not turn a configuration that would fall back cleanly
+    into `ssrf_refused` or a discovery network error:
+    `validate_url_for_ssrf` must not resolve a candidate this instance is
+    never going to contact. Only the fallback is resolved here, and it signs in.
     """
     unrelated = "tokens.unrelated-example.test"
 
@@ -1371,14 +1370,14 @@ async def test_an_untrusted_delegate_that_cannot_resolve_still_falls_back(
 async def test_port_zero_is_refused_before_any_budget_is_spent(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#1758): port zero must not spend the real port's budget.
+    """Port zero must not spend the real port's budget.
 
     Nothing can be reached on port zero, so a sign-in aimed at it fails
-    without ArcGIS ever hearing about it. But zero is FALSEY, and the scope
-    derivation read that as "no port given", so those failures were filed
+    without ArcGIS ever hearing about it. But zero is FALSEY, and a scope
+    derivation that read that as "no port given" would file those failures
     under the victim's real :443 bucket: three of them against a known
-    username spent that account's cluster-global budget and returned 429 to
-    legitimate sign-ins in every tenant.
+    username would spend that account's cluster-global budget and return 429
+    to legitimate sign-ins in every tenant.
 
     No `allow_ssrf` here on purpose: the refusal has to land before anything
     resolves, let alone connects.
@@ -1456,12 +1455,12 @@ def test_port_zero_never_aliases_the_scheme_default():
 async def test_a_discovery_redirect_the_ssrf_hook_rejects_falls_back(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
 ):
-    """fix(#1758): a rejected discovery hop is a fallback, not a refusal.
+    """A rejected discovery hop is a fallback, not a refusal.
 
     `make_safe_client`'s `_revalidate_redirect` hook runs on EVERY response,
     whether or not redirects are followed, so a 3xx on `/info` whose Location
     is private raises `SSRFError` out of the request before the status can be
-    read. Caught only as `httpx.HTTPError`, that escaped as `ssrf_refused`
+    read. Caught only as `httpx.HTTPError`, that would escape as `ssrf_refused`
     for a portal that is merely misconfigured, when discovery had simply
     turned up nothing usable.
 
@@ -1515,13 +1514,13 @@ def _nested_dot_segment(depth: int) -> str:
 
 @pytest.mark.parametrize("depth", [1, 2, 3, 4, 10, 20])
 def test_nested_encodings_normalize_to_one_scope(depth):
-    """fix(#1758): decode to a fixed point, not for four passes.
+    """Decode to a fixed point, not for four passes.
 
-    Each pass peels one layer, so a path encoded ten deep still held `%2e%2e`
-    when the old ceiling ran out. That passed every check and went on the wire
-    as `%252e%252e`, which a reverse proxy and the ArcGIS application then
-    decoded back into `..` between them, so `/a/` and `/b/` variants reached
-    one endpoint under two scopes and two budgets.
+    Each pass peels one layer, so a path encoded ten deep still holds `%2e%2e`
+    after any fixed number of passes. That would pass every check and go on
+    the wire as `%252e%252e`, which a reverse proxy and the ArcGIS application
+    would decode back into `..` between them, so `/a/` and `/b/` variants
+    would reach one endpoint under two scopes and two budgets.
     """
     segment = _nested_dot_segment(depth)
     scopes = {
@@ -1681,7 +1680,7 @@ async def test_an_org_that_disables_builtin_signin_maps_to_the_sso_code(
 async def test_a_cleartext_portal_is_refused_before_anything_is_sent(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """fix(#1758): a password must never go out over http.
+    """A password must never go out over http.
 
     Refused before the SSRF check as well as before the POST, so a cleartext
     portal URL does not even cost a DNS lookup. No `allow_ssrf` here on
@@ -1849,14 +1848,14 @@ async def test_a_sign_in_page_instead_of_an_answer_is_a_network_error(
 async def test_a_json_depth_bomb_is_an_unreadable_answer_not_a_crash(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
 ):
-    """fix(#1858).
+    """A deeply nested document is refused, not crashed on.
 
     The byte cap does not bound nesting depth. A balanced nesting costs two
     bytes a level, so the deepest document that fits inside
     `_MAX_RESPONSE_BYTES` is ~131,000 levels, and the decoder overflows its
     stack well before that. `RecursionError` is a `RuntimeError` rather than a
-    `ValueError`, so the parse's own except clause did not catch it, and the
-    attempt was recorded as `unreachable` -- a fact about the network -- for a
+    `ValueError`, so the parse's own except clause would not catch it, and the
+    attempt would be recorded as `unreachable` -- a fact about the network -- for a
     portal that answered perfectly well with a document this module cannot
     read.
     """
@@ -2042,7 +2041,7 @@ async def test_the_advisory_lock_is_held_by_one_caller_at_a_time(
 ):
     """The lock itself, against the real database rather than a stand-in.
 
-    fix(#1758): a process-local set was worth nothing on a two-worker
+    A process-local set was worth nothing on a two-worker
     install, so the guard is a PostgreSQL advisory lock. A second session
     asking for the same key must be refused while the first holds it, and one
     account must not lock another.
@@ -2082,7 +2081,7 @@ async def test_the_advisory_lock_is_held_by_one_caller_at_a_time(
                     other, f"user:{uuid.uuid4()}:host:{_scope()}", other_account
                 )
 
-    # fix(#1758): the holder's TRANSACTION is what held them, so
+    # The holder's TRANSACTION is what held them, so
     # both are free once its session is closed and rolled back.
     async with async_session() as after:
         assert await _try(after, user_scope, account_scope)
@@ -2091,34 +2090,32 @@ async def test_the_advisory_lock_is_held_by_one_caller_at_a_time(
 async def test_a_signin_holds_exactly_one_pooled_connection(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf
 ):
-    """fix(#1758): one connection per sign-in, counted at the pool.
+    """One connection per sign-in, counted at the pool.
 
-    A dedicated lock session cost a second connection, and it was checked out
+    A dedicated lock session would cost a second connection, checked out
     FIRST: thirteen concurrent sign-ins for distinct scopes could each hold a
     lock connection and then queue for a request connection the other twelve
     were holding, stalling unrelated traffic until the 30-second pool timeout.
-    Both locks now ride the request's own transaction, so the count is one.
+    Both locks ride the request's own transaction, so the count is one.
 
     Counted at the pool rather than at the session factory, because the
     factory is not what the pool runs out of.
 
-    fix(#1758): counted as PEAK CONCURRENT connections, not as cumulative
-    checkout events. The first version summed `checkout` and asserted 1, which
-    conflated "how many connections did this request hold at once" with "how
-    many times did it acquire one". Those differ whenever a connection is
+    Counted as PEAK CONCURRENT connections, not as cumulative
+    checkout events, which would conflate "how many connections did this
+    request hold at once" with "how many times did it acquire one". Those
+    differ whenever a connection is
     released and re-acquired in sequence, which is legitimate and does happen
     here: `_signin_audit` commits, its rollback-and-retry path on a poisoned
     transaction acquires again, and the harness has contention retries of its
     own in `_RetryingAsyncEngine` and `_acquire_test_session_with_retry`. A
     single session that commits and then runs one more statement already
-    scores 2 cumulative while never holding more than one. That made the
-    assertion red on a loaded runner with nothing wrong, first seen in
-    merge-queue run 33648625488 on an unrelated frontend-only PR.
+    scores 2 cumulative while never holding more than one, which would make the
+    assertion red on a loaded runner with nothing wrong.
 
-    Peak concurrency is the property the paragraph above actually names, and
-    it is what a second lock session would break: that session held its
-    connection WHILE the request held its own. Sequential re-acquisition
-    cannot reach 2, so this is a sharper assertion rather than a weaker one.
+    Peak concurrency is the property the paragraph above names, and it is
+    what a second lock session would break: that session held its connection
+    WHILE the request held its own. Sequential re-acquisition cannot reach 2.
     """
     from sqlalchemy import event
 
@@ -2164,17 +2161,17 @@ async def test_a_signin_holds_exactly_one_pooled_connection(
 async def test_concurrent_signins_hold_no_pooled_connection_across_the_mint(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf
 ):
-    """fix(#1775): the acceptance criterion. No connection is held across the mint.
+    """The acceptance criterion. No connection is held across the mint.
 
     The test above pins ONE sign-in at a peak of one connection. This one pins
     the other half: how many of those connections are held AT ONCE, while the
-    credential POSTs are in flight. Before reserve-then-settle the request
-    transaction was open from `require_permission` through discovery, both
-    advisory locks and the mint, for up to the 45-second network budget, so
-    N concurrent sign-ins for distinct scopes held N connections for the whole
-    of it and 13 of them could take a 10+3 production pool and time out
-    unrelated API requests. That is what the removed `asyncio.Semaphore(4)`
-    bounded rather than fixed.
+    credential POSTs are in flight. Holding the request
+    transaction open from `require_permission` through discovery, both
+    advisory locks and the mint would last up to the 45-second network budget,
+    so N concurrent sign-ins for distinct scopes would hold N connections for
+    the whole of it and 13 of them could take a 10+3 production pool and time
+    out unrelated API requests. An `asyncio.Semaphore(4)` would bound that
+    rather than fix it.
 
     Five sign-ins, each against its own portal so each resolves its own token
     service and no two contend on a lock or a budget. Every mint blocks on one
@@ -2182,7 +2179,7 @@ async def test_concurrent_signins_hold_no_pooled_connection_across_the_mint(
     POOL, not at the session factory, because the pool is what production runs
     out of, and by checkout-minus-checkin so a connection released and
     re-acquired in sequence — which reserve-then-settle does exactly once, on
-    purpose — reads as one at a time rather than as two (see #1786).
+    purpose — reads as one at a time rather than as two.
     """
     from sqlalchemy import event
 
@@ -2270,19 +2267,19 @@ async def test_concurrent_signins_hold_no_pooled_connection_across_the_mint(
 async def test_a_signin_cancelled_mid_mint_is_already_counted(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
 ):
-    """fix(#1775): the second defect. A cancelled POST must not be a free attempt.
+    """A cancelled POST must not be a free attempt.
 
     `CancelledError` is not an `Exception`, so it passes straight through
     `PortalSignIn.mint`'s handler and the route's `except ArcGISSignInError`.
-    Under write-at-settle that lost both the audit row and the ledger row for
-    a password that had already gone to ArcGIS, and Esri counts what GeoLens
-    then did not: cancellation plus retry could walk an account past the five
-    failures that lock it. The attempt is now committed BEFORE the POST, so
+    Under write-at-settle that would lose both the audit row and the ledger row
+    for a password that had already gone to ArcGIS, and Esri counts what
+    GeoLens then did not: cancellation plus retry could walk an account past
+    the five failures that lock it. The attempt is committed BEFORE the POST, so
     the count survives the cancellation whatever else does.
 
     Cancelled from outside, which is what uvicorn does to an in-flight handler
-    on shutdown, rather than by a deadline — the deadlines were already fixed
-    in #1758 and are not what this covers.
+    on shutdown, rather than by a deadline — deadlines are a separate path and
+    not what this covers.
     """
     entered_mint = asyncio.Event()
     never = asyncio.Event()
@@ -2357,7 +2354,7 @@ async def test_a_settle_that_outruns_the_drain_still_leaves_cancellederror(
     monkeypatch,
     caplog,
 ):
-    """fix(#1775 audit): the drain deadline path, which nothing else reaches.
+    """The drain deadline path, which nothing else reaches.
 
     The test above covers the fast path, where the shielded write finishes and
     the loop ends on its own. This one covers the other exit: the write is
@@ -2368,10 +2365,10 @@ async def test_a_settle_that_outruns_the_drain_still_leaves_cancellederror(
     `Task.cancel()` only REQUESTS cancellation: the task is still pending on
     the very next line, so `done()` is False, `cancelled()` is False, and
     `Future.exception()` raises `InvalidStateError`. Reading the outcome
-    without checking pending FIRST therefore threw out of the finaliser, and
+    without checking pending FIRST therefore throws out of the finaliser, and
     since the route awaits it inside `except asyncio.CancelledError:` before
-    a bare `raise`, the handler propagated `InvalidStateError` instead of the
-    cancellation it was re-raising — on the one path the ceiling exists for.
+    a bare `raise`, the handler would propagate `InvalidStateError` instead of
+    the cancellation it is re-raising — on the one path the ceiling exists for.
     So: the caller still sees a cancellation, and the warning that says the
     row was lost is actually logged.
 
@@ -2437,9 +2434,9 @@ async def test_a_settle_that_outruns_the_drain_still_leaves_cancellederror(
 
 
 def test_the_settle_outcome_reader_treats_pending_as_cancelled():
-    """fix(#1775 audit): the unit-level pin, with no event loop in the way.
+    """The unit-level pin, with no event loop in the way.
 
-    `_settle_failure` is the whole of the P1 fix, and the state it has to get
+    `_settle_failure` is where this is decided, and the state it has to get
     right is one that lasts a single event-loop turn, so pinning it directly
     is what keeps a later simplification from reintroducing the crash.
     """
@@ -2515,9 +2512,9 @@ async def test_one_cancellation_and_a_stalled_write_still_end_within_the_budget(
 async def test_both_advisory_locks_are_released_when_the_body_raises(
     client: AsyncClient,
 ):
-    """fix(#1758): one transaction holds both, so both come back together.
+    """One transaction holds both, so both come back together.
 
-    fix(#1758): and that transaction is the request's, so the
+    And that transaction is the request's, so the
     release point is the commit or rollback that ends it rather than the exit
     of a context manager. Pinned in both directions here: still held while the
     transaction is open, both free once it is not.
@@ -2554,7 +2551,7 @@ async def test_both_advisory_locks_are_released_when_the_body_raises(
 async def test_the_account_lock_scope_is_the_account_and_not_the_geolens_caller(
     client: AsyncClient, admin_auth_header: dict, editor_auth_header: dict, allow_ssrf
 ):
-    """fix(#1758): keyed by GeoLens user, two colleagues could run
+    """Keyed by GeoLens user, two colleagues could run
     concurrent mints against one ArcGIS account and each read the counter
     before the other had written a row. The account scope both callers hand
     the lock must therefore be identical, while the user-portal scope in front
@@ -2576,7 +2573,7 @@ async def test_the_account_lock_scope_is_the_account_and_not_the_geolens_caller(
     assert len(seen) == 2
     user_scopes = [pair[0] for pair in seen]
     account_scopes = [pair[1] for pair in seen]
-    # fix(#1758): the ORDER is the deadlock argument, and it is the
+    # The ORDER is the deadlock argument, and it is the
     # ARGUMENT order, so pin which scope is which.
     assert all(scope.startswith("user:") for scope in user_scopes)
     assert all(scope.startswith("account:") for scope in account_scopes)
@@ -2593,13 +2590,13 @@ async def test_the_account_lock_scope_is_the_account_and_not_the_geolens_caller(
 async def test_two_spellings_of_one_portal_share_one_budget(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
 ):
-    """fix(#1758): one destination, one budget, however it is spelled.
+    """One destination, one budget, however it is spelled.
 
     httpx sends the Unicode and the punycode form to the same place, and the
-    trailing root dot and the capitals change nothing either. Before
-    canonicalization each spelling took its own lock and its own ledger
-    bucket, so a caller had three attempts per spelling instead of three per
-    portal.
+    trailing root dot and the capitals change nothing either. Without
+    canonicalization each spelling would take its own lock and its own ledger
+    bucket, so a caller would get three attempts per spelling instead of three
+    per portal.
     """
     exchange = _Exchange(
         {
@@ -2653,7 +2650,7 @@ async def test_two_spellings_of_one_portal_share_one_budget(
 async def test_the_budget_follows_the_token_service_not_the_typed_address(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
 ):
-    """fix(#1758): the budget belongs to the destination.
+    """The budget belongs to the destination.
 
     `authInfo.tokenServicesUrl` may name a host other than the portal, so the
     scope has to be the address that will actually receive the password
@@ -2661,11 +2658,11 @@ async def test_the_budget_follows_the_token_service_not_the_typed_address(
     delegating to one token service, must spend one budget under the TOKEN
     SERVICE's scope, with nothing at all booked against the portal's own.
 
-    fix(#1758): the four are spellings of one host rather than four
-    separate hostnames, because a delegate must now be a subdomain of the
+    The four are spellings of one host rather than four
+    separate hostnames, because a delegate must be a subdomain of the
     portal and no one delegate can be a subdomain of four different hosts.
     Four unrelated portals pointing at one victim's token service is exactly
-    what the delegate bound now refuses outright, and
+    what the delegate bound refuses outright, and
     `test_a_token_service_on_an_unrelated_host_is_not_followed` covers that.
     """
     token_service_host = f"tokens.{_host()}"
@@ -2726,15 +2723,12 @@ async def test_a_discovery_failure_takes_no_lock_and_writes_no_ledger_row(
     ledger is proven untouched by counting its rows either side of the
     refusal.
 
-    fix(#1758): watches `_signin_locks` rather than counting calls to
-    `app.core.db.async_session`. That proxy dated from before the locks moved
-    onto the request session, by which point it no longer observed locking at
-    all: it counted every call to a PROCESS-GLOBAL factory, so anything else
-    in the worker that opened a session during the request was counted as a
+    Watches `_signin_locks` rather than counting calls to
+    `app.core.db.async_session`, a PROCESS-GLOBAL factory: anything else in
+    the worker that opens a session during the request would be counted as a
     lock this sign-in took. `get_db` itself calls that factory, as do the
-    ingest and embedding task paths. That made the assertion red on a loaded
-    runner with nothing wrong, in merge-queue runs 33649640369 and
-    33649761185 on two frontend-only PRs.
+    ingest and embedding task paths. That would make the assertion red on a
+    loaded runner with nothing wrong.
 
     Watching the helper the handler actually calls is both narrower and
     truer to the sentence being asserted, and it cannot be reached by
@@ -2950,7 +2944,7 @@ async def test_a_signin_while_one_is_in_flight_is_refused_before_the_portal(
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "arcgis_signin_in_progress"
-    # fix(#1758): discovery runs before the lock, so its
+    # Discovery runs before the lock, so its
     # credential-free GET has happened; the credential POST has not.
     assert exchange.posts == []
 
@@ -2963,8 +2957,8 @@ async def test_the_shared_counter_refuses_the_fourth_attempt_in_the_window(
 ):
     """The cross-worker limit, with the per-process limiter left disabled.
 
-    fix(#1758): the SlowAPI counters are per uvicorn worker and a
-    stock install runs two, so three attempts were really six. This drives the
+    The SlowAPI counters are per uvicorn worker and a
+    stock install runs two, so three attempts are really six. This drives the
     endpoint with the in-memory limiter off, exactly as a fourth request
     arriving at the OTHER worker would, and the refusal can only come from the
     audit-row count.
@@ -2998,11 +2992,11 @@ async def test_the_shared_counter_refuses_the_fourth_attempt_in_the_window(
 async def test_one_caller_serializes_across_accounts_on_one_portal(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
 ):
-    """fix(#1758): the per-user budget was racy across accounts.
+    """The per-user budget must hold across accounts.
 
-    Signing in to different usernames on one portal took different ACCOUNT
-    locks, so concurrent attempts all read the same pre-attempt count and all
-    passed a limit of three. A second lock keyed on (caller, portal) now sits
+    Signing in to different usernames on one portal takes different ACCOUNT
+    locks, so concurrent attempts would all read the same pre-attempt count and
+    all pass a limit of three. A second lock keyed on (caller, portal) sits
     in front of the account lock, so one caller's attempts against one portal
     serialize however many accounts they name.
 
@@ -3063,7 +3057,7 @@ async def test_two_geolens_users_share_one_budget_for_one_arcgis_account(
     allow_ssrf,
     test_db_session,
 ):
-    """fix(#1758): the lockout belongs to the ArcGIS account.
+    """The lockout belongs to the ArcGIS account.
 
     Esri locks after five failed sign-ins in fifteen minutes and counts them
     per account, so a budget scoped to the GeoLens caller lets two colleagues
@@ -3259,7 +3253,7 @@ async def test_a_successful_signin_leaks_nothing_into_logs_or_the_audit_row(
     rows = await _audit_rows(test_db_session)
     assert len(rows) == 1
     recorded = json.dumps(rows[0].details)
-    # fix(#1825): `attempt_id` joins the closed set. It is the ledger row's
+    # `attempt_id` joins the closed set. It is the ledger row's
     # random id, which stands for the attempt and for nothing else.
     assert rows[0].details == {
         "token_service_host": _scope(),
@@ -3431,7 +3425,7 @@ async def test_a_cancellation_during_the_success_settle_still_records_it(
     test_db_session,
     monkeypatch,
 ):
-    """fix(#1825): a shutdown landing in the success settle keeps its row."""
+    """A shutdown landing in the success settle keeps its row."""
     await _cancel_during_settle(
         client,
         admin_auth_header,
@@ -3464,7 +3458,7 @@ async def test_a_cancellation_during_the_refusal_settle_still_records_it(
     test_db_session,
     monkeypatch,
 ):
-    """fix(#1825): the same window on the refusal side of the mint."""
+    """The same window on the refusal side of the mint."""
     await _cancel_during_settle(
         client,
         admin_auth_header,
@@ -3499,7 +3493,7 @@ async def test_the_finaliser_does_not_wait_on_the_request_connection(
     test_db_session,
     monkeypatch,
 ):
-    """fix(#1825): the request session is released before the write.
+    """The request session is released before the write.
 
     FastAPI's teardown does not run until the route re-raises, so the settle
     write would queue behind the request's own connection. On a pool with no
@@ -3601,7 +3595,7 @@ async def test_a_commit_that_landed_before_the_cancellation_is_not_written_twice
     monkeypatch,
     result: str,
 ):
-    """fix(#1825): an interrupted commit is ambiguous, not failed.
+    """An interrupted commit is ambiguous, not failed.
 
     PostgreSQL can apply the commit while the client sees `CancelledError`, so
     the finaliser's write is arbitrated on this reservation and does nothing.
@@ -3639,7 +3633,7 @@ async def test_a_flush_cancelled_before_its_commit_is_written_once(
     monkeypatch,
     result: str,
 ):
-    """fix(#1825): the other side of the ambiguous commit.
+    """The other side of the ambiguous commit.
 
     Here the INSERT is on the wire inside its savepoint and the transaction is
     still open, so teardown rolls it back and the finaliser must write the row.
@@ -3674,7 +3668,7 @@ async def test_a_commit_landing_during_the_finaliser_leaves_one_row(
     monkeypatch,
     result: str,
 ):
-    """fix(#1889): one row when the interrupted commit lands during the finaliser.
+    """One row when the interrupted commit lands during the finaliser.
 
     The request's row is staged on a connection of its own and committed the
     moment the finaliser's INSERT goes on the wire: visible after any read the
@@ -3765,7 +3759,7 @@ async def test_every_other_sink_hears_a_recovered_outcome_exactly_once(
     monkeypatch,
     landed: bool,
 ):
-    """fix(#1889): a registered sink beyond ``audit_logs`` sees the outcome once.
+    """A registered sink beyond ``audit_logs`` sees the outcome once.
 
     Landed: the request committed through every sink, so the finaliser must
     not forward. Unlanded: the cancel arrived after the ``audit_logs`` sink

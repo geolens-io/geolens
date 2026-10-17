@@ -1,4 +1,4 @@
-"""fix(#836): unit tests for the centralized allowed_email_domains HTTP gate.
+"""Unit tests for the centralized allowed_email_domains HTTP gate.
 
 The fetch-check-break-glass-403 block was pasted at four HTTP endpoints
 (login, refresh, register, admin-create); enforce_email_domain_gate is that

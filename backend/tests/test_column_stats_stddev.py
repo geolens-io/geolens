@@ -128,7 +128,7 @@ async def test_get_column_stats_nonexistent_column_raises_value_error(
 
 
 # ---------------------------------------------------------------------------
-# fix(#315): HTTP-layer coverage for /datasets/{id}/columns/{col}/stats/
+# HTTP-layer coverage for /datasets/{id}/columns/{col}/stats/
 # The tests above exercise the domain function directly; these drive the
 # endpoint so the ValueError->400 mapping and ColumnStatsResponse shape are
 # also covered.

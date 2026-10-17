@@ -574,12 +574,12 @@ class TestDbfTruncationCollision:
 
 
 # ---------------------------------------------------------------------------
-# fix(#640)  Socrata-style ':'-prefixed columns survive ingest + sampling
+# Socrata-style ':'-prefixed columns survive ingest + sampling
 # ---------------------------------------------------------------------------
 
 
 class TestSocrataColonColumns:
-    """fix(#640): Socrata exports carry columns literally named ':id',
+    """Socrata exports carry columns literally named ':id',
     ':created_at', ... — OGR's PG laundering keeps the colon, and a colon
     inside a quoted identifier is parsed as a bind param by SQLAlchemy
     text(), which broke sampling (and failed the whole ingest)."""

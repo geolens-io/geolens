@@ -1,8 +1,8 @@
-"""fix(#435): an unreachable Postgres must skip DB-backed tests only.
+"""An unreachable Postgres must skip DB-backed tests only.
 
-`_test_db_lifecycle` used to call `pytest.skip()` from session-scoped autouse
-setup, which skipped every collected item. `pytest -q tests/test_layering.py`
-then exited 0 having executed nothing, so the architecture gates could not fail.
+`_test_db_lifecycle` must not call `pytest.skip()` from session-scoped autouse
+setup: that skips every collected item, so `pytest -q tests/test_layering.py`
+would exit 0 having executed nothing and the architecture gates could not fail.
 """
 
 from types import SimpleNamespace

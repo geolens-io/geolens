@@ -1,11 +1,11 @@
-"""fix(#1778): the GLOBAL default rate limit must answer with the app envelope.
+"""The GLOBAL default rate limit must answer with the app envelope.
 
 The default limit is enforced by `GlobalRateLimitMiddleware`, before routing.
 Routes carrying an explicit `@limiter.limit` decorator are exempted from it and
 take the exception-handler path instead, so every test of the 429 contract that
 drives a decorated route passes regardless of this layer. This one drives an
-undecorated one. slowapi's own `SlowAPIMiddleware` used to sit here and
-silently swapped a coroutine exception handler for slowapi's bare
+undecorated one. slowapi's own `SlowAPIMiddleware` would silently
+swap a coroutine exception handler for slowapi's bare
 `{"error": ...}` body with no Retry-After.
 """
 

@@ -42,11 +42,7 @@ def test_community_rejects_embed_update_allowed_origins(community_edition):
 
 
 def test_community_rejects_share_expiration(community_edition):
-    """fix(#435): a custom expiration is an Enterprise control at the schema layer too.
-
-    This test previously asserted the opposite — that Community accepts the input —
-    which pinned the gap the router alone was papering over.
-    """
+    """A custom expiration is an Enterprise control at the schema layer too, not only in the router."""
     with pytest.raises(ValidationError) as exc_info:
         ShareTokenRequest(expires_at=_future_timestamp())
 
@@ -70,10 +66,10 @@ def test_enterprise_accepts_share_expiration(enterprise_edition):
     ids=["naive-string", "naive-datetime"],
 )
 def test_share_expiration_rejects_naive_timestamp(enterprise_edition, naive):
-    """fix(#435): a naive timestamp is a 422, not a `TypeError` 500.
+    """A naive timestamp is a 422, not a `TypeError` 500.
 
-    `expires_at: datetime` accepted naive input, then `v < datetime.now(timezone.utc)`
-    raised `TypeError: can't compare offset-naive and offset-aware datetimes`.
+    A naive `expires_at` must not reach `v < datetime.now(timezone.utc)`, which
+    raises `TypeError: can't compare offset-naive and offset-aware datetimes`.
     """
     with pytest.raises(ValidationError) as exc_info:
         ShareTokenRequest(expires_at=naive)
@@ -138,11 +134,11 @@ def test_share_expiration_must_be_future():
 
 
 async def test_service_rejects_community_share_expiration(community_edition):
-    """fix(#435): the guard repeats at the service entry points.
+    """The guard repeats at the service entry points.
 
     The schema only protects HTTP callers. An internal caller — bulk import, an
     overlay, a test helper — reaches `create_share_token` directly, and nothing
-    below the router stopped it persisting an Enterprise-only expiration.
+    below the router would stop it persisting an Enterprise-only expiration.
     """
     import uuid
 

@@ -13,7 +13,7 @@ a wrong or absent ``Referer``           no difference on any of the above
 ======================================  ==================================
 
 Hosted ArcGIS Online takes either name. ``X-Esri-Authorization`` is what is
-sent (fix(#1840)), because Esri documents that name precisely
+sent, because Esri documents that name precisely
 for the case AGOL cannot show: on ArcGIS Enterprise behind a Web Adaptor, or
 with web-tier authentication (IWA/PKI in IIS), the front end consumes the
 standard ``Authorization`` header and answers 401/403 before ArcGIS produces
@@ -234,7 +234,7 @@ class TestTheFormatSets:
             assert sends_credential_as_header(source_format) is True
 
     def test_a_format_nobody_taught_it_is_in_neither(self) -> None:
-        # feat(#1764): `stac` is no longer one of them; it sends a header and
+        # `stac` is not one of them; it sends a header and
         # is a header-LINE format, which test_stac_service_auth_1764 pins.
         for source_format in (None, "", "geojson", "geopackage"):
             assert sends_credential_as_header(source_format) is False
@@ -330,8 +330,8 @@ class TestEveryReadSendsTheHeaderAndNoQueryToken:
 
 
 class TestTheCountQueryHasOneProducer:
-    """fix(#1755 item 14): ``enrich_arcgis_feature_counts`` hand-rolled the
-    count query a third time. Folded into the builder, so the enrichment, the
+    """``enrich_arcgis_feature_counts`` builds its count query with the shared
+    builder, so the enrichment, the
     single-layer fetch and the health probe cannot drift into asking three
     slightly different questions."""
 
@@ -924,11 +924,11 @@ def test_the_depth_bomb_premise() -> None:
 
 
 class TestAJsonDepthBombIsACodedRefusalNotACrash:
-    """fix(#1858).
+    """A pathologically nested JSON body is a coded refusal.
 
-    ``_parsed_json`` in ``platform/service_endpoints.py`` was written for this
-    exact body in #1770; ``read_arcgis_json`` and its query-form
-    fallback never adopted it. A balanced nesting 300,000 deep costs two bytes
+    ``_parsed_json`` in ``platform/service_endpoints.py`` handles this exact
+    body; ``read_arcgis_json`` and its query-form
+    fallback must adopt it. A balanced nesting 300,000 deep costs two bytes
     a level, so the document is ~600 KB: under ``MAX_DOCUMENT_BYTES`` by two
     orders of magnitude, and under ``MAX_DOCUMENT_TOKENS`` because
     ``structural_tokens`` counts brackets rather than nesting depth and so

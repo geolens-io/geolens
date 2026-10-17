@@ -48,7 +48,7 @@ class TestDeferWithOrphanGuard:
     def test_success_path_does_not_invoke_rollback(self):
         """On a successful defer, rollback must not run.
 
-        fix(#1744): the guard now commits once on this path, stamping
+        The guard commits once on this path, stamping
         `commit_attempted_at` on the row before the task exists, so the count
         is one rather than none. Any commit beyond that is the rollback's, and
         the rollback did not run.
@@ -113,7 +113,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_defer_failed_cause_class_names_the_defer_call_exception(self):
-        """fix(#1755 item 10): the 503 body carries the CLASS of whatever made
+        """The 503 body carries the CLASS of whatever made
         the guard raise, coded and redacted -- never the exception's own
         message, which can carry a credential or provider-chosen text.
         """
@@ -156,7 +156,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_defer_failed_cause_class_names_the_dispatch_marker_exception(self):
-        """fix(#1755 item 10): a failure BEFORE the defer call -- the #1744
+        """A failure BEFORE the defer call -- the
         dispatch-attempted marker write -- gets a DIFFERENT `cause_class`
         than a `defer_call` failure, even though both produce the identical
         503 status and fixed message. This is what makes the two shapes
@@ -208,7 +208,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_each_stage_logs_its_cause_with_the_url_redacted(self):
-        """fix(#1755 item 10): FastAPI answers a `DeferFailed` without logging
+        """FastAPI answers a `DeferFailed` without logging
         it, so the guard logs the cause itself, under a `stage` that separates
         the marker write from the defer call, with any URL redacted first.
         """
@@ -257,7 +257,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_an_unreadable_job_id_does_not_preempt_the_settlement(self):
-        """fix(#1755 item 10): reading `job.id` off an already-expired instance
+        """Reading `job.id` off an already-expired instance
         raises, and `reset_session_for_settlement` is what recovers it. The log
         runs first, so it has to absorb that read rather than skip the rollback.
         """
@@ -299,7 +299,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_an_unrenderable_exception_does_not_preempt_the_settlement(self):
-        """fix(#1755 item 10): the dispatch log renders the exception, so an
+        """The dispatch log renders the exception, so an
         exception whose `__str__` raises must degrade to a placeholder. The
         readable field beside it keeps its real value.
         """
@@ -338,7 +338,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_a_rendered_task_kwarg_is_scrubbed_before_it_reaches_the_record(self):
-        """fix(#1755 item 10): `error` is a plain scalar field, and the log
+        """`error` is a plain scalar field, and the log
         processor scrubs free text only under `event` and `exception`. A defer
         error quoting Procrastinate's `call_string` must be scrubbed here.
         """
@@ -372,7 +372,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_the_rollback_failure_log_scrubs_the_same_text(self):
-        """fix(#1755 item 10): the rollback-failure log renders the same defer
+        """The rollback-failure log renders the same defer
         exception under its own scalar field, so it needs the same scrub.
         """
 
@@ -404,7 +404,7 @@ class TestDeferWithOrphanGuard:
         asyncio.run(_check())
 
     def test_the_wrapped_cause_reaches_the_record_scrubbed(self):
-        """fix(#1755 item 10): Procrastinate wraps a connector failure as
+        """Procrastinate wraps a connector failure as
         `ConnectorException("Database error.")`, so the top frame alone tells
         two outages apart from neither. The chain lands under `exception`.
         """
@@ -440,7 +440,7 @@ class TestDeferWithOrphanGuard:
         assert "PLACEHOLDERSECRET3" not in emitted
 
     def test_a_logger_that_raises_does_not_preempt_the_settlement(self):
-        """fix(#1755 item 10): a structlog processor can raise while emitting.
+        """A structlog processor can raise while emitting.
         The whole diagnostic is best-effort, so the rollback still runs and the
         caller still sees the 503.
         """

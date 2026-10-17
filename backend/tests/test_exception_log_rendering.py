@@ -1,19 +1,18 @@
-"""fix(#1485): production exception logging must never reach rich.
+"""Production exception logging must never reach rich.
 
 `structlog.dev.ConsoleRenderer` picks `RichTracebackFormatter(show_locals=True)`
 as its exception formatter whenever rich is importable, and rich is in the
 backend's transitive dependency set. Rendering a frame's locals costs time
 proportional to the `repr()` of each one, and rich's line splitting is
 quadratic in the length of a single long line — so an exception raised with
-SQLAlchemy objects in scope spent minutes of synchronous CPU inside the
+SQLAlchemy objects in scope would spend minutes of synchronous CPU inside the
 logging call. That call happens on the event loop in the request path, and
-the production compose default is one uvicorn worker, so the whole API was
+the production compose default is one uvicorn worker, so the whole API would be
 unavailable for the duration.
 
-These tests pin both halves of the fix: the production configuration cannot
+These tests pin both halves: the production configuration cannot
 route an exception through rich, and what it emits for an exception does not
-depend on the size of any local variable. Measured on the middleware case
-below, the same request went from 83,062 bytes of log output to 3,675.
+depend on the size of any local variable.
 
 Nothing here asserts on elapsed time. The property under test is that the
 work is not proportional to local size, which the emitted record shows

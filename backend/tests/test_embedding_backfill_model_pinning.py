@@ -121,15 +121,14 @@ class _SwitchingProvider(_RecordingProvider):
     generating, after the snapshot has captured its own values and before the
     service would re-read them.
 
-    The flip hangs on `embed` rather than on `resolve_runtime_config`, which is
-    where it used to sit. fix(#1525) made `_snapshot_embedding_config` resolve
-    the endpoint through `resolve_runtime_config`, so a flip there now lands
-    INSIDE the capture window and the snapshot's comparison aborts the run.
-    That is a real behaviour and it has its own coverage
-    (`test_an_edit_inside_the_snapshot_window_aborts_the_run`), but it is not
-    the scenario this file is about. `embed` is the first await after the
-    snapshot completes on both paths, and it is where a run actually spends its
-    time, so it is the more faithful place for an admin edit to land.
+    The flip hangs on `embed` rather than on `resolve_runtime_config`:
+    `_snapshot_embedding_config` resolves the endpoint through `resolve_runtime_config`,
+    so a flip there lands INSIDE the capture window and the snapshot's comparison aborts
+    the run. That is a real behaviour and it has its own coverage
+    (`test_an_edit_inside_the_snapshot_window_aborts_the_run`), but it is not the
+    scenario this file is about. `embed` is the first await after the snapshot completes
+    on both paths, and it is where a run actually spends its time, so it is the more
+    faithful place for an admin edit to land.
     """
 
     def __init__(self):
@@ -218,12 +217,11 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     # test_embedding_backfill_base_url_pinning.py, which asserts it directly.
     monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 10_000)
 
-    # fix(#1525, codex P2): the swap lands during this batch's own
+    # The swap lands during this batch's own
     # provider call, and the drift check that runs before the batch is ACCEPTED
-    # now catches it, so the batch is discarded rather than committed. The
-    # label can no longer be wrong because no label is written — a stronger
-    # guarantee than the one this test was built to check, and it changes what
-    # is observable here: there is no stored row left to compare against.
+    # catches it, so the batch is discarded rather than committed. The label
+    # cannot be wrong because no label is written, which changes what is
+    # observable here: there is no stored row left to compare against.
     #
     # So this test no longer covers the pin ITSELF either. That is asserted in
     # test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_config,
@@ -248,21 +246,16 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     assert {call["model"] for call in provider.calls} == {_MODEL_A}
     assert {call["dimensions"] for call in provider.calls} == {_DIMS_A}
 
-    # And nothing was stored — on EITHER path, which is what changed.
+    # And nothing was stored — on EITHER path.
     #
-    # This assertion used to read `0 if force else before`, because the force
-    # path committed its DELETE before the run could know it would finish, and
-    # an empty table was the deliberate #1549 trade: loud beats populated with
-    # vectors the active search will silently fail to match. fix(#1549): the
-    # delete now happens per batch, inside the transaction that writes the
-    # replacements, and this run stops at the first batch boundary — so it
-    # writes nothing AND destroys nothing, and the trade is gone rather than
-    # taken.
+    # The force path's delete happens per batch, inside the transaction that
+    # writes the replacements, and this run stops at the first batch
+    # boundary — so it writes nothing AND destroys nothing.
     #
-    # Worth noting how the old form hid this: with an empty table `before` is
-    # 0, so `0 if force else before` and `before` agree, and the test passes
-    # either way when run on its own. It only tells the two apart once
-    # something else in the suite has left rows behind.
+    # With an empty table `before` is 0, so `0 if force else before` and
+    # `before` would agree, and a test written that way passes either way when
+    # run on its own. It only tells the two apart once something else in the
+    # suite has left rows behind.
     remaining = (
         await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
     ).scalar_one()
@@ -364,11 +357,11 @@ async def test_a_switch_between_the_model_and_dims_reads_aborts_the_run(
     before = await _embedding_count(test_db_session)
     assert before > 0
 
-    # fix(#1525): hung on the UNCACHED read, which is the one the
+    # Hung on the UNCACHED read, which is the one the
     # snapshot makes.
     #
-    # fix(#1546): the CACHED read is no longer a stand-in for it. The non-force
-    # selection now reads the dimensions through `get` on its way to
+    # The CACHED read is not a stand-in for it. The non-force
+    # selection reads the dimensions through `get` on its way to
     # fingerprinting the live configuration, so a flip hung there fires BEFORE
     # the snapshot starts, which leaves the snapshot reading a settled pair and
     # this test asserting nothing. `get_uncached` is reached only from inside
@@ -488,11 +481,11 @@ async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors
 ):
     """Generating is only half the promise: the vector has to fit the column.
 
-    fix(#1511, codex P1): the width a model produces and the width
+    The width a model produces and the width
     the column declares are written by different code at different times, so
-    they can disagree. What found it was a settings write that persisted a
-    newly detected width without rebuilding the column, leaving storage at the
-    old one (that path is the subject of #1529).
+    they can disagree. A settings write that persisted a
+    newly detected width without rebuilding the column would leave storage at
+    the old one.
 
     The scenario below is built from the mismatch itself rather than from that
     route: a model whose vectors are the wrong width for the live column. It
@@ -573,10 +566,10 @@ async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors
 async def test_force_on_an_empty_catalog_does_not_need_a_working_provider():
     """Nothing at risk means nothing to guard.
 
-    fix(#1511, codex P2): the force guards exist to protect rows from
+    The force guards exist to protect rows from
     the DELETE, and that DELETE is bounded by the record foreign key. A tenant
     with no visible records cannot lose one, so demanding a working provider
-    just to discover that turned a harmless no-op into a 502 on a fresh
+    just to discover that would turn a harmless no-op into a 502 on a fresh
     install.
 
     Driven through a mock session — the same shape

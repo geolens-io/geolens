@@ -285,12 +285,12 @@ async def test_connector_routes_reject_nested_inline_secrets_before_validation(
 async def test_connector_routes_answer_malformed_authority_config_with_400(
     connector_context, inline_config
 ):
-    """fix(#1132): the inline-secret gate must decide, not raise.
+    """The inline-secret gate must decide, not raise.
 
     ``_reject_inline_connector_secrets`` walks every string in the config and
-    asks ``has_url_credentials``, which called ``urlsplit`` unguarded — and both
+    asks ``has_url_credentials``, which must guard ``urlsplit`` — both
     handlers call it BEFORE their try block, so a bracketed authority nothing
-    can parse escaped as an unhandled 500 instead of this gate's 400. Both
+    can parse would escape as an unhandled 500 instead of this gate's 400. Both
     handlers are driven because both reach the gate at that same unprotected
     point; covering one would leave the other free to regress.
     """

@@ -30,7 +30,7 @@ def test_validate_set_style_keeps_line_gradient_for_line_layers():
 
 
 def test_validate_paint_with_feedback_heatmap_render_mode_keeps_heatmap_props():
-    """fix(#392): a heatmap-rendered layer's dataset_geometry_type is
+    """A heatmap-rendered layer's dataset_geometry_type is
     virtually always Point, so without render_mode awareness heatmap-radius/
     heatmap-opacity/heatmap-intensity would be stripped as invalid-for-circle.
     set_style is the only AI tool that can tune those three properties."""

@@ -1,6 +1,6 @@
 """The two clamps that decide which OGR driver may open an upload.
 
-fix(#1846, GHSA-hrf5-v3cq-frx5). GDAL picks a driver by asking every
+GDAL picks a driver by asking every
 registered driver whether it recognises the bytes. Some of them answer yes to
 a document that is really a set of instructions naming somewhere else to read
 from, and a staged upload is bytes a caller chose. Two independent answers:
@@ -258,7 +258,7 @@ async def test_run_ogr2ogr_service_takes_the_service_variant(spawned):
 async def test_service_preview_takes_the_service_variant(spawned):
     """The fifth clamped site, measured at the spawn rather than at the call.
 
-    fix(#1857 item 3). The structural gate stops at the CALL, and this is the
+    The structural gate stops at the CALL, and this is the
     one clamped site that mutates the env after building it, so a change
     rebinding `env` before the spawn would keep full structural credit. The
     SERVICE variant, like `run_ogr2ogr_service`: WFS and OAPIF must survive.

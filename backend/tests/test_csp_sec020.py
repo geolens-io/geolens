@@ -1,15 +1,14 @@
 """Regression tests: a real Content-Security-Policy backstops the
 JWT-in-localStorage exfil risk if a future XSS lands.
 
-On main the only CSP was `frame-ancestors 'self'` (no script-src/default-src), so
-an injected or inline script could run unrestricted and exfiltrate the access +
-refresh tokens from the geolens-auth localStorage key. These assert the SPA HTML
-now ships a script-src/default-src CSP and that the FOUC script is externalized
-(so no inline <script> exists for script-src 'self' to block). Fail on main.
+A CSP of only `frame-ancestors 'self'` (no script-src/default-src) would let an
+injected or inline script run unrestricted and exfiltrate the access token from
+the geolens-auth localStorage key. These assert the SPA HTML ships a
+script-src/default-src CSP and that the FOUC script is externalized (so no
+inline <script> exists for script-src 'self' to block).
 
-fix(#1302): the refresh token has since moved out of localStorage into an
-httpOnly cookie, so the exfil surface described above is now the access token
-alone. The CSP assertions here are unchanged and still load-bearing.
+The refresh token lives in an httpOnly cookie, so the exfil surface described
+above is the access token alone.
 
 The CSP was verified live against the production build: the app, login, and the
 MapLibre map builder (external basemap tiles, web workers, inline styles) all

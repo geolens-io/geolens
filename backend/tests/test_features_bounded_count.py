@@ -1,14 +1,14 @@
-"""fix(#1778): a filtered feature page must not pay a full COUNT(*) every time.
+"""A filtered feature page must not pay a full COUNT(*) every time.
 
-`get_features` only reached its cached-feature_count fast path on a completely
+`get_features` takes its cached-feature_count fast path only on a completely
 unfiltered request, and it deliberately strips the keyset cursor from the count
-so the total reflects the whole match set. One bbox or property filter
+so the total reflects the whole match set. One bbox or property filter would
 therefore put a full filtered COUNT(*) on EVERY page, including the keyset
-pages whose entire purpose is constant-time access: 50 pages cost 50 full
-scans, and the OGC caller saw constant-time row fetch with O(N) latency per
-page.
+pages whose entire purpose is constant-time access: 50 pages would cost 50 full
+scans, and the OGC caller would see constant-time row fetch with O(N) latency
+per page.
 
-The count now runs inside a LIMIT, so it is exact up to `_FILTERED_COUNT_CAP`
+The count runs inside a LIMIT, so it is exact up to `_FILTERED_COUNT_CAP`
 and bounded past it, where the planner's row estimate answers instead and the
 response carries `X-GeoLens-Number-Matched: estimated`.
 
@@ -209,7 +209,7 @@ async def test_the_estimate_header_is_readable_cross_origin(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): pagination must not depend on the estimated total.
+# Pagination must not depend on the estimated total.
 # ---------------------------------------------------------------------------
 
 DEEP_ROW_COUNT = 20_300
@@ -368,7 +368,7 @@ async def test_the_ogc_items_page_links_on_at_the_cap_boundary(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): the floor may only count rows that exist.
+# The floor may only count rows that exist.
 # ---------------------------------------------------------------------------
 
 SMALL_ROW_COUNT = 5

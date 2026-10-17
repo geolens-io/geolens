@@ -642,7 +642,7 @@ class TestSettingsConstraints:
             ("tile_pool_min_size", 0),
             ("tile_pool_max_size", 0),
             ("ingest_http_timeout_seconds", 0),
-            # fix(#1013): zero is the dangerous one for these two —
+            # Zero is the dangerous one for these two —
             # statement_timeout = '0' disables the timeout entirely rather than
             # erroring, so a zero accepted here would silently produce the
             # unbounded statement the budget exists to prevent.
@@ -652,7 +652,7 @@ class TestSettingsConstraints:
             ("analysis_registration_timeout_seconds", 0),
             ("analysis_registration_timeout_seconds", -1),
             ("analysis_registration_timeout_seconds", "not-a-number"),
-            # fix(#1012): 0 is a documented sentinel (leave work_mem alone),
+            # 0 is a documented sentinel (leave work_mem alone),
             # so only negatives are rejected.
             ("analysis_materialize_work_mem_mb", -1),
             ("ingest_jobs_retention_days", -1),
@@ -665,7 +665,7 @@ class TestSettingsConstraints:
             _make_settings(**{field: value})
 
     def test_undividable_work_mem_budget_is_refused_at_boot(self):
-        """fix(#1012 review): a budget too small to split into legal shares has
+        """A budget too small to split into legal shares has
         no honest run-time outcome.
 
         Issuing PostgreSQL's 64kB minimum exceeds the budget; skipping the

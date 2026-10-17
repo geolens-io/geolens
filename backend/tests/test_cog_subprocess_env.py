@@ -1,16 +1,15 @@
 """GDAL CLI subprocess env overlay coverage.
 
-v1015 scoped ``_VRT_SAFE_ENV`` (with
-``CPL_VSIL_CURL_ALLOWED_EXTENSIONS`` and ``VRT_VIRTUAL_OVERVIEWS``) to
+``_VRT_SAFE_ENV`` (with
+``CPL_VSIL_CURL_ALLOWED_EXTENSIONS`` and ``VRT_VIRTUAL_OVERVIEWS``) is scoped to
 ``gdalbuildvrt`` only via ``_build_vrt``. This module extends the same clamp
 to the sibling raster subprocesses in ``cog.py``: ``gdaladdo`` (overview
 generation), ``gdalwarp`` (CRS reprojection), and ``gdal_translate`` (COG
 translation).
 
-fix(#937): the overlay used to also carry ``GDAL_HTTP_FOLLOWLOCATION=NO``.
-That is not a GDAL configuration option and never blocked a redirect;
-``_assert_clamps`` now asserts it stays ABSENT so it cannot be reintroduced
-as a claimed defense.
+``GDAL_HTTP_FOLLOWLOCATION=NO`` is not a GDAL configuration option and never
+blocked a redirect; ``_assert_clamps`` asserts it stays ABSENT so it cannot be
+reintroduced as a claimed defense.
 
 These tests pin the captured ``env=`` kwarg for each subprocess invocation
 so a future refactor cannot silently regress the overlay shape.
@@ -43,7 +42,7 @@ def _assert_clamps(env: dict) -> None:
         assert env.get(key) == expected, (
             f"clamp {key} missing/wrong: expected {expected!r}, got {env.get(key)!r}"
         )
-    # fix(#937): not a GDAL option, provides no redirect protection — must
+    # Not a GDAL option, provides no redirect protection — must
     # not reappear in any GDAL subprocess env as if it did.
     assert "GDAL_HTTP_FOLLOWLOCATION" not in env
 
@@ -134,14 +133,12 @@ class TestPrepareWithOverviewsSafeEnv:
 
 
 class TestConvertToCogCrsAssignment:
-    """fix(#1291): ``assign_crs`` ASSIGNS the CRS and does not reproject.
+    """``assign_crs`` ASSIGNS the CRS and does not reproject.
 
-    This class used to pin the clamps on a ``gdalwarp`` subprocess,
-    because ``convert_to_cog`` prepended one whenever an EPSG code was
-    supplied. The decision on #1291 removed that step: the code now rides on
-    the existing ``gdal_translate`` as ``-a_srs``, which relabels the raster
-    and touches no sample. The clamp assertion survives, on the process that
-    now carries the flag.
+    The EPSG code rides on the existing ``gdal_translate`` as ``-a_srs``,
+    which relabels the raster and touches no sample, so there is no
+    ``gdalwarp`` step to clamp. The clamp assertion is on the process that
+    carries the flag.
     """
 
     def test_assign_crs_lands_on_the_translate_and_spawns_no_warp(
@@ -296,7 +293,7 @@ class TestGdalSafeEnvHelper:
 
 
 # ---------------------------------------------------------------------------
-# fix(#430): temp-file cleanup when run_gdal RAISES (timeout)
+# temp-file cleanup when run_gdal RAISES (timeout)
 # ---------------------------------------------------------------------------
 
 
@@ -337,11 +334,10 @@ class TestGdalFailureTempCleanup:
     def test_convert_to_cog_with_assign_crs_leaves_no_temp_behind(
         self, tmp_path, monkeypatch
     ):
-        """fix(#1291): the assignment path used to stage a second temp file for
-        the ``gdalwarp`` output, and that one leaked on a timeout. It no longer
-        exists — ``-a_srs`` rides the translate — so what this asserts now is
-        that the path adds no temp of its own: the only scratch file is the
-        overview copy, and its owner still removes it on any raise.
+        """The assignment path stages no temp file of its own for a
+        ``gdalwarp`` output — ``-a_srs`` rides the translate — so the only
+        scratch file is the overview copy, and its owner still removes it on
+        any raise.
         """
         import tempfile
 

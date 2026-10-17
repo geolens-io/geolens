@@ -1,22 +1,21 @@
-"""Structural guards for the Prometheus alert rules — fix(#1517).
+"""Structural guards for the Prometheus alert rules.
 
 Monitoring config is the category where a change goes green while asserting
 nothing. A PromQL ``handler!~"..."`` that matches nothing, or matches
-everything, reads identically to a working one in a diff, and #1517 shipped a
-rule whose threshold could not be crossed by any traffic at all. These tests
+everything, reads identically to a working one in a diff, as does a rule whose
+threshold no traffic can cross. These tests
 check the things review cannot see:
 
 1. Every ``histogram_quantile`` threshold in the rules is below the top finite
    bucket the app actually configures. ``histogram_quantile`` returns the
    highest FINITE bucket bound for anything landing in ``+Inf``, so a threshold
    at or above it can never be crossed. The rule looks like coverage and is dead
-   on arrival. That is exactly how ``GeoLensApiInteractiveLatencyP95`` came to
-   report ``1`` on all three of its firings.
+   on arrival.
 2. The bulk-read selector partitions the app's real route table the way the
    rules claim, over (handler, method) PAIRS rather than paths. A path is not a
    request: ``/datasets/{dataset_id}/features`` answers GET and POST off one
    template, so a path-only check would pass while feature creation sat outside
-   interactive monitoring (fix(#1521 review)).
+   interactive monitoring.
 
 Every expectation list is checked against the live route table, so it cannot rot
 into a set of paths nothing matches.
@@ -46,7 +45,7 @@ ALERTS_TEST_PATH = REPO_ROOT / "infra" / "monitoring" / "alerts.test.yml"
 PROMETHEUS_PATH = REPO_ROOT / "infra" / "monitoring" / "prometheus.yml"
 DASHBOARD_PATH = REPO_ROOT / "infra" / "monitoring" / "grafana-dashboard.json"
 
-# fix(#1778): metrics whose value is produced per PROCESS rather than read
+# Metrics whose value is produced per PROCESS rather than read
 # from shared state. The job counters are incremented inside whichever worker
 # replica performed the terminal transition, so each replica exports its own
 # series for the same queue and any alert over them has to aggregate. The
@@ -165,7 +164,7 @@ def _bulk_selector() -> str:
         f"expected exactly one handler!~ in the interactive rule, got {excluded}"
     )
 
-    # fix(#1513): there are now TWO distinct handler selectors, each written
+    # There are TWO distinct handler selectors, each written
     # exactly three times, and the count is partitioned by value rather than
     # relaxed. The bulk set appears in the interactive union arm and both halves
     # of the bulk ratio; the export-HEAD carve-out appears in its own
@@ -333,11 +332,11 @@ def test_bulk_selector_matches_exactly_the_intended_handlers():
 
 
 def test_bulk_rule_claims_only_read_requests():
-    """fix(#1521 review): the bulk rule may not swallow writes to bulk paths.
+    """The bulk rule may not swallow writes to bulk paths.
 
     ``/datasets/{dataset_id}/features`` answers GET and POST off one template.
-    Under a path-only selector, feature creation left the interactive p95 and
-    was judged against a 5s bound built for 10MB downloads.
+    Under a path-only selector, feature creation would leave the interactive p95
+    and be judged against a 5s bound built for 10MB downloads.
     """
     universe = _route_universe()
     bulk_paths = re.compile(_bulk_selector())
@@ -457,7 +456,7 @@ def test_every_alert_has_a_promtool_case():
 
 
 def test_alerts_over_per_process_job_counters_aggregate_across_replicas():
-    """fix(#1778): a bare increase() on these is evaluated per series.
+    """A bare increase() on these is evaluated per series.
 
     The counters move at the terminal transition, in the worker process that
     performed it, so several worker replicas each export their own series for
@@ -510,7 +509,7 @@ def test_alerts_over_per_process_job_counters_aggregate_across_replicas():
 
 
 def test_the_reference_scrape_config_discovers_every_worker_replica():
-    """fix(#1778): one static worker target is lossy the moment there are two.
+    """One static worker target is lossy the moment there are two.
 
     The job counters live in the process that did the work, so a replica
     nobody scrapes contributes nothing to the sum the alert evaluates and its

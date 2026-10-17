@@ -392,7 +392,7 @@ async def test_service_layer_rejects_unmapped_sort_key(test_db_session):
 
 
 def test_export_endpoint_takes_no_sort_parameters():
-    """fix(#1204): the CSV export shares the list's FILTERS, not its ordering.
+    """The CSV export shares the list's FILTERS, not its ordering.
 
     Asserted rather than merely commented, so a later change that wires sort
     into the export has to delete this test and say why.

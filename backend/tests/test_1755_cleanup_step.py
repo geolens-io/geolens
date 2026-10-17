@@ -1,9 +1,9 @@
-"""fix(#1755 item 11): a cleanup step must not eat the exception it runs past.
+"""A cleanup step must not eat the exception it runs past.
 
 Every ingest task ends in a `finally:` block that stops its heartbeat, drops
 its attempt staging table, unlinks local scratch files and reaps staging
-objects. Each call used to be awaited bare, which gives a failing cleanup two
-ways to destroy the diagnosis:
+objects. A cleanup call awaited bare gives a failing cleanup two ways to
+destroy the diagnosis:
 
 - it REPLACES whatever the `try`/`except` above was propagating, so the queue
   row and the caller's `except` record an unrelated cleanup error, and

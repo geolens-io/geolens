@@ -89,9 +89,9 @@ def test_backup_base_is_digest_pinned():
 
 
 def test_docker_audit_matrix_is_derived_not_a_second_literal_copy():
-    # fix(#1983): dep-audit.yml derives node/python/nginx from the Dockerfile
-    # at run time instead of a second literal matrix copy (#1778 drifted,
-    # #1975 needed a manual fix) — assert it stays derived, not reverted.
+    # dep-audit.yml derives node/python/nginx from the Dockerfile
+    # at run time instead of a second literal matrix copy that can drift —
+    # assert it stays derived, not reverted.
     workflow = yaml.safe_load(DEP_AUDIT_WORKFLOW.read_text())["jobs"]
     docker_audit = workflow["docker-audit"]
 
@@ -105,7 +105,7 @@ def test_docker_audit_matrix_is_derived_not_a_second_literal_copy():
 
 
 def test_docker_audit_matrix_resolver_pins_match_dockerfile_from_tags():
-    # fix(#1983): runs the real resolve-docker-audit-matrix step against the
+    # Runs the real resolve-docker-audit-matrix step against the
     # Dockerfile, so a broken grep pattern or renamed stage fails here
     # instead of silently emitting an empty or stale pin in CI.
     steps = yaml.safe_load(DEP_AUDIT_WORKFLOW.read_text())["jobs"][
@@ -208,7 +208,7 @@ def test_production_database_init_script_is_read_only():
 
 
 def test_backup_services_override_inherited_postgres_data_volume():
-    # chore(#704): postgres 18+ bases declare VOLUME /var/lib/postgresql
+    # postgres 18+ bases declare VOLUME /var/lib/postgresql
     # (PGDATA moved to <major>/docker inside it) — the tmpfs override must
     # target the new path or the anonymous volume comes back.
     for compose_path in (DEV_COMPOSE, PROD_COMPOSE):

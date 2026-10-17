@@ -1,4 +1,4 @@
-"""fix(#1778): the app engine must not render bound parameters into errors.
+"""The app engine must not render bound parameters into errors.
 
 SQLAlchemy defaults ``hide_parameters`` to False, so every StatementError
 carries ``[SQL: ...] [parameters: (...)]`` in its message. The DB error

@@ -72,7 +72,7 @@ def _pin_model(monkeypatch, name: str) -> None:
     patching the module attribute reaches it.
     """
 
-    # fix(#1525): the snapshot passes `uncached=True`, so the stub has
+    # The snapshot passes `uncached=True`, so the stub has
     # to accept it. It answers the same either way — this pins the resolution,
     # not which layer it came from.
     async def _resolve(_session, **_kwargs):
@@ -118,13 +118,9 @@ async def test_force_backfill_with_a_resolvable_model_still_clears(
     Counterfactual for the test above: the surviving rows there are the
     sentinel's doing, not a force path that stopped deleting.
 
-    fix(#1511): this used to assert that force clears even when the
-    provider is unavailable. That is now the opposite of the contract — an
-    unusable provider must abort before the delete, which is what the
-    pre-flight is for — so the counterfactual has to run with a WORKING
-    provider. The intent is unchanged: prove the delete still happens. The old
-    setup asserted behavior the fix deliberately removed, so keeping it would
-    have pinned the bug.
+    Force with an unusable provider must abort before the delete, which is what
+    the pre-flight is for — so the counterfactual has to run with a WORKING
+    provider. The intent: prove the delete still happens.
     """
     superseded = "force-guard-superseded-model"
     await _seed_embedding(test_db_session, "Force Guard Resolvable", superseded)

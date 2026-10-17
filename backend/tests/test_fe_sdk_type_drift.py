@@ -95,14 +95,11 @@ def test_drift_checker_passes():
 
 
 class TestResolvedKnownDriftIsReportedEvenAtZeroDrift:
-    """fix(#1778): check_drift() computed "known drift now resolved" AFTER
-    an early ``continue`` for a model with zero CURRENT drift, so a
-    KNOWN_DRIFT entry for a model whose FE mirror had fully caught up was
-    invisible to the reporter forever — the stale allowlist entry sat
-    there as a standing license to regress with no signal telling anyone
-    to remove it. MapResponse, JobStatusResponse and DuplicateMapResponse
-    were exactly this case (confirmed against the tree at the time of the
-    audit) and their entries have been removed from KNOWN_DRIFT below."""
+    """check_drift() must compute "known drift now resolved" even for a model
+    with zero CURRENT drift: otherwise a KNOWN_DRIFT entry for a model whose
+    FE mirror has fully caught up is invisible to the reporter forever — the
+    stale allowlist entry sits there as a standing license to regress with no
+    signal telling anyone to remove it."""
 
     def test_a_fully_resolved_known_drift_entry_is_reported(self) -> None:
         module = _load_checker_module()
@@ -154,10 +151,10 @@ class TestResolvedKnownDriftIsReportedEvenAtZeroDrift:
 
 
 class TestSkippedMaintainedModelFailsTheBuild:
-    """fix(#1778): report.skipped (a maintained model absent from
-    openapi.json or the FE mirror — e.g. renamed on either side) never
-    affected the exit code, so a renamed MAINTAINED_MODELS entry silently
-    dropped out of comparison with zero output and exit 0."""
+    """report.skipped (a maintained model absent from
+    openapi.json or the FE mirror — e.g. renamed on either side) must affect
+    the exit code, or a renamed MAINTAINED_MODELS entry silently drops out of
+    comparison with zero output and exit 0."""
 
     def test_should_fail_is_true_when_a_model_is_skipped(self) -> None:
         module = _load_checker_module()

@@ -263,7 +263,7 @@ class TestNoPerTenantSchemaExistsFromSingleTenantBoot:
                         # cluster with every other xdist worker's database, so
                         # scope the assertion to roles whose schema is in THIS
                         # database. Without that, a peer worker's tenant
-                        # fixtures fail this test (fix(#998)).
+                        # fixtures fail this test.
                         sa.text(
                             "SELECT rolname FROM pg_roles AS role "
                             "WHERE rolname LIKE 'geolens\\_reader\\_t\\_%' "

@@ -1,25 +1,27 @@
-"""fix(#1531): a domain-locked embed token must deliver scoped layers to a browser embed.
+"""A domain-locked embed token must deliver scoped layers to a browser embed.
 
 Domain locking is enforced in two layers. The ``/m/{token}`` embed shell is
 served with ``frame-ancestors 'self' <allowed_origins>``
 (``build_embed_frame_ancestors``) — a browser-enforced control keyed on the
-PARENT page's actual origin. The API-layer allowlist below it accepted only
-``<allowed_origins>``, with no ``'self'`` equivalent.
+PARENT page's actual origin. The API-layer allowlist below it has to
+accept the app's own origin as well as ``<allowed_origins>``, the ``'self'``
+equivalent.
 
 Measured against the dev stack (Chrome, via the ``/m/`` shell): an API
 subresource request issued from inside the embed iframe carries **no Origin
 header at all** (it is same-origin to the shell) and a ``Referer`` of the
 shell's own URL. The embedder's origin is not on the request; it is visible
 only on the navigation that loads the iframe, which is exactly where
-``frame-ancestors`` enforces it. So every scoped-layer request resolved to the
-GeoLens app's own origin, matched nothing in ``allowed_origins`` (which holds
-the CUSTOMER's domain), and was denied — the feature was broken closed.
+``frame-ancestors`` enforces it. So every scoped-layer request resolves to the
+GeoLens app's own origin, which matches nothing in ``allowed_origins`` (which
+holds the CUSTOMER's domain); without that equivalent the feature breaks
+closed.
 
 Two independent readers gate on ``allowed_origins``:
 ``resolve_embed_scope_for_map`` (shared-map metadata → which layers exist) and
 ``validate_embed_token_access`` (tiles / bounded GeoJSON → whether they can be
-drawn). Every case below is asserted against BOTH; a fix that lands on one path
-and leaves the sibling on the old rules is the failure mode these tests exist
+drawn). Every case below is asserted against BOTH; a change that lands on one path
+and leaves the sibling on different rules is the failure mode these tests exist
 to catch.
 
 The vacuity guard is ``TestForeignOriginStillDenied``: it must FAIL in the
@@ -43,7 +45,7 @@ APP_ORIGIN = "https://maps.geolens.example"
 CUSTOMER_ORIGIN = "https://customer.example.com"
 FOREIGN_ORIGIN = "https://evil.example.net"
 
-# fix(#1548 review P2): the two halves of the shipped-default misconfiguration.
+# The two halves of the shipped-default misconfiguration.
 # docker-compose.yml and docker-compose.prod.yml both inject
 # ${PUBLIC_APP_URL:-http://localhost:8080}, so an operator who never sets it
 # resolves the first while being reached at the second.
@@ -121,11 +123,11 @@ def _minter_reads_every_dataset(monkeypatch):
 
 
 def test_the_self_origin_lookup_cannot_be_told_about_the_request():
-    """The #1531 invariant, now structural.
+    """The invariant, enforced structurally.
 
-    It used to be asserted by a fixture watching for a ``request=`` kwarg, which
-    the switch to ``get_configured_public_app_url`` quietly made vacuous — that
-    function has no such parameter to pass. Assert the real property instead:
+    A fixture watching for a ``request=`` kwarg would be vacuous, because
+    ``get_configured_public_app_url`` has no such parameter to pass. Assert the
+    real property instead:
     the accessor the service depends on takes the session and nothing else, so
     there is no argument through which a caller-controlled origin could reach
     it, and it is not the resolver that has those fallbacks.
@@ -414,7 +416,7 @@ class TestSelfOriginIsServerDerived:
 
 
 class TestUnresolvableSelfOriginFailsClosed:
-    """fix(#1548 review P2): the self-origin lookup reads an AppSetting row, so
+    """The self-origin lookup reads an AppSetting row, so
     it is the one part of this check that can fail for reasons unrelated to the
     decision. It must deny rather than propagate: every other denial here
     returns a bool, and an escaping exception would turn a routine deny into a
@@ -481,7 +483,7 @@ class TestUnresolvableSelfOriginFailsClosed:
 
 
 class TestMisconfiguredDeploymentIsDiagnosable:
-    """fix(#1548 review P2): compose injects PUBLIC_APP_URL=http://localhost:8080
+    """Compose injects PUBLIC_APP_URL=http://localhost:8080
     by default, so a self-hoster on https://maps.example.com who never sets it
     resolves the wrong self-origin and their domain-locked embeds stay empty.
     The server cannot correct that without a request-derived origin, which is
@@ -528,7 +530,7 @@ def test_frame_ancestors_directive_carries_the_self_half():
 
 
 class TestDomainLockIsRefusedWhenUnenforceable:
-    """fix(#1548 review P2): the #1531 fix is inert in the SHIPPED configuration.
+    """The self-origin rule is inert in the SHIPPED configuration.
 
     ``docker-compose.yml`` and ``docker-compose.prod.yml`` both inject
     ``${PUBLIC_APP_URL:-http://localhost:8080}`` and ``.env.example`` ships the
@@ -751,14 +753,14 @@ class TestDomainLockIsRefusedWhenUnenforceable:
 
 @pytest.mark.anyio
 async def test_the_refusal_message_matches_the_frontend_matcher(monkeypatch):
-    """fix(#1548 review P2): the 422 must not be mute in the builder.
+    """The 422 must not be mute in the builder.
 
     ``frontend/src/lib/error-map.ts`` collapses an unmapped 422 detail to the
     generic ``errors.validationFailed`` toast, and the whole point of this
     refusal is its prose — which variable to set, and to what. The frontend
     matches the message by regex to render a localized remediation, so the
     wording is a contract spanning two languages, which is exactly the shape
-    that produced the bug this PR fixes. Assert it from the Python side too, so
+    that lets a mismatch go unnoticed. Assert it from the Python side too, so
     reworded prose fails here rather than silently degrading the toast.
     """
     import re
@@ -812,12 +814,12 @@ async def test_the_refusal_message_matches_the_frontend_matcher(monkeypatch):
 
 
 def test_mock_db_suites_that_exercise_a_domain_lock_stub_the_lookup():
-    """fix(#1548 review P2): cover the class, not just the one file.
+    """Cover the class, not just the one file.
 
     The self-origin lookup reads an AppSetting row, so a test that drives a
     domain-locked token against a mock database reaches it and gets a
-    ``TypeError`` on a cold public-URL cache. That used to surface as an error;
-    now that the service fails closed it surfaces as a *silent* deny, so such a
+    ``TypeError`` on a cold public-URL cache. That surfaces as a *silent* deny,
+    because the service fails closed, so such a
     test would assert "foreign origin rejected" and pass without exercising the
     rule at all. Any suite in that shape must stub ``get_configured_public_app_url``.
     """

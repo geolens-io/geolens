@@ -155,7 +155,7 @@ async def _restore_default_head() -> None:
 @_SKIP_UNDER_OVERLAY
 class TestEmbeddingVectorMigrationDims:
     async def test_env_dims_honored_on_empty_table(self):
-        """fix(#449): EMBEDDING_DIMS=768 types the column vector(768)."""
+        """EMBEDDING_DIMS=768 types the column vector(768)."""
         try:
             r = await _retype_via_migration("768")
             assert r.returncode == 0, f"upgrade failed: {r.stderr}"
@@ -166,7 +166,7 @@ class TestEmbeddingVectorMigrationDims:
             await _restore_default_head()
 
     async def test_large_dims_skip_hnsw_instead_of_failing(self):
-        """fix(#449): 3072 dims types the column but skips HNSW
+        """3072 dims types the column but skips HNSW
         (pgvector rejects HNSW over 2000 dims) instead of failing the upgrade."""
         try:
             r = await _retype_via_migration("3072")

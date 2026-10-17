@@ -1,4 +1,4 @@
-"""fix(#1755 item 8): running migrations must not disable the loggers already registered.
+"""Running migrations must not disable the loggers already registered.
 
 ``alembic/env.py`` calls ``logging.config.fileConfig()`` so a migration run gets
 alembic.ini's console handler and levels. The stdlib default for that call is
@@ -10,9 +10,8 @@ In production that silences whatever the API imported before the migration
 step. In the test suite it is worse, because the effect outlives the call: the
 session-scoped migration fixture runs once per worker, after collection has
 already imported the modules under test, so every application and third-party
-logger registered by then stays ``.disabled`` for the rest of the session. Three
-test sites had grown their own local re-enable dance around that, and a test
-that re-enables the logger it is about to assert on is testing the dance.
+logger registered by then stays ``.disabled`` for the rest of the session. A
+test that re-enables the logger it is about to assert on is testing the dance.
 
 ``.disabled`` is the one flag nothing else restores: ``setup_logging()`` never
 touches it, so neither ``tests/_logging_state.configured_logging()`` nor

@@ -352,10 +352,10 @@ def test_internal_pagination_prefers_skip_with_deprecated_offset_alias() -> None
 def test_direct_route_http_exceptions_are_documented() -> None:
     """Prevent direct handler raises from drifting beyond OpenAPI responses.
 
-    fix(#1778): this used to walk ``app.routes``
-    directly, which fastapi 0.140 stopped flattening for included routers —
-    the walk saw 1 of 265 operations (``/health``, which raises nothing) and
-    stayed green regardless of what the other 264 handlers raised.
+    This must not walk ``app.routes``
+    directly: fastapi 0.140 does not flatten included routers there, so a
+    direct walk sees 1 of 265 operations (``/health``, which raises nothing)
+    and stays green regardless of what the other 264 handlers raise.
     ``_iter_api_routes`` reads the flattened table instead, and the floor
     assertion below turns any future lazy-scan regression into a loud
     failure rather than a silent no-op (same shape as
@@ -498,11 +498,11 @@ def _called_helper_names(endpoint, candidates: set[str]) -> set[str]:
 
 
 def test_cookie_session_operations_declare_their_negotiation_headers() -> None:
-    """fix(#1496): the cookie-mode headers are published parameters, not prose.
+    """The cookie-mode headers are published parameters, not prose.
 
-    Before this, the three session-lifecycle operations declared zero
-    parameters, so a generated SDK or the docs request form could not express
-    the inputs that establish, refresh, or revoke a browser cookie session.
+    The three session-lifecycle operations must declare the inputs that
+    establish, refresh, or revoke a browser cookie session; otherwise a
+    generated SDK or the docs request form cannot express them.
 
     The expectation is derived from each handler's own body — which cookies.py
     helper it calls decides which header is an input — so the declaration
@@ -557,7 +557,7 @@ def test_cookie_session_operations_declare_their_negotiation_headers() -> None:
 
 
 def test_inline_json_schema_rejects_recursive_model() -> None:
-    """fix(#569): a self-referential model must fail fast, not loop forever."""
+    """A self-referential model must fail fast, not loop forever."""
     import pytest
     from pydantic import BaseModel
 
@@ -571,7 +571,7 @@ def test_inline_json_schema_rejects_recursive_model() -> None:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1666): the contract must describe what the app returns and accepts, not
+# The contract must describe what the app returns and accepts, not
 # FastAPI's defaults where the app overrides them at runtime.
 # ---------------------------------------------------------------------------
 
@@ -655,7 +655,7 @@ def test_search_operations_declare_filter_lang_under_its_wire_name() -> None:
 
 
 def test_retained_validation_model_keeps_the_schema_it_references() -> None:
-    """fix(#1666 codex P2): never delete a schema a retained one still points at.
+    """Never delete a schema a retained one still points at.
 
     `HTTPValidationError` holds the only `$ref` to `ValidationError`. If an
     operation keeps the container alive, the leaf has to stay too — dropping it

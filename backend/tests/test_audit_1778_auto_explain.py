@@ -1,13 +1,13 @@
-"""fix(#1778): auto_explain.log_analyze/log_buffers instrument EVERY
+"""auto_explain.log_analyze/log_buffers instrument EVERY
 statement the cluster executes, not just the ones slower than the
 log_min_duration threshold — auto_explain has to install per-node
 row-counting and timing at ExecutorStart, before a statement's duration is
 known, so the threshold only gates the LOGGING. Shipped on by default at
-100ms, that overhead landed on every query in both the dev and prod stacks
+100ms, that overhead would land on every query in both the dev and prod stacks
 (db/postgresql.conf is bind-mounted into both docker-compose.yml and
 docker-compose.prod.yml), worst on the vector-tile and search paths this
 product is built on. `auto_explain.log_min_duration = -1` disables the
-instrumentation entirely (not just the log line), so it is now a deliberate
+instrumentation entirely (not just the log line), so it is a deliberate
 per-incident opt-in via `ALTER SYSTEM`, documented inline.
 """
 

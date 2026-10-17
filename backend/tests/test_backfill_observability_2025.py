@@ -234,7 +234,7 @@ async def test_the_estimate_uses_the_last_completed_runs_throughput(
 async def test_the_estimate_rates_against_walked_records_not_embeddable_ones(
     test_db_session: AsyncSession,
 ):
-    """fix(#2047): rows_processed (created + errors) undercounts a run that
+    """rows_processed (created + errors) undercounts a run that
     also skipped records with no embeddable text, inflating the rate against
     missing/total_records, which count every visible record.
     """

@@ -1,8 +1,8 @@
-"""fix(#1513): HEAD on /datasets/{id}/export must answer, not 405.
+"""HEAD on /datasets/{id}/export must answer, not 405.
 
 FastAPI's ``APIRoute`` does not add HEAD alongside GET the way starlette's
 plain ``Route`` does, so a bare ``@router.get`` answers ``405 allow: GET``.
-``_register_standards_head_routes`` (backend/app/api/main.py, fix #1470/#1478)
+``_register_standards_head_routes`` (backend/app/api/main.py)
 closes that gap for the standards surface only; ``/datasets/{id}/export`` is a
 native download route and fell outside it.
 
@@ -265,10 +265,10 @@ async def test_head_export_does_not_run_the_parquet_conversion(
 ):
     """Same guard for the second, non-ogr2ogr conversion path (pyarrow).
 
-    Needs the real-table dataset: since fix(#1513 codex P2) a parquet HEAD runs
+    Needs the real-table dataset: a parquet HEAD runs
     ``plan_parquet_export``, which introspects the live table and counts the
     selection. That is the point — those are the queries that decide the status
-    — but it means a metadata-only dataset with no backing table now fails here
+    — but it means a metadata-only dataset with no backing table fails here
     for both verbs alike, so it cannot be used to prove the writer stayed idle.
     """
     calls: list[str] = []
@@ -338,7 +338,7 @@ async def real_table_dataset(test_db_session):
 
 
 # ---------------------------------------------------------------------------
-# fix(#1513, codex P2 on #1522): status parity per FAILURE CLASS.
+# Status parity per FAILURE CLASS.
 #
 # The original HEAD branch returned before the filter validation that lives
 # inside export_dataset()/export_parquet(), so a bad filter got 200 from HEAD

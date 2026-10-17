@@ -201,7 +201,7 @@ class TestOriginRefAllowlist:
             build_origin_ref("postgis", **{key: "db.internal"})
 
     def test_postgis_ref_holds_the_table_name_and_who_owns_it(self) -> None:
-        """fix(#1452): `managed` joined `table_name`, and nothing else did.
+        """`managed` sits beside `table_name`, and nothing else does.
 
         It says whether GeoLens created the table the pointer already names,
         which is what delete needs to know before it drops one. That is an
@@ -271,7 +271,7 @@ class TestSetDatasetOrigin:
         assert dataset.origin_ref is None
 
     def test_rebinding_to_a_different_origin_clears_probe_state(self) -> None:
-        """fix(#1271 review): the stored probe verdict describes the origin
+        """The stored probe verdict describes the origin
         the binding names. A service marked missing and then reuploaded from
         a local file would otherwise serve missing/not_found forever, since
         the probe endpoint 409s on uploads and nothing could correct it."""
@@ -295,7 +295,7 @@ class TestSetDatasetOrigin:
         assert dataset.last_checked_at is None
 
     def test_identical_restamp_also_clears_probe_state(self) -> None:
-        """fix(#1271 review): every caller is a successful-ingest commit, so
+        """Every caller is a successful-ingest commit, so
         an identical restamp means the SAME origin was just exercised — a
         pre-swap ``missing`` verdict is stale in the other direction (the
         origin demonstrably answered). NULL-means-unknown is the honest
@@ -984,7 +984,7 @@ class TestBackfill:
     ) -> None:
         """Cross-tenant collisions resolve to NULL, never to the wrong tenant.
 
-        fix(#1218 review, P1): table names are unique per tenant but not
+        Table names are unique per tenant but not
         across tenants, so two tenants can both own a `parcels` table. The
         schema lookup keys on `d.table_name` alone and cannot tell the two
         catalog rows apart, so per-row resolution is not expressible here —
@@ -1801,7 +1801,7 @@ class TestServiceLayerIdentity:
 
     def test_a_second_name_key_is_still_refused(self) -> None:
         """Unification means one key; the allowlist must not have grown."""
-        # fix(#1746): `auth_required` joined the set. It is not a second layer
+        # `auth_required` is in the set. It is not a second layer
         # key — it says the last successful pull needed a service token — so
         # the "one key addresses the layer" rule this test guards is intact.
         assert ORIGIN_REF_KEYS["service"] == frozenset(
@@ -1812,7 +1812,7 @@ class TestServiceLayerIdentity:
                 build_origin_ref("service", **{key: "topp:parcels"})
 
     def test_auth_required_is_true_or_absent_never_false(self) -> None:
-        """fix(#1746): a token-less pull stores the pre-marker ref shape."""
+        """A token-less pull stores the pre-marker ref shape."""
         ref = build_origin_ref(
             "service",
             service_type="arcgis_featureserver",

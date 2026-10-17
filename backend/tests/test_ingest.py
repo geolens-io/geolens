@@ -426,7 +426,7 @@ class TestJobStatus:
             file_path="/tmp/fake.geojson",
             created_by=admin_user.id,
             status="pending",
-            # fix(#1744): a dispatch was attempted for this row and never
+            # A dispatch was attempted for this row and never
             # landed, which is the class that keeps reporting `failed` so
             # /jobs/{id}/retry stays reachable. Without the stamp the row is
             # an upload nobody committed, and the poll cancels it.
@@ -471,7 +471,7 @@ class TestJobCleanup:
             source_filename="stale.geojson",
             created_by=admin_user.id,
             status="pending",
-            # fix(#1744): see the poll test above. `pending_failed` is the
+            # See the poll test above. `pending_failed` is the
             # count this asserts, and an unstamped row lands in
             # `pending_cancelled` instead.
             user_metadata=commit_attempted_marker(),
@@ -780,7 +780,7 @@ async def test_nonspatial_arcgis_service_load_keeps_attribute_columns(
 
 
 # ---------------------------------------------------------------------------
-# fix(#430): published_at must match the FINAL record_status
+# published_at must match the FINAL record_status
 # ---------------------------------------------------------------------------
 
 
@@ -788,10 +788,11 @@ async def test_nonspatial_arcgis_service_load_keeps_attribute_columns(
 async def test_finalize_ingest_non_published_status_has_no_published_at(
     test_db_session,
 ):
-    """fix(#430): create_dataset defaults the record to 'published',
+    """create_dataset defaults the record to 'published',
     so the before_insert hook stamps published_at BEFORE _finalize_ingest
     overwrites record_status from user_metadata — a manifest/vector ingest
-    finalizing as draft/ready/internal kept a bogus publication timestamp."""
+    finalizing as draft/ready/internal must not keep a bogus publication
+    timestamp."""
     import uuid as _uuid
 
     from sqlalchemy import text
@@ -1475,7 +1476,7 @@ class TestCommitImportDispatch:
     async def test_strict_cog_with_a_rewriting_option_is_refused(
         self, client, admin_auth_header, test_db_session, mock_ingest_task
     ) -> None:
-        """fix(#1961): the four options are applied by a conversion, so the
+        """The four options are applied by a conversion, so the
         combination is refused instead of converting behind the flag."""
         result = await test_db_session.execute(
             select(User).where(User.username == "admin")
@@ -1508,7 +1509,7 @@ class TestCommitImportDispatch:
     async def test_a_vector_job_still_commits_the_same_body(
         self, client, admin_auth_header, test_db_session, mock_ingest_task
     ) -> None:
-        """fix(#1961): the refusal is the raster subclass's, so a vector job
+        """The refusal is the raster subclass's, so a vector job
         keeps dropping the raster fields it was always sent."""
         result = await test_db_session.execute(
             select(User).where(User.username == "admin")
@@ -1595,7 +1596,7 @@ class TestCommitImportDispatch:
         assert resp.status_code == 202, resp.text
         assert mock_ingest_task.await_count == 1
         # The credential must be forwarded as a kwarg, not persisted to
-        # metadata. feat(#1746 B2b): as a `ServiceCredential` rather than a
+        # metadata. It is a `ServiceCredential` rather than a
         # bare token, so the queue composes the wire value against the job's
         # own service format; the flat `token` field still means a bearer one.
         call_kwargs = mock_ingest_task.await_args.kwargs
@@ -1707,7 +1708,7 @@ class TestCommitImportDispatch:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1746): the auth_required marker on a first service import
+# The auth_required marker on a first service import
 # ---------------------------------------------------------------------------
 
 

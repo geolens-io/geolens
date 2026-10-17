@@ -1,6 +1,6 @@
 """ORM CheckConstraint <-> database parity gate.
 
-fix(#942): ``alembic check`` (the ``make alembic-check`` gate) does not
+``alembic check`` (the ``make alembic-check`` gate) does not
 compare CHECK constraints at all, so an ORM ``CheckConstraint`` and its
 migration twin can drift apart with every gate staying green — deleting
 ``chk_records_spatial_extent_type`` from either the model or migration 0030
@@ -12,7 +12,7 @@ This gate closes the hole by (table, name) pair, not by expression:
   exist as a same-named CHECK on the SAME table in the migrated test
   database (``pg_constraint`` with ``contype = 'c'``). Matching on the pair
   rather than the bare name means a constraint moved to the wrong table
-  cannot masquerade as parity (codex review on the #942 PR).
+  cannot masquerade as parity.
 - Reverse: a CHECK in the database on an ORM-managed table with no ORM
   declaration is flagged too — that is exactly what an ORM-side deletion
   leaves behind — unless listed in the explicit DB-only allowlist. The

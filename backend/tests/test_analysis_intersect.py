@@ -322,12 +322,11 @@ class TestUniqueSourceKey:
 
 
 class TestOverlayAttributes:
-    """fix(#1099): the overlay's attributes are joined back, not grouped by.
+    """The overlay's attributes are joined back, not grouped by.
 
-    Only observable at materialize. The preview carries gid and source_gid
-    alone, so it never named an overlay column in a GROUP BY and never saw the
-    failure this replaces — a unit test on the rendered SQL would have the same
-    blind spot, because the statement only breaks when PostgreSQL executes it.
+    Only observable at materialize. The preview carries gid and source_gid alone, so it
+    never names an overlay column in a GROUP BY; a unit test on the rendered SQL has the
+    same blind spot, because the statement only breaks when PostgreSQL executes it.
     """
 
     async def test_a_json_overlay_column_survives_into_the_output(
@@ -524,12 +523,12 @@ class TestPreview:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1097 review): an empty result is an ANSWER, not a failure.
+        """An empty result is an ANSWER, not a failure.
 
         match_count is null in the contract when the total could not be
         computed — a timed-out count. intersect's total rides its preview
         statement as a window column, so with no overlapping pairs there is no
-        row to read it off, and it defaulted to null. That made "these two
+        row to read it off, and defaulting to null would make "these two
         layers do not overlap" (an ordinary result) indistinguishable from
         "the server gave up", and the panel renders those differently.
         """
@@ -643,14 +642,13 @@ class TestColumnCollisions:
         assert "name" in resp.text
 
     def test_an_ungroupable_overlay_column_is_admitted_at_enqueue(self):
-        """fix(#1099): the inverse of what #1097 pinned here.
+        """A json or xml OVERLAY column is accepted.
 
-        json and xml have no equality operator, and the aggregate used to name
-        every carried OVERLAY column in its GROUP BY, so a layer holding one
-        was refused outright — which took a real class of layer out of service,
-        since nested GeoJSON properties land as json routinely. The attributes
-        are joined back outside the aggregate now, where nothing groups, so the
-        type stops mattering.
+        json and xml have no equality operator, so naming every carried
+        OVERLAY column in the aggregate's GROUP BY would refuse a real class of
+        layer, since nested GeoJSON properties land as json routinely. The
+        attributes are joined back outside the aggregate, where nothing
+        groups, so the type does not matter.
 
         Against the validator rather than the endpoint, for the reason the
         SOURCE-side sibling below spells out: admitting the request means
@@ -715,7 +713,7 @@ class TestColumnCollisions:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1097 review): the output guards reserved OUTPUT names only.
+        """The output guards reserve OUTPUT names only.
 
         render_intersect_pairs invents internal aliases on the way to that
         output, and a carried column of the same name lands in the same select
@@ -723,7 +721,7 @@ class TestColumnCollisions:
         reference is then ambiguous and the CTAS fails after the queue wait,
         quoting a name the user never chose.
 
-        The aliases live in a reserved PREFIX now and the prefix is what is
+        The aliases live in a reserved PREFIX and the prefix is what is
         rejected, so an alias added to that query later is covered without a
         list to keep in step.
         """
@@ -810,7 +808,7 @@ class TestColumnCollisions:
     async def test_an_overlay_that_stops_being_polygonal_is_caught(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1097 review): the polygon requirement is re-applied live.
+        """The polygon requirement is re-applied live.
 
         The router refuses a non-polygonal mask at enqueue, but a re-upload can
         turn that layer into points or lines while the job waits — and the swap
@@ -870,23 +868,21 @@ class TestColumnCollisions:
             test_db_session, Dataset, str(zones.id), "data", label="join"
         )
 
-    # fix(#1099): the worker-side ungroupable-overlay recheck and its two
-    # controls came out with the guard they exercised — the overlay's
-    # attributes never reach a GROUP BY now, so a re-upload that introduces a
-    # json column no longer has anything to break. _ungroupable_type_name's
-    # ARRAY branch (the json[] case those tests also covered) is still pinned,
+    # There is no worker-side ungroupable-overlay recheck: the overlay's
+    # attributes never reach a GROUP BY, so a re-upload that introduces a
+    # json column has nothing to break. _ungroupable_type_name's
+    # ARRAY branch (the json[] case) is pinned
     # by dissolve's live recheck in
     # test_analysis_materialize.py::test_dissolve_by_a_json_array_field_fails_with_a_clear_message.
 
     def test_an_ungroupable_SOURCE_column_is_still_allowed(self):
-        """The source side never needed the guard, and still does not.
+        """The source side needs no guard.
 
-        A json column on the SOURCE never reaches the GROUP BY: _src.gid is a
-        real table's primary key, so PostgreSQL licenses every other _src
-        column by functional dependency. Kept through fix(#1099) because it
-        pins a different fact from the overlay-side test above — that one is
-        about the join-back, this one about functional dependency, and either
-        could be broken without the other.
+        A json column on the SOURCE never reaches the GROUP BY: _src.gid is a real
+        table's primary key, so PostgreSQL licenses every other _src column by
+        functional dependency. It pins a different fact from the overlay-side test above
+        — that one is about the join-back, this one about functional dependency, and
+        either could be broken without the other.
 
         Against the validator rather than the endpoint: enqueueing needs the
         task queue, so an HTTP assertion here would be reading a 503 from the
@@ -907,11 +903,9 @@ class TestColumnCollisions:
         overlay = SimpleNamespace(column_info=[{"name": "zone", "type": "text"}])
         _validate_intersect_columns(source, overlay)
 
-        # fix(#1099): the mirror image used to be refused, and that asymmetry
-        # is what this test was originally about. It is gone — the overlay side
-        # never needed the guard either, once its attributes stopped riding
-        # through the aggregate. Pinned here rather than dropped, because "the
-        # source side is fine" is only half the reason the sides now agree.
+        # The overlay side needs no guard either, because its attributes do
+        # not ride through the aggregate. Pinned here because "the source side
+        # is fine" is only half the reason the sides agree.
         _validate_intersect_columns(overlay, source)
 
     async def test_a_source_column_named_source_gid_is_rejected(
@@ -954,7 +948,7 @@ class TestColumnCollisions:
 
 
 class TestJobMetadata:
-    """fix(#1097 review): Admin Jobs reads this to diagnose a failed run."""
+    """Admin Jobs reads this to diagnose a failed run."""
 
     def _meta(self, operation: str, **kwargs):
         from app.modules.catalog.datasets.api.router_analysis import (

@@ -91,7 +91,7 @@ class _EndpointRecordingProvider:
     the first provider call.
 
     ``resolves_before_edit`` defers that edit past a number of endpoint
-    resolutions. fix(#1546): the NON-FORCE path resolves the endpoint once
+    resolutions. The NON-FORCE path resolves the endpoint once
     before the snapshot does — `get_records_without_embeddings` fingerprints the
     live configuration to decide which records are missing under it — so a
     subclass that has to land its edit inside the SNAPSHOT's window has to let
@@ -171,11 +171,11 @@ class _SnapshotWindowProvider(_EndpointRecordingProvider):
 class _AtomicSwitchProvider(_EndpointRecordingProvider):
     """Repoints model AND endpoint together, from inside the first resolve.
 
-    fix(#1525 review, codex P1). An admin who changes both in one PUT is the
+    An admin who changes both in one PUT is the
     case a per-value guard cannot see: with the endpoint captured in a window
     of its own, after the model had already been compared, the model comparison
-    passed on the old value and the endpoint comparison saw the new one twice,
-    so the run pinned old-model-plus-new-endpoint. That pairing never existed
+    would pass on the old value and the endpoint comparison would see the new
+    one twice, so the run would pin old-model-plus-new-endpoint. That pairing never existed
     in config, and if the new endpoint happens to accept the old model nothing
     downstream rejects it.
 
@@ -201,7 +201,7 @@ class _AtomicSwitchProvider(_EndpointRecordingProvider):
 class _BatchFailsWithTheEditProvider(_EndpointRecordingProvider):
     """Fails the batch call and lands the endpoint edit as it fails.
 
-    fix(#1525, codex P2). A provider stumble and an admin edit in the
+    A provider stumble and an admin edit in the
     same window is the shape the per-record fallback was blind to, and it is
     not a coincidence: an outage is exactly when someone goes and repoints the
     endpoint. Because the batch call raises, the batch's own post-call check
@@ -222,7 +222,7 @@ class _BatchFailsWithTheEditProvider(_EndpointRecordingProvider):
 class _RetryLandsTheEditProvider(_EndpointRecordingProvider):
     """Fails the batch call cleanly, then lands the edit during the first retry.
 
-    fix(#1525, codex P2). The other half: nothing has drifted when
+    The other half: nothing has drifted when
     the retry loop starts, so the check before the retry's provider call passes
     and only the one AFTER it can catch the edit, before that record's vector
     is committed.
@@ -265,7 +265,7 @@ class _QuietRecordingProvider:
 class _NullEndpointProvider:
     """Resolves its endpoint to None, which the provider interface permits.
 
-    fix(#1525 review, codex P2). `None` is a resolved value, not an omission,
+    `None` is a resolved value, not an omission,
     so a run that snapshots it has pinned something. Counting resolves is what
     shows whether the pin held: a gate testing `base_url is None` reads the pin
     as absent and re-resolves per batch.
@@ -336,10 +336,10 @@ async def test_a_mid_run_endpoint_edit_cannot_split_a_run_across_providers(
     # batch size of 128 the non-force path makes exactly one.
     monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 1)
 
-    # fix(#1525, codex P2): the run STOPS at the next batch boundary
+    # The run STOPS at the next batch boundary
     # once the endpoint it pinned is no longer the active one, instead of
     # quietly finishing the catalog in a vector space the live search will
-    # never match. So "one run reached two endpoints" is now unreachable rather
+    # never match. So "one run reached two endpoints" is unreachable rather
     # than merely avoided — the guard prevents the second call, it does not
     # make the second call use the right value.
     #
@@ -468,7 +468,7 @@ async def test_an_edit_inside_the_snapshot_window_aborts_the_run(
     ).scalar_one()
     assert before > 0
 
-    # fix(#1546): on the non-force path the selection resolves the endpoint
+    # On the non-force path the selection resolves the endpoint
     # before the snapshot does, so the edit has to skip that one to land where
     # this test needs it — inside the snapshot's own capture.
     provider = _SnapshotWindowProvider(resolves_before_edit=0 if force else 1)
@@ -509,10 +509,10 @@ async def test_an_atomic_model_and_endpoint_swap_cannot_pin_a_mixed_pair(
 ):
     """Both values move together, so the snapshot has to look at both again.
 
-    fix(#1525 review, codex P1): the values are pinned as a unit, so they have
+    The values are pinned as a unit, so they have
     to be verified as a unit. Capturing and comparing the endpoint separately,
-    after the model had already been compared, left a gap between the two
-    comparisons that a single PUT changing model and endpoint together lands
+    after the model had already been compared, would leave a gap between the
+    two comparisons that a single PUT changing model and endpoint together lands
     in. The pinned result is the old model against the new endpoint, which no
     admin ever chose, and nothing downstream can tell: the model still names a
     real model and the endpoint still names a real endpoint.
@@ -579,7 +579,7 @@ async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
 ):
     """A resolved None is a pin, not an omission.
 
-    fix(#1525 review, codex P2): the provider interface lets an extension
+    The provider interface lets an extension
     answer `{"base_url": None}`, meaning "use the client default". Testing
     `base_url is None` to decide whether the caller pinned anything reads that
     as an omission and resolves the live config again on every batch, so the
@@ -608,12 +608,12 @@ async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
     # detect, and the count below would hold on the unfixed tree too.
     assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
     # Two for `_snapshot_embedding_config` (capture then re-read), plus two per
-    # batch for the drift checks: one before requesting it (#1525)
+    # batch for the drift checks: one before requesting it
     # and one before accepting it. A batch that resolved the config for
     # its own VALUE as well would add a third, which is the bug: with
     # `base_url is None` as the pin test, a resolved None reads as an omission
     # and every batch re-resolves.
-    # fix(#1546): plus ONE for the non-force selection, which fingerprints the
+    # Plus ONE for the non-force selection, which fingerprints the
     # live configuration to decide which records lack a vector THIS
     # configuration can use.
     assert provider.resolves == 1 + 2 + 2 * len(provider.calls)
@@ -629,7 +629,7 @@ async def test_a_half_evicted_cache_cannot_pin_a_mixed_pair(
 ):
     """Two reads through one stale cache entry agree with each other.
 
-    fix(#1525, codex P1): `PersistentConfig.get` answers from a
+    `PersistentConfig.get` answers from a
     PER-KEY cache, and `update_settings` commits the whole batch before evicting
     each key in turn (settings/router.py:338-345). Between the commit and the
     last eviction, one key answers from the DB while another answers from cache,
@@ -787,11 +787,11 @@ async def test_an_edit_during_the_final_batch_is_not_committed(
 ):
     """The batch with no successor to catch it.
 
-    fix(#1525, codex P2): checking for drift before requesting each
+    Checking for drift before requesting each
     batch leaves the LAST one uncovered, because there is no next iteration.
-    An edit landing during that final provider call was never observed: the
-    vectors were generated against the pinned endpoint, committed, and the run
-    reported success while the active endpoint had already moved. Rows record
+    An edit landing during that final provider call would never be observed:
+    the vectors would be generated against the pinned endpoint, committed, and
+    the run would report success while the active endpoint had already moved. Rows record
     only `model_name`, so semantic search would then query the new endpoint's
     vector space and silently fail to match them.
 
@@ -847,11 +847,11 @@ async def test_an_edit_during_a_failed_batch_stops_the_per_record_retry(
 ):
     """Drift must not slip through on the failure path.
 
-    fix(#1525, codex P2): the per-record fallback (#449) ran with no
-    drift check at all. A batch call that fails while an admin repoints the
+    The per-record fallback needs its own
+    drift check. A batch call that fails while an admin repoints the
     endpoint skips the batch's post-call check entirely, and every retry below
-    it then generated against the stale pin and committed one vector at a time,
-    finishing with a partial-success dict.
+    it would then generate against the stale pin and commit one vector at a
+    time, finishing with a partial-success dict.
 
     The check before the retry's own provider call catches it here, so the run
     stops before generating anything: one provider call in total.
@@ -905,7 +905,7 @@ async def test_an_edit_during_a_per_record_retry_is_not_committed(
 ):
     """The retry's own call is bracketed, not just preceded.
 
-    fix(#1525, codex P2): nothing has drifted when the retry loop
+    Nothing has drifted when the retry loop
     starts here, so the check before the call passes and only the one after it
     can see the edit that landed during the call. Without it that record's
     vector is committed against the stale pin.

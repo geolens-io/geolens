@@ -323,7 +323,7 @@ def test_only_the_commit_handler_creates_a_run() -> None:
         if found:
             callers[path.name] = found
 
-    # feat(#1220): a second legitimate creator. The property this test
+    # A second legitimate creator. The property this test
     # protects is not "one handler" — it is "no handler that merely LOOKS at
     # an origin reserves the dataset". `refresh_dataset` is the refresh door's
     # commit: it is the request that queues the work, it writes its ingest job
@@ -332,14 +332,14 @@ def test_only_the_commit_handler_creates_a_run() -> None:
     # unique index referees both doors. The preview handlers beside it still
     # write nothing, which is the part that must not change.
     #
-    # feat(#1265): `_dispatch_postgis_refresh` is the second execution
+    # `_dispatch_postgis_refresh` is the second execution
     # strategy behind that same door, not a third door — `refresh_dataset` is
     # its only caller, after the one Rule 1 gate, and it reserves through the
     # same function. A strategy that grew its own admission path is precisely
     # what this assertion would catch, so the entry is per-strategy rather
     # than a wildcard on the module.
     #
-    # feat(#1266): `_dispatch_stac_refresh` is the third, on the same terms.
+    # `_dispatch_stac_refresh` is the third, on the same terms.
     # It reserves through `create_pending_run` and is reached only from
     # `refresh_dataset`, after the one Rule 1 gate — which is what makes the
     # partial unique index the referee for every origin kind rather than for
@@ -1332,7 +1332,7 @@ class TestAbandonedRunSweep:
         await test_db_session.commit()
 
     async def test_completed_legacy_job_records_success(self, test_db_session) -> None:
-        """fix(#1274 review): migration 0037's backfilled rows belong to
+        """Migration 0037's backfilled rows belong to
         legacy workers that finish by marking the job complete without ever
         calling the finalizer. A complete job IS proof the swap committed, so
         the sweep records succeeded — stamped with the job's own completion
@@ -1970,7 +1970,7 @@ class TestHistoryPaging:
 
 
 class TestMigrationBackfill:
-    """fix(#1274 review): in-flight legacy reupload jobs get run rows at
+    """In-flight legacy reupload jobs get run rows at
     upgrade, or the admission index sees their dataset as idle and admits a
     concurrent refresh against the same tables the old task will still swap."""
 
@@ -2098,9 +2098,9 @@ class TestLegacyDoubleDrain:
     async def test_reservation_survives_until_every_legacy_task_drains(
         self, test_db_session
     ) -> None:
-        """fix(#1274 review): the old system had no admission control, so two
-        legacy reupload tasks for one dataset can both be live while the
-        backfill could represent only one. The sole run's reservation must
+        """Legacy reupload tasks predate admission control, so two
+        for one dataset can both be live while the
+        backfill can represent only one. The sole run's reservation must
         outlive BOTH — releasing on its bound job's completion would let a
         new refresh race the unrepresented worker's swap."""
         from sqlalchemy import text as sa_text
@@ -2173,7 +2173,7 @@ class TestDrainingPodAdmission:
     async def test_live_legacy_task_without_a_run_row_refuses_admission(
         self, test_db_session
     ) -> None:
-        """fix(#1274 review): a reupload enqueued by a still-draining
+        """A reupload enqueued by a still-draining
         pre-migration API pod has a live task but no run row, so the index
         cannot referee it — admission must, until those pods drain."""
         from sqlalchemy import text as sa_text
@@ -2226,7 +2226,7 @@ class TestInterruptedDispatchRelease:
     async def test_pending_job_with_no_task_releases_after_cutoff(
         self, test_db_session
     ) -> None:
-        """fix(#1274 review): death between the commit and the defer leaves
+        """Death between the commit and the defer leaves
         job and run pending with no task. The bound-job sweep waits 24 hours
         for a staged completion, but the RUN must release at the abandonment
         cutoff or every retry 409s for that whole window."""

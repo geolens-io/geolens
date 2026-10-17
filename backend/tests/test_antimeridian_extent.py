@@ -1,9 +1,9 @@
-"""fix(#892): antimeridian-crossing extent representation.
+"""Antimeridian-crossing extent representation.
 
-``catalog.records.spatial_extent`` used to be ``geometry(Polygon, 4326)``, which
-cannot hold the west > east bbox RFC 7946 §5.2 and STAC use for a crossing
-extent. It is now generic ``geometry(Geometry, 4326)`` guarded by
-``chk_records_spatial_extent_type``, a seam-crossing extent is stored as a
+``catalog.records.spatial_extent`` is generic ``geometry(Geometry, 4326)``
+guarded by ``chk_records_spatial_extent_type``, because ``geometry(Polygon,
+4326)`` cannot hold the west > east bbox RFC 7946 §5.2 and STAC use for a
+crossing extent. A seam-crossing extent is stored as a
 two-ring MULTIPOLYGON, and ``extent_to_bbox`` reads that back as west > east
 while ``extent_to_span_bbox`` keeps monotonic bounds for consumers that cannot
 take an inverted pair.
@@ -26,7 +26,7 @@ from app.core.geo import bbox_to_extent_wkt, extent_to_bbox, extent_to_span_bbox
 # The canonical crossing case: a Fiji-area strip that spans the seam.
 FIJI_BBOX = (170.0, -20.0, -170.0, -15.0)
 
-# fix(#944): the sliver bbox_to_extent_wkt widens a degenerate axis to.
+# The sliver bbox_to_extent_wkt widens a degenerate axis to.
 PAD = 1e-9
 
 ORDINARY_POLYGON = "POLYGON((0 0,10 0,10 5,0 5,0 0))"
@@ -180,7 +180,7 @@ class TestBboxToExtentWkt:
         zero-width ring — an invalid geometry, the exact defect class this helper
         exists to prevent.
 
-        fix(#934): the zero-width half is dropped here, and that stays
+        The zero-width half is dropped here, and that stays
         right for this helper's callers, which all pass a continuous rectangle
         (a raster footprint, a STAC item bbox) with nothing in the dropped half
         to lose. The discrete-row case, where a feature really does sit at the
@@ -224,12 +224,12 @@ class TestBboxToExtentWkt:
     def test_degenerate_span_is_padded_to_a_valid_ring(
         self, bbox, expected_type, expected_bounds
     ):
-        """fix(#944): a zero-span axis builds four collinear points — zero area,
+        """A zero-span axis builds four collinear points — zero area,
         and not a valid polygon.
 
-        Only the width case was guarded before, and only on the crossing
-        branch, so a single-parallel source stored an invalid ring through the
-        STAC import path. Pad both axes on both branches, following the
+        Padding must cover both axes on both branches, not only the width case
+        on the crossing branch, or a single-parallel source stores an invalid
+        ring through the STAC import path. Follow the
         ``ST_Expand`` convention the producer paths already use.
         """
         shape = shapely_wkt.loads(bbox_to_extent_wkt(*bbox))
@@ -269,7 +269,7 @@ class TestBboxToExtentWkt:
         ],
     )
     def test_a_non_finite_bbox_is_refused_not_widened_to_the_globe(self, bbox):
-        """fix(#944): NaN compares False against everything.
+        """NaN compares False against everything.
 
         Every guard in this helper is an ordered comparison, so a NaN slips
         through all of them and comes out the far side as an almost-global
@@ -391,7 +391,7 @@ class TestSpatialExtentTypeConstraint:
 async def test_seam_extent_covers_the_data_and_not_the_complementary_340_degrees(
     test_db_session, clean_tables
 ):
-    """fix(#884)/fix(#892): what the old single ring actually did.
+    """What a single-ring extent actually does.
 
     ``POLYGON((170 -20,-170 -20,-170 -15,170 -15,170 -20))`` is a *valid* simple
     rectangle, not a self-intersecting one. Its defect is the area: it spans
@@ -399,10 +399,10 @@ async def test_seam_extent_covers_the_data_and_not_the_complementary_340_degrees
     instead of the intended 100 deg², **missed the Fiji data it described**, and
     matched anything in the same -20..-15 latitude band at any other longitude.
 
-    So the discriminating assertions are the Fiji hit (False under the old ring)
-    and the same-latitude South Atlantic miss (True under the old ring). A probe
-    over central France is *not* discriminating: at latitude 47 it fell outside
-    the old ring's latitude band too. It stays here only as a coarse check that
+    So the discriminating assertions are the Fiji hit (False under a single ring)
+    and the same-latitude South Atlantic miss (True under a single ring). A probe
+    over central France is *not* discriminating: at latitude 47 it falls outside
+    the single ring's latitude band too. It stays here only as a coarse check that
     the extent has not gone global.
     """
     del clean_tables
@@ -480,14 +480,13 @@ async def test_make_bbox_filter_finds_a_seam_extent_from_either_side(
 
 
 def test_map_layer_response_bbox_uses_the_spec_form():
-    """fix(#1112): ``dataset_extent_bbox`` carries the seam to the map builder.
+    """``dataset_extent_bbox`` carries the seam to the map builder.
 
-    Held the span form under #892, when all three consumers were seam-blind. The
-    two builder fit paths have since grown #903 guards that unwrap a crossing
-    pair past 180, and the span form made them unreachable — it flattens a Fiji
+    The two builder fit paths have guards that unwrap a crossing pair past
+    180, and the span form would make them unreachable — it flattens a Fiji
     extent to the same ``[-180, s, 180, n]`` a genuinely global dataset
-    produces, so auto-fit and Zoom to Layer framed the whole world with nothing
-    left to detect. The third consumer still needs the span, because a MapLibre
+    produces, so auto-fit and Zoom to Layer would frame the whole world with
+    nothing left to detect. The third consumer still needs the span, because a MapLibre
     source ``bounds`` matches no tile at all when inverted, but it converts at
     that boundary (``normalizeRasterBounds`` in ``layer-adapters/shared.ts``)
     instead of demanding it on the wire. Build the response for real, so this
@@ -517,17 +516,16 @@ def test_map_layer_response_bbox_uses_the_spec_form():
 
 
 def test_dataset_response_bbox_uses_the_spec_form():
-    """fix(#1004): the mirror of the pin above, on the same database column.
+    """The mirror of the pin above, on the same database column.
 
     ``DatasetResponse.extent_bbox`` feeds the dataset detail page, whose three
-    camera/extent sites all carry #903 seam guards. The span form flattened a
+    camera/extent sites all carry seam guards. The span form would flatten a
     crossing extent to ``[-180, s, 180, n]`` — bit-identical to what a genuinely
-    global dataset produces — so ``isLargeExtent`` fired first and the guards
-    were unreachable. The seam has to survive the wire.
+    global dataset produces — so ``isLargeExtent`` would fire first and the
+    guards would be unreachable. The seam has to survive the wire.
 
     These two tests sit together deliberately: one column, two response fields
-    that reached opposite forms at different times (#1004, then #1112). Both are
-    the spec form now, and the span conversion has moved to the one consumer
+    that both carry the spec form, with the span conversion at the one consumer
     that needs it, at that consumer's own boundary.
     """
     from app.modules.catalog.datasets.domain.helpers import dataset_to_response

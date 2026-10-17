@@ -7,19 +7,16 @@ Parses the alembic filter list from .github/workflows/ci.yml and asserts:
 3. At least one glob covers real model modules (e.g. backend/app/core/db/models.py
    or the backend/app/**/models.py family) so a model-only PR triggers alembic check.
 
-It also guards the ``backend`` filter (fix(#1088)): every ``scripts/`` file a
+It also guards the ``backend`` filter: every ``scripts/`` file a
 backend test reads by literal path must be in that filter, or the suite that
 asserts against the file skips on the very PR that changes it.
 
-fix(#1778): the currency check above only scanned for
-``scripts/...`` literals — it had no ``frontend/...`` or ``e2e/...`` half, so
-several frontend files and one e2e spec that backend cross-language/parity
-tests read by literal path drifted out of the ``backend`` filter with nothing
-noticing. Both halves now share one scanner (``_referenced_by_backend_tests``)
+The currency check covers ``scripts/...`` literals and also ``frontend/...``
+and ``e2e/...`` ones that backend cross-language/parity tests read by literal
+path. Both halves share one scanner (``_referenced_by_backend_tests``)
 parameterized by pattern.
 
 These tests run locally (filesystem + YAML parse only; no Docker, no DB).
-They are the locally-verifiable proof of the CI fix.
 """
 
 from __future__ import annotations
@@ -113,12 +110,12 @@ def _referenced_by_backend_tests(pattern: re.Pattern[str]) -> dict[str, list[str
 
 _SCRIPTS_PATTERN = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py|yml|yaml)")
 
-# fix(#1778): ``tsx`` MUST precede ``ts`` in the
+# ``tsx`` MUST precede ``ts`` in the
 # extension alternation. The greedy path class backtracks into whichever
 # alternative matches first, so ``ts`` before ``tsx`` silently resolves
 # ``AuditLogViewer.tsx`` to the nonexistent ``AuditLogViewer.ts`` — the
-# ``is_file()`` check below then drops it, which is exactly how this file
-# went uncovered by the scanner (and the filter) for as long as it did.
+# ``is_file()`` check below then drops it, which is how a file can go
+# uncovered by the scanner (and the filter).
 _FRONTEND_PATTERN = re.compile(
     r"(?:frontend|e2e)/[A-Za-z0-9_./-]+\.(?:tsx|ts|json|conf|js|html|md)"
 )
@@ -253,7 +250,7 @@ class TestAlembicFilterGlobs:
 
 
 class TestPullRequestDiffBase:
-    """fix(#1094): the PR diff base must not be the stale pull_request.base.sha."""
+    """The PR diff base must not be the stale pull_request.base.sha."""
 
     def _changes_steps(self) -> list[dict]:
         with CI_YML_PATH.open() as fh:
@@ -322,7 +319,7 @@ class TestPullRequestDiffBase:
 
 
 class TestBackendFilterCoversReferencedScripts:
-    """fix(#1088): guard the backend filter against the skipped-suite trap."""
+    """Guard the backend filter against the skipped-suite trap."""
 
     def test_every_backend_glob_matches_at_least_one_real_file(self):
         """No dead globs in the backend filter.
@@ -384,15 +381,13 @@ class TestBackendFilterCoversReferencedScripts:
         """Every frontend/ or e2e/ file a backend test reads must trigger
         Backend Tests.
 
-        fix(#1778): the currency check above only had a
-        scripts/ half. Several frontend files and one e2e spec that backend
-        cross-language/parity tests read by literal path — most notably
-        frontend/src/components/admin/AuditLogViewer.tsx, which
-        test_audit_action_registry.py's bidirectional audit-action parity
-        gate reads — were absent from the 'backend' filter with nothing
-        checking for it. A PR editing only that file matched the 'frontend'
-        filter but not 'backend', so Backend Tests skipped and the parity
-        gate never ran. Same "skipped required job reads as green" trap as
+        The currency check above covers more than the scripts/ half: frontend files and
+        e2e specs that backend cross-language/parity tests read by literal path — most
+        notably frontend/src/components/admin/AuditLogViewer.tsx, which
+        test_audit_action_registry.py's bidirectional audit-action parity gate reads —
+        must be in the 'backend' filter. A PR editing only that file would otherwise
+        match the 'frontend' filter but not 'backend', so Backend Tests would skip and
+        the parity gate never run. Same "skipped required job reads as green" trap as
         the scripts/ test above.
         """
         referenced = _frontend_referenced_by_backend_tests()

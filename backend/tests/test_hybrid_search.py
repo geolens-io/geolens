@@ -135,7 +135,7 @@ async def _get_embedding_dim(session) -> int:
 def _fresh_has_embeddings_cache():
     """Clear the module-global has_embeddings cache before every test.
 
-    fix(#433): the cache (TTL 30s, app/processing/embeddings/helpers.py) is
+    The cache (TTL 30s, app/processing/embeddings/helpers.py) is
     keyed by model name only, so a semantic search that ran against an EMPTY
     embeddings table — e.g. test_semantic_fallback_no_embeddings, or any
     earlier test on the same xdist worker — caches False and starves the
@@ -496,10 +496,10 @@ async def test_short_query_skips_embedding_call(
     hybrid_datasets_with_embeddings: dict,
     hybrid_vectors: dict[str, list[float]],
 ):
-    """fix(#625): a query below _MIN_SEMANTIC_QUERY_LEN pays no provider call.
+    """A query below _MIN_SEMANTIC_QUERY_LEN pays no provider call.
 
-    Search-as-you-type fired one embedding round-trip per keystroke prefix, each
-    of which then missed the cosine cutoff and fell back to FTS anyway. Short
+    Search-as-you-type would fire one embedding round-trip per keystroke prefix,
+    each of which then misses the cosine cutoff and falls back to FTS anyway. Short
     queries must skip the vector path entirely and still return FTS results.
     """
     from app.modules.catalog.search.service_semantic import _MIN_SEMANTIC_QUERY_LEN
@@ -847,7 +847,7 @@ async def test_semantic_approximate_count_keeps_next_link(
     client: AsyncClient,
     test_db_session,
 ):
-    """fix(#448, codex P2): past the exact-count gate, a FULL vector window must
+    """Past the exact-count gate, a FULL vector window must
     report numberMatched > offset+limit or the router suppresses the `next`
     link on a semantic-only first page. The +1 full-window sentinel keeps
     paging alive; a non-full (final) window reports the exact tail."""
@@ -886,7 +886,7 @@ async def test_semantic_approximate_count_keeps_next_link(
                 "app.modules.catalog.search.service_semantic._EXACT_SEMANTIC_COUNT_MAX_ROWS",
                 0,
             ),
-            # fix(#1855): the shared window floor would hold all five matches;
+            # The shared window floor would hold all five matches;
             # drop it so the window is the page and the sentinel is exercised.
             patch(
                 "app.modules.catalog.search.service_semantic._APPROXIMATE_CANDIDATE_WINDOW",

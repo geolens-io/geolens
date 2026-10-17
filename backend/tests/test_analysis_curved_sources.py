@@ -1,18 +1,18 @@
-"""Curved-geometry sources and binary property values (#1097 review, #1104).
+"""Curved-geometry sources and binary property values.
 
 WFS ingest admits CURVED geometries — GeoServer MultiSurface/CompoundCurve
 layers load as stored, and ingest classifies the dataset by the closest
 concrete linear type (metadata_extent.py's _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE).
 Verified against PostGIS 3.6: ``::geography``, ``ST_MakeValid``,
-``ST_AsGeoJSON`` and ``ST_AsMVTGeom`` all RAISE on curved input. fix(#1104):
-ingest therefore linearizes ``geom_4326`` itself (add_4326_column applies
+``ST_AsGeoJSON`` and ``ST_AsMVTGeom`` all RAISE on curved input.
+Ingest therefore linearizes ``geom_4326`` itself (add_4326_column applies
 ST_CurveToLine; the curved source survives in ``geom``), and the fixture
 routes through that same normalizer — so every test here pins that the
 ingest invariant alone keeps analysis previews, CTAS outputs, tiles and
 feature reads working, with no per-read wraps left in the SQL.
 
-The bytea test pins the OTHER preview serialization hazard from the same
-review round: a transferred ``bytea`` value reaching Pydantic as raw bytes.
+The bytea test pins the OTHER preview serialization hazard: a transferred ``bytea``
+value reaching Pydantic as raw bytes.
 
 Requirements:
   - Docker database must be running (docker compose up db)
@@ -31,9 +31,9 @@ from tests.factories import get_user_id
 from tests.test_analysis_materialize import _create_job
 from tests.test_analysis_spatial_join import _create_layer
 
-# fix(#1104): make the fixtures defined in test_tiles.py (especially
-# _init_tile_pool_for_tests) available to this module without duplicating the
-# fixture body — same pattern as test_tile_cache_cols_key.py.
+# Import the fixtures defined in test_tiles.py (especially
+# _init_tile_pool_for_tests) so they are available to this module without
+# duplicating the fixture body — same pattern as test_tile_cache_cols_key.py.
 pytest_plugins = ["tests.test_tiles"]
 
 # A full circle of radius 0.5 centred on (0.5, 0), stored as the curved
@@ -357,7 +357,7 @@ class TestBinaryJoinFields:
 
 
 class TestCurvedIngestNormalization:
-    """fix(#1104): ingest stores geom_4326 LINEAR, so every surface reads it.
+    """Ingest stores geom_4326 LINEAR, so every surface reads it.
 
     The classes above pin the analysis operations. These pin the stored
     invariant itself plus the two broken surfaces with no other curved
@@ -444,7 +444,7 @@ class TestCurvedIngestNormalization:
     async def test_register_linearizes_a_preexisting_curved_geom_4326(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1113 review): the register path enforces the invariant too.
+        """The register path enforces the invariant too.
 
         ``register_existing_table`` skips ``add_4326_column`` when the table
         already carries geom_4326, and a table created in the data schema
@@ -506,7 +506,7 @@ class TestCurvedIngestNormalization:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1113 review): a ``:id`` property must not read as a bind param.
+        """A ``:id`` property must not read as a bind param.
 
         Registered Socrata exports ship columns literally named ``:id``. The
         projected select-list is interpolated into ``text()``, which parses
@@ -797,7 +797,7 @@ class TestCurvedIngestNormalization:
     async def test_register_loosens_a_curved_geom_4326_typmod(
         self, test_db_session: AsyncSession
     ):
-        """fix(#1113 review): a curved column TYPMOD must not abort the write.
+        """A curved column TYPMOD must not abort the write.
 
         ``geometry(CurvePolygon, 4326)`` rejects the linear result of
         ST_CurveToLine outright, so without the retype the enforcement UPDATE

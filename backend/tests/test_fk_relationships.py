@@ -77,8 +77,8 @@ class TestFKRelationships:
         assert data["label"] == "Links to target"
         assert "id" in data
 
-        # fix(#315): the CREATE response must carry dereferenceable Dataset.id values,
-        # NOT the stored record_ids, matching the LIST contract (#315). The DB
+        # The CREATE response must carry dereferenceable Dataset.id values,
+        # NOT the stored record_ids, matching the LIST contract. The DB
         # still stores record_ids and the create INPUT still takes a record_id
         # target — only the RESPONSE ids are Dataset.id.
         assert data["source_dataset_id"] == str(source.id)
@@ -99,7 +99,7 @@ class TestFKRelationships:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#315): a relationship target id round-trips back into create.
+        """A relationship target id round-trips back into create.
 
         Responses serialize target_dataset_id as Dataset.id, so the create input
         must accept a Dataset.id too (not just the underlying record_id).
@@ -167,7 +167,7 @@ class TestFKRelationships:
         assert body["total"] >= 1
         rel = next(r for r in items if r["source_column"] == "ref_id")
 
-        # fix(#315): the response ids are Dataset.id (dereferenceable), NOT the stored
+        # The response ids are Dataset.id (dereferenceable), NOT the stored
         # record_id. Clients fetch /collections/{id} which resolves by Dataset.id.
         assert rel["target_dataset_id"] == str(target.id)
         assert rel["target_dataset_id"] != str(target.record_id)
@@ -338,7 +338,7 @@ class TestFKRelationships:
     ):
         """A relationship whose target has no backing table returns 503, not 500.
 
-        fix(#315 sibling, G4/E3): the related-records traversal queries
+        The related-records traversal queries
         data.<target_table> directly. If the target dataset is a raster/VRT (no
         feature table) or its table was cold-evicted, that query raises
         UndefinedTableError. The service must map ProgrammingError ->

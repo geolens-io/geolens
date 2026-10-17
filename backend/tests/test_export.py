@@ -854,7 +854,7 @@ class TestExportFeatureCap:
 
     @pytest.fixture
     async def capped_pacific_dataset(self, test_db_session, monkeypatch):
-        """fix(#905): 3-row table straddling the antimeridian, cap lowered to 2.
+        """3-row table straddling the antimeridian, cap lowered to 2.
 
         Points at lon 179.5, -179.5 and 150 — a narrow crossing bbox selects
         the first two, a wide one selects all three.
@@ -907,9 +907,9 @@ class TestExportFeatureCap:
     async def test_crossing_bbox_under_cap_passes(
         self, client: AsyncClient, admin_auth_header: dict, capped_pacific_dataset
     ):
-        """fix(#905): a west>east bbox used to skip the count filter entirely,
-        so this narrow Fiji-style AOI (2 of 3 rows, cap 2) falsely 413'd on the
-        unfiltered count of 3."""
+        """A west>east bbox must not skip the count filter: this narrow
+        Fiji-style AOI (2 of 3 rows, cap 2) would falsely 413 on the unfiltered
+        count of 3."""
         resp = await client.get(
             f"/datasets/{capped_pacific_dataset.id}/export",
             params={"bbox": "179,-20,-179,-15", "format": "geojson"},
@@ -1009,18 +1009,17 @@ class TestExportFeatureCap:
 
 
 # ---------------------------------------------------------------------------
-# Colon inside a where string literal — fix(#823)
+# Colon inside a where string literal
 # ---------------------------------------------------------------------------
 
 
 class TestExportWhereColonLiteral:
-    """fix(#823): SQLAlchemy text() reads ":name" as a bind parameter, so a
+    """SQLAlchemy text() reads ":name" as a bind parameter, so a
     validated where clause containing a colon inside a string literal (e.g.
-    name = 'A:B' or an ISO timestamp) used to blow up the bounded-count query
-    in _count_selected_features with an unbound-parameter error → 500.
-
-    parquet.py already escaped colons to text()'s literal form; the router's
-    count path now mirrors it. These tests lower the cap so the count query
+    name = 'A:B' or an ISO timestamp) would blow up the bounded-count query
+    in _count_selected_features with an unbound-parameter error → 500 unless
+    colons are escaped to text()'s literal form, as parquet.py does and the
+    router's count path mirrors. These tests lower the cap so the count query
     actually executes against a real table.
     """
 
@@ -1106,14 +1105,14 @@ class TestExportWhereColonLiteral:
 
 
 # ---------------------------------------------------------------------------
-# Word-shaped literal inside a where filter — fix(#1870)
+# Word-shaped literal inside a where filter
 # ---------------------------------------------------------------------------
 
 
 class TestExportWhereWordLiteral:
-    """fix(#1870): the identifier walk in validate_where_clause ran over the
-    raw clause, so `name = 'Main Street'` was refused with "Unknown column:
-    Main" and text filtering was unusable through every export door.
+    """The identifier walk in validate_where_clause must not run over string
+    literals: it would refuse `name = 'Main Street'` with "Unknown column:
+    Main" and make text filtering unusable through every export door.
 
     The cap is lowered so the bounded filtered COUNT executes against a real
     table, which is what proves the clause is applied rather than dropped.

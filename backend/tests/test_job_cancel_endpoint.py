@@ -208,7 +208,7 @@ class TestCancelEndpoint:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#1709 review P2): the post-commit queue lookup is best-effort.
+        """The post-commit queue lookup is best-effort.
 
         By the time it runs, the cancel is durably committed — a lookup
         failure (connection drop, queue table unavailable) must be logged

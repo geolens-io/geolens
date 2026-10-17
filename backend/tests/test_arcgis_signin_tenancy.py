@@ -1,19 +1,19 @@
-"""fix(#1758): the ArcGIS sign-in lockout budget crosses tenants.
+"""The ArcGIS sign-in lockout budget crosses tenants.
 
 Esri locks an ArcGIS account after five failed sign-ins in fifteen minutes and
 counts them per ACCOUNT. GeoLens allows three, so it can never be what locks
-one. That guarantee only holds if the count is cluster-global, and the first
-revision counted it from ``catalog.audit_logs``, which carries
-``tenant_isolation_audit_logs``: in ``multi_tenant`` each tenant saw only its
-own attempts, so two tenants could send six failures at one account between
-them and lock it. The advisory lock did not close the gap either, because it
+one. That guarantee only holds if the count is cluster-global. Counting it from
+``catalog.audit_logs`` would not be, because that table carries
+``tenant_isolation_audit_logs``: in ``multi_tenant`` each tenant would see only
+its own attempts, so two tenants could send six failures at one account between
+them and lock it. An advisory lock does not close the gap either, because it
 serializes rather than aggregates.
 
-The fix is ``catalog.arcgis_signin_attempts``, a ledger deliberately outside
-the RLS boundary. This module is the proof, and it is a separate file from
-``test_arcgis_signin.py`` on purpose: joining ``_TENANCY_GLOBAL_STATE_MODULES``
-pins every test in the file to the single tenancy xdist worker, and only these
-three need that.
+The count therefore comes from ``catalog.arcgis_signin_attempts``, a ledger deliberately
+outside the RLS boundary. This module is the proof, and it is a separate file from
+``test_arcgis_signin.py`` on purpose: joining ``_TENANCY_GLOBAL_STATE_MODULES`` pins
+every test in the file to the single tenancy xdist worker, and only these three need
+that.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def test_the_ledger_is_deliberately_outside_the_rls_boundary():
     assert set(ArcGISSignInAttempt.__table__.c.keys()) == {
         "id",
         "account_key",
-        # fix(#1775): the per-caller budget's key, and a keyed digest of the
+        # The per-caller budget's key, and a keyed digest of the
         # caller and the token-service scope rather than a user id, so the
         # no-plaintext-identifier rule this test states still holds.
         "user_scope",
@@ -149,8 +149,8 @@ async def test_two_tenants_share_one_budget_for_one_arcgis_account(multi_tenant_
                     {
                         "id": uuid.uuid4(),
                         "account_key": account_key,
-                        # fix(#1775): tenant A's caller, which tenant B is
-                        # not. The per-caller budget reads this table too now,
+                        # Tenant A's caller, which tenant B is
+                        # not. The per-caller budget reads this table too,
                         # so charging these rows to B's digest would let the
                         # WRONG budget answer the question below and the test
                         # would prove nothing about the account budget

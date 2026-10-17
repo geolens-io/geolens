@@ -335,7 +335,7 @@ async def test_reset_password_audits_actor_and_target_without_the_password(
 
 
 # ---------------------------------------------------------------------------
-# bcrypt's 72-byte input limit (fix(#1715))
+# bcrypt's 72-byte input limit
 # ---------------------------------------------------------------------------
 
 
@@ -446,7 +446,7 @@ async def test_the_byte_limit_also_closed_the_two_pre_existing_entry_points(
 
 
 # ---------------------------------------------------------------------------
-# Reset vs. self-service change-password (fix(#1715 P1))
+# Reset vs. self-service change-password
 # ---------------------------------------------------------------------------
 
 
@@ -606,11 +606,11 @@ async def test_two_concurrent_logins_to_one_account_both_succeed(
 ):
     """Locking the login row must not deadlock two logins to the same account.
 
-    fix(#1715): the first version of the lock took FOR SHARE. The
-    login handler then assigns user.last_login_at, whose UPDATE needs FOR NO
-    KEY UPDATE, so two concurrent logins each held a shared lock and each tried
-    to upgrade it. Postgres breaks that cycle by aborting one of them, turning
-    an ordinary simultaneous sign-in into a failed login.
+    The lock must not take FOR SHARE: the login handler goes on to assign
+    user.last_login_at, whose UPDATE needs FOR NO KEY UPDATE, so two concurrent logins
+    would each hold a shared lock and each try to upgrade it. Postgres breaks that cycle
+    by aborting one of them, turning an ordinary simultaneous sign-in into a failed
+    login.
 
     Runs against the real database rather than a double, because the deadlock
     is a property of the lock modes and a fake would not have any.
@@ -640,14 +640,14 @@ async def test_login_does_not_deadlock_against_a_shared_lock_then_write(
 ):
     """A login must not race another transaction into a lock upgrade.
 
-    fix(#1715): the first version of this lock took FOR SHARE, and the
-    login handler goes on to assign user.last_login_at, whose UPDATE needs FOR
-    NO KEY UPDATE. Two transactions that both hold a shared lock on one row and
-    then both write to it deadlock, and Postgres resolves that by aborting one
-    of them -- turning an ordinary sign-in into a failed login.
+    A FOR SHARE lock would deadlock here: the login handler goes on to assign
+    user.last_login_at, whose UPDATE needs FOR NO KEY UPDATE. Two transactions that both
+    hold a shared lock on one row and then both write to it deadlock, and Postgres
+    resolves that by aborting one of them -- turning an ordinary sign-in into a failed
+    login.
 
     The other party here is a transaction that shares-locks the row and then
-    writes it, which is exactly the shape the old login had. Driving it from a
+    writes it, which is exactly the shape a FOR SHARE login would have. Driving it from a
     second session makes the interleaving deterministic; two real logins in one
     event loop cannot reproduce it, because the bcrypt verify is synchronous
     and serializes them before their lock windows can overlap.

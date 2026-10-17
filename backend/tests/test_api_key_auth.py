@@ -132,13 +132,12 @@ async def test_revoked_api_key_returns_401(client: AsyncClient):
 async def test_invalid_api_key_is_refused_on_optional_auth(client: AsyncClient):
     """Call GET /collections/datasets/items with invalid X-Api-Key (no JWT).
 
-    fix(#1518): this used to assert 200 — the anonymous fallback. An
-    anonymous-capable endpoint now REFUSES a credential that was supplied and
+    An anonymous-capable endpoint REFUSES a credential that was supplied and
     could not be resolved, because 200-with-the-public-subset is
     indistinguishable from a catalog holding nothing more, and a client that
-    retries on 401 never got the signal to refresh.
+    retries on 401 would never get the signal to refresh.
 
-    The credential-less half of the contract is unchanged and lives in
+    The credential-less half of the contract lives in
     tests/test_ogc_public_access.py, which asserts 200 for the same path with
     no headers at all.
     """
@@ -323,7 +322,7 @@ async def test_self_service_cannot_delete_another_users_key(client: AsyncClient)
 
 
 # ---------------------------------------------------------------------------
-# fix(#821): expiry, token_version staleness, deprecated query-param lane
+# Expiry, token_version staleness, deprecated query-param lane
 # ---------------------------------------------------------------------------
 
 
@@ -375,9 +374,9 @@ async def test_api_key_null_expiry_accepted(client: AsyncClient):
 async def test_expired_api_key_rejected(client: AsyncClient, test_db_session):
     """An expired key behaves exactly like an invalid one: 401 either way.
 
-    fix(#1518): the second assertion used to expect 200 from the optional-auth
-    endpoint. What the test pins is the EQUIVALENCE — expired and invalid must
-    be indistinguishable — and that still holds now that both answers are 401.
+    What the test pins is the EQUIVALENCE — expired and invalid must be
+    indistinguishable — and both answers are 401, including from the
+    optional-auth endpoint.
     """
     from datetime import datetime, timedelta, timezone
 

@@ -33,7 +33,7 @@ def _minter_reads_every_dataset(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-# fix(#1778): validate_embed_token_access now compares each positive
+# validate_embed_token_access compares each positive
 # entry's generation stamp against the cluster-global revocation generation, and
 # an entry that carries no stamp (or a stale one) is treated as a miss. These
 # cases are about the expiry re-check, so they pin the generation and
@@ -68,14 +68,14 @@ class FakeCache:
     async def set_if_absent(
         self, key: str, value, ttl: int = 300, *, security: bool = False
     ) -> bool:
-        """fix(#1778): mirrors the provider contract: never overwrite."""
+        """Mirrors the provider contract: never overwrite."""
         if key in self._store:
             return False
         self._store[key] = value
         return True
 
     async def set_authoritative(self, key: str, value, ttl: int = 300) -> None:
-        """fix(#1778): one store here, so this is set."""
+        """One store here, so this is set."""
         self._store[key] = value
 
     async def delete(self, key: str) -> None:

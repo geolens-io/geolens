@@ -70,9 +70,9 @@ class TestWhereClauseInjectionRejection:
         checks (statement terminator / comment / unbalanced quote)
         and the AST allowlist.
 
-        fix(#1870): word-shaped values are covered by
+        Word-shaped values are covered by
         TestWhereClauseStringLiterals below; these two stay as the
-        numeric-shaped cases they were written as."""
+        numeric-shaped cases."""
         # Numeric-only string (passes the identifier and string-level checks).
         validate_where_clause("name = '42'", COLS)
         # SQL-escaped doubled quote — must accept (collapses to even).
@@ -84,7 +84,7 @@ class TestWhereClauseInjectionRejection:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1870): a string VALUE is not a column reference
+# A string VALUE is not a column reference
 # ---------------------------------------------------------------------------
 
 
@@ -270,12 +270,11 @@ class TestExportFileTouchedBeforeStreaming:
         pin more directly, and the behavioral effect (mtime freshness) is
         exercised by test_worker_exports_sweep.py's sweep-algorithm tests.
 
-        fix(#1532 review, internal): the response is a StreamingResponse over
-        the temp file now, not a FileResponse — starlette parses `Range` inside
-        the latter and answered a resuming client with a slice of a fresh
-        conversion. The invariant is unchanged and so is the reason for it: the
-        sweep still reads the temp directory's mtime, and this response still
-        streams that file for as long as the client takes.
+        The response is a StreamingResponse over
+        the temp file, not a FileResponse — starlette parses `Range` inside
+        the latter and would answer a resuming client with a slice of a fresh
+        conversion. The sweep reads the temp directory's mtime, and this
+        response streams that file for as long as the client takes.
         """
         import inspect
 

@@ -1,17 +1,17 @@
-"""fix(#1778): a property the write path cannot address must be refused, not dropped.
+"""A property the write path cannot address must be refused, not dropped.
 
-Two guards disagreed about what a legal column is. `_reject_unknown_properties`
-admitted any key present in column_info; the write loops then silently skipped
-whatever `_COLUMN_NAME_RE` rejected, which is strictly narrower than every
-producer of column_info. So a dataset with a `_notes` column returned that key
-from GET and answered 201/200 on a write with the value never stored -- and on
-PUT the column was not even NULLed, contradicting the documented "Columns not
+The guards must agree about what a legal column is. `_reject_unknown_properties`
+admits any key present in column_info, so the write loops must not silently skip
+whatever `_COLUMN_NAME_RE` rejects, which is strictly narrower than every
+producer of column_info. Otherwise a dataset with a `_notes` column returns that
+key from GET and answers 201/200 on a write with the value never stored -- and
+on PUT the column is not even NULLed, contradicting the documented "Columns not
 present in properties are set to NULL". Silent write loss behind a success
 response is exactly what an editing UI's read-modify-write round trip hits.
 
-The hole was reachable with no external data: `POST /datasets/create/` validated
+The hole is reachable with no external data: `POST /datasets/create/` validates
 column names against SAFE_COLUMN_NAME_RE, which allows a leading underscore and
-has no length bound, so it happily built a column the feature API could never
+has no length bound, so it happily builds a column the feature API could never
 write.
 
 Requires the Docker test database.

@@ -59,7 +59,7 @@ def test_backward_compat_log_json_without_environment(monkeypatch):
 
 
 def test_empty_environment_normalizes_to_none(monkeypatch):
-    """fix(#441): compose passes ENVIRONMENT through as "${ENVIRONMENT:-}", so
+    """Compose passes ENVIRONMENT through as "${ENVIRONMENT:-}", so
     an operator who never set it delivers "" — that must behave exactly like
     unset (LOG_JSON fallback), not fail the Literal validation at boot."""
     s = _settings(monkeypatch, environment="", log_json=False)

@@ -239,7 +239,7 @@ async def test_the_stuck_tick_is_not_cancelled_by_the_drain_timeout(monkeypatch)
     """asyncio.shield's whole point here: giving up on WAITING for a stuck
     tick must not cancel the tick itself, so its connection still gets a
     chance to close cleanly rather than being torn down mid-flight -- the
-    exact failure mode fix(#1778)'s shield exists to prevent."""
+    exact failure mode the shield exists to prevent."""
     monkeypatch.setattr(
         tasks_vector, "_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS", 0.01, raising=False
     )

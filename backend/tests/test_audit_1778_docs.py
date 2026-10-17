@@ -1,5 +1,4 @@
-"""fix(#1778): regression locks for the doc-accuracy findings from the
-2026-08-30 codebase audit — EGRESS.md's air-gap claim, CONTRIBUTING.md's
+"""Regression locks for doc accuracy — EGRESS.md's air-gap claim, CONTRIBUTING.md's
 backend/frontend style-check recipes, and ARCHITECTURE.md's E2E policy line.
 """
 
@@ -22,8 +21,8 @@ def _read(rel_path: str) -> str:
 def _doc_mentions_host(body: str, host: str) -> bool:
     """True if a backtick-quoted code span in `body` names exactly `host`.
 
-    fix(#1778 review, CodeQL py/incomplete-url-substring-sanitization):
-    the previous `host in body` check is the exact shape that query flags —
+    A plain `host in body` check is the exact shape CodeQL's
+    py/incomplete-url-substring-sanitization query flags —
     a substring-containment test against a hostname-shaped literal, which a
     same-prefix host (`host.evil.com`) or same-suffix host (`evil-host`)
     could also satisfy. Extract each backtick code span, parse it with

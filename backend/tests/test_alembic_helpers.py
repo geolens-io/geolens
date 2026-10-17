@@ -1,4 +1,4 @@
-"""Tests for the shared alembic runner (fix(#933)).
+"""Tests for the shared alembic runner.
 
 Proves each normalization does its one job, so that committed state no longer
 makes a downgrade past a refuse-to-coerce migration fail for whichever
@@ -7,7 +7,7 @@ unrelated migration test happens to share the xdist worker:
 - an antimeridian-crossing (MULTIPOLYGON) ``spatial_extent`` past
   ``0030_records_spatial_extent_type``
 - an expiring API key or a bumped ``key_epoch`` past
-  ``0029_api_key_hardening`` (fix(#1016))
+  ``0029_api_key_hardening``
 
 The 0029 tests also cover the guard itself: that it fires on a database
 holding that state, and that a clean database still downgrades.
@@ -118,7 +118,7 @@ async def _seed_expiring_key(session, *, epoch_bump: bool) -> None:
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 async def test_downgrade_past_0029_refuses_while_key_state_exists(test_db_session):
-    """fix(#1016): the guard fires, and its message is actionable.
+    """The guard fires, and its message is actionable.
 
     ``normalize=False`` deliberately bypasses the runner's cleanup so the
     refusal itself is what is under test.
@@ -155,13 +155,13 @@ async def test_downgrade_past_0029_refuses_while_key_state_exists(test_db_sessio
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 async def test_key_state_no_longer_breaks_downgrade_past_0029(test_db_session):
-    """fix(#1016): the same state, absorbed by the runner.
+    """The same state, absorbed by the runner.
 
-    This is the #933 shape. ``test_api_key_auth.py`` commits both an expiring
-    key and a key_epoch bump and cleans up neither, so without the
-    normalization every downgrade crossing 0029 — six files, twenty-plus call
-    sites, all of them heading for 0004/0005/0009 — would fail depending only
-    on which xdist worker the auth suite landed on.
+    This is the shape other suites leave behind. ``test_api_key_auth.py`` commits both
+    an expiring key and a key_epoch bump and cleans up neither, so without the
+    normalization every downgrade crossing 0029 — six files, twenty-plus call sites, all
+    of them heading for 0004/0005/0009 — would fail depending only on which xdist worker
+    the auth suite landed on.
     """
     await _seed_expiring_key(test_db_session, epoch_bump=True)
 
@@ -183,7 +183,7 @@ async def test_key_state_no_longer_breaks_downgrade_past_0029(test_db_session):
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 async def test_clean_database_still_downgrades_past_0029(test_db_session):
-    """fix(#1016): the guard is state-dependent, not a blanket refusal.
+    """The guard is state-dependent, not a blanket refusal.
 
     Runs with ``normalize=False`` so nothing clears state on the way through —
     a database that never held an expiry or an epoch bump downgrades on its

@@ -1,6 +1,6 @@
-"""fix(#1746): the credential policy for basic and header-key service auth.
+"""The credential policy for basic and header-key service auth.
 
-Covers the four additions to ``app/core/service_tokens.py`` and the two
+Covers four helpers in ``app/core/service_tokens.py`` and the two
 invariants they carry. The first is that the composed credential is never
 judged by ``HEADER_TOKEN_CHARSET``: the inputs are validated and the encoding
 happens afterwards, so a base64 blob containing ``+`` or ``/`` is safe by
@@ -421,7 +421,7 @@ class TestBuildCredentialHeaderReturnsNone:
                 )
             )
 
-    # feat(#1764): `stac` left this list when it gained a credential path.
+    # `stac` is not in this list: it has a credential path.
     @pytest.mark.parametrize("service_format", [None, "geojson", "shapefile", ""])
     def test_a_format_whose_credential_is_not_a_header(
         self, service_format: str | None

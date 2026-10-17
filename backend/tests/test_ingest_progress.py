@@ -355,13 +355,13 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
         raising=False,
     )
 
-    # fix(#1859): wait on an event the heartbeat tick itself sets, instead of
+    # Wait on an event the heartbeat tick itself sets, instead of
     # polling the job row on a 1-second wall-clock deadline. The poll loop
     # opened a fresh `db_module.async_session()` every 10ms (matching the
     # heartbeat's own mocked 0.01s interval), and under a loaded CI runner
     # that session churn was what produced `ConnectionError: unexpected
     # connection_lost() call`, not a real ingest bug -- the production
-    # heartbeat already shields each tick from cancellation (fix(#1778)).
+    # heartbeat already shields each tick from cancellation.
     # Watching the tick complete is both deterministic and cheaper: one read
     # after the event fires, not up to 100 of them.
     tick_committed = asyncio.Event()
@@ -407,7 +407,7 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
         last_progress = result.scalar_one().progress
     finally:
         release_remote_import.set()
-        # fix(#422): join the worker directly instead of wait_for(timeout=2).
+        # Join the worker directly instead of wait_for(timeout=2).
         # Under CI load the timeout fires and cancels worker_task mid-teardown,
         # where the product code's suppress(CancelledError) swallows the
         # injected cancel — wait_for then sets a cancelled result on a task that

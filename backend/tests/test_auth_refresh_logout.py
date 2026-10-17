@@ -55,7 +55,7 @@ class TestRefreshToken:
     async def test_refresh_rotates_token(self, client: AsyncClient, monkeypatch):
         """With grace disabled, rotation invalidates the old token instantly.
 
-        fix(#621): grace_seconds=0 opts back into strict single-use rotation;
+        grace_seconds=0 opts into strict single-use rotation;
         the default grace behavior is covered by TestRotationGraceWindow.
         """
         monkeypatch.setattr(settings, "refresh_rotation_grace_seconds", 0)

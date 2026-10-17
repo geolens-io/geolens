@@ -1,4 +1,4 @@
-"""fix(#1950): the bound on a worker's terminal failure write.
+"""The bound on a worker's terminal failure write.
 
 Six ingest tails settle a failed job by UPDATEing its ``ingest_jobs`` row on a
 fresh session. That UPDATE runs under a 10-second budget, so a held row ends it

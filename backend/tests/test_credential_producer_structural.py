@@ -1,4 +1,4 @@
-"""One producer of a credential header, enforced structurally (fix(#1746)).
+"""One producer of a credential header, enforced structurally.
 
 In the shape of ``test_rule2_structural.py``: walk every module under
 ``backend/app/`` as an AST and assert that the transports which carry a

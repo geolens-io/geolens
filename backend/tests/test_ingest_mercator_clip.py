@@ -1,19 +1,20 @@
-"""fix(#888): clip_to_mercator_bounds must not lose data silently.
+"""clip_to_mercator_bounds must not lose data silently.
 
-Two distinct silent-data-loss paths used to run through the same function:
+Two distinct silent-data-loss paths run through the same function:
 
 1. A source in the 0..360 Pacific longitude convention (common in ocean and
-   climate data) had everything east of lon 180 intersected away. The user saw
-   a *successful* ingest with half the features missing and no message.
-2. Valid polar geometry was clamped to ±85.06° and, for anything beyond that,
+   climate data) would have everything east of lon 180 intersected away. The
+   user would see a *successful* ingest with half the features missing and no
+   message.
+2. Valid polar geometry is clamped to ±85.06° and, for anything beyond that,
    silently reduced to an empty geometry. The clamp itself is intentional (the
-   product serves Web Mercator tiles), but the user was never told, so the
-   real failure only showed up three steps later as "Analysis produced no
+   product serves Web Mercator tiles), but the user has to be told, or the
+   real failure only shows up three steps later as "Analysis produced no
    features to save".
 
-The 0..360 guard is deliberately four conditions wide. #883 established that a
-single-condition guard on this class of problem is a coin flip, so the near
-misses are pinned here: a dataset ending exactly at lon 180, a dataset that
+The 0..360 guard is deliberately four conditions wide. A single-condition
+guard on this class of problem is a coin flip, so the near misses are pinned
+here: a dataset ending exactly at lon 180, a dataset that
 spans 0..200, a dataset spanning -10..170, a projected CRS whose X happens to
 land between 180 and 360, and a dataset whose X runs past 360.
 """
@@ -183,14 +184,13 @@ class TestZeroTo360Shift(_FixtureTable):
         """A Pacific-crossing 0..360 source keeps all its data AND its extent.
 
         A 150..250 source lands half on each side of the antimeridian, which is
-        correct per-feature and is the trade #888 makes deliberately: the old
-        behaviour destroyed everything past lon 180 instead.
+        correct per-feature and is the deliberate trade against destroying
+        everything past lon 180.
 
-        fix(#934): this used to pin the *cost* — a bare ``ST_Extent`` over the
-        shifted result read -170..170, a 340 deg bbox for a 100 deg source,
-        which the producer sites stored verbatim. The producers now emit the
-        two-ring seam form, so this is where #899 and #934 meet: ``get_extent``
-        over the shifted table reports the honest 150..-110 footprint.
+        A bare ``ST_Extent`` over the shifted result would read -170..170, a
+        340 deg bbox for a 100 deg source. The producers emit the two-ring seam
+        form instead, so ``get_extent`` over the shifted table reports the
+        honest 150..-110 footprint.
         """
         await _seed_points(
             test_db_session,
@@ -603,12 +603,12 @@ class TestClipAccounting(_FixtureTable):
 
 
 # ---------------------------------------------------------------------------
-# 3b. fix(#906): degenerate-envelope skip for narrow-validity CRSs
+# 3b. Degenerate-envelope skip for narrow-validity CRSs
 # ---------------------------------------------------------------------------
 
 
 class TestDegenerateEnvelopeSkip(_FixtureTable):
-    """fix(#906): ST_Transform of the global safe envelope collapses for
+    """ST_Transform of the global safe envelope collapses for
     narrow-validity CRSs (4415 of 8500 stock SRIDs measure zero-area or
     collapsed, 108 more error), and the clip's intersection would then empty
     the whole table with a *successful* ingest. The guard skips the clip and
@@ -739,7 +739,7 @@ class TestDegenerateEnvelopeSkip(_FixtureTable):
         """Ordering constraint from the issue: skipping the clip must still
         leave the 0..360 shift applied. No real degree-geographic CRS
         degenerates, so the probe is forced True to pin the ordering."""
-        # fix(#1042): patched on metadata_mercator, not on the metadata façade
+        # Patched on metadata_mercator, not on the metadata façade
         # that re-exports it. `clip_to_mercator_bounds` resolves this name from
         # its own module globals, so a patch on the façade would bind a name
         # nothing reads and the probe would still run for real.
@@ -821,7 +821,7 @@ class TestMercatorClipWarningProducer:
         assert parsed.details.clipped_features == 1
 
     def test_warns_when_clip_was_skipped(self):
-        """fix(#906): a skipped clip lost nothing but must not be silent."""
+        """A skipped clip lost nothing but must not be silent."""
         warning = make_mercator_clip_warning(
             {
                 "shifted_longitudes": False,

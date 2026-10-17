@@ -105,7 +105,7 @@ $$;
 """
 
 
-# fix(#1016): the remediation 0029's own error message prescribes, minus the
+# The remediation 0029's own error message prescribes, minus the
 # DELETE — a test database's keys are fixture noise, so clearing the state is
 # enough and there is no need to destroy rows a sibling test may still read.
 #
@@ -230,7 +230,7 @@ def run_alembic(
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_BACKEND_DIR)
     env["POSTGRES_DB"] = settings.postgres_db_test
-    # fix(#933): stripped for determinism — migration 0012's dims fallback
+    # Stripped for determinism — migration 0012's dims fallback
     # reads these from the subprocess env, and every caller should see exactly
     # what its test injects via extra_env, never ambient shell state.
     env.pop("EMBEDDING_DIMS", None)

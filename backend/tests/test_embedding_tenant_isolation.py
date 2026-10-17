@@ -29,7 +29,7 @@ def _result(*, rows=(), scalar=None, first=None):
     result.all.return_value = list(rows)
     result.scalar_one.return_value = scalar
     result.scalar_one_or_none.return_value = scalar
-    # fix(#1580): the anchor read returns the row rather than one column, so it
+    # The anchor read returns the row rather than one column, so it
     # goes through `.first()`. Left as an explicit None by default: a MagicMock
     # here would be truthy and unpack into three MagicMocks, which is how a
     # caller that stopped reading a real row would still look like it worked.
@@ -63,7 +63,7 @@ async def test_embedding_helper_queries_join_rls_visible_records(monkeypatch):
         "resolve_embedding_model_name",
         AsyncMock(return_value="tenant-isolation-model"),
     )
-    # fix(#1580): the fingerprint resolver too. The anchor read orders
+    # The fingerprint resolver too. The anchor read orders
     # by "the row search would use", so it asks what the live configuration IS
     # before running its own query — and that resolution goes to the database on
     # a cold persistent-config cache, consuming one of the three results queued
@@ -87,7 +87,7 @@ async def test_embedding_helper_queries_join_rls_visible_records(monkeypatch):
     presence_sql = str(presence_session.execute.await_args.args[0])
     assert "JOIN catalog.records AS visible_record" in presence_sql
 
-    # fix(#1580): the anchor read now selects the row's identity alongside its
+    # The anchor read selects the row's identity alongside its
     # vector, so the stub returns the triple `get_anchor_embedding_row` unpacks.
     source_result = _result(first=([1.0, 0.0, 0.0], "tenant-isolation-model", None))
     hnsw_result = _result()
@@ -117,9 +117,9 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
         AsyncMock(return_value="tenant-isolation-model"),
     )
     stats_result = MagicMock()
-    # (total, active-model embedded, any-model embedded) — fix(#1503)
+    # (total, active-model embedded, any-model embedded)
     stats_result.one.return_value = (4, 3, 3)
-    # fix(#2025): this session now also answers the backfill run reads. They
+    # This session also answers the backfill run reads. They
     # have to come back empty, or a MagicMock row reaches the response model.
     stats_result.scalars.return_value.first.return_value = None
     stats_result.scalars.return_value.all.return_value = []
@@ -139,9 +139,9 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
     assert "FROM catalog.records AS visible_record" in counted[0]
     assert "LEFT JOIN catalog.record_embeddings AS embedding" in counted[0]
 
-    # fix(#1549): the force path no longer issues a bulk DELETE up front, so a
+    # The force path does not issue a bulk DELETE up front, so a
     # run over zero records deletes nothing and there is no statement to
-    # inspect. Give it ONE record: the delete this test is about now happens
+    # inspect. Give it ONE record: the delete this test is about happens
     # inside the batch that replaces that record, which is where its record
     # scoping has to hold.
     record = SimpleNamespace(
@@ -165,7 +165,7 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
         "records_still_current",
         AsyncMock(side_effect=lambda _session, observed: set(observed)),
     )
-    # fix(#1511): the force path proves it can embed before it
+    # The force path proves it can embed before it
     # deletes. This test is about the DELETE's record scoping, so give it a
     # working provider rather than letting the pre-flight abort the run.
     monkeypatch.setattr(
@@ -174,7 +174,7 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
         AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
     )
     backfill_session = AsyncMock()
-    # fix(#1511): the pre-flight also reads the embedding column's
+    # The pre-flight also reads the embedding column's
     # declared width off pg_attribute, so a bare AsyncMock hands it a coroutine
     # instead of a number. Return the width the stubbed provider above actually
     # produces — a mismatch here would abort the run before the DELETE this
@@ -199,12 +199,12 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
     assert deletes, "the force run issued no delete"
     assert "SELECT catalog.records.id" in deletes[0]
 
-    # fix(#1549): and the ordering that makes the delete safe. `mock_calls` on
+    # And the ordering that makes the delete safe. `mock_calls` on
     # the session records execute and commit in one sequence, so this asserts
     # the delete is followed by the insert and only THEN by a commit — one
     # transaction, no window where the old row is gone and the new one is not
     # written. Reverse them and the delete would remove the row just inserted;
-    # commit between them and this PR would not be a fix.
+    # commit between them and that would not be a fix.
     names = []
     for name, call_args, _ in backfill_session.mock_calls:
         if name == "execute" and call_args:
@@ -242,7 +242,7 @@ async def _seed_embedding_rows(ctx):
             )
             await _execute_autocommit(
                 engine,
-                # fix(#1549): a force run replaces per batch now, so the role
+                # A force run replaces per batch, so the role
                 # standing in for a tenant's has to be able to WRITE as well as
                 # delete. Without the insert grant the run cannot get far enough
                 # to exercise the scoping these tests are about.
@@ -319,11 +319,11 @@ async def test_embedding_reads_and_stats_are_tenant_local(
         "resolve_embedding_model_name",
         AsyncMock(return_value="tenant-isolation-model"),
     )
-    # fix(#1546): the coverage query now scopes itself to the live embedding
+    # The coverage query scopes itself to the live embedding
     # CONFIGURATION as well as the model, and resolving that reads the
     # dimensions and the provider endpoint. These sessions run as
     # geolens_reader, which is denied app_settings — the same precondition
-    # #1511 and #1525 had to supply for the force path one test down, and for
+    # the force path one test down had to supply, and for
     # the same reason: the denied read aborts the transaction, so the stats
     # query behind it degrades to zeros and the isolation this test asserts is
     # never reached. Supplied here so the real fingerprint resolution runs and
@@ -396,7 +396,7 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
     ctx = multi_tenant_rls
 
     async with _seed_embedding_rows(ctx) as (surface, engine):
-        # fix(#1549): force replaces per batch, so the run has to actually
+        # Force replaces per batch, so the run has to actually
         # reach a batch for there to be a delete to scope. Tenant A's seeded
         # record is the one it regenerates; tenant B's row is what must survive
         # untouched, which is the fleet-wide-delete hazard this test exists for.
@@ -422,7 +422,7 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
             "records_still_current",
             AsyncMock(side_effect=lambda _session, observed: set(observed)),
         )
-        # fix(#1511): the force path snapshots the active model and dimensions
+        # The force path snapshots the active model and dimensions
         # before it deletes, and this session runs as geolens_reader, which
         # cannot read app_settings. Unpinned, the resolver returns the unknown
         # sentinel and the dimensions read raises outright, either of which
@@ -436,13 +436,13 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
         monkeypatch.setattr(
             backfill_module.EMBEDDING_DIMS, "get", AsyncMock(return_value=1536)
         )
-        # fix(#1525): the snapshot reads the dimensions uncached now,
+        # The snapshot reads the dimensions uncached,
         # to see past a mid-eviction cache. Same app_settings denial, so the
         # same precondition has to be supplied.
         monkeypatch.setattr(
             backfill_module.EMBEDDING_DIMS, "get_uncached", AsyncMock(return_value=1536)
         )
-        # fix(#1511): likewise for the AI gate, which force now
+        # Likewise for the AI gate, which force
         # checks before its delete, and the pre-flight embedding. Either would
         # otherwise abort this run before the DELETE under test — the gate by
         # raising on the same app_settings denial as the keys above.
@@ -454,7 +454,7 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
             "generate_embeddings_batch",
             AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
         )
-        # fix(#1525): and for the endpoint, the third value the force path now
+        # And for the endpoint, the third value the force path
         # snapshots before it deletes. It resolves through the provider, whose
         # first act is another app_settings read this role is denied.
         monkeypatch.setattr(

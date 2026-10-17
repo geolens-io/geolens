@@ -253,7 +253,7 @@ class TestLoginAudit:
         )
         assert resp.status_code == 401
 
-        # fix(#1230 second-opinion review): scope to rows for OUR attempted
+        # Scope to rows for OUR attempted
         # username rather than indexing logs[0] -- under pytest -n concurrent
         # writes, a sibling test's own login.failure row can otherwise land
         # "first" in this query's ordering.
@@ -334,8 +334,8 @@ class TestLoginAudit:
     async def test_login_pending_user_creates_audit_log(
         self, client: AsyncClient, admin_auth_header: dict, monkeypatch
     ):
-        """fix(#1230 second-opinion review): the pending_approval denial path
-        had no test coverage -- mirrors test_login_deactivated_user_creates_
+        """The pending_approval denial path
+        writes an audit log -- mirrors test_login_deactivated_user_creates_
         audit_log for the sibling denial branch.
         """
         monkeypatch.setattr(
@@ -381,8 +381,8 @@ class TestLoginAudit:
     async def test_login_disallowed_domain_creates_audit_log(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """fix(#1230 second-opinion review): the email_domain_not_allowed
-        denial path had no test coverage. Mirrors
+        """The email_domain_not_allowed
+        denial path writes an audit log. Mirrors
         test_domain_enforcement.py::test_disallowed_domain_login_rejected,
         with an audit-log assertion added.
         """

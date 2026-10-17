@@ -74,8 +74,8 @@ async def _create_layer(
             f"VALUES {values_sql}"
         )
     )
-    # fix(#1104): regenerate geom_4326 through the real ingest normalizer so
-    # these fixtures uphold the invariant every read surface now assumes —
+    # Regenerate geom_4326 through the real ingest normalizer so
+    # these fixtures uphold the invariant every read surface assumes —
     # geom_4326 is always linear. A byte-identical no-op for linear fixtures
     # (which insert the same value into both columns); for the curved-source
     # fixtures it stores the curved WKT in `geom` only, exactly as a real
@@ -502,7 +502,7 @@ class TestSpatialJoinPreview:
         test_db_session: AsyncSession,
     ):
         """A stray join_dataset_id on a centroid must be ignored, not loaded —
-        the _ANALYSIS_PARAM_OWNERS contract (fix(#682)) extended to the new
+        the _ANALYSIS_PARAM_OWNERS contract extended to the new
         params. A private id here would 404 if it were being resolved."""
         admin_id = await get_user_id(test_db_session, "admin")
         points = await _create_probe_points(test_db_session, created_by=admin_id)
@@ -598,17 +598,17 @@ class TestSpatialJoinEnqueueValidation:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1097 review): the generated names must not collide with EACH
+        """The generated names must not collide with EACH
         OTHER, only with the source.
 
         A join layer with an ordinary column named `count` prefixes to
         `join_count`, which is the name the operation already generates for the
         match count. The guard above compares the generated names against the
-        SOURCE's columns, so nothing noticed that the list contained the same
-        name twice. Materialization then emitted two `join_count` columns and
-        failed the CTAS after the whole queue wait, and the preview was worse:
-        both values landed on one property, so the transferred field silently
-        overwrote the real match count.
+        SOURCE's columns, so it would not notice the list containing the same
+        name twice. Materialization would then emit two `join_count` columns and
+        fail the CTAS after the whole queue wait, and the preview would be worse:
+        both values would land on one property, so the transferred field would
+        silently overwrite the real match count.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         points = await _create_probe_points(test_db_session, created_by=admin_id)
@@ -681,15 +681,15 @@ class TestSpatialJoinEnqueueValidation:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1097 review): the guards must compare what PostgreSQL compares.
+        """The guards must compare what PostgreSQL compares.
 
         max_identifier_length is 63 and a longer alias is TRUNCATED with a
         notice rather than refused. Two join fields sharing their first 58
         characters therefore prefix to strings that differ in Python and are
-        the same column in the output — so the uniqueness check passed and the
-        CTAS failed after the queue wait.
+        the same column in the output — so a Python-level uniqueness check passes
+        and the CTAS fails after the queue wait.
 
-        Preview did not catch it either: it consumes the values positionally,
+        Preview does not catch it either: it consumes the values positionally,
         so it succeeds on the very request Create cannot save.
         """
         admin_id = await get_user_id(test_db_session, "admin")
@@ -752,12 +752,12 @@ class TestSpatialJoinEnqueueValidation:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1097 review): Preview must not approve what Create refuses.
+        """Preview must not approve what Create refuses.
 
-        The preview path guarded the validator behind `if body.join_fields`,
-        but that validator also checks the ALWAYS-generated join_count against
-        the source's columns. A source that already had a join_count column
-        therefore previewed happily and then failed Create on the identical
+        The validator must not sit behind `if body.join_fields` on the preview
+        path, because it also checks the ALWAYS-generated join_count against
+        the source's columns. Otherwise a source that already has a join_count
+        column previews happily and then fails Create on the identical
         form — the worst split, because the user has been told it works.
         """
         admin_id = await get_user_id(test_db_session, "admin")
@@ -800,13 +800,13 @@ class TestSpatialJoinEnqueueValidation:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#1097 review): points and lines stay valid, no geometry does not.
+        """Points and lines stay valid, no geometry does not.
 
         A spatial join counts in any direction, so the join layer is
         deliberately NOT held to the mask's polygon rule. But a re-upload from
         a non-spatial source sets geometry_type to None and builds a table with
         no geom_4326 at all, and render_spatial_join references _j.geom_4326 —
-        so the job died on a database error after the queue wait.
+        so the job would die on a database error after the queue wait.
         """
         from app.modules.catalog.datasets.domain.models import Dataset
         from app.processing.analysis.tasks import _resolve_layer_table_ref
@@ -846,17 +846,16 @@ class TestSpatialJoinEnqueueValidation:
         self,
         test_db_session: AsyncSession,
     ):
-        """fix(#1097 review): the transferred fields were validated at enqueue
-        against column_info and never again.
+        """The transferred fields are re-validated live, not only at enqueue
+        against column_info.
 
-        The worker re-resolved the join layer's TABLE but not its COLUMNS, so a
-        re-upload that drops or renames a requested field left
-        render_spatial_join referencing a column that no longer exists — and
-        the CTAS failed after the whole queue wait, naming a column the user
-        had legitimately selected when they asked for it.
+        A re-upload that drops or renames a requested field would otherwise
+        leave render_spatial_join referencing a column that no longer exists —
+        and the CTAS would fail after the whole queue wait, naming a column the
+        user had legitimately selected when they asked for it.
 
         The sibling live rechecks beside this one exist for exactly that
-        window. This one was the gap in the set.
+        window; this one covers the join layer's COLUMNS.
         """
         from app.processing.analysis.tasks import _resolve_and_validate_columns
 

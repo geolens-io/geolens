@@ -1,21 +1,21 @@
-"""fix(#1540) review P2: CORS has to know the download route grew ranges.
+"""CORS has to know the download route serves ranges.
 
-#1528 gave ``/datasets/{id}/download/cog`` a HEAD, byte ranges, a strong
-``ETag``, and ``If-Range``/``If-None-Match`` handling. A browser client on an
-allowed origin could use none of it, because the middleware that decides what a
-cross-origin caller may send and read had not changed:
+``/datasets/{id}/download/cog`` has a HEAD, byte ranges, a strong ``ETag``, and
+``If-Range``/``If-None-Match`` handling. A browser client on an allowed origin
+can use none of it unless the middleware that decides what a cross-origin
+caller may send and read agrees:
 
-- ``If-Range`` was not in ``Access-Control-Allow-Headers``, so the preflight for
-  a resumable download was refused and the request never went out;
-- ``ETag`` and ``Content-Range`` were not in ``Access-Control-Expose-Headers``,
-  so on a request that did succeed the browser HID them from JavaScript. Not
+- ``If-Range`` must be in ``Access-Control-Allow-Headers``, or the preflight for
+  a resumable download is refused and the request never goes out;
+- ``ETag`` and ``Content-Range`` must be in ``Access-Control-Expose-Headers``,
+  or on a request that does succeed the browser HIDES them from JavaScript. Not
   "undocumented" — unreadable. A client cannot resume against a validator it
   cannot see;
-- ``HEAD`` was missing from ``Access-Control-Allow-Methods``, which is the one
+- ``HEAD`` must be in ``Access-Control-Allow-Methods``, which is the one
   request a client makes to learn ranges are available at all.
 
-The failure class is the wave's recurring one: a handler was extended and a
-second component that has to agree with it was not. These tests are written
+The failure class is a handler extended while a second component that has to
+agree with it is not. These tests are written
 against the middleware's answers rather than the constant it builds them from,
 so they fail for a client, not for a string.
 """

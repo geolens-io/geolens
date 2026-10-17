@@ -1,9 +1,9 @@
-"""fix(#1778): AI graduated styling must emit strictly ascending step stops.
+"""AI graduated styling must emit strictly ascending step stops.
 
-From the codebase audit of 2026-08-30: `_build_graduated_style` fed the raw
-`quantiles` list from `get_column_stats` straight into a MapLibre `step`
-expression. `percentile_cont` does not deduplicate, so a clustered column
-produces adjacent equal breaks and MapLibre rejects the expression. The client
+`_build_graduated_style` builds a MapLibre `step` expression from the
+`quantiles` list from `get_column_stats`. `percentile_cont` does not
+deduplicate, so a clustered column produces adjacent equal breaks and MapLibre
+rejects the expression unless the breaks are deduplicated first. The client
 cannot catch it: `validateChatPaint` filters paint KEYS by geometry type and
 clamps scalar numerics, and never inspects the interior of a server-built
 expression. The malformed paint is applied live and saved with the map.

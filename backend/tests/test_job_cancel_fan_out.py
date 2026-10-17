@@ -350,11 +350,11 @@ class TestCancelLosesToFanOut:
 
 
 class TestChildlessFannedOutSweep:
-    """fix(#1709): the crash window the early flip opened —
+    """The crash window the early flip opens —
     death between the parent's fanned_out commit and the first child commit
     leaves a terminal parent that retry (failed-only) and cancel (terminal
-    -> 409) both refuse. The stale sweep restores the self-healing the old
-    late transition got from the pending clause: a childless fanned_out
+    -> 409) both refuse. The stale sweep restores the self-healing a late
+    transition would get from the pending clause: a childless fanned_out
     parent past the grace settles `failed` so retry becomes available."""
 
     async def _seed_fanned_out(
@@ -400,14 +400,13 @@ class TestChildlessFannedOutSweep:
     async def test_crashed_dispatch_settles_failed_with_a_retry_refusal(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, settle
     ):
-        """fix(#1709): the recovered parent must never silently
+        """The recovered parent must never silently
         import. Generic /jobs/{id}/retry re-queues a job as ONE
         default-layer import — the fan-out's layer selection lived only in
         the request body — so the sweep stamps a marker the retry
         capability refuses on, and the message names the real path
         (re-upload) instead of advertising a retry flow that doesn't
-        exist. (Pre-existing gap, inherited: the OLD ordering's crash aged
-        a pending parent into the same generic retryable-failed shape.)"""
+        exist."""
         from app.platform.jobs.models import FAN_OUT_INTERRUPTED_METADATA_KEY
         from app.platform.jobs.router import get_retry_capability
         from app.platform.jobs.sweep import FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE
@@ -477,7 +476,7 @@ class TestChildlessFannedOutSweep:
 
 
 class TestNeverQueuedChildRecovery:
-    """fix(#1709): a crash between a child's commit and its defer
+    """A crash between a child's commit and its defer
     leaves a never-queued pending CHILD — and the child, not the parent, is
     the unit of recovery. The parent staying `fanned_out` (excluded forever
     by the childless clause's NOT EXISTS) is correct: dispatch did create a
@@ -541,7 +540,7 @@ class TestNeverQueuedChildRecovery:
                 "layer_name": "roads",
                 "title": "multi: roads",
                 "fan_out_parent_id": str(parent.id),
-                # fix(#1744): `create_fan_out_jobs` puts this in the metadata
+                # `create_fan_out_jobs` puts this in the metadata
                 # it commits for the child, precisely so a crash in the gap
                 # between that commit and the dispatch still leaves a row the
                 # stale sweep settles `failed` rather than `cancelled`. Retry
@@ -588,11 +587,11 @@ class TestNeverQueuedChildRecovery:
 
 
 class TestRestoreReclaimsASweptParent:
-    """fix(#2016): a dispatch loop that outlives the childless-fanout grace
-    lost its undo. The sweep settled the parent `failed` with the interrupted
-    marker, the `fanned_out`-only CAS then matched zero rows in silence, and
-    the marker makes /jobs/{id}/retry refuse — the user was told to re-upload,
-    the exact outcome the restore exists to prevent."""
+    """A dispatch loop that outlives the childless-fanout grace
+    must not lose its undo. Otherwise the sweep settles the parent `failed`
+    with the interrupted marker, the `fanned_out`-only CAS then matches zero
+    rows in silence, and the marker makes /jobs/{id}/retry refuse — the user
+    is told to re-upload, the exact outcome the restore exists to prevent."""
 
     async def _age_past_grace(self, session, job_id) -> None:
         from datetime import datetime, timedelta, timezone

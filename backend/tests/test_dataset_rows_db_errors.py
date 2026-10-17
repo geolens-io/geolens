@@ -1,9 +1,10 @@
-"""fix(#435): a database failure must not render as a valid dataset with zero rows.
+"""A database failure must not render as a valid dataset with zero rows.
 
-`get_dataset_rows()` wrapped its query in `except Exception` and returned an empty
-page for *every* failure — connection loss, statement timeout, permission failure,
-serialization error. A broken data table looked identical to an empty one, which hid
-ingest corruption and infrastructure incidents from users and from health monitoring.
+`get_dataset_rows()` must not wrap its query in `except Exception` and return an
+empty page for *every* failure — connection loss, statement timeout, permission
+failure, serialization error. A broken data table would look identical to an empty
+one, hiding ingest corruption and infrastructure incidents from users and from
+health monitoring.
 
 The one case that legitimately degrades to an empty page is an absent table: raster
 and VRT datasets carry a synthetic `table_name` with no PostGIS table behind it, and
