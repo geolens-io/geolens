@@ -78,10 +78,10 @@ grep -q 'UPGRADING.md' "$ROOT/README.md" \
   && ok "README links to UPGRADING.md" \
   || bad "README does not link to UPGRADING.md"
 
-# getgeolens.com cross-repo follow-up is flagged in the doc.
-grep -qi 'getgeolens.com' "$DOC" \
-  && ok "doc flags the getgeolens.com upgrade.mdx cross-repo follow-up" \
-  || bad "doc does not flag the getgeolens.com follow-up"
+# The full procedure lives in the docs-site upgrade guide; the doc must link it.
+grep -q 'docs.getgeolens.com/guides/quickstart/upgrade/' "$DOC" \
+  && ok "doc links the docs-site upgrade guide" \
+  || bad "doc does not link the docs-site upgrade guide"
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"

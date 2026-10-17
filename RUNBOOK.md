@@ -5,9 +5,9 @@ restore procedures, monitoring, and incident response. An operator can recover a
 GeoLens installation from a backup using this document alone, with no external
 documentation.
 
-> **Implements BKP-04.** See [UPGRADING.md](UPGRADING.md) for the upgrade and
-> rollback quick-reference; this document is the authoritative source for DR /
-> restore / monitoring / incident response for both database modes.
+> See [UPGRADING.md](UPGRADING.md) for the upgrade and rollback quick-reference.
+> This document is the authoritative source for DR, restore, monitoring and
+> incident response in both database modes.
 
 ---
 
@@ -58,31 +58,19 @@ documentation.
 
 ### Automated backups are on by default
 
-Backup runs automatically on every `docker compose up` — no `--profile backup`
-flag is needed. The `backup` service starts alongside `api`, `worker`, and `db`.
-
-The default schedule is **02:00 daily** (`BACKUP_SCHEDULE=0 2 * * *`). An initial
-backup runs at container start. Subsequent backups fire on the configured schedule
-(via cron, or a built-in sleep-loop when cron is unavailable in the image).
-
-To change the schedule, set `BACKUP_SCHEDULE` in `.env`:
-
-```
-BACKUP_SCHEDULE=0 3 * * *    # 03:00 daily — must be in "M H * * *" form
-```
+The `backup` service starts with the Compose stack and runs at container start
+and then daily at 02:00 (`BACKUP_SCHEDULE`). Settings, destinations, retention
+and offsite upload are documented in the
+[Backups & Restore guide](https://docs.getgeolens.com/guides/admin/backups/).
+This section keeps what that guide does not: the recovery limits above and the
+caveats below.
 
 ### What each backup cycle captures
 
-Each cycle produces three paired artifacts with matching timestamps:
-
-| Artifact | Format | What it contains |
-|---|---|---|
-| `<db>_<YYYYmmdd_HHMMSS>.dump` | `pg_dump -Fc` custom-format | Full database (schema + data), restorable via `pg_restore` |
-| `staging-<YYYYmmdd_HHMMSS>.tar.gz` | tar.gz | Contents of the `upload_staging` volume (source files, rasters, COGs) |
-| `globals-<YYYYmmdd_HHMMSS>.sql` | `pg_dumpall --globals-only` plain SQL | Cluster roles, their passwords, and cluster-wide grants |
-
-The staging archive is omitted silently when the `upload_staging` volume is absent
-or empty (fresh install with no uploaded datasets).
+Each cycle writes a `.dump`, a `staging-*.tar.gz` and a `globals-*.sql` with
+matching timestamps. The guide's
+[Backup destinations](https://docs.getgeolens.com/guides/admin/backups/#backup-destinations)
+section lists the file names and formats.
 
 The globals dump is the piece a database-only `pg_dump` can never give back, and
 it is what makes the fresh-cluster role reconstruction in [§ 2](#2-restore--bundled-postgres-mode)
@@ -104,81 +92,29 @@ settings/provider replacement tool, not a backup.
 
 ### Retention
 
-Artifacts land at:
-- Daily: `backup_data` volume → `/backups/daily/`
-- Weekly (every Sunday): `backup_data` volume → `/backups/weekly/`. Weekly
-  entries are hard links to the daily files, so they take no extra space. If
-  the filesystem refuses hard links, the service logs a warning and writes a
-  full copy instead.
-
-Default retention: 7 days of daily backups and 4 weeks of weekly backups (set
-`BACKUP_RETENTION_DAILY` / `BACKUP_RETENTION_WEEKLY` in `.env` to override).
-Retention keeps the newest dump of each calendar day, for the 7 most recent days
-that have a backup, and the newest weekly dump of each ISO week (Monday to
-Sunday), for the 4 most recent weeks that have one. Days and weeks are read from
-the timestamp in the filename. Only days and weeks that hold a backup count, so
-a stopped service never ages out the backups it already has. Extra cycles on the
-same day (every container start runs one) replace each other instead of pushing
-older days out of the window.
-
-The paired `staging-*.tar.gz` and `globals-*.sql` artifacts are pruned when the
-dump they belong with goes. Retention therefore evicts whole backup sets, and a
-companion artifact never outlives its dump. That matters because a cycle can
-produce a dump without a companion (an empty staging volume, or a failed
-`pg_dumpall`). Files whose names don't match the backup naming
-(`<db>_<YYYYmmdd_HHMMSS>.dump` and its companions) are never touched.
-
-One exception: the **newest complete set**, meaning a dump that still has its
-globals dump, is always kept. It stands for its own day or week, so only a newer
-dump from that same day is kept beside it, and it doesn't use up one of the
-other days in the window. A run of `pg_dumpall` failures still produces valid
-database dumps each cycle, and without the exemption those would walk the last
-set that can restore onto a fresh cluster out of retention, while the
-healthcheck was already reporting the problem.
-
-Backup files are written owner-only (`umask 077`: files `0600`, new directories
-`0700`). Files written by older releases keep their mode until retention removes
-them; run `chmod -R go-rwx` on the `backup_data` volume to tighten them now.
+Retention keeps the newest dump of each of the last `BACKUP_RETENTION_DAILY`
+days and `BACKUP_RETENTION_WEEKLY` ISO weeks, locally and, with offsite upload
+on, in the S3 `backups/daily/` and `backups/weekly/` prefixes. Companions go
+with their dump, and the newest complete set is always kept. The guide's
+[Retention policy](https://docs.getgeolens.com/guides/admin/backups/#retention-policy)
+has the details.
 
 ### Offsite (S3) upload
 
 > **Warning — single-disk exposure.** By default the `backup_data` volume lives
 > on the same host (and usually the same disk) as the database volume. Losing
 > that disk loses the data **and every backup of it** in one event. Treat the
-> local dumps as a convenience tier only: enable the S3 offsite upload below,
-> or point `backup_data` at a different physical disk, before relying on this
+> local dumps as a convenience tier only: enable the S3 offsite upload, or
+> point `backup_data` at a different physical disk, before relying on this
 > for disaster recovery.
 
-Offsite upload is **opt-in**. To enable it, set in `.env`:
-
-```
-BACKUP_S3_ENABLED=true
-S3_ENDPOINT=https://s3.<region>.amazonaws.com
-S3_BUCKET=<your-bucket>
-S3_ACCESS_KEY_ID=<key-id>
-S3_REGION=us-east-1
-```
-
-Also set `S3_SECRET_ACCESS_KEY` to your access secret. See `.env.example` for all
-available S3 options including `S3_ADDRESSING_STYLE`. The backup uploader follows
-whatever scheme `S3_ENDPOINT` carries — use an `http://` endpoint for a
-plain-HTTP MinIO (`S3_ALLOW_HTTP` only affects the app's own object-storage
-client, not the backup uploader).
-
-The built-in uploader signs requests with **AWS Signature V4** (awscli), compatible
-with Cloudflare R2, modern AWS S3, and MinIO. A failed upload is logged as
-`ERROR: S3 upload failed for <key>` and fails the cycle (non-zero exit) **after**
-local retention pruning has run — the local dump is kept and pruned normally even
-when the offsite copy fails, so the failure is visible in container logs without
-sacrificing the local backup.
-
-The offsite copies get the **same retention** as the local ones:
-`BACKUP_RETENTION_DAILY` days and `BACKUP_RETENTION_WEEKLY` weeks, applied to
-the `backups/daily/` and `backups/weekly/` prefixes with the same pairing rule
-(a companion is pruned when the dump it belongs with ages out).
-There is no separate knob for offsite retention. A failure to list or delete
-objects for pruning is logged as an `ERROR` and fails the cycle the same way
-an upload failure does.
+Offsite upload is opt-in (`BACKUP_S3_ENABLED=true` plus the shared `S3_*`
+settings; see the guide's
+[Configuration](https://docs.getgeolens.com/guides/admin/backups/#configuration)
+table). A failed upload is logged as `ERROR: S3 upload failed for <key>` and
+fails the cycle (non-zero exit) **after** local retention pruning has run, so
+the local dump is kept and pruned normally and the failure shows in the
+container logs.
 
 ### Scope caveat
 
@@ -991,9 +927,8 @@ data.
 #### Do not reach for `alembic downgrade 0016`
 
 Until this command existed, downgrading below 0019 and coming back up was the
-only way to reach that migration's adoption pass (fix(#998): an earlier revision
-of this section documented that downgrade as the recipe). It is still not a
-supported recovery path, and it is no longer necessary. It walks back through
+only way to reach that migration's adoption pass. It is not a supported
+recovery path, and it is no longer necessary. It walks back through
 every migration between head and 0019, and several of them either refuse on data
 the current schema legitimately holds or discard state the re-upgrade cannot
 rebuild:
@@ -1071,7 +1006,7 @@ docker run --rm -v <project>_backup_data:/backups:ro alpine \
 # Validate a specific dump after copying it out of the volume (step 0 above).
 # Omit the filename to read stdin — the literal `-` alias was never documented
 # for pg_restore and PG 18 rejects it with `could not open input file "-"`,
-# which reads like a corrupt backup when the dump is fine (chore(#704)).
+# which reads like a corrupt backup when the dump is fine.
 docker compose exec -T db \
   pg_restore --list < ./restore/geolens_<YYYYmmdd_HHMMSS>.dump | head -20
 ```
@@ -1400,7 +1335,7 @@ What changes:
   # written at the bucket root in every mode: the icon catalog
   # (catalog.map_icon_assets) has no tenant_id and no RLS policy, so one set
   # of icons serves every tenant and one copy of the bytes has to be readable
-  # from every tenant's request. Back it up once, restore it once (#1621).
+  # from every tenant's request. Back it up once, restore it once.
   PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
   # Repeat for every prefix the restored database still references — the
   # managed layout, in full:
@@ -1548,6 +1483,11 @@ For production WAL management, use a purpose-built tool
 GeoLens exports Prometheus metrics out of the box. Reference scrape config, alert
 rules, and a Grafana dashboard ship in [`infra/monitoring/`](infra/monitoring/) —
 point your monitoring stack at them, or use them as a base for an existing one.
+The docs site covers the
+[metrics endpoint](https://docs.getgeolens.com/guides/admin/infrastructure/#metrics-endpoint)
+(series, scrape config, what is and is not exposed at the public edge) and the
+[health endpoint](https://docs.getgeolens.com/guides/admin/infrastructure/#health-endpoint)
+response.
 
 **Liveness checks must target `/api/health/live`; readiness checks
 `/api/health/ready`.** The three endpoints answer different questions and are
@@ -1587,27 +1527,20 @@ Two practical differences on top of that:
 Behind the bundled Nginx all three live under `/api/`. A bare `/health` or
 `/health/live` is not an API route there — the frontend SPA catch-all answers
 it with HTML `200`, which an uptime monitor will happily (and wrongly) accept.
-
-The bundled Compose stack already follows this split: the api service's
-healthcheck (and the `frontend` service's `depends_on: api: condition:
-service_healthy`) probe `/health/live` inside the container, so a cache or
-object-store outage no longer stops the UI from starting.
+The bundled Compose healthchecks already probe `/health/live` inside the
+container.
 
 ### Metrics & alerting (Prometheus / Grafana)
 
-Metrics are exposed on **two separate endpoints** — the API and the worker each
-run their own. The api service (only) runs multiple uvicorn workers in
-production and is scraped correctly under that fan-out because
-`docker-compose.yml`/`docker-compose.prod.yml` set `PROMETHEUS_MULTIPROC_DIR`
-for it by default (fix #1240 / #651); a bespoke deployment that runs the api
-image outside these compose files with `UVICORN_WORKERS>1` needs to set that
-same env var to a writable, container-local directory or every scrape reverts
-to seeing one arbitrary worker.
-
-| Source | On the Compose network | Host mapping | Exports |
-|---|---|---|---|
-| API | `http://api:8000/metrics` | `127.0.0.1:8001/metrics` | HTTP request rate / latency / errors, DB connection-pool gauges, tile-cache hit/miss |
-| Worker | `http://worker:8001/metrics` | internal-only | Procrastinate job-queue depth, active, completed, failed (per queue) |
+The API and the worker each serve their own `/metrics` endpoint
+(`http://api:8000/metrics` and `http://worker:8001/metrics` on the Compose
+network). The api service runs multiple uvicorn workers in production and is
+scraped correctly under that fan-out because `docker-compose.yml` and
+`docker-compose.prod.yml` set `PROMETHEUS_MULTIPROC_DIR` for it by default. A
+bespoke deployment that runs the api image outside these compose files with
+`UVICORN_WORKERS>1` needs to set that same env var to a writable,
+container-local directory, or every scrape reverts to seeing one arbitrary
+worker.
 
 `infra/monitoring/prometheus.yml` already defines both scrape jobs
 (`geolens-api`, `geolens-worker`) and loads `alerts.yml` as a rule file. Run
@@ -1619,7 +1552,7 @@ docker run --rm -d --name geolens-prometheus \
   -p 127.0.0.1:9090:9090 \
   -v "$PWD/infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
   -v "$PWD/infra/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro" \
-  prom/prometheus:v3.5.0   # or a newer pinned tag
+  prom/prometheus:v3.6.0   # or a newer pinned tag
 ```
 
 Then import `infra/monitoring/grafana-dashboard.json` into Grafana
@@ -1629,18 +1562,8 @@ Already running Prometheus/Grafana elsewhere? Copy the `scrape_configs` jobs and
 the `rule_files` entry into your own config and import the dashboard JSON — the
 targets just need network reach to `api:8000` and `worker:8001`.
 
-**Alert rules** (`infra/monitoring/alerts.yml`) — thresholds are tunable defaults:
-
-| Alert | Fires when | Severity |
-|---|---|---|
-| `GeoLensTargetDown` | API or worker unscrapeable for >2m | critical |
-| `GeoLensApiHigh5xxRate` | 5xx share of requests >5% over 5m | critical |
-| `GeoLensApiInteractiveLatencyP95` | interactive p95 ≥1s for 10m (tile and bulk-read handlers excluded) | warning |
-| `GeoLensApiBulkLatencyMean` | mean latency of a bulk read >5s for 10m | warning |
-| `GeoLensApiTileLatencyMean` | mean `/tiles/*` latency >2s for 10m | warning |
-| `GeoLensJobQueueBacklog` | any queue >100 jobs for 15m | warning |
-| `GeoLensJobFailures` | >5 job failures in 15m | warning |
-| `GeoLensDbPoolSaturated` | connection-pool overflow in use for >10m | warning |
+The alert rules and their thresholds, which are tunable defaults, are in
+[`infra/monitoring/alerts.yml`](infra/monitoring/alerts.yml).
 
 > Under an external pooler (`DB_USE_EXTERNAL_POOLER=true` → SQLAlchemy `NullPool`),
 > the `geolens_db_pool_*` gauges are not emitted and `GeoLensDbPoolSaturated`
@@ -1649,7 +1572,7 @@ targets just need network reach to `api:8000` and `worker:8001`.
 Feature and item collections, dataset exports and COG downloads return whatever
 the caller asked for — `?limit=2000` on a feature collection is roughly 10MB — so
 they get a mean-based bound of their own rather than counting toward the
-interactive percentile, the same treatment `/tiles/*` has had since #658.
+interactive percentile, the same treatment `/tiles/*` gets.
 `GeoLensApiBulkLatencyMean` reports which handler crossed the bound.
 
 To check the rules after editing them (`prom/prometheus` ships `promtool`):
@@ -1662,8 +1585,8 @@ docker run --rm -v "$PWD/infra/monitoring:/w" --entrypoint promtool \
 ```
 
 `alerts.test.yml` replays each rule against synthetic series, including the
-traffic shape that made `GeoLensApiInteractiveLatencyP95` page three times in a
-week (#1517). A threshold changed without a matching expectation there fails the
+traffic shape that once made `GeoLensApiInteractiveLatencyP95` page three times
+in a week. A threshold changed without a matching expectation there fails the
 second command. CI runs both commands in the Monitoring Rules job, so you get
 the same answer on a PR that touches `infra/monitoring/`.
 
@@ -1672,12 +1595,10 @@ the same answer on a PR that touches `infra/monitoring/`.
 Each API worker samples its own RSS from `/proc/self/status` every 60 seconds
 and exports it as the Prometheus gauge `geolens_worker_rss_bytes` (labelled by
 `pid`) on the API `/metrics` endpoint. The api service runs in
-`prometheus_client` multiprocess mode (`PROMETHEUS_MULTIPROC_DIR`, fix #1240 /
-#651): every live worker's gauge is present in a single scrape, and HTTP
-request counters/histograms sum across workers instead of alternating between
-per-process values. Before this fix, a scrape only ever saw one worker, so
-successive scrapes could sawtooth between unrelated running totals and
-Prometheus read the downward steps as counter resets. The structured log
+`prometheus_client` multiprocess mode (`PROMETHEUS_MULTIPROC_DIR`): every live
+worker's gauge is present in a single scrape, and HTTP request
+counters/histograms sum across workers instead of alternating between
+per-process values. The structured log
 lines the RSS sampler writes remain useful as a secondary signal independent
 of scraping — a growth curve exists in `docker compose logs api` even if
 `/metrics` is never scraped:
@@ -1690,7 +1611,7 @@ of scraping — a growth curve exists in `docker compose logs api` even if
 A steadily climbing `rss_mb` — or the watermark WARNING — means one worker is
 heading for the container memory cap (`API_MEM_LIMIT`, default 2 GB). When it
 gets there, the cgroup OOM killer terminates that worker and drops its in-flight
-requests; the only trace outside these logs is host `dmesg` (#643).
+requests; the only trace outside these logs is host `dmesg`.
 
 The backstop is bounded worker recycling via `UVICORN_MAX_REQUESTS`: when it is
 set, the api command appends uvicorn's `--limit-max-requests` (wired in the
@@ -1973,7 +1894,7 @@ docker run --rm \
 
 # Validate the candidate dump before restoring. Omit the filename to read
 # stdin: PG 18 rejects the literal `-` with `could not open input file "-"`,
-# which reads like a corrupt backup when the dump is fine (chore(#704)).
+# which reads like a corrupt backup when the dump is fine.
 # `-f /dev/null` reads every data block; `--list` alone would pass a dump
 # truncated after its table of contents.
 docker compose exec -T db \
@@ -2062,10 +1983,9 @@ docker compose stop api worker
 #    lands it outside the container, so there is no volume copy to make later
 #    and no <project> volume name to look up.
 #
-#    NOT into /backups/daily: that directory is under retention. An extra file
-#    there occupies a retention slot, so the next `prune_old_backups` pass —
-#    which keeps BACKUP_RETENTION_DAILY (7) `*.dump` files by mtime — deletes
-#    one more generation of real history than it otherwise would. ./backups/
+#    NOT into /backups/daily: that directory is under retention, which reads
+#    each dump's day from its filename and keeps only the newest dump per day,
+#    so an extra dump copied there can displace a real one. ./backups/
 #    is gitignored and `backups/pre-upgrade/` is where scripts/upgrade.sh
 #    already puts its rollback dump.
 #
@@ -2131,12 +2051,11 @@ docker compose pull   # or: docker compose build, if you build locally.
                       # backup cycle fails with "server version mismatch".
 #    `--scale backup=0` keeps the backup service DOWN for this step. It runs an
 #    initial dump the moment it starts, so starting it here would capture the
-#    freshly migrated but still EMPTY cluster, write it to /backups/daily as the
-#    newest dump, and prune one real generation to stay inside
-#    BACKUP_RETENTION_DAILY (7). Every retry of steps 2-3 would replace another
-#    generation of real history with an empty-cluster dump — and section 5 tells
-#    an incident responder to restore the newest dump, which would then be the
-#    empty one. Nothing depends_on backup, so scaling it to 0 is safe.
+#    freshly migrated but still EMPTY cluster, and write it to /backups/daily as
+#    the newest dump. Retention keeps one dump per day, so it would replace the
+#    real dump from the same day. Section 5 tells an incident responder to
+#    restore the newest dump, which would then be the empty one. Nothing
+#    depends_on backup, so scaling it to 0 is safe.
 docker compose up -d --wait --scale backup=0
 
 # 4. Restore the dump (canonical entry point: validates the file, stops
@@ -2310,8 +2229,8 @@ Community also ships bounded CSV/JSON export
 For archive-then-delete, or a window the setting cannot express, apply it out
 of band with `scripts/audit_retention.sh`. That script stays an operator-run
 tool rather than an endpoint: an in-app delete-many endpoint is a new
-destructive-write surface (Rule 1 of the Security pre-commit checklist, plus
-RBAC and rate-limit review), and a script an operator invokes deliberately is
+destructive-write surface that needs access-control, RBAC and rate-limit
+review, and a script an operator invokes deliberately is
 the smaller, auditable surface for a table whose entire purpose is being an
 audit trail.
 
@@ -2617,7 +2536,7 @@ lossless conversion.
 Under a lossy codec the uploaded file is the only copy of the original samples
 that will ever exist, so GeoLens keeps it.
 
-**A CRS override is not lossy** (behavior change, issue #1291).
+**A CRS override is not lossy** (a behavior change).
 Supplying an EPSG code at import time *assigns* that CRS: it relabels the raster
 where it already sits and leaves every pixel value and every corner coordinate
 alone. Only the meaning of those coordinates changes, which is the point — you
@@ -2895,7 +2814,7 @@ takes no writes and answers no API traffic.
 That outage is deliberate. Data migrations backfill and rewrite existing rows,
 and a one-shot backfill that runs while the previous release is still accepting
 writes silently misses every row written behind it. Alembic will not re-run the
-revision, so nothing repairs those rows later (#1467). Stopping the writers is
+revision, so nothing repairs those rows later. Stopping the writers is
 also what makes the pre-upgrade dump a snapshot with no lost writes: `pg_dump`
 does not block writers, so anything acknowledged while it runs would be missing
 from the file you would restore from.
@@ -3043,23 +2962,12 @@ supported rollback; see §7 for why.
 
 ### Upgrading past the header-auth job queue (v1.18.2)
 
-v1.18.0 and v1.18.1 dispatched a WFS or OGC API Features import that carried
-a Basic or named-header credential on a dedicated queue named
-`ingest-auth-v2`, so a worker from a release before v1.18.0 never dequeued a
-job it could not read. v1.18.2 stops producing on that queue (#1812): those
-jobs go on the default `ingest` queue again. The worker still subscribes to
-`ingest-auth-v2` for this one release, so anything a v1.18.0 or v1.18.1 API
-left queued there is drained by a v1.18.2 worker on its default queues. The
-release after v1.18.2 drops the name.
-
-Upgrade order:
-
-- From v1.18.0 or v1.18.1: upgrade the API and the worker together, as the
-  recipe above does, or the API first. Both of those workers read the header
-  line and listen on `ingest` as well, so nothing is stranded either way.
-- From a release before v1.18.0: upgrade the worker before or with the API. A
-  worker that old dequeues a header-line job from `ingest`, cannot parse the
-  line, and fails the import after spending its single-use credential.
+v1.18.0 and v1.18.1 sent a WFS or OGC API Features import that carried a Basic
+or named-header credential to a queue named `ingest-auth-v2`. Since v1.18.2 the
+API no longer enqueues there, but the default `WORKER_QUEUES` still lists the
+name so a worker drains what an older API left behind, and the worker logs a
+warning at startup when an override omits it. The upgrade order is in the
+[upgrade guide](https://docs.getgeolens.com/guides/quickstart/upgrade/#1182-header-auth-import-queue).
 
 Rows can still be stranded on `ingest-auth-v2` by a worker that never lists
 it: a rollback to a release before v1.18.0, or a `WORKER_QUEUES` override that
@@ -3084,7 +2992,7 @@ docker compose -f docker-compose.prod.yml exec -T db \
   "UPDATE catalog.procrastinate_jobs SET status = 'failed' WHERE queue_name = 'ingest-auth-v2' AND status = 'todo'"
 ```
 
-Three things worth knowing before you run the UPDATE or read back what it did:
+Three things to know before you run the UPDATE or read back what it did:
 
 - Procrastinate's own `status`-change trigger
   (`procrastinate_trigger_function_status_events_update_v1`, in the installed
@@ -3124,62 +3032,11 @@ import resubmits it.
 
 ---
 
-### Refresh-session migration 0061
+### Other version-specific notes
 
-Apply `0061_refresh_token_families` with all API processes stopped, then restart
-all of them on the new version. Mixed versions cannot preserve a family through
-rotations handled by an older process. Existing refresh rows receive independent
-family IDs: historical parent/child relationships were not stored and cannot be
-reconstructed. Their existing expiries are preserved. New password and OAuth
-logins create separate families; every rotation inherits its family's ID.
-
-A rotated token remains usable during the configured concurrency grace window
-(default 30 seconds). Reuse after grace revokes that family's refresh tokens,
-including concurrent rotation branches, only while the presented token is still
-within its original lifetime (default seven days). Naturally expired tokens
-return 401 without further revocation. Cleanup retains each hash through its
-original expiry plus one day; a continually active session does not retain its
-entire history indefinitely.
-
-`POST /api/auth/logout/session/` revokes one refresh family. Its existing access
-JWTs remain usable until their normal expiry; other devices and API keys survive.
-`POST /api/auth/logout/` retains the existing immediate account-wide access and
-refresh revocation. Password changes and administrator security resets also
-retain their existing account-wide revocation behavior. Browser recovery uses
-the family endpoint with a captured access JWT and no cookies, so discarding an
-older session cannot clear a newer login's cookie.
-
-Downgrading 0061 revokes spent refresh rows before discarding their rotation
-metadata. This prevents an older server from accepting them again until their
-original expiry; current unrotated successors remain usable.
-
-### Backfilling 3D Tiles extents
-
-A 3D Tiles dataset gets its extent from its root bounding volume. Tilesets
-published before GeoLens read `box` and `sphere` volumes have none, so search
-shows "No Extent" and the dataset has no footprint. After upgrading, record
-their extents from each stored `tileset.json`:
-
-```bash
-docker compose exec api /app/.venv/bin/python -m scripts.backfill_tileset_extents --dry-run
-docker compose exec api /app/.venv/bin/python -m scripts.backfill_tileset_extents
-```
-
-The API container's root filesystem is read-only, so `uv run` cannot create its
-cache there; call the baked virtualenv's Python directly, as above.
-Add `-f docker-compose.prod.yml` when that is the file your install runs.
-With `GEOLENS_TENANCY_MODE=multi_tenant`, run both commands once for each
-tenant, adding `--tenant <tenant id>`; without it the script exits 2 before
-reading anything. `SELECT id, slug FROM catalog.tenants;` lists the ids. The
-script reads and writes only 3D Tiles datasets with no extent, so a rerun is
-safe. Backfilled datasets show a new updated time, since each record gains an
-extent. It lists each dataset it updates, skips or fails, with the reason. Only a tileset
-in a local frame is skipped: it has no extent to record. It exits 1 when a
-dataset's tileset pointer or stored `tileset.json` is missing or unreadable.
-When every dataset fails, the API is usually not pointed at the storage that
-holds the tilesets; when one does, that dataset's catalog row or stored files
-are damaged. It exits 2 when it cannot start the way the worker does, for
-example when an overlay the install needs is not loaded.
+The refresh-session migration 0061 (1.20.0) and the 3D Tiles extent backfill
+(1.21.1) are covered in the
+[upgrade guide's version-specific notes](https://docs.getgeolens.com/guides/quickstart/upgrade/#version-specific-notes).
 
 ## 11. Secret rotation
 
