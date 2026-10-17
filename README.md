@@ -105,8 +105,9 @@ flowchart LR
   <sub>A dataset imported from the USGS earthquake service.</sub>
 </p>
 
-Each dataset records the file, table, service or STAC item it came from and when it was last
-refreshed. Give an imported dataset an update cadence and GeoLens marks it fresh, due or overdue. For services and
+Each dataset records where it came from: an uploaded file, a database table, a service, a STAC
+item or a drawing in the browser. Imported datasets also record when they were last refreshed, and
+with an update cadence GeoLens marks them fresh, due or overdue. For services and
 STAC sources, GeoLens also checks that the source still answers and flags upstream schema changes
 before they reach your maps. If a service disappears, the imported copy keeps working.
 
