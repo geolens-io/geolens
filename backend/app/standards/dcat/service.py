@@ -255,6 +255,7 @@ def record_to_dcat(
     preferred_languages: Sequence[str] | None = None,
     lineage_summary: str | None = None,
     has_raster_asset: bool = False,
+    vrt_extents: Mapping[uuid.UUID, object | None] | None = None,
 ) -> dict:
     """Serialize a Dataset (with loaded record relationships) to DCAT 3 JSON-LD.
 
@@ -265,7 +266,8 @@ def record_to_dcat(
     access-checked by the caller — fix(#1103): not read off the record,
     since an analysis output's lineage names datasets an anonymous
     requester may not see. Omitted when absent. ``has_raster_asset``
-    gates the COG download distribution the same way.
+    gates the COG download distribution the same way. A dataset named in
+    ``vrt_extents`` (``visible_vrt_extents``) shows that extent.
     """
     record = dataset.record
     result: dict = {}
@@ -363,7 +365,8 @@ def record_to_dcat(
         result["dcterms:temporal"] = temporal
 
     # Spatial extent
-    if record.spatial_extent:
+    spatial_extent = (vrt_extents or {}).get(dataset.id, record.spatial_extent)
+    if spatial_extent is not None:
         from app.core.geo import extent_to_span_bbox
 
         # fix(#892): dcat:bbox is a planar WKT ring, which cannot express
@@ -372,7 +375,7 @@ def record_to_dcat(
         # seam-crossing extent serializes over-broad (-180..180) but honest.
         # extent_to_span_bbox swallows geoalchemy/shapely parse failures and
         # returns None, which degrades to no dcterms:spatial as before.
-        bounds = extent_to_span_bbox(record.spatial_extent)
+        bounds = extent_to_span_bbox(spatial_extent)
         if bounds is None:
             logger.debug(
                 "DCAT spatial extent serialization failed", record_id=str(record.id)
@@ -437,6 +440,7 @@ def catalog_to_dcat(
     preferred_languages: Sequence[str] | None = None,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
     has_raster_asset_by_id: Mapping[uuid.UUID, bool] | None = None,
+    vrt_extents: Mapping[uuid.UUID, object | None] | None = None,
 ) -> dict:
     """Serialize a list of visible datasets to a DCAT 3 Catalog JSON-LD dict.
 
@@ -462,6 +466,7 @@ def catalog_to_dcat(
             preferred_languages=preferred_languages,
             lineage_summary=lineage.get(ds.record_id),
             has_raster_asset=raster_assets.get(ds.id, False),
+            vrt_extents=vrt_extents,
         )
         for ds in datasets
     ]

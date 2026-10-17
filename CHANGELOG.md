@@ -132,6 +132,16 @@ and releases use semantic versioning.
   another signal, such as the dataset's own 404. Requests carrying an expired
   or invalid credential still answer 401.
 
+### Security
+
+- A VRT's extent covers only the member rasters the requester can read.
+  Dataset detail and lists, search, OGC API Records items, OGC API collection
+  metadata, STAC items, and DCAT, DCAT-US and GeoDCAT-AP records and feeds
+  reported the extent of every member, which showed where a member hidden
+  from the requester lies, although the VRT's member list already left that
+  member out. A requester who can read no member gets no extent. Admins, and
+  anyone who can read every member, still get the full extent.
+
 ## [1.25.1] - 2026-10-16
 
 1.25.1 is the first release with API and worker container images for the

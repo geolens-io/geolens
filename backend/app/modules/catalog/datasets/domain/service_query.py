@@ -23,6 +23,7 @@ from app.core.tiles3d import TILESET_ASSET_KEY
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     can_view_dataset_provenance,
+    visible_vrt_extents,
     visible_vrt_source_counts,
 )
 from app.modules.catalog.datasets.domain._sql_safety import (
@@ -162,6 +163,7 @@ async def get_datasets_list(
         if getattr(d.record, "record_type", None) == "vrt_dataset"
     ]
     source_counts = await visible_vrt_source_counts(db, vrt_ids, user, user_roles)
+    vrt_extents = await visible_vrt_extents(db, vrt_ids, user, user_roles)
 
     # One visibility query for the page, not one per row.
     from app.modules.catalog.authorization import visible_lineage_summaries
@@ -177,6 +179,7 @@ async def get_datasets_list(
             raster_asset=raster_assets_by_dataset_id.get(d.id),
             is_admin=is_admin,
             source_count=source_counts.get(d.id),
+            vrt_extents=vrt_extents,
             base_url=base_url,
             lineage_summary=lineage[d.record_id],
             # Per-row — the page can mix the caller's own
@@ -249,10 +252,12 @@ async def get_dataset_detail(
     is_admin = "admin" in user_roles
 
     source_count = None
+    vrt_extents = {}
     if needs_vrt_count:
         source_count = (
             await visible_vrt_source_counts(db, [dataset.id], user, user_roles)
         )[dataset.id]
+        vrt_extents = await visible_vrt_extents(db, [dataset.id], user, user_roles)
 
     dataset_asset_rows = await get_catalog_port().get_dataset_assets(db, dataset.id)
     tileset_asset = _carrier(dataset_asset_rows, TILESET_ASSET_KEY)
@@ -285,6 +290,7 @@ async def get_dataset_detail(
         pointcloud_asset=pointcloud_asset,
         is_admin=is_admin,
         source_count=source_count,
+        vrt_extents=vrt_extents,
         base_url=base_url,
         stac_assets=stac_assets_dict or None,
         # Detail only, and only when the requester can reach the

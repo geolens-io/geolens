@@ -48,6 +48,7 @@ def record_to_dcat_us3(
     catalog_contact_email: str | None = None,
     lineage_summary: str | None = None,
     has_raster_asset: bool = False,
+    vrt_extents: Mapping[uuid.UUID, object | None] | None = None,
 ) -> dict:
     """Serialize a GeoLens dataset to the DCAT-US Schema v3.0 profile.
 
@@ -56,7 +57,8 @@ def record_to_dcat_us3(
     datasets an anonymous requester may not see. ``app_base_url`` is the
     public APP base URL, where the raster tile template is served
     (fix(#1469)). ``has_raster_asset`` gates the COG download distribution
-    the same way.
+    the same way. A dataset named in ``vrt_extents``
+    (``visible_vrt_extents``) shows that extent.
     """
     record = dataset.record
     result: dict = {}
@@ -115,7 +117,9 @@ def record_to_dcat_us3(
     if temporal is not None:
         result["temporal"] = [temporal]
 
-    spatial = _spatial_to_dcat_us3(record)
+    spatial = _spatial_to_dcat_us3(
+        record, (vrt_extents or {}).get(dataset.id, record.spatial_extent)
+    )
     if spatial is not None:
         result["spatial"] = spatial
 
@@ -150,6 +154,7 @@ def catalog_to_dcat_us3(
     catalog_contact_email: str | None = None,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
     has_raster_asset_by_id: Mapping[uuid.UUID, bool] | None = None,
+    vrt_extents: Mapping[uuid.UUID, object | None] | None = None,
 ) -> dict:
     """Serialize visible datasets to a DCAT-US 3.0 Catalog document.
 
@@ -170,6 +175,7 @@ def catalog_to_dcat_us3(
             catalog_contact_email=catalog_contact_email,
             lineage_summary=lineage.get(ds.record_id),
             has_raster_asset=raster_assets.get(ds.id, False),
+            vrt_extents=vrt_extents,
         )
         for ds in datasets
     ]
@@ -304,8 +310,8 @@ def _temporal_to_dcat_us3(record: Record) -> dict | None:
     return result
 
 
-def _spatial_to_dcat_us3(record: Record) -> dict | None:
-    if record.spatial_extent is None:
+def _spatial_to_dcat_us3(record: Record, spatial_extent: object) -> dict | None:
+    if spatial_extent is None:
         return None
 
     from app.core.geo import extent_to_span_bbox
@@ -315,7 +321,7 @@ def _spatial_to_dcat_us3(record: Record) -> dict | None:
     # becomes the complementary 340°. Take the monotonic span, so a seam-crossing
     # extent serializes over-broad (-180..180) but honest. extent_to_span_bbox
     # swallows geoalchemy/shapely parse failures and returns None (no spatial).
-    bounds = extent_to_span_bbox(record.spatial_extent)
+    bounds = extent_to_span_bbox(spatial_extent)
     if bounds is None:
         logger.debug(
             "DCAT-US spatial extent serialization failed", record_id=str(record.id)

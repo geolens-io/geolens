@@ -28,6 +28,7 @@ from app.modules.catalog.authorization import (
     get_user_roles,
     visible_lineage_summaries,
     visible_lineage_summary,
+    visible_vrt_extents,
     visible_vrt_source_counts,
 )
 from app.modules.catalog.datasets.domain.models import (
@@ -244,6 +245,12 @@ async def _handle_search(
     lineage = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles
     )
+    vrt_extents = await visible_vrt_extents(
+        db,
+        [d.id for d in datasets if d.record.record_type == "vrt_dataset"],
+        user,
+        user_roles,
+    )
 
     features = [
         dataset_to_ogc_record(
@@ -255,6 +262,7 @@ async def _handle_search(
             public_app_url=public_app_url,
             preferred_languages=preferred_languages,
             lineage_summary=lineage[d.record_id],
+            vrt_extents=vrt_extents,
         )
         for d in datasets
     ]
@@ -848,14 +856,21 @@ async def list_collections(
     ds_result = await db.execute(ds_stmt)
     datasets = ds_result.scalars().unique().all()
 
+    vrt_extents = await visible_vrt_extents(
+        db,
+        [d.id for d in datasets if d.record.record_type == "vrt_dataset"],
+        user,
+        user_roles,
+    )
     dataset_collections = []
     for ds in datasets:
         extent = {}
-        if ds.record.spatial_extent is not None:
+        spatial_extent = vrt_extents.get(ds.id, ds.record.spatial_extent)
+        if spatial_extent is not None:
             # fix(#892): OGC bbox convention needs west > east across a seam;
             # extent_to_bbox returns None on a parse failure, which degrades
             # to no spatial extent.
-            bbox = extent_to_bbox(ds.record.spatial_extent)
+            bbox = extent_to_bbox(spatial_extent)
             if bbox is None:
                 logger.warning("Failed to serialize OGC bbox extent")
             else:
@@ -1302,6 +1317,9 @@ async def get_collection_item(
         # their own, separately from the requester's check above.
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
+        ),
+        vrt_extents=await visible_vrt_extents(
+            db, [record_id] if rec_type == "vrt_dataset" else [], user, user_roles
         ),
     )
     return JSONResponse(

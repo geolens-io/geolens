@@ -149,6 +149,7 @@ def dataset_to_response(
     pointcloud_asset=None,
     is_admin: bool = False,
     source_count: int | None = None,
+    vrt_extents: Mapping[uuid.UUID, object | None] | None = None,
     base_url: str | None = None,
     stac_assets=None,
     derived_from: dict | None = None,
@@ -161,6 +162,9 @@ def dataset_to_response(
     owner/admin see the raw pointer, everyone else gets it nulled. Callers
     resolve it via ``can_view_dataset_provenance`` in ``authorization.py``;
     it defaults to False so a forgetful call site redacts rather than leaks.
+
+    ``vrt_extents`` is the requester's ``visible_vrt_extents``; a dataset it
+    names shows that extent in place of the stored one.
     """
     record = dataset.record
     actor_map = actors_by_id or {}
@@ -241,7 +245,9 @@ def dataset_to_response(
         # not the flattened span form. fix(#1112): mirrored by
         # dataset_extent_bbox in maps/_router_helpers.py for the same reason;
         # pinned by tests/test_antimeridian_extent.py.
-        extent_bbox=extent_to_bbox(record.spatial_extent),
+        extent_bbox=extent_to_bbox(
+            (vrt_extents or {}).get(dataset.id, record.spatial_extent)
+        ),
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,
         license=record.license,

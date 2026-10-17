@@ -32,6 +32,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     get_user_roles,
     visible_lineage_summaries,
+    visible_vrt_extents,
 )
 from app.standards.dcat.service import (
     catalog_to_dcat,
@@ -275,6 +276,17 @@ async def _visible_lineage(
     )
 
 
+async def _visible_vrt_extents(
+    db: AsyncSession, datasets: list[DatasetModel], user: Identity | None
+) -> dict[uuid.UUID, object | None]:
+    """The requester's ``visible_vrt_extents`` for the VRTs among ``datasets``."""
+    vrt_ids = [ds.id for ds in datasets if ds.record.record_type == "vrt_dataset"]
+    if not vrt_ids:
+        return {}
+    user_roles = await get_user_roles(db, user) if user is not None else set()
+    return await visible_vrt_extents(db, vrt_ids, user, user_roles)
+
+
 async def _visible_record_lineage(
     db: AsyncSession, dataset: DatasetModel, user: Identity | None
 ) -> str | None:
@@ -349,7 +361,10 @@ async def _get_dcat_dataset_for_export(
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
 # the 404 regression introduced by redirect_slashes=False (api/main.py).
 _FeedInputs = tuple[
-    list[DatasetModel], dict[uuid.UUID, str | None], dict[uuid.UUID, bool]
+    list[DatasetModel],
+    dict[uuid.UUID, str | None],
+    dict[uuid.UUID, bool],
+    dict[uuid.UUID, object | None],
 ]
 
 
@@ -365,6 +380,7 @@ async def _load_feed_inputs(
         datasets,
         await _visible_lineage(db, datasets, user),
         await _dcat_raster_asset_presence(db, datasets),
+        await _visible_vrt_extents(db, datasets, user),
     )
     # Detached first, since a rollback expires attached instances; the render
     # can then run without holding a pooled connection.
@@ -387,7 +403,7 @@ async def get_dcat_catalog(
     preferred_languages = parse_accept_languages(request)
 
     def build(inputs: _FeedInputs) -> tuple[dict, dict[str, str]]:
-        datasets, lineage, has_asset = inputs
+        datasets, lineage, has_asset, vrt_extents = inputs
         catalog = catalog_to_dcat(
             datasets,
             base_url,
@@ -395,6 +411,7 @@ async def get_dcat_catalog(
             preferred_languages=preferred_languages,
             lineage_by_record_id=lineage,
             has_raster_asset_by_id=has_asset,
+            vrt_extents=vrt_extents,
         )
         completeness = _catalog_completeness(
             datasets,
@@ -437,13 +454,14 @@ async def validate_dcat3_catalog(
     app_base_url, base_url = await get_public_urls(db, request=request)
 
     def build(inputs: _FeedInputs) -> tuple[dict, dict[str, str]]:
-        datasets, lineage, has_asset = inputs
+        datasets, lineage, has_asset, vrt_extents = inputs
         catalog = catalog_to_dcat(
             datasets,
             base_url,
             app_base_url=app_base_url,
             lineage_by_record_id=lineage,
             has_raster_asset_by_id=has_asset,
+            vrt_extents=vrt_extents,
         )
         report = validate_dcat3(catalog, "Catalog")
         report.update(
@@ -484,7 +502,7 @@ async def get_dcat_us3_catalog(
     app_base_url, base_url = await get_public_urls(db, request=request)
 
     def build(inputs: _FeedInputs) -> tuple[dict, dict[str, str]]:
-        datasets, lineage, has_asset = inputs
+        datasets, lineage, has_asset, vrt_extents = inputs
         catalog = catalog_to_dcat_us3(
             datasets,
             base_url,
@@ -492,6 +510,7 @@ async def get_dcat_us3_catalog(
             catalog_contact_email=settings.dcat_contact_email,
             lineage_by_record_id=lineage,
             has_raster_asset_by_id=has_asset,
+            vrt_extents=vrt_extents,
         )
         fallback_fields = [
             dcat_us3_fallback_fields(d, settings.dcat_contact_email) for d in datasets
@@ -535,7 +554,7 @@ async def validate_dcat_us3_catalog(
     app_base_url, base_url = await get_public_urls(db, request=request)
 
     def build(inputs: _FeedInputs) -> tuple[dict, dict[str, str]]:
-        datasets, lineage, has_asset = inputs
+        datasets, lineage, has_asset, vrt_extents = inputs
         catalog = catalog_to_dcat_us3(
             datasets,
             base_url,
@@ -543,6 +562,7 @@ async def validate_dcat_us3_catalog(
             catalog_contact_email=settings.dcat_contact_email,
             lineage_by_record_id=lineage,
             has_raster_asset_by_id=has_asset,
+            vrt_extents=vrt_extents,
         )
         report = validate_dcat_us3(catalog, "Catalog")
         fallback_fields = [
@@ -577,13 +597,14 @@ async def get_geodcat_ap_catalog(
     app_base_url, base_url = await get_public_urls(db, request=request)
 
     def build(inputs: _FeedInputs) -> tuple[dict, dict[str, str]]:
-        datasets, lineage, has_asset = inputs
+        datasets, lineage, has_asset, vrt_extents = inputs
         catalog = catalog_to_geodcat_ap(
             datasets,
             base_url,
             app_base_url=app_base_url,
             lineage_by_record_id=lineage,
             has_raster_asset_by_id=has_asset,
+            vrt_extents=vrt_extents,
         )
         completeness = _catalog_completeness(
             datasets,
@@ -618,13 +639,14 @@ async def validate_geodcat_ap_catalog(
     app_base_url, base_url = await get_public_urls(db, request=request)
 
     def build(inputs: _FeedInputs) -> tuple[dict, dict[str, str]]:
-        datasets, lineage, has_asset = inputs
+        datasets, lineage, has_asset, vrt_extents = inputs
         catalog = catalog_to_geodcat_ap(
             datasets,
             base_url,
             app_base_url=app_base_url,
             lineage_by_record_id=lineage,
             has_raster_asset_by_id=has_asset,
+            vrt_extents=vrt_extents,
         )
         report = validate_geodcat_ap(catalog, "Catalog")
         report.update(
@@ -669,6 +691,7 @@ async def validate_dcat3_record(
         base_url,
         app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        vrt_extents=await _visible_vrt_extents(db, [dataset], user),
         has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     report = validate_dcat3(dcat, "Dataset")
@@ -701,6 +724,7 @@ async def get_dcat_record(
         app_base_url=app_base_url,
         preferred_languages=preferred_languages,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        vrt_extents=await _visible_vrt_extents(db, [dataset], user),
         has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     fallback_fields = dcat_fallback_fields(dataset, preferred_languages)
@@ -736,6 +760,7 @@ async def validate_dcat_us3_record(
         app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        vrt_extents=await _visible_vrt_extents(db, [dataset], user),
         has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     report = validate_dcat_us3(dcat, "Dataset")
@@ -774,6 +799,7 @@ async def get_dcat_us3_record(
         app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        vrt_extents=await _visible_vrt_extents(db, [dataset], user),
         has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     fallback_fields = dcat_us3_fallback_fields(dataset, settings.dcat_contact_email)
@@ -810,6 +836,7 @@ async def validate_geodcat_ap_record(
         base_url,
         app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        vrt_extents=await _visible_vrt_extents(db, [dataset], user),
         has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     report = validate_geodcat_ap(geodcat, "Dataset")
@@ -843,6 +870,7 @@ async def get_geodcat_ap_record(
         base_url,
         app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
+        vrt_extents=await _visible_vrt_extents(db, [dataset], user),
         has_raster_asset=await _dcat_dataset_has_raster_asset(db, dataset),
     )
     fallback_fields = geodcat_ap_fallback_fields(dataset)

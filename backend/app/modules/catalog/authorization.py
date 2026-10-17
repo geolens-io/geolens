@@ -13,6 +13,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
+from geoalchemy2 import WKTElement
 from sqlalchemy import (
     Select,
     Uuid,
@@ -29,6 +30,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.geo import bbox_to_extent_wkt, rollup_bbox, rollup_bbox_columns
 from app.core.identity import Identity
 from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
@@ -467,6 +469,66 @@ async def visible_vrt_source_counts(
     for vrt_id, count in (await db.execute(stmt)).all():
         counts[vrt_id] = count
     return counts
+
+
+async def visible_vrt_extents(
+    db: AsyncSession,
+    vrt_dataset_ids: Iterable[uuid.UUID],
+    user: Identity | None,
+    user_roles: set[str],
+) -> dict[uuid.UUID, WKTElement | None]:
+    """The extent shown to this requester for each VRT with a member they cannot read.
+
+    A VRT's stored extent covers every member, so it would show where a hidden
+    member lies. Such a VRT shows the extent of the members the requester can
+    read instead, or None when none of them has one. A VRT left out of the
+    result keeps its stored extent.
+    """
+    wanted = set(vrt_dataset_ids)
+    if not wanted:
+        return {}
+
+    from app.modules.catalog.datasets.domain.models import (
+        Dataset,
+        DatasetGrant,
+        Record,
+    )
+
+    links = _VRT_SOURCE_LINKS
+    of_wanted = links.c.vrt_dataset_id == any_(
+        bindparam("vrt_ids", list(wanted), type_=ARRAY(Uuid))
+    )
+    readable = apply_visibility_filter(
+        select(Dataset.id, Record.spatial_extent)
+        .join(Record, Record.id == Dataset.record_id)
+        .where(Dataset.id.in_(select(links.c.source_dataset_id).where(of_wanted))),
+        user,
+        user_roles,
+        Record,
+        DatasetGrant,
+    ).subquery()
+    stmt = (
+        select(
+            links.c.vrt_dataset_id,
+            func.count(links.c.source_dataset_id.distinct()),
+            func.count(readable.c.id.distinct()),
+            *rollup_bbox_columns(readable.c.spatial_extent),
+        )
+        .select_from(
+            links.outerjoin(readable, readable.c.id == links.c.source_dataset_id)
+        )
+        .where(of_wanted)
+        .group_by(links.c.vrt_dataset_id)
+    )
+    extents: dict[uuid.UUID, WKTElement | None] = {}
+    for vrt_id, linked, visible, *bounds in (await db.execute(stmt)).all():
+        if visible == linked:
+            continue
+        bbox = rollup_bbox(bounds)
+        extents[vrt_id] = (
+            None if bbox is None else WKTElement(bbox_to_extent_wkt(*bbox), srid=4326)
+        )
+    return extents
 
 
 def can_view_dataset_provenance(

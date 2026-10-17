@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+import uuid
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 from typing import TYPE_CHECKING
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
 import structlog
 
 from app.core.config import settings
+from app.core.geo import extent_to_bbox
 from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE, pointcloud_path
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
@@ -29,7 +31,6 @@ from app.modules.catalog.datasets.domain.source_freshness import (
     compute_source_freshness,
 )
 from app.modules.catalog.records.localization import select_localized_record_text
-from app.modules.catalog.datasets.domain.utils import extract_bbox
 from app.modules.catalog.search.record_metadata import (
     build_contacts,
     build_external_ids,
@@ -305,15 +306,22 @@ def dataset_to_ogc_record(
     public_app_url: str | None = None,
     preferred_languages: Sequence[str] | None = None,
     lineage_summary: str | None = None,
+    vrt_extents: Mapping[uuid.UUID, object | None] | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to an OGC Record GeoJSON Feature dict.
 
     fix(#1103): ``lineage_summary`` must arrive already access-checked
     (``visible_lineage_summary``) — this function has no requester to check
     the derived-from titles against. Omitted when the caller doesn't supply
-    it: missing is recoverable, leaked is not.
+    it: missing is recoverable, leaked is not. A dataset named in
+    ``vrt_extents`` (``visible_vrt_extents``) shows that extent instead of the
+    stored one or ``spatial_extent_geojson``.
     """
     record = dataset.record
+    extent = record.spatial_extent
+    if vrt_extents is not None and dataset.id in vrt_extents:
+        extent = vrt_extents[dataset.id]
+        spatial_extent_geojson = None
     localized = select_localized_record_text(record, preferred_languages)
     updated_user = getattr(record, "_provenance_updated_user", None)
     last_edited = derive_last_edited(
@@ -338,14 +346,14 @@ def dataset_to_ogc_record(
                 exc_info=True,
             )
             geometry = None
-    elif record.spatial_extent is not None:
+    elif extent is not None:
         try:
             from geoalchemy2.shape import to_shape
             from shapely.geometry import mapping
 
             # fix(#430): mapping() emits valid GeoJSON for any geometry type;
             # the old .exterior path built {"coordinates": []} for Point extents.
-            geometry = mapping(to_shape(record.spatial_extent))
+            geometry = mapping(to_shape(extent))
         except Exception:  # broad: WKB deserialize — geoalchemy/shapely errors fall back to None geometry
             logger.warning(
                 "ogc_geometry_wkb_deserialize_failed",
@@ -617,7 +625,7 @@ def dataset_to_ogc_record(
         if raster_meta.get("source_count") is not None:
             ogc_record["properties"]["source_count"] = raster_meta["source_count"]
 
-    bbox = extract_bbox(dataset)
+    bbox = extent_to_bbox(extent)
     if bbox is not None:
         ogc_record["bbox"] = bbox
 

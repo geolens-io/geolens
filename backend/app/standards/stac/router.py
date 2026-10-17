@@ -40,6 +40,7 @@ from app.modules.catalog.authorization import (
     get_user_roles,
     visible_lineage_summaries,
     visible_lineage_summary,
+    visible_vrt_extents,
 )
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -279,6 +280,7 @@ async def _dataset_to_stac_item(
     user_roles: set[str] | None = None,
     lineage_summary: Any = _LINEAGE_UNRESOLVED,
     may_export: bool | None = None,
+    vrt_extents: dict[uuid.UUID, Any] | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
 
@@ -289,8 +291,14 @@ async def _dataset_to_stac_item(
     asset is served at the public APP origin (/raster-tiles/...), not the /api
     origin, so it is threaded to both ``dataset_to_ogc_record`` and the
     presigned-URL ``build_assets`` re-build below.
+
+    Page loops pass the page's ``visible_vrt_extents``; None resolves it here.
     """
     record = dataset.record
+    if vrt_extents is None and record.record_type == "vrt_dataset":
+        vrt_extents = await visible_vrt_extents(
+            db, [dataset.id], user, user_roles or set()
+        )
 
     ogc_record = dataset_to_ogc_record(
         dataset,
@@ -300,6 +308,7 @@ async def _dataset_to_stac_item(
         spatial_extent_geojson=spatial_extent_geojson,
         public_app_url=public_app_url,
         preferred_languages=preferred_languages,
+        vrt_extents=vrt_extents,
         # The prose names the same datasets the derived_from link
         # below points at, and is gated the same way — per requester, on each
         # referenced dataset rather than on the output they can already see.
@@ -1147,6 +1156,12 @@ async def get_collection_items(
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
     )
+    vrt_extents = await visible_vrt_extents(
+        db,
+        [d.id for d in datasets if d.record.record_type == "vrt_dataset"],
+        user,
+        user_roles or set(),
+    )
     may_export = any(
         d.record.record_type == "raster_dataset" for d in datasets
     ) and await can_export(db, user, user_roles)
@@ -1169,6 +1184,7 @@ async def get_collection_items(
             user_roles=user_roles,
             lineage_summary=lineage_map[dataset.record.id],
             may_export=may_export,
+            vrt_extents=vrt_extents,
         )
         features.append(item)
 
@@ -1627,6 +1643,12 @@ async def _execute_search(
     lineage_map = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles or set()
     )
+    vrt_extents = await visible_vrt_extents(
+        db,
+        [d.id for d in datasets if d.record.record_type == "vrt_dataset"],
+        user,
+        user_roles or set(),
+    )
     may_export = any(
         d.record.record_type == "raster_dataset" for d in datasets
     ) and await can_export(db, user, user_roles)
@@ -1649,6 +1671,7 @@ async def _execute_search(
             user_roles=user_roles,
             lineage_summary=lineage_map[dataset.record.id],
             may_export=may_export,
+            vrt_extents=vrt_extents,
         )
         features.append(item)
 

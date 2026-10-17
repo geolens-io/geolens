@@ -1190,7 +1190,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
         # Record assembly keeps one format and asset branch per record type.
-        "backend/app/modules/catalog/search/service_records.py": 624,
+        "backend/app/modules/catalog/search/service_records.py": 632,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 516,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
@@ -1198,7 +1198,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 665,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 557,
         # Internal pointer reads sit beside the detail query that shares them.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 445,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 587,
@@ -1390,9 +1390,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Map endpoints share response assembly, visibility and ownership checks.
     "backend/app/modules/catalog/maps/router.py": 1538,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1404,
+    "backend/app/modules/catalog/search/router.py": 1422,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1891,
+    "backend/app/standards/stac/router.py": 1914,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2811,
@@ -1405,7 +1405,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1556,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1584,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 620,
@@ -1415,6 +1415,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # invariants; temporal writes reuse the validated filter parsers, and batch
     # inserts reuse the single-insert validation.
     "backend/app/modules/catalog/features/service.py": 1501,
+    # Dataset visibility, and the VRT member counts and extents each requester
+    # may see, share the permission extension's one filter.
+    "backend/app/modules/catalog/authorization.py": 1039,
 }
 
 

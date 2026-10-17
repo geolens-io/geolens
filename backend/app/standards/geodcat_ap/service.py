@@ -96,6 +96,7 @@ def record_to_geodcat_ap(
     include_context: bool = True,
     lineage_summary: str | None = None,
     has_raster_asset: bool = False,
+    vrt_extents: Mapping[uuid.UUID, object | None] | None = None,
 ) -> dict:
     """Serialize a GeoLens dataset to GeoDCAT-AP 2.0.0 JSON-LD.
 
@@ -107,7 +108,8 @@ def record_to_geodcat_ap(
     access-checked by the caller — fix(#1103): not read off the record,
     since an analysis output's lineage names datasets an anonymous
     requester may not see. ``has_raster_asset`` gates the COG download
-    distribution the same way.
+    distribution the same way. A dataset named in ``vrt_extents``
+    (``visible_vrt_extents``) shows that extent.
     """
     record = dataset.record
     result: dict = {}
@@ -199,7 +201,9 @@ def record_to_geodcat_ap(
 
     # Spatial extent → dcterms:Location with a GeoSPARQL WKT geometry, the
     # GeoDCAT-AP-recommended carrier for the bounding geometry.
-    spatial = _spatial_to_geodcat_ap(record)
+    spatial = _spatial_to_geodcat_ap(
+        record, (vrt_extents or {}).get(dataset.id, record.spatial_extent)
+    )
     if spatial is not None:
         result["dcterms:spatial"] = spatial
 
@@ -223,6 +227,7 @@ def catalog_to_geodcat_ap(
     app_base_url: str,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
     has_raster_asset_by_id: Mapping[uuid.UUID, bool] | None = None,
+    vrt_extents: Mapping[uuid.UUID, object | None] | None = None,
 ) -> dict:
     """Serialize a list of visible datasets to a GeoDCAT-AP Catalog JSON-LD dict.
 
@@ -247,6 +252,7 @@ def catalog_to_geodcat_ap(
             include_context=False,
             lineage_summary=lineage.get(ds.record_id),
             has_raster_asset=raster_assets.get(ds.id, False),
+            vrt_extents=vrt_extents,
         )
         for ds in datasets
     ]
@@ -364,9 +370,9 @@ def _distribution_to_geodcat_ap(
     return {k: v for k, v in result.items() if v is not None}
 
 
-def _spatial_to_geodcat_ap(record: Record) -> dict | None:
+def _spatial_to_geodcat_ap(record: Record, spatial_extent: object) -> dict | None:
     """Serialize the spatial extent as a dcterms:Location with GeoSPARQL WKT."""
-    if record.spatial_extent is None:
+    if spatial_extent is None:
         return None
     from app.core.geo import extent_to_span_bbox
 
@@ -375,7 +381,7 @@ def _spatial_to_geodcat_ap(record: Record) -> dict | None:
     # silently becomes the complementary 340°. Take the monotonic span, so a
     # seam-crossing extent serializes over-broad (-180..180) but honest.
     # extent_to_span_bbox swallows parse failures and returns None (no spatial).
-    bounds = extent_to_span_bbox(record.spatial_extent)
+    bounds = extent_to_span_bbox(spatial_extent)
     if bounds is None:
         logger.debug(
             "GeoDCAT-AP spatial extent serialization failed",
