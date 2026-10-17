@@ -111,8 +111,8 @@ Chaque jeu de données consigne son origine : un fichier chargé, une table de b
 service, un élément STAC ou un dessin réalisé dans le navigateur. Les jeux importés consignent aussi
 la date de leur dernière actualisation, et avec une fréquence de mise à jour, GeoLens les marque
 comme à jour, à actualiser ou en retard. Pour les services et les sources STAC, GeoLens
-vérifie aussi que la source répond encore et signale les changements de schéma en amont avant
-qu’ils n’atteignent vos cartes. Si un service disparaît, la copie importée continue de
+vérifie aussi que la source répond encore et, pour les services, signale les changements de
+schéma en amont avant qu’ils n’atteignent vos cartes. Si un service disparaît, la copie importée continue de
 fonctionner.
 
 ## Créer et partager des cartes
