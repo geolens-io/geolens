@@ -259,18 +259,18 @@ def _raise_service_gdal_failure(
 # strings, so none may name any part of the credential being judged. No
 # brace in any, so none can grow an interpolation later.
 HEADER_LINE_SHAPE_POLICY = (
-    "SEC-FU-04: the service credential did not arrive as one header line "
+    "The service credential did not arrive as one header line "
     "(a header name, a colon and a space, then a value). Nothing was sent."
 )
 
 HEADER_LINE_NAME_POLICY = (
-    "SEC-FU-04: the service credential named a header this build will not "
+    "The service credential named a header this build will not "
     "write. A header name may use only letters, digits and the characters "
     "! # $ % & ' * + - . ^ _ ` | ~ ."
 )
 
 HEADER_LINE_VALUE_POLICY = (
-    "SEC-FU-04: the service credential's value contains a character that "
+    "The service credential's value contains a character that "
     "cannot be written into an HTTP header. Only printable ASCII is "
     "permitted, so that no line break can smuggle a second header through "
     "libcurl."
@@ -309,7 +309,7 @@ def _legacy_bearer_line(token: str, service_format: str) -> str:
 def _sanitize_authorization_token(
     header_line: "str | None", *, service_format: str
 ) -> "str | None":
-    """SEC-FU-04: pin the credential header line to the shared policy.
+    """Pin the credential header line to the shared policy.
 
     What crosses from the door to this worker is one finished header line
     (plan D9), not a bare token, so this judges a LINE: printable ASCII, no
@@ -344,8 +344,8 @@ def _sanitize_authorization_token(
     caller's real value (not a constant) keeps the builder the sole
     authority on which formats may carry a header.
 
-    Returns the line the file should hold, raises ValueError with a
-    SEC-FU-04-prefixed message otherwise. None passes through.
+    Returns the line the file should hold, raises ValueError
+    otherwise. None passes through.
     """
     if header_line is None:
         return None
@@ -391,7 +391,7 @@ def _sanitize_authorization_token(
         token = value[len(BEARER_SCHEME) :]
         if len(token) < HEADER_TOKEN_MIN_LENGTH:
             raise ValueError(
-                "SEC-FU-04: Authorization token is empty or implausibly short "
+                "Authorization token is empty or implausibly short "
                 f"(minimum {HEADER_TOKEN_MIN_LENGTH} characters required to "
                 "prevent single-char attack payloads)."
             )
@@ -399,7 +399,7 @@ def _sanitize_authorization_token(
         if bad:
             sample = bad[0]
             raise ValueError(
-                f"SEC-FU-04: Authorization token contains non-base64url "
+                f"Authorization token contains non-base64url "
                 f"character (first offender: {sample!r}); only "
                 "[A-Za-z0-9._\\-=] are permitted to prevent CRLF header "
                 "smuggling via GDAL_HTTP_HEADERS env var."
@@ -495,7 +495,7 @@ def validate_layer_name_argv(layer_name: str) -> None:
         )
 
 
-# Subprocess timeouts (R-5, R-9): wall-clock limits protect the
+# Subprocess timeouts: wall-clock limits protect the
 # Procrastinate worker from hanging on a bad file or a slow/hung upstream
 # service. Tune via settings if your datasets are routinely large.
 
@@ -720,14 +720,14 @@ def extract_srid_from_json(coord_system: dict) -> int | None:
         if match:
             return int(match.group(1))
 
-    # Phase 1057 CRS-06 (D-07): Third fallback — parse URI/URN-form CRS from the
+    # Third fallback — parse URI/URN-form CRS from the
     # `name` field.  ogrinfo populates coordinateSystem.name with the source CRS
     # reference (URI or URN) when projjson/WKT lack an EPSG authority.  This covers:
     #   - OGC API Features sources declaring storageCrs as a URI/URN (e.g. pygeoapi)
     #   - WFS 2.0 sources with DefaultCRS as a URN (e.g. urn:ogc:def:crs:EPSG::4326)
-    # Unrecognised URIs return None, preserving the null-CRS fallthrough (D-07).
+    # Unrecognised URIs return None, preserving the null-CRS fallthrough.
     # This block fires ONLY when projjson + WKT both returned None — authoritative
-    # EPSG declarations in those fields always win (D-07 ordering guarantee).
+    # EPSG declarations in those fields always win.
     name = coord_system.get("name")
     if name:
         srid = parse_crs_uri(name)
@@ -756,10 +756,10 @@ def _extract_common_layer_metadata(
     Populating ``columns`` in the shared
     helper (rather than only in ``run_ogrinfo_preview``) lets shapefile
     ingest reuse the DBF-collision detector without spawning a second
-    ogrinfo subprocess (PERF-1).
+    ogrinfo subprocess.
 
     Raises KeyError if the JSON has no ``layers`` entry so callers can
-    fall through to their fallback path. KISS-12.
+    fall through to their fallback path.
     """
     layers = data.get("layers", [])
     if not layers:
@@ -1003,7 +1003,7 @@ async def run_ogrinfo_preview(
             data = json.loads(stdout.decode(errors="replace"))
             target_layer, metadata = _extract_common_layer_metadata(data, layer_name)
             # Preview also extracts sample rows; columns come from the
-            # shared helper (PERF-1).
+            # shared helper.
             metadata["sample_rows"] = [
                 feat.get("properties", {}) for feat in target_layer.get("features", [])
             ]
@@ -1473,7 +1473,7 @@ async def run_ogr2ogr_service(
                 # Basic <blob>`, a working-looking string that just 401s.
                 header_line = _sanitize_authorization_token(
                     token, service_format=service_type
-                )  # SEC-FU-04: raises ValueError before subprocess
+                )  # raises ValueError before subprocess
 
                 # fix(#1828): a credentialed WFS never reaches GDAL without a
                 # layer, since GDAL opened layerless reads every layer's schema.
@@ -1549,7 +1549,7 @@ async def run_ogr2ogr_service(
                 # No-op when the walk or preflight already reached the origin.
                 arm_origin_contact()
 
-            # Use the shared helper for graceful kill-on-timeout (R-9).
+            # Use the shared helper for graceful kill-on-timeout.
             stdout, stderr = await _communicate_with_timeout(
                 proc, timeout, tool_name="ogr2ogr (service)"
             )

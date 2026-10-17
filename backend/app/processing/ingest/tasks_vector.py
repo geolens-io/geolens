@@ -434,7 +434,7 @@ async def ingest_file(
 
     try:
         # ----------------------------------------------------------------- #
-        # Phase 1 uses a short-lived session to load the job, mark it running,
+        # The first phase uses a short-lived session to load the job, mark it running,
         # validate it, detect CRS, and generate the
         # table name. Snapshot values needed for phase 2 into local
         # variables so the ogr2ogr subprocess can run without a session
@@ -865,7 +865,7 @@ async def ingest_service(
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
-        # Phase 1 uses a short-lived session to load the job, mark it running,
+        # The first phase uses a short-lived session to load the job, mark it running,
         # generate the table name, and snapshot values needed for phase 2.
         async with _job_phase_session(
             job_uuid, phase="phase1", attempt_id=attempt_uuid

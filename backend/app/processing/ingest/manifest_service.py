@@ -533,7 +533,7 @@ async def _caller_owns_job(db: AsyncSession, job: IngestJob, user: Identity) -> 
     if job.created_by is not None and job.created_by == user.id:
         return True
     # Lazy import: processing/ must not import app.modules.catalog.* at module
-    # level (PROCESS-02/04 layering invariant).
+    # level (layering invariant).
     from app.modules.catalog.authorization import get_user_roles
 
     return "admin" in await get_user_roles(db, user)
@@ -559,7 +559,7 @@ def _skip_complete_message(prepared: ManifestPreparedSource) -> str:
     source bytes were read — a stable URI whose file changed underneath it
     lands here too, so say plainly the source wasn't inspected.
 
-    gh#1773 codex r4: naming `checksum` unconditionally let a bumped
+    gh#1773: naming `checksum` unconditionally let a bumped
     `raster_cog` fingerprint reach `_validate_existing_dataset_update`,
     which then rejects it with "Manifest raster updates are not
     supported" — an impossible recovery path. Vector entries keep the
@@ -607,7 +607,7 @@ async def _classify_dataset(
     # admin gate as every visibility-accepting API mutation, raising 403
     # for a non-admin when restrict_public_visibility is on. Checked before
     # staging so dry_run reports it too. Local import: processing/ must not
-    # import app.modules.catalog.* at module level (PROCESS-02/04).
+    # import app.modules.catalog.* at module level.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     intent_visibility, _ = publication_to_catalog_fields(dataset.publication)

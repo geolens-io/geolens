@@ -53,7 +53,7 @@ def capacity_bound() -> int:
     small calc is repeated.
     """
     if settings.db_use_external_pooler:
-        # fix(#2045 codex r1): a process cannot see how many API replicas share
+        # fix(#2045): a process cannot see how many API replicas share
         # the pooler, so an explicit per-process share wins whenever it is set.
         if settings.sandbox_query_slots is not None:
             return settings.sandbox_query_slots

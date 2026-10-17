@@ -8,7 +8,7 @@ agree line for line, so they're kept where a reader can see both.
 
 ``get_extent`` and the CTE also share the two extent corrections: the
 antimeridian override in ``_seam_crossing_extent_wkt`` (#934) and the
-degenerate POINT/LINESTRING padding (#430 BA-18).
+degenerate POINT/LINESTRING padding.
 """
 
 import re
@@ -98,7 +98,7 @@ async def get_declared_srid(
     )
 
 
-# Phase 1057 WFS-04: map abstract OGC GML 3 geometry types (returned by
+# Map abstract OGC GML 3 geometry types (returned by
 # PostGIS GeometryType() when the source WFS stores them, e.g. GeoServer's
 # opengeo:countries) to the closest concrete subtype, since
 # chk_datasets_geometry_type only allows the 7 concrete types (POINT,
@@ -611,7 +611,7 @@ async def extract_metadata(
                             WHERE geom IS NOT NULL
                             LIMIT 1
                         ) AS geometry_type,
-                        -- fix(#430 BA-18): pad only degenerate (point/line) extents
+                        -- Pad only degenerate (point/line) extents
                         -- into a POLYGON; spatial_extent rejects POINT/LINESTRING.
                         CASE
                             WHEN ST_Extent(geom_4326) IS NULL THEN NULL

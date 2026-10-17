@@ -6,7 +6,7 @@ Validates uploaded files beyond extension checks:
   FlatGeobuf)
 - ZIP archive safety (compression method and ratio, nested archives, size)
 - File size enforcement against configured limits
-- VRT XML sniff + path-traversal guard on `<SourceFilename>` body (IA-P1-03)
+- VRT XML sniff + path-traversal guard on `<SourceFilename>` body
 """
 
 import codecs
@@ -861,7 +861,7 @@ def _reject_uploaded_vrt_source(raw_path: str) -> None:
 def validate_vrt_body(file_path: str) -> None:
     """Validate a user-uploaded .vrt file's XML body.
 
-    IA-P1-03 (Phase 1068): the GDAL VRT driver follows `<SourceFilename>`
+    The GDAL VRT driver follows `<SourceFilename>`
     body content as if it were a path/URL. A malicious VRT can declare
     `<SourceFilename>../../etc/hostname</SourceFilename>` and GDAL will
     happily open the resolved path, leaking host content into the raster
@@ -993,7 +993,7 @@ def validate_file_content(file_path: str, filename: str) -> None:
     """
     suffix = Path(filename).suffix.lower()
 
-    # IA-P1-03: .vrt gets its own XML+traversal check (magic bytes are
+    # .vrt gets its own XML+traversal check (magic bytes are
     # XML which puremagic doesn't reliably distinguish from generic text).
     if suffix == ".vrt":
         validate_vrt_body(file_path)

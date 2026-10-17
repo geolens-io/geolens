@@ -156,7 +156,7 @@ async def _detect_reupload_crs(
 ) -> tuple[dict, int]:
     """Detect CRS/geometry for a reupload file and resolve the effective SRID.
 
-    GPKG-01 Phase 1058: ``layer_name`` targets the user-chosen layer in a
+    ``layer_name`` targets the user-chosen layer in a
     multi-layer GPKG rather than defaulting to ``layers[0]``.
 
     fix(#541): applies the same missing-CRS gate as ``ingest_file``,

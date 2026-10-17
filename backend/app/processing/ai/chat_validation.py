@@ -184,7 +184,7 @@ async def _validate_actions(
         # action is dropped rather than surfaced as a 422.
         if action.type == "set_filter" and action.expression is not None:
             # Lazy import: app.processing must not module-level-import app.modules
-            # .catalog (PROCESS-02). filter_grammar is a pure, dependency-free
+            # .catalog (layering). filter_grammar is a pure, dependency-free
             # validator, so a function-scope import is the sanctioned access
             # pattern.
             from app.modules.catalog.maps.filter_grammar import (

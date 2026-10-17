@@ -267,7 +267,7 @@ async def create_raster_dataset(
     return record, dataset, raster_asset
 
 
-# Media types for the STAC-aligned dataset_assets rows (BUG-041).
+# Media types for the STAC-aligned dataset_assets rows.
 _COG_MEDIA_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
 _VRT_MEDIA_TYPE = "application/x-vrt+xml"
 _PNG_MEDIA_TYPE = "image/png"
@@ -284,7 +284,7 @@ def _build_dataset_asset_rows(
 ) -> list[dict]:
     """Build STAC-aligned ``dataset_assets`` rows for a freshly ingested raster.
 
-    BUG-041: ``dataset_assets`` is read by the search/STAC/OGC asset-output
+    ``dataset_assets`` is read by the search/STAC/OGC asset-output
     path but was never written by ingest, so STAC item assets were never
     advertised. Produces the rows using ``DatasetAsset``'s stable keys:
 
@@ -293,8 +293,7 @@ def _build_dataset_asset_rows(
       - ``overview``: 512px quicklook
 
     hrefs are storage-relative keys; ``resolve_asset_url`` turns them into
-    presigned/public URLs at read time (or omits them on local storage per
-    GAP-031).
+    presigned/public URLs at read time (or omits them on local storage).
     """
     primary_key = "vrt" if is_manifest_vrt else "data"
     primary_media = _VRT_MEDIA_TYPE if is_manifest_vrt else _COG_MEDIA_TYPE
@@ -353,7 +352,7 @@ def _resolve_managed_raster_storage_keys(
 async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> list[str]:
     """Best-effort delete storage keys written before a failed/rolled-back commit.
 
-    GAP-017: raster ingest puts COG/quicklook bytes to storage BEFORE the
+    Raster ingest puts COG/quicklook bytes to storage BEFORE the
     terminal DB commit. If the commit (or a later step) fails, the dataset
     row rolls back and ``delete_dataset`` never runs, orphaning the bytes —
     this reaps exactly the keys that were written. Failures here are

@@ -394,12 +394,12 @@ async def _repair_geom_4326(
                 return _RepairReport(_REPAIR_NOT_APPLICABLE)
             srid = await get_declared_srid(session, table_name, schema=schema)
             if srid == 0:
-                # Phase 2 refuses a table without an SRID, so nothing about it
+                # The second phase refuses a table without an SRID, so nothing about it
                 # is re-derived, indexed or granted first.
                 return _RepairReport(_REPAIR_NOT_APPLICABLE)
             gid_keyable = await probe_gid(session, table_name, schema=schema)
             if gid_keyable is False:
-                # Phase 2 refuses this too, on the same terms.
+                # The second phase refuses this too, on the same terms.
                 return _RepairReport(_REPAIR_NOT_APPLICABLE)
             gid_added = gid_keyable is None
             if gid_added:

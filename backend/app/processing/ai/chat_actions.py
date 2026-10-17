@@ -407,7 +407,7 @@ async def _execute_chat_tool(
             # fix(#392): thread the layer's own render_mode through so
             # heatmap-radius/heatmap-opacity/heatmap-intensity survive validation on
             # an already-heatmap-rendered layer — set_style is the only AI tool that
-            # can tune those. Mirrors ChatPanel.tsx's validateChatPaint. (audit WR-01)
+            # can tune those. Mirrors ChatPanel.tsx's validateChatPaint.
             render_mode = (
                 (target.style_config or {}).get("render_mode")
                 if target.style_config
@@ -510,7 +510,7 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
             # fix(#392): guard both keys — geojson and bbox are set together
             # by _extract_geojson's tuple unpack today, but that pairing is an unenforced
             # invariant on this plain dict; a future caller emitting geojson without bbox
-            # must not raise an uncaught KeyError inside the action-collector callback. (audit WR-03)
+            # must not raise an uncaught KeyError inside the action-collector callback.
             if "geojson" in result and "bbox" in result:
                 action["geojson"] = result["geojson"]
                 action["bbox"] = result["bbox"]

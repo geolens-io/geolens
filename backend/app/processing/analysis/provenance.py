@@ -118,7 +118,7 @@ def _operation_phrase(
 
     The extension point: a new operation adds one branch. The fallback matters
     — an operation with no branch still has to produce SOME lineage, because an
-    empty ``lineage_summary`` is a hard VAL-01 validation failure.
+    empty ``lineage_summary`` is a hard validation failure.
     """
     if operation == "buffer":
         distance = params.get("distance_meters")
@@ -226,7 +226,7 @@ async def _actor_label(session: AsyncSession, user_id: str) -> str:
     """Username, else the email's local part, else a neutral label.
 
     The same precedence as ``resolve_actor``, resolved here in SQL because
-    ``processing/`` cannot import from ``app.modules.catalog`` (PROCESS-02).
+    ``processing/`` cannot import from ``app.modules.catalog``.
     """
     row = (
         await session.execute(

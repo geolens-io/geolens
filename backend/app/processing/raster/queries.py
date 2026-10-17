@@ -1,8 +1,7 @@
 """Shared RasterAsset bulk-fetch helpers used by search, OGC, and STAC routers.
 
 Centralizes the column list so adding/renaming RasterAsset columns happens in
-one place instead of three near-identical SELECT clauses (post-impl-20260426
-KISS-6).
+one place instead of three near-identical SELECT clauses.
 """
 
 import uuid

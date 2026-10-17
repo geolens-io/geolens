@@ -74,7 +74,7 @@ _SAFE_TABLE = re.compile(r"^[a-z0-9_]+$")
 _POLYGONAL = {"POLYGON", "MULTIPOLYGON"}
 # The operations whose second input can be a DRAWN polygon rather than a layer,
 # mirroring MASK_OPERATIONS in catalog/datasets/domain/schemas.py: processing/
-# must not import app.modules.catalog (PROCESS-02). intersect takes a layer only.
+# must not import app.modules.catalog. intersect takes a layer only.
 _DRAWN_MASK_OPERATIONS = ("clip", "select_by_location")
 
 
@@ -158,7 +158,7 @@ ANALYSIS_JOBS = Counter(
 CANCEL_CLEANUP_SECONDS = 15
 CANCEL_ROLLBACK_SECONDS = 5
 
-# fix(#1957 codex r4): DERIVED, so the two deadlines cannot drift apart. The
+# fix(#1957): DERIVED, so the two deadlines cannot drift apart. The
 # failure write spends its budget twice, on the pool checkout and again on the
 # UPDATE, and a second is left for scheduling. Sized this way the write always
 # reports why it gave up instead of being cancelled by the shield above it.
@@ -234,7 +234,7 @@ async def _fail_cancelled_job(
         logger.warning("analysis.cancel_rollback_failed", job_id=job_id)
 
     async with async_session() as session:
-        # fix(#1957 codex r4): the clamped budget, not the shared one. This
+        # fix(#1957): the clamped budget, not the shared one. This
         # write is already under the caller's shield, and the shared 10s twice
         # over plus the rollback above does not fit inside it.
         fenced = await write_job_failure_for_attempt(
@@ -479,7 +479,7 @@ async def _resolve_layer_table_ref(
     lookups, which take a plain name.
 
     ``dataset_cls`` is passed in rather than imported: ``processing/`` must not
-    import from ``app.modules.catalog.*`` (PROCESS-02), so the caller hands
+    import from ``app.modules.catalog.*``, so the caller hands
     over what it got from ``ProcessingPort.get_dataset_orm_class()``.
     """
     result = await session.execute(

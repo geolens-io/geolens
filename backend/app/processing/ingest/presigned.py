@@ -39,7 +39,7 @@ async def _cleanup_presigned_object(
     """Best-effort rollback delete of one presigned object.
 
     fix(#1213): drains, and swallows BaseException — deliberate
-    rollback semantics (KISS-N9). Two callers below delete BOTH objects in
+    rollback semantics. Two callers below delete BOTH objects in
     sequence on a deliberate refusal; a cancellation escaping the first
     would leave the staging object alive, handing the client back the very
     bytes just refused. Draining matters for the same reason it does at the
@@ -47,9 +47,7 @@ async def _cleanup_presigned_object(
     """
     try:
         await await_draining(storage.delete(key))
-    except (
-        BaseException
-    ):  # broad: rollback must complete through cancellation (KISS-N9)
+    except BaseException:  # broad: rollback must complete through cancellation
         logger.warning(
             "presigned_upload_cleanup_failed",
             s3_key=key,

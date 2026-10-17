@@ -730,7 +730,7 @@ class VrtMutationResponse(BaseModel):
     message: str = Field(description="Human-readable acceptance message.")
 
 
-# Fan-out schemas (GPKG-03, Phase 1058-04)
+# Fan-out schemas
 class FanOutLayerRequest(BaseModel):
     """One layer to ingest as a separate dataset from a multi-layer source."""
 

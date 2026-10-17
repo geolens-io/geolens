@@ -48,7 +48,7 @@ def _validate_tile_database_isolation() -> None:
 def _parse_dsn() -> str:
     """Convert SQLAlchemy-style URL to asyncpg-compatible DSN.
 
-    PERF-09 (Phase 274): uses ``sqlalchemy.engine.url.make_url`` so query
+    Uses ``sqlalchemy.engine.url.make_url`` so query
     parameters and special characters in passwords are preserved correctly.
     The previous ``str.replace`` implementation broke on URLs whose
     components happened to contain ``postgresql+asyncpg://``.
@@ -246,7 +246,7 @@ async def init_tile_pool() -> asyncpg.Pool:
         "min_size": settings.tile_pool_min_size,
         "max_size": settings.tile_pool_max_size,
         "command_timeout": TILE_POOL_COMMAND_TIMEOUT_SECONDS,
-        # H-10: drop privileges to geolens_reader on every fresh connection
+        # Drop privileges to geolens_reader on every fresh connection
         # so tile-path SQL runs read-only against the data schema.
         "setup": _setup_tile_connection,
         "init": _init_tile_connection,
@@ -327,7 +327,7 @@ async def set_tenant_role_for_tile_request(
         await conn.execute(f"SET LOCAL ROLE {role}")
         await conn.execute(f"SET LOCAL search_path = {schema}, public, pg_catalog")
     except asyncpg.PostgresError as exc:
-        # DP-02 (Phase 1209-CR-02): in multi_tenant, a failed role/search_path
+        # In multi_tenant, a failed role/search_path
         # bind must FAIL the request rather than silently continue under the
         # wrong role — falling back to the pool's session role would bypass
         # both per-tenant isolation layers. single_tenant/None-tid never

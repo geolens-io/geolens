@@ -15,7 +15,7 @@ from app.platform.gdal_env import (  # noqa: F401
 )
 
 
-# IA-P1-03 (Phase 1068): clamp the GDAL VSI surface — CPL_VSIL_CURL_ALLOWED_
+# Clamp the GDAL VSI surface — CPL_VSIL_CURL_ALLOWED_
 # EXTENSIONS gates fetchable extensions; VRT_VIRTUAL_OVERVIEWS=NO blocks
 # implicit overview expansion pulling in more remote sources.
 #
@@ -108,7 +108,7 @@ def run_gdal(cmd: list[str], *, env: dict[str, str], tool: str):
         ) from exc
 
 
-# KNOWN-04 (Phase 1071): VSI prefix allow-list for internally generated
+# VSI prefix allow-list for internally generated
 # managed-storage VRT content. User-uploaded VRTs reject all VSI paths
 # (ingest/validation.py). Import this constant, don't re-declare it.
 #
@@ -358,7 +358,7 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
 
     placements = []
     for rect, src_left, x_size in reconstructed:
-        # fix(#887): DEFENSIVE — codex round 6 found this comparison
+        # fix(#887): DEFENSIVE — this comparison once ended up
         # shifting the origin source via two derivations of one edge
         # disagreeing by ~1e-14 (mosaic stayed 17998px instead of 300);
         # epsilon stays in case a second derivation returns.

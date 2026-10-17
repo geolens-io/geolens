@@ -291,7 +291,7 @@ async def _recheck_staged_quota(
     """Charge the bytes that actually landed against the caller's quota.
 
     fix(#1710): a thin seam so the fetch task never imports
-    ``app.modules.*`` itself — the PROCESS-02/04 burndown lists in
+    ``app.modules.*`` itself — the layering burndown lists in
     ``tests/test_layering.py`` may only shrink, and this module already
     carries the quota edge. ``request`` is None because a worker has none;
     ``enforce_limit`` never reads it.

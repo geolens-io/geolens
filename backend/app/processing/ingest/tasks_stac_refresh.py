@@ -338,7 +338,7 @@ def _pixel_geometry(described: dict) -> dict:
     transform probe is optional (``/cog/info`` can answer while
     ``/cog/stac`` fails); writing a fabricated ``is_rotated=False`` from a
     probe that measured nothing would assert axis-alignment on an object
-    nothing looked at, and since ``_check_rotation`` (VAL-07) rejects a VRT
+    nothing looked at, and since ``_check_rotation`` rejects a VRT
     source only when the flag is true, that lets a rotated replacement
     through a gate built to stop it. Same argument as ``crs_wkt``/``epsg``
     in ``sources/cog_info.py``.

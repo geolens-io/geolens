@@ -130,7 +130,7 @@ class VrtGeneration(Base):
             "status IN ('pending', 'running', 'completed', 'failed')",
             name="chk_vrt_generations_status",
         ),
-        # DBM-10 covering index added in migration 0001_baseline — model declares it
+        # Covering index added in migration 0001_baseline — model declares it
         # so alembic check sees it; the migration is the source of truth.
         Index("ix_vrt_generations_vrt_dataset_id", "vrt_dataset_id"),
         {"schema": "catalog"},

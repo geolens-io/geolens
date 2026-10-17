@@ -349,7 +349,7 @@ async def clip_to_mercator_bounds(
             clipped_features=clipped_features,
             shifted_longitudes=shifted,
         )
-    # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
+    # No internal commit. The caller
     # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
     # boundary so a downstream failure rolls back this clip atomically.
     return {

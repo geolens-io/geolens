@@ -289,7 +289,7 @@ async def _stage_downloaded_file(
     staged_path: str | None = None
     published = False
     try:
-        # fix(#1710 codex): the config and quota reads get their OWN session,
+        # fix(#1710): the config and quota reads get their OWN session,
         # ended before the download. Holding one across a transfer that may
         # run for url_import_fetch_max_seconds would pin a pool connection per
         # concurrent import — the starvation #1708 fixed on the request path.

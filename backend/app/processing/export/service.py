@@ -129,7 +129,7 @@ def _stamp_gpkg_header_counters(path: str) -> None:
     fix(#1633): a fixed value would defeat detection of a
     different connection's write; the digest of the file with both counter
     fields zeroed keeps unchanged data on one counter, changed data on
-    another. Streamed in chunks (codex P1) — same digest as hashing whole.
+    another. Streamed in chunks, same digest as hashing whole.
 
     Must run after the sqlite3 connection that did the row-level normalize
     is closed, or writing through it would re-bump the counter it just set.
@@ -287,8 +287,8 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if not column_info:
         raise ValueError("Cannot filter: no column info available")
 
-    # IA-P1-04 (Phase 1069): explicit pre-parse rejection of meta-SQL tokens.
-    # validate_where_ast (v1014 SEC-S09) catches most via AST allowlist, but
+    # Explicit pre-parse rejection of meta-SQL tokens.
+    # validate_where_ast catches most via AST allowlist, but
     # string-level rejection gives a clearer error and defends against a
     # sqlglot parser bug tolerating a terminator/comment in a future release.
     if ";" in where:
@@ -304,7 +304,7 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if quote_count % 2 != 0:
         raise ValueError("WHERE clause has unbalanced single-quotes")
 
-    # Phase 1062 SEC-S09: AST gate — rejects UNION / subqueries / DDL /
+    # AST gate — rejects UNION / subqueries / DDL /
     # function calls that the identifier-only regex below cannot detect.
     validate_where_ast(where)
 

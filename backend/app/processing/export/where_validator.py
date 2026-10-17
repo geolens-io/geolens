@@ -1,4 +1,4 @@
-"""AST-based WHERE-clause validator (SEC-S09).
+"""AST-based WHERE-clause validator.
 
 Wraps ``where`` in ``SELECT 1 FROM _t WHERE <fragment>``, parses with
 sqlglot postgres dialect, and walks the WHERE node — anything outside the
@@ -61,7 +61,7 @@ ALLOWED_EXPRESSIONS: tuple[type, ...] = (
     # sqlglot's postgres dialect folds `tbl.col` into an exp.Column node's
     # .table/.db/.catalog args rather than a separate exp.Dot node, so the
     # rejection is enforced inside validate_where_ast by inspecting those
-    # args (see KNOWN-10 block below). Only unqualified column names are
+    # args (see the qualified-name check below). Only unqualified column names are
     # accepted; enabling qualified names would need a security review AND an
     # update to the downstream identifier regex to split and validate each
     # component.
@@ -112,7 +112,7 @@ def validate_where_ast(where: str) -> None:
         # even though `exp.Column` is allowed: sqlglot folds table/db/
         # catalog into the Column node's args rather than a separate
         # exp.Dot, so the check must inspect Column.table/.db here to match
-        # the module docstring's claim (Phase 1071 KNOWN-10).
+        # the module docstring's claim.
         if isinstance(node, exp.Column) and (
             node.args.get("table") is not None
             or node.args.get("db") is not None

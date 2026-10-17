@@ -419,7 +419,7 @@ async def grant_reader_access(
 ) -> None:
     """Grant SELECT on the table to the appropriate reader role.
 
-    DBM-12: defense-in-depth alongside ``ALTER DEFAULT PRIVILEGES`` in
+    Defense-in-depth alongside ``ALTER DEFAULT PRIVILEGES`` in
     ``scripts/init-db.sh``, redundant when the runtime ingest role matches
     the init-db role but the only grant path when a deployment's roles
     differ. ``schema``/``role`` default to single_tenant's 'data'/

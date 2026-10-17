@@ -1,13 +1,13 @@
 """VRT XML rewrite: migrate stored /vsis3/ or /vsiaz/ paths to logical relative paths.
 
-Used by the cross-cloud migration runbook (STOR-04 / Phase 1210) and the
-promote state machine (Phase 1214 hook point).
+Used by the cross-cloud migration runbook and the
+promote state machine.
 
 One-pass rewrite: strips the VSI prefix + bucket/container from each
 SourceFilename and writes relativeToVRT="1" with the path expressed
 RELATIVE TO THE VRT'S OWN DIRECTORY.
 
-CR-01 fix: the old code wrote the FULL logical key as the relative path,
+The old code wrote the FULL logical key as the relative path,
 which GDAL resolves relative to the VRT's directory, producing a
 nonexistent double path (``rasters/abc/rasters/abc/...``). Fixed via
 ``posixpath.relpath(logical_key, posixpath.dirname(vrt_storage_key))`` —
@@ -20,7 +20,7 @@ stored .vrt assets in ``catalog.vrt_source_links`` position order.
 Idempotent: an already-relative SourceFilename is left unchanged, so a
 second pass writes nothing.
 
-STOR-05 lint allowlist: this file matches /vsis3/ and /vsiaz/ only to
+Lint allowlist: this file matches /vsis3/ and /vsiaz/ only to
 STRIP them; no VSI prefix is ever CONSTRUCTED here (that's
 resolve_open_path's job).
 """
@@ -39,7 +39,7 @@ from xml.etree.ElementTree import ElementTree, parse
 #   /vsiaz/{container}/logical/key.tif -> logical/key.tif
 #
 # NOTE: this regex purposefully matches /vsis3/ and /vsiaz/ literals — this
-# file is on the STOR-05 seam-lint allowlist (test_stor_vsi_seam_lint.py).
+# file is on the VSI seam-lint allowlist (test_stor_vsi_seam_lint.py).
 _VSI_STRIP_RE = re.compile(r"^(?:/vsis3/[^/]+/|/vsiaz/[^/]+/)(.+)$")
 
 
@@ -56,7 +56,7 @@ def rewrite_vrt_sources(
     computes the path relative to the VRT's own directory
     (``posixpath.relpath(logical_key, posixpath.dirname(vrt_storage_key))``),
     and sets ``relativeToVRT="1"``. ``vrt_storage_key=None`` falls back to
-    the full logical key (legacy, pre-CR-01) — only standalone migration
+    the full logical key (legacy) — only standalone migration
     scripts hit this; ingest call sites always supply it.
 
     ``dry_run=True`` returns the change list without writing;

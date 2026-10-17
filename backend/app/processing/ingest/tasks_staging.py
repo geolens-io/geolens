@@ -91,9 +91,7 @@ async def reap_downloaded_staging_source(
         await await_draining(
             get_storage().delete(resolve_current_storage_key(original_file_path))
         )
-    except (
-        BaseException
-    ):  # broad: terminal cleanup must complete through cancellation (KISS-N9)
+    except BaseException:  # broad: terminal cleanup must complete through cancellation
         structlog.get_logger().warning(
             "Failed to delete staging source object",
             job_id=job_id,
@@ -133,9 +131,7 @@ async def reap_presigned_staging_object(
         await await_draining(
             get_storage().delete(resolve_current_storage_key(owned_staging_key))
         )
-    except (
-        BaseException
-    ):  # broad: terminal cleanup must complete through cancellation (KISS-N9)
+    except BaseException:  # broad: terminal cleanup must complete through cancellation
         structlog.get_logger().warning(
             "Failed to delete presigned staging object",
             job_id=job_id,
@@ -157,8 +153,8 @@ async def _validate_upload_file_safety(
     - size validation (against the persistent_config max)
     - ZIP-container bomb / path-traversal validation
 
-    Shared by ``ingest_file``, ``reupload_file``, and ``ingest_raster``
-    (KISS-3/5/6 consolidation). Raises ``ValueError`` on any check so
+    Shared by ``ingest_file``, ``reupload_file``, and ``ingest_raster``.
+    Raises ``ValueError`` on any check so
     each caller can map to its own job-failure handling.
     """
     from app.processing.ingest.validation import (

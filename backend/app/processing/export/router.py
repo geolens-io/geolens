@@ -84,9 +84,9 @@ _EXPORT_BODY = {
 
 # fix(#430): ceiling for full-table exports (by feature count) — an
 # unbounded ogr2ogr writes an arbitrarily large temp file and holds a worker
-# for the duration. Codex r8: a tautological filter (where=1=1) used to
+# for the duration. A tautological filter (where=1=1) used to
 # bypass the cap; oversized datasets now get a bounded COUNT with the
-# caller's filters applied. BA-06's subprocess timeout bounds runtime
+# caller's filters applied. The subprocess timeout bounds runtime
 # regardless.
 _MAX_EXPORT_FEATURES = 5_000_000
 
@@ -132,7 +132,7 @@ async def _emit_export_audit(
     bbox: str | None,
     where: str | None,
 ) -> None:
-    """Record one export download. user_id may be None for anonymous (EXP-01).
+    """Record one export download. user_id may be None for anonymous.
 
     fix(#1532): one function for both paths that transfer bytes (conversion
     and cache-hit) so they write the same row; only HEAD stays out of the log.
@@ -175,7 +175,7 @@ async def _count_selected_features(
 ) -> int:
     """Bounded COUNT of the rows an export's filters actually select.
 
-    Cap guard for oversized datasets (fix(#430), codex r8): validated
+    Cap guard for oversized datasets (fix(#430)): validated
     WHERE (AST allowlist + column check), then an inner LIMIT stops the scan
     at cap+1 — strictly less work than the export it gates.
     """
@@ -508,13 +508,13 @@ async def export_dataset_endpoint(
         await db.commit()
         return response
 
-    # 6b. fix(#430): bound full-table exports (codex r8: a filter
+    # 6b. fix(#430): bound full-table exports (a filter
     # must actually narrow the selection under the cap).
     #
     # fix(#1532): below the cache hit, same reason as r4 —
     # an artifact exists only because an earlier request already passed
     # this gate. Parquet is exempt: it owns its own bounded-count cap
-    # against LIVE columns (Codex r10).
+    # against LIVE columns.
     if (
         format != ExportFormat.parquet
         and dataset.feature_count is not None
@@ -888,7 +888,7 @@ async def export_dataset_endpoint(
         _cleanup_export(temp_dir)
         raise
 
-    # 8c. Audit log. user_id may be None for anonymous exports (EXP-01).
+    # 8c. Audit log. user_id may be None for anonymous exports.
     #
     # fix(#1532): BELOW the precondition exits — a rebuild
     # answering 412/304 must not record `dataset.export`, matching the hit

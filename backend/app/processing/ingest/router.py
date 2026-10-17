@@ -190,7 +190,7 @@ router = APIRouter(
 
 
 def _fallback_allowed_extensions() -> list[str]:
-    """Allowed extensions when the persistent_config DB lookup fails (R-7).
+    """Allowed extensions when the persistent_config DB lookup fails.
 
     fix(#1682): read from ``settings``, not a frozen literal, so this
     fallback doesn't silently reject formats added since it was written.
@@ -223,7 +223,7 @@ def _without_standalone_vrt(extensions: str) -> str:
 
 
 async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
-    """Load allowed upload extensions with a DB-failure fallback (R-7).
+    """Load allowed upload extensions with a DB-failure fallback.
 
     A transient DB hiccup during config lookup previously crashed the
     entire upload endpoint with a 500. Fall back to a safe default and
@@ -653,12 +653,12 @@ async def upload_file(
     try:
         await _refuse_upload(db, file.filename, kind)
 
-        # IA-P0-02: enforce max_file_size_bytes at HTTP entry. Symmetric
+        # Enforce max_file_size_bytes at HTTP entry. Symmetric
         # with the presigned path's request-time check (:158-165).
         max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
         max_size_bytes = max_size_mb * 1024 * 1024
 
-        # QUOTA-01/02: per-user quota check before any staging or job creation.
+        # Per-user quota check before any staging or job creation.
         incoming_bytes = file.size if file.size is not None else 0
         await check_upload_quota(db, user.id, incoming_bytes, request)
 
@@ -912,7 +912,7 @@ async def preview_file(
         if downloaded_preview_path is not None:
             downloaded_preview_path.unlink(missing_ok=True)
 
-    # fix(CR-01): persist all_layers into job.user_metadata so the fan-out
+    # Persist all_layers into job.user_metadata so the fan-out
     # endpoint's layer-name validation has a non-empty set — otherwise
     # known_layer_names is empty and the 422 guard is a no-op for real uploads.
     if info.get("all_layers"):
@@ -992,7 +992,7 @@ async def commit_import(
         )
     observed_attempt_id = job.attempt_id
 
-    # IA-P0-03: re-validate job.source_url against SSRF rules at commit time
+    # Re-validate job.source_url against SSRF rules at commit time
     # — closes the preview→commit DNS-rebinding TOCTOU (default 60s job TTL).
     # Mirrors the per-hop redirect defense in `make_safe_client()`, which
     # closes the redirect-chain TOCTOU; this closes the first-hop TOCTOU.
@@ -1012,7 +1012,7 @@ async def commit_import(
 
     # Re-validate the body against the subclass the job belongs to. Extras
     # from other subclasses are silently ignored (Pydantic default), so
-    # kitchen-sink bodies still commit cleanly (D-02).
+    # kitchen-sink bodies still commit cleanly.
     Subclass = _pick_commit_subclass(job)
     try:
         commit = Subclass.model_validate(request.model_dump())
@@ -1038,7 +1038,7 @@ async def commit_import(
 
     # feat(#1691): a non-admin may not commit a public dataset when
     # restrict_public_visibility is on. Local import: processing/ must not
-    # import app.modules.catalog.* at module level (PROCESS-02/04).
+    # import app.modules.catalog.* at module level.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
     await check_public_visibility_allowed(db, user, commit.visibility)
@@ -1049,7 +1049,7 @@ async def commit_import(
         await check_upload_quota(db, user.id, size, None)
 
     # Extract the credential only for service commits (ServiceCommitRequest is
-    # the only subclass carrying one). AUTH-04: never persisted.
+    # the only subclass carrying one). Never persisted.
     #
     # feat(#1746): the structured `auth` object is what the layers below
     # take; the flat `token` is its deprecated bearer spelling, and a body that
@@ -1079,9 +1079,9 @@ async def commit_import(
     await admit_import_commit(db, job, observed_attempt_id, commit_metadata)
     staged_path = job.file_path
 
-    # Dispatch routing lives in the service layer (KISS-9).
+    # Dispatch routing lives in the service layer.
     # queue_ingest_job owns the orphan-guard: a defer failure flips the job
-    # to failed and raises 503 (RESILIENCE-2). The staged file is deleted
+    # to failed and raises 503. The staged file is deleted
     # only when that flip landed: a missed one means a worker owns the job
     # and is reading it.
     try:
@@ -1196,7 +1196,7 @@ async def commit_fan_out(
         result = await create_fan_out_jobs(job, layer, db)
         results.append(result)
 
-    # fix(CR-02): an all-failed dispatch (e.g. Procrastinate outage) must
+    # An all-failed dispatch (e.g. Procrastinate outage) must
     # leave the parent retryable without a re-upload — a fenced CAS restore
     # to `pending` that can only undo the flip THIS request wrote. Partial
     # success keeps the parent `fanned_out`.
@@ -1465,7 +1465,7 @@ async def add_vrt_source(
     )
     await check_vrt_members(db, vrt_dataset, adding=request.source_dataset_id)
 
-    # SRC-05 / fix(#1955): admission, not a status read — the check and the
+    # Admission, not a status read — the check and the
     # flip below are one sequence, and only the lock inside makes it atomic.
     # After the write check, so a caller who may not mutate cannot hold it.
     if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
@@ -1625,7 +1625,7 @@ async def remove_vrt_source(
     vrt_dataset = await get_dataset(db, dataset_id)
     await check_dataset_write_access(db, vrt_dataset, dataset_id, user)
 
-    # SRC-05 / fix(#1955): admission, not a status read — see add_vrt_source.
+    # Admission, not a status read — see add_vrt_source.
     if not await admit_vrt_mutation(db, dataset_id, vrt_asset):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

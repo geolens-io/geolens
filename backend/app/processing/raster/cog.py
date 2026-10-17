@@ -421,7 +421,7 @@ def prepare_with_overviews(
 
     shutil.copy2(input_path, tmp_path)
 
-    # fix(#430): run_gdal raises on timeout (BA-29), which bypassed
+    # fix(#430): run_gdal raises on timeout, which bypassed
     # the old returncode-only unlink and leaked the staged temp copy.
     # Any exception past this point must remove tmp_path.
     try:
@@ -432,10 +432,9 @@ def prepare_with_overviews(
         if resampling is None:
             resampling = "average" if _is_float_dtype(dtype) else "nearest"
 
-        # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
+        # Apply the raster-pipeline GDAL safety clamps
         # (CPL_VSIL_CURL_ALLOWED_EXTENSIONS, VRT_VIRTUAL_OVERVIEWS) on top of
-        # the per-call extras. v1015 Phase 1068 originally scoped these to
-        # _build_vrt only.
+        # the per-call extras.
         env = gdal_safe_env(
             extras={"GDAL_CACHEMAX": "200", "COMPRESS_OVERVIEW": compression}
         )
@@ -547,7 +546,7 @@ def convert_to_cog(
         predictor = _predictor_for_dtype(dtype, compression)
         if predictor is not None and not predictor_supported:
             predictor = None
-        # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
+        # Apply the raster-pipeline GDAL safety clamps
         # on top of GDAL_CACHEMAX=200.
         env = gdal_safe_env(extras={"GDAL_CACHEMAX": "200"})
         cmd = [

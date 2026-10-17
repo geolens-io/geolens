@@ -1,6 +1,6 @@
 """Procrastinate task definitions for VRT creation and regeneration.
 
-Storage portability (STOR-03/04, Phase 1210):
+Storage portability:
   VRTs are stored with provider-agnostic SourceFilename nodes (logical keys +
   relativeToVRT="1"). The rewrite pass (rewrite_vrt_sources) runs AFTER metadata
   extraction and quicklook generation at each store site — the in-flight tmp .vrt
@@ -142,7 +142,7 @@ async def _settle_failed_vrt_asset(
     from app.core.db import async_session
     from app.processing.raster.models import RasterAsset, VrtGeneration
 
-    # fix(#1962 codex r2/r3): the second arm is the whole rule, not a special
+    # fix(#1962): the second arm is the whole rule, not a special
     # case for a legacy delivery. A `regenerating` asset is released unless a
     # LIVE generation owns it, because the sweep reaches an asset only through
     # a pending/running generation. A phantom pointer left by a rolled-back
@@ -440,7 +440,7 @@ async def create_vrt_dataset(
     await session.flush()
 
     # Insert vrt_source_links with position ordering. Single executemany
-    # batch (one round trip) instead of N per-row INSERTs (PERF-2).
+    # batch (one round trip) instead of N per-row INSERTs.
     if source_dataset_ids:
         await session.execute(
             text(
@@ -517,7 +517,7 @@ async def ingest_vrt(
     tmp_dir: str | None = None
     # fix(#430): track storage puts so a failure after put (terminal commit /
     # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
-    # them forever — the GAP-017 guard ingest_raster already has.
+    # them forever — the guard ingest_raster already has.
     written_storage_keys: list[str] = []
     # fix(#1778): "the VRT and its quicklooks are published", set at the
     # terminal commit and nowhere else. It replaces the `final_status` string
@@ -530,7 +530,7 @@ async def ingest_vrt(
 
     try:
         # ----------------------------------------------------------------- #
-        # Phase 1 (short-lived session): load job, mark running, load source
+        # First phase (short-lived session): load job, mark running, load source
         # asset rows. Snapshot all values needed for phase 2.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
@@ -639,7 +639,7 @@ async def ingest_vrt(
             job_id=job_id,
             task="ingest_vrt",
         ):
-            # fix(#1778): a confirmed fence miss. Phase 2's own
+            # fix(#1778): a confirmed fence miss. The second phase's own
             # attempt-fenced load below would catch this too, but stopping
             # here is what actually keeps the recorder's contract ("do not
             # write what nothing records") rather than depending on a second
@@ -658,7 +658,7 @@ async def ingest_vrt(
                 "Quicklook generation failed for VRT %s", job_id, exc_info=True
             )
 
-        # Phase 2 (short-lived session): create DB records, store assets,
+        # Second phase (short-lived session): create DB records, store assets,
         # commit job. This tail never adopted `_job_phase_session`, so the
         # fence is matched by hand: fix(#1778) joins status ==
         # "running" to the attempt fence (same require_status trap as
@@ -731,8 +731,8 @@ async def ingest_vrt(
                 # (step 6) and quicklook generation (step 8) — the in-flight
                 # tmp .vrt must hold concrete resolvable paths for GDAL to open.
                 # Only the STORED copy is rewritten to logical relativeToVRT="1"
-                # keys so the XML is provider-agnostic at rest (STOR-03).
-                # CR-01: supply vrt_storage_key so the rewrite computes paths
+                # keys so the XML is provider-agnostic at rest.
+                # Supply vrt_storage_key so the rewrite computes paths
                 # relative to the VRT's own directory (not the full logical key).
                 _vrt_rewrite_changes = rewrite_vrt_sources(
                     _Path(vrt_path), vrt_storage_key=_storage_vrt_key
@@ -746,7 +746,7 @@ async def ingest_vrt(
                 ql256_key = f"{base_key}/quicklook_256.png"
                 ql512_key = f"{base_key}/quicklook_512.png"
 
-                # CR-02 (Phase 1210): in multi_tenant mode the serve path
+                # In multi_tenant mode the serve path
                 # prepends tenants/{tenant_id}/ to the logical key.  Ingest
                 # must store at the SAME prefixed key so stored key == served key.
                 # single_tenant: tenant_id=None → keys unchanged (byte-identical).
@@ -871,7 +871,7 @@ async def ingest_vrt(
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
         # fix(#430): reap storage bytes written before a terminal commit
-        # that never became durable (mirrors ingest_raster's GAP-017 guard).
+        # that never became durable (mirrors ingest_raster's guard).
         async with cleanup_step("ingest_vrt orphaned storage keys", job_id=job_id):
             if not publish_committed and written_storage_keys:
                 from app.processing.ingest.tasks_raster import (
@@ -978,7 +978,7 @@ async def regenerate_vrt(
 
     try:
         # ----------------------------------------------------------------- #
-        # Phase 1 (short-lived session): load job, mark running, load VRT
+        # First phase (short-lived session): load job, mark running, load VRT
         # asset + source links + source assets, create generation record.
         # Snapshot all values needed for phase 2.
         # ----------------------------------------------------------------- #
@@ -1240,7 +1240,7 @@ async def regenerate_vrt(
         # ORDERING: rewrite_vrt_sources runs AFTER metadata extraction and
         # quicklook generation — the in-flight tmp .vrt must hold concrete
         # resolvable paths for GDAL; only the STORED copy is rewritten to
-        # logical relativeToVRT="1" keys (STOR-03). CR-01: vrt_storage_key
+        # logical relativeToVRT="1" keys. vrt_storage_key
         # is supplied so paths compute relative to the VRT's own directory.
         import pathlib as _pathlib
 
@@ -1302,7 +1302,7 @@ async def regenerate_vrt(
             not in written_storage_keys
         ]
 
-        # Phase 2 (short-lived session): update RasterAsset metadata, mark
+        # Second phase (short-lived session): update RasterAsset metadata, mark
         # job complete, update dataset footprint.
         #
         # fix(#1778): status == "running" joins the attempt fence.

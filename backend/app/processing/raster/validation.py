@@ -54,7 +54,7 @@ def compare_crs(
 def _check_crs(
     sources: list[Any], same_crs: dict[str, bool | None]
 ) -> list[SourceValidationError]:
-    """VAL-01: All sources must share the same CRS.
+    """All sources must share the same CRS.
 
     ``same_crs`` is :func:`compare_crs` of the sources' text, so a source whose
     text PROJ refused is the one reported, whatever its position. Sources with
@@ -106,7 +106,7 @@ def _check_managed_storage(sources: list[Any]) -> list[SourceValidationError]:
 
 
 def _check_band_count_mosaic(sources: list[Any]) -> list[SourceValidationError]:
-    """VAL-02: All mosaic sources must share the same band count."""
+    """All mosaic sources must share the same band count."""
     errors: list[SourceValidationError] = []
     ref = sources[0].band_count
     for src in sources[1:]:
@@ -123,7 +123,7 @@ def _check_band_count_mosaic(sources: list[Any]) -> list[SourceValidationError]:
 
 
 def _check_single_band_requirement(sources: list[Any]) -> list[SourceValidationError]:
-    """VAL-03: Each band-stack source must have exactly 1 band."""
+    """Each band-stack source must have exactly 1 band."""
     errors: list[SourceValidationError] = []
     for src in sources:
         if src.band_count != 1:
@@ -139,7 +139,7 @@ def _check_single_band_requirement(sources: list[Any]) -> list[SourceValidationE
 
 
 def _check_dtype(sources: list[Any]) -> list[SourceValidationError]:
-    """VAL-04: All sources must share the same dtype."""
+    """All sources must share the same dtype."""
     errors: list[SourceValidationError] = []
     ref = sources[0].dtype
     for src in sources[1:]:
@@ -156,7 +156,7 @@ def _check_dtype(sources: list[Any]) -> list[SourceValidationError]:
 
 
 def _check_nodata_consistency(sources: list[Any]) -> list[SourceValidationError]:
-    """VAL-06: Either all sources define nodata or none do."""
+    """Either all sources define nodata or none do."""
     errors: list[SourceValidationError] = []
     ref_has_nodata = sources[0].nodata is not None
     for src in sources[1:]:
@@ -174,12 +174,12 @@ def _check_nodata_consistency(sources: list[Any]) -> list[SourceValidationError]
 
 
 def _check_rotation(sources: list[Any]) -> list[SourceValidationError]:
-    """VAL-07: Rotated rasters are rejected.
+    """Rotated rasters are rejected.
 
     fix(#1385): `is_rotated` is `NOT NULL DEFAULT false`, so it cannot
     represent "never measured" — a source whose geometry probe never ran
     looks identical to one confirmed unrotated. `_check_pixel_geometry_known`
-    (VAL-08) catches that case via the NULL `res_x`/`res_y` it leaves behind.
+    catches that case via the NULL `res_x`/`res_y` it leaves behind.
     """
     errors: list[SourceValidationError] = []
     for src in sources:
@@ -196,10 +196,10 @@ def _check_rotation(sources: list[Any]) -> list[SourceValidationError]:
 
 
 def _check_pixel_geometry_known(sources: list[Any]) -> list[SourceValidationError]:
-    """VAL-08: Pixel geometry (resolution) must have been measured.
+    """Pixel geometry (resolution) must have been measured.
 
     fix(#1385): a source with NULL `res_x` or `res_y` was never probed, so
-    it cannot be proven unrotated (VAL-07) or grid-aligned (VAL-05) — both
+    it cannot be proven unrotated or grid-aligned — both
     checks silently treat "unknown" as "passing" without this. Raise a
     distinct code instead of letting an unverifiable source through.
     """
@@ -221,11 +221,11 @@ def _check_pixel_geometry_known(sources: list[Any]) -> list[SourceValidationErro
 
 
 def _check_grid_alignment(sources: list[Any]) -> list[SourceValidationError]:
-    """VAL-05: Band-stack sources must share identical grid dimensions and resolution.
+    """Band-stack sources must share identical grid dimensions and resolution.
 
     res_x/res_y compared with 1e-10 absolute tolerance; one error per
     mismatched dimension. fix(#1385): a NULL res_x/res_y skips comparison
-    here, but `_check_pixel_geometry_known` (VAL-08) now raises for it
+    here, but `_check_pixel_geometry_known` now raises for it
     instead of letting it pass.
     """
     _FLOAT_TOL = 1e-10

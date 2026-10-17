@@ -14,7 +14,7 @@ shapes everything here — GDAL/ogr2ogr/rasterio NEVER see the caller's URL:
    extension allowlist, magic-byte content sniff, preview, commit.
 
 This module deliberately imports nothing from ``app.modules.*`` — the
-PROCESS-02/04 burndown lists in ``tests/test_layering.py`` may only shrink,
+layering burndown lists in ``tests/test_layering.py`` may only shrink,
 so all domain wiring (auth, quota, job rows) stays in the router, which
 already owns those edges.
 """
@@ -64,7 +64,7 @@ _WRITE_BUFFER_BYTES = 4 * 1024 * 1024
 
 # Longest filename we stage, in ENCODED UTF-8 BYTES — filesystems cap name
 # components in bytes (NAME_MAX 255), not characters, so a character-count
-# cap admits multibyte names four times too long (#1708 codex P2). Local
+# cap admits multibyte names four times too long (#1708). Local
 # staging prepends "{job_id}_" (37 bytes) and resolve_file_path's mkstemp
 # builds "{job_id}_<8 random>_{name}" (46 bytes), so 160 keeps the worst
 # component at 206 bytes, under the limit.

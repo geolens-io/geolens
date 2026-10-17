@@ -14,7 +14,7 @@ from app.core.config import settings
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# SEC-11 / L-64: one-shot flag — emit the fallback warning at most once per
+# One-shot flag — emit the fallback warning at most once per
 # process. Re-running on every tile request would flood the log.
 _warned_fallback: bool = False
 
@@ -22,7 +22,7 @@ _warned_fallback: bool = False
 def _get_signing_key() -> bytes:
     """Return the signing key bytes, preferring tile_signing_secret.
 
-    SEC-11: when tile_signing_secret is None, fall back to jwt_secret_key
+    When tile_signing_secret is None, fall back to jwt_secret_key
     AND emit a one-shot WARN so operators know they're sharing one secret
     for two purposes (JWT signing + tile URL signing).
     """
@@ -51,7 +51,7 @@ _MIN_VALIDITY_SECONDS: int = 60
 
 When the next 15-minute boundary is closer than this threshold the function
 skips to the FOLLOWING boundary so clients always have a meaningful validity
-window.  BUG-012: previously a token minted 5 s before a boundary had only
+window.  Previously a token minted 5 s before a boundary had only
 5 s validity — well below the client refresh floor — causing deterministic 403
 bursts every 15 minutes.
 """
@@ -63,7 +63,7 @@ def round_expiry(
     """Round expiry to the next 15-min boundary at least min_validity away.
 
     Returns a Unix timestamp that is always a multiple of ``ttl_seconds`` and
-    at least ``min_validity`` seconds ahead of now (BUG-012).
+    at least ``min_validity`` seconds ahead of now.
 
     Args:
         ttl_seconds: Boundary interval in seconds (default 900 = 15 min).
