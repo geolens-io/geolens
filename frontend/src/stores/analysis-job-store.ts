@@ -9,7 +9,7 @@ export interface TrackedAnalysisJob {
   title: string;
   /** Map the job was started from; enables the "Add to map" action. */
   mapId: string | null;
-  /** fix(#1008 codex P2): who started it. The identity-change clear
+  /** Who started it. The identity-change clear
    *  propagates now, so a dormant tab processing a stale auth event would
    *  otherwise delete the account that replaced it — including a run that is
    *  still going server-side. Stamped by `setJob`, not by callers. */
@@ -27,7 +27,7 @@ export interface AnalysisCompletionClaim {
   /** Whichever tab wrote it. Two tabs can observe the same terminal poll in
    *  the same millisecond, so the timestamp alone cannot identify a claimant. */
   tabId: string;
-  /** fix(#1008 codex P2): how the run ended. A tab that never observed the
+  /** How the run ended. A tab that never observed the
    *  terminal poll itself still has document-local cleanup to do once the
    *  claim reaches it, and complete and failed call for different cleanup.
    *  fix(#1677): 'cancelled' joined the set — cancel is a user-reachable
@@ -47,7 +47,7 @@ interface AnalysisJobState extends PersistedAnalysisJobState {
   /**
    * Drop the tracked job, but only if it belongs to ``userId``.
    *
-   * fix(#1008 codex P2): the identity-change clear used to be this tab's own
+   * The identity-change clear used to be this tab's own
    * business. Now it propagates, so a delayed handler must not reach past the
    * account it is cleaning up after.
    */
@@ -67,7 +67,7 @@ interface AnalysisJobState extends PersistedAnalysisJobState {
   /**
    * Stop tracking ``jobId``, unless a newer run already owns the slot.
    *
-   * fix(#1008 codex P1): the clear propagates now, so an unconditional one is
+   * The clear propagates now, so an unconditional one is
    * no longer this tab's business alone. A backgrounded tab whose timers were
    * throttled can process a terminal response long after another tab started
    * the NEXT analysis; clearing then erases the newer job everywhere and
@@ -137,7 +137,7 @@ function pick<T extends object>(
  * operations across same-origin documents; localStorage serializes each
  * operation on its own and nothing more.
  *
- * fix(#1008 codex P2): never rejects. The watcher awaits these, and a
+ * Never rejects. The watcher awaits these, and a
  * rejection there would leave a finished job neither reported nor cleared,
  * with Create disabled until a reload. `fallback` is what a broken storage
  * layer should degrade to — for a claim that is `true`, because a duplicate
@@ -172,7 +172,7 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
   persist(
     (set, get) => {
       /**
-       * fix(#1008 codex P1): every `set` here persists the WHOLE snapshot, so
+       * Every `set` here persists the WHOLE snapshot, so
        * a write that means to change one field silently republishes this tab's
        * copy of the other. Harmless in one tab, corrupting across several: a
        * throttled tab still holding `job1` would restore it over another tab's
@@ -204,7 +204,7 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
         job: null,
         completedAt: null,
         setJob: (job) => {
-          // fix(#1008 codex P2): read the identity NOW, not inside the lock
+          // Read the identity NOW, not inside the lock
           // callback. That callback can wait behind another tab's write, and
           // an account switch in the meantime would stamp this run as
           // belonging to whoever arrived — which the scoped clear below would
@@ -215,7 +215,7 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
           const owned = job
             ? { ...job, userId: useAuthStore.getState().user?.id ?? null }
             : null;
-          // fix(#1008 codex P1): a job START has to serialize against a clear
+          // A job START has to serialize against a clear
           // too, or a clear that read "no newer job" moments earlier overwrites
           // this one with null.
           return withLock(() => {
@@ -235,7 +235,7 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
             set(mergeWith(persisted, { job: null }));
           }, undefined),
         claimCompletion: (jobId, status) =>
-          // fix(#1008 codex P2): the read/write/read below is NOT atomic on its
+          // The read/write/read below is NOT atomic on its
           // own, and the tempting argument that it is does not survive contact
           // with an interleaving. localStorage serializes individual
           // operations, not a sequence of them, so `A reads empty, B reads
@@ -249,7 +249,7 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
               // Already reported. Ours only if we were the one who did it.
               return existing.tabId === TAB_ID;
             }
-            // fix(#1008 codex P2): a claim naming a DIFFERENT run, while the
+            // A claim naming a DIFFERENT run, while the
             // tracked run is not ours either, means this tab is late — a
             // throttled tab resuming after the run it is holding was cleared
             // and a later one already completed. Overwriting would re-report a
@@ -368,7 +368,7 @@ interface AnalysisAddedState {
   /** Confirmed on the map — the add mutation succeeded (any surface). */
   addedDatasetIds: string[];
   /**
-   * fix(#833 codex P2): claimed by an analysis affordance whose add mutation
+   * Claimed by an analysis affordance whose add mutation
    * is still in flight. The claim happens BEFORE the mutation starts (so a
    * double-click can't add twice); success confirms it, failure clears it so
    * the affordances re-arm. Split from addedDatasetIds so a FAILED add from a

@@ -63,7 +63,7 @@ describe('useImportConfig', () => {
     // the stored matrix, so an enterprise overlay can grant manage_settings and
     // use_ai_chat without manage_users. That operator mounts this query and owns the
     // entry. The line was deleted once on the matrix-only reading and restored after
-    // the codex P2 on #1121 — do not delete it again on the strength of this
+    // the — do not delete it again on the strength of this
     // assertion being mockable.
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: queryKeys.maps.aiAvailability,

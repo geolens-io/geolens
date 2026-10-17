@@ -1,5 +1,5 @@
 /**
- * PRIV-1: the login page's privacy-policy link is per-instance config, not a
+ * The login page's privacy-policy link is per-instance config, not a
  * hardcoded getgeolens.com URL. The consent paragraph only makes sense with a
  * link in it ("agree to our [Privacy Policy]"), so the whole paragraph is
  * gated on `privacy_url`, not just the anchor.

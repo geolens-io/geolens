@@ -12,7 +12,7 @@ interface RemoteBasemapStyleOptions {
   logLabel: string;
   /** ViewerMap behavior: on fetch failure, hand MapLibre the raw style URL so
    *  it performs its own (second) fetch. BuilderMap deliberately does NOT do
-   *  this (Phase 1051 WR-06: the second fetch is uncancelable and can flash an
+   *  this (the second fetch is uncancelable and can flash an
    *  intermediate state) — it keeps the placeholder and surfaces a notice via
    *  `onFetchError` instead. */
   fallbackToRawUrlOnError?: boolean;

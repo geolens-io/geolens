@@ -1,5 +1,5 @@
 /**
- * fix(#1472 review): HTML-escaping for dataset credit lines on their way into
+ * HTML-escaping for dataset credit lines on their way into
  * MapLibre.
  *
  * MapLibre renders attribution as HTML — `AttributionControl._updateAttributions`

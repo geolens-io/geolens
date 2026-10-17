@@ -230,7 +230,7 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
       style_config: null,
       tile_url: null,
       is_dem: true,
-      // 999.17 MD-01: must be terrain-capable (raster_dataset) so the synthetic
+      // 999.17 must be terrain-capable (raster_dataset) so the synthetic
       // entry's backing-layer check (isTerrainCapableDemLayer) passes.
       dataset_record_type: 'raster_dataset',
       ...overrides,
@@ -277,7 +277,7 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     );
 
     expect(screen.getByText('Roads')).toBeInTheDocument();
-    // fix(HT-08): the DEM name shows exactly once, inside the synthetic terrain
+    // fix: the DEM name shows exactly once, inside the synthetic terrain
     // entry — never as a second per-layer row for a render_mode:"terrain" DEM.
     const nameEl = screen.getByText('Elevation (terrain)');
     expect(screen.getByTestId('legend-terrain-synthetic')).toContainElement(nameEl);
@@ -299,7 +299,7 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     );
 
     expect(screen.getAllByTestId('legend-terrain-synthetic')).toHaveLength(1);
-    // fix(HT-08): keeps the bound DEM's identity ("Elevation") instead of a
+    // fix: keeps the bound DEM's identity ("Elevation") instead of a
     // generic "3D terrain" row.
     expect(screen.getByText('Elevation')).toBeInTheDocument();
   });
@@ -319,7 +319,7 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
   });
 
-  // 999.17 MD-01: dangling terrain_config (enabled + source, NO backing DEM
+  // 999.17 dangling terrain_config (enabled + source, NO backing DEM
   // layer) must NOT render a phantom synthetic entry in the viewer either.
   it('does NOT show the synthetic entry for a dangling terrain_config (no backing DEM layer)', () => {
     render(

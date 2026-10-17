@@ -31,7 +31,7 @@ export function RegisterPage() {
   const token = useAuthStore((s) => s.token);
   const navigate = useNavigate();
 
-  // ROUTE-03: emit a one-time info toast before redirecting so the user
+  // Emit a one-time info toast before redirecting so the user
   // understands why they were bounced instead of silently landing on "/".
   useEffect(() => {
     if (!token) return;
@@ -51,7 +51,7 @@ export function RegisterPage() {
   if (isLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        {/* fix(#438): UX-16 — LoadingState carries role="status" + aria-live. */}
+        {/* LoadingState carries role="status" + aria-live. */}
         <LoadingState />
       </main>
     );
@@ -138,7 +138,7 @@ export function RegisterPage() {
       {submitted ? (
         // Use the server's authoritative outcome (RegisterResponse.next_step)
         // rather than inferring from a cached /auth/config snapshot — race-free
-        // and matches exactly what the backend did (M1 follow-up — Phase 1234).
+        // and matches exactly what the backend did (M1 follow-up).
         nextStep === 'verify_email' ? (
           <VerificationPending email={registrantEmail} />
         ) : (

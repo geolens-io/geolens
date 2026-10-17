@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { uploadChunks } from '../_presignedUpload';
 
 /**
- * fix(#438): DATA-02 — per-part retry and abort for presigned multipart uploads.
+ * per-part retry and abort for presigned multipart uploads.
  * A single transient blip used to throw and discard every part already sent.
  *
- * fix(review #1800 P2 round 3): the per-part PUT moved from `fetch` to XHR —
+ * The per-part PUT moved from `fetch` to XHR
  * `fetch` exposes no upload-progress signal, so a wall-clock
  * AbortSignal.timeout() could not distinguish a genuine stall from a
  * slow-but-live transfer (a 10 MiB part at the backend's credited minimum
@@ -149,7 +149,7 @@ describe('uploadChunks', () => {
     expect(MockXHR.instances).toHaveLength(1);
   });
 
-  // fix(review #1800 P2 round 3): AbortSignal.timeout() was a WALL-CLOCK
+  // AbortSignal.timeout was a WALL-CLOCK
   // deadline (300s flat), not a stall detector — a part actively
   // progressing past that deadline was aborted anyway, forever, on every
   // attempt. The inactivity timer must NOT fire as long as

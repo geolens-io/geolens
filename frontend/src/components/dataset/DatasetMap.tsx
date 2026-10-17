@@ -125,19 +125,19 @@ function UnsavedEditNotice({ message, onDiscard, disabled }: { message: string; 
  *
  * Used by the dataset detail page (`pages/DatasetPage.tsx`).
  *
- * fix(#438): ARC-05 — this map is intentionally declarative (@vis.gl JSX
+ * This map is intentionally declarative (@vis.gl JSX
  * <Source>/<Layer>), unlike the builder/viewer which drive an imperative
  * adapter core (map-sync + getAdapter). The split is defensible: this host
  * renders one dataset's tiles with light interaction, so JSX is simpler and
  * needs no incremental paint diffing. Converge onto the adapter core only if
- * this page grows builder-like styling; revisit after the ARC-01 extraction.
+ * this page grows builder-like styling; revisit after the extraction.
  */
 
 interface DatasetMapProps {
   bbox: [number, number, number, number] | null;
   tableName: string | null;
   geometryType: string | null;
-  /** fix(#430 codex r18/r19/r22): generic created datasets accept any
+  /** Generic created datasets accept any
    * subtype. Switches BOTH draw-mode gating and rendering to the GEOMETRY
    * sentinel — use-map-layers installs all-family renderers for it, so
    * features of any family drawn in the current visit stay visible. */
@@ -155,7 +155,7 @@ interface DatasetMapProps {
   onTileError?: () => void;
   /** Callback for read-only (non-editing) feature clicks, receives the gid */
   onFeatureClick?: (gid: number) => void;
-  /** fix(#1472 review): the dataset's required credit line, rendered in the
+  /** The dataset's required credit line, rendered in the
    *  preview's attribution control alongside the basemap's. */
   attribution?: string | null;
   /** False while this instance is kept mounted but hidden (DatasetPage's
@@ -252,7 +252,7 @@ export const DatasetMap = memo(function DatasetMap({
   // sibling raster/vector handlers below. `status`/`url` are still populated at
   // runtime — v6's AJAXError keeps both — so the recovery logic is unchanged.
   const tileAuthErrorHandlerRef = useRef<((e: { error?: { message?: string; status?: number; url?: string } }) => void) | null>(null);
-  // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
+  // dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
   // camera move is in flight, true once idle (no tiles loading / no
   // transitions / no animations running).
@@ -283,7 +283,7 @@ export const DatasetMap = memo(function DatasetMap({
     [geometryType, columnInfo],
   );
 
-  // fix(#430 codex r19/r22): generic datasets use the GEOMETRY sentinel for
+  // Generic datasets use the GEOMETRY sentinel for
   // BOTH drawing and rendering — use-map-layers installs all-family
   // renderers for it (r21), so a point-only generic sketch still renders a
   // line drawn in the same visit. elevationColumn above stays keyed on the
@@ -372,14 +372,14 @@ export const DatasetMap = memo(function DatasetMap({
   const stableEditFinish = useCallback((tdId: string, feature: Feature) => {
     editFinishRef.current(tdId, feature);
   }, []);
-  // fix(round2 #1795): onHistoryBaseline needs handleHistoryBaseline, which
+  // onHistoryBaseline needs handleHistoryBaseline, which
   // also comes from useFeatureEditing (needs TerraDraw) — same circular-dep
   // break as onEditFinish above.
   const historyBaselineRef = useRef<() => void>(() => {});
   const stableHistoryBaseline = useCallback(() => {
     historyBaselineRef.current();
   }, []);
-  // fix(round4 #1795): onSelectionLost needs handleSelectionLost, same
+  // onSelectionLost needs handleSelectionLost, same
   // circular-dep break as onEditFinish/onHistoryBaseline above.
   const selectionLostRef = useRef<(id: string | number) => void>(() => {});
   const stableSelectionLost = useCallback((id: string | number) => {
@@ -496,7 +496,7 @@ export const DatasetMap = memo(function DatasetMap({
         if (tileListenersRef.current.sourcedata) {
           map.off('sourcedata', tileListenersRef.current.sourcedata);
         }
-        // fix(#430 V-13): detach the re-arming data-tiles-loaded handlers symmetrically.
+        // Detach the re-arming data-tiles-loaded handlers symmetrically.
         if (tilesIdleMovestartHandlerRef.current) {
           map.off('movestart', tilesIdleMovestartHandlerRef.current);
         }
@@ -690,7 +690,7 @@ export const DatasetMap = memo(function DatasetMap({
     if (!map || !hasBbox) return;
     if (isLargeExtent(bbox!)) {
       const { center, zoom } = computeLargeExtentView(bbox!);
-      // fix(#438): A11Y-08 — instant under prefers-reduced-motion.
+      // Instant under prefers-reduced-motion.
       map.flyTo({ center, zoom, duration: motionDuration(1000) });
     } else {
       // fix(#903): an antimeridian-crossing extent is expressed by letting east
@@ -813,7 +813,7 @@ export const DatasetMap = memo(function DatasetMap({
       // surface, keep the console clean).
       map.setMissingStyleImageResolver(makeStyleImageMissingResolver(map, { knownImagesOnly: false }));
 
-      // fix(#430 V-13): data-tiles-loaded signal, re-armed on every camera move
+      // data-tiles-loaded signal, re-armed on every camera move
       // (see ViewerMap.tsx / BuilderMap.tsx for the mirrored viewer/builder fix).
       tilesIdleMovestartHandlerRef.current = () => setTilesIdle(false);
       tilesIdleIdleHandlerRef.current = () => setTilesIdle(true);
@@ -866,7 +866,7 @@ export const DatasetMap = memo(function DatasetMap({
       // rides the Authorization header, so the re-mint returned true ("handled")
       // without changing anything and the preview stayed silent behind a blank
       // raster. Still kick the re-mint (its apiFetch renews an expiring JWT,
-      // which IS what a raster 401 needs — codex P1), but never let its `true`
+      // which IS what a raster 401 needs, but never let its `true`
       // stand in for recovery: route a raster failure to the error path.
       tileAuthErrorHandlerRef.current = (e: { error?: { message?: string; status?: number; url?: string } }) => {
         const s = e.error?.status;
@@ -994,7 +994,7 @@ export const DatasetMap = memo(function DatasetMap({
     autoSaveInFlightRef.current = null;
     setAutoSavingGeometry(null);
     setEditingAttributes(false);
-    // fix(#1761 review round 4, sweep): the delete/discard confirmation
+    // The delete/discard confirmation
     // dialogs are the same class as pendingGeometry/editingAttributes —
     // both reference a selectedFeature that just got cleared above.
     // Left open, "Delete" degrades to a no-op (handleDeleteFeature's own
@@ -1005,7 +1005,7 @@ export const DatasetMap = memo(function DatasetMap({
     setDeleteConfirmOpen(false);
     setDiscardConfirmOpen(false);
     discardActionRef.current = null;
-    // fix(#1761 review round 4): a create in progress (saveAndRefresh) may
+    // A create in progress (saveAndRefresh) may
     // have put a not-yet-committed shape in the overlay ref/source. Empty
     // both here too, or a later identity change or ordinary session close
     // leaves it visible to whoever looks at the map next.
@@ -1013,7 +1013,7 @@ export const DatasetMap = memo(function DatasetMap({
     clearDrawing();
   }, [clear, clearDrawing, performDeselect, resetOverlay, tdSetMode]);
 
-  // fix(#1761 review round 3 P1): the identity-change choke point
+  // The identity-change choke point
   // (lib/auth-cache-reset.ts) only resets Zustand state — clearDrawing()
   // there has no way to reach Terra Draw's locally-drawn geometry,
   // MapLibre's hidden-tile filters, or this component's own dialog state
@@ -1209,7 +1209,7 @@ export const DatasetMap = memo(function DatasetMap({
       aria-label={t('map.ariaLabel', { defaultValue: 'Dataset map' })}
       data-map-interactive={isDrawing ? 'true' : 'false'}
       data-testid="dataset-map-shell"
-      // fix(#430 V-13): "map fully rendered" signal — false during tile loads
+      // "map fully rendered" signal — false during tile loads
       // after a camera move, true at idle. Was previously absent entirely.
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
     >

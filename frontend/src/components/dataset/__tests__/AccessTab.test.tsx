@@ -193,7 +193,7 @@ describe('AccessTab', () => {
     expect(codeBlock).not.toHaveTextContent('/api/v1/collections/public_parks');
     expect(codeBlock).not.toHaveTextContent('public_parks');
 
-    // fix(#438): DS-08 — the format picker is now a Radix Select; its options
+    // The format picker is now a Radix Select; its options
     // only mount when opened. For table datasets CSV is the sole format, so the
     // trigger displays it.
     const select = screen.getByRole('combobox', { name: 'Export format' });
@@ -641,7 +641,7 @@ describe('AccessTab', () => {
         await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       });
 
-      // fix(#1178 r3): the probe asks an absolute question, so a NARROWING
+      // The probe asks an absolute question, so a NARROWING
       // move (already-public output moving down the ladder) must not be
       // blocked behind a dialog claiming a "wider audience" — that dialog
       // was standing in front of the remediation.
@@ -659,7 +659,7 @@ describe('AccessTab', () => {
         ).not.toBeInTheDocument();
       });
 
-      // fix(#1178 r3): inherited_audience_gap is computed server-side over
+      // inherited_audience_gap is computed server-side over
       // ALL keyword rows; the fetched page only supplies names. A page
       // without the inherited entries must still produce the dialog.
       it('shows the dialog on a gap even when no inherited names are on the page', async () => {
@@ -694,7 +694,7 @@ describe('AccessTab', () => {
         await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
       });
 
-      // fix(#1178 r4): two quick selections leave both probes in flight, and
+      // Two quick selections leave both probes in flight, and
       // the LAST response to arrive used to write pendingChange — possibly
       // for the earlier, no-longer-intended value. Only the newest selection
       // may produce anything.
@@ -736,7 +736,7 @@ describe('AccessTab', () => {
         expect(mutate).toHaveBeenCalledTimes(1);
       });
 
-      // fix(#1178 r4): a superseded FAILED probe must not fire the direct
+      // A superseded FAILED probe must not fire the direct
       // PATCH for its stale value.
       it('a superseded failed probe does not mutate its stale value', async () => {
         const handlers: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
@@ -767,7 +767,7 @@ describe('AccessTab', () => {
         });
       });
 
-      // fix(#1178 review): the fallback is only a fallback if the PATCH
+      // The fallback is only a fallback if the PATCH
       // response's warnings actually reach the user when the probe failed.
       it('surfaces the PATCH warning when the probe failed', async () => {
         mockListKeywords.mockRejectedValue(new Error('boom'));

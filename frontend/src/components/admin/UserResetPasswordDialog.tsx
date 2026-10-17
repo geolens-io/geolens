@@ -45,7 +45,7 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
     if (open) setPassword('');
   }, [open]);
 
-  // fix(#1715 codex r1 P2): a close while the request is in flight would unmount
+  // A close while the request is in flight would unmount
   // the dialog without stopping the reset, so the password would change and the
   // account's credentials be revoked with the UI showing nothing at all. Every
   // dismissal route (Cancel, the X, Escape, the overlay) goes through here, so
@@ -69,12 +69,12 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
       // the guard above would swallow the close it is meant to allow.
       onOpenChange(false);
       if (isSelf) {
-        // fix(#1715 codex r1 P2): the reset revoked this very session, so the
+        // The reset revoked this very session, so the
         // persisted token is already dead. Without this the UI keeps rendering
         // as signed in until some later request happens to 401, contradicting
         // the warning this dialog just showed.
         //
-        // fix(#1715 codex r2 P2): this goes through useAuth's logout, not the
+        // this goes through useAuth's logout, not the
         // store's. The store action only bumps sessionEpoch, which stops a
         // late refresh writing tokens back but does NOT stop the browser
         // processing its Set-Cookie: a refresh still in flight could land

@@ -1,5 +1,5 @@
 /**
- * GLUX-002 (Phase 1248): accessible-name regression gate for the collection
+ * accessible-name regression gate for the collection
  * membership search input.
  *
  * Asserts that the search input inside CollectionMembershipManager is

@@ -10,7 +10,7 @@ function isToken(v: TileToken | TileTokenError | undefined): v is TileToken {
 }
 
 /**
- * fix(#438): BLD-04 — a stable callback that drops every cached tile token
+ * A stable callback that drops every cached tile token
  * (single + batch), forcing a re-mint. Map hosts pass it to useWebGLRecovery so
  * a GPU context restore re-fetches tokens that may have expired during the outage.
  */
@@ -52,7 +52,7 @@ export function useTileToken(datasetId: string | undefined) {
 
 /**
  * Fetch tile tokens for multiple datasets in a single batched request
- * (PERF-N5). Previously this spawned N parallel useQuery calls — a 20-layer
+ * Previously this spawned N parallel useQuery calls — a 20-layer
  * map meant 20 HTTP requests + 20 RBAC checks + 20 HMAC signatures on every
  * mount. The new implementation issues one POST /tiles/tokens/ with all
  * dataset IDs; errors for individual datasets are reported per-entry rather
@@ -83,7 +83,7 @@ export function useTileTokens(datasetIds: string[]) {
     // removing a layer does not blank the map. They are replaced within one
     // round trip, well inside their refresh window.
     placeholderData: keepPreviousData,
-    // GAP-004: bounded backoff retry — 3 attempts with exponential delay so a
+    // Bounded backoff retry — 3 attempts with exponential delay so a
     // transient network hiccup recovers without spamming the server.
     retry: 3,
     refetchInterval: (query) => {
@@ -109,7 +109,7 @@ export function useTileTokens(datasetIds: string[]) {
     return uniqueIds.map((id) => {
       const entry = batchQuery.data?.tokens?.[id];
       const isTokenEntry = isToken(entry);
-      // fix(#438): BLD-05 — a requested dataset absent from a settled batch used
+      // A requested dataset absent from a settled batch used
       // to yield {data: undefined, isError: false}, i.e. a silently blank layer.
       // Treat a missing entry after a successful load as an error so callers can
       // surface it rather than render nothing.

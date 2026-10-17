@@ -838,7 +838,7 @@ describe('SourcePanel', () => {
   });
 
   it('labels a VRT member whose own raster was replaced after the last build', () => {
-    // fix(#1290 review): `stale` is a real status the backend returns, and
+    // `stale` is a real status the backend returns, and
     // SourcePanel imports the HAND-MAINTAINED mirror in types/api.ts rather
     // than the generated types — so the mirror has to learn the value or the
     // UI cannot branch on it. The rendered label also proves the i18n key

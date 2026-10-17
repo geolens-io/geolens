@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * fix(#1761 review round 4): runs `reset()` whenever `epoch` changes after
+ * Runs `reset` whenever `epoch` changes after
  * mount — never on the initial render, so mounting on a page whose epoch is
  * already nonzero doesn't spuriously discard state someone is legitimately
  * resuming (the pattern this was extracted from, in SearchBar).

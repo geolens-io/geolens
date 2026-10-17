@@ -1,5 +1,5 @@
 /**
- * fix(#438): A11Y-08 — a JS-driven map camera animation (MapLibre easeTo/flyTo)
+ * A JS-driven map camera animation (MapLibre easeTo/flyTo)
  * cannot be stopped by the CSS `prefers-reduced-motion` media query the app
  * already respects for CSS transitions. Callers pass the result of this to a
  * `duration` so the move is instant when the user has asked for reduced motion.

@@ -27,7 +27,7 @@ import type { DatasetOrigin, DatasetResponse, ServiceAuthRequest } from '@/types
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 import type { BlockedRunToAccept } from '@/components/dataset/SourcePanel';
 
-// fix(#1285 codex round 1): refresh-door origins. router_refresh.py dispatches
+// refresh-door origins. router_refresh.py dispatches
 // by origin kind and routes everything it does not name through
 // _resolve_service_origin(), which refuses with 409 refresh_not_applicable —
 // so `upload` and `created` are NOT refreshable even though they have a
@@ -51,7 +51,7 @@ export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set([
 interface SourceRefreshActionProps {
   dataset: DatasetResponse;
   /**
-   * fix(#1285 codex round 4): the "sources" tab this control lives in is a
+   * The "sources" tab this control lives in is a
    * Radix TabsContent, which unmounts on tab switch — so any state tracking
    * a dispatched run (and the poll watching it) has to live somewhere that
    * survives that unmount, or a refresh that finishes while the user is on
@@ -99,13 +99,13 @@ export function SourceRefreshAction({
   // the token field above, instead of rendering that refusal as a generic
   // inline error like every other refusal on this path.
   const [serviceTokenRequired, setServiceTokenRequired] = useState(false);
-  // codex #1759 P2: read synchronously in handleConfirm, below, before this
+  // Read synchronously in handleConfirm, below, before this
   // component trusts `token` at submit time -- the belt effect inside
   // ArcgisCredentialBlock cannot be relied on to have run first (see the
   // comment on the check itself).
   const credentialBlockRef = useRef<ArcgisCredentialBlockHandle>(null);
   const refreshMutation = useRefreshDataset();
-  // fix(#1285 codex round 3): _dispatch_postgis_refresh() (router_refresh.py)
+  // _dispatch_postgis_refresh (router_refresh.py)
   // rejects ANY nonempty token with 422 credential_not_applicable — a
   // registered table needs no service credential, and there is nothing else
   // in REFRESHABLE_ORIGINS to authenticate to. Recomputed here rather than
@@ -127,7 +127,7 @@ export function SourceRefreshAction({
   const { isBusy } = watch;
   const acceptBlockedRunId = acceptBlockedRun?.id;
 
-  // fix(#1285 codex round 6, widened on completion): DatasetMap stays
+  // DatasetMap stays
   // mounted above DetailPanel regardless of which tab is active, so a
   // feature the user selected survives a switch to the Source tab — and the
   // hazard does not require an in-progress EDIT. The selection alone keeps
@@ -179,7 +179,7 @@ export function SourceRefreshAction({
       return;
     }
     setError(null);
-    // codex #1759 P2: recheck expiry synchronously, right here, before
+    // Recheck expiry synchronously, right here, before
     // `token` (below) is trusted. ArcgisCredentialBlock's own belt effect
     // (a render-triggered recheck) and its scheduled expiry timer are both
     // suspended by a backgrounded tab or a system sleep exactly like any
@@ -198,7 +198,7 @@ export function SourceRefreshAction({
     }
     const submittedToken = token.trim() || undefined;
     const submittedAuth = serviceAuth;
-    // fix(#1834 round 1 P2): `token` is cleared before the request settles
+    // `token` is cleared before the request settles
     // because ArcgisCredentialBlock's own "Signed in" display is DERIVED
     // from this same `token` prop — clearing it immediately (and
     // correctly) blanks that display too, so nothing stale is left visible.

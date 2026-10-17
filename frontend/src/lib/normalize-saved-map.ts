@@ -1,7 +1,7 @@
 /**
  * normalize-saved-map.ts
  *
- * BSR-21: Single read-time boundary shared by `getMap()` and `getSharedMap()` in
+ * Single read-time boundary shared by `getMap` and `getSharedMap` in
  * `frontend/src/api/maps.ts`. Accepts raw `MapResponse` (builder/public viewer) or
  * `SharedMapResponse` (shared-token/embed viewer) and emits a `NormalizedSavedMap`
  * that is structurally compatible with `MapStackMapInput` consumed by `buildMapStack`.

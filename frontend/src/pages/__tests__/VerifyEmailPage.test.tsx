@@ -118,7 +118,7 @@ describe('VerifyEmailPage', () => {
   it('(c) resend confirmation is generic — does not reveal existence of the email', async () => {
     mockedVerifyEmail.mockRejectedValue(new Error('Invalid or expired verification link'));
     // The backend always returns the same body regardless of whether the email
-    // is registered — frontend must show a generic confirmation (T-1231-11).
+    // is registered — frontend must show a generic confirmation.
     mockedResendVerification.mockResolvedValue({
       message: 'If an unverified account with that email exists, a new verification link has been sent.',
     });

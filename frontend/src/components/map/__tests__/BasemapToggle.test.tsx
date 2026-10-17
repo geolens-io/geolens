@@ -31,7 +31,7 @@ describe('BasemapToggle', () => {
     const button = screen.getByRole('button', { name: 'Change basemap' });
     expect(button).toBeInTheDocument();
 
-    // fix(#438): A11Y-10 — the trigger thumbnail is decorative (alt=""); the
+    // The trigger thumbnail is decorative (alt=""); the
     // button's aria-label names the control. Query the img via the DOM.
     const img = button.querySelector('img')!;
     expect(img).toHaveAttribute('src', '/thumbs/positron.png');
@@ -73,7 +73,7 @@ describe('BasemapToggle', () => {
   });
 });
 
-// GLUX-008: disclosure semantics tests
+// Disclosure semantics tests
 describe('BasemapToggle — disclosure semantics (GLUX-008)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

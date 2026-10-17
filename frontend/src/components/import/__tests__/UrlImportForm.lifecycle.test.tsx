@@ -1,5 +1,5 @@
 /**
- * fix(#1708 codex r22): the URL-import lifecycle as a state machine.
+ * The URL-import lifecycle as a state machine.
  *
  * Four consecutive review rounds landed on this component, each a single
  * cell of the same table being wrong. These tests are written against the
@@ -11,7 +11,7 @@
  * Events: mount · unmount · reset · commit resolve · commit reject ·
  *         job reaches terminal · layer change · commit submit
  *
- * fix(#1708 codex r24): the last two events are the ones r22 missed. Its
+ * The last two events are the ones r22 missed. Its
  * state axis was right and its event axis was a list of remembered events,
  * so `committing × layer-change` was simply absent. The axis is now taken
  * from the component's RENDERED CONTROLS instead: every control that can
@@ -41,7 +41,7 @@ vi.mock('@/api/ingest', () => ({
   uploadFromUrl: (...a: unknown[]) => mockUploadFromUrl(...a),
   previewFile: (...a: unknown[]) => mockPreviewFile(...a),
   commitImport: (...a: unknown[]) => mockCommitImport(...a),
-  // fix(review #1800 P2): UrlImportForm's preview-failure handling now
+  // UrlImportForm's preview-failure handling now
   // calls these to decide whether the failed job is still retryable.
   getJobStatus: (...a: unknown[]) => mockGetJobStatus(...a),
   cancelJob: (...a: unknown[]) => mockCancelJob(...a),

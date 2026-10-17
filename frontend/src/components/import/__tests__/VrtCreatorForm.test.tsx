@@ -17,7 +17,7 @@ vi.mock('@/components/import/hooks/use-ingest', () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
-  // fix(review #1800 CI): JobProgress (rendered by VrtCreatorForm's tracking
+  // JobProgress (rendered by VrtCreatorForm's tracking
   // step) calls useCancelJob unconditionally since #1778 — an incomplete
   // mock here throws "No useCancelJob export is defined on the mock" as an
   // unhandled error even though every assertion in this file still passes.
@@ -50,7 +50,7 @@ vi.mock('react-i18next', () => ({
 // fix(#1778): rebuilt to the shape service_records.py actually serializes
 // (proj:code / proj:shape / raster:bands / gsd), not the flat
 // epsg/dtype/nodata/width/height/res_x/res_y fields the API never returned.
-// fix(#1805 review round 2): `nodata` now distinguishes three real JSON
+// `nodata` now distinguishes three real JSON
 // shapes -- omitted entirely (default '-9999' when unset, or forced via
 // `omitNodataKey` to simulate the remote-COG shape where band stats never
 // carry a nodata key), explicitly `null` (a band that HAS nodata metadata
@@ -71,7 +71,7 @@ function makeCogSource(
     width: number;
     height: number;
     gsd: number;
-    /** Independent per-axis resolution (fix(#1805 review round 5)); each
+    /** Independent per-axis resolution; each
      * defaults to `gsd` when unset, so existing gsd-only fixtures still set
      * matching res_x/res_y and their old comparisons keep working. */
     res_x: number;
@@ -283,7 +283,7 @@ describe('VrtCreatorForm', () => {
     expect(submitButton).toBeDisabled();
   });
 
-  // fix(#1805 review round 1): _check_crs picks the reference CRS as the
+  // _check_crs picks the reference CRS as the
   // first source in the list with a KNOWN crs, not unconditionally the
   // first selected source. With the first-selected source having no CRS,
   // the previous code (comparing everything to sources[0]) silently
@@ -353,8 +353,8 @@ describe('VrtCreatorForm', () => {
     expect(submitButton).toBeDisabled();
   });
 
-  // fix(#1805 review round 2 P1): round 1 fixed the VALUE-vs-PRESENCE bug
-  // but still inferred presence from a single `!= null` read, conflating
+  // A VALUE-vs-PRESENCE check
+  // must not infer presence from a single `!= null` read, conflating
   // "unknown" (no band metadata for nodata at all -- the remote-COG shape,
   // since cog_info.py's band stats carry only min/max/mean) with "absent"
   // (a band that explicitly has no nodata). Pinned per the review: a
@@ -529,7 +529,7 @@ describe('VrtCreatorForm', () => {
     expect(submitButton).not.toHaveAttribute('aria-describedby');
   });
 
-  // fix(#1805 review round 1 P2): the backend compares res_x/res_y (which
+  // The backend compares res_x/res_y (which
   // gsd derives from) with a 1e-10 absolute tolerance, not strict equality.
   // Pinned per the review: 0.30000000000000004 vs 0.3 is aligned;
   // 0.3 vs 0.31 is misaligned.
@@ -587,7 +587,7 @@ describe('VrtCreatorForm', () => {
     expect(submitButton).toBeDisabled();
   });
 
-  // fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
+  // gsd is a lossy min(abs(res_x), abs(res_y)):
   // (res_x=10, res_y=20) and (res_x=10, res_y=30) share the identical
   // gsd=10 and identical dimensions, so a gsd-only comparison passed this
   // pair while the backend's _check_grid_alignment (independent res_x/res_y

@@ -33,7 +33,7 @@ const mockDeleteFeature = vi.mocked(deleteFeature);
 const mockAddColumn = vi.mocked(addColumn);
 const mockDropColumn = vi.mocked(dropColumn);
 
-// BUG-038: feature/schema mutations must invalidate the column-values and
+// feature/schema mutations must invalidate the column-values and
 // column-stats caches (used by data-driven style editors + filter pickers,
 // staleTime 5min). Pre-fix only datasets.detail + datasets.rowsPrefix were
 // invalidated, so the distinct-values/min-max caches stayed stale (dropColumn

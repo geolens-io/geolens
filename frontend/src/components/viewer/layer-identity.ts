@@ -83,7 +83,7 @@ export function isTerrainBackingLiveVisible<
  * injectivity load-bearing: any two distinct credit sets that collide here are
  * two sets a toggle can move between without the control updating.
  *
- * fix(#1472 review): `JSON.stringify`, not a `join`. A credit containing the
+ * `JSON.stringify`, not a `join`. A credit containing the
  * separator collided — `['A|B']` and `['A', 'B']` both yielded `A|B`.
  */
 export function attributionControlKey(credits: string[]): string {
@@ -97,7 +97,7 @@ export function collectLayerAttributions<
   const credits: string[] = [];
   for (const { layer, key } of createViewerLayerEntries(layers)) {
     if (!visibleLayers.has(key)) continue;
-    // fix(#1472 review): escaped here, not at the control. MapLibre renders
+    // Escaped here, not at the control. MapLibre renders
     // attribution as innerHTML and its sanitizer leaves img/iframe/style
     // standing — see lib/attribution-safety. Deduping AFTER escaping keeps one
     // credit one entry regardless of which form it arrived in.

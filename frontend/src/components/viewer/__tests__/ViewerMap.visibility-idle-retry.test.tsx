@@ -1,4 +1,4 @@
-// BUG-037: the ViewerMap visibility-only effect dropped layer toggles issued
+// The ViewerMap visibility-only effect dropped layer toggles issued
 // while the basemap style was transitioning — a plain early-return on
 // !isStyleLoaded() with no idle retry, and prevVisibleRef left unadvanced. The
 // fix registers map.once('idle', applyVisibilityDiff) so the toggle re-applies

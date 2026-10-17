@@ -8,7 +8,7 @@ import {
 } from '@/api/saved-searches';
 
 export function useSavedSearches() {
-  // SF-06: gate on !!token so anonymous routes (e.g. /login) never fire
+  // Gate on !!token so anonymous routes (e.g. /login) never fire
   // /api/search/saved/ — eliminates 401 console noise pre-auth.
   const token = useAuthStore((s) => s.token);
   return useQuery({

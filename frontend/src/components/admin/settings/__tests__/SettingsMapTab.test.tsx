@@ -11,7 +11,7 @@ import type { BasemapEntry, SettingItem } from '@/api/settings';
  * self-hoster typing a PMTiles archive URL must not be blocked here even
  * though the backend would accept it.
  *
- * codex review (#1688 P1): a bare PMTiles archive is only renderable as a
+ * A bare PMTiles archive is only renderable as a
  * basemap when it's raster (see basemap-utils.ts). `handleAdd` reads the
  * archive header via `pmtiles`'s `PMTiles` class (mocked globally in
  * src/test/setup.ts, defaulting to a raster tileType) before accepting a

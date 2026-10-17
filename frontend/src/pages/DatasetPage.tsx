@@ -20,13 +20,13 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
-// Phase 276 CODE-06: lazy-load ReuploadDialog — only fetched when the
+// lazy-load ReuploadDialog — only fetched when the
 // user opens the reupload flow (activeDialog === 'reupload'). Splits the
 // dialog and its dropzone/upload deps off the page-mount critical path.
 const ReuploadDialog = lazy(() =>
   import('@/components/dataset/ReuploadDialog').then((m) => ({ default: m.ReuploadDialog }))
 );
-// PERF-06 (Phase 274): lazy-load DatasetMap so map-vendor chunk is fetched
+// lazy-load DatasetMap so map-vendor chunk is fetched
 // only when this page actually renders (after data fetch resolves).
 const DatasetMap = lazy(() =>
   import('@/components/dataset/DatasetMap').then((m) => ({ default: m.DatasetMap }))
@@ -37,7 +37,7 @@ import {
   type DatasetDetailHeaderAction,
 } from '@/components/dataset/DatasetDetailHeader';
 import { RelatedRecordsPanel } from '@/components/dataset/RelatedRecordsPanel';
-// Phase 276 CODE-06: lazy-load DetailPanel — DetailPanel transitively
+// lazy-load DetailPanel — DetailPanel transitively
 // imports all six dataset-detail tabs (Overview/Metadata/Data/Structure/Sources/Access).
 // Lazifying it splits the per-tab code paths off the page-mount critical path;
 // the active-tab content streams in via Suspense after first paint.
@@ -49,7 +49,7 @@ import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
 import { DatasetChatPanel } from '@/components/dataset/DatasetChatPanel';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
-// Phase 276 CODE-06: lazy-load VrtCreateDialog — only fetched when the
+// lazy-load VrtCreateDialog — only fetched when the
 // user opens the VRT creation flow (activeDialog === 'vrt').
 const VrtCreateDialog = lazy(() =>
   import('@/components/import/VrtCreateDialog').then((m) => ({ default: m.VrtCreateDialog }))
@@ -186,7 +186,7 @@ export function DatasetPage() {
   // A missing dataset has no job, validation or refresh runs to ask about.
   const notFound = error instanceof ApiError && error.status === 404;
   const relatedId = notFound ? undefined : id;
-  // fix(#1285 codex round 4): mounted at the page level, not inside the
+  // Mounted at the page level, not inside the
   // Source tab, so a dispatched refresh's tracking survives a tab switch —
   // the "sources" TabsContent unmounts on Radix Tabs when it isn't active.
   const refreshWatch = useDatasetRefreshWatch(relatedId ?? '');
@@ -443,7 +443,7 @@ export function DatasetPage() {
     try {
       const result = await setTargetStatus.mutateAsync({ datasetId: id, status: PUBLISH_TARGET });
       toast.success(t('publish.success'));
-      // fix(#1178 review): this toggle publishes through target-status, not
+      // This toggle publishes through target-status, not
       // the metadata PATCH, so it reads the same inherited-keyword disclosure
       // warning from this response (feat #1070).
       if (result.metadata_warnings?.length) {
@@ -466,7 +466,7 @@ export function DatasetPage() {
     }
   };
 
-  // fix(#430 V-07): record_status (catalog publish state) and visibility (access
+  // record_status (catalog publish state) and visibility (access
   // control) are orthogonal fields — a dataset can be "published" (catalog-
   // listed) yet "private" (access-restricted) at the same time, e.g. right
   // after upload (auto-published, defaults to private access). Previously the
@@ -652,7 +652,7 @@ export function DatasetPage() {
                   />
                 }
               >
-                {/* fix(#430 codex r18/r19): geometryType stays the concrete
+                {/* geometryType stays the concrete
                     display type (rendering); hasGenericGeometry separately
                     gates the drawing toolbar so generic sketch layers keep
                     every draw mode. */}
@@ -709,7 +709,7 @@ export function DatasetPage() {
 
       {/* Tabbed content — tabs shown are driven by record_type */}
       <Suspense fallback={<DatasetDetailSkeleton isTable={isTable} />}>
-        {/* fix(#1851 review P1): DatasetPage stays mounted across a dataset-to-
+        {/* DatasetPage stays mounted across a dataset-to-
             dataset route change, so InlineEdit fields under here kept their
             own local editing/draft state — uncommitted keystrokes on dataset
             A survived onto dataset B's editor and a save could PATCH them
@@ -777,12 +777,12 @@ export function DatasetPage() {
             dataset={dataset}
             open={activeDialog === 'reupload'}
             onOpenChange={(open) => setActiveDialog(open ? 'reupload' : null)}
-            // fix(#1362 codex r1): a raster's tile URL is a fixed per-dataset
+            // A raster's tile URL is a fixed per-dataset
             // route (not content-versioned), and the hero map's raster
             // source is added once and never re-added on prop change — so a
             // completed replacement needs an explicit remount to show the
             // new tiles.
-            // fix(#1362 codex r4): use the dedicated handleReplaceComplete,
+            // Use the dedicated handleReplaceComplete,
             // not handleRetry — a success isn't a failed-tile retry, and
             // routing it through handleRetry spent the 3-attempt manual-retry
             // budget on every successful replace.

@@ -17,7 +17,7 @@ vi.mock('../BboxMapPicker', () => ({
   BboxMapPicker: () => <div>mock-map</div>,
 }));
 
-// fix(#1761 review round 4): same class as FilterPanel — the uncommitted
+// Same class as FilterPanel — the uncommitted
 // date-range draft (localDateFrom/localDateTo) used to survive an identity
 // change, so clicking Apply afterward repopulated the (now cleared) store
 // with the previous identity's typed dates. The whole sheet (and its

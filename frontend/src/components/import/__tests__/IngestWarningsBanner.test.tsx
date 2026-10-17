@@ -59,7 +59,7 @@ describe('IngestWarningsBanner', () => {
     expect(
       screen.getByText('3 features were trimmed at the boundary'),
     ).toBeInTheDocument();
-    // fix(#899 codex r1): the envelope bounds BOTH axes, so the copy must not
+    // The envelope bounds BOTH axes, so the copy must not
     // blame latitude — a point at lon 400 / lat 0 is dropped by the X bound.
     expect(
       screen.getByText(/longitude -180° to 180° and latitude/),

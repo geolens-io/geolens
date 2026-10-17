@@ -207,7 +207,7 @@ describe('getColorProperty regression', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ENH-08: nextRotatingRamp + suggestRampForMode
+// nextRotatingRamp + suggestRampForMode
 // ---------------------------------------------------------------------------
 
 describe('nextRotatingRamp — graduated (sequential ramps)', () => {
@@ -314,7 +314,7 @@ describe('suggestRampForMode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#527 B-054/S-03): empty categorical map emits the bare fallback, never a
+// empty categorical map emits the bare fallback, never a
 // zero-pair ['match'] (below spec minimum arity — addLayer throws, swallowed,
 // and the layer silently never renders).
 // ---------------------------------------------------------------------------
@@ -333,7 +333,7 @@ describe('buildCategoricalExpression empty-map guard (B-054/S-03)', () => {
   });
 });
 
-// fix(#910, codex P2): the one predicate both halves of the reconciliation read — the
+// The one predicate both halves of the reconciliation read — the
 // commit boundary in use-layer-map-sync.ts, and DataDrivenStyleEditor's skip guard.
 describe('colorClassificationIsOrphaned', () => {
   const RAMP = ['match', ['get', 'era'], 'pre-war', '#ff0000', '#00ff00'];
@@ -368,7 +368,7 @@ describe('colorClassificationIsOrphaned', () => {
     expect(colorClassificationIsOrphaned(categorical({ render_mode }), {}, 'MultiPoint')).toBe(false);
   });
 
-  // fix(#910, codex P2): an array alone is not proof. Advanced JSON or the AI can swap a
+  // An array alone is not proof. Advanced JSON or the AI can swap a
   // categorical `era` expression for one reading `status`, and the legend then reports
   // `era` over a map drawn by `status`.
   it('is orphaned when the expression classifies a different column', () => {
@@ -427,7 +427,7 @@ describe('reconcileColorClassification', () => {
     expect(next?.categories).toBeUndefined();
     expect(next?.colors).toBeUndefined();
     expect(next?.breaks).toBeUndefined();
-    // fix(#910, codex P2): column and ramp too — a config carrying a column and no mode
+    // Column and ramp too — a config carrying a column and no mode
     // reads to a freshly mounted DataDrivenStyleEditor as a live categorical
     // classification, which re-applied it over the paint that retired it.
     expect(next?.column).toBeUndefined();

@@ -102,7 +102,7 @@ describe('fix(#1628): inline cell editor survives an unrelated re-render', () =>
     expect(afterRerender).toHaveValue('250');
   });
 
-  // fix(#458 E-03/E-39) says a rejected value stays in the box to be
+  // Says a rejected value stays in the box to be
   // corrected. Setting editError re-rendered AttributeTable, which rebuilt
   // `columns`, which remounted the editor — so the rejected text was replaced
   // by the old value and only the message survived.

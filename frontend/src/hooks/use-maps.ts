@@ -42,7 +42,7 @@ function invalidateMapHistory(qc: QueryClient, mapId: string | undefined) {
 }
 
 /**
- * BUG-039: a dataset's "used in maps" list (useDatasetMaps) is keyed under the
+ * A dataset's "used in maps" list (useDatasetMaps) is keyed under the
  * 'datasets' root — queryKeys.datasets.maps(id) = ['datasets', id, 'maps'] —
  * so the 'maps'-rooted invalidations on map mutations never match it. After a
  * map create/delete/rename the panel kept showing stale entries (clicking a
@@ -179,7 +179,7 @@ export function useDeleteMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateDatasetMapLists(qc);
     },
-    // fix(#438): UX-07 — the hook owns the error toast. MapsPage used to raise a
+    // The hook owns the error toast. MapsPage used to raise a
     // second one, so a failed delete produced two. `formatMutationError` keeps
     // the specific backend reason the caller was surfacing.
     onError: (err) => { toast.error(formatMutationError('common:maps.deleteFailed', err)); },
@@ -191,7 +191,7 @@ export function useAddLayer() {
   return useMutation({
     mutationFn: ({ mapId, data }: { mapId: string; data: MapLayerInput }) =>
       addLayerToMapApi(mapId, data),
-    // fix(#833 codex P2): the analysis add-to-map guard settles HERE, not in
+    // The analysis add-to-map guard settles HERE, not in
     // per-call mutate() callbacks — when two adds overlap, the shared
     // mutation observer moves to the newer request and drops the earlier
     // call's per-call callbacks, stranding a pending claim. These global
@@ -288,7 +288,7 @@ export function usePublishMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateMapHistory(qc, variables.id);
     },
-    // fix(#1831 review): the non-public-datasets refusal gets its own inline
+    // The non-public-datasets refusal gets its own inline
     // message in SharePanel, which would otherwise double up with this
     // generic toast on every such attempt. Every other publishMap failure
     // still gets it.

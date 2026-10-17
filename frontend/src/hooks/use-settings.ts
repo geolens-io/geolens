@@ -112,7 +112,7 @@ export function useApiKeyStatus() {
   });
 }
 
-// Phase 279 ADMIN-03 (M-03): server-driven enterprise-tab list. The backend
+// server-driven enterprise-tab list. The backend
 // _ENTERPRISE_ONLY_TABS frozenset is the canonical source; AdminSidebar reads
 // the list via this hook and falls back to a local default when the API is
 // unavailable so the sidebar still renders during boot/network failures.
@@ -129,7 +129,7 @@ export function useEnterpriseOnlyTabs(options?: { enabled?: boolean }) {
   });
 }
 
-// RES-N8: surface the specific API error message alongside the generic
+// Surface the specific API error message alongside the generic
 // "save failed" copy so the user can distinguish validation errors from
 // network / auth errors. `formatMutationError` lives in lib/error-map.ts.
 
@@ -173,7 +173,7 @@ export function useUpdateBranding() {
   return useMutation({
     mutationFn: updateBranding,
     onSuccess: () => {
-      // fix(#438): DATA-08 — was `settings.branding` alone. Branding is also
+      // Was `settings.branding` alone. Branding is also
       // served inside the unified `settings.allSettings` payload, which sits
       // beside it rather than under it, so the admin Settings page kept showing
       // pre-save values. The `settings.all` prefix covers both, and matches
@@ -204,7 +204,7 @@ export function useResetSettings() {
   });
 }
 
-// Phase 1229 Plan 03 — notification status + test-send hooks (NOTIF-06).
+// Notification status + test-send hooks.
 
 /** Query: GET /settings/notifications/status/ — booleans only, no secrets. */
 export function useNotificationStatus() {

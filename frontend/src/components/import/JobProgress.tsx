@@ -135,7 +135,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
   // forever whenever there was no data yet, falling into the isLoading/!job
   // branch below and rendering an indefinite "Loading status…" spinner.
   //
-  // fix(review #1800 P2 round 2): `!job` alone missed a second case — a
+  // `!job` alone missed a second case — a
   // successful pending/running fetch leaves TanStack's stale `data` in
   // place, so a LATER poll returning 401/403/404 sets `isError` without
   // clearing `data`. That skipped this guard AND `isLoading || !job` below
@@ -151,7 +151,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
   if (isError && (!job || (isDefinitiveJobError(error) && !isTerminalJobStatus(job.status)))) {
     const msg = error instanceof ApiError ? error.message : t('jobProgress.statusError');
 
-    // fix(review #1800 P2 round 4): `!job` covers BOTH a definitive error
+    // `!job` covers BOTH a definitive error
     // (401/403/404 — the job is genuinely gone or no longer ours) AND a
     // transient one (network blip, 5xx, retries exhausted) that happened
     // to strike before the FIRST fetch ever succeeded. Only the former
@@ -252,7 +252,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
 
         {hasDeterminateProgress && (
           <div className="space-y-1.5">
-            {/* fix(#438): A11Y-01 — expose progress semantics to assistive tech. */}
+            {/* Expose progress semantics to assistive tech. */}
             <div
               className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2"
               role="progressbar"
@@ -360,7 +360,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
           </div>
         )}
 
-        {/* fix(review #1800 P2): the new Cancel button (#1778) drives a job
+        {/* The new Cancel button (#1778) drives a job
             to `cancelled`, but the terminal blocks below only covered
             `complete` and `failed` — a cancelled job rendered no action at
             all. That strands any consumer with no OTHER escape hatch of its

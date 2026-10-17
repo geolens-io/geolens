@@ -81,7 +81,7 @@ type Step =
   | 'collections'
   | 'loading-items'
   | 'items'
-  | 'confirm' // EW-05: size-estimate confirmation before committing to fetch
+  | 'confirm' // size-estimate confirmation before committing to fetch
   | 'importing'
   | 'done';
 
@@ -536,7 +536,7 @@ export function StacImportForm() {
     // protecting). Awaiting the SAME promise the session holds means this
     // mount still learns the real outcome; only a remount changes anything.
     //
-    // fix(codex #1763 r3): the search context travels with the session too,
+    // the search context travels with the session too,
     // captured here because this is the last point every one of these
     // values is still known — an adopted mount has none of its own local
     // state to fall back on.
@@ -607,7 +607,7 @@ export function StacImportForm() {
   useEffect(() => {
     const session = peekStacImport();
     if (!session) return;
-    // fix(codex #1763 r3): restore the search context the session captured
+    // Restore the search context the session captured
     // when the import started, so 'items' (and, from there, 'collections')
     // can render again if the user reaches them — most directly via
     // "Back to Results" from the done screen below, which sets `step` back
@@ -637,7 +637,7 @@ export function StacImportForm() {
     searchGenRef.current += 1;
     setStep('importing');
 
-    // fix(codex #1763 r3): the app renders under React.StrictMode
+    // The app renders under React.StrictMode
     // (main.tsx), which in development sets an effect up, tears it down,
     // and sets it up again — but only the CLEANUP function undoes that,
     // and this effect had none. Each setup re-read the (unchanged) session
@@ -739,7 +739,7 @@ export function StacImportForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
-  // ── Confirm step (EW-05) ──
+  // ── Confirm step ──
   if (step === 'confirm' && selectedCollection && catalogInfo) {
     const itemsToImport = selectableItems.filter((i) => selectedItems.has(i.id));
     const sizeOf = (i: StacItemSummary) =>

@@ -25,7 +25,7 @@ export async function login(
   // render budget, would apply its Set-Cookie over the one this login issues.
   abortInflightRefresh();
 
-  // SP-11: route is /auth/login (no trailing slash) so the POST body is
+  // Route is /auth/login (no trailing slash) so the POST body is
   // preserved without a 307 redirect.
   return withCookieWrite(async () => {
     const response = await fetch(`${API_BASE}/auth/login`, {
@@ -380,7 +380,7 @@ export async function refreshAccessToken(
     },
     credentials: 'same-origin',
     // fix(#1446): this call bypasses apiFetch, so it never inherited the
-    // fix(#438) DATA-04 request bound and could hang forever. That stalls
+    // request bound and could hang forever. That stalls
     // anything awaiting a refresh (logout, most visibly), and worse, leaves
     // tryRefresh's inflight singleton un-cleared — its `finally` never runs —
     // which wedges every later refresh for the life of the tab.

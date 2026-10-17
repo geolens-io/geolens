@@ -19,7 +19,7 @@ interface UseQuicklookResult {
  * Bearer token from useAuthStore automatically) and exposes the result as a
  * blob: URL suitable for use as an <img src>.
  *
- * SP-07 negative-cache reference: datasets whose file is genuinely missing on
+ * negative-cache reference: datasets whose file is genuinely missing on
  * disk (has_quicklook=true but storage file absent) return 404 even with a
  * valid JWT. Those are cached in quicklook-cache.ts for the session so we
  * don't re-fetch them on re-render.

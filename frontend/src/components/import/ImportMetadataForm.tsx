@@ -221,7 +221,7 @@ export function ImportMetadataForm({
 
           <div className="space-y-2">
             <Label htmlFor={fieldId('import-visibility')}>{t('metadata.visibilityLabel')}</Label>
-            {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+            {/* Native <select> → themed ui/select. */}
             <Select value={visibility} onValueChange={setVisibility}>
               <SelectTrigger id={fieldId('import-visibility')} className="w-full">
                 <SelectValue />
@@ -236,7 +236,7 @@ export function ImportMetadataForm({
             </Select>
           </div>
 
-          {/* CRS Override — Phase 1057 CRS-06 D-08:
+          {/* CRS Override
               When detectedCrs is non-null (probe resolved the CRS automatically),
               hide the editable override input and show a read-only confirmation
               instead.  When detectedCrs is null (unrecognised URI, true-unknown,
@@ -305,7 +305,7 @@ export function ImportMetadataForm({
                 <Label htmlFor={fieldId('geom-mode')}>
                   {t('metadata.geometryMode')}
                 </Label>
-                {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                {/* Native <select> → themed ui/select. */}
                 <Select
                   value={geomMode}
                   onValueChange={(v) => setGeomMode(v as GeometryMode)}
@@ -467,7 +467,7 @@ export function ImportMetadataForm({
                   <Label htmlFor={fieldId('compression')}>
                     {t('metadata.compressionLabel')}
                   </Label>
-                  {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                  {/* Native <select> → themed ui/select. */}
                   <Select value={compression} onValueChange={setCompression}>
                     <SelectTrigger id={fieldId('compression')} className="w-full">
                       <SelectValue />
@@ -487,7 +487,7 @@ export function ImportMetadataForm({
                   <Label htmlFor={fieldId('resampling')}>
                     {t('metadata.resamplingLabel')}
                   </Label>
-                  {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                  {/* Native <select> → themed ui/select. */}
                   <Select value={resampling} onValueChange={setResampling}>
                     <SelectTrigger id={fieldId('resampling')} className="w-full">
                       <SelectValue />

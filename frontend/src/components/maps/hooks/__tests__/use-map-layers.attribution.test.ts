@@ -1,5 +1,5 @@
 /**
- * fix(#1472 review): dataset attribution on the dataset-detail preview map.
+ * Dataset attribution on the dataset-detail preview map.
  *
  * DatasetPage renders DatasetMap, which has no explicit <AttributionControl> to
  * hand `customAttribution` to — it gets MapLibre's auto-created default. So the

@@ -1,10 +1,10 @@
 /**
- * SEC-S14 ESLint regression test (Phase 1062-06).
+ * ESLint regression test for the token-write rule.
  *
  * This file contains INTENTIONAL violations of the `no-restricted-syntax` rule
  * defined in `frontend/eslint.config.js`. The rule MUST fire on every line below.
  * If `npm run lint` over this file ever passes cleanly (without the eslint-disable
- * comments), the rule has regressed and the SEC-S14 guard is no longer enforcing
+ * comments), the rule has regressed and the guard is no longer enforcing
  * the token-shape localStorage ban.
  *
  * This file is NOT imported by any production code path. It exists solely as a
@@ -20,9 +20,6 @@
  *   cd frontend
  *   npx eslint --no-inline-config src/__tests__/sec-s14-eslint-regression.ts
  *   # expect non-zero exit and 4 `no-restricted-syntax` errors
- *
- * Audit reference: docs-internal/audits/sec-audit-20260519.md S14
- * Implementation: docs-internal/audits/security-lessons.md — Phase 1062-06 section
  */
 
 // Each of the following MUST be flagged by `no-restricted-syntax` when

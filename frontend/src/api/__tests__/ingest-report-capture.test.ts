@@ -16,7 +16,7 @@
  * (e) preview/detection failure (previewFile)
  * (f) a redaction-worthy error detail is scrubbed the same as any other entry
  *
- * codex on #1660 found the same gap class at three more sites — a failure
+ * Found the same gap class at three more sites — a failure
  * path that flips a staged file's row to 'upload-failed'/'commit-failed'
  * (and so shows the report CTA) without writing a buffer entry:
  * (g) commitImport failure (no capture existed here at all, unlike (a)/(e))
@@ -26,7 +26,7 @@
  * (j) a non-ApiError preview rejection (apiFetch's own response.json()
  *     parse failure isn't an ApiError, so the old `instanceof` guard skipped it)
  *
- * codex round 3 on #1660: commitFanOut can return HTTP 200 with
+ * commitFanOut can return HTTP 200 with
  * results[].status === 'failed' for one or more layers — not a transport
  * failure, so reportNetworkError doesn't apply, but UploadForm still maps
  * that to a commit-failed row (showing the report CTA) with nothing about
@@ -62,7 +62,7 @@ class FakeXHR {
   }
 }
 
-// fix(review #1800 P2 round 3): uploadChunks' per-part PUT moved to XHR —
+// uploadChunks' per-part PUT moved to XHR
 // URL-aware so test (d) can drive two concurrent-in-flight-order parts by
 // which presigned URL each XHR instance was opened against.
 class PartXHR {
@@ -174,7 +174,7 @@ describe('upload-path report capture', () => {
     expect(entries[0].message).not.toContain('X-Amz-Signature');
   });
 
-  // fix(review #1800 P2 round 3): the per-part PUT moved from `fetch` to
+  // The per-part PUT moved from `fetch` to
   // XHR (see _presignedUpload.ts) — the presign-request JSON call still
   // goes through apiFetch/fetch, but each part PUT now needs an XHR mock.
   it('(d) captures a multipart presigned PUT failure with the failing part number', async () => {
@@ -214,7 +214,7 @@ describe('upload-path report capture', () => {
     expect(entries[0].message).not.toContain('SIG2');
   });
 
-  // fix(review #1800 P2 round 3): S3 accepting a part with no ETag exposed
+  // S3 accepting a part with no ETag exposed
   // (a bucket CORS misconfiguration) used to throw straight out of
   // uploadPresigned, leaving the multipart upload open server-side on
   // every retry — the completion endpoint's own abort-on-empty-parts path

@@ -117,7 +117,7 @@ export function originOf(url: string): string {
   }
 }
 
-// codex review #1757: the backend treats the sign-in portal field as a
+// The backend treats the sign-in portal field as a
 // portal ROOT and derives /sharing/rest/info and /sharing/rest/generateToken
 // from it (D8's own referer default below matches). The service URL's
 // origin is not that for ArcGIS Online: services6.arcgis.com etc. are

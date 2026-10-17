@@ -1,4 +1,4 @@
-// fix(#1532 review r15): structural gate for edge compression of the routes
+// Structural gate for edge compression of the routes
 // that serve byte ranges.
 //
 // nginx compresses a 200 but never a 206, and when it compresses it rewrites a

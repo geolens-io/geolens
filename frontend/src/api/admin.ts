@@ -161,7 +161,7 @@ export async function rejectUser(userId: string): Promise<void> {
 // fix(#1778): was capped at the backend's default limit=50 with `total`
 // fetched and discarded, so a user holding more than 50 keys had an
 // arbitrary subset silently hidden from the only UI that revokes them.
-// fix(#1805 review round 3 P2): the flat limit=200 cap above was itself the
+// The flat limit=200 cap above was itself the
 // backend's hard max (`le=200`) -- a user with 201+ keys still had no way to
 // reach the rest. skip/limit are now threaded through so the caller can page.
 export async function listApiKeys(
@@ -310,7 +310,7 @@ export async function exportAuditLogs(
   const qs = query.toString();
   const url = `${API_BASE}/admin/audit-logs/export/${encodeURIComponent(format)}${qs ? `?${qs}` : ''}`;
 
-  // BUG-035: refresh-aware raw fetch so an export issued as the first request
+  // refresh-aware raw fetch so an export issued as the first request
   // after a long idle transparently refreshes the JWT instead of 401-ing.
   const response = await authenticatedRawFetch(url);
   if (!response.ok) {
@@ -325,7 +325,7 @@ export async function exportAuditLogs(
 }
 
 /**
- * fix(#438): UX-01 — the users CSV export used to be `window.open()`, which
+ * The users CSV export used to be `window.open`, which
  * cannot carry the Bearer token, so admins got a tab full of
  * `{"detail":"Could not validate credentials"}`. Same refresh-aware raw fetch
  * as the audit-log export above.

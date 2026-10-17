@@ -1,12 +1,11 @@
 import type { FilterSpecification } from 'maplibre-gl';
 
 /**
- * builder-audit #338 SPEC-09 / DRY-01 / DRY-02 / FILT-01 / FILT-02 / P1-04:
  * Single source of truth for the *editable* MapLibre filter-expression subset
  * the map builder authors and recognizes.
  *
  * Supported grammar subset (deliberate scope — anything else round-trips as an
- * opaque, uneditable filter, see SPEC-09):
+ * opaque, uneditable filter):
  *   - comparisons:        ==, !=, >, <, >=, <=   over ["get", field] or the
  *                         nullable-safe ["to-number", ["get", field], fallback]
  *                         accessor this module emits for numeric columns.
@@ -20,11 +19,11 @@ import type { FilterSpecification } from 'maplibre-gl';
  *
  * Both the structured editor (LayerFilterEditor) and the chip summarizer
  * (ActiveFilterChips) consume `parseCanonicalFilter` so the two recognizers
- * cannot drift again (the FILT-01 to-number-unwrap and FILT-02 contains-label
+ * cannot drift again (the to-number-unwrap and contains-label
  * bugs were direct consequences of two independent hand-rolled walkers).
  */
 
-// builder-audit #338 DRY-02: the single canonical comparison-operator set. Imported
+// The single canonical comparison-operator set. Imported
 // by LayerFilterEditor and ActiveFilterChips instead of re-declared per file.
 export const NUMERIC_COMPARISON_OPERATORS = new Set(['==', '!=', '>', '<', '>=', '<=']);
 
@@ -50,7 +49,7 @@ export function buildNullableSafeNumericAccessor(
 }
 
 // ---------------------------------------------------------------------------
-// builder-audit #338 FILT-01 / DRY-01: one canonical field extractor + filter parser
+// one canonical field extractor + filter parser
 // ---------------------------------------------------------------------------
 
 export interface CanonicalFilterCondition {
@@ -126,7 +125,7 @@ function parseSingleCondition(e: unknown): CanonicalFilterCondition | null {
     return { field: e[1][1] as string, operator: e[0] as string, value: String(e[2] ?? ''), rawValue: e[2] };
   }
 
-  // numeric-safe comparison: [op, ["to-number", ["get", f], fallback], value]  (FILT-01)
+  // numeric-safe comparison: [op, ["to-number", ["get", f], fallback], value]
   if (
     Array.isArray(e[1]) &&
     e[1][0] === 'to-number' &&
@@ -178,7 +177,7 @@ export function parseCanonicalFilter(expr: FilterSpecification | null | undefine
 }
 
 // ---------------------------------------------------------------------------
-// builder-audit #338 P1-04: raw-JSON filter validator/normalizer
+// raw-JSON filter validator/normalizer
 // ---------------------------------------------------------------------------
 // Mirrors backend/app/modules/catalog/maps/filter_grammar.py:validate_filter so
 // a filter accepted in the raw-JSON editor is accepted, stored, exported, and
@@ -277,7 +276,7 @@ function normalizeFilterNode(node: unknown): unknown {
 }
 
 /**
- * Validate + normalize a raw-JSON MapLibre layer filter (builder-audit #338 P1-04).
+ * Validate + normalize a raw-JSON MapLibre layer filter.
  * `null` and `[]` both clear the filter (return null). A recognized form with
  * invalid arity throws `FilterValidationError`; opaque unsupported filters are
  * preserved verbatim.
@@ -287,7 +286,7 @@ export function validateRawFilter(value: unknown): FilterSpecification | null {
   if (!Array.isArray(value)) {
     throw new FilterValidationError('filter must be a JSON array or null');
   }
-  // EDIT-03: an empty array is not a valid MapLibre filter; treat as clear.
+  // An empty array is not a valid MapLibre filter; treat as clear.
   if (value.length === 0) return null;
   return normalizeFilterNode(value) as FilterSpecification;
 }
@@ -310,7 +309,7 @@ function sanitizeFilterNode(node: unknown): unknown {
     ];
   }
 
-  // fix(#526 B-045): recurse only through combinator/negation wrappers. The
+  // Recurse only through combinator/negation wrappers. The
   // previous fallthrough walked EVERY child, so opaque out-of-subset
   // expressions (case/match/step/coalesce operands) had nested numeric
   // comparisons rewritten to the nullable-safe form — breaking the verbatim
@@ -325,12 +324,12 @@ export function sanitizeNullableNumericFilter(
   filter: FilterSpecification | null | undefined,
 ): FilterSpecification | null {
   if (!filter) return null;
-  // EDIT-03: an empty array is not a valid maplibre filter — `map.setFilter(id, [])`
+  // An empty array is not a valid maplibre filter — `map.setFilter(id, [])`
   // throws ("filter property expected at least 1 element"). Treat it as "no filter"
   // so it can never be persisted nor reach setFilter via any caller.
   if (Array.isArray(filter) && filter.length === 0) return null;
   const sanitized = sanitizeFilterNode(filter);
-  // fix(#392): preserve input reference when structurally unchanged so the filter editor re-emit guard holds (audit FL-01)
+  // Preserve input reference when structurally unchanged so the filter editor re-emit guard holds (audit)
   if (JSON.stringify(sanitized) === JSON.stringify(filter)) return filter;
   return sanitized as FilterSpecification;
 }

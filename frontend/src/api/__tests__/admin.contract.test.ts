@@ -1,10 +1,10 @@
 /**
- * fix(#438): ARC-04 — request-contract tests for the admin api layer.
+ * request-contract tests for the admin api layer.
  *
  * `admin` is the audit's weakest-covered, highest-silent-risk domain (off the
  * main user path, so a wrong URL/method regresses invisibly). These pin the
  * exact endpoint, HTTP method, and body each function issues — the URL/method
- * axis that the ARC-02 openapi type guard does NOT cover. A renamed route or a
+ * axis that the openapi type guard does NOT cover. A renamed route or a
  * flipped verb fails here instead of in production.
  */
 import { API_BASE } from '@/lib/constants';

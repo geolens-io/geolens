@@ -1,5 +1,5 @@
 /**
- * GPKG-03 Phase 1058-04 — UploadForm multi-layer fan-out (single commitFanOut call).
+ * UploadForm multi-layer fan-out (single commitFanOut call).
  *
  * Tests:
  * (a) single-layer entry: commitFanOut NOT called
@@ -8,7 +8,7 @@
  * (d) entry transitions to 'tracking' on full success; commit-failed on any failure
  * (e) network-level failure (commitFanOut throws) → all layers shown as failed
  *
- * T-1058C-03 resolved: commitImport is NOT called at all — single commitFanOut
+ * 03 resolved: commitImport is NOT called at all — single commitFanOut
  * replaces the N-commit loop that the backend rejected after job_id #1.
  */
 import { render, screen, act, waitFor } from '@/test/test-utils';
@@ -51,7 +51,7 @@ vi.mock('@/api/ingest', () => ({
   commitImport: vi.fn(),
 }));
 
-// Mock commitFanOut from datasets.ts (Phase 1058-04 single-call fan-out)
+// Mock commitFanOut from datasets.ts (single-call fan-out)
 vi.mock('@/api/datasets', () => ({
   commitFanOut: vi.fn(),
 }));
@@ -268,7 +268,7 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
       expect(mockCommitFanOut).toHaveBeenCalledTimes(1);
     });
 
-    // commitImport must NOT be called (T-1058C-03 fix)
+    // commitImport must NOT be called
     expect(mockCommitImport).not.toHaveBeenCalled();
 
     // Verify payload: jobId + all 3 layers
@@ -317,7 +317,7 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
     // Error message for the failed layer
     expect(screen.getByText('Dispatch failed')).toBeInTheDocument();
 
-    // #2054 P2 (round 4): the layer that DID queue (layer_a) must still get
+    // The layer that DID queue (layer_a) must still get
     // its own tracked entry — closing the modal (the parent stays visible
     // with the partial-failure error until then) reveals it.
     await act(async () => {

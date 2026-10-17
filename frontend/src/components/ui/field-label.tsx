@@ -13,7 +13,7 @@ interface FieldLabelProps {
 }
 
 /**
- * Visually-hidden field label primitive (GLUX-002).
+ * Visually-hidden field label primitive.
  *
  * Wraps the existing radix Label to produce a `<label>` element that:
  *  - is associated to a control via `htmlFor`

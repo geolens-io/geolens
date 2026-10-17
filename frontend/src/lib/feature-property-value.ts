@@ -17,7 +17,7 @@ export function formatFeaturePropertyValue(
   locale: string,
   booleanTrue: string,
   booleanFalse: string,
-  // fix(#1629 codex P2): the data panel formatted non-integer numbers to 5
+  // The data panel formatted non-integer numbers to 5
   // fraction digits (it renders raw feature coordinates on the accessibility
   // surface); collapsing both callers onto the popup's 4-digit default
   // silently dropped a digit of precision there. Each caller now states its

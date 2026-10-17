@@ -1,4 +1,4 @@
-// fix(#1805 review round 4 P2): useQueries silently dropped a failed page --
+// useQueries silently dropped a failed page, so
 // isError was never surfaced and hasMore stayed true, so a broken page just
 // looked unloaded. useApiKeys now surfaces the first failed page (in page
 // order) and a retryFailedPage() scoped to that one query.

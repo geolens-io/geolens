@@ -23,7 +23,7 @@ interface UserDeleteDialogProps {
 export function UserDeleteDialog({ user, open, onOpenChange }: UserDeleteDialogProps) {
   const { t } = useTranslation('admin');
   const deleteUser = useDeleteUser();
-  // fix(#438): UX-04 — deleting a user is the most destructive delete in the
+  // Deleting a user is the most destructive delete in the
   // app (irreversible, removes their data), yet it was a plain confirm while
   // dataset and collection deletes require typing the name. Match that guard.
   const [confirmName, setConfirmName] = useState('');

@@ -9,7 +9,7 @@ describe('useUrlSearchSync', () => {
     act(() => {
       useSearchStore.setState(initialSearchState, true);
     });
-    // CLEAN-N6: search workspace now lives at "/" (was "/search").
+    // Search workspace now lives at "/" (was "/search").
     window.history.replaceState({}, '', '/');
   });
 

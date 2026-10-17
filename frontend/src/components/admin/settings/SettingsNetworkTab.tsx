@@ -62,7 +62,7 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset: submitR
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard, onReset } = useSettingsForm(settings, FIELDS, isSaving, settingsUpdatedAt, saveFailed, submitReset);
 
-  // Phase 1229 Plan 03 — notification channel status + test-send (NOTIF-06).
+  // Notification channel status + test-send.
   const { data: notifStatus, isLoading: notifLoading } = useNotificationStatus();
   const testSend = useSendTestNotification();
   const [testResult, setTestResult] = useState<{ sent: boolean; channels: NotificationTestChannelResult[]; message: string } | null>(null);
@@ -172,7 +172,7 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset: submitR
         />
       </div>
 
-      {/* Phase 1229 Plan 03 — Notification channel status + test-send (NOTIF-06) */}
+      {/* Notification channel status + test-send */}
       <div className="space-y-3 border rounded-md p-4">
         <div>
           <h3 className="text-sm font-medium">{t('settings.notifications.title')}</h3>

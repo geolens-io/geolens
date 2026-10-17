@@ -74,7 +74,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
         ...patternPreviewStyle(s.pattern.id),
       }
     : { backgroundColor: color };
-  // fix(#1288 codex): fillOpacity dims the fill LAYER only, rendered as a
+  // fillOpacity dims the fill LAYER only, rendered as a
   // nested element behind the border. Plain CSS opacity works for every CSS
   // color format (hex3/4/6/8, rgb()/hsl(), named colors) with no parsing, and
   // never touches the border, which must stay fully opaque for a stroke-only

@@ -152,7 +152,7 @@ describe('MapViewerGate', () => {
     expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
   });
 
-  // fix(#430 V-15): editors can preview the exact anonymous rendering via ?preview=viewer.
+  // Editors can preview the exact anonymous rendering via ?preview=viewer.
   it('renders the public viewer for an editor when ?preview=viewer is set', async () => {
     mockedUseMapAccess.mockReturnValue({
       data: { can_view: true, can_edit: true },

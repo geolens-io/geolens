@@ -242,7 +242,7 @@ describe('AnalysisJobWatcher', () => {
 
     await waitFor(() => expect(useAnalysisJobStore.getState().job).toBeNull());
     expect(toast.success).not.toHaveBeenCalled();
-    // fix(#1008 codex P2): the claim dedups REPORTING, not refreshing. This
+    // The claim dedups REPORTING, not refreshing. This
     // tab has its own QueryClient and focus-refetch is off, so skipping the
     // invalidation would leave it showing a catalog without the new dataset.
     expect(invalidate).toHaveBeenCalledTimes(2);
@@ -306,7 +306,7 @@ describe('AnalysisJobWatcher', () => {
     expect(useRefreshSearchWhenQuicklookLands).not.toHaveBeenCalledWith('j1');
   });
 
-  // fix(#1008 codex P2): a tab throttled through the terminal poll never sees
+  // A tab throttled through the terminal poll never sees
   // it — the job simply vanishes when the reporting tab's clear propagates.
   // Its QueryClient and its remembered form title are document-local, so
   // without this it keeps a catalog that omits the new dataset and reopens the
@@ -345,7 +345,7 @@ describe('AnalysisJobWatcher', () => {
     invalidate.mockRestore();
   });
 
-  // fix(#1008 codex P2, second pass): a resuming tab rehydrates from the
+  // A resuming tab rehydrates from the
   // latest payload, so it can go straight from job1 to job2 without ever
   // rendering null. job1's cleanup is owed all the same.
   it('runs the cleanup when a completed job is replaced by the next one', async () => {
@@ -406,7 +406,7 @@ describe('AnalysisJobWatcher', () => {
     invalidate.mockRestore();
   });
 
-  // fix(#1008 codex P2, third pass): a tab suspended across two whole runs
+  // A tab suspended across two whole runs
   // resumes to a claim naming the second while it still remembers the first.
   // Refreshing is not job-specific — one invalidation re-reads the whole
   // catalog — so it has to fire on the claim it can see, not on an id match.
@@ -450,7 +450,7 @@ describe('AnalysisJobWatcher', () => {
     );
   });
 
-  // fix(#1008 codex P2, fourth pass): claim and clear are separate persisted
+  // Claim and clear are separate persisted
   // writes and arrive in either order, and a swept job departs with no claim
   // at all. Retiring the remembered title therefore keys on the departure of
   // the run this tab was showing, not on a claim turning up to explain it.
@@ -536,7 +536,7 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisFormStore.getState().forms['m1']?.outputTitle).toBe('Walkshed');
   });
 
-  // fix(#1008 codex P2, fifth pass): a tab suspended while one run succeeded
+  // A tab suspended while one run succeeded
   // and a later one failed resumes to the failed claim only. Gating the
   // refresh on the status would leave it a catalog missing the first run's
   // dataset, with nothing to correct it.

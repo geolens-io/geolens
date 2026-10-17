@@ -170,7 +170,7 @@ export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
     setLocalDateTo(useSearchStore.getState().date_to);
   };
 
-  // fix(#1761 review round 4): same rationale as FilterPanel's
+  // Same rationale as FilterPanel's
   // resetDateDraft — an identity change bumps resetEpoch even when
   // date_from/date_to were already '', so an uncommitted draft would
   // otherwise survive to repopulate the (now cleared) store on Apply.

@@ -72,7 +72,7 @@ export function AnalysisJobWatcher() {
   // Shares its query key with the Analysis panel, so both watching costs one poll.
   const { data, error } = useJobStatus(job?.jobId ?? null);
   const status = data?.status;
-  // fix(#682 review): only a definitive answer stops tracking. A transient 5xx
+  // Only a definitive answer stops tracking. A transient 5xx
   // or dropped connection must NOT discard the job — refetchInterval keeps
   // polling through errors, so tracking recovers on the next good response,
   // and the reload/navigation cases this exists for are exactly when a blip is
@@ -159,7 +159,7 @@ export function AnalysisJobWatcher() {
       return;
     }
     // Only a terminal status stops tracking — deliberately no client-side
-    // staleness rule (fix(#682 review)). An elapsed-time guess is wrong in both
+    // staleness rule. An elapsed-time guess is wrong in both
     // directions: too short and a legitimately long job loses its completion
     // notification entirely, too long and the save guard outlives the API's own
     // cap. fix(#691): the server holds the materialize slot on a heartbeat
@@ -187,7 +187,7 @@ export function AnalysisJobWatcher() {
     if (handledRef.current.has(job.jobId)) return;
     handledRef.current.add(job.jobId);
 
-    // fix(#1008 codex P2): the cache invalidation is deliberately NOT behind
+    // The cache invalidation is deliberately NOT behind
     // the claim below. Every document owns its own QueryClient and the app
     // disables refetch-on-window-focus, so gating this would leave every tab
     // but the winner showing a catalog that omits the dataset just created.
@@ -289,7 +289,7 @@ export function AnalysisJobWatcher() {
           );
         }
       }
-      // fix(#793 review): the remembered form title belongs to a finished run —
+      // The remembered form title belongs to a finished run
       // restoring it on the panel's next mount would re-enable Create with the
       // old name and invite an identically-named duplicate. Success only: a
       // failed run created nothing, and the user most likely retries it under
@@ -321,7 +321,7 @@ export function AnalysisJobWatcher() {
     t,
   ]);
 
-  // fix(#1008 codex P2): the clear propagates, so a tab that was throttled
+  // The clear propagates, so a tab that was throttled
   // through the terminal poll simply watches its tracked job go away. The
   // effect above then returns at `if (!job)` and it never runs the cleanup
   // that is document-local: its own QueryClient (focus refetching is off, so
@@ -358,7 +358,7 @@ export function AnalysisJobWatcher() {
 
     if (completedAt && !refreshedRef.current.has(completedAt.jobId)) {
       refreshedRef.current.add(completedAt.jobId);
-      // fix(#1008 codex P2): deliberately NOT gated on the status. A tab
+      // Deliberately NOT gated on the status. A tab
       // suspended while one run succeeded and a later one failed resumes to
       // the failed claim only, and gating here would leave it a catalog
       // missing the first run's dataset with nothing to correct it. A refetch

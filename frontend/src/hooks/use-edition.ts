@@ -4,7 +4,7 @@ import { fetchEdition } from '@/api/edition';
 
 const EMPTY_FEATURES: string[] = [];
 
-// IN-01 (Phase 1212): bounded staleTime so a tenancy_mode change (e.g. rolling
+// Bounded staleTime so a tenancy_mode change (e.g. rolling
 // upgrade from single_tenant → multi_tenant) propagates to existing clients
 // within 5 minutes without requiring a hard reload.  gcTime stays longer so
 // the data survives short navigations while still being refetched periodically.

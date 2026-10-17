@@ -1,5 +1,5 @@
 /**
- * fix(#1746 B2b review r24/r26): an unknown row-count delta is not zero.
+ * An unknown row-count delta is not zero.
  *
  * `row_count_delta` became nullable in r24, because coercing an unknown count
  * to 0 invented a delta the size of whichever side was known. r26 found the

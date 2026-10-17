@@ -1,14 +1,14 @@
 /**
  * Admin audit-log viewer page.
  *
- * Page-level page guard (Phase 279 ADMIN-08 / L-05): redirects to /admin
+ * Page-level page guard: redirects to /admin
  * when the active user lacks the manage_settings capability. Defense-in-depth
  * on top of the backend's require_permission("manage_settings") 403 on
  * /admin/audit-logs/* and the sidebar nav-item filter -- three layers
  * keep the audit log (which exposes resource IDs RBAC would otherwise
  * hide) gated.
  *
- * Phase 281: capability key aligned to the canonical ALL_CAPABILITIES
+ * Capability key aligned to the canonical ALL_CAPABILITIES
  * registry (`backend/app/core/permissions.py`). The previous `view_audit`
  * key was not registered server-side, so `useAuth().can('view_audit')` was
  * always false and the guard redirected even for admins.
@@ -32,7 +32,7 @@ export function AdminAuditPage() {
   }
 
   if (!can('manage_settings')) {
-    // Phase 279 / ADMIN-08 (rationale in file-header JSDoc above).
+    // (rationale in file-header JSDoc above).
     return <Navigate to="/admin" replace />;
   }
 

@@ -38,7 +38,7 @@ type UrlStep =
   | 'tracking';
 
 /**
- * fix(#1708 codex r25): the job statuses that are still moving.
+ * The job statuses that are still moving.
  *
  * `JobStatusResponse.status` is pending | running | complete | failed |
  * cancelled | fanned_out. Reset has to be reachable from EVERY terminal
@@ -64,7 +64,7 @@ function isTerminalJobStatus(status: string | undefined): boolean {
 }
 
 /**
- * fix(review #1800 P2): the job itself is gone — 404 (not found / no
+ * The job itself is gone — 404 (not found / no
  * longer visible) or 410 (expired/removed). Distinct from
  * `isTerminalJobStatus`: that reads a fetched job's `status` field, this
  * reads the HTTP status of a call that referenced the job at all.
@@ -90,9 +90,9 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<Awaited<ReturnType<typeof previewFile>> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // fix(#1708 codex r22): survives a resume, where previewData does not.
+  // Survives a resume, where previewData does not.
   const [isRaster, setIsRaster] = useState(false);
-  // fix(review #1800 P2): disables "Cancel and start over" for the duration
+  // Disables "Cancel and start over" for the duration
   // of the cancel call, so a double-click cannot fire two cancels.
   const [isCancelling, setIsCancelling] = useState(false);
   const [chosenKind, setChosenKind] = useState<UrlUploadKind | null>(null);
@@ -108,7 +108,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     };
   }, []);
 
-  // fix(#1708 codex r24): the window in which a request has been issued that
+  // The window in which a request has been issued that
   // nothing can recall. Every control below that would mutate `step`, the
   // module session, or an in-flight request is disabled on this AND refuses
   // on it in its handler — a disabled control is a fact about one rendered
@@ -123,7 +123,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   // branch ever grows a control.
   const commitInFlight = step === 'committing' || step === 'resuming';
 
-  // fix(#1708 codex r22): reset is available from every TERMINAL state and
+  // Reset is available from every TERMINAL state and
   // refuses only while an uncancellable operation is in flight — clearing
   // the session mid-commit orphans a commit that then succeeds untracked.
   const reset = () => {
@@ -137,7 +137,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     setError(null);
   };
 
-  // fix(review #1800 P2 on #1778): a preview failure does not mean the
+  // A preview failure does not mean the
   // staged job is gone — a GDAL timeout or a transient network blip leaves
   // it exactly where it was (`pending`). Clearing the session there threw
   // away the only client-side copy of its id: resubmitting the SAME url
@@ -173,7 +173,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     }
   }, []);
 
-  // fix(#1708 codex r19): the session is owned by the module, so a tab
+  // The session is owned by the module, so a tab
   // switch mid-import cannot strand the job. Everything below only decides
   // what THIS mount displays.
   const runSession = useCallback(
@@ -206,7 +206,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     [t],
   );
 
-  // fix(review #1800 P2): re-run the preview for the SAME job id — no
+  // re-run the preview for the SAME job id — no
   // re-download, no new staged file. Uses the same terminal check as the
   // initial failure so a second miss on an actually-dead job still clears.
   const runPreview = useCallback(
@@ -234,12 +234,12 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     await runPreview(jobId);
   };
 
-  // fix(review #1800 P2): the explicit escape hatch from a kept
+  // The explicit escape hatch from a kept
   // preview-failed session — cancel the staged job through the existing
   // cancel endpoint, then release the session and reset to a fresh idle
   // form.
   //
-  // fix(review #1800 P2 round 2): a failed (or ambiguous) cancel does NOT
+  // a failed (or ambiguous) cancel does NOT
   // mean the job is gone — resetting unconditionally on ANY outcome
   // cleared the only client-side copy of a job that might still be pending
   // server-side with its staged file. Reset only when the job is
@@ -316,7 +316,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     clearUrlImport();
   }, [step, jobId, trackedJob, runPreview, t]);
 
-  // fix(#1708 codex r21): SUBSCRIBE to the commit rather than sampling a
+  // SUBSCRIBE to the commit rather than sampling a
   // flag. r20 stored a boolean set before the await, so a mount arriving
   // mid-commit read "committed" and entered tracking; a commit that then
   // failed flipped the flag back at module scope while this component kept
@@ -375,7 +375,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
 
   const handleFetch = async (e: React.FormEvent) => {
     e.preventDefault();
-    // fix(review #1800 P2 round 3): a retained job id (transient preview
+    // A retained job id (transient preview
     // failure) means the url/filename fields are still visually present
     // next to the recovery actions — without this guard, editing them and
     // submitting silently started a SECOND session, replacing the
@@ -391,7 +391,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   };
 
   const handleLayerChange = async (layerName: string) => {
-    // fix(#1708 codex r24): re-previewing mid-commit replaced `committing`
+    // re-previewing mid-commit replaced `committing`
     // with `previewing` and then UNCONDITIONALLY with `review`, which
     // re-enabled Start Over and the commit button against a request that
     // cannot be recalled — orphaning the queued job, or offering a second
@@ -412,7 +412,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   };
 
   const handleCommit = async (metadata: CommitImportRequest) => {
-    // fix(#1708 codex r24): the commit control was disabled during its own
+    // The commit control was disabled during its own
     // commit (ImportMetadataForm gates its submit on `isCommitting`) but the
     // handler took anything it was given. Same belt-and-braces the layer
     // picker and reset now have, for the same reason: the UI half only holds
@@ -427,7 +427,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
       fp && (fp.layers?.length ?? 0) > 1 ? fp.layer_name : undefined;
 
     try {
-      // fix(#1708 codex r20): registered BEFORE the await, so an unmount
+      // Registered BEFORE the await, so an unmount
       // mid-commit still leaves a session that resumes into tracking. The
       // `committed` flag is what stops a remount from re-previewing a job
       // the API would refuse with 400 — clearing the session here (r19)
@@ -555,12 +555,12 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     return (
       <div className="space-y-4">
         <JobProgress jobId={jobId} onReset={reset} isRasterEntry={isRaster} />
-        {/* fix(#1708 codex r22): JobProgress only offers its own start-over
+        {/* JobProgress only offers its own start-over
             on a FAILED job, so a successful import left the tab pinned to
             that completed job with no way to run a second one. Reset has to
             be reachable from every terminal state; the failed case is
             already covered inside JobProgress and calls this same handler.
-            fix(#1708 codex r25): every OTHER terminal status, not just
+            Every OTHER terminal status, not just
             `complete` — #1709 made `cancelled` reachable (an admin can
             cancel the job from the job list) and JobProgress renders no
             action block for it, so this is the only control that can free
@@ -578,7 +578,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   // ── Idle — URL input form ──
   return (
     <div className="rounded-xl border border-border bg-card p-5">
-      {/* fix(review #1800 P2 on #1778): a transient preview failure keeps
+      {/* A transient preview failure keeps
           the staged job (`jobId` stays set) rather than clearing the
           session — offer an explicit retry against the SAME job (no
           re-download) and an explicit cancel, without hiding the url field

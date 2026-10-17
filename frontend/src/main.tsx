@@ -71,7 +71,7 @@ const queryClient = new QueryClient({
   }),
 });
 
-// fix(#430 codex r6): evict every cached query when the signed-in identity
+// Evict every cached query when the signed-in identity
 // changes so one user's cached rows never render for the next (see module doc).
 wireAuthCacheReset(queryClient);
 wireSessionSync();
@@ -80,10 +80,10 @@ const router = createBrowserRouter(createRoutesFromElements(appRoutes));
 
 // Cache the React root on the container so a Vite HMR re-exec of this entry
 // module reuses it instead of calling createRoot() twice on the same node
-// (MAPS-01 / #122). Type-only; erased at runtime.
+// (/ #122). Type-only; erased at runtime.
 interface RootContainer extends HTMLElement { __glRoot?: Root }
 
-// fix(#438): PERF-01 — awaiting initializeI18n() before the first render blocks
+// Awaiting initializeI18n before the first render blocks
 // non-English first paint on the locale chunk (en is bundled, so it is
 // unaffected). This is a deliberate no-FOUC trade-off: rendering before the
 // bundle resolves would flash raw keys. Upgrade path: render en immediately and

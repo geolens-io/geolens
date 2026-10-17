@@ -103,7 +103,7 @@ export function buildTileTransformRequest(
 }
 
 /**
- * builder-audit #338 P1-01: the single MVT `source-layer` name helper.
+ * The single MVT `source-layer` name helper.
  *
  * The MapLibre vector source-layer name must match the layer name the tile
  * server emits inside the MVT payload AND the URL path used to sign tiles. The
@@ -140,7 +140,7 @@ export function isMvtSourceLayerConfigReady(
  * `extraCols` (2026-05-18): runtime opt-in column names that any
  * layer rendering from this source needs at all zoom levels —
  * typically data-driven styling columns (`style_config.column`,
- * heatmap weight column, etc.). Without these, Phase 269 H-23's
+ * heatmap weight column, etc.). Without these, 's
  * z<10 attribute budget strips the data from MVT tiles and
  * data-driven paint expressions fall to their default branch.
  * Names are joined with a comma and sorted for cache-key stability;

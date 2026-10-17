@@ -115,7 +115,7 @@ function InlineCellEditor({
     inputRef.current?.select();
   }, [isSaving]);
 
-  // fix(#458 E-35): an unchanged value is a cancel, not a save — blur used to
+  // An unchanged value is a cancel, not a save — blur used to
   // commit a no-op PATCH that bumped updated_at, rolled the tile version, and
   // wrote an attribute.edit audit event for a non-change.
   const commit = () => {
@@ -152,7 +152,7 @@ function InlineCellEditor({
         // density mode (44px default / 28px compact) so an open editor cannot
         // stretch the row past the virtualizer's per-mode row size.
         className={`${compact ? 'h-6' : 'h-7'} text-xs px-1`}
-        // fix(#458 E-39): name the editor (column + row) and tie the rejection
+        // Name the editor (column + row) and tie the rejection
         // reason to the field so it isn't just a transient toast for SR users.
         aria-label={label}
         aria-invalid={error ? true : undefined}
@@ -174,7 +174,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
-  // Scroll container ref used by the row virtualizer (PERF-07).
+  // Scroll container ref used by the row virtualizer.
   const parentRef = useRef<HTMLDivElement>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
@@ -210,7 +210,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     setCursorHistory([0]);
   }, [debouncedFilters]);
 
-  // fix(#458 E-51): an open cell editor survives a page/filter/page-size
+  // An open cell editor survives a page/filter/page-size
   // change; if the edited row leaves the result set the in-progress edit
   // silently vanishes. Close it (and clear any error) when the row set moves.
   useEffect(() => {
@@ -233,19 +233,19 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     const submittedDatasetId = datasetId;
     const submittedScope = requestScopeRef.current;
     const submittedCell = editingCellRef.current;
-    // fix(#458 E-03): the inline editor is a plain text input; coerce to the
+    // The inline editor is a plain text input; coerce to the
     // column's wire type instead of sending a string into a typed column.
     const coerced = coerceAttributeValue(newValue, colType);
     if (!coerced.ok) {
       const msg = t('attributes.editInvalidValue', { type: colType });
-      // fix(#458 E-39): mirror the toast into field-associated state so the
+      // Mirror the toast into field-associated state so the
       // open editor carries aria-invalid/aria-describedby.
       setEditError(msg);
       toast.error(msg);
       return; // keep the editor open so the value can be corrected
     }
     setEditError(null);
-    // fix(#458 E-22): keep the cell in edit mode through the await so the saving
+    // Keep the cell in edit mode through the await so the saving
     // spinner (InlineCellEditor isSaving) actually renders; clearing editingCell
     // before awaiting made that branch unreachable and showed the stale value.
     try {
@@ -265,7 +265,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
         requestScopeRef.current !== submittedScope
         || editingCellRef.current !== submittedCell
       ) return;
-      // fix(#458 E-21): surface the backend's specific reason (geometry-type
+      // Surface the backend's specific reason (geometry-type
       // mismatch, unknown column, …) instead of a generic toast, and keep the
       // editor open so the value can be corrected rather than silently reverting.
       const msg = formatMutationError('dataset:attributes.editFailed', err);
@@ -290,7 +290,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   // cell editor. Enter then hit commit()'s value === initialValue branch: no
   // PATCH, no validation message, editor just closes. That is the #1628 e2e
   // flake, and the same reset also defeated the "keep the editor open so the
-  // value can be corrected" behaviour of E-03/E-21 for real users.
+  // value can be corrected" behaviour for real users.
   //
   // Reading state from a ref during render is the pattern this component
   // already used for `editingCell`: the ref is written in this render pass,
@@ -414,7 +414,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     (state) => state,
   );
 
-  // PERF-07: virtualize the body so that 100-row pages render only the visible
+  // Virtualize the body so that 100-row pages render only the visible
   // window (~10-20 rows + overscan), keeping DOM-node count flat regardless of
   // page size or column count. The virtualizer iterates over the post-sort,
   // post-filter row model from TanStack Table — sort/filter state changes flow
@@ -519,7 +519,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
       </div>
 
       {/*
-        PERF-07: scroll container is `parentRef`. Virtualization is applied to
+        scroll container is `parentRef`. Virtualization is applied to
         the <tbody> only — the native <table>/<thead>/<tr>/<td> structure is
         preserved so column auto-sizing and sticky headers keep working. The
         table is `w-max` (content-sized): wide tables overflow and scroll via
@@ -552,7 +552,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => {
-                    // fix(#438): A11Y-04 — announce sort state on the column header.
+                    // Announce sort state on the column header.
                     const sorted = header.column.getIsSorted();
                     const ariaSort = sorted === 'asc'
                       ? 'ascending'

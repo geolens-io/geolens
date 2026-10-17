@@ -1,4 +1,4 @@
-// Phase 276 CODE-11: DEV-guarded console wrappers so production builds
+// DEV-guarded console wrappers so production builds
 // don't surface the noisy `[ComponentName] error: ...` lines in user
 // devtools. Server-side log shipping (Sentry, Datadog, etc.) is
 // out of scope — add a sink hook here if/when we wire that up.

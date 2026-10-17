@@ -1,5 +1,5 @@
 /**
- * SEC-S14 ESLint negative regression test (Phase 1062-06).
+ * ESLint negative regression test for the token-write rule.
  *
  * This file contains patterns that LOOK like token writes but MUST PASS the
  * `no-restricted-syntax` rule defined in `frontend/eslint.config.js`. It proves
@@ -8,16 +8,13 @@
  * Known gap (documented): the AST selector only matches Literal first arguments.
  * Identifier and TemplateLiteral first arguments pass silently. This is
  * acceptable per the audit framing (catch accidental regressions, not motivated
- * evasion). Closing this gap requires a custom ESLint plugin — deferred to
- * Phase 1063+ if needed.
+ * evasion). Closing this gap requires a custom ESLint plugin — deferred
+ * until needed.
  *
  * To verify no false positives:
  *   cd frontend
  *   npm run lint:sec-s14-no-false-positive
  *   # expect exit 0 (zero errors)
- *
- * Audit reference: docs-internal/audits/sec-audit-20260519.md S14
- * Implementation: docs-internal/audits/security-lessons.md — Phase 1062-06 section
  */
 
 // 1. Theme key — passes (no token shape).
@@ -34,7 +31,7 @@ localStorage.setItem('geolens-language', 'en');
 
 // 5. Identifier-as-key — passes (rule only fires on Literal type for arg 0).
 // Known gap: if the identifier resolves to a token-shape string at runtime, the
-// rule won't fire. Documented above and in security-lessons.md.
+// rule won't fire. Documented above.
 const SIDEBAR_KEY = 'sidebar-collapsed';
 localStorage.setItem(SIDEBAR_KEY, 'true');
 

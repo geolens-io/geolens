@@ -74,7 +74,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
 
   const addColumnMutation = useAddColumn();
   const dropColumnMutation = useDropColumn();
-  // fix(#458 E-06): warn how many saved maps reference the column under drop confirmation
+  // Warn how many saved maps reference the column under drop confirmation
   const columnReferences = useColumnReferences(datasetId, confirmDelete);
 
   const displayColumns = columns.filter((c) => !SYSTEM_COLUMNS.has(c.name));
@@ -238,9 +238,9 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
               </AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
-                // fix(#458 E-50): also wait for the map-references query — a
+                // Also wait for the map-references query — a
                 // fast confirm could drop the column before the "used by N
-                // maps" warning (E-06) had a chance to render.
+                // maps" warning had a chance to render.
                 disabled={dropColumnMutation.isPending || columnReferences.isLoading}
                 onClick={() => {
                   if (confirmDelete) handleDropColumn(confirmDelete);
@@ -254,7 +254,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
 
         {/* Add column form */}
         <div className="border-t pt-4 space-y-3">
-          {/* fix(#458 E-49): a placeholder is not an accessible name — tie the
+          {/* A placeholder is not an accessible name — tie the
               section label to the name input. */}
           <Label htmlFor={nameInputId} className="text-sm font-medium">
             {t('schema.addColumn')}
@@ -274,7 +274,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
                   if (e.key === 'Enter') handleAddColumn();
                 }}
                 className="font-mono text-xs h-9"
-                // fix(#458 E-38): announce the validation failure and associate
+                // Announce the validation failure and associate
                 // it with the field instead of a visually-adjacent <p> only.
                 aria-invalid={nameError ? true : undefined}
                 aria-describedby={nameError ? nameErrorId : undefined}

@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig, registerUser } from '@/api/auth';
 import { RegisterPage } from '../RegisterPage';
 
-// M1 follow-up (Phase 1234): the post-submit pending view is driven by the
+// M1 follow-up: the post-submit pending view is driven by the
 // server's authoritative RegisterResponse.next_step — NOT inferred from a cached
 // /auth/config snapshot. This eliminates the config-fetch race and matches
 // exactly what the backend did (which is also enumeration-safe: a collision and

@@ -96,7 +96,7 @@ describe('useTerraDraw — undo history bound (fix #1778)', () => {
     expect(undoCount).toBeGreaterThan(0);
   });
 
-  // fix(round1 #1795, P2): a drag/vertex edit only marks the edit dirty
+  // A drag/vertex edit only marks the edit dirty
   // (use-feature-editing's handleEditFinish) — it is not persisted until
   // Save, so Undo must still be able to revert it. Resetting history right
   // on 'finish' disabled Undo for a pending, unsaved edit.
@@ -128,7 +128,7 @@ describe('useTerraDraw — undo history bound (fix #1778)', () => {
     expect(td.addFeatures).toHaveBeenCalled();
   });
 
-  // fix(round1 #1795, P2): the pending edit's history is discarded once it
+  // The pending edit's history is discarded once it
   // actually settles — save, cancel, or deselection — via the exposed
   // resetHistory(), not by the hook itself reacting to 'finish'.
   it('resetHistory() disables Undo once the caller settles the pending edit (e.g. after Save)', () => {
@@ -151,14 +151,14 @@ describe('useTerraDraw — undo history bound (fix #1778)', () => {
   });
 });
 
-// fix(round2 #1795, P2): undo() reverts snapshots and updates canUndo, but
+// Undo reverts snapshots and updates canUndo, but
 // never touched isEditDirty — undoing all the way back to the original
 // geometry still triggered the unsaved-changes confirmation on Cancel/Done/
 // mode-switch. onHistoryBaseline is the signal the editing layer uses to
 // clear isEditDirty at exactly the right moment.
 describe('useTerraDraw — onHistoryBaseline (fix round2/round3 #1795)', () => {
-  // fix(round3 #1795): with a captured baseline, reaching the ring's own
-  // oldest entry (round2's old "atBaseline" condition) is NOT the true
+  // With a captured baseline, reaching the ring's own
+  // oldest entry (the old "atBaseline" condition) is NOT the true
   // pre-edit snapshot — it's just as far as the RING goes. One more undo
   // step, falling back to baselineRef, is what actually restores the
   // original geometry and fires the callback.
@@ -250,7 +250,7 @@ describe('useTerraDraw — onHistoryBaseline (fix round2/round3 #1795)', () => {
     act(() => {
       td.emit('change');
     });
-    // fix(round3 #1795): with no captured baseline, one ring entry is as far
+    // With no captured baseline, one ring entry is as far
     // as undo can verifiably go — canUndo is false, same as before this fix.
     expect(result.current.canUndo).toBe(false);
 
@@ -260,7 +260,7 @@ describe('useTerraDraw — onHistoryBaseline (fix round2/round3 #1795)', () => {
     expect(onHistoryBaseline).not.toHaveBeenCalled();
   });
 
-  // fix(round3 #1795, P2 pin): after more than MAX_UNDO_HISTORY (50) change
+  // After more than MAX_UNDO_HISTORY (50) change
   // events in one drag, the ring's shift() evicts the original pre-edit
   // snapshot. Undo must still reach the TRUE original geometry — not
   // whatever the ring's own (now-not-original) oldest surviving entry is —
@@ -303,7 +303,7 @@ describe('useTerraDraw — onHistoryBaseline (fix round2/round3 #1795)', () => {
     expect(lastAddFeaturesCall[0]).toEqual(baselineSnapshot);
   });
 
-  // fix(round3 #1795, P2 pin): if the session's baseline was never captured
+  // If the session's baseline was never captured
   // (e.g. change events reached the hook before any recognized
   // session-start point ran), undo must refuse to fabricate one — the ring
   // stops at its own oldest entry and onHistoryBaseline never fires, so
@@ -337,7 +337,7 @@ describe('useTerraDraw — onHistoryBaseline (fix round2/round3 #1795)', () => {
   });
 });
 
-// fix(round4 #1795, P2): undo()'s restoring draw.clear() drops Terra Draw's
+// undo's restoring draw.clear drops Terra Draw's
 // own select-mode state and edit handles. Without re-selecting afterward,
 // the app's selection store still shows the feature selected, but Terra
 // Draw does not — the user has to click the geometry again before dragging
@@ -383,7 +383,7 @@ describe('useTerraDraw — undo() re-selects the previously selected feature (fi
     ]);
   });
 
-  // fix(round4 #1795): the round3 baseline-fallback undo (ring exhausted,
+  // The baseline-fallback undo (ring exhausted,
   // restoring baselineRef) shares the SAME restoration code path as a
   // ring-internal undo — this pins that the re-select fix covers it too.
   it('re-selects after falling back to the true baseline (round3 baseline-fallback path)', () => {
@@ -403,7 +403,7 @@ describe('useTerraDraw — undo() re-selects the previously selected feature (fi
     act(() => { td.emit('change'); });
 
     // One change only — ring length 1. This undo pops the ring to empty and
-    // falls back to the TRUE baseline (fix round3 #1795), not a ring entry.
+    // falls back to the TRUE baseline, not a ring entry.
     act(() => {
       result.current.undo();
     });
@@ -451,7 +451,7 @@ describe('useTerraDraw — undo() re-selects the previously selected feature (fi
   });
 });
 
-// fix(round5 #1795, P2): on the real selection path, addFeatures() and
+// On the real selection path, addFeatures and
 // draw.selectFeature() synchronously emit `change` events — without a
 // guard, the ring already holds those seed snapshots by the time
 // selectFeature() captures the session's baseline, so canUndo/isEditDirty

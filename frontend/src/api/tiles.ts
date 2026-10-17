@@ -59,12 +59,12 @@ export type TileTokenBatchResponse = {
 };
 
 /**
- * Batch-fetch tile tokens for multiple datasets (PERF-N5). Replaces the
+ * Batch-fetch tile tokens for multiple datasets. Replaces the
  * N+1 parallel requests the builder previously fired on every map load.
  * Errors for individual datasets are returned as ``{ error: string }``
  * values in the ``tokens`` map; the overall call still resolves.
  */
-// fix(#394) SH-04: embed viewers pass their X-Embed-Token so scoped datasets
+// Embed viewers pass their X-Embed-Token so scoped datasets
 // mint the same tile/DEM descriptors an authenticated viewer would get.
 export function getTileTokensBatch(datasetIds: string[], embedToken?: string): Promise<TileTokenBatchResponse> {
   const embedHeader: Record<string, string> = embedToken ? { 'X-Embed-Token': embedToken } : {};

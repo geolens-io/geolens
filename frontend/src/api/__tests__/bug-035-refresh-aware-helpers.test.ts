@@ -1,4 +1,4 @@
-// BUG-035: AI stream + download/export helpers must use the refresh-aware
+// AI stream + download/export helpers must use the refresh-aware
 // fetch pipeline (proactive expiry refresh + 401→tryRefresh→retry) instead of a
 // bare fetch with a possibly-stale JWT. Pre-fix these helpers issued a raw
 // fetch() and hard-failed with a 401 when the token had expired during a long

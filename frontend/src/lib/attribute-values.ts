@@ -159,7 +159,7 @@ const FALSE_WORDS = new Set(['false', 'f', '0', 'no', 'n']);
 /**
  * Coerce a free-text cell value to the column's wire type.
  *
- * fix(#458 E-03): the attribute table's inline editor is a plain text input;
+ * The attribute table's inline editor is a plain text input;
  * sending its raw string into a typed Postgres column made every non-text
  * cell edit fail. Empty input means NULL (matches the pre-fix `value || null`
  * contract). `ok: false` means the text is not representable in the column

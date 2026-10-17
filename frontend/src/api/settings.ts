@@ -111,9 +111,9 @@ export async function getApiKeyStatus(): Promise<ApiKeyStatusResponse> {
   return apiFetch<ApiKeyStatusResponse>('/settings/api-key-status/');
 }
 
-// --- Notification status + test-send (Phase 1229 Plan 03 / NOTIF-05 / NOTIF-06) ---
+// --- Notification status + test-send ---
 
-/** GET /settings/notifications/status/ — booleans only, no secrets (NOTIF-05). */
+/** GET /settings/notifications/status/ — booleans only, no secrets. */
 interface NotificationStatus {
   notifications_enabled: boolean;
   smtp_configured: boolean;
@@ -128,7 +128,7 @@ export interface NotificationTestChannelResult {
   error: string | null;
 }
 
-/** POST /settings/notifications/test/ response — always 200, even on channel failure (NOTIF-06). */
+/** POST /settings/notifications/test/ response — always 200, even on channel failure. */
 interface NotificationTestResponse {
   sent: boolean;
   channels: NotificationTestChannelResult[];
@@ -145,13 +145,13 @@ export async function sendTestNotification(): Promise<NotificationTestResponse> 
   });
 }
 
-// --- Enterprise-tabs registry (Phase 279 ADMIN-03 / M-03) ---
+// --- Enterprise-tabs registry ---
 
 interface EnterpriseTabsResponse {
   tabs: string[];
 }
 
-// Phase 279 ADMIN-03 (M-03): Server-driven enterprise-only tab list. Used by
+// Server-driven enterprise-only tab list. Used by
 // AdminSidebar to conditionally render Settings tabs without hardcoding the
 // enterpriseOnly flag in two places (frontend + backend). The backend
 // _ENTERPRISE_ONLY_TABS frozenset is the canonical source.
@@ -175,7 +175,7 @@ export async function detectEmbeddingDims(): Promise<DetectEmbeddingDimsResponse
 
 interface BrandingConfig {
   show_badge: boolean;
-  /** PRIV-1: operator-configured privacy-policy URL, or null/absent when unset. */
+  /** operator-configured privacy-policy URL, or null/absent when unset. */
   privacy_url?: string | null;
 }
 

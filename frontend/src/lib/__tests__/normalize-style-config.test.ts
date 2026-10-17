@@ -334,7 +334,7 @@ describe('normalizeLayerStyleState — heatmap reversal extraction (#828)', () =
 });
 
 // ---------------------------------------------------------------------------
-// builder-audit #338 SPEC-05: parseStepOrInterpolate only treats LINEAR interpolate
+// parseStepOrInterpolate only treats LINEAR interpolate
 // stops as uniform legend breaks; non-linear curves fall back to opaque (null).
 // ---------------------------------------------------------------------------
 describe('parseStepOrInterpolate — SPEC-05 linear gate', () => {

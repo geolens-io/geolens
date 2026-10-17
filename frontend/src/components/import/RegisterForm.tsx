@@ -315,7 +315,7 @@ function TableDetail({
 
       {/* Actions */}
       <fieldset disabled={isPending} className="flex items-center gap-3 flex-wrap mt-5 disabled:opacity-60">
-        {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+        {/* Native <select> → themed ui/select. */}
         <Select
           value={visibility}
           onValueChange={(v) => onVisibilityChange(v as DatasetVisibilityChoice)}

@@ -1,7 +1,7 @@
 import i18n from '@/i18n/i18n';
 
 /**
- * fix(#1953): the code ADR-002 Decision 3 stores in place of a failure the
+ * The code Decision 3 stores in place of a failure the
  * server did not compose (`backend/app/core/failure_reason.py`). Every surface
  * that renders a job or run reason maps it here, or the reader gets an
  * untranslated identifier where a sentence belongs.

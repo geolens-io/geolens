@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { FeaturePopup, type FeatureInfo } from '../FeaturePopup';
 
 // ---------------------------------------------------------------------------
-// EASY-11 rich-text / media rendering tests
+// rich-text / media rendering tests
 // ---------------------------------------------------------------------------
 
 // MapLibre's Popup component requires a real map context. For unit tests we
@@ -51,7 +51,7 @@ describe('FeaturePopup — EASY-11 rich-text rendering', () => {
     const { container } = render(
       <FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />,
     );
-    // fix(#438): A11Y-07 — the popup image is decorative (alt=""), so it is not
+    // The popup image is decorative (alt=""), so it is not
     // in the a11y tree and getByRole('img') no longer finds it. Query the DOM.
     const img = container.querySelector('img')!;
     expect(img).toHaveAttribute('src', 'https://example.com/x.jpg');

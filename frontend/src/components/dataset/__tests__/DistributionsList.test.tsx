@@ -341,7 +341,7 @@ describe('DistributionsList', () => {
       expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
     });
 
-    // fix(#1863 P2, codex round 2): the relative-url predicate above routed
+    // The relative-url predicate above routed
     // EVERY relative url through authenticatedDownload, including a
     // vector-tile template (/tiles/data.<table>/{z}/{x}/{y}.pbf — a
     // template, no literal resource at that path) and a raster/VRT row's
@@ -447,9 +447,9 @@ describe('DistributionsList', () => {
       ).toBeInTheDocument();
     });
 
-    // fix(#1395 codex round 1): the accessible name names the row, so two
+    // The accessible name names the row, so two
     // "Set as primary" buttons on the same page are distinguishable.
-    // fix(#1395 codex round 3): the discriminator is the row's own id, not a
+    // The discriminator is the row's own id, not a
     // (possibly-colliding, possibly-truncated) URL fragment.
     it('has an accessible name that names the distribution, not a label-for that could steal it', () => {
       render(<DistributionsList recordId="record-1" canEdit />);
@@ -483,7 +483,7 @@ describe('DistributionsList', () => {
       expect(screen.getByRole('button', { name: /^Set Viewer App/ })).toBeDisabled();
     });
 
-    // fix(#1395 codex round 1): a second manual, non-primary row must go
+    // A second manual, non-primary row must go
     // disabled too while ANY promotion is in flight — not just the row that
     // was clicked — so a second click can't fire a concurrent PATCH that
     // races the first against uq_record_distribution_primary.
@@ -524,7 +524,7 @@ describe('DistributionsList', () => {
       expect(screen.getByRole('button', { name: /^Set Offline Bundle/ })).toBeDisabled();
     });
 
-    // fix(#1395 codex round 2): uq_record_distribution covers
+    // uq_record_distribution covers
     // (record_id, distribution_type, format, url), not title — two manual
     // rows are free to share a title, and the accessible name must still
     // tell them apart.

@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
-// PERF-06 (Phase 274): lazy-load ViewerMap so map-vendor chunk fetch
+// lazy-load ViewerMap so map-vendor chunk fetch
 // is deferred until the share-token resolves and rendering is imminent.
 const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))

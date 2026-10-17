@@ -41,7 +41,7 @@ function isValidTileUrl(url: string): boolean {
   return isPmtilesArchiveUrl(url);
 }
 
-// codex review (#1688 P1): a bare PMTiles archive is only renderable as a
+// A bare PMTiles archive is only renderable as a
 // basemap when it's raster -- toMaplibreStyle wraps it as a single raster
 // layer, and a vector archive has no layer/paint styling to render sensibly
 // (see basemap-utils.ts). Vector vs raster can only be told apart by reading
@@ -170,7 +170,7 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset: submitReset
     }
     if (isPmtilesArchiveUrl(trimmedUrl)) {
       setCheckingPmtilesUrl(true);
-      // codex review (#1688 P1 round 2, P2 round 3): probe with the API key
+      // Probe with the API key
       // already substituted (mirroring router_public.py's Python
       // `url.replace("{api_key}", key_value)`, which replaces every
       // occurrence) -- without this, an authenticated archive's header

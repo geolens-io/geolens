@@ -274,7 +274,7 @@ describe('MapBuilderPage header actions', () => {
     const sidebar = screen.getByTestId('builder-sidebar');
     expect(sidebar).toBeInTheDocument();
 
-    // No sidebar Sheet present (sidebar Sheet was removed in Plan 1034-02)
+    // No sidebar Sheet present (the sidebar Sheet no longer exists)
     // (only rail Sheet remains, but it needs railPanel != null to open)
     const sheetContents = document.body.querySelectorAll('[data-slot="sheet-content"]');
     expect(sheetContents.length).toBe(0);

@@ -46,7 +46,7 @@ export function useViewerTerrain({
   /**
    * fix(#452): the bound DEM's LIVE visibility from the viewer legend's eye
    * toggle (ViewerMap resolves it from visibleLayers). The saved `visible`
-   * check below covers maps saved with a hidden DEM (HT-12), but the legend
+   * check below covers maps saved with a hidden DEM, but the legend
    * toggle is a client-side override the saved flag never reflects — without
    * this the mesh stayed extruded after the viewer hid the DEM live.
    */
@@ -54,7 +54,7 @@ export function useViewerTerrain({
 }) {
   const [terrainReady, setTerrainReady] = useState(false);
 
-  // fix(HT-12): resolve through the SAME shared resolver the builder uses
+  // fix: resolve through the SAME shared resolver the builder uses
   // (deterministic duplicate semantics included) instead of a local find.
   const terrainLayer = useMemo(
     () => resolveTerrainSourceLayer(layers, terrainConfig) ?? null,
@@ -101,7 +101,7 @@ export function useViewerTerrain({
     const terrainTileUrl = terrainToken?.kind === 'raster'
       ? terrainToken.tile_url
       : currentTerrainLayer?.tile_url;
-    // fix(HT-12): honor the bound DEM layer's saved visibility the same way the
+    // fix: honor the bound DEM layer's saved visibility the same way the
     // builder does (BuilderMap applyTerrainConfig: effectiveTerrainEnabled =
     // enabled && demLayerVisible). Previously the viewer (and embeds, which
     // reuse this hook) rendered terrain from a hidden DEM row, so a saved map
@@ -148,12 +148,11 @@ export function useViewerTerrain({
     // because the token span cannot distinguish a seam-crossing DEM from a
     // global one. This site deliberately did NOT follow: `SharedLayerResponse`
     // has no extent field, and adding one would buy nothing — `audience:
-    // 'viewer'` below suppresses the toast before `demBounds` is read (#430
-    // V-06), so there is no under-warning here to fix.
+    // 'viewer'` below suppresses the toast before `demBounds` is read, so there is no under-warning here to fix.
     const demBounds = terrainToken?.kind === 'raster' ? terrainToken.bounds : null;
     resetSmallDemWarning(map, terrainDatasetId);
-    // fix(#430 V-06): suppress the builder-oriented small-DEM advice toast for viewers —
-    // "zoom in" / "drape over Copernicus GLO-30" isn't actionable read-only.
+    // Suppress the builder-oriented small-DEM advice toast for viewers
+    // "zoom in" / "drape over Copernicus " isn't actionable read-only.
     maybeWarnSmallDemCoverage({
       map,
       demBounds,

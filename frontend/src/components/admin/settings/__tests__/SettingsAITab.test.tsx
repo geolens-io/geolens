@@ -5,7 +5,7 @@ import type { SettingItem } from '@/api/settings';
 import type { EmbeddingStatsResponse } from '@/types/api';
 import { probeAIStatus } from '@/api/admin';
 
-// #347 (ADM-05) regression: the Embedding Coverage box has two buttons ("Generate
+// #347 regression: the Embedding Coverage box has two buttons ("Generate
 // Missing" + "Regenerate All") backed by one backfill mutation. Each spinner
 // must key off backfill.variables.force (false = missing, true = regenerate) so only
 // the clicked button spins — previously both keyed off backfill.isPending and

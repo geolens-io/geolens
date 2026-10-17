@@ -8,7 +8,7 @@ vi.mock('@/api/datasets', () => ({
   downloadExport: vi.fn(),
 }));
 
-// fix(#438): DS-08 — the format picker is now a Radix Select, whose options only
+// The format picker is now a Radix Select, whose options only
 // mount once the trigger is opened, and which needs these pointer/scroll APIs
 // that jsdom lacks.
 beforeAll(() => {

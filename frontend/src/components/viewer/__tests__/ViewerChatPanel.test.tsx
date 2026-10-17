@@ -23,7 +23,7 @@ function setAvailable(available: boolean) {
   mockAvailability.mockReturnValue({ isAIAvailable: available } as ReturnType<typeof useAIAvailability>);
 }
 
-/** One overlay feature. feat(#1241 codex r1): overlay completeness is judged
+/** One overlay feature. overlay completeness is judged
  *  against row_count, so a fixture's feature COUNT is now load-bearing. */
 function feature() {
   return { type: 'Feature', geometry: { type: 'Point', coordinates: [-73.9, 40.8] }, properties: {} };
@@ -171,7 +171,7 @@ describe('ViewerChatPanel', () => {
     );
   });
 
-  // feat(#1241 codex r1): one feature per matched row is what "uncapped" means.
+  // One feature per matched row is what "uncapped" means.
   // The server never emits an empty FeatureCollection (_extract_geojson returns
   // None when no row is mappable), so features:[] with row_count: 12 described
   // an impossible state that now reads, correctly, as a clipped overlay.

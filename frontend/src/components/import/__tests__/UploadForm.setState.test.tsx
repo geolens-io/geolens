@@ -1,5 +1,5 @@
 /**
- * IMPORT-03 regression test — setState-during-render anti-pattern
+ * Test — setState-during-render anti-pattern
  *
  * Verifies that calling handleCommitSingle, handleCommitAll, or removeEntry
  * never fires `setPhase` inside a `setEntries` updater function, which would

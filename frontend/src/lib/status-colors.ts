@@ -1,7 +1,7 @@
 /**
- * Single source of truth for all status-related colors (COMP-04).
+ * Single source of truth for all status-related colors.
  *
- * fix(#438): every recipe below is built from design tokens (DS-01). This file
+ * Every recipe below is built from design tokens. This file
  * previously hardcoded raw emerald/teal/amber/rose/violet Tailwind palettes —
  * about 35 of the app's 49 raw-palette uses — which meant "success" rendered
  * one green here and a different one through `<Badge variant="success">`.
