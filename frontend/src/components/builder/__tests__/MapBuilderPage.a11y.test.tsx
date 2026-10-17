@@ -331,7 +331,7 @@ describe('MapBuilderPage complementary landmark names', () => {
  * The e2e spec exercises the full browser stack where PointerSensor fires correctly:
  * - Test 3 → "drag-from-catalog negative: Escape cancels mid-drag" asserts region contains 'Drop cancelled.'
  * - Test 5 → "drag-from-catalog happy" asserts region contains the layer name after drop
- * - Tests 4, 6 → pickup and cancel content verified via VoiceOver walkthrough (1044-A11Y-WALKTHROUGH.md)
+ * - Tests 4, 6 → pickup and cancel content verified by a manual VoiceOver walkthrough
  *
  * The two tests above (1+2) cover the highest-regression-risk surface: someone deleting
  * the region or changing its ARIA attributes. Those regressions would be caught here.

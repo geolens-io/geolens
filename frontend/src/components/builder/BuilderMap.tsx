@@ -112,7 +112,7 @@ function getClusterFallbackReasonKey(status: ClusterSourceStatus): string | null
 }
 
 /**
- * BLDR-TILE-RACE: additive per-source vector-tile 401/403 re-sign-and-retry.
+ * Additive per-source vector-tile 401/403 re-sign-and-retry.
  *
  * During drag-from-catalog a vector source can be added and MapLibre may request a
  * `.pbf` in the brief window BEFORE the signed `tile_url`/`sig` finishes attaching —
@@ -676,7 +676,7 @@ export const BuilderMap = memo(function BuilderMap({
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
           if (status === 401 || status === 403) {
-            // BLDR-TILE-RACE: a vector `.pbf` fetched in the window
+            // A vector `.pbf` fetched in the window
             // before its signed token attaches yields a transient 401/403 that
             // is a token-sync race, not a real auth failure. Re-sign the failing
             // vector source (using the token already in tokenMap for its own

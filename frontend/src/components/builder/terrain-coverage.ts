@@ -22,7 +22,7 @@ interface MapWithBounds {
  * at that zoom the user sees a tiny raised patch surrounded by flat ground and
  * — combined with edge nodata — what looks like a "pedestal". We surface a
  * non-blocking warning recommending draping the high-res DEM over a coarse
- * global DEM (Copernicus) for small AOIs, or zooming in.
+ * global DEM (Copernicus GLO-30) for small AOIs, or zooming in.
  *
  * Coverage = (DEM bounds ∩ viewport area) / viewport area, computed in the
  * lng/lat degree plane. This is an approximation (it ignores Mercator area

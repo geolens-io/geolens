@@ -3,7 +3,7 @@
  *
  * Test surface: selection model, visual state, clearing rules, basemap boundary, Shift+Arrow.
  *
- * Worker-safety: no file-level vi.mock('@dnd-kit/core', ...). Per, that pattern causes
+ * Worker-safety: no file-level vi.mock('@dnd-kit/core', ...). That pattern causes
  * worker exits. All dnd-kit hooks run from their real implementations wrapped in a DndContext
  * via the test-utils wrapper (which is already DndContext-free — UnifiedStackPanel renders its
  * own internal DndContext). We stub only the specific modules that would reach the network.
