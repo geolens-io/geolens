@@ -1245,6 +1245,7 @@ async def list_my_api_keys(
                 is_active=k.is_active,
                 expires_at=k.expires_at,
                 scope=k.scope,
+                dataset_id=k.dataset_id,
                 created_at=k.created_at,
                 last_used_at=k.last_used_at,
             )

@@ -209,9 +209,15 @@ export type AdminApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full' or 'read_only'.
+     * Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else).
      */
     scope: string;
+    /**
+     * Dataset Id
+     *
+     * The dataset a 'dataset_write' key is bound to; null for other scopes.
+     */
+    dataset_id?: string | null;
     /**
      * Created At
      *
@@ -827,9 +833,15 @@ export type ApiKeyCreateResponse = {
     /**
      * Scope
      *
-     * Privilege scope: 'full' or 'read_only'
+     * Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
      */
     scope: string;
+    /**
+     * Dataset Id
+     *
+     * The dataset a 'dataset_write' key is bound to; null for other scopes
+     */
+    dataset_id?: string | null;
     /**
      * Created At
      */
@@ -867,9 +879,15 @@ export type ApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full' or 'read_only'
+     * Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
      */
     scope: string;
+    /**
+     * Dataset Id
+     *
+     * The dataset a 'dataset_write' key is bound to; null for other scopes
+     */
+    dataset_id?: string | null;
     /**
      * Created At
      */
@@ -3088,6 +3106,24 @@ export type CreateLayerResponse = {
      * Creation timestamp
      */
     created_at: string;
+};
+
+/**
+ * DatasetApiKeyCreateRequest
+ */
+export type DatasetApiKeyCreateRequest = {
+    /**
+     * Name
+     *
+     * Human-readable label for the API key
+     */
+    name: string;
+    /**
+     * Expires At
+     *
+     * Expiry timestamp (RFC 3339, timezone-aware), in the future and at most 365 days away. Expired keys stop authenticating.
+     */
+    expires_at: string;
 };
 
 /**
@@ -18282,6 +18318,139 @@ export type AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostResponses
 };
 
 export type AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostResponse = AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostResponses[keyof AnalysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPostResponses];
+
+export type ListDatasetApiKeysDatasetsDatasetIdApiKeysGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/datasets/{dataset_id}/api-keys';
+};
+
+export type ListDatasetApiKeysDatasetsDatasetIdApiKeysGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ListDatasetApiKeysDatasetsDatasetIdApiKeysGetError = ListDatasetApiKeysDatasetsDatasetIdApiKeysGetErrors[keyof ListDatasetApiKeysDatasetsDatasetIdApiKeysGetErrors];
+
+export type ListDatasetApiKeysDatasetsDatasetIdApiKeysGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ApiKeyListResponse;
+};
+
+export type ListDatasetApiKeysDatasetsDatasetIdApiKeysGetResponse = ListDatasetApiKeysDatasetsDatasetIdApiKeysGetResponses[keyof ListDatasetApiKeysDatasetsDatasetIdApiKeysGetResponses];
+
+export type CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostData = {
+    body: DatasetApiKeyCreateRequest;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/api-keys';
+};
+
+export type CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostError = CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostErrors[keyof CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostErrors];
+
+export type CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: ApiKeyCreateResponse;
+};
+
+export type CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponse = CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses[keyof CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses];
 
 export type ListAttributesEndpointDatasetsDatasetIdAttributesGetData = {
     body?: never;

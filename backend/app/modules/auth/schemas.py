@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, get_args
 
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field, field_validator
@@ -265,6 +265,40 @@ class ApiKeyCreateRequest(BaseModel):
     _expires_at_future = field_validator("expires_at")(validate_future_expiry)
 
 
+# A dataset key usually lives in a third-party webhook's settings, where it is
+# easy to forget, so it must expire and be re-minted at least yearly.
+DATASET_KEY_MAX_LIFETIME = timedelta(days=365)
+
+
+class DatasetApiKeyCreateRequest(BaseModel):
+    name: str = Field(
+        min_length=1, max_length=255, description="Human-readable label for the API key"
+    )
+    expires_at: AwareDatetime = Field(
+        description=(
+            "Expiry timestamp (RFC 3339, timezone-aware), in the future and at "
+            "most 365 days away. Expired keys stop authenticating."
+        ),
+    )
+
+    @field_validator("expires_at")
+    @classmethod
+    def _expires_within_a_year(cls, value: AwareDatetime) -> AwareDatetime:
+        validate_future_expiry(value)
+        if value > datetime.now(timezone.utc) + DATASET_KEY_MAX_LIFETIME:
+            raise ValueError("expires_at must be at most 365 days away")
+        return value
+
+
+_SCOPE_DESCRIPTION = (
+    "Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and "
+    "writes the features of the dataset in dataset_id, and nothing else)"
+)
+_DATASET_ID_DESCRIPTION = (
+    "The dataset a 'dataset_write' key is bound to; null for other scopes"
+)
+
+
 class ApiKeyCreateResponse(BaseModel):
     id: uuid.UUID
     key: str = Field(description="The API key secret (shown only once)")
@@ -276,8 +310,9 @@ class ApiKeyCreateResponse(BaseModel):
         default=None,
         description="Expiry timestamp; null means the key does not expire",
     )
-    scope: str = Field(
-        description="Privilege scope: 'full' or 'read_only'",
+    scope: str = Field(description=_SCOPE_DESCRIPTION)
+    dataset_id: uuid.UUID | None = Field(
+        default=None, description=_DATASET_ID_DESCRIPTION
     )
     created_at: datetime
 
@@ -293,8 +328,9 @@ class ApiKeyListItem(BaseModel):
         default=None,
         description="Expiry timestamp; null means the key does not expire",
     )
-    scope: str = Field(
-        description="Privilege scope: 'full' or 'read_only'",
+    scope: str = Field(description=_SCOPE_DESCRIPTION)
+    dataset_id: uuid.UUID | None = Field(
+        default=None, description=_DATASET_ID_DESCRIPTION
     )
     created_at: datetime
     last_used_at: datetime | None

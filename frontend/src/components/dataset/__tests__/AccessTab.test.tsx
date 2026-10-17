@@ -33,6 +33,12 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useUpdateDataset: vi.fn(),
 }));
 
+vi.mock('@/components/dataset/DatasetWriteKeys', () => ({
+  DatasetWriteKeys: ({ datasetId }: { datasetId: string }) => (
+    <div data-testid="dataset-write-keys">{datasetId}</div>
+  ),
+}));
+
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
@@ -264,6 +270,23 @@ describe('AccessTab', () => {
       render(<AccessTab dataset={makeDataset()} />);
 
       expect(screen.getByRole('heading', { name: 'Downloads and connections' })).toBeInTheDocument();
+    });
+  });
+
+  describe('write keys', () => {
+    it('lets an editor of a feature dataset manage its write keys', () => {
+      render(<AccessTab dataset={makeDataset()} canEdit />);
+      expect(screen.getByTestId('dataset-write-keys')).toHaveTextContent('ds-1');
+    });
+
+    it('is hidden from a reader', () => {
+      render(<AccessTab dataset={makeDataset()} />);
+      expect(screen.queryByTestId('dataset-write-keys')).not.toBeInTheDocument();
+    });
+
+    it('is hidden for a dataset without features', () => {
+      render(<AccessTab dataset={makeDataset({ record_type: 'raster_dataset' })} canEdit />);
+      expect(screen.queryByTestId('dataset-write-keys')).not.toBeInTheDocument();
     });
   });
 

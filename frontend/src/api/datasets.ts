@@ -33,6 +33,8 @@ import type {
   ServiceAuthRequest,
   DatasetRelationship,
   DatasetRelationshipListResponse,
+  ApiKeyCreateResponse,
+  MyApiKeyResponse,
 } from '@/types/api';
 
 export async function createDataset(data: CreateDatasetRequest): Promise<DatasetResponse> {
@@ -588,4 +590,22 @@ export async function commitFanOut(
     }
     throw err;
   }
+}
+
+/** The caller's active write keys bound to this dataset. */
+export async function listDatasetApiKeys(datasetId: string): Promise<MyApiKeyResponse[]> {
+  const data = await apiFetch<{ items: MyApiKeyResponse[]; total: number }>(
+    `/datasets/${encodeURIComponent(datasetId)}/api-keys?limit=200`,
+  );
+  return data.items;
+}
+
+export async function createDatasetApiKey(
+  datasetId: string,
+  body: { name: string; expires_at: string },
+): Promise<ApiKeyCreateResponse> {
+  return apiFetch<ApiKeyCreateResponse>(`/datasets/${encodeURIComponent(datasetId)}/api-keys`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }

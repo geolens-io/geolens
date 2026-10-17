@@ -221,6 +221,7 @@ export const queryKeys = {
   // -------------------------------------------------------------------------
   apiKeys: {
     mine: ['my-api-keys'] as const,
+    dataset: (datasetId: string) => ['dataset-api-keys', datasetId] as const,
   },
 
   // -------------------------------------------------------------------------

@@ -1234,5 +1234,19 @@
     "urlLabel": "Tileset-URL",
     "headerHint": "Interne, eingeschränkte und private Tilesets brauchen alle einen API-Schlüssel im Header X-Api-Key. Verwenden Sie einen Schlüssel mit Nur-Lesen-Zugriff, da CesiumJS ihn bei jeder Anfrage mitsendet, die es beim Laden des Tilesets stellt.",
     "copySnippet": "CesiumJS-Beispiel kopieren"
+  },
+  "writeKeys": {
+    "title": "Schreibschlüssel",
+    "description": "Ein Schreibschlüssel kann die Features dieses Datensatzes lesen und schreiben und sonst nichts, etwa für einen Webhook oder ein Skript, das ihn bearbeitet. Senden Sie ihn im Header X-Api-Key. Er handelt in Ihrem Namen und kann nicht mehr schreiben, wenn Sie hier Ihre Bearbeitungsrechte verlieren.",
+    "createKey": "Schreibschlüssel erstellen",
+    "expiresIn": "Gültig für",
+    "expiry30": "30 Tage",
+    "expiry90": "90 Tage",
+    "expiry365": "1 Jahr",
+    "expires": "Läuft am {{date}} ab",
+    "expired": "Abgelaufen",
+    "noKeys": "Keine Schreibschlüssel für diesen Datensatz.",
+    "loadError": "Die Schreibschlüssel dieses Datensatzes konnten nicht geladen werden.",
+    "revokeKey": "{{name}} widerrufen"
   }
 }

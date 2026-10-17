@@ -603,7 +603,16 @@ class AdminApiKeyListItem(BaseModel):
         default=None,
         description="Expiry timestamp; null means the key does not expire.",
     )
-    scope: str = Field(description="Privilege scope: 'full' or 'read_only'.")
+    scope: str = Field(
+        description=(
+            "Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and "
+            "writes the features of the dataset in dataset_id, and nothing else)."
+        )
+    )
+    dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description="The dataset a 'dataset_write' key is bound to; null for other scopes.",
+    )
     created_at: datetime = Field(description="Timestamp when the key was created.")
     last_used_at: datetime | None = Field(
         description="Timestamp of the most recent successful authentication using this key."

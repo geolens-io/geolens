@@ -47,6 +47,7 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
         is_active=key.is_active,
         expires_at=key.expires_at,
         scope=key.scope,
+        dataset_id=key.dataset_id,
         created_at=key.created_at,
         last_used_at=key.last_used_at,
     )

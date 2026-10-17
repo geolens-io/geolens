@@ -37,6 +37,7 @@ import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { ExportButton } from '@/components/dataset/ExportButton';
 import { TilesetAccess } from '@/components/dataset/TilesetAccess';
 import { PointCloudAccess } from '@/components/dataset/PointCloudAccess';
+import { DatasetWriteKeys } from '@/components/dataset/DatasetWriteKeys';
 import { recordTypeCapabilities } from '@/lib/record-types';
 import { cn } from '@/lib/utils';
 
@@ -418,6 +419,8 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
           srid={dataset.srid ?? 4326}
         />
       )}
+
+      {canEdit && featureTable && <DatasetWriteKeys datasetId={dataset.id} />}
 
       {/* Visibility */}
       <Card>

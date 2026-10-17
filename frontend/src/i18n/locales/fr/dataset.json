@@ -1234,5 +1234,19 @@
     "urlLabel": "URL du tileset",
     "headerHint": "Les tilesets internes, restreints et privés nécessitent tous une clé API dans l'en-tête X-Api-Key. Utilisez une clé en lecture seule, car CesiumJS l'envoie avec chaque requête qu'il fait en chargeant le tileset.",
     "copySnippet": "Copier l'extrait CesiumJS"
+  },
+  "writeKeys": {
+    "title": "Clés d'écriture",
+    "description": "Une clé d'écriture peut lire et écrire les entités de ce jeu de données, et rien d'autre, pour un webhook ou un script qui le modifie. Envoyez-la dans l'en-tête X-Api-Key. Elle agit en votre nom : elle ne peut plus écrire si vous perdez vos droits de modification ici.",
+    "createKey": "Créer une clé d'écriture",
+    "expiresIn": "Expire dans",
+    "expiry30": "30 jours",
+    "expiry90": "90 jours",
+    "expiry365": "1 an",
+    "expires": "Expire le {{date}}",
+    "expired": "Expirée",
+    "noKeys": "Aucune clé d'écriture pour ce jeu de données.",
+    "loadError": "Impossible de charger les clés d'écriture de ce jeu de données.",
+    "revokeKey": "Révoquer {{name}}"
   }
 }

@@ -25,10 +25,12 @@ class ApiKeyListItem:
         name (str):
         fingerprint (None | str): Non-secret key identifier; null for keys created before fingerprint support
         is_active (bool):
-        scope (str): Privilege scope: 'full' or 'read_only'
+        scope (str): Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the
+            dataset in dataset_id, and nothing else)
         created_at (datetime.datetime):
         last_used_at (datetime.datetime | None):
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire
+        dataset_id (None | Unset | UUID): The dataset a 'dataset_write' key is bound to; null for other scopes
     """
 
     id: UUID
@@ -39,6 +41,7 @@ class ApiKeyListItem:
     created_at: datetime.datetime
     last_used_at: datetime.datetime | None
     expires_at: datetime.datetime | None | Unset = UNSET
+    dataset_id: None | Unset | UUID = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -69,6 +72,14 @@ class ApiKeyListItem:
         else:
             expires_at = self.expires_at
 
+        dataset_id: None | str | Unset
+        if isinstance(self.dataset_id, Unset):
+            dataset_id = UNSET
+        elif isinstance(self.dataset_id, UUID):
+            dataset_id = str(self.dataset_id)
+        else:
+            dataset_id = self.dataset_id
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -84,6 +95,8 @@ class ApiKeyListItem:
         )
         if expires_at is not UNSET:
             field_dict["expires_at"] = expires_at
+        if dataset_id is not UNSET:
+            field_dict["dataset_id"] = dataset_id
 
         return field_dict
 
@@ -139,6 +152,23 @@ class ApiKeyListItem:
 
         expires_at = _parse_expires_at(d.pop("expires_at", UNSET))
 
+        def _parse_dataset_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                dataset_id_type_0 = UUID(data)
+
+                return dataset_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        dataset_id = _parse_dataset_id(d.pop("dataset_id", UNSET))
+
         api_key_list_item = cls(
             id=id,
             name=name,
@@ -148,6 +178,7 @@ class ApiKeyListItem:
             created_at=created_at,
             last_used_at=last_used_at,
             expires_at=expires_at,
+            dataset_id=dataset_id,
         )
 
         api_key_list_item.additional_properties = d

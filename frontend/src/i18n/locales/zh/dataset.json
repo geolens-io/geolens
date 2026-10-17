@@ -1234,5 +1234,19 @@
     "urlLabel": "瓦片集 URL",
     "headerHint": "内部、受限和私有瓦片集都需要在 X-Api-Key 请求头中提供 API 密钥。请使用只读密钥，因为 CesiumJS 加载瓦片集时发出的每个请求都会带上它。",
     "copySnippet": "复制 CesiumJS 代码片段"
+  },
+  "writeKeys": {
+    "title": "写入密钥",
+    "description": "写入密钥只能读取和写入此数据集的要素，不能做其他任何事，适用于编辑此数据集的 Webhook 或脚本。请在 X-Api-Key 请求头中发送。它以您的身份操作，因此如果您失去此处的编辑权限，它将无法再写入。",
+    "createKey": "创建写入密钥",
+    "expiresIn": "有效期",
+    "expiry30": "30 天",
+    "expiry90": "90 天",
+    "expiry365": "1 年",
+    "expires": "{{date}} 到期",
+    "expired": "已过期",
+    "noKeys": "此数据集没有写入密钥。",
+    "loadError": "无法加载此数据集的写入密钥。",
+    "revokeKey": "撤销 {{name}}"
   }
 }
