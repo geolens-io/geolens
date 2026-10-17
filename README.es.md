@@ -122,7 +122,7 @@ pueden borrarse en cualquier momento.
 <td width="50%" valign="top">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
-<img src=".github/assets/geolens-admin-overview.png" alt="La página Resumen de administración: Todos los sistemas operativos, con el estado de la base de datos, el almacenamiento, la caché y la caché de teselas, el total de conjuntos de datos, las incorporaciones recientes y el almacenamiento usado, junto al menú de administración" width="100%">
+<img src=".github/assets/geolens-admin-overview.png" alt="La página Resumen de administración, que indica que todos los sistemas funcionan correctamente, con el estado de la base de datos, el almacenamiento, la caché y la caché de teselas, el total de conjuntos de datos, las incorporaciones recientes y el almacenamiento usado, junto al menú de administración" width="100%">
 </picture>
 <br><sub>El resumen de administración muestra el estado de los servicios junto a los totales de datos y almacenamiento.</sub>
 </td>
