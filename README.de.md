@@ -93,7 +93,7 @@ flowchart LR
 - Zeichnen Sie neue Datensätze im Browser.
 - Finden Sie Daten mit der unscharfen Suche, oder nach Bedeutung, sobald ein Embedding-Anbieter
   konfiguriert ist. Filtern Sie nach Typ, Ort und Zeit, fassen Sie Datensätze zu Collections
-  zusammen, bearbeiten Sie Metadaten und stellen Sie frühere Versionen wieder her.
+  zusammen, bearbeiten Sie Metadaten und stellen Sie nach einem Austausch die vorherige Version eines Datensatzes wieder her.
 
 ## Wissen, woher jeder Datensatz stammt
 
