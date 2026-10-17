@@ -257,8 +257,11 @@ un catalogue entier, décrivez les sources dans un manifeste `geolens.yaml` et l
 `geolens apply` ; [`examples/manifests/`](examples/manifests/) contient des modèles et le
 [guide de la CLI](https://docs.getgeolens.com/guides/cli/) donne le schéma.
 
-Pour charger dans votre installation les cartes et les jeux de données de la démonstration (des
-données ouvertes publiques), lancez le script d’amorçage. Utilisez votre propre nom
+Pour charger dans votre installation les cartes et les jeux de données de la démonstration,
+lancez le script d’amorçage. Il nécessite un accès à internet et télécharge des données ouvertes
+publiques depuis une douzaine de sources, dont un fichier de relief d’environ 466 Mo et 62 tuiles
+de terrain ; `--no-oceans` et `--no-terrain` les ignorent, et
+[scripts/README.md](scripts/README.md) liste toutes les options. Utilisez votre propre nom
 d’administrateur si vous l’avez changé.
 
 ```sh
