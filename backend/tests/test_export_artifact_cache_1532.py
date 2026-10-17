@@ -5234,3 +5234,87 @@ async def test_only_earlier_identical_bytes_let_a_rebuild_slice(
 
     monkeypatch.setattr("app.processing.export.artifact_cache.get_storage", _down)
     assert not await _held(), "an unreadable history must fail closed"
+
+
+async def test_a_head_after_the_ttl_describes_unchanged_bytes_without_building(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """DuckDB ranges only into a length it learned from HEAD.
+
+    A HEAD that lands after the rollover finds nothing fresh. When the stored
+    artifact is the only bytes the URL holds, it answers that artifact's length
+    and ETag, and the conditional forms follow the same validator, all without
+    a conversion. The footer read that follows rebuilds and is sliced.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Head After Rollover")
+    url = _url(dataset.id)
+
+    probe = await client.get(url, headers=admin_auth_header)
+    assert probe.status_code == 200 and conversions.count == 1
+    etag = probe.headers["etag"]
+
+    cache._ttl_seconds = lambda: 0
+    try:
+        head = await client.head(url, headers=admin_auth_header)
+        revalidated = await client.head(
+            url, headers={**admin_auth_header, "If-None-Match": etag}
+        )
+        stale = await client.head(
+            url, headers={**admin_auth_header, "If-Match": '"last-weeks-export"'}
+        )
+        assert conversions.count == 1, "a HEAD must never build"
+        footer = await client.get(
+            url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert head.status_code == 200
+    assert head.headers.get("content-length") == str(len(conversions.body)), (
+        f"a HEAD after the rollover answered content-length="
+        f"{head.headers.get('content-length')!r}; without a length DuckDB "
+        f"downloads the whole file"
+    )
+    assert head.headers.get("etag") == etag
+    assert revalidated.status_code == 304
+    assert stale.status_code == 412
+    assert footer.status_code == 206 and conversions.count == 2
+    assert footer.content == conversions.body[100:200]
+
+
+async def test_a_head_after_a_change_is_size_less_again(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """Once the URL holds other bytes, a HEAD with nothing fresh can't promise either.
+
+    The counterfactual: an unsignalled change rebuilds to a second digest, so a
+    HEAD after that rollover keeps today's answer, no length and no validator,
+    and a revalidation naming the first artifact is not told it is current.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Head After Change")
+    url = _url(dataset.id)
+
+    probe = await client.get(url, headers=admin_auth_header)
+    assert probe.status_code == 200
+    conversions.body = bytes(reversed(conversions.body))
+
+    cache._ttl_seconds = lambda: 0
+    try:
+        rebuilt = await client.get(url, headers=admin_auth_header)
+        assert rebuilt.headers["etag"] != probe.headers["etag"]
+        head = await client.head(url, headers=admin_auth_header)
+        revalidated = await client.head(
+            url, headers={**admin_auth_header, "If-None-Match": probe.headers["etag"]}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2
+    assert head.status_code == 200
+    assert "content-length" not in head.headers
+    assert "etag" not in head.headers
+    assert revalidated.status_code == 200

@@ -167,14 +167,20 @@ async def url_answered_other_bytes_recently(
 
 
 async def url_held_only_these_bytes(
-    dataset_id: uuid.UUID, selection: str, digest: str, *, own_key: str, before: float
+    dataset_id: uuid.UUID,
+    selection: str,
+    digest: str,
+    *,
+    own_key: str | None,
+    before: float,
 ) -> bool:
     """Was this a rebuild of bytes the URL already served, and only those?
 
     True when every artifact of this URL still stored, at any age up to the
-    sweep horizon, carries ``digest``, and one other than ``own_key`` was
-    published before ``before``. A client holding offsets from any of them
-    then holds offsets into these exact bytes. Fails CLOSED on a listing error.
+    sweep horizon, carries ``digest``, and one other than ``own_key`` (any,
+    when None) was published before ``before``. A client holding offsets from
+    any of them then holds offsets into these exact bytes. Fails CLOSED on a
+    listing error.
     """
     earlier = False
     try:
@@ -192,6 +198,28 @@ async def url_held_only_these_bytes(
     except Exception:  # broad: unknown history proves nothing; whole is safe
         return False
     return earlier
+
+
+async def settled_artifact(
+    dataset_id: uuid.UUID, selection: str, *, filename: str, media_type: str
+) -> ExportArtifact | None:
+    """The newest stored artifact at any age, if it is the only bytes the URL holds.
+
+    Lets a HEAD that finds nothing fresh describe the export without building
+    it. The GET that follows rebuilds: unchanged data reproduces these bytes
+    and is sliced like a hit, and changed data is answered whole and leaves
+    the URL holding two digests, so the next HEAD is size-less again.
+    """
+    artifact = await lookup(
+        dataset_id, selection, filename=filename, media_type=media_type, any_age=True
+    )
+    if artifact is None or artifact.contested:
+        return None
+    if not await url_held_only_these_bytes(
+        dataset_id, selection, artifact.digest, own_key=None, before=float("inf")
+    ):
+        return None
+    return artifact
 
 
 def _selection_prefix(dataset_id: uuid.UUID, selection: str) -> str:
@@ -253,16 +281,18 @@ async def lookup(
     *,
     filename: str,
     media_type: str,
+    any_age: bool = False,
 ) -> ExportArtifact | None:
     """Newest usable artifact for this selection, or None.
 
-    "Usable" = published inside the TTL, not future-stamped, and intact (size
-    verified via one ``size()`` call, so an in-place-truncated ``put`` is a
-    miss rather than a served truncation). ``contested`` reports >1 distinct
-    digest among siblings. Every failure here is a miss.
+    "Usable" = published inside the TTL (at any age with ``any_age``), not
+    future-stamped, and intact (size verified via one ``size()`` call, so an
+    in-place-truncated ``put`` is a miss rather than a served truncation).
+    ``contested`` reports >1 distinct digest among siblings. Every failure
+    here is a miss.
     """
     now = time.time()
-    cutoff = now - _ttl_seconds()
+    cutoff = float("-inf") if any_age else now - _ttl_seconds()
     horizon = now + _CLOCK_SLACK_SECONDS
     # fix(#1532): freshness measures from modified time (put
     # completion, via `_published_at`) so a slow upload can't expire early.

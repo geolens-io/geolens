@@ -603,6 +603,28 @@ async def export_dataset_endpoint(
     del dataset
     await db.rollback()
 
+    # A HEAD with nothing fresh still answers a real length and validator when
+    # the stored artifact is the only bytes this URL holds; it never builds.
+    if request.method == "HEAD":
+        settled = await artifact_cache.settled_artifact(
+            dataset_id,
+            selection,
+            filename=cached_filename,
+            media_type=cached_media_type,
+        )
+        if settled is not None:
+            if not if_match_passes(request.headers.get("if-match"), settled.etag):
+                raise HTTPException(
+                    status_code=status.HTTP_412_PRECONDITION_FAILED,
+                    detail="Export has changed since the version you hold",
+                    headers={"etag": settled.etag},
+                )
+            if if_none_match_matches(
+                request.headers.get("if-none-match"), settled.etag
+            ):
+                return not_modified_response(settled.etag)
+            return artifact_response.head_response(settled)
+
     # 6e. HEAD stops here — after every status-deciding gate, before the
     # conversion. No audit event: nothing exported.
     #

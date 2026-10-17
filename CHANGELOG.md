@@ -20,8 +20,12 @@ and releases use semantic versioning.
   reused for a minute, and a ranged request that arrived after that and
   rebuilt it used to get the whole file back, so DuckDB `read_parquet` fell
   back to downloading the whole GeoParquet file instead of the footer and the
-  columns a query names. When the rebuild produces different bytes, a ranged
-  request still gets the whole new file.
+  columns a query names. A HEAD after the cache expires also reports the
+  export's length and ETag again, without building it, when the stored copy
+  is the only version that URL has served, since DuckDB reads ranges only
+  after a HEAD gives it a length. When the rebuild produces different bytes,
+  a ranged request still gets the whole new file and the next HEAD reports no
+  length.
 
 ## [1.25.1] - 2026-10-16
 
