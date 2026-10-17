@@ -61,6 +61,7 @@ flowchart LR
     subgraph GL ["GeoLens"]
       CAT["Catalog<br/>search · metadata · provenance"]
       MB["Map builder<br/>styles · 3D · analysis · sharing"]
+      STD["Open APIs<br/>OGC API · STAC · DCAT · tiles"]
     end
     subgraph OUT ["Use it anywhere"]
       WEB["Browsers and embeds"]
@@ -70,7 +71,7 @@ flowchart LR
     end
     F & DB & SVC & ST --> CAT
     CAT --> MB --> WEB
-    CAT -- "OGC API · STAC · DCAT · tiles" --> GIS & CODE & AG
+    CAT --> STD --> GIS & CODE & AG
 ```
 
 ## One catalog for scattered data
@@ -164,7 +165,7 @@ has the steps.
 | OGC API Features, with CQL2 filtering and queryables | `/api/collections/{id}/items` | QGIS, ArcGIS, GDAL/OGR and other OGC API clients |
 | OGC API Records | `/api/collections/datasets/items` | Catalog search from other portals and tools |
 | STAC API 1.0 | `/api/stac/` | STAC clients such as pystac-client and STAC Browser |
-| DCAT 3, DCAT-US 3.0 and GeoDCAT-AP as JSON-LD | `/api/datasets/dcat/` | Harvesting into national and EU open-data portals |
+| DCAT 3, DCAT-US 3.0 and GeoDCAT-AP as JSON-LD | `/api/datasets/dcat/`, `/api/datasets/dcat-us/3.0/`, `/api/datasets/geodcat-ap/` | Harvesting into national and EU open-data portals |
 | Vector tiles and COG raster tiles | a tile URL on every layer | MapLibre, OpenLayers, Leaflet |
 | 3D Tiles and COPC | each 3D dataset's page | CesiumJS, QGIS, Potree |
 
