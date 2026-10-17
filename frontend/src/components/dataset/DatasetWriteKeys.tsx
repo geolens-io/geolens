@@ -169,8 +169,8 @@ export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
                   className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
                 >
                   <div className="flex-1 min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium truncate">{key.name}</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 max-w-full truncate font-medium">{key.name}</span>
                       {key.fingerprint && (
                         <code className="text-xs text-muted-foreground">{key.fingerprint}</code>
                       )}
@@ -196,7 +196,7 @@ export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-destructive hover:text-destructive h-8 w-8 p-0"
+                    className="text-destructive hover:text-destructive h-8 w-8 shrink-0 p-0"
                     onClick={() => setRevokingKey(key)}
                     aria-label={t('writeKeys.revokeKey', { name: key.name })}
                   >

@@ -65,6 +65,15 @@ describe('DatasetWriteKeys', () => {
     expect(within(current).getByText(/^Expires /)).toBeInTheDocument();
   });
 
+  it('wraps the fingerprint and badges below a key name at phone width', async () => {
+    mockList.mockResolvedValue([makeKey()]);
+    render(<DatasetWriteKeys datasetId="ds-1" />);
+
+    const name = await screen.findByText('Survey webhook');
+    expect(name).toHaveClass('min-w-0', 'max-w-full', 'truncate');
+    expect(name.parentElement).toHaveClass('flex-wrap');
+  });
+
   it('says so when the dataset has no keys', async () => {
     mockList.mockResolvedValue([]);
     render(<DatasetWriteKeys datasetId="ds-1" />);

@@ -243,6 +243,19 @@ describe('#875: API key scope', () => {
     expect(screen.getByText('admin:apiKeys.scopeDatasetWrite')).toBeInTheDocument();
   });
 
+  it('wraps the badges below a key name instead of squeezing it at phone width', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ name: 'Webhook smoke', scope: 'dataset_write', dataset_id: 'ds-1' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    const name = screen.getByText('Webhook smoke');
+    expect(name).toHaveClass('min-w-0', 'max-w-full', 'truncate');
+    expect(name.parentElement).toHaveClass('flex-wrap');
+  });
+
   it('does not badge a full key', () => {
     vi.mocked(useMyApiKeys).mockReturnValue({
       data: [makeKey({ scope: 'full' })],
