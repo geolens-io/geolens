@@ -47,6 +47,91 @@ Telemetrie und steht unter der Apache-2.0-Lizenz.
 Die [Demo](https://demo.getgeolens.com) braucht weder Installation noch Konto; für den Karteneditor
 melden Sie sich mit Google, GitHub oder Microsoft an. Demodaten können jederzeit gelöscht werden.
 
+## Genauer hingeschaut
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
+<img src=".github/assets/geolens-catalog-search.png" alt="GeoLens-Katalogsuche nach „where storms hit the coast“, ohne Anmeldung, mit Hurrikan- und Küstendatensätzen sowie Typ-, Quellen- und Aktualitätsmarkierungen neben den Datensatzfiltern" width="100%">
+</picture>
+<br><sub>Suche nach Bedeutung: „where storms hit the coast“ findet Hurrikanbahnen und Ebenen zur Küstenexposition.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
+<img src=".github/assets/geolens-dataset-page.png" alt="Die Datensatzseite zu Atlantic Hurricane Tracks: Sturmbahnen in der Kartenvorschau, Markierungen für Vektor, hochgeladen, Quelle aktuell, veröffentlicht und öffentlich sowie Feature-Anzahl, Geometrie, KBS, Version und Spaltenanzahl" width="100%">
+</picture>
+<br><sub>Jeder Datensatz hat eine Seite mit Kartenvorschau, Metadaten, Attributen und Angaben zu seiner Herkunft.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-import-preview-dark.png">
+<img src=".github/assets/geolens-import-preview.png" alt="Die Seite „Daten importieren“, Reiter „Service-URL“, mit der Vorschau der ArcGIS-Ebene USGS Significant Earthquakes: KBS, Geometrietyp, Feature-Anzahl, Ebenenname und Beispielzeilen" width="100%">
+</picture>
+<br><sub>Vor dem Import einer Dienstebene zeigt GeoLens ihre Spalten und die ersten Zeilen.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
+<img src=".github/assets/geolens-version-history.png" alt="Der „Versionsverlauf“ des Datensatzes Significant Volcanic Eruptions: drei GeoJSON-Versionen mit Datum, Dateiname und Feature-Anzahl, die aktuelle markiert, und eine Schaltfläche „Wiederherstellen“ bei der vorherigen Version" width="100%">
+</picture>
+<br><sub>Wird ein Datensatz ersetzt, bleiben die alten Versionen erhalten, und Sie können die vorherige wiederherstellen.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
+<img src=".github/assets/geolens-builder-style.png" alt="Der Karteneditor mit der Karte Restless Earth auf einem Globus: eine Erdbeben-Heatmap entlang der pazifischen Plattengrenzen, die gruppierte Ebenenliste und das Stilfenster der Heatmap mit Farbverläufen" width="100%">
+</picture>
+<br><sub>Ebenen werden als Punkte, Symbole, Heatmaps oder Cluster dargestellt, und die Liste der Farbverläufe lässt sich auf farbenblindheitssichere beschränken.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
+<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Der GeoLens-Karteneditor stellt das Matterhorn als 3D-Gelände aus swissALTI3D-Lidar dar, mit beschrifteten Gipfeln, Kletterrouten, der Ebenenliste und einer Legende" width="100%">
+</picture>
+<br><sub>3D-Gelände aus Ihren eigenen Höhendaten, hier das Matterhorn aus swissALTI3D-Lidar.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
+<img src=".github/assets/geolens-stac-imagery.jpg" alt="Der Karteneditor mit vier datierten Sentinel-2-Echtfarbenaufnahmen über New York City und dem Norden von New Jersey, aus dem STAC-Katalog Earth Search referenziert, mit Ebenenliste und Legende" width="100%">
+</picture>
+<br><sub>Sentinel-2-Szenen, aus einem STAC-Katalog referenziert. Die Bilddaten bleiben, wo sie sind, und werden bei Bedarf gekachelt.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-share-embed-dark.png">
+<img src=".github/assets/geolens-share-embed.png" alt="Der Dialog „Teilen“ für eine Karte: Sichtbarkeit „Öffentlich“, daneben „Nur Sie“ und „Alle Teammitglieder“ als weitere Optionen, ein Freigabelink und ein iframe-Einbettungscode" width="100%">
+</picture>
+<br><sub>Behalten Sie eine Karte für sich, öffnen Sie sie für Ihr Team oder machen Sie sie mit Link und Einbettungscode öffentlich.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
+<img src=".github/assets/geolens-admin-overview.png" alt="Die Admin-Seite „Übersicht“: „Alle Systeme betriebsbereit“ mit Status von Datenbank, Speicher, Cache und Kachel-Cache, Datensatzsumme, neuen Datensätzen und belegtem Speicher, neben dem Admin-Menü" width="100%">
+</picture>
+<br><sub>Die Admin-Übersicht zeigt den Zustand der Dienste neben den Summen für Datensätze und Speicher.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-permissions-dark.png">
+<img src=".github/assets/geolens-admin-permissions.png" alt="Die Admin-Seite „Berechtigungen“: Funktionen wie „Datensätze hochladen“, „Daten exportieren“, „Metadaten bearbeiten“ und „Benutzer verwalten“ mit je einem Kontrollkästchen für die Rollen Betrachter, Bearbeiter und Administrator" width="100%">
+</picture>
+<br><sub>Die Rollen Betrachter, Bearbeiter und Administrator, wobei sich jede Funktion je Rolle ein- oder ausschalten lässt.</sub>
+</td>
+</tr>
+</table>
+
 ## So greift alles ineinander
 
 ```mermaid
@@ -74,15 +159,6 @@ flowchart LR
 ```
 
 ## Ein Katalog für verstreute Daten
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
-    <img src=".github/assets/geolens-catalog-search.png" alt="GeoLens-Katalogsuche nach „where storms hit the coast“ mit sechs Hurrikan- und Küstendatensätzen samt Vorschaubildern, Herkunfts- und Aktualitätsmarkierungen, daneben Filter für Typ, Schlüsselwort, Collection, Ort und Datum" width="100%">
-  </picture>
-  <br>
-  <sub>Suche nach Bedeutung: „where storms hit the coast“ findet Hurrikanbahnen, Sturmkorridore und Ebenen zur Küstenexposition.</sub>
-</p>
 
 - Laden Sie Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, gezippte File
   Geodatabase, CSV, Excel oder GeoTIFF hoch (wird in Cloud-Optimized GeoTIFF umgewandelt).
@@ -114,15 +190,6 @@ außerdem, ob die Quelle noch antwortet, und meldet bei Diensten Schemaänderung
 Quellseite, bevor sie Ihre Karten erreichen. Verschwindet ein Dienst, funktioniert die importierte Kopie weiter.
 
 ## Karten erstellen und teilen
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-    <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Der GeoLens-Karteneditor stellt das Matterhorn als 3D-Gelände aus swissALTI3D-Lidar dar, mit beschrifteten Gipfeln, Kletterrouten, der Ebenenliste und einer Legende" width="100%">
-  </picture>
-  <br>
-  <sub>Das Matterhorn als 3D-Gelände aus swissALTI3D-Lidar, mit Gipfeln und Kletterrouten aus OpenStreetMap.</sub>
-</p>
 
 - Punkt-, Symbol-, Heatmap-, Cluster-, Linien-, Pfeil-, Flächen-, 3D-Extrusions-, Raster- und
   Schummerungsebenen mit datengesteuerten Stilen, Beschriftungen, Symbolen, Mustern, Filtern und
