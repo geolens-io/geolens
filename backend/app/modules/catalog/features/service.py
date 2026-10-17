@@ -778,14 +778,41 @@ async def _geom_column_is_measured(session: AsyncSession, table_name: str) -> bo
     return typmod_type is not None and typmod_type.strip().upper().endswith("M")
 
 
-DryRunBlocker = Literal["not_a_table", "insert_side_effects"]
+DryRunBlocker = Literal["not_a_table", "insert_side_effects", "volatile_function"]
+
+# The functions the insert evaluates outside the row itself: CHECK constraints
+# on the table and on a domain under one of its column types, and the table's
+# row security policies. Read from the stored expression trees, operators'
+# functions included, since pg_depend records nothing for built-ins such as
+# nextval or pg_try_advisory_lock.
+_VOLATILE_FUNCTION = (
+    "EXISTS (WITH RECURSIVE types(oid) AS ("
+    "SELECT a.atttypid FROM pg_attribute a "
+    "WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
+    "UNION SELECT v.oid FROM types t JOIN pg_type ty ON ty.oid = t.oid, "
+    "LATERAL (VALUES (ty.typbasetype), (ty.typelem)) v(oid) WHERE v.oid <> 0), "
+    "trees(tree) AS ("
+    "SELECT con.conbin::text FROM pg_constraint con WHERE con.contype = 'c' "
+    "AND (con.conrelid = c.oid OR con.contypid IN (SELECT oid FROM types)) "
+    "UNION ALL SELECT x.tree::text FROM pg_policy pol, "
+    "LATERAL (VALUES (pol.polqual), (pol.polwithcheck)) x(tree) "
+    "WHERE c.relrowsecurity AND pol.polrelid = c.oid) "
+    "SELECT 1 FROM trees t, LATERAL regexp_matches("
+    "t.tree, ':(funcid|opfuncid|opno) ([0-9]+)', 'g') m "
+    "LEFT JOIN pg_operator op ON m[1] = 'opno' AND op.oid = m[2]::oid "
+    "JOIN pg_proc p ON p.oid = CASE WHEN m[1] = 'opno' "
+    "THEN op.oprcode::oid ELSE m[2]::oid END "
+    "WHERE p.provolatile = 'v')"
+)
 
 _DRY_RUN_PROBE = text(
     "SELECT c.relkind::text AS relkind, EXISTS (SELECT 1 FROM pg_trigger tg "
     "WHERE tg.tgrelid = c.oid AND NOT tg.tgisinternal "
     "AND tg.tgenabled IN ('O', 'A') AND (tg.tgtype::int & 4) <> 0) "
     "OR EXISTS (SELECT 1 FROM pg_rewrite rw "
-    "WHERE rw.ev_class = c.oid AND rw.ev_type = '3') AS side_effects "
+    "WHERE rw.ev_class = c.oid AND rw.ev_type = '3' "
+    "AND rw.ev_enabled IN ('O', 'A')) AS side_effects, "
+    f"{_VOLATILE_FUNCTION} AS volatile_function "
     "FROM pg_class c WHERE c.oid = to_regclass(format('%I.%I', "
     "CAST(:schema AS text), CAST(:t AS text)))"
 )
@@ -797,10 +824,13 @@ async def dry_run_blocker(
     """Why a dry-run insert into the table could leave effects behind, or None.
 
     Only an ordinary table qualifies, and only while it has no enabled user
-    INSERT trigger and no INSERT rule: either may reach past the transaction,
-    where the rolled-back insert cannot undo it. The table is locked in ROW
-    EXCLUSIVE mode, the insert's own lock, first, so no trigger or rule can be
-    added before the insert; the lock lasts until the transaction ends.
+    INSERT trigger, no enabled INSERT rule, and no CHECK constraint (its own
+    or a column domain's) or row security policy that calls a volatile
+    function: each may reach past the transaction, where the rolled-back
+    insert cannot undo it.
+    The table is locked in ROW EXCLUSIVE mode, the insert's own lock, first,
+    so none of these can be added before the insert; the lock lasts until the
+    transaction ends.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
@@ -818,7 +848,9 @@ async def dry_run_blocker(
     row = (await session.execute(_DRY_RUN_PROBE, params)).one()
     if row.relkind != "r":
         return "not_a_table"
-    return "insert_side_effects" if row.side_effects else None
+    if row.side_effects:
+        return "insert_side_effects"
+    return "volatile_function" if row.volatile_function else None
 
 
 async def effective_geometry_type(session: AsyncSession, dataset) -> str:

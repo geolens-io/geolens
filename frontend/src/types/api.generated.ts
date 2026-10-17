@@ -2426,11 +2426,13 @@ export interface paths {
          *     `tile_cache_version`.
          *
          *     A dry run is only available for a dataset stored in an ordinary table
-         *     with no enabled user trigger and no rule on INSERT, since those could have
-         *     effects outside the transaction. A view, a partitioned or foreign table,
-         *     or a table with such a trigger or rule is refused with 409. A dry run can
-         *     consume sequence values, including those of a column default, so stored
-         *     ids can have gaps.
+         *     with no enabled user trigger or rule on INSERT, and no CHECK constraint
+         *     (its own or a column domain's) or row security policy that calls a
+         *     volatile function, since those could have effects outside the
+         *     transaction. A view, a partitioned or foreign table, or a table with such
+         *     a trigger, rule, constraint or policy is refused with 409. Column defaults
+         *     still run, volatile ones included, so a dry run can consume sequence
+         *     values and stored ids can have gaps.
          */
         post: operations["dry_run_create_feature_datasets__dataset_id__features_dry_run__post"];
         delete?: never;

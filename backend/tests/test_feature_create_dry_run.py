@@ -504,27 +504,230 @@ async def test_a_dry_run_is_refused_on_a_table_with_an_insert_trigger(
     assert await _effects(test_db_session, side_effects) == (0, False)
 
 
-async def test_a_dry_run_is_refused_on_a_table_with_an_insert_rule(
+@pytest.mark.parametrize(
+    ("mode", "status"),
+    [("enabled", 409), ("disabled", 200), ("replica-only", 200)],
+)
+async def test_only_an_insert_rule_that_fires_refuses_a_dry_run(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     point_layer,
     side_effects,
+    mode,
+    status,
+):
+    dataset_id, table_name = point_layer
+    rule = f"{table_name}_rule"
+    ddl = [
+        f"CREATE RULE {rule} AS ON INSERT TO data.{table_name} "
+        f"DO ALSO INSERT INTO data.{side_effects['side']} "
+        f"VALUES (nextval('data.{side_effects['seq']}'))"
+    ]
+    if mode != "enabled":
+        state = "DISABLE" if mode == "disabled" else "ENABLE REPLICA"
+        ddl.append(f"ALTER TABLE data.{table_name} {state} RULE {rule}")
+    await _ddl(test_db_session, *ddl)
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header
+    )
+
+    assert resp.status_code == status, resp.text
+    if status == 409:
+        assert resp.json()["detail"] == _SIDE_EFFECT_REFUSAL
+    assert await _effects(test_db_session, side_effects) == (0, False)
+
+
+_VOLATILE_REFUSAL = (
+    "A dry run is not available for this dataset: a check constraint or row "
+    "security policy on its table calls a volatile function, whose effects a "
+    "dry run cannot undo."
+)
+
+
+@pytest.fixture
+async def volatile_fn(test_db_session, point_layer, side_effects):
+    """A VOLATILE boolean function that writes nextval into the side table.
+
+    Yields its qualified name; drops it, and whatever uses it, afterwards.
+    """
+    _, table_name = point_layer
+    fn = f"data.{table_name}_vol"
+    await _ddl(
+        test_db_session,
+        f"CREATE FUNCTION {fn}(v text, w text DEFAULT NULL) RETURNS boolean "
+        "LANGUAGE plpgsql VOLATILE AS $$ BEGIN "
+        f"INSERT INTO data.{side_effects['side']} "
+        f"VALUES (nextval('data.{side_effects['seq']}')); RETURN true; END $$",
+    )
+    yield fn
+    await test_db_session.rollback()
+    await _ddl(
+        test_db_session,
+        f"ALTER TABLE data.{table_name} DROP CONSTRAINT IF EXISTS {table_name}_chk",
+        f"DROP DOMAIN IF EXISTS data.{table_name}_dom CASCADE",
+        f"DROP FUNCTION {fn}(text, text) CASCADE",
+    )
+
+
+def _volatile_ddl(through: str, table_name: str, fn: str, seq: str) -> list[str]:
+    if through == "table":
+        return [
+            f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
+            f"CHECK ({fn}(name))"
+        ]
+    if through == "domain":
+        return [
+            f"CREATE DOMAIN data.{table_name}_dom AS text CHECK ({fn}(VALUE))",
+            f"ALTER TABLE data.{table_name} ADD COLUMN tag data.{table_name}_dom",
+        ]
+    if through == "operator":
+        return [
+            f"CREATE OPERATOR data.=== (FUNCTION = {fn}, "
+            "LEFTARG = text, RIGHTARG = text)",
+            f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
+            "CHECK (name OPERATOR(data.===) status)",
+        ]
+    if through == "built-in":
+        return [
+            f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
+            f"CHECK (nextval('data.{seq}') > 0)"
+        ]
+    # A restrictive policy is ANDed with the permissive one, so it always runs.
+    return [
+        f"CREATE POLICY {table_name}_all ON data.{table_name} "
+        "USING (true) WITH CHECK (true)",
+        f"CREATE POLICY {table_name}_pol ON data.{table_name} AS RESTRICTIVE "
+        f"FOR INSERT WITH CHECK ({fn}(name))",
+        f"ALTER TABLE data.{table_name} ENABLE ROW LEVEL SECURITY",
+        f"ALTER TABLE data.{table_name} FORCE ROW LEVEL SECURITY",
+    ]
+
+
+@pytest.mark.parametrize(
+    "through", ["table", "domain", "operator", "built-in", "policy"]
+)
+async def test_a_volatile_function_in_a_check_or_policy_refuses_a_dry_run(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    side_effects,
+    volatile_fn,
+    through,
 ):
     dataset_id, table_name = point_layer
     await _ddl(
         test_db_session,
-        f"CREATE RULE {table_name}_rule AS ON INSERT TO data.{table_name} "
-        f"DO ALSO INSERT INTO data.{side_effects['side']} "
-        f"VALUES (nextval('data.{side_effects['seq']}'))",
+        *_volatile_ddl(through, table_name, volatile_fn, side_effects["seq"]),
     )
 
     resp = await client.post(
         _dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header
     )
 
-    assert (resp.status_code, resp.json()["detail"]) == (409, _SIDE_EFFECT_REFUSAL)
+    assert (resp.status_code, resp.json()["detail"]) == (409, _VOLATILE_REFUSAL)
     assert await _effects(test_db_session, side_effects) == (0, False)
+
+
+@pytest.mark.parametrize("path", ["features/dry-run/", "features/dry-run"])
+async def test_a_volatile_check_refuses_a_collection_dry_run_on_either_path(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    side_effects,
+    volatile_fn,
+    path,
+):
+    dataset_id, table_name = point_layer
+    await _ddl(test_db_session, *_volatile_ddl("table", table_name, volatile_fn, ""))
+
+    resp = await client.post(
+        f"/datasets/{dataset_id}/{path}",
+        json=_collection(_feature(POINT_A), _feature(POINT_B)),
+        headers=admin_auth_header,
+    )
+
+    assert (resp.status_code, resp.json()["detail"]) == (409, _VOLATILE_REFUSAL)
+    assert await _effects(test_db_session, side_effects) == (0, False)
+
+
+async def test_a_check_taking_an_advisory_lock_refuses_a_dry_run(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    monkeypatch,
+):
+    """A session advisory lock outlives the rollback, on the request's connection.
+
+    The lock is probed from a second connection while the request still holds
+    its own, which a dry run that got as far as answering would.
+    """
+    from app.modules.catalog.features import router as features_router
+
+    dataset_id, table_name = point_layer
+    key = uuid.uuid4().int % 2**31
+    await _ddl(
+        test_db_session,
+        f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
+        f"CHECK (pg_try_advisory_lock({key}))",
+    )
+    answering, release = asyncio.Event(), asyncio.Event()
+    real_response = features_router._dry_run_response
+
+    def response_then_wait(rows, collection):
+        answering.set()
+        return real_response(rows, collection)
+
+    async def held_open(*args, **kwargs):
+        response = await real_create(*args, **kwargs)
+        if answering.is_set():
+            await release.wait()
+        return response
+
+    real_create = features_router._create
+    monkeypatch.setattr(features_router, "_dry_run_response", response_then_wait)
+    monkeypatch.setattr(features_router, "_create", held_open)
+    request = asyncio.create_task(
+        client.post(_dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header)
+    )
+    try:
+        waiting = asyncio.create_task(answering.wait())
+        await asyncio.wait({request, waiting}, return_when=asyncio.FIRST_COMPLETED)
+        waiting.cancel()
+        free = await test_db_session.scalar(text(f"SELECT pg_try_advisory_lock({key})"))
+        if free:
+            await test_db_session.execute(text(f"SELECT pg_advisory_unlock({key})"))
+        await test_db_session.commit()
+    finally:
+        release.set()
+        resp = await request
+
+    assert (resp.status_code, resp.json()["detail"]) == (409, _VOLATILE_REFUSAL)
+    assert free
+
+
+@pytest.mark.parametrize(
+    "check", ["length(name) < 100", "now() IS NOT NULL"], ids=["immutable", "stable"]
+)
+async def test_a_check_calling_no_volatile_function_leaves_the_dry_run_alone(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer, check
+):
+    dataset_id, table_name = point_layer
+    await _ddl(
+        test_db_session,
+        f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_chk "
+        f"CHECK ({check})",
+    )
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A, name="a"), headers=admin_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.parametrize("kind", ["disabled", "replica-only", "update-only"])

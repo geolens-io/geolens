@@ -225,6 +225,9 @@ _DRY_RUN_REFUSALS = {
     "ordinary table.",
     "insert_side_effects": "A dry run is not available for this dataset: its "
     "table has an INSERT trigger or rule, whose effects a dry run cannot undo.",
+    "volatile_function": "A dry run is not available for this dataset: a check "
+    "constraint or row security policy on its table calls a volatile function, "
+    "whose effects a dry run cannot undo.",
 }
 
 
@@ -1116,11 +1119,13 @@ async def dry_run_create_feature(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger and no rule on INSERT, since those could have
-    effects outside the transaction. A view, a partitioned or foreign table,
-    or a table with such a trigger or rule is refused with 409. A dry run can
-    consume sequence values, including those of a column default, so stored
-    ids can have gaps.
+    with no enabled user trigger or rule on INSERT, and no CHECK constraint
+    (its own or a column domain's) or row security policy that calls a
+    volatile function, since those could have effects outside the
+    transaction. A view, a partitioned or foreign table, or a table with such
+    a trigger, rule, constraint or policy is refused with 409. Column defaults
+    still run, volatile ones included, so a dry run can consume sequence
+    values and stored ids can have gaps.
     """
     return await _create(db, dataset_id, body, user, None, None, True)
 
