@@ -4070,9 +4070,9 @@ export type DatasetRetentionResponse = {
     /**
      * Cutoff
      *
-     * Rows older than this are past retention: a date for a date column, else a UTC instant. Null when off.
+     * Rows older than this UTC instant are past retention; for a date column it is UTC midnight of the cutoff date. Null when off.
      */
-    cutoff?: string | string | null;
+    cutoff?: string | null;
 };
 
 /**

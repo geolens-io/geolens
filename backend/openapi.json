@@ -6926,14 +6926,10 @@
                 "type": "string"
               },
               {
-                "format": "date",
-                "type": "string"
-              },
-              {
                 "type": "null"
               }
             ],
-            "description": "Rows older than this are past retention: a date for a date column, else a UTC instant. Null when off.",
+            "description": "Rows older than this UTC instant are past retention; for a date column it is UTC midnight of the cutoff date. Null when off.",
             "title": "Cutoff"
           }
         },

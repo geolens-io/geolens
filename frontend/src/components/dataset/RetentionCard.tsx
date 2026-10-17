@@ -73,6 +73,13 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
   const days = parseDays(daysInput);
   const canSave = column !== '' && days !== null && !mutation.isPending;
 
+  // A date column's cutoff is UTC midnight of its date; formatted as a
+  // local instant it would name the day before west of UTC.
+  function formatCutoff({ retention, cutoff }: PendingConfirm): string {
+    const type = temporalColumns.find((option) => option.name === retention.column)?.type;
+    return formatDate(type?.toLowerCase() === 'date' && cutoff ? cutoff.slice(0, 10) : cutoff);
+  }
+
   async function save(retention: DatasetRetention | null) {
     try {
       await mutation.mutateAsync({ datasetId: dataset.id, retention });
@@ -172,7 +179,7 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
               {confirm && t('retention.confirmDescription', {
                 count: confirm.rows,
                 formattedCount: confirm.rows.toLocaleString(i18n.language),
-                cutoff: formatDate(confirm.cutoff),
+                cutoff: formatCutoff(confirm),
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>

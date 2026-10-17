@@ -654,7 +654,7 @@ class TestSetting:
         stored = await test_db_session.get(Dataset, dataset.id)
         assert (stored.retention_column, stored.retention_days) == (None, None)
 
-    async def test_a_date_column_dry_run_returns_the_bare_cutoff_date(
+    async def test_a_date_column_dry_run_returns_utc_midnight_of_the_cutoff_date(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session
     ):
         admin_id = await get_user_id(test_db_session, "admin")
@@ -668,7 +668,10 @@ class TestSetting:
         after = (datetime.now(timezone.utc) - timedelta(days=30)).date()
 
         assert preview.status_code == 200, preview.text
-        assert preview.json()["cutoff"] in {before.isoformat(), after.isoformat()}
+        assert preview.json()["cutoff"] in {
+            f"{before.isoformat()}T00:00:00Z",
+            f"{after.isoformat()}T00:00:00Z",
+        }
 
     async def test_the_owner_saves_and_clears_retention(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session

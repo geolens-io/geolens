@@ -123,7 +123,7 @@ describe('RetentionCard', () => {
       vi.mocked(setDatasetRetention).mockResolvedValue({
         retention: { column: 'seen_on', days: 30 },
         rows_past_cutoff: 6,
-        cutoff: '2026-09-17',
+        cutoff: '2026-09-17T00:00:00Z',
       });
       render(
         <RetentionCard

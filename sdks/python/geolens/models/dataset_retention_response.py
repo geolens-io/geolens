@@ -26,13 +26,13 @@ class DatasetRetentionResponse:
         retention (DatasetRetention | None):
         rows_past_cutoff (int): Rows currently older than the cutoff, which the next retention run deletes. 0 when
             retention is off.
-        cutoff (datetime.date | datetime.datetime | None | Unset): Rows older than this are past retention: a date for a
-            date column, else a UTC instant. Null when off.
+        cutoff (datetime.datetime | None | Unset): Rows older than this UTC instant are past retention; for a date
+            column it is UTC midnight of the cutoff date. Null when off.
     """
 
     retention: DatasetRetention | None
     rows_past_cutoff: int
-    cutoff: datetime.date | datetime.datetime | None | Unset = UNSET
+    cutoff: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -50,8 +50,6 @@ class DatasetRetentionResponse:
         if isinstance(self.cutoff, Unset):
             cutoff = UNSET
         elif isinstance(self.cutoff, datetime.datetime):
-            cutoff = self.cutoff.isoformat()
-        elif isinstance(self.cutoff, datetime.date):
             cutoff = self.cutoff.isoformat()
         else:
             cutoff = self.cutoff
@@ -92,9 +90,7 @@ class DatasetRetentionResponse:
 
         rows_past_cutoff = d.pop("rows_past_cutoff")
 
-        def _parse_cutoff(
-            data: object,
-        ) -> datetime.date | datetime.datetime | None | Unset:
+        def _parse_cutoff(data: object) -> datetime.datetime | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -107,15 +103,7 @@ class DatasetRetentionResponse:
                 return cutoff_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            try:
-                if not isinstance(data, str):
-                    raise TypeError()
-                cutoff_type_1 = isoparse(data).date()
-
-                return cutoff_type_1
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(datetime.date | datetime.datetime | None | Unset, data)
+            return cast(datetime.datetime | None | Unset, data)
 
         cutoff = _parse_cutoff(d.pop("cutoff", UNSET))
 
