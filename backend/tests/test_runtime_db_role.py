@@ -100,7 +100,7 @@ def test_restore_scripts_cite_existing_runbook_headings() -> None:
         cited += re.findall(r'§\s*\\?"([^"\\]+)\\?"', source)
 
     assert cited
-    missing = [name for name in cited if not any(name in h for h in headings)]
+    missing = [name for name in cited if name not in headings]
     assert not missing, f"scripts cite RUNBOOK sections that do not exist: {missing}"
 
 

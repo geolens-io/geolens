@@ -622,11 +622,14 @@ If `TILE_DATABASE_URL_OVERRIDE` names a separate tile login, admit it to the
 database first. `restore.sh` restarts `api` and `worker` when it exits, the
 reconciler revokes `PUBLIC CONNECT` in every path, and the database on a new
 cluster holds no named grant for that login. The revoke keeps explicit
-per-login grants, so this one survives the restore. With `$POSTGRES_USER` and
-`$POSTGRES_DB` set as in step 1:
+per-login grants, so this one survives the restore. The login itself comes back
+with the globals replay in step 1; without one, create it first as a plain
+`LOGIN` role with the password in `TILE_DATABASE_URL_OVERRIDE`. `ON_ERROR_STOP`
+makes a missing login fail here, before `restore.sh` starts the API. With
+`$POSTGRES_USER` and `$POSTGRES_DB` set as in step 1:
 
 ```bash
-docker compose exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -v db="$POSTGRES_DB" <<'SQL'
 GRANT CONNECT ON DATABASE :"db" TO "<tile-login>";
 SQL
