@@ -106,7 +106,7 @@ flowchart LR
 </p>
 
 Each dataset records the file, table, service or STAC item it came from and when it was last
-refreshed. Give it an update cadence and GeoLens marks it fresh, due or overdue. For services and
+refreshed. Give an imported dataset an update cadence and GeoLens marks it fresh, due or overdue. For services and
 STAC sources, GeoLens also checks that the source still answers and flags upstream schema changes
 before they reach your maps. If a service disappears, the imported copy keeps working.
 
@@ -255,9 +255,9 @@ and 62 terrain tiles; `--no-oceans` and `--no-terrain` skip those, and
 changed it.
 
 ```sh
-pip install httpx                                     # the seed script needs Python 3.10+
+python3 -m venv .venv && .venv/bin/pip install httpx  # the seed script needs Python 3.10+
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  python scripts/seed-showcase.py --username admin
+  .venv/bin/python scripts/seed-showcase.py --username admin
 ```
 
 The [API reference](https://docs.getgeolens.com/guides/api/) and the
