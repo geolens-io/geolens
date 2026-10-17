@@ -111,8 +111,8 @@ Cada conjunto de datos registra su origen: un archivo subido, una tabla de base 
 servicio, un ítem STAC o un dibujo hecho en el navegador. Los conjuntos de datos importados
 registran además cuándo se actualizaron por última vez, y con una frecuencia de actualización
 GeoLens los marca como actualizados, pendientes o atrasados. En los servicios y las fuentes STAC, GeoLens también
-comprueba que la fuente siga respondiendo y avisa de los cambios de esquema en origen antes de que
-lleguen a tus mapas. Si un servicio desaparece, la copia importada sigue funcionando.
+comprueba que la fuente siga respondiendo y, en los servicios, avisa de los cambios de esquema en
+origen antes de que lleguen a tus mapas. Si un servicio desaparece, la copia importada sigue funcionando.
 
 ## Crea y comparte mapas
 
