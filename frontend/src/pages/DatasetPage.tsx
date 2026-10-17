@@ -723,6 +723,7 @@ export function DatasetPage() {
           dataset={dataset}
           canEdit={canEdit}
           canEditData={canEditData}
+          canManageKeys={canMutate}
           capabilities={capabilities}
           activeTab={activeTab}
           onTabChange={handleTabChange}

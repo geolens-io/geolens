@@ -55,7 +55,7 @@ describe('DatasetWriteKeys', () => {
         expires_at: new Date(Date.now() - DAY_MS).toISOString(),
       }),
     ]);
-    render(<DatasetWriteKeys datasetId="ds-1" />);
+    render(<DatasetWriteKeys datasetId="ds-1" canCreate />);
 
     expect(await screen.findByText('Survey webhook')).toBeInTheDocument();
     expect(mockList).toHaveBeenCalledWith('ds-1');
@@ -71,7 +71,7 @@ describe('DatasetWriteKeys', () => {
     try {
       vi.setSystemTime(new Date('2026-01-10T12:00:00Z'));
       mockList.mockResolvedValue([makeKey({ expires_at: '2026-01-10T12:01:00Z' })]);
-      render(<DatasetWriteKeys datasetId="ds-1" />);
+      render(<DatasetWriteKeys datasetId="ds-1" canCreate />);
       const row = (await screen.findByText('Survey webhook')).closest('li') as HTMLElement;
       expect(within(row).queryByText('Expired')).not.toBeInTheDocument();
 
@@ -87,16 +87,30 @@ describe('DatasetWriteKeys', () => {
 
   it('wraps the fingerprint and badges below a key name at phone width', async () => {
     mockList.mockResolvedValue([makeKey()]);
-    render(<DatasetWriteKeys datasetId="ds-1" />);
+    render(<DatasetWriteKeys datasetId="ds-1" canCreate />);
 
     const name = await screen.findByText('Survey webhook');
     expect(name).toHaveClass('min-w-0', 'max-w-full', 'truncate');
     expect(name.parentElement).toHaveClass('flex-wrap');
   });
 
+  it('lists and revokes without offering creation when the caller cannot mint', async () => {
+    mockList.mockResolvedValue([
+      makeKey({ id: 'key-admin', name: 'Admin import', user_id: 'admin-id', username: 'admin' }),
+    ]);
+    render(<DatasetWriteKeys datasetId="ds-1" canCreate={false} />);
+
+    const row = (await screen.findByText('Admin import')).closest('li') as HTMLElement;
+    expect(within(row).getByRole('button', { name: 'Revoke Admin import' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create write key' })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Creating one needs editing rights on a dataset with a geometry column/),
+    ).toBeInTheDocument();
+  });
+
   it('says so when the dataset has no keys', async () => {
     mockList.mockResolvedValue([]);
-    render(<DatasetWriteKeys datasetId="ds-1" />);
+    render(<DatasetWriteKeys datasetId="ds-1" canCreate />);
     expect(await screen.findByText('No write keys for this dataset.')).toBeInTheDocument();
   });
 
@@ -108,7 +122,7 @@ describe('DatasetWriteKeys', () => {
       fingerprint: 'raw-secr…alue',
     };
     mockCreate.mockResolvedValue(created);
-    render(<DatasetWriteKeys datasetId="ds-1" />);
+    render(<DatasetWriteKeys datasetId="ds-1" canCreate />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Create write key' }));
     fireEvent.change(screen.getByLabelText('Key name'), { target: { value: '  Survey webhook ' } });
@@ -129,7 +143,7 @@ describe('DatasetWriteKeys', () => {
   it('revokes a key after confirmation', async () => {
     mockList.mockResolvedValue([makeKey()]);
     mockRevoke.mockResolvedValue(undefined);
-    render(<DatasetWriteKeys datasetId="ds-1" />);
+    render(<DatasetWriteKeys datasetId="ds-1" canCreate />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke Survey webhook' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
@@ -141,7 +155,7 @@ describe('DatasetWriteKeys', () => {
       makeKey(),
       makeKey({ id: 'key-2', name: 'Admin import', user_id: 'admin-id', username: 'admin' }),
     ]);
-    render(<DatasetWriteKeys datasetId="ds-1" />);
+    render(<DatasetWriteKeys datasetId="ds-1" canCreate />);
 
     const theirs = (await screen.findByText('Admin import')).closest('li') as HTMLElement;
     expect(within(theirs).getByText(/Created by admin/)).toBeInTheDocument();

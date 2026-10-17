@@ -34,8 +34,10 @@ vi.mock('@/components/dataset/hooks/use-dataset', () => ({
 }));
 
 vi.mock('@/components/dataset/DatasetWriteKeys', () => ({
-  DatasetWriteKeys: ({ datasetId }: { datasetId: string }) => (
-    <div data-testid="dataset-write-keys">{datasetId}</div>
+  DatasetWriteKeys: ({ datasetId, canCreate }: { datasetId: string; canCreate: boolean }) => (
+    <div data-testid="dataset-write-keys" data-can-create={String(canCreate)}>
+      {datasetId}
+    </div>
   ),
 }));
 
@@ -274,19 +276,32 @@ describe('AccessTab', () => {
   });
 
   describe('write keys', () => {
-    it('lets an editor of a feature dataset manage its write keys', () => {
+    it('lets an editor of a feature dataset manage and create its write keys', () => {
       render(<AccessTab dataset={makeDataset({ geometry_type: 'POINT' })} canEdit />);
-      expect(screen.getByTestId('dataset-write-keys')).toHaveTextContent('ds-1');
+      const card = screen.getByTestId('dataset-write-keys');
+      expect(card).toHaveTextContent('ds-1');
+      expect(card).toHaveAttribute('data-can-create', 'true');
     });
 
-    it('is hidden from a reader', () => {
+    it('is hidden from someone the key list refuses, such as a non-owner viewer', () => {
       render(<AccessTab dataset={makeDataset({ geometry_type: 'POINT' })} />);
       expect(screen.queryByTestId('dataset-write-keys')).not.toBeInTheDocument();
     });
 
-    it('is hidden for a dataset without a geometry column', () => {
+    it('lets an owner without the edit permission list and revoke, but not create', () => {
+      render(
+        <AccessTab
+          dataset={makeDataset({ geometry_type: 'POINT' })}
+          canEdit={false}
+          canManageKeys
+        />,
+      );
+      expect(screen.getByTestId('dataset-write-keys')).toHaveAttribute('data-can-create', 'false');
+    });
+
+    it('keeps the keys of a dataset without a geometry column, but offers no new one', () => {
       render(<AccessTab dataset={makeDataset({ geometry_type: null })} canEdit />);
-      expect(screen.queryByTestId('dataset-write-keys')).not.toBeInTheDocument();
+      expect(screen.getByTestId('dataset-write-keys')).toHaveAttribute('data-can-create', 'false');
     });
 
     it('is hidden for a dataset without features', () => {

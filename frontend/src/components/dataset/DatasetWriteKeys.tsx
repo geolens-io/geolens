@@ -48,8 +48,14 @@ function expiryFromNow(days: ExpiryDays): string {
   return new Date(Date.now() + Number(days) * DAY_MS - CLOCK_SKEW_MS).toISOString();
 }
 
-/** Mint, list and revoke this dataset's write keys. Shown only to its editors. */
-export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
+/** List and revoke this dataset's write keys, and mint one when `canCreate`. */
+export function DatasetWriteKeys({
+  datasetId,
+  canCreate,
+}: {
+  datasetId: string;
+  canCreate: boolean;
+}) {
   const { t } = useTranslation('dataset');
   const expiryLabelId = useId();
   const currentUserId = useAuthStore((s) => s.user?.id);
@@ -103,13 +109,17 @@ export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">{t('writeKeys.description')}</p>
 
-        {!showForm && (
+        {!canCreate && (
+          <p className="text-sm text-muted-foreground">{t('writeKeys.createUnavailable')}</p>
+        )}
+
+        {canCreate && !showForm && (
           <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
             {t('writeKeys.createKey')}
           </Button>
         )}
 
-        {showForm && (
+        {canCreate && showForm && (
           <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2">
             <FieldLabel htmlFor="dataset-write-key-name">{t('admin:apiKeys.keyName')}</FieldLabel>
             <Input

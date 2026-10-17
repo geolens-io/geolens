@@ -1239,6 +1239,7 @@
     "title": "Write keys",
     "description": "A write key can read and write this dataset's features and nothing else, for a webhook or script that edits it. It works even when dataset editing is switched off for the site. Send it in the X-Api-Key header. It acts as the person who created it, so it stops writing if they lose edit rights here.",
     "createKey": "Create write key",
+    "createUnavailable": "You can review and revoke these keys. Creating one needs editing rights on a dataset with a geometry column.",
     "expiresIn": "Expires in",
     "expiry30": "30 days",
     "expiry90": "90 days",

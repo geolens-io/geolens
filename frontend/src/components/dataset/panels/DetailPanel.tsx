@@ -21,6 +21,8 @@ interface DetailPanelProps {
   canEdit: boolean;
   /** Gates geometry/attribute cell editing (feature-flagged separately from metadata editing). */
   canEditData?: boolean;
+  /** Owner or admin: may list and revoke the dataset's write keys. Defaults to `canEdit`. */
+  canManageKeys?: boolean;
   capabilities: DatasetEditCapabilities;
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -47,6 +49,7 @@ export function DetailPanel(props: DetailPanelProps) {
     dataset,
     canEdit,
     canEditData = canEdit,
+    canManageKeys = canEdit,
     capabilities,
     activeTab,
     onTabChange,
@@ -195,7 +198,7 @@ export function DetailPanel(props: DetailPanelProps) {
       </TabsContent>
 
       <TabsContent value="access" className="space-y-6">
-        <AccessTab dataset={dataset} canEdit={canEdit} />
+        <AccessTab dataset={dataset} canEdit={canEdit} canManageKeys={canManageKeys} />
       </TabsContent>
     </Tabs>
   );

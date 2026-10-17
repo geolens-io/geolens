@@ -1239,6 +1239,7 @@
     "title": "Claves de escritura",
     "description": "Una clave de escritura puede leer y escribir las entidades de este conjunto de datos y nada más, para un webhook o un script que lo edite. Funciona aunque la edición de conjuntos de datos esté desactivada en el sitio. Envíela en la cabecera X-Api-Key. Actúa en nombre de quien la creó, así que deja de escribir si esa persona pierde los permisos de edición aquí.",
     "createKey": "Crear clave de escritura",
+    "createUnavailable": "Puede revisar y revocar estas claves. Para crear una se necesitan permisos de edición en un conjunto de datos con columna de geometría.",
     "expiresIn": "Caduca en",
     "expiry30": "30 días",
     "expiry90": "90 días",

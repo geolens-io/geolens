@@ -1239,6 +1239,7 @@
     "title": "Clés d'écriture",
     "description": "Une clé d'écriture peut lire et écrire les entités de ce jeu de données, et rien d'autre, pour un webhook ou un script qui le modifie. Elle fonctionne même lorsque la modification des jeux de données est désactivée sur le site. Envoyez-la dans l'en-tête X-Api-Key. Elle agit au nom de la personne qui l'a créée : elle ne peut plus écrire si cette personne perd ses droits de modification ici.",
     "createKey": "Créer une clé d'écriture",
+    "createUnavailable": "Vous pouvez consulter et révoquer ces clés. Pour en créer une, il faut des droits de modification sur un jeu de données doté d'une colonne de géométrie.",
     "expiresIn": "Expire dans",
     "expiry30": "30 jours",
     "expiry90": "90 jours",

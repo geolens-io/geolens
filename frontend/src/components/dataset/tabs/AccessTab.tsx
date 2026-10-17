@@ -57,6 +57,9 @@ interface AccessTabProps {
   /** Owner-or-admin editor: mirrors the backend `check_dataset_write_access`.
    * Everyone else keeps the read-only visibility badge. */
   canEdit?: boolean;
+  /** Owner or admin, whatever their role permits: who the dataset's key list
+   * and revoke endpoints serve. Defaults to `canEdit`. */
+  canManageKeys?: boolean;
 }
 
 /** fix(#927): the visibility values this control can move a dataset TO, in
@@ -258,7 +261,7 @@ function ApiSnippet({
   );
 }
 
-export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
+export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }: AccessTabProps) {
   const { t } = useTranslation('dataset');
   const { endpoints, publicApiBaseUrl } = useDatasetAccessEndpoints(dataset);
   const updateDataset = useUpdateDataset();
@@ -420,10 +423,14 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
         />
       )}
 
-      {/* The feature writes refuse a dataset with no geometry column, so a key
-          minted for one could never write. */}
-      {canEdit && featureTable && dataset.geometry_type !== null && (
-        <DatasetWriteKeys datasetId={dataset.id} />
+      {/* Anyone who may list and revoke the keys sees them; creating one also
+          needs editing rights and a geometry column, which every feature write
+          requires. */}
+      {canManageKeys && featureTable && (
+        <DatasetWriteKeys
+          datasetId={dataset.id}
+          canCreate={canEdit && dataset.geometry_type !== null}
+        />
       )}
 
       {/* Visibility */}
