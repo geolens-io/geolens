@@ -667,9 +667,9 @@ export function refreshVectorSourceTiles(map: MaplibreMap, sourceId: string, til
   // payload until an unrelated re-tile. Re-issue the reload through the
   // public refreshTiles API — that path DOES set the resume flag, so the
   // refetch can no longer be lost. The refresh must wait until the source's
-  // async load has copied the new URL into `source.tiles` (
-  // refreshing before adoption reloads the OLD url while the signature store
-  // has already advanced, re-stranding the tiles), so poll for adoption with
+  // async load() has copied the new URL into `source.tiles` (refreshing
+  // before adoption reloads the OLD url while the signature store has
+  // already advanced, re-stranding the tiles), so poll for adoption with
   // a bounded retry that bails when the url is superseded by a newer edit or
   // the source is torn down.
   const awaitAdoptionThenRefresh = (attempt: number) => {

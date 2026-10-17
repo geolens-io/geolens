@@ -13,7 +13,7 @@ Object.defineProperty(window, 'location', {
 
 function createMockMap() {
   const sources = new Map<string, { type: string; tiles?: string[] }>();
-  // Record the whole spec, not just the id. getStyle on a real
+  // Record the whole spec, not just the id. getStyle() on a real
   // map reports each layer's `source`, and the orphan prune reads it to tell a
   // managed data layer apart from a basemap layer that happens to be named
   // `layer-*`.

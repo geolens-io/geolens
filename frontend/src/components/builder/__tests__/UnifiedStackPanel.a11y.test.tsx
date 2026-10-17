@@ -446,8 +446,8 @@ describe('Phase 1044-02 — Stack panel ARIA contract (POL-23)', () => {
     expect(basemapRow).not.toHaveAttribute('aria-current');
     expect(basemapRow).not.toHaveAttribute('data-selected');
 
-    // Overlay rows in selectedIds carry aria-current="true" (
-    // replacement for aria-selected after dropping role="option").
+    // Overlay rows in selectedIds carry aria-current="true" in place of
+    // aria-selected, since the rows no longer have role="option".
     const rowA = document.getElementById('stack-row-a');
     expect(rowA).toHaveAttribute('aria-current', 'true');
     expect(rowA).toHaveAttribute('data-selected', 'true');

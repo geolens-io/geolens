@@ -102,7 +102,7 @@ describe('demViewportCoverage across the antimeridian', () => {
     expect(demViewportCoverage([1.5, -18, 2.5, -16], SEAM_VIEW)).toBe(0);
   });
 
-  // `renderWorldCopies` is on by default, so getBounds
+  // `renderWorldCopies` is on by default, so getBounds()
   // keeps running further out the more the user pans east or west. There is no
   // bound on how far, which is why the scoring cannot enumerate a fixed set of
   // turns. FAR_VIEW is SEAM_VIEW moved two whole turns east (+720) and must

@@ -431,7 +431,7 @@ function waitForVisibleLayerSources(
 }
 
 /** Run a thumbnail capture immediately for the given args.
- *  doCapture uses map.triggerRepaint + map.once('render')
+ *  doCapture uses map.triggerRepaint() + map.once('render')
  *  to read pixels from a freshly-painted canvas (no permanent preserveDrawingBuffer).
  *  Auto-capture can run before BuilderMap has synced GeoLens sources, so we wait
  *  for visible layer sources first via waitForVisibleLayerSources before calling

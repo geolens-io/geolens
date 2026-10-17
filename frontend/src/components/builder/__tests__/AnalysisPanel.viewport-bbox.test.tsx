@@ -1,7 +1,7 @@
 import { viewportPreviewBbox } from '../AnalysisPanel';
 
 /**
- * `map.getBounds` is MONOTONIC and UNWRAPPED —
+ * `map.getBounds()` is MONOTONIC and UNWRAPPED —
  * MapLibre takes min/max over the four raw corner longitudes, so an
  * antimeridian-straddling viewport or a pan through extra world copies
  * (`renderWorldCopies` is on by default) returns values like `[179.5, 182]`

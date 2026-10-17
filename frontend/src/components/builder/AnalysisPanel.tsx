@@ -137,7 +137,7 @@ const UNIT_KEY: Record<BufferUnit, string> = {
  * A viewport-scoping bbox for the preview request, or `undefined` when the
  * viewport cannot be sent as one non-crossing envelope.
  *
- * `map.getBounds` is MONOTONIC and UNWRAPPED — MapLibre
+ * `map.getBounds()` is MONOTONIC and UNWRAPPED — MapLibre
  * takes min/max over the four raw corner longitudes, so an antimeridian-
  * straddling viewport or a pan through extra world copies (`renderWorldCopies`
  * is on by default) returns values like `[179.5, …, 182, …]` or even
@@ -1210,17 +1210,15 @@ export function AnalysisPanel({
       const matchedTotal = filtersRows ? (result.match_count ?? null) : null;
       const total = matchedTotal ?? result.source_feature_count ?? null;
       const resultBbox = result.bbox as [number, number, number, number];
-      // Whether `total` is viewport-scoped depends
-      // on WHICH field it came from. source_feature_count is scoped whenever
-      // the request carried a bbox (the service overrides the cached
-      // whole-table snapshot with a live bbox-scoped count). match_count is
-      // per-operation: intersect's rides the SAME statement the geometry
-      // preview runs, so it inherits that statement's bbox filter too (fix(
-      // #727) threaded bbox into render_intersect_preview) —
-      // but select_by_location's match_count is a SEPARATE uncapped query
-      // the request's bbox never reaches (see AnalysisPreviewResponse.
-      // match_count's docs), so it stays unscoped even though its preview
-      // rows are viewport-limited too.
+      // Whether `total` is viewport-scoped depends on WHICH field it came
+      // from. source_feature_count is scoped whenever the request carried a
+      // bbox (the service overrides the cached whole-table snapshot with a
+      // live bbox-scoped count). match_count is per-operation: intersect's
+      // rides the SAME statement the geometry preview runs, so it inherits
+      // that statement's bbox filter too, but select_by_location's
+      // match_count is a SEPARATE uncapped query the request's bbox never
+      // reaches (see AnalysisPreviewResponse.match_count's docs), so it stays
+      // unscoped even though its preview rows are viewport-limited too.
       const matchedTotalIsScoped = operation === 'intersect' && requestBbox != null;
       const viewportScoped =
         matchedTotal != null

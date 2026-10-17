@@ -138,7 +138,7 @@ function setup({
   publishMapFn?: (...args: any[]) => any;
   /** The deployment's configured PUBLIC_APP_URL. null = unconfigured. */
   publicAppUrl?: string | null;
-  /** useCanSetPublicVisibility — false when the instance
+  /** useCanSetPublicVisibility() — false when the instance
    *  restricts public visibility to admins and the user is not one. */
   canSetPublic?: boolean;
   /** Return an active embed token even when the share link is created at
