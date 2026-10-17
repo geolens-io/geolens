@@ -107,9 +107,10 @@ flowchart LR
   <sub>Un conjunto de datos importado del servicio de terremotos del USGS.</sub>
 </p>
 
-Cada conjunto de datos registra el archivo, la tabla, el servicio o el ítem STAC del que procede y
-cuándo se actualizó por última vez. Si le indicas una frecuencia de actualización a un conjunto de datos importado, GeoLens lo
-marca como actualizado, pendiente o atrasado. En los servicios y las fuentes STAC, GeoLens también
+Cada conjunto de datos registra su origen: un archivo subido, una tabla de base de datos, un
+servicio, un ítem STAC o un dibujo hecho en el navegador. Los conjuntos de datos importados
+registran además cuándo se actualizaron por última vez, y con una frecuencia de actualización
+GeoLens los marca como actualizados, pendientes o atrasados. En los servicios y las fuentes STAC, GeoLens también
 comprueba que la fuente siga respondiendo y avisa de los cambios de esquema en origen antes de que
 lleguen a tus mapas. Si un servicio desaparece, la copia importada sigue funcionando.
 
