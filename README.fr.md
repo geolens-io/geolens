@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="frontend/public/app-icon-dark.png" alt="Logo de GeoLens : une loupe devant un globe, avec des repères de réticule" width="96">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-emblem-dark.svg">
+    <img src=".github/assets/geolens-emblem.svg" alt="Logo de GeoLens : une loupe devant un globe, avec des repères de réticule" width="96">
+  </picture>
 </p>
 
 <h1 align="center">GeoLens</h1>
@@ -64,7 +67,7 @@ démonstration peuvent être effacées à tout moment.
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
 <img src=".github/assets/geolens-dataset-page.png" alt="La page du jeu de données Atlantic Hurricane Tracks : trajectoires de tempêtes sur un aperçu cartographique, badges vectoriel, chargé, source à jour, publié et public, et le nombre d’entités, la géométrie, le SRC, la version et le nombre de colonnes" width="100%">
 </picture>
-<br><sub>Chaque jeu de données a une page avec un aperçu cartographique, ses métadonnées, ses attributs et son origine.</sub>
+<br><sub>Chaque jeu de données a une page avec ses métadonnées et sa source, plus un aperçu cartographique lorsqu’il a une emprise.</sub>
 </td>
 </tr>
 <tr>
@@ -80,7 +83,7 @@ démonstration peuvent être effacées à tout moment.
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
 <img src=".github/assets/geolens-version-history.png" alt="Historique des versions du jeu de données Significant Volcanic Eruptions : trois versions GeoJSON avec dates, noms de fichiers et nombres d’entités, la version actuelle repérée et un bouton Restaurer sur la version précédente" width="100%">
 </picture>
-<br><sub>Remplacer un jeu de données conserve les anciennes versions, et vous pouvez restaurer la précédente.</sub>
+<br><sub>Chaque remplacement est consigné dans l’historique, et vous pouvez restaurer la version précédente.</sub>
 </td>
 </tr>
 <tr>
