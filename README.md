@@ -91,8 +91,8 @@ flowchart LR
   them.
 - Draw new datasets in the browser.
 - Find data with fuzzy search, or by meaning once an embedding provider is configured. Filter by
-  type, place and time, group datasets into collections, edit metadata and restore earlier
-  versions.
+  type, place and time, group datasets into collections, edit metadata and restore a dataset's
+  previous version after a replacement.
 
 ## Know where every dataset came from
 
