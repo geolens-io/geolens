@@ -33,6 +33,10 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- `Idempotency-Key` on a feature create accepts any visible ASCII character
+  (`!` to `~`), up to 128 characters, instead of only letters, digits and
+  `._:-`. Timestamps with `+00:00`, base64 values and the quoted form of the
+  IETF draft no longer get a 422. The key is still compared exactly as sent.
 - The dataset page header shows catalog status and visibility in one badge,
   such as "Catalog: Published · Private", so a published dataset that only
   some people can see no longer reads as public.

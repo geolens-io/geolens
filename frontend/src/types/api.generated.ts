@@ -26148,7 +26148,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional key that makes a retried create safe. Letters, digits and `._:-`, up to 128 characters. */
+                /** @description Optional key that makes a retried create safe. Any visible ASCII character (`!` to `~`, no spaces), 1 to 128 characters. The key is compared exactly as sent, so a quoted key and the same key unquoted are different keys. For example `device-42:2026-10-17T16:09:33.123000+00:00`. */
                 "Idempotency-Key"?: string;
                 /** @description Attempt number sent with `Idempotency-Key`, counting up by one each time the body is sent again. Counts as 1 when omitted. */
                 "Idempotency-Attempt"?: number;

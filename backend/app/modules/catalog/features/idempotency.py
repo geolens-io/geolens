@@ -24,7 +24,8 @@ from app.platform.extensions import get_catalog_port
 
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 IDEMPOTENCY_KEY_MAX_LENGTH = 128
-IDEMPOTENCY_KEY_PATTERN = r"^[A-Za-z0-9._:-]+$"
+# The key is opaque: hashed into a lock name and compared as a bound value.
+IDEMPOTENCY_KEY_PATTERN = r"^[!-~]+$"
 IDEMPOTENCY_ATTEMPT_HEADER = "Idempotency-Attempt"
 IDEMPOTENCY_ATTEMPT_MAX = 2_147_483_647
 

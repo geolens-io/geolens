@@ -911,8 +911,8 @@ async def test_without_the_header_every_request_inserts(
     [
         "x" * (IDEMPOTENCY_KEY_MAX_LENGTH + 1),
         "has space",
-        "semi;colon",
-        "quote'",
+        "tab\there",
+        "caf\u00e9".encode(),
         "",
     ],
 )
@@ -924,6 +924,38 @@ async def test_an_invalid_key_is_refused_before_anything_is_written(
     assert refused.status_code == 422, refused.text
     assert await _row_count(test_db_session, admin_dataset) == 0
     assert await _key_rows(test_db_session, admin_dataset) == 0
+
+
+@pytest.mark.parametrize(
+    "sketch",
+    [
+        "device-42:2026-10-17T16:09:33.123000+00:00",
+        "dGVzdC9rZXkrd2l0aD0=/+==",
+        '"8e03978e-40d5-43e8-bc93-6894a57f9324"',
+        "semi;colon'quote",
+    ],
+)
+async def test_a_visible_ascii_key_creates_once_and_a_retry_returns_it(
+    client: AsyncClient, admin_auth_header, admin_dataset, test_db_session, sketch
+):
+    first = await _create(client, admin_dataset, admin_auth_header, sketch, attempt=1)
+    retry = await _create(client, admin_dataset, admin_auth_header, sketch, attempt=1)
+
+    assert first.status_code == retry.status_code == 201, (first.text, retry.text)
+    assert retry.json()["id"] == first.json()["id"]
+    assert await _row_count(test_db_session, admin_dataset) == 1
+    assert await _key_rows(test_db_session, admin_dataset) == 1
+
+
+async def test_a_quoted_key_and_the_same_key_unquoted_are_different_keys(
+    client: AsyncClient, admin_auth_header, admin_dataset, test_db_session
+):
+    bare = "8e03978e-40d5-43e8-bc93-6894a57f9324"
+    first = await _create(client, admin_dataset, admin_auth_header, bare)
+    second = await _create(client, admin_dataset, admin_auth_header, f'"{bare}"')
+
+    assert first.json()["id"] != second.json()["id"]
+    assert await _row_count(test_db_session, admin_dataset) == 2
 
 
 async def test_the_longest_key_is_accepted(
