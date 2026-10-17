@@ -39121,7 +39121,7 @@
     },
     "/datasets/{dataset_id}/features/dry-run/": {
       "post": {
-        "description": "Check a feature create without writing it.\n\nTakes the body `POST /datasets/{dataset_id}/features/` takes and runs\nevery check that create runs, the database's own casts and constraints\nincluded, so a body it would refuse is refused here with the same status\nand body. A deferred constraint is checked here too: a create that breaks\none fails at commit with a 500, and this answers 400. Nothing is written.\nA body that passes gets 200 with the feature as it would be stored, or a\nFeatureCollection of them in request order, with no `id`, `table_id` or\n`tile_cache_version`.\n\nA dry run is only available for a dataset stored in an ordinary table\nwith no enabled user trigger or rule on INSERT, no CHECK constraint or\noutgoing foreign key, row security off, the heap access method and\nbuilt-in or extension index access methods, no domain or composite\ncolumns, and no index operator class with a volatile function, since\nthose could run code with effects outside the transaction. Any other dataset is refused with 409. The insert still\nruns column defaults, type input functions and index support functions,\nvolatile defaults included, so a dry run can consume sequence values and\nstored ids can have gaps.",
+        "description": "Check a feature create without writing it.\n\nTakes the body `POST /datasets/{dataset_id}/features/` takes and runs\nevery check that create runs, the database's own casts and constraints\nincluded, so a body it would refuse is refused here with the same status\nand body. A deferred constraint is checked here too: a create that breaks\none fails at commit with a 500, and this answers 400. Nothing is written.\nA body that passes gets 200 with the feature as it would be stored, or a\nFeatureCollection of them in request order, with no `id`, `table_id` or\n`tile_cache_version`.\n\nA dry run is only available for a dataset stored in an ordinary table\nthat is not a partition, with no enabled user trigger or rule on INSERT,\nno CHECK constraint or outgoing foreign key, row security off, no\nexpression or partial index, the heap access method and built-in or\nextension index access methods, no domain or composite columns, and no\nindex operator class with a volatile function, since those could run\ncode with effects outside the transaction. Any other dataset is refused with 409. The insert still\nruns column defaults, type input functions and index support functions,\nvolatile defaults included, so a dry run can consume sequence values and\nstored ids can have gaps.",
         "operationId": "dry_run_create_feature_datasets__dataset_id__features_dry_run__post",
         "parameters": [
           {
@@ -39447,6 +39447,16 @@
               }
             },
             "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Payload too large"
           },
           "422": {
             "content": {

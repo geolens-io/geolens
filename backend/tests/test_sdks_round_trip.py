@@ -1388,6 +1388,36 @@ class TestPythonRoundTrip:
         assert resp.status_code == 404, resp.content
 
     @pytest.mark.anyio
+    async def test_an_oversized_dry_run_parses_as_a_413_problem(
+        self, client, admin_auth_header
+    ) -> None:
+        """The body limit's 413 is a declared answer, even for a strict client."""
+        from app.api.main import app
+        from app.api.middleware.body_limit import FEATURE_WRITE_BODY_LIMIT_BYTES
+        from geolens.api.features import (
+            dry_run_create_feature_datasets_dataset_id_features_dry_run_post as dry_run,
+        )
+        from geolens.models.feature_create import FeatureCreate
+        from geolens.models.problem_detail import ProblemDetail
+
+        token = admin_auth_header["Authorization"].removeprefix("Bearer ")
+        sdk = GeolensClient(
+            base_url="http://test", bearer_token=token, raise_on_unexpected_status=True
+        )
+        _wire_asgi_transport(sdk, app)
+        body = FeatureCreate.from_dict(
+            {
+                "geometry": {"type": "Point", "coordinates": [0, 0]},
+                "properties": {"name": "x" * FEATURE_WRITE_BODY_LIMIT_BYTES},
+            }
+        )
+
+        parsed = await dry_run.asyncio(dataset_id=uuid4(), client=sdk.client, body=body)
+
+        assert isinstance(parsed, ProblemDetail), parsed
+        assert parsed.status == 413
+
+    @pytest.mark.anyio
     async def test_ingest_upload(
         self, client, admin_auth_header, test_db_session
     ) -> None:

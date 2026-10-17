@@ -541,9 +541,10 @@ async def test_only_an_insert_rule_that_fires_refuses_a_dry_run(
 
 _USER_CODE_REFUSAL = (
     "A dry run is only available for a table without check constraints, "
-    "foreign keys, row security, custom access methods, domain or composite "
-    "columns, or index operator classes with volatile functions, since a dry "
-    "run cannot undo their effects."
+    "foreign keys, row security, partitions, expression or partial indexes, "
+    "custom access methods, domain or composite columns, or index operator "
+    "classes with volatile functions, since a dry run cannot undo their "
+    "effects."
 )
 
 
@@ -556,6 +557,18 @@ def _user_code_ddl(kind: str, t: str) -> tuple[list[str], list[str]]:
         ], []
     if kind == "row-security":
         return [f"ALTER TABLE data.{t} ENABLE ROW LEVEL SECURITY"], []
+    if kind == "expression-index":
+        return [f"CREATE INDEX ON data.{t} (lower(name))"], []
+    if kind == "partial-index":
+        return [f"CREATE INDEX ON data.{t} (name) WHERE name IS NOT NULL"], []
+    if kind == "partition":
+        return [
+            f"CREATE TABLE data.{t}_parent (gid int, geom geometry(Point, 4326), "
+            "geom_4326 geometry(Geometry, 4326), name text, status text) "
+            "PARTITION BY LIST (status)",
+            f"ALTER TABLE data.{t}_parent ATTACH PARTITION data.{t} "
+            "FOR VALUES IN ('open')",
+        ], [f"DROP TABLE data.{t}_parent"]
     if kind == "foreign-key":
         return [
             f"CREATE TABLE data.{t}_ref (id int PRIMARY KEY)",
@@ -629,6 +642,9 @@ async def teardown_ddl(test_db_session, point_layer):
         "check",
         "foreign-key",
         "row-security",
+        "expression-index",
+        "partial-index",
+        "partition",
         "table-access-method",
         "index-access-method",
         "domain",

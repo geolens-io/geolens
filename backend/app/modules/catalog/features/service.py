@@ -794,14 +794,18 @@ _UNTRUSTED_VOLATILE = (
 # Shapes that let the insert run user code beyond column defaults, type input
 # and trusted index support functions: a CHECK or outgoing foreign key (whose
 # check runs the referenced side's operators and indexes), row security, a
-# table access method other than heap, an index access method neither built
-# in nor from an extension, a domain or composite column (directly or as an
-# array element, whose CHECKs and casts reach further), and an index operator
-# class with an untrusted volatile function.
+# partition (whose parent's partition key functions run), an expression or
+# partial index (whose functions are only declared immutable), a table access
+# method other than heap, an index access method neither built in nor from an
+# extension, a domain or composite column (directly or as an array element,
+# whose CHECKs and casts reach further), and an index operator class with an
+# untrusted volatile function.
 _USER_CODE = (
     "EXISTS (SELECT 1 FROM pg_constraint con "
     "WHERE con.contype IN ('c', 'f') AND con.conrelid = c.oid) "
-    "OR c.relrowsecurity "
+    "OR c.relrowsecurity OR c.relispartition "
+    "OR EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid "
+    "AND (i.indexprs IS NOT NULL OR i.indpred IS NOT NULL)) "
     "OR NOT EXISTS (SELECT 1 FROM pg_am am "
     "WHERE am.oid = c.relam AND am.amname = 'heap' AND am.oid < 16384) "
     "OR EXISTS (SELECT 1 FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid "
