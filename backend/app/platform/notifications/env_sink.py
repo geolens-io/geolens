@@ -6,13 +6,13 @@ time and dispatches to whichever channels are configured: SMTP
 when ``notification_webhook_url`` is set). If disabled or nothing is
 configured, ``deliver()`` returns silently.
 
-Fail-safe rules (NOTIF-04/T-1229-07): each channel runs in its own
+Fail-safe rules: each channel runs in its own
 try/except so one failure can't block another; partial success (>=1
 channel) counts as success; if ALL attempted channels fail, raises
 ``NotificationDeliveryError`` with a secret-free summary — the ``notify()``
 facade's own try/except still keeps this off any request path. Error
-strings carry only ``type(exc).__name__``, never a raw secret or body
-(T-1229-04). ``deliver_channels()`` reports each channel's outcome, so a
+strings carry only ``type(exc).__name__``, never a raw secret or body.
+``deliver_channels()`` reports each channel's outcome, so a
 caller can resend to the channels that failed alone.
 
 ``register_builtin_notification_sinks()`` appends it to the default fan-out.
@@ -34,8 +34,7 @@ class NotificationDeliveryError(Exception):
     """Raised by EnvConfiguredNotificationSink when every attempted channel failed.
 
     The message contains only channel names and exception type names —
-    never SMTP passwords, webhook secrets, or notification body text
-    (T-1229-04 mitigation).
+    never SMTP passwords, webhook secrets, or notification body text.
     """
 
 

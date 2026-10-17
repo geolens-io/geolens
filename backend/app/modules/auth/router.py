@@ -585,7 +585,7 @@ async def register(
     # Phase 1230 EVENT-01: admin signup notification, emitted AFTER
     # db.commit() and ONLY in the non-collision branch, so a notification
     # failure can't roll back the user row and the collision path stays
-    # byte-identical regardless of toggle state (SEC-012/T-1230-05).
+    # byte-identical regardless of toggle state.
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,
@@ -632,7 +632,7 @@ async def register(
         )
         await db.commit()
         # EVENT-01: notify admin AFTER commit so a notification error can't
-        # roll back the user row (T-1230-07); emit_event_safe swallows errors.
+        # roll back the user row; emit_event_safe swallows errors.
         _username = body.username
         _email = body.email or ""
         await emit_event_safe(

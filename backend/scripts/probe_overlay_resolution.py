@@ -40,7 +40,7 @@ def _install_dummy_overlay_directly() -> None:
     """Install the dummy overlay by directly calling register_extensions.
 
     Used in --with-dummy-overlay mode so the probe works without a real
-    geolens-enterprise package installed (no entry-point registration needed).
+    overlay package installed (no entry-point registration needed).
     The dummy overlay's register_extensions() is called with the live _extensions
     dict — mirrors the conftest save-restore discipline.
 

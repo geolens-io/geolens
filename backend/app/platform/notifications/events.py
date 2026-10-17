@@ -70,7 +70,7 @@ def build_event_notification(
     Recipient is ``notification_admin_email or smtp_from_address`` (either
     may be None) in ``data["to"]``. *reason* (EVENT-03 failure path) is
     appended to *body* and placed in ``data["reason"]`` — it's the job's
-    error_message surfaced to the dataset owner, not a secret (T-1230-01).
+    error_message surfaced to the dataset owner, not a secret.
     A reason the door stored as a code becomes the sentence it stands for.
     *extra* is merged into ``data`` last for structured context (job_id,
     dataset name, etc.).
@@ -134,7 +134,7 @@ async def emit_event_safe(
     ``await notify(notification)`` inside one try/except that logs the
     exception type only (never payload/secrets) and swallows it, so a
     thrown *builder* — unlike ``notify()``'s own fail-safety — can never
-    escape to the caller (T-1230-01/T-1230-02). With ``channels`` it sends
+    escape to the caller. With ``channels`` it sends
     to those channels alone. The result is true when nothing failed, a
     disabled event included.
     """

@@ -50,7 +50,6 @@ Usage::
     PYTHONPATH=. uv run python scripts/check_fe_type_drift.py --check-all
     # Also checks schemas outside the maintained allowlist (informational only)
 
-References: OCG-03, T-1206-08
 """
 
 from __future__ import annotations
@@ -417,7 +416,6 @@ def _print_report(report: DriftReport, verbose: bool = False) -> None:
             "  Fix: add the field to frontend/src/types/api.ts, "
             "OR add it to KNOWN_DRIFT in scripts/check_fe_type_drift.py with a TODO."
         )
-        print("  References: OCG-03, T-1206-08")
     elif report.resolved_known_drift:
         print(
             "  Fix: remove the resolved entries named above from KNOWN_DRIFT "

@@ -1,27 +1,26 @@
 """Pure domain-validation helpers for the allowed_email_domains allowlist.
 
 No database, session, FastAPI, or persistent_config imports. Imported by
-settings/schemas.py (validator) and four Phase 1236 enforcement paths
-(signup, password login, SSO, admin-create).
+settings/schemas.py (validator) and the four enforcement paths (signup,
+password login, SSO, admin-create).
 
 Security notes
 --------------
-T-1235-01  Bare wildcard rejection: _ALL_MATCH is the prohibited
-           single-character pattern, named so grep gates on literal tokens
-           don't false-positive.
-T-1235-02  Case-folding: domain and stored patterns are lower-cased at both
-           comparison time and write time (normalize_domains).
-T-1235-03  ReDoS avoidance: wildcard matching uses str.endswith() on a
-           dotted suffix. User-supplied strings are NEVER compiled into a
-           regex; the only compiled regex (_LABEL_RE) is fixed and applied
-           only to bounded admin input.
+- Bare wildcard rejection: _ALL_MATCH is the prohibited single-character
+  pattern, named so grep gates on literal tokens don't false-positive.
+- Case-folding: domain and stored patterns are lower-cased at both
+  comparison time and write time (normalize_domains).
+- ReDoS avoidance: wildcard matching uses str.endswith() on a dotted
+  suffix. User-supplied strings are NEVER compiled into a regex; the only
+  compiled regex (_LABEL_RE) is fixed and applied only to bounded admin
+  input.
 """
 
 from __future__ import annotations
 
 import re
 
-# Prohibited single-character all-match sentinel (T-1235-01).
+# Prohibited single-character all-match sentinel.
 _ALL_MATCH = "*"
 
 # Linear-time, fixed regex for a single DNS label: 1-63 chars of [a-z0-9-],
@@ -52,7 +51,7 @@ def is_domain_pattern_valid(pattern: str) -> bool:
 
     Rules (applied after strip+lower):
     - Empty / whitespace-only -> False
-    - Bare all-match character -> False (T-1235-01)
+    - Bare all-match character -> False
     - Any internal whitespace -> False
     - ``*.`` prefix allowed; remainder must be a valid dotted domain
     - Each label: 1-63 chars of [a-z0-9-], no leading/trailing hyphen
@@ -84,9 +83,9 @@ def is_email_allowed(email: str, domains: list[str]) -> bool:
     Empty *domains* -> allow all. Email domain is the substring after the
     LAST ``@``, lower-cased; missing/empty domain -> False when the list is
     non-empty. ``*.sub`` wildcards match subdomains only (the bare apex is
-    NOT matched — T-1235-01 edge); otherwise exact match. Returns True on
+    NOT matched); otherwise exact match. Returns True on
     the first matching pattern. No user-supplied string is compiled into a
-    regex (T-1235-03).
+    regex.
     """
     normalized_domains = normalize_domains(domains)
     if not normalized_domains:

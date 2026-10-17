@@ -294,7 +294,7 @@ async def set_tenant_role_for_tile_request(
     which fires on NEW physical connections and can't see per-request tenant
     state. Called once per tile request, inside a single
     ``async with conn.transaction()`` block, so both role and search_path
-    survive that transaction under PgBouncer transaction-mode (T-1209-10).
+    survive that transaction under PgBouncer transaction-mode.
 
     single_tenant or tenant_id is None: no-op — ``SET ROLE`` was already
     handled by ``_setup_tile_connection`` at pool setup time.
@@ -306,7 +306,7 @@ async def set_tenant_role_for_tile_request(
     so tile SQL uses the per-tenant schema and the per-tenant reader role.
     The explicit schema qualification in the query
     (``tenant_data_schema(tid).table``) is the primary isolation control;
-    search_path is defense-in-depth (T-1209-11).
+    search_path is defense-in-depth.
 
     Parameters
     ----------

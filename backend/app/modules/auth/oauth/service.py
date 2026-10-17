@@ -554,7 +554,7 @@ async def _resolve_github_identity(
 
     GitHub's /user endpoint omits email when private, and even when present it
     may be unverified. Fetches /user/emails and accepts ONLY the entry that is
-    BOTH primary AND verified (T-1237-01) — the only address that can't be used
+    BOTH primary AND verified — the only address that can't be used
     for account-takeover via an attacker-added unverified email. Raises
     ValueError if none exists, which router.py's broad except turns into an
     oauth_failed redirect.
@@ -600,7 +600,7 @@ async def _resolve_github_identity(
     if not github_id:
         raise ValueError("GitHub /user response missing id")
 
-    # T-1237-01: select ONLY the entry that is both primary AND verified.
+    # Select ONLY the entry that is both primary AND verified.
     primary_verified = next(
         (
             entry
@@ -966,7 +966,7 @@ async def find_or_create_oauth_user(
         )
         return returning_user
 
-    # DOMAIN-03 (T-1236-01): domain check for NEW (JIT) identities. Fires
+    # Domain check for NEW (JIT) identities. Fires
     # BEFORE the email_verified collision guard and BEFORE provisioning
     # (TOCTOU-free). Empty allowlist -> always allowed. No break-glass: a
     # NEW identity has no established principal to exempt.

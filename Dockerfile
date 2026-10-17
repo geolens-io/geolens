@@ -282,7 +282,7 @@ COPY frontend/ ./
 # module errors.
 #
 # SUPPORTED build path for the cloud frontend: use the STANDALONE cloud Vite
-# build in geolens-overlays/geolens_cloud/frontend/Dockerfile (Stage 2).  That
+# build run by the Cloud overlay's own image build.  That
 # build has its own vite.config.ts with both '@' (OSS src) and '@cloud'
 # (cloud src-cloud/) aliases and produces a correct dist.
 #

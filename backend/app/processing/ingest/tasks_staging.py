@@ -502,9 +502,9 @@ async def _cleanup_staging_on_failure(
         task=task_name,
     )
 
-    # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import discipline).
+    # Notify on ingest failed (non-fatal, after commit — deferred import discipline).
     # status="failed" + error_message are already committed above so a notification
-    # error can never roll back or alter the terminal job write (T-1230-09 / fail-safe).
+    # error can never roll back or alter the terminal job write.
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,

@@ -349,11 +349,11 @@ async def oauth_login(
         ) from exc
     redirect_uri = f"{public_api_url}/auth/oauth/{provider_slug}/callback"
 
-    # HARDEN-04 (T-1238-05): generate a correlation_id at login-init so the
+    # Generate a correlation_id at login-init so the
     # matching callback audit entry shares it, linking initiation to outcome.
     # Stored in session keyed by provider slug; authlib already uses the
     # session for PKCE `state`. Details carry only provider_slug +
-    # correlation_id — no secrets, tokens, or email addresses (T-1238-06).
+    # correlation_id — no secrets, tokens, or email addresses.
     correlation_id = uuid.uuid4().hex[:12]
     request.session[f"_oauth_correlation_{provider_slug}"] = correlation_id
 
@@ -411,9 +411,9 @@ async def oauth_callback(
             detail=str(exc),
         ) from exc
 
-    # HARDEN-04 (T-1238-05): read back the correlation_id from login-init so
+    # Read back the correlation_id from login-init so
     # every callback audit entry shares it; falls back to a fresh id (e.g.
-    # cross-process restart). Details never carry secrets/tokens/email (T-1238-06).
+    # cross-process restart). Details never carry secrets/tokens/email.
     correlation_id: str = (
         request.session.get(f"_oauth_correlation_{provider_slug}")
         or uuid.uuid4().hex[:12]
@@ -435,7 +435,7 @@ async def oauth_callback(
 
         # GitHub is plain OAuth2 (not OIDC), no id_token/userinfo endpoint
         # authlib knows automatically; resolve primary+verified email via
-        # /user/emails instead (T-1237-01, SSO-05). Other providers use
+        # /user/emails instead. Other providers use
         # authlib's userinfo path unchanged.
         if provider.provider_type == "github":
             # Pass the provider's configured user endpoint so GitHub Enterprise

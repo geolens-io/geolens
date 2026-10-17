@@ -8,11 +8,11 @@ False use plain ``SMTP`` (dev/test only).
 
 Credentials are revealed only at the ``login()`` call boundary via
 ``reveal()`` so the raw password never appears in a log line, exception,
-or traceback (T-1229-04). The blocking smtplib sequence runs inside
+or traceback. The blocking smtplib sequence runs inside
 ``asyncio.to_thread()``.
 
 Re-raises on any smtplib exception — the caller
-(``EnvConfiguredNotificationSink``) owns per-channel isolation (T-1229-07).
+(``EnvConfiguredNotificationSink``) owns per-channel isolation.
 """
 
 from __future__ import annotations

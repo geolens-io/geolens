@@ -326,10 +326,10 @@ def _build_tile_query(
     ``_select_tile_columns`` so this emits the SELECT projection straight
     from the already-pruned list.
 
-    DP-02 (Phase 1209-03): ``schema`` defaults to ``"data"`` (single_tenant
-    unchanged). multi_tenant callers pass ``tenant_data_schema(tid)`` so the
-    FROM clause is ALWAYS explicitly schema-qualified — search_path alone is
-    NOT the primary isolation control (T-1209-11).
+    ``schema`` defaults to ``"data"`` (single_tenant unchanged). multi_tenant
+    callers pass ``tenant_data_schema(tid)`` so the FROM clause is ALWAYS
+    explicitly schema-qualified — search_path alone is NOT the primary
+    isolation control.
     """
     _validate_tile_table_name(table_name)
     attr_columns = _build_attr_columns(columns)
@@ -472,9 +472,9 @@ def _build_cluster_tile_query(
     for these columns, which ST_AsMVT omits per feature, so cluster
     properties stay exactly MapLibre-shaped.
 
-    DP-02 (Phase 1209-03): ``schema`` defaults to ``"data"`` (single_tenant
-    unchanged); multi_tenant callers pass ``tenant_data_schema(tid)`` so the
-    FROM clause is ALWAYS explicitly schema-qualified (T-1209-11).
+    ``schema`` defaults to ``"data"`` (single_tenant unchanged); multi_tenant
+    callers pass ``tenant_data_schema(tid)`` so the FROM clause is ALWAYS
+    explicitly schema-qualified.
     """
     _validate_tile_table_name(table_name)
     # Schema name derives from validated-UUID tenant_data_schema() — safe to quote.
@@ -752,13 +752,13 @@ async def get_tile(
             zooms (e.g. data-driven styling columns). Unioned with the
             base selection; validated against ``columns``.
         conn: Optional already-acquired asyncpg connection to reuse. DP-02
-            (Phase 1209-03): pass one that already had
+            pass one that already had
             ``set_tenant_role_for_tile_request`` called inside an open
-            transaction so the per-tenant role/search_path survive
-            (T-1209-10). None uses a transient connection from the pool.
+            transaction so the per-tenant role/search_path survive.
+            None uses a transient connection from the pool.
         schema: Data schema name; defaults to ``"data"`` (single_tenant). In
             multi_tenant, pass ``tenant_data_schema(tid)`` so the FROM
-            clause is explicitly schema-qualified (T-1209-11).
+            clause is explicitly schema-qualified.
 
     Returns:
         MVT binary data, or None if the tile contains no features.
@@ -828,7 +828,7 @@ async def get_cluster_tile(
             inside the query — fix(#868)).
         cluster_max_zoom: Maximum zoom level at which clustering is active.
         conn: Optional already-acquired asyncpg connection (see ``get_tile``
-            docstring for DP-02 details; T-1209-10).
+            docstring for details).
         schema: Data schema name; defaults to ``"data"`` (single_tenant).
     """
     _validate_tile_table_name(table_name)

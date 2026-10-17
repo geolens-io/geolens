@@ -1575,8 +1575,8 @@ init_metrics(app)
 #   "healthy" resets _last_health_alert_at so recovery gets a fresh alert.
 _last_health_alert_at: float | None = None
 _last_health_status: str = "healthy"
-# Cooldown window: emit at most one health alert per 5 minutes (T-1230-06
-# low-noise requirement).  Docker healthcheck polls every 10 s → at most
+# Cooldown window: emit at most one health alert per 5 minutes
+# (low-noise requirement).  Docker healthcheck polls every 10 s → at most
 # one alert per 30 polls while the system remains degraded.
 _HEALTH_ALERT_COOLDOWN_SECS: float = 300.0
 
@@ -1635,10 +1635,9 @@ async def health(request: Request):
     result["build"] = os.environ.get("GEOLENS_BUILD_SHA") or None
     status_code = 200 if result["status"] == "healthy" else 503
 
-    # Phase 1230 EVENT-04: emit a health-alert when degraded and the toggle
-    # is on, cooldown-deduped so repeated unhealthy polls don't spam admin
-    # (T-1230-06). Runs as a BackgroundTask so the response returns FIRST
-    # and is never delayed by a slow notification channel (WR-01) — the
+    # Emit a health-alert when degraded and the toggle is on,
+    # cooldown-deduped so repeated unhealthy polls don't spam admin. Runs as a BackgroundTask so the response returns FIRST
+    # and is never delayed by a slow notification channel — the
     # emit is also fail-safe (never raises).
     from starlette.background import BackgroundTask
 
@@ -1659,7 +1658,7 @@ async def health(request: Request):
         if _last_health_status == "healthy":
             _last_health_alert_at = None
         _last_health_status = current_status
-        # Emit only if outside the cooldown window (de-dup, T-1230-06).
+        # Emit only if outside the cooldown window (de-dup).
         # None => no alert sent since boot/recovery → fire immediately.
         if (
             _last_health_alert_at is None
