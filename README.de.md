@@ -107,7 +107,7 @@ flowchart LR
 </p>
 
 Jeder Datensatz hält die Datei, Tabelle, den Dienst oder das STAC-Element fest, aus dem er stammt,
-und wann er zuletzt aktualisiert wurde. Geben Sie ihm einen Aktualisierungsrhythmus, und GeoLens
+und wann er zuletzt aktualisiert wurde. Geben Sie einem importierten Datensatz einen Aktualisierungsrhythmus, und GeoLens
 markiert ihn als aktuell, fällig oder überfällig. Bei Diensten und STAC-Quellen prüft GeoLens
 außerdem, ob die Quelle noch antwortet, und meldet Schemaänderungen auf der Quellseite, bevor sie
 Ihre Karten erreichen. Verschwindet ein Dienst, funktioniert die importierte Kopie weiter.
@@ -263,9 +263,9 @@ herunter, darunter eine Reliefdatei von rund 466 MB und 62 Geländekacheln; `--n
 auf. Verwenden Sie Ihren eigenen Admin-Benutzernamen, falls Sie ihn geändert haben.
 
 ```sh
-pip install httpx                                     # the seed script needs Python 3.10+
+python3 -m venv .venv && .venv/bin/pip install httpx  # the seed script needs Python 3.10+
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  python scripts/seed-showcase.py --username admin
+  .venv/bin/python scripts/seed-showcase.py --username admin
 ```
 
 Die [API-Referenz](https://docs.getgeolens.com/guides/api/) und die
