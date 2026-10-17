@@ -284,7 +284,7 @@ Die [API-Referenz](https://docs.getgeolens.com/guides/api/) und die
 - Die Anmeldung erfolgt über lokale Konten oder OAuth 2.0/OIDC (Google, Microsoft, GitHub oder ein
   generischer Anbieter), mit Rollen, Berechtigungen je Datensatz, API-Schlüsseln je Benutzer und
   einem Audit-Log. Die Selbstregistrierung ist standardmäßig deaktiviert.
-- Alles in diesem Repository steht unter Apache 2.0, und hier veröffentlichte Funktionen bleiben
+- Der Code in diesem Repository steht unter Apache 2.0 (Name und Logo nicht), und hier veröffentlichte Funktionen bleiben
   frei. [EDITIONS.md](EDITIONS.md) beschreibt den optionalen bezahlten Support und die
   Erweiterungen.
 
