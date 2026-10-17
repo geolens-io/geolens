@@ -201,8 +201,9 @@ async def settled_artifact(
     it. The GET that follows rebuilds: unchanged data reproduces these bytes
     and is sliced like a hit, and changed data is answered whole and leaves
     the URL holding two digests, so the next HEAD is size-less again. Only
-    for a selection whose key moves with every write to its table; bytes
-    changed in place would otherwise be vouched for until the horizon.
+    for a selection whose key moves with every write to its table and that
+    has no ``where`` filter, which can select other rows as the clock moves;
+    bytes changed in place would otherwise be vouched for until the horizon.
     """
     artifact = await lookup(
         dataset_id, selection, filename=filename, media_type=media_type, any_age=True

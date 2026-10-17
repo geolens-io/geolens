@@ -5516,3 +5516,48 @@ async def test_a_head_on_a_registered_table_stays_size_less_after_the_ttl(
         "TTL; nothing proves the table still holds those bytes"
     )
     assert revalidated.status_code == 200
+
+
+async def test_a_head_with_a_where_filter_stays_size_less_after_the_ttl(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """A filter can select different rows as time passes, with no version change.
+
+    ``event_date = 'today'`` is a valid filter, and PostgreSQL resolves it
+    against the clock. So a filtered selection's bytes aren't pinned by the
+    key even on a table GeoLens owns: after the rollover the HEAD keeps the
+    size-less answer, a stale If-Match is refused as on any cold HEAD, and no
+    form of If-None-Match naming the stored artifact gets 304.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Filtered Head")
+    url = f"{_url(dataset.id)}&where=pop%20%3E%201000"
+    probe = await client.get(url, headers=admin_auth_header)
+    assert probe.status_code == 200
+    etag = probe.headers["etag"]
+    conversions.body = bytes(reversed(conversions.body))  # the clock moved
+
+    cache._ttl_seconds = lambda: 0
+    try:
+        head = await client.head(url, headers=admin_auth_header)
+        if_match = await client.head(
+            url, headers={**admin_auth_header, "If-Match": etag}
+        )
+        revalidations = [
+            await client.head(url, headers={**admin_auth_header, "If-None-Match": tag})
+            for tag in (etag, f"W/{etag}", f'"another-export", {etag}')
+        ]
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 1
+    assert "content-length" not in head.headers and "etag" not in head.headers, (
+        "a filtered HEAD described the stored artifact after the TTL; the "
+        "filter may select other rows now"
+    )
+    assert if_match.status_code == 412 and "etag" not in if_match.headers, (
+        f"a stale If-Match on a filtered HEAD answered {if_match.status_code} "
+        f"with etag={if_match.headers.get('etag')!r}"
+    )
+    assert [r.status_code for r in revalidations] == [200, 200, 200]

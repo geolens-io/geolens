@@ -613,8 +613,9 @@ async def export_dataset_endpoint(
     await db.rollback()
 
     # A HEAD with nothing fresh still answers a real length and validator when
-    # the stored artifact is the only bytes this URL holds; it never builds.
-    if request.method == "HEAD" and bytes_follow_key:
+    # the stored artifact is the only bytes this URL holds; it never builds. Not
+    # with a `where` filter, which can resolve against the clock ('today').
+    if request.method == "HEAD" and bytes_follow_key and where is None:
         settled = await artifact_cache.settled_artifact(
             dataset_id,
             selection,
