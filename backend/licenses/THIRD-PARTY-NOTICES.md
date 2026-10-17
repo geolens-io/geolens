@@ -106,18 +106,6 @@ unmodified, and the corresponding source is `certifi==2026.2.25` from PyPI,
 identifiable from `/app/uv.lock` and installable with
 `uv pip download certifi==2026.2.25 --no-binary :all:`.
 
-## tqdm 4.67.3 — MPL-2.0 AND MIT
-
-Progress-bar library. Reaches the image through `openai`.
-
-License text: `tqdm-LICENCE.txt`, reproduced verbatim because it is what carries
-the file-level split — most of the work is MIT, with `MPL-2.0 2015-2026 (c)
-Casper da Costa-Luis` covering `*` and specific files listed individually.
-`MPL-2.0.txt` holds the referenced MPL text.
-
-Ships unmodified; same MPL-2.0 analysis and same source-availability answer as
-certifi above.
-
 ## Scope
 
 This file covers the Python distributions installed into the image's virtualenv
