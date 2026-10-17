@@ -87,6 +87,35 @@ def extent_to_bbox(extent: object | None) -> list[float] | None:
         return None
 
 
+class VrtExtents(dict):
+    """``visible_vrt_extents``: each VRT's shown extent by dataset id.
+
+    ``narrowed`` names the VRTs whose shown extent leaves out a member the
+    requester cannot read.
+    """
+
+    def __init__(self, extents: Mapping[Any, object], narrowed: Iterable[Any]):
+        super().__init__(extents)
+        self.narrowed = frozenset(narrowed)
+
+
+def shows_mosaic_size(
+    record: Any, dataset_id: object, vrt_extents: Mapping[Any, object] | None
+) -> bool:
+    """Whether a dataset's full raster size (width, height) may be shown.
+
+    A VRT's size spans every member, so it shows only for a VRT the caller
+    resolved in ``vrt_extents`` and found no hidden member in.
+    """
+    if record.record_type != "vrt_dataset":
+        return True
+    return (
+        isinstance(vrt_extents, VrtExtents)
+        and dataset_id in vrt_extents
+        and dataset_id not in vrt_extents.narrowed
+    )
+
+
 def shown_extent(
     record: Any, dataset_id: object, vrt_extents: Mapping[Any, object] | None
 ) -> object | None:

@@ -31,7 +31,12 @@ from app.modules.catalog.sources.provenance import (
     derive_last_edited,
     resolve_actor,
 )
-from app.core.geo import extent_to_bbox, raster_crs_facts, shown_extent
+from app.core.geo import (
+    extent_to_bbox,
+    raster_crs_facts,
+    shown_extent,
+    shows_mosaic_size,
+)
 from app.platform.dataset_origin import classify_origin, project_unknown
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -54,7 +59,10 @@ def _build_raster_metadata(
     is_admin: bool = False,
     source_count: int | None = None,
     base_url: str | None = None,
+    show_size: bool = True,
 ) -> RasterMetadata | None:
+    """``show_size=False`` leaves out width, height and file size, which span
+    every member of a VRT."""
     if raster_asset is None:
         return None
 
@@ -126,9 +134,9 @@ def _build_raster_metadata(
         is_dem=raster_asset.is_dem,
         nodata=raster_asset.nodata,
         compression=raster_asset.compression,
-        width=raster_asset.width,
-        height=raster_asset.height,
-        size_bytes=raster_asset.size_bytes,
+        width=raster_asset.width if show_size else None,
+        height=raster_asset.height if show_size else None,
+        size_bytes=raster_asset.size_bytes if show_size else None,
         tile_url=tile_url_meta,
         bands=bands,
         connect=connect,
@@ -193,6 +201,7 @@ def dataset_to_response(
             is_admin=is_admin,
             source_count=source_count,
             base_url=base_url,
+            show_size=shows_mosaic_size(record, dataset.id, vrt_extents),
         )
 
     tileset = (

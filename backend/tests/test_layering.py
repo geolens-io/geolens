@@ -1190,7 +1190,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Shared-map audience decisions stay behind the permission extension seam.
         "backend/app/modules/catalog/maps/service_public.py": 987,
         # Record assembly keeps one format and asset branch per record type.
-        "backend/app/modules/catalog/search/service_records.py": 631,
+        "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 516,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
@@ -1396,7 +1396,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1939,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2865,
+    "backend/app/processing/tiles/router.py": 2862,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1418,7 +1418,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1501,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1150,
+    "backend/app/modules/catalog/authorization.py": 1163,
 }
 
 

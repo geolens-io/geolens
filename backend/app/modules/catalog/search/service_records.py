@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 import structlog
 
 from app.core.config import settings
-from app.core.geo import extent_to_bbox, shown_extent
+from app.core.geo import extent_to_bbox, shown_extent, shows_mosaic_size
 from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE, pointcloud_path
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
@@ -558,7 +558,12 @@ def dataset_to_ogc_record(
     if raster_meta and record_type in RASTER_FAMILY_RECORD_TYPES:
         if raster_meta.get("epsg") is not None:
             ogc_record["properties"]["proj:code"] = f"EPSG:{raster_meta['epsg']}"
-        if raster_meta.get("width") and raster_meta.get("height"):
+        # A VRT's shape spans every member, readable or not.
+        if (
+            raster_meta.get("width")
+            and raster_meta.get("height")
+            and shows_mosaic_size(record, dataset.id, vrt_extents)
+        ):
             ogc_record["properties"]["proj:shape"] = [
                 raster_meta["height"],
                 raster_meta["width"],

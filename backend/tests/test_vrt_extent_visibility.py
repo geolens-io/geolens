@@ -328,3 +328,35 @@ async def test_batch_tile_tokens_bound_the_audience_statements(
             {"vrts": vrt_ids},
         )
         await test_db_session.commit()
+
+
+async def test_tile_token_withholds_bounds_for_a_refused_mosaic_without_an_asset(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """The refusal is decided from the VRT's members, not from its asset row."""
+    admin_id = await _get_admin_id(test_db_session)
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    _, member_owner = await _make_editor(client, admin_auth_header)
+    vrt_id = await _create_vrt_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    await _set_extent(test_db_session, vrt_id, FULL)
+    member = await _create_raster_dataset(
+        test_db_session, created_by=member_owner, visibility="private"
+    )
+    await _link_source(test_db_session, vrt_id, member, 0)
+    await test_db_session.execute(
+        text("DELETE FROM catalog.raster_assets WHERE dataset_id = :id"),
+        {"id": str(vrt_id)},
+    )
+    await test_db_session.commit()
+
+    single = await client.get(f"/tiles/token/{vrt_id}/", headers=viewer_headers)
+    batch = await client.post(
+        "/tiles/tokens/", json={"dataset_ids": [str(vrt_id)]}, headers=viewer_headers
+    )
+
+    assert single.status_code == 200, single.text
+    assert batch.status_code == 200, batch.text
+    assert single.json()["bounds"] is None
+    assert batch.json()["tokens"][str(vrt_id)]["bounds"] is None

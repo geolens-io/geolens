@@ -35,7 +35,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload
 
-from app.core.geo import rollup_envelope
+from app.core.geo import VrtExtents, rollup_envelope
 from app.core.identity import Identity
 from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
@@ -481,27 +481,33 @@ async def visible_vrt_extents(
     vrt_dataset_ids: Iterable[uuid.UUID],
     user: Identity | None,
     user_roles: set[str],
-) -> dict[uuid.UUID, Any]:
+) -> VrtExtents:
     """Each VRT's extent as this requester sees it; see :func:`visible_extent_column`.
 
     Every existing VRT among ``vrt_dataset_ids`` gets an entry, None when the
-    requester can read no member's extent.
+    requester can read no member's extent. ``narrowed`` names the VRTs with a
+    member the requester cannot read, whose full-mosaic size is withheld too.
     """
     wanted = set(vrt_dataset_ids)
     if not wanted:
-        return {}
+        return VrtExtents({}, ())
 
     from app.modules.catalog.datasets.domain.models import Dataset, Record
 
+    hides_member, shown = _vrt_view(user, user_roles)
     rows = await db.execute(
-        select(Dataset.id, visible_extent_column(user, user_roles))
+        select(Dataset.id, shown, hides_member)
         .join(Record, Record.id == Dataset.record_id)
         .where(
             Dataset.id == any_(bindparam("vrt_ids", list(wanted), type_=ARRAY(Uuid))),
             Record.record_type == "vrt_dataset",
         )
     )
-    return dict(rows.tuples().all())
+    rows = rows.tuples().all()
+    return VrtExtents(
+        {dataset_id: extent for dataset_id, extent, _ in rows},
+        (dataset_id for dataset_id, _, narrowed in rows if narrowed),
+    )
 
 
 def visible_extent_column(
@@ -516,6 +522,13 @@ def visible_extent_column(
     when none has an extent. Every other row shows its own. Members are
     checked one by one, so the cost stays with VRT rows.
     """
+    return _vrt_view(user, user_roles, record)[1]
+
+
+def _vrt_view(
+    user: Identity | None, user_roles: set[str], record: Any = None
+) -> tuple[ColumnElement, ColumnElement]:
+    """``(narrowed, shown extent)`` for ``record``; see :func:`visible_extent_column`."""
     from app.modules.catalog.datasets.domain.models import (
         Dataset,
         DatasetGrant,
@@ -553,11 +566,11 @@ def visible_extent_column(
     member_is_readable = readable(
         select(member.id).where(member.id == links.c.source_dataset_id)
     ).exists()
-    hides_member = exists().where(of_row, ~member_is_readable)
-    return case(
-        (and_(record.record_type == "vrt_dataset", hides_member), readable_envelope),
-        else_=record.spatial_extent,
+    narrowed = and_(
+        record.record_type == "vrt_dataset",
+        exists().where(of_row, ~member_is_readable),
     )
+    return narrowed, case((narrowed, readable_envelope), else_=record.spatial_extent)
 
 
 def visible_extent_match(

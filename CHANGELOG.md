@@ -131,15 +131,19 @@ and releases use semantic versioning.
   and lists, search, OGC API Records items and collection metadata, STAC
   items and collections, DCAT, DCAT-US and GeoDCAT-AP records and feeds,
   collection extents and map layers' `dataset_extent_bbox` now report the
-  extent of the readable members, or none when no member is readable.
+  extent of the readable members, or none when no member is readable. For
+  such a VRT, the raster block's `width`, `height` and `size_bytes` are null
+  and OGC API Records and STAC items leave out `proj:shape`, since the
+  full-mosaic size spans every member; resolution stays.
   Spatial filters (`bbox` and `geometry` in search, `bbox` and `intersects` in
   STAC, and CQL2 spatial predicates in OGC API Records) match a VRT by that
   same extent, so a box drawn only around a hidden member no longer finds it.
   A VRT with no readable member matches as an empty geometry, under `NOT` as
   well, and `geometry IS NULL` holds for it. Admins, and anyone who can read
-  every member, see the full extent. A tile token for a VRT whose tiles are
-  refused, because a member is no longer visible to everyone who can see the
-  VRT, carries no `bounds`. The AI assistant's dataset search, generated map
+  every member, see the full extent and size. A tile token for a VRT whose
+  tiles are refused, because a member is no longer visible to everyone who
+  can see the VRT, carries no `bounds`, with or without a stored raster
+  asset. The AI assistant's dataset search, generated map
   viewports and metadata prompts leave VRT extents out.
 - A CQL2 filter on OGC API Records that uses the `geometry` queryable outside
   a spatial predicate or `IS NULL` (for example `geometry = POINT(1 2)`,

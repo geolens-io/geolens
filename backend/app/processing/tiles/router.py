@@ -1685,8 +1685,7 @@ async def get_tile_token(
     token = _build_tile_token_for_dataset(
         dataset,
         raster_asset,
-        withhold_bounds=raster_asset is not None
-        and dataset.id in await _refused_mosaics(db, [dataset]),
+        withhold_bounds=dataset.id in await _refused_mosaics(db, [dataset]),
     )
     if token is None:
         raise HTTPException(
@@ -1778,9 +1777,7 @@ async def get_tile_tokens_batch(
         tokens[key] = {}
         authorized.append(dataset)
 
-    refused_mosaics = await _refused_mosaics(
-        db, [ds for ds in authorized if ds.id in raster_assets_by_dataset_id]
-    )
+    refused_mosaics = await _refused_mosaics(db, authorized)
     for dataset in authorized:
         token = _build_tile_token_for_dataset(
             dataset,
