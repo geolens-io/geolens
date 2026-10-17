@@ -94,7 +94,7 @@ flowchart LR
   <sub>从 USGS 地震服务导入的数据集。</sub>
 </p>
 
-每个数据集都会记录它来自哪个文件、表、服务或 STAC 条目，以及上次刷新的时间。设定更新节奏后，GeoLens 会把它标记为时效正常、待刷新或已逾期。对于服务和 STAC 数据源，GeoLens 还会检查数据源是否仍能响应，并在上游字段结构的变化影响您的地图之前发出提示。如果某个服务下线，已导入的副本仍可继续使用。
+每个数据集都会记录它来自哪个文件、表、服务或 STAC 条目，以及上次刷新的时间。为导入的数据集设定更新节奏后，GeoLens 会把它标记为时效正常、待刷新或已逾期。对于服务和 STAC 数据源，GeoLens 还会检查数据源是否仍能响应，并在上游字段结构的变化影响您的地图之前发出提示。如果某个服务下线，已导入的副本仍可继续使用。
 
 ## 构建和共享地图
 
@@ -198,9 +198,9 @@ curl -H "X-Api-Key: $GEOLENS_API_KEY" \
 要把演示中的地图和数据集加载到您的安装中，请运行种子脚本。它需要访问互联网，会从大约十几个来源下载公开的开放数据，其中包括约 466 MB 的地形起伏文件和 62 个地形瓦片；`--no-oceans` 和 `--no-terrain` 可跳过这些下载，[scripts/README.md](scripts/README.md) 列出了所有选项。如果修改过管理员用户名，请改用您自己的。
 
 ```sh
-pip install httpx                                     # the seed script needs Python 3.10+
+python3 -m venv .venv && .venv/bin/pip install httpx  # the seed script needs Python 3.10+
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  python scripts/seed-showcase.py --username admin
+  .venv/bin/python scripts/seed-showcase.py --username admin
 ```
 
 其余内容请参阅 [API 参考](https://docs.getgeolens.com/guides/api/)和 [SDK 指南](https://docs.getgeolens.com/guides/sdk/)。
