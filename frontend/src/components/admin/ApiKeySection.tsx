@@ -207,11 +207,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                   />
                   {/* #305: state was conveyed by dot color + non-announced title only; add a text alt for assistive tech */}
                   <span className="sr-only">
-                    {!key.is_active
-                      ? t('apiKeys.revoked')
-                      : expired
-                        ? t('apiKeys.expired')
-                        : t('apiKeys.active')}
+                    {t(`apiKeys.${status}`)}
                   </span>
                   {expired && (
                     <Badge className={cn('px-1.5', semanticBadgeColors.destructive)}>

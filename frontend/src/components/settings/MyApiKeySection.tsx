@@ -147,7 +147,6 @@ export function MyApiKeySection() {
         <div className="space-y-2">
           {keys.map((key) => {
             const status = apiKeyStatus(key, now);
-            const expired = status === 'expired';
             return (
             <div
               key={key.id}
@@ -175,11 +174,7 @@ export function MyApiKeySection() {
                       status === 'active' ? semanticBadgeColors.success : semanticBadgeColors.destructive,
                     )}
                   >
-                    {!key.is_active
-                      ? t('admin:apiKeys.revoked')
-                      : expired
-                        ? t('admin:apiKeys.expired')
-                        : t('admin:apiKeys.active')}
+                    {t(`admin:apiKeys.${status}`)}
                   </Badge>
                   {/* fix(#875): a read-only key is a different credential in
                       practice; the list has to say which one you are holding. */}
