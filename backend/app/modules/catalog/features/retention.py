@@ -57,25 +57,22 @@ TEMPORAL_TYPES = frozenset(
 _PLAIN_COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _GID_FLOOR = -(2**63)
 
-# The relations a batch can delete from by (tableoid, ctid): ordinary and
-# partitioned tables. A view, even an updatable one, has neither column.
-TABLE_KINDS = frozenset({"r", "p"})
-_TABLE_KIND = text(
-    "SELECT c.relkind::text FROM pg_class c WHERE c.oid = to_regclass(format("
+# What would make a delete reach past the rows a batch picked, or skip them.
+# tgtype bits 1, 2 and 8 are ROW, BEFORE and DELETE.
+_RELATION_FACTS = text(
+    "SELECT c.relkind::text AS kind, "
+    "EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhparent = c.oid) AS inherited, "
+    "EXISTS (SELECT 1 FROM pg_constraint f WHERE f.contype = 'f' "
+    "AND f.confrelid = c.oid) AS referenced, "
+    "EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = c.oid "
+    "AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A') "
+    "AND t.tgtype & 11 = 11) AS before_delete_trigger, "
+    "EXISTS (SELECT 1 FROM pg_rewrite r WHERE r.ev_class = c.oid "
+    "AND r.ev_type = '4') AS delete_rule "
+    "FROM pg_class c WHERE c.oid = to_regclass(format("
     "'%I.%I', CAST(:schema AS text), CAST(:table AS text)))"
 )
 # A domain resolves to its base type, as the feature table's column info does.
-# Whether a foreign key points at the table or any partition or inheritance
-# child of it. Deleting a referenced row also cascades to, rewrites or is
-# refused for the rows that point at it, whatever their date.
-_REFERENCED = text(
-    "WITH RECURSIVE tree(oid) AS ("
-    "SELECT to_regclass(format('%I.%I', CAST(:schema AS text), "
-    "CAST(:table AS text)))::oid "
-    "UNION SELECT i.inhrelid FROM pg_inherits i JOIN tree t ON i.inhparent = t.oid) "
-    "SELECT EXISTS (SELECT 1 FROM pg_constraint c JOIN tree t "
-    "ON c.confrelid = t.oid WHERE c.contype = 'f')"
-)
 _COLUMN_TYPE = text(
     "WITH RECURSIVE base(oid, typtype, typbasetype) AS ("
     "SELECT t.oid, t.typtype, t.typbasetype FROM pg_attribute a "
@@ -148,25 +145,42 @@ async def column_type(
     )
 
 
-async def table_kind(session: AsyncSession, table_name: str) -> str | None:
-    """The pg_class relkind of the dataset's live relation, None when it is absent."""
-    return await session.scalar(
-        _TABLE_KIND,
-        {"schema": tenant_data_schema(current_tenant_var.get()), "table": table_name},
-    )
+async def unsupported_table(session: AsyncSession, table_name: str) -> str | None:
+    """Why retention can't delete from the dataset's live relation, or None.
 
-
-async def is_referenced(session: AsyncSession, table_name: str) -> bool:
-    """Whether any foreign key, a self-reference included, points at the table."""
-    return bool(
-        await session.scalar(
-            _REFERENCED,
+    Only a plain table qualifies whose deletes remove exactly the rows asked
+    for: no inheritance children, no foreign key pointing at it, no BEFORE
+    DELETE row trigger that could keep a row and no DELETE rule.
+    """
+    facts = (
+        await session.execute(
+            _RELATION_FACTS,
             {
                 "schema": tenant_data_schema(current_tenant_var.get()),
                 "table": table_name,
             },
         )
-    )
+    ).one_or_none()
+    if facts is None or facts.kind != "r":
+        return (
+            "Retention needs the dataset's data in a plain table; this dataset "
+            "reads it from a view, a partitioned table or another relation."
+        )
+    if facts.inherited:
+        return "Retention can't run on a table that other tables inherit from."
+    if facts.referenced:
+        return (
+            "Retention can't run on a table that a foreign key references; "
+            "deleting its rows would also change the rows that point at them."
+        )
+    if facts.before_delete_trigger:
+        return (
+            "Retention can't run on a table with a BEFORE DELETE row trigger, "
+            "which can keep rows a delete asks for."
+        )
+    if facts.delete_rule:
+        return "Retention can't run on a table with a DELETE rule."
+    return None
 
 
 def cutoff_for(now: datetime, days: int, type_name: str) -> datetime | date:
@@ -185,16 +199,9 @@ async def check_retention(
     """Refuse a setting the dataset can't take; return its cutoff as of now."""
     if not is_feature_dataset(dataset):
         raise RetentionRefused("Retention applies only to datasets with features.")
-    if await table_kind(session, dataset.table_name) not in TABLE_KINDS:
-        raise RetentionRefused(
-            "Retention needs the dataset's data in a table; this dataset reads "
-            "it from a view or another kind of relation."
-        )
-    if await is_referenced(session, dataset.table_name):
-        raise RetentionRefused(
-            "Retention can't run on a table that a foreign key references; "
-            "deleting its rows would also change the rows that point at them."
-        )
+    reason = await unsupported_table(session, dataset.table_name)
+    if reason is not None:
+        raise RetentionRefused(reason)
     type_name = await column_type(session, dataset.table_name, retention.column)
     if type_name is None:
         raise RetentionRefused(f"Column {retention.column!r} does not exist.")
@@ -211,7 +218,9 @@ async def count_rows_past(
 ) -> int:
     """Rows whose ``column`` is older than ``cutoff``. The caller checked ``column``."""
     quoted = get_catalog_port().quote_table(table_name)
-    sql = f"SELECT count(*) FROM {quoted} WHERE {_safe_column_ref(column)} < :cutoff"
+    sql = (
+        f"SELECT count(*) FROM ONLY {quoted} WHERE {_safe_column_ref(column)} < :cutoff"
+    )
     # codeql[py/sql-injection] column matched _PLAIN_COLUMN, exists in the table and is quoted by _safe_column_ref; table via quote_table; cutoff is bound
     return await session.scalar(text(sql), {"cutoff": cutoff})
 
@@ -251,10 +260,10 @@ async def _hold_live_window(
     ``_window`` reads the column's type without a lock, so a retype or a
     table swap can commit before the delete. ROW EXCLUSIVE conflicts with
     the ACCESS EXCLUSIVE every ALTER and swap takes, so the type read here
-    holds until the batch ends, and no foreign key to the table can be added
-    meanwhile. Raises ``_BatchStale`` when the table was replaced, is no
-    longer an ordinary or partitioned table, is referenced by a foreign key,
-    or the column is no longer a date or timestamp.
+    holds until the batch ends, and no foreign key, trigger or rule on the
+    table can be added meanwhile. Raises ``_BatchStale`` when the table was
+    replaced, ``unsupported_table`` refuses it, or the column is no longer a
+    date or timestamp.
     """
     quoted = get_catalog_port().quote_table(window.table_name)
     async with worker_lock_budget(session):
@@ -263,8 +272,7 @@ async def _hold_live_window(
     type_name = await column_type(session, window.table_name, window.column)
     if (
         await current_table_oid(session, window.table_name) != window.table_oid
-        or await table_kind(session, window.table_name) not in TABLE_KINDS
-        or await is_referenced(session, window.table_name)
+        or await unsupported_table(session, window.table_name) is not None
         or type_name not in TEMPORAL_TYPES
     ):
         raise _BatchStale("table_or_column_changed")
@@ -278,16 +286,16 @@ async def _delete_batch(
     column = _safe_column_ref(window.column)
     # MATERIALIZED picks the batch once; an IN subquery a nested loop rescans
     # would lock and delete a fresh batch per outer row. The delete matches the
-    # locked rows themselves, not their gids: a registered table can hold one
-    # gid twice, or in an inheritance child, where only (tableoid, ctid) is
-    # unique. Locked rows cannot move before the delete.
+    # locked rows themselves by ctid, since a registered table can hold one gid
+    # twice; locked rows cannot move before the delete. ONLY keeps an
+    # inheritance child attached mid-batch out of it.
     sql = (
-        f"WITH batch AS MATERIALIZED (SELECT tableoid, ctid FROM {quoted} "
+        f"WITH batch AS MATERIALIZED (SELECT ctid FROM ONLY {quoted} "
         f"WHERE {column} < :cutoff "
         "AND (gid >= CAST(:after AS bigint) OR gid IS NULL) "
         "ORDER BY gid NULLS FIRST LIMIT :limit FOR UPDATE SKIP LOCKED) "
-        f"DELETE FROM {quoted} WHERE (tableoid, ctid) IN "
-        f"(SELECT tableoid, ctid FROM batch) AND {column} < :cutoff RETURNING gid"
+        f"DELETE FROM ONLY {quoted} WHERE ctid IN "
+        f"(SELECT ctid FROM batch) AND {column} < :cutoff RETURNING gid"
     )
     params = {"cutoff": window.cutoff, "after": after, "limit": limit}
     async with worker_lock_budget(session):

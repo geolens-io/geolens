@@ -700,27 +700,6 @@ class TestRun:
         assert [audit.details["deleted"] for audit in audits] == [2]
         assert (await _catalog_state(test_db_session, dataset.id)).feature_count == 2
 
-    async def test_a_gid_shared_with_an_inheritance_child_deletes_only_expired_rows(
-        self, seed, test_db_session
-    ):
-        old = NOW - timedelta(days=90)
-        dataset = await self._registered_table_without_a_gid_key(
-            seed, test_db_session, [(1, "parent_old", old)]
-        )
-        child = f"{dataset.table_name}_child"
-        await test_db_session.execute(
-            text(f"CREATE TABLE data.{child} () INHERITS (data.{dataset.table_name})")
-        )
-        await self._insert_with_gid(test_db_session, child, 1, "child_recent", NOW)
-        await self._insert_with_gid(test_db_session, child, 3, "child_old", old)
-        await test_db_session.commit()
-        try:
-            assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 2}
-            assert await _names(test_db_session, dataset) == {"child_recent"}
-        finally:
-            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{child}"))
-            await test_db_session.commit()
-
     async def test_rows_without_a_gid_are_pruned_too(
         self, seed, test_db_session, monkeypatch
     ):
@@ -1413,6 +1392,219 @@ class TestForeignKeys:
             )
         finally:
             await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{referrer}"))
+            await test_db_session.commit()
+
+
+class TestRelationShape:
+    """Retention runs only on a plain table whose deletes remove exactly what they ask."""
+
+    async def _layer(self, seed, test_db_session):
+        admin_id = await get_user_id(test_db_session, "admin")
+        return await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[
+                {"name": "old", "seen_at": NOW - timedelta(days=90)},
+                {"name": "recent", "seen_at": NOW},
+            ],
+        )
+
+    async def _refused(self, client, headers, dataset_id) -> None:
+        for dry_run in (True, False):
+            resp = await client.put(
+                f"/datasets/{dataset_id}/retention/",
+                params={"dry_run": "true"} if dry_run else None,
+                json={"retention": {"column": "seen_at", "days": 30}},
+                headers=headers,
+            )
+            assert resp.status_code == 422, resp.text
+
+    async def _skipped(self, test_db_session, dataset) -> None:
+        with structlog.testing.capture_logs() as logs:
+            assert await retention.prune_expired_rows(now=NOW) == {}
+        events = [entry["event"] for entry in logs]
+        assert "dataset_retention_failed" not in events
+        assert "dataset_retention_batch_rolled_back" in events
+        assert await _names(test_db_session, dataset) == {"old", "recent"}
+        assert await _prune_audits(test_db_session, dataset.id) == []
+
+    async def test_a_partitioned_table_is_refused(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        parted = f"{dataset.table_name}_parted"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{parted} (gid integer, geom geometry, "
+                "geom_4326 geometry, seen_at timestamptz, seen_on date, "
+                "seen_local timestamp, name text) PARTITION BY RANGE (gid)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{parted}_1 PARTITION OF data.{parted} "
+                "FOR VALUES FROM (0) TO (1000000)"
+            )
+        )
+        await test_db_session.execute(
+            text("UPDATE catalog.datasets SET table_name = :t WHERE id = :id"),
+            {"t": parted, "id": dataset.id},
+        )
+        await test_db_session.commit()
+        try:
+            await self._refused(client, admin_auth_header, dataset.id)
+        finally:
+            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{parted}"))
+            await test_db_session.commit()
+
+    async def test_a_table_with_an_inheritance_child_is_refused_and_skipped(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        child = f"{dataset.table_name}_child"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{child} () INHERITS (data.{dataset.table_name})")
+        )
+        await test_db_session.commit()
+        try:
+            await self._refused(client, admin_auth_header, dataset.id)
+            await self._skipped(test_db_session, dataset)
+        finally:
+            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{child}"))
+            await test_db_session.commit()
+
+    async def test_a_foreign_table_child_is_refused(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        server = f"ret_files_{uuid.uuid4().hex[:8]}"
+        child = f"{dataset.table_name}_files"
+        await test_db_session.execute(text("CREATE EXTENSION IF NOT EXISTS file_fdw"))
+        await test_db_session.execute(
+            text(f"CREATE SERVER {server} FOREIGN DATA WRAPPER file_fdw")
+        )
+        await test_db_session.execute(
+            text(
+                f"CREATE FOREIGN TABLE data.{child} () "
+                f"INHERITS (data.{dataset.table_name}) SERVER {server} "
+                "OPTIONS (filename '/dev/null', format 'csv')"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            await self._refused(client, admin_auth_header, dataset.id)
+        finally:
+            await test_db_session.execute(text(f"DROP SERVER {server} CASCADE"))
+            await test_db_session.commit()
+
+    async def test_a_child_attached_mid_batch_keeps_its_rows_and_their_referrers(
+        self, seed, test_db_session, monkeypatch
+    ):
+        """Holds without the inheritance recheck: the batch deletes FROM ONLY."""
+        dataset = await self._layer(seed, test_db_session)
+        table = dataset.table_name
+        child, referrer = f"{table}_late", f"{table}_late_ref"
+        real_delete = retention._delete_batch
+        attached = False
+
+        async def attach_then_delete(session, window, after, limit):
+            nonlocal attached
+            if not attached:
+                attached = True
+                for sql in (
+                    f"CREATE TABLE data.{child} () INHERITS (data.{table})",
+                    f"ALTER TABLE data.{child} ADD PRIMARY KEY (gid)",
+                    f"INSERT INTO data.{child} (gid, seen_at, name) "
+                    f"VALUES (900001, now() - interval '400 days', 'child_old')",
+                    f"CREATE TABLE data.{referrer} (id serial PRIMARY KEY, "
+                    f"child_gid integer REFERENCES data.{child}(gid) "
+                    "ON DELETE CASCADE)",
+                    f"INSERT INTO data.{referrer} (child_gid) VALUES (900001)",
+                ):
+                    await _commit_elsewhere(sql, {})
+            return await real_delete(session, window, after, limit)
+
+        monkeypatch.setattr(retention, "_delete_batch", attach_then_delete)
+        try:
+            await retention.prune_expired_rows(now=NOW)
+
+            assert (
+                await test_db_session.scalar(
+                    text(f"SELECT count(*) FROM ONLY data.{child}")
+                )
+                == 1
+            )
+            assert (
+                await test_db_session.scalar(
+                    text(f"SELECT count(*) FROM data.{referrer}")
+                )
+                == 1
+            )
+        finally:
+            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{referrer}"))
+            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{child}"))
+            await test_db_session.commit()
+
+    async def test_a_before_delete_trigger_is_refused_and_skipped(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        keep = f"data.ret_keep_{uuid.uuid4().hex[:8]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE FUNCTION {keep}() RETURNS trigger LANGUAGE plpgsql "
+                "AS $$ BEGIN RETURN NULL; END $$"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"CREATE TRIGGER keep_rows BEFORE DELETE ON data.{dataset.table_name} "
+                f"FOR EACH ROW EXECUTE FUNCTION {keep}()"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            await self._refused(client, admin_auth_header, dataset.id)
+            await self._skipped(test_db_session, dataset)
+        finally:
+            await test_db_session.execute(text(f"DROP FUNCTION {keep}() CASCADE"))
+            await test_db_session.commit()
+
+    async def test_a_delete_rule_is_refused(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        await test_db_session.execute(
+            text(
+                f"CREATE RULE keep_rows AS ON DELETE TO data.{dataset.table_name} "
+                "DO INSTEAD NOTHING"
+            )
+        )
+        await test_db_session.commit()
+        await self._refused(client, admin_auth_header, dataset.id)
+
+    async def test_an_after_delete_trigger_still_prunes(self, seed, test_db_session):
+        dataset = await self._layer(seed, test_db_session)
+        note = f"data.ret_note_{uuid.uuid4().hex[:8]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE FUNCTION {note}() RETURNS trigger LANGUAGE plpgsql "
+                "AS $$ BEGIN RETURN OLD; END $$"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"CREATE TRIGGER note_rows AFTER DELETE ON data.{dataset.table_name} "
+                f"FOR EACH ROW EXECUTE FUNCTION {note}()"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
+            assert await _names(test_db_session, dataset) == {"recent"}
+        finally:
+            await test_db_session.execute(text(f"DROP FUNCTION {note}() CASCADE"))
             await test_db_session.commit()
 
 
