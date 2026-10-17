@@ -246,7 +246,7 @@ client would:
 pip install geolens-cli                               # needs Python 3.11+
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
-export GEOLENS_API_KEY=<your-api-key>                 # create one on your Settings page
+export GEOLENS_API_KEY="paste-your-api-key-here"      # create one on your Settings page
 curl -H "X-Api-Key: $GEOLENS_API_KEY" \
   "http://localhost:8080/api/collections/<dataset-id>/items?limit=5"
 ```
