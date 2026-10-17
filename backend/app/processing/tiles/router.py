@@ -930,8 +930,14 @@ async def _refuse_unseen_raster_lookup(
         return
     if user is None:
         _refuse_unseen_tile(request)
-    dataset = await get_processing_port().get_dataset(db, dataset_id)
-    if dataset is not None:
+    port = get_processing_port()
+    dataset = await port.get_dataset(db, dataset_id)
+    if dataset is None:
+        return
+    # The permission extension is asked about a public dataset too: what the
+    # lookup found is for readers only, whatever the tile routes serve.
+    await port.check_dataset_access(db, dataset, dataset_id, user)
+    if dataset.record.visibility == "public":
         await _check_raster_reader(db, dataset_id, user, dataset.record, dataset)
 
 

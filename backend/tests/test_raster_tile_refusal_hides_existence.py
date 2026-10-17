@@ -222,3 +222,27 @@ async def test_a_reader_keeps_the_specific_lookup_detail(
         resp = await client.get(_tile_url(non_raster_ids[name]), headers=headers)
         assert resp.status_code == 404, (name, resp.text)
         assert resp.json()["detail"] == detail, (name, resp.text)
+
+
+async def test_a_denying_permission_extension_hides_the_lookup_detail(
+    client: AsyncClient, admin_auth_header: dict, non_raster_ids, monkeypatch
+) -> None:
+    """An overlay that denies the caller decides, public datasets included."""
+    import app.platform.extensions as extensions
+
+    class _DenyEveryone:
+        async def can_access_dataset(self, *args, **kwargs):
+            return False
+
+    monkeypatch.setitem(extensions._extensions, "permission", _DenyEveryone())
+    ids = {**non_raster_ids, "missing": uuid.uuid4()}
+
+    answers = {
+        name: _answer(
+            await client.get(_tile_url(dataset_id), headers=admin_auth_header)
+        )
+        for name, dataset_id in ids.items()
+    }
+
+    assert all(answer == answers["missing"] for answer in answers.values()), answers
+    assert answers["missing"][1]["detail"] == "Dataset not found", answers
