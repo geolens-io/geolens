@@ -139,14 +139,16 @@ away, the imported dataset keeps working from GeoLens's copy.
 ## Use the data from anywhere
 
 Every vector dataset is an OGC API Features collection, the catalog itself is OGC API Records
-and STAC, and every layer has a tile URL. Try it against the demo, no install or account needed:
+and STAC, and every layer has a tile URL. Try it against the demo, no install or account needed (the
+second command uses `jq`):
 
 ```sh
 # Search the catalog (OGC API Records)
-curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcano"
+curl "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions"
 
-# Read a dataset with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
-curl -G "https://demo.getgeolens.com/api/collections/3b549894-ad65-4fbf-8fe1-9a163a8e8215/items" \
+# Read the top match with a CQL2 filter (OGC API Features): eruptions of VEI 6 or larger
+ID=$(curl -s "https://demo.getgeolens.com/api/collections/datasets/items?q=volcanic%20eruptions&limit=1" | jq -r '.features[0].id')
+curl -G "https://demo.getgeolens.com/api/collections/$ID/items" \
   --data-urlencode "filter=vei >= 6" -d limit=3
 ```
 
@@ -269,9 +271,9 @@ The [API reference](https://docs.getgeolens.com/guides/api/) and the
 
 ## Private by design
 
-- **No telemetry.** Apart from the default basemap tiles, GeoLens makes outbound calls only for
-  features an administrator turns on. [EGRESS.md](EGRESS.md) lists each one and how to run
-  air-gapped.
+- **No telemetry.** Apart from the default basemap tiles and the remote services and STAC
+  sources your users choose to register, GeoLens makes outbound calls only for features an
+  administrator turns on. [EGRESS.md](EGRESS.md) lists each one and how to run air-gapped.
 - **Your data stays readable without GeoLens.** Vector datasets are ordinary PostGIS tables in a
   `data` schema of your database, rasters are Cloud-Optimized GeoTIFFs in your own storage (local
   disk, S3/MinIO or Azure Blob), and the whole catalog exports through OGC API, STAC and DCAT.
