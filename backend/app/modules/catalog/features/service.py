@@ -792,14 +792,22 @@ _UNTRUSTED_VOLATILE = (
 )
 
 # Shapes that let the insert run user code beyond column defaults, type input
-# and trusted index support functions: a CHECK constraint, row security, a
-# domain or composite column (directly or as an array element, whose CHECKs
-# and casts reach further), and an index operator class with an untrusted
-# volatile function.
+# and trusted index support functions: a CHECK or outgoing foreign key (whose
+# check runs the referenced side's operators and indexes), row security, a
+# table access method other than heap, an index access method neither built
+# in nor from an extension, a domain or composite column (directly or as an
+# array element, whose CHECKs and casts reach further), and an index operator
+# class with an untrusted volatile function.
 _USER_CODE = (
     "EXISTS (SELECT 1 FROM pg_constraint con "
-    "WHERE con.contype = 'c' AND con.conrelid = c.oid) "
+    "WHERE con.contype IN ('c', 'f') AND con.conrelid = c.oid) "
     "OR c.relrowsecurity "
+    "OR NOT EXISTS (SELECT 1 FROM pg_am am "
+    "WHERE am.oid = c.relam AND am.amname = 'heap' AND am.oid < 16384) "
+    "OR EXISTS (SELECT 1 FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid "
+    "WHERE i.indrelid = c.oid AND ic.relam >= 16384 AND NOT EXISTS ("
+    "SELECT 1 FROM pg_depend e WHERE e.classid = 'pg_am'::regclass "
+    "AND e.objid = ic.relam AND e.deptype = 'e')) "
     "OR EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_type ty ON ty.oid = a.atttypid "
     "LEFT JOIN pg_type el ON el.oid = ty.typelem "
     "WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "

@@ -173,10 +173,12 @@ def sync_detailed(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
-    security off, no domain or composite columns, and no index operator class
-    with a volatile function, since those could run code with effects outside
-    the transaction. Any other dataset is refused with 409. The insert still
+    with no enabled user trigger or rule on INSERT, no CHECK constraint or
+    outgoing foreign key, row security off, the heap access method and
+    built-in or extension index access methods, no domain or composite
+    columns, and no index operator class with a volatile function, since
+    those could run code with effects outside the transaction. Any other dataset is refused with 409.
+    The insert still
     runs column defaults, type input functions and index support functions,
     volatile defaults included, so a dry run can consume sequence values and
     stored ids can have gaps.
@@ -230,10 +232,12 @@ def sync(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
-    security off, no domain or composite columns, and no index operator class
-    with a volatile function, since those could run code with effects outside
-    the transaction. Any other dataset is refused with 409. The insert still
+    with no enabled user trigger or rule on INSERT, no CHECK constraint or
+    outgoing foreign key, row security off, the heap access method and
+    built-in or extension index access methods, no domain or composite
+    columns, and no index operator class with a volatile function, since
+    those could run code with effects outside the transaction. Any other dataset is refused with 409.
+    The insert still
     runs column defaults, type input functions and index support functions,
     volatile defaults included, so a dry run can consume sequence values and
     stored ids can have gaps.
@@ -281,10 +285,12 @@ async def asyncio_detailed(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
-    security off, no domain or composite columns, and no index operator class
-    with a volatile function, since those could run code with effects outside
-    the transaction. Any other dataset is refused with 409. The insert still
+    with no enabled user trigger or rule on INSERT, no CHECK constraint or
+    outgoing foreign key, row security off, the heap access method and
+    built-in or extension index access methods, no domain or composite
+    columns, and no index operator class with a volatile function, since
+    those could run code with effects outside the transaction. Any other dataset is refused with 409.
+    The insert still
     runs column defaults, type input functions and index support functions,
     volatile defaults included, so a dry run can consume sequence values and
     stored ids can have gaps.
@@ -336,10 +342,12 @@ async def asyncio(
     `tile_cache_version`.
 
     A dry run is only available for a dataset stored in an ordinary table
-    with no enabled user trigger or rule on INSERT, no CHECK constraint, row
-    security off, no domain or composite columns, and no index operator class
-    with a volatile function, since those could run code with effects outside
-    the transaction. Any other dataset is refused with 409. The insert still
+    with no enabled user trigger or rule on INSERT, no CHECK constraint or
+    outgoing foreign key, row security off, the heap access method and
+    built-in or extension index access methods, no domain or composite
+    columns, and no index operator class with a volatile function, since
+    those could run code with effects outside the transaction. Any other dataset is refused with 409.
+    The insert still
     runs column defaults, type input functions and index support functions,
     volatile defaults included, so a dry run can consume sequence values and
     stored ids can have gaps.

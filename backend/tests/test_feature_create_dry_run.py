@@ -540,9 +540,10 @@ async def test_only_an_insert_rule_that_fires_refuses_a_dry_run(
 
 
 _USER_CODE_REFUSAL = (
-    "A dry run is only available for a table without check constraints, row "
-    "security, domain or composite columns, or index operator classes with "
-    "volatile functions, since a dry run cannot undo their effects."
+    "A dry run is only available for a table without check constraints, "
+    "foreign keys, row security, custom access methods, domain or composite "
+    "columns, or index operator classes with volatile functions, since a dry "
+    "run cannot undo their effects."
 )
 
 
@@ -555,6 +556,25 @@ def _user_code_ddl(kind: str, t: str) -> tuple[list[str], list[str]]:
         ], []
     if kind == "row-security":
         return [f"ALTER TABLE data.{t} ENABLE ROW LEVEL SECURITY"], []
+    if kind == "foreign-key":
+        return [
+            f"CREATE TABLE data.{t}_ref (id int PRIMARY KEY)",
+            f"ALTER TABLE data.{t} ADD COLUMN ref int REFERENCES data.{t}_ref (id)",
+        ], [f"DROP TABLE data.{t}_ref"]
+    if kind == "table-access-method":
+        # A copy of heap under another name is neither built in nor an extension's.
+        return [
+            f"CREATE ACCESS METHOD {t}_heap TYPE TABLE HANDLER heap_tableam_handler",
+            f"ALTER TABLE data.{t} SET ACCESS METHOD {t}_heap",
+        ], [f"DROP ACCESS METHOD {t}_heap"]
+    if kind == "index-access-method":
+        return [
+            f"CREATE ACCESS METHOD {t}_bt TYPE INDEX HANDLER bthandler",
+            f"CREATE OPERATOR CLASS data.{t}_btops FOR TYPE text USING {t}_bt AS "
+            "OPERATOR 1 <, OPERATOR 2 <=, OPERATOR 3 =, OPERATOR 4 >=, "
+            "OPERATOR 5 >, FUNCTION 1 bttextcmp(text, text)",
+            f"CREATE INDEX ON data.{t} USING {t}_bt (name data.{t}_btops)",
+        ], [f"DROP ACCESS METHOD {t}_bt CASCADE"]
     if kind in ("domain", "domain-array"):
         suffix = "[]" if kind == "domain-array" else ""
         return [
@@ -578,6 +598,7 @@ def _user_code_ddl(kind: str, t: str) -> tuple[list[str], list[str]]:
             f"DROP OPERATOR FAMILY data.{t}_ops USING btree CASCADE",
             f"DROP FUNCTION data.{t}_cmp(text, text)",
         ]
+    assert kind == "opclass-operator", kind
     return [
         f"CREATE FUNCTION data.{t}_eq(text, text) RETURNS boolean LANGUAGE sql "
         "VOLATILE AS 'SELECT $1 = $2'",
@@ -606,7 +627,10 @@ async def teardown_ddl(test_db_session, point_layer):
     "kind",
     [
         "check",
+        "foreign-key",
         "row-security",
+        "table-access-method",
+        "index-access-method",
         "domain",
         "domain-array",
         "composite",
@@ -650,21 +674,47 @@ async def test_a_check_refuses_a_collection_dry_run_on_either_path(
     assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
 
 
-async def test_a_plain_table_with_a_gist_index_and_a_serial_id_allows_a_dry_run(
+async def test_a_plain_table_with_built_in_and_postgis_indexes_allows_a_dry_run(
     client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
 ):
-    """Built-in and PostGIS operator classes are trusted, volatile or not."""
+    """Built-in and PostGIS operator classes and access methods are trusted."""
     dataset_id, table_name = point_layer
     await _ddl(
         test_db_session,
         f"CREATE INDEX ON data.{table_name} USING gist (geom)",
-        f"CREATE INDEX ON data.{table_name} USING gist (geom_4326)",
+        f"CREATE INDEX ON data.{table_name} USING spgist (geom_4326)",
+        f"CREATE INDEX ON data.{table_name} USING brin (gid)",
+        f"CREATE INDEX ON data.{table_name} USING hash (status)",
         f"CREATE INDEX ON data.{table_name} (name)",
     )
 
     resp = await client.post(
         _dry(dataset_id), json=_feature(POINT_A, name="a"), headers=admin_auth_header
     )
+
+    assert resp.status_code == 200, resp.text
+
+
+async def test_an_index_access_method_from_an_extension_allows_a_dry_run(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+):
+    dataset_id, table_name = point_layer
+    await _ddl(
+        test_db_session,
+        "CREATE EXTENSION IF NOT EXISTS bloom",
+        f"CREATE INDEX {table_name}_bloom ON data.{table_name} USING bloom (gid)",
+    )
+    try:
+        resp = await client.post(
+            _dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header
+        )
+    finally:
+        await test_db_session.rollback()
+        await _ddl(
+            test_db_session,
+            f"DROP INDEX data.{table_name}_bloom",
+            "DROP EXTENSION bloom",
+        )
 
     assert resp.status_code == 200, resp.text
 

@@ -42,15 +42,16 @@ and releases use semantic versioning.
   an `id`. The request stores no feature and leaves the catalog entry, the
   tile cache and the audit log as they were. Dry runs are available for
   datasets stored in an ordinary table with no enabled user trigger or rule on
-  INSERT, no CHECK constraint, row security off, no domain or composite
-  columns, and no index operator class with a volatile function outside an
-  installed extension, since those could run code a rollback can't undo. Any
-  other dataset is refused with 409. The insert still runs column defaults,
-  type input functions and index support functions, volatile defaults
-  included, so a dry run can consume sequence values and stored ids may have
-  gaps. A `dataset_write` key may dry-run its own dataset, as it may write it.
-  The create route and its SDK methods are unchanged; the SDKs gain a separate
-  dry-run method.
+  INSERT, no CHECK constraint or outgoing foreign key, row security off, the
+  heap access method and built-in or extension index access methods, no domain
+  or composite columns, and no index operator class with a volatile function
+  outside an installed extension, since those could run code a rollback can't
+  undo. Any other dataset is refused with 409. The insert still runs column
+  defaults, type input functions and index support functions, volatile
+  defaults included, so a dry run can consume sequence values and stored ids
+  may have gaps. A `dataset_write` key may dry-run its own dataset, as it may
+  write it. The create route and its SDK methods are unchanged; the SDKs gain
+  a separate dry-run method.
 - The Create Dataset dialog offers a Timestamp column type. It creates the
   same `timestamp with time zone` column as adding a timestamp column to an
   existing dataset, and `POST /datasets/create/` now accepts `timestamp` as a
