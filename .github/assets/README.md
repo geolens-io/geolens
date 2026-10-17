@@ -31,9 +31,8 @@ posts and older release notes link to them, so they stay until nothing does.
 search, terrain and Ask AI shots. Terrain is built by default.
 
 ```bash
-python scripts/seed-showcase.py \
-  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
-  --password "$GEOLENS_ADMIN_PASSWORD"
+# The script reads GEOLENS_ADMIN_PASSWORD from the environment.
+python scripts/seed-showcase.py --username "${GEOLENS_ADMIN_USERNAME:-admin}"
 ```
 
 Search by meaning needs an embedding provider and **Admin → Settings → AI → Semantic
