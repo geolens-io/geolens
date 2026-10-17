@@ -132,12 +132,12 @@ async def _emit_billing_event(
     """Dispatch a billable usage event to registered BillingExtensions (METER-01).
 
     Imports ONLY ``get_billing_extensions`` from ``app.platform.extensions`` —
-    zero billing/stripe symbols enter core; no-op in OSS/
+    zero billing/stripe symbols enter core (T-1213-06); no-op in OSS/
     single_tenant since ``DefaultBillingExtension`` has no ``on_usage_event``.
     Each extension call is wrapped in try/except that logs and continues:
-    a failing billing extension must never fail an ingest task.
+    a failing billing extension must never fail an ingest task (T-1213-05).
     ``tenant_id`` comes from the worker's ``current_tenant_var`` (set by
-    middleware), never client input.
+    middleware), never client input (T-1213-07 spoofing).
 
     Args:
         tenant_id: None (single_tenant, or context unset) returns immediately.
@@ -1647,7 +1647,7 @@ async def install_candidate_table(
         raise ValueError("Restoring the previous version needs a holding name")
 
     # Tenant schema for this ingest: same schema for every table renamed
-    # (the RENAMEs must stay intra-schema so they are atomic DDL).
+    # (T-1209-07: the RENAMEs must stay intra-schema so they are atomic DDL).
     _tenant_schema = _current_tenant_schema()
 
     def _q(name: str) -> str:

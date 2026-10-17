@@ -180,7 +180,9 @@ async def _check_cold_rehydrate(
             table_name=table_name,
             tenant_id=tenant_id,
         )
-    except Exception:  # broad: cold-check failure must NEVER fail a tile response
+    except (
+        Exception
+    ):  # broad: cold-check failure must NEVER fail a tile response (T-1214-17)
         logger.warning(
             "cold_rehydrate_check_failed",
             table_name=table_name,
@@ -1318,7 +1320,7 @@ async def raster_tile_proxy(
     except (ValueError, TypeError):
         band_count = 1
 
-    # Belt-and-suspenders runtime allowlist check (Literal provides
+    # T-1140-01: belt-and-suspenders runtime allowlist check (Literal provides
     # FastAPI-level validation; this guard catches any code path that bypasses it).
     if colormap_name is not None and colormap_name not in _ALLOWED_COLORMAPS:
         raise HTTPException(
