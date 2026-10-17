@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="frontend/public/app-icon-dark.png" alt="GeoLens-Logo: eine Lupe über einem Globus mit Fadenkreuzmarkierungen" width="96">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-emblem-dark.svg">
+    <img src=".github/assets/geolens-emblem.svg" alt="GeoLens-Logo: eine Lupe über einem Globus mit Fadenkreuzmarkierungen" width="96">
+  </picture>
 </p>
 
 <h1 align="center">GeoLens</h1>
@@ -63,7 +66,7 @@ melden Sie sich mit Google, GitHub oder Microsoft an. Demodaten können jederzei
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
 <img src=".github/assets/geolens-dataset-page.png" alt="Die Datensatzseite zu Atlantic Hurricane Tracks: Sturmbahnen in der Kartenvorschau, Markierungen für Vektor, hochgeladen, Quelle aktuell, veröffentlicht und öffentlich sowie Feature-Anzahl, Geometrie, KBS, Version und Spaltenanzahl" width="100%">
 </picture>
-<br><sub>Jeder Datensatz hat eine Seite mit Kartenvorschau, Metadaten, Attributen und Angaben zu seiner Herkunft.</sub>
+<br><sub>Jeder Datensatz hat eine Seite mit seinen Metadaten und seiner Quelle, dazu eine Kartenvorschau, wenn er eine Ausdehnung hat.</sub>
 </td>
 </tr>
 <tr>
@@ -79,7 +82,7 @@ melden Sie sich mit Google, GitHub oder Microsoft an. Demodaten können jederzei
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
 <img src=".github/assets/geolens-version-history.png" alt="Der „Versionsverlauf“ des Datensatzes Significant Volcanic Eruptions: drei GeoJSON-Versionen mit Datum, Dateiname und Feature-Anzahl, die aktuelle markiert, und eine Schaltfläche „Wiederherstellen“ bei der vorherigen Version" width="100%">
 </picture>
-<br><sub>Wird ein Datensatz ersetzt, bleiben die alten Versionen erhalten, und Sie können die vorherige wiederherstellen.</sub>
+<br><sub>Jedes Ersetzen wird im Verlauf festgehalten, und Sie können die vorherige Version wiederherstellen.</sub>
 </td>
 </tr>
 <tr>
