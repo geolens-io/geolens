@@ -616,20 +616,27 @@ class Api:
         )
         r.raise_for_status()
         job = r.json()["job_id"]
-        self.client.post(
+        preview = self.client.post(
             f"{self.base}/api/datasets/{dataset_id}/reupload/{job}/preview",
             headers=self.h,
-        ).raise_for_status()
-        self.reupload_commit(dataset_id, job)
+        )
+        preview.raise_for_status()
+        self.reupload_commit(dataset_id, job, preview.json().get("review_fingerprint"))
         self.poll(job)
 
-    def reupload_commit(self, dataset_id: str, job_id: str) -> None:
+    def reupload_commit(
+        self, dataset_id: str, job_id: str, review_fingerprint: str | None = None
+    ) -> None:
         """Commit a staged reupload. Shared by the file and the service paths -
-        both stage into the same job and swap through the same door."""
+        both stage into the same job and swap through the same door.
+
+        The server holds a run that has review reasons unless the commit echoes
+        the preview's fingerprint; the seed's own diff print is its review."""
+        body = {"review_fingerprint": review_fingerprint} if review_fingerprint else {}
         self.client.post(
             f"{self.base}/api/datasets/{dataset_id}/reupload/{job_id}/commit",
             headers=self.h,
-            json={},
+            json=body,
         ).raise_for_status()
 
     # --- live service bindings -------------------------------------------------
@@ -1263,7 +1270,7 @@ def convert_to_service(
     body = service_binding_body(api, service_url)
     staged = api.service_reupload_preview(dataset_id, body)
     _print_schema_diff(staged["schema_diff"])
-    api.reupload_commit(dataset_id, staged["job_id"])
+    api.reupload_commit(dataset_id, staged["job_id"], staged.get("review_fingerprint"))
     api.poll(staged["job_id"], timeout=timeout)
     return True
 
