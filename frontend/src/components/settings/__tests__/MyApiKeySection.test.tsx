@@ -311,4 +311,16 @@ describe('API key expiry', () => {
     expect(screen.getByText('admin:apiKeys.expired')).toBeInTheDocument();
     expect(screen.queryByText('admin:apiKeys.active')).not.toBeInTheDocument();
   });
+
+  it('gives an expired key the inactive status dot', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ expires_at: '2020-01-01T00:00:00Z' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    const { container } = render(<MyApiKeySection />);
+
+    expect(container.querySelector('span.rounded-full.bg-destructive')).toBeInTheDocument();
+    expect(container.querySelector('span.rounded-full.bg-success')).not.toBeInTheDocument();
+  });
 });

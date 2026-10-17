@@ -92,4 +92,12 @@ describe('ApiKeySection expiry', () => {
     expect(screen.getAllByText('apiKeys.expired').length).toBeGreaterThan(0);
     expect(screen.getByText(/apiKeys\.expiredOn/)).toBeInTheDocument();
   });
+
+  it('gives an expired key the inactive status dot', () => {
+    listing([makeKey({ expires_at: '2020-01-01T00:00:00Z' })]);
+    const { container } = render(<ApiKeySection userId="u1" />);
+
+    expect(container.querySelector('span.rounded-full.bg-destructive')).toBeInTheDocument();
+    expect(container.querySelector('span.rounded-full.bg-success')).not.toBeInTheDocument();
+  });
 });

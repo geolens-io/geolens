@@ -88,14 +88,14 @@ export function MyApiKeySection() {
       </div>
 
       {showCreateForm && (
-        <form onSubmit={handleCreate} className="flex items-center gap-2">
+        <form onSubmit={handleCreate} className="flex flex-wrap items-center gap-2">
           <FieldLabel htmlFor="api-key-name-input">{t('admin:apiKeys.keyName')}</FieldLabel>
           <Input
             id="api-key-name-input"
             value={keyName}
             onChange={(e) => setKeyName(e.target.value)}
             placeholder={t('admin:apiKeys.keyName')}
-            className="h-8 text-sm"
+            className="h-8 min-w-48 flex-1 text-sm"
             // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional: user just clicked "create" to open this form
             autoFocus
           />
@@ -160,7 +160,7 @@ export function MyApiKeySection() {
                   )}
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${
-                      activeDotColor[String(key.is_active) as keyof typeof activeDotColor]
+                      activeDotColor[String(key.is_active && !expired) as keyof typeof activeDotColor]
                     }`}
                     aria-hidden="true"
                   />
