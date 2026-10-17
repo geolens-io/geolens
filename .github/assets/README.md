@@ -7,30 +7,28 @@ tooling* out of this public repo (see "Where the tooling lives" below).
 
 ## Current set
 
-The README hero at full width, then an eight-tile tour in a two-column table,
-each tile at half width. The five `capture:readme` shots are 1600×900 sources. Use PNG for UI shots (crisp text) and JPG for photographic 3D terrain
-(smaller). Files with a `-dark` sibling are light/dark pairs wired into the
-README via `<picture>` + `prefers-color-scheme` so GitHub serves the right
-variant per theme.
+`README.md` shows six images, each next to the claim it supports. All are 1600×900
+except the provenance crop. The browser shots come in light and dark pairs wired
+through `<picture>` + `prefers-color-scheme`, so GitHub serves the variant that
+matches the reader's theme. Use PNG for UI shots (crisp text) and JPG for maps
+and terrain (smaller).
 
-| File | Beat | Shows | Subject (live seeded stack) |
+| File | Section | Shows | Subject |
 | --- | --- | --- | --- |
-| `geolens-manhattan-3d-hero.jpg` | Hero | Manhattan footprints extruded to roof height, colored by era, with the layer editor open | **Manhattan - A Century of Skyline** map, Buildings (3D) layer selected |
-| `geolens-search.png` | Find | Semantic search: "tallest peaks in Europe" finds the Matterhorn terrain model with zero word overlap | Public catalog (logged out), search `tallest peaks in Europe` (1 result) |
-| `geolens-dataset.png` | Inspect | Dataset map preview + typed metadata over a dense point cloud | **Significant Volcanic Eruptions** dataset detail (900 points, NOAA NCEI) |
-| `source-panel-service.png` | Source state | Source panel of a WFS import: owned copy, health inaccessible, freshness overdue, schema drift detected | Fixture dataset `sample` from `data.example.test`; a capture from the seeded stack would read better |
-| `geolens-dataset-chat{,-dark}.png` | Ask your data | Dataset Q&A in natural language: question -> answer + result table -> open in builder | **Meteorite Landings** detail, Ask AI: "How many meteorites were seen falling versus found later?" |
-| `geolens-matterhorn-terrain.jpg` | Build | Matterhorn 3D terrain mesh + layer stack + legend | **The Matterhorn in 3D** map |
-| `geolens-ai-labels.png` | Ask AI | AI editing a map in natural language | **Restless Earth** map, Ask AI: "Label the volcanoes with their names" |
-| `geolens-admin-overview{,-dark}.png` | Operate | Admin overview: live health panel, dataset/storage totals, AI status | Admin -> Overview, seeded demo users |
-| `geolens-admin-users{,-dark}.png` | Users | Admin user management: roles, status, quotas, CSV export | Admin -> Users, seeded demo users; also used as a stable public URL in announcement posts |
+| `geolens-manhattan-3d-hero{,-dark}.jpg` | Hero | Manhattan's buildings extruded to roof height, colored by era, with the subway | **Manhattan - A Century of Skyline** map in the builder |
+| `geolens-catalog-search{,-dark}.png` | One catalog | Search by meaning with origin and freshness badges | Public catalog, signed out, search `where storms hit the coast` |
+| `geolens-provenance{,-dark}.png` | Provenance | Source tab of a live service import: owned copy, refresh and check times, Healthy, Fresh, No drift | A dataset imported from the USGS Recent Earthquakes ArcGIS service, update frequency set to daily, after one refresh and one source check |
+| `geolens-matterhorn-terrain{,-dark}.jpg` | Maps | Matterhorn 3D terrain mesh, layer stack, legend | **The Matterhorn in 3D** map at its saved camera |
+| `geolens-qgis.png` | Use the data | QGIS 4 reading the demo over OGC API Features, with the connection open in the Browser panel | `https://demo.getgeolens.com/api/` with Recent Earthquakes, Significant Volcanic Eruptions, Tectonic Plate Boundaries and World Countries loaded |
+| `geolens-ask-ai{,-dark}.png` | AI | Dataset Q&A with a count table, the stated assumption and Open in builder | **Major Hurricane Tracks** dataset, Ask AI: `How many of these hurricanes made landfall?` |
+
+The other images here are not in `README.md`. The translated READMEs, announcement
+posts and older release notes link to them, so they stay until nothing does.
 
 ## Seeding the data
 
-`scripts/seed-showcase.py` builds the showcase maps behind the Hero (Manhattan),
-Build (Matterhorn), and Ask AI (Restless Earth) shots, plus the catalog datasets
-the Find and Inspect shots use (the earthquake / volcanic-eruption datasets and
-Meteorite Landings). Terrain is built by default.
+`scripts/seed-showcase.py` builds the showcase maps and datasets behind the hero,
+search, terrain and Ask AI shots. Terrain is built by default.
 
 ```bash
 python scripts/seed-showcase.py \
@@ -38,36 +36,25 @@ python scripts/seed-showcase.py \
   --password "$GEOLENS_ADMIN_PASSWORD"
 ```
 
+Search by meaning needs an embedding provider and **Admin → Settings → AI → Semantic
+Search** turned on. The provenance shot needs a dataset imported from a live
+service (the Service URL tab of the import page), so it shows a real refresh and
+source check.
+
 ## Reproducing the shots
 
-The canonical recipe is now automated. From a checkout of the private
-getgeolens.com site repo, sitting next to this one, against a live seeded stack:
+The 2026-10-16 set was captured by hand against a fresh, seeded stack: Playwright
+at a 1600×900 viewport, once with `prefers-color-scheme: light` and once with
+`dark`, and the search shot from a signed-out browser context. The QGIS shot comes
+from a PyQGIS script run with `--code` that adds the connection and layers and
+saves `iface.mainWindow().grab()`, downscaled from 2x.
 
-```bash
-cd ../getgeolens.com
-GEOLENS_ADMIN_PASSWORD="$GEOLENS_ADMIN_PASSWORD" npm run capture:readme
-# writes the original 5 images straight into this folder (GEOLENS_REPO_DIR, default ../geolens)
-```
+The private getgeolens.com site repo also has an automated recipe,
+`npm run capture:readme`, that writes straight into this folder. It still
+captures the previous framing (the hero with the layer editor open and the older
+search), so don't run it over this set until it is updated.
 
-The 2026-07-21 additions (`geolens-dataset-chat`, `geolens-admin-overview`,
-`geolens-admin-users`, light + dark pairs at 1200×750) were captured against the
-local seeded stack with demo users seeded for the admin views; they are not yet
-part of the automated `capture:readme` target list.
-
-Then review the `git diff` here before committing — these images are public.
-
-Two shots need a human eye after every run:
-
-- **Ask AI** performs a real, non-deterministic AI edit that *mutates* the
-  Restless Earth map. Re-seed to reset it; a second run against an
-  already-labeled map is expected to fall back to the plain map.
-- **Matterhorn** framing rides that map's saved camera (`jumpTo` ≈
-  `{ center: [7.66, 45.97], zoom: 13.7, pitch: 60, bearing: -122 }`; the builder
-  caps pitch at 60°). Adjust the saved map, not the script, to reframe.
-
-The three content shots (Find / Inspect / Ask AI panel) are deterministic — they
-are the ones that drift with catalog data, which is exactly what the automated
-recipe keeps in parity with the marketing site.
+Review the `git diff` here before committing; these images are public.
 
 ## Keeping the committed files intact
 
@@ -87,14 +74,10 @@ the gate fails on an unpinned file rather than ignoring it.
 
 ## Capture notes
 
-- The recipe captures at 1600×900; the README renders the hero at full width
-  and tour tiles at half width.
-  The five `capture:readme` shots are committed at exactly that size
-  (recaptured 2026-08-15), and `check-readme-assets.mjs` pins them there.
-  Optionally strip/optimize before committing (e.g. `magick in.png -strip out.png`;
-  JPG at quality ~88 for terrain).
-- These images are public. Keep them free of private/draft dataset titles,
-  internal hostnames, and PII.
+- Keep the images free of private or draft dataset titles, internal hostnames and
+  personal data. A throwaway stack seeded from scratch is the easiest way.
+- Optionally strip metadata before committing (`magick in.png -strip out.png`;
+  JPG at quality ~88 for maps and terrain).
 
 ## Where the tooling lives
 

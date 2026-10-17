@@ -50,33 +50,32 @@ const assetDir = path.join(repoRoot, '.github/assets');
 // silently blessed. Clear a `capturedAt` by recapturing and updating
 // `width`/`height` to match it in the same commit.
 const README_ASSETS = {
-  // --- The five targets of getgeolens.com/scripts/capture-readme.ts ---------
-  // Recaptured 2026-08-15 at the recipe's declared 1600x900, clearing the
-  // `capturedAt` deficit this gate carried since it landed (the previous
-  // committed files were 1200x750/800 downscales of an older, differently
-  // shaped hand capture — see this file's git history for the forensics).
+  // --- Shown in README.md, captured at 1600x900 ----------------------------
+  // Light and dark pairs, except QGIS, which has one theme. The provenance
+  // shot is cropped to the Source panel.
   'geolens-manhattan-3d-hero.jpg': { width: 1600, height: 900 },
+  'geolens-manhattan-3d-hero-dark.jpg': { width: 1600, height: 900 },
+  'geolens-catalog-search.png': { width: 1600, height: 900 },
+  'geolens-catalog-search-dark.png': { width: 1600, height: 900 },
+  'geolens-provenance.png': { width: 1600, height: 872 },
+  'geolens-provenance-dark.png': { width: 1600, height: 872 },
+  'geolens-matterhorn-terrain.jpg': { width: 1600, height: 900 },
+  'geolens-matterhorn-terrain-dark.jpg': { width: 1600, height: 900 },
+  'geolens-qgis.png': { width: 1600, height: 900 },
+  'geolens-ask-ai.png': { width: 1600, height: 900 },
+  'geolens-ask-ai-dark.png': { width: 1600, height: 900 },
+
+  // --- Not in README.md; linked from the translations or announcements -----
   'geolens-search.png': { width: 1600, height: 900 },
   'geolens-dataset.png': { width: 1600, height: 900 },
-  'geolens-matterhorn-terrain.jpg': { width: 1600, height: 900 },
   'geolens-ai-labels.png': { width: 1600, height: 900 },
-
-  // --- Hand-captured, added 2026-07-23 (#659) ------------------------------
-  // Not part of capture-readme.ts's target list; .github/assets/README.md
-  // documents them at 1200x750, which is what is on disk. 1200 is exactly the
-  // sanitizer's cap, so they are already immune to it — pinned here to catch
-  // replacement and deletion.
   'geolens-dataset-chat.png': { width: 1200, height: 750 },
   'geolens-dataset-chat-dark.png': { width: 1200, height: 750 },
   'geolens-admin-overview.png': { width: 1200, height: 750 },
   'geolens-admin-overview-dark.png': { width: 1200, height: 750 },
   'geolens-admin-users.png': { width: 1200, height: 750 },
   'geolens-admin-users-dark.png': { width: 1200, height: 750 },
-
-  // --- Source-panel crops, added 2026-08-08 (#1279, #1280) -----------------
-  // These are the ones currently AT RISK: 1232 > 1200, so a single Read on any
-  // of the three would shrink it to 1200 wide. That is the immediate value of
-  // this gate.
+  // Wider than the sanitizer's 1200px cap, so one Read would shrink them.
   'source-panel-service.png': { width: 1232, height: 522 },
   'source-panel-vrt.png': { width: 1232, height: 619 },
   'source-state-dataset-header.png': { width: 1232, height: 116 },
