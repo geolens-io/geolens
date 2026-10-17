@@ -99,7 +99,7 @@ export function useImportConfig() {
       // without manage_users. That operator reaches config-ops with canReadStatus
       // false, mounts maps.aiAvailability, and owns the entry this line invalidates.
       // Community deployments use DefaultPermissionExtension, which does read the
-      // stored matrix, which is exactly why the line looks dead by default. See the
+      // stored matrix, which is exactly why the line looks dead by default.
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.aiStatus });
       queryClient.invalidateQueries({ queryKey: queryKeys.maps.aiAvailability });
 
