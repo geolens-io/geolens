@@ -244,7 +244,8 @@ Einstellung auf.
 Veröffentlichen Sie die Beispieldatei mit der CLI und lesen Sie sie dann über OGC API Features zurück:
 
 ```sh
-pipx install geolens-cli                              # needs Python 3.11+
+python3 -m venv .venv && . .venv/bin/activate         # needs Python 3.11+
+pip install geolens-cli
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 export GEOLENS_API_KEY="paste-your-api-key-here"      # create one on your Settings page
@@ -264,9 +265,10 @@ herunter, darunter eine Reliefdatei von rund 466 MB und 62 Geländekacheln; `--n
 auf. Verwenden Sie Ihren eigenen Admin-Benutzernamen, falls Sie ihn geändert haben.
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install httpx  # the seed script needs Python 3.10+
+python3 -m venv .venv && . .venv/bin/activate         # the same virtualenv as above
+pip install httpx
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  .venv/bin/python scripts/seed-showcase.py --username admin
+  python scripts/seed-showcase.py --username admin
 ```
 
 Die [API-Referenz](https://docs.getgeolens.com/guides/api/) und die
