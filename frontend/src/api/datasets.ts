@@ -12,6 +12,8 @@ import type {
   DatasetResponse,
   DatasetRowsResponse,
   DatasetUpdateRequest,
+  DatasetRetention,
+  DatasetRetentionResponse,
   AuditLogListResponse,
   ReuploadResponse,
   ReuploadServicePreviewRequest,
@@ -153,6 +155,19 @@ export async function updateDataset(
   return apiFetch<DatasetResponse>(`/datasets/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
+  });
+}
+
+/** Set or clear (null) a feature dataset's retention; a dry run only counts the rows it would delete. */
+export async function setDatasetRetention(
+  id: string,
+  retention: DatasetRetention | null,
+  { dryRun = false }: { dryRun?: boolean } = {},
+): Promise<DatasetRetentionResponse> {
+  const query = dryRun ? '?dry_run=true' : '';
+  return apiFetch<DatasetRetentionResponse>(`/datasets/${encodeURIComponent(id)}/retention/${query}`, {
+    method: 'PUT',
+    body: JSON.stringify({ retention }),
   });
 }
 

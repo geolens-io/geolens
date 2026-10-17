@@ -217,8 +217,12 @@
       "metadataEdit": "元数据已更新",
       "datasetDelete": "数据集已删除",
       "datasetCreate": "数据集已创建",
-      "datasetTransferOwner": "所有者已变更"
-    }
+      "datasetTransferOwner": "所有者已变更",
+      "datasetRetentionPrune": "保留期限清理"
+    },
+    "retentionPruned_one": "已删除 {{formattedCount}} 行",
+    "retentionPruned_other": "已删除 {{formattedCount}} 行",
+    "retentionPruned_many": "已删除 {{formattedCount}} 行"
   },
   "versionHistory": {
     "title": "版本历史",
@@ -1248,5 +1252,29 @@
     "noKeys": "此数据集没有写入密钥。",
     "loadError": "无法加载此数据集的写入密钥。",
     "revokeKey": "撤销 {{name}}"
+  },
+  "retention": {
+    "title": "保留期限",
+    "description": "行超过设定天数后即被删除。日期列中没有值的行会保留。旧行每小时删除一次。",
+    "statusOn_one": "按 {{column}} 保留最近 {{count}} 天的行。",
+    "statusOn_other": "按 {{column}} 保留最近 {{count}} 天的行。",
+    "statusOn_many": "按 {{column}} 保留最近 {{count}} 天的行。",
+    "statusOff": "已关闭。保留所有行。",
+    "noTemporalColumns": "此数据集没有日期或时间戳列，因此无法使用保留期限。",
+    "columnLabel": "日期列",
+    "columnPlaceholder": "选择列",
+    "daysLabel": "保留天数",
+    "daysHint": "1 到 3650 之间的整数。",
+    "save": "保存",
+    "saving": "正在保存…",
+    "turnOff": "关闭",
+    "saved": "保留期限已保存",
+    "turnedOff": "保留期限已关闭",
+    "saveFailed": "无法保存保留期限",
+    "confirmTitle": "删除旧行？",
+    "confirmDescription_one": "{{formattedCount}} 行早于 {{cutoff}}，将在一小时内删除，且无法撤销。",
+    "confirmDescription_other": "{{formattedCount}} 行早于 {{cutoff}}，将在一小时内删除，且无法撤销。",
+    "confirmDescription_many": "{{formattedCount}} 行早于 {{cutoff}}，将在一小时内删除，且无法撤销。",
+    "confirmAction": "删除并保存"
   }
 }

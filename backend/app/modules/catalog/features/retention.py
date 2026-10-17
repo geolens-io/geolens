@@ -1,0 +1,289 @@
+"""Delete a feature dataset's rows once they fall out of its retention window.
+
+A dataset with retention keeps the rows whose retention column is no older
+than its last ``retention_days`` days; a row where that column is null is
+kept. A run deletes older rows in batches of ``BATCH_ROWS`` by ascending gid,
+committing each batch, so no transaction holds a large share of a table's row
+locks. After a dataset's last batch its feature count and extent are
+recomputed, its tile cache version rolls and one audit row records the run.
+A timestamp without time zone is read as UTC.
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+
+import structlog
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db.tenant_schema import tenant_data_schema
+from app.core.db.tenant_session import current_tenant_var
+from app.core.record_types import capabilities
+from app.modules.audit.service import AuditEvent, audit_emit
+from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.schemas import DatasetRetention
+from app.modules.catalog.datasets.domain.service import get_dataset
+from app.modules.catalog.features.service import refresh_dataset_metadata
+from app.platform.catalog_locks import (
+    CatalogLockConflict,
+    record_live_data_write,
+    worker_lock_budget,
+)
+from app.platform.extensions import get_catalog_port
+
+logger = structlog.get_logger(__name__)
+
+BATCH_ROWS = 5000
+# Per dataset per run; a larger backlog drains over later runs.
+RUN_BATCHES = 20
+SETTLE_ATTEMPTS = 3
+
+TEMPORAL_TYPES = frozenset(
+    {"date", "timestamp with time zone", "timestamp without time zone"}
+)
+# The name is spliced into SQL in double quotes, so only plain names qualify.
+_PLAIN_COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+_GID_FLOOR = -(2**63)
+
+_COLUMN_TYPE = text(
+    "SELECT a.atttypid::regtype::text FROM pg_attribute a "
+    "WHERE a.attrelid = to_regclass(format('%I.%I', "
+    "CAST(:schema AS text), CAST(:table AS text))) "
+    "AND a.attname = :column AND a.attnum > 0 AND NOT a.attisdropped"
+)
+
+
+class RetentionRefused(ValueError):
+    """A retention setting the dataset cannot take."""
+
+
+@dataclass(frozen=True)
+class _Window:
+    table_name: str
+    column: str
+    days: int
+    cutoff: datetime | date
+
+
+def is_feature_dataset(dataset: Dataset) -> bool:
+    """Whether the dataset has a feature table with geometry, as feature writes need."""
+    return (
+        capabilities(dataset.record.record_type).feature_table
+        and dataset.geometry_type is not None
+    )
+
+
+async def column_type(
+    session: AsyncSession, table_name: str, column: str
+) -> str | None:
+    """The type of ``column`` in the dataset's live table, None when it is absent."""
+    if not _PLAIN_COLUMN.match(column):
+        return None
+    return await session.scalar(
+        _COLUMN_TYPE,
+        {
+            "schema": tenant_data_schema(current_tenant_var.get()),
+            "table": table_name,
+            "column": column,
+        },
+    )
+
+
+def cutoff_for(now: datetime, days: int, type_name: str) -> datetime | date:
+    """The value a row's column must be older than to be deleted."""
+    instant = now.astimezone(timezone.utc) - timedelta(days=days)
+    if type_name == "date":
+        return instant.date()
+    if type_name == "timestamp without time zone":
+        return instant.replace(tzinfo=None)
+    return instant
+
+
+async def check_retention(
+    session: AsyncSession, dataset: Dataset, retention: DatasetRetention
+) -> datetime | date:
+    """Refuse a setting the dataset can't take; return its cutoff as of now."""
+    if not is_feature_dataset(dataset):
+        raise RetentionRefused("Retention applies only to datasets with features.")
+    type_name = await column_type(session, dataset.table_name, retention.column)
+    if type_name is None:
+        raise RetentionRefused(f"Column {retention.column!r} does not exist.")
+    if type_name not in TEMPORAL_TYPES:
+        raise RetentionRefused(
+            f"Column {retention.column!r} is {type_name}; retention needs a "
+            "date or timestamp column."
+        )
+    return cutoff_for(datetime.now(timezone.utc), retention.days, type_name)
+
+
+async def count_rows_past(
+    session: AsyncSession, table_name: str, column: str, cutoff: datetime | date
+) -> int:
+    """Rows whose ``column`` is older than ``cutoff``. The caller checked ``column``."""
+    quoted = get_catalog_port().quote_table(table_name)
+    sql = f'SELECT count(*) FROM {quoted} WHERE "{column}" < :cutoff'
+    # codeql[py/sql-injection] column matched _PLAIN_COLUMN and exists in the table; table via quote_table; cutoff is bound
+    return await session.scalar(text(sql), {"cutoff": cutoff})
+
+
+async def _window(
+    session: AsyncSession, dataset_id: uuid.UUID, now: datetime
+) -> _Window | None:
+    """The dataset's retention as stored now, or None when nothing is to be deleted."""
+    dataset = await get_dataset(session, dataset_id)
+    if dataset is None or dataset.retention_column is None:
+        return None
+    if dataset.retention_days is None or not is_feature_dataset(dataset):
+        return None
+    type_name = await column_type(session, dataset.table_name, dataset.retention_column)
+    if type_name not in TEMPORAL_TYPES:
+        logger.warning(
+            "dataset_retention_column_unusable",
+            dataset_id=str(dataset_id),
+            column=dataset.retention_column,
+            column_type=type_name,
+        )
+        return None
+    return _Window(
+        dataset.table_name,
+        dataset.retention_column,
+        dataset.retention_days,
+        cutoff_for(now, dataset.retention_days, type_name),
+    )
+
+
+async def _delete_batch(
+    session: AsyncSession, window: _Window, after: int, limit: int
+) -> list[int]:
+    quoted = get_catalog_port().quote_table(window.table_name)
+    sql = (
+        f"DELETE FROM {quoted} WHERE gid IN (SELECT gid FROM {quoted} "
+        f'WHERE "{window.column}" < :cutoff AND gid > CAST(:after AS bigint) '
+        "ORDER BY gid LIMIT :limit FOR UPDATE SKIP LOCKED) RETURNING gid"
+    )
+    params = {"cutoff": window.cutoff, "after": after, "limit": limit}
+    async with worker_lock_budget(session):
+        # codeql[py/sql-injection] column matched _PLAIN_COLUMN and exists in the table; table via quote_table; values are bound
+        result = await session.execute(text(sql), params)
+    return list(result.scalars())
+
+
+async def _settle(dataset_id: uuid.UUID, deleted: int, window: _Window) -> None:
+    """Recompute count and extent, roll the tile version and audit the run."""
+    from app.core.db import async_session
+
+    for attempt in range(SETTLE_ATTEMPTS):
+        async with async_session() as session:
+            dataset = await get_dataset(session, dataset_id)
+            if dataset is None:
+                return
+            try:
+                await refresh_dataset_metadata(session, dataset)
+            except CatalogLockConflict:
+                if attempt + 1 == SETTLE_ATTEMPTS:
+                    raise
+                continue
+            await audit_emit(
+                session,
+                AuditEvent(
+                    user_id=None,
+                    action="dataset.retention_prune",
+                    resource_type="dataset",
+                    resource_id=dataset_id,
+                    details={
+                        "deleted": deleted,
+                        "column": window.column,
+                        "retention_days": window.days,
+                        "cutoff": window.cutoff.isoformat(),
+                    },
+                ),
+            )
+            await record_live_data_write(session, dataset)
+            await session.commit()
+            return
+
+
+async def prune_dataset(
+    dataset_id: uuid.UUID,
+    *,
+    now: datetime,
+    batch_rows: int = BATCH_ROWS,
+    max_batches: int = RUN_BATCHES,
+) -> int:
+    """Delete up to ``max_batches`` batches of the dataset's expired rows.
+
+    Each batch re-reads the setting, so turning retention off stops a run
+    after the batch in flight. Rows another transaction holds are skipped
+    until a later run. Returns the number deleted.
+    """
+    from app.core.db import async_session
+
+    deleted = 0
+    after = _GID_FLOOR
+    last_window: _Window | None = None
+    try:
+        for _ in range(max_batches):
+            async with async_session() as session:
+                window = await _window(session, dataset_id, now)
+                if window is None:
+                    break
+                gids = await _delete_batch(session, window, after, batch_rows)
+                await session.commit()
+            if gids:
+                deleted += len(gids)
+                last_window = window
+                after = max(gids)
+            if len(gids) < batch_rows:
+                break
+    finally:
+        # Also after a failed batch, for the batches already committed.
+        if deleted and last_window is not None:
+            await _settle(dataset_id, deleted, last_window)
+    return deleted
+
+
+async def prune_expired_rows(
+    *,
+    now: datetime | None = None,
+    batch_rows: int = BATCH_ROWS,
+    max_batches: int = RUN_BATCHES,
+) -> dict[uuid.UUID, int]:
+    """Run retention for every dataset in the current tenant scope that has it.
+
+    Returns the number of rows deleted per dataset that lost any.
+    """
+    from app.core.db import async_session
+
+    now = now or datetime.now(timezone.utc)
+    async with async_session() as session:
+        dataset_ids = list(
+            await session.scalars(
+                select(Dataset.id)
+                .where(Dataset.retention_days.is_not(None))
+                .order_by(Dataset.id)
+            )
+        )
+    pruned: dict[uuid.UUID, int] = {}
+    for dataset_id in dataset_ids:
+        try:
+            deleted = await prune_dataset(
+                dataset_id, now=now, batch_rows=batch_rows, max_batches=max_batches
+            )
+        except Exception:  # broad: one dataset's failure must not stop the rest
+            logger.warning(
+                "dataset_retention_failed", dataset_id=str(dataset_id), exc_info=True
+            )
+            continue
+        if deleted:
+            pruned[dataset_id] = deleted
+    if pruned:
+        logger.info(
+            "dataset_retention_run",
+            datasets=len(pruned),
+            deleted=sum(pruned.values()),
+        )
+    return pruned

@@ -344,6 +344,49 @@ class RestorePreviousVersionResponse(BaseModel):
     run_id: uuid.UUID
 
 
+RETENTION_MAX_DAYS = 3650
+
+
+class DatasetRetention(BaseModel):
+    """Keep only the rows from the last `days` days, judged by `column`."""
+
+    column: str = Field(
+        max_length=63,
+        description=(
+            "A date or timestamp column of the dataset's table. Rows where it "
+            "is null are kept."
+        ),
+    )
+    days: int = Field(ge=1, le=RETENTION_MAX_DAYS)
+
+    @field_validator("column")
+    @classmethod
+    def validate_column(cls, v: str) -> str:
+        if not _COLUMN_NAME_RE.match(v):
+            raise ValueError("column must be a plain column name")
+        return v
+
+
+class DatasetRetentionUpdate(BaseModel):
+    """The retention setting to store; null turns retention off."""
+
+    retention: DatasetRetention | None
+
+
+class DatasetRetentionResponse(BaseModel):
+    retention: DatasetRetention | None
+    rows_past_cutoff: int = Field(
+        description=(
+            "Rows currently older than the cutoff, which the next retention "
+            "run deletes. 0 when retention is off."
+        )
+    )
+    cutoff: datetime | None = Field(
+        default=None,
+        description="Rows older than this are past retention; null when off.",
+    )
+
+
 class DatasetResponse(BaseModel):
     id: uuid.UUID
     record_id: uuid.UUID = Field(description="Parent catalog record UUID")
@@ -418,6 +461,10 @@ class DatasetResponse(BaseModel):
             "Ordered vector-tile property allowlist; null uses zoom defaults, "
             "[] emits geometry-only tiles, list emits those properties at any zoom."
         ),
+    )
+    retention: DatasetRetention | None = Field(
+        default=None,
+        description="How long rows are kept; null keeps every row.",
     )
     original_srid: int | None = Field(
         default=None, description="EPSG SRID of the uploaded source file"

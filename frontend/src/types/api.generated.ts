@@ -2750,6 +2750,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datasets/{dataset_id}/retention/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Dataset Retention
+         * @description Set or clear how many days of rows a feature dataset keeps.
+         *
+         *     The worker deletes rows whose retention column is older than the cutoff on
+         *     its next hourly run; rows where it is null are kept. `rows_past_cutoff`
+         *     counts what that run would delete as of now. The instance's dataset
+         *     editing switch does not apply: this is the owner's setting, not an edit.
+         */
+        put: operations["set_dataset_retention_datasets__dataset_id__retention__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/reupload": {
         parameters: {
             query?: never;
@@ -8604,6 +8629,8 @@ export interface components {
              * @description Ordered vector-tile property allowlist; null uses zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
              */
             tile_columns?: string[] | null;
+            /** @description How long rows are kept; null keeps every row. */
+            retention?: components["schemas"]["DatasetRetention"] | null;
             /**
              * Original Srid
              * @description EPSG SRID of the uploaded source file
@@ -8771,6 +8798,40 @@ export interface components {
             metadata_warnings?: string[] | null;
             /** @description The data the last replacement or restore replaced, which POST /previous-version/restore publishes again. Set on the detail endpoint only; null elsewhere and when there is none. */
             previous_version?: components["schemas"]["PreviousVersionResponse"] | null;
+        };
+        /**
+         * DatasetRetention
+         * @description Keep only the rows from the last `days` days, judged by `column`.
+         */
+        DatasetRetention: {
+            /**
+             * Column
+             * @description A date or timestamp column of the dataset's table. Rows where it is null are kept.
+             */
+            column: string;
+            /** Days */
+            days: number;
+        };
+        /** DatasetRetentionResponse */
+        DatasetRetentionResponse: {
+            retention: components["schemas"]["DatasetRetention"] | null;
+            /**
+             * Rows Past Cutoff
+             * @description Rows currently older than the cutoff, which the next retention run deletes. 0 when retention is off.
+             */
+            rows_past_cutoff: number;
+            /**
+             * Cutoff
+             * @description Rows older than this are past retention; null when off.
+             */
+            cutoff?: string | null;
+        };
+        /**
+         * DatasetRetentionUpdate
+         * @description The retention setting to store; null turns retention off.
+         */
+        DatasetRetentionUpdate: {
+            retention: components["schemas"]["DatasetRetention"] | null;
         };
         /** DatasetRowsResponse */
         DatasetRowsResponse: {
@@ -28686,6 +28747,118 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DatasetRelationshipResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    set_dataset_retention_datasets__dataset_id__retention__put: {
+        parameters: {
+            query?: {
+                /** @description Check the setting and count its rows without saving it. */
+                dry_run?: boolean;
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasetRetentionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetRetentionResponse"];
                 };
             };
             /** @description Bad request — invalid payload */

@@ -7,6 +7,7 @@ import {
   getDataset,
   getDatasetRows,
   updateDataset,
+  setDatasetRetention,
   setTargetStatus,
   deleteDataset,
   getDatasetHistory,
@@ -27,6 +28,7 @@ import type {
   CreateDatasetRequest,
   DatasetOrigin,
   DatasetUpdateRequest,
+  DatasetRetention,
   AttributeMetadataUpdate,
   ReuploadServicePreviewRequest,
   DatasetRefreshRunResponse,
@@ -99,6 +101,21 @@ export function useUpdateDataset() {
       // quality-score badge reflects the freshly-computed value.
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
       if (variables.data.visibility !== undefined) invalidateTileTokens(qc, variables.datasetId);
+    },
+  });
+}
+
+export function useSetDatasetRetention() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ datasetId, retention, dryRun }: {
+      datasetId: string;
+      retention: DatasetRetention | null;
+      dryRun?: boolean;
+    }) => setDatasetRetention(datasetId, retention, { dryRun }),
+    onSuccess: (_data, variables) => {
+      if (variables.dryRun) return;
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
     },
   });
 }

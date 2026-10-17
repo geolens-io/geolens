@@ -15,6 +15,7 @@ import { SourcePanel, type BlockedRunToAccept } from '../SourcePanel';
 import { REFRESHABLE_ORIGINS, SourceRefreshAction } from '../SourceRefreshAction';
 import { datasetOrigin } from '../OriginBadge';
 import { AccessTab } from '../tabs/AccessTab';
+import { RetentionCard } from '../RetentionCard';
 
 interface DetailPanelProps {
   dataset: DatasetResponse;
@@ -169,6 +170,8 @@ export function DetailPanel(props: DetailPanelProps) {
             capability={capabilities.theme_category}
             gatedByDeployment={canEdit && !canEditData}
           />
+          {/* An owner's setting, not a data edit, so the editing switch does not gate it. */}
+          <RetentionCard dataset={dataset} canEdit={canEdit} />
         </TabsContent>
       )}
 

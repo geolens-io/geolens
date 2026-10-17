@@ -1,0 +1,160 @@
+import { render, screen, waitFor } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
+import { RetentionCard } from '@/components/dataset/RetentionCard';
+import { setDatasetRetention } from '@/api/datasets';
+import type { DatasetResponse } from '@/types/api';
+
+vi.mock('@/api/datasets', () => ({
+  setDatasetRetention: vi.fn(),
+}));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
+function feed(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
+  return {
+    id: 'ds-1',
+    title: 'Device feed',
+    record_type: 'vector_dataset',
+    geometry_type: 'POINT',
+    column_info: [
+      { name: 'seen_at', type: 'timestamp with time zone' },
+      { name: 'label', type: 'text' },
+    ],
+    retention: { column: 'seen_at', days: 30 },
+    ...overrides,
+  } as DatasetResponse;
+}
+
+beforeEach(() => {
+  vi.mocked(setDatasetRetention).mockReset();
+});
+
+describe('RetentionCard', () => {
+  it('shows only to someone who can edit a feature dataset', () => {
+    const { unmount } = render(<RetentionCard dataset={feed()} canEdit={false} />);
+    expect(screen.queryByText('Retention')).not.toBeInTheDocument();
+    unmount();
+
+    const raster = render(<RetentionCard dataset={feed({ record_type: 'raster_dataset' })} canEdit />);
+    expect(screen.queryByText('Retention')).not.toBeInTheDocument();
+    raster.unmount();
+
+    const noGeometry = render(<RetentionCard dataset={feed({ record_type: 'table', geometry_type: null })} canEdit />);
+    expect(screen.queryByText('Retention')).not.toBeInTheDocument();
+    noGeometry.unmount();
+
+    render(<RetentionCard dataset={feed()} canEdit />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Retention' })).toBeInTheDocument();
+    expect(screen.getByTestId('retention-status')).toHaveTextContent(
+      'Keeping the last 30 days of rows, judged by seen_at.',
+    );
+  });
+
+  it('offers no form when the dataset has no temporal column', () => {
+    render(
+      <RetentionCard
+        dataset={feed({ retention: null, column_info: [{ name: 'label', type: 'text' }] })}
+        canEdit
+      />,
+    );
+
+    expect(screen.getByText(/no date or timestamp column/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  });
+
+  it('asks before saving a setting that deletes rows now, showing how many', async () => {
+    const user = userEvent.setup();
+    vi.mocked(setDatasetRetention)
+      .mockResolvedValueOnce({
+        retention: { column: 'seen_at', days: 7 },
+        rows_past_cutoff: 12345,
+        cutoff: '2026-10-10T12:00:00Z',
+      })
+      .mockResolvedValueOnce({
+        retention: { column: 'seen_at', days: 7 },
+        rows_past_cutoff: 12345,
+        cutoff: '2026-10-10T12:00:00Z',
+      });
+    render(<RetentionCard dataset={feed()} canEdit />);
+
+    const days = screen.getByLabelText('Days to keep');
+    await user.clear(days);
+    await user.type(days, '7');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('12,345 rows are older than');
+    expect(setDatasetRetention).toHaveBeenCalledTimes(1);
+    expect(setDatasetRetention).toHaveBeenCalledWith('ds-1', { column: 'seen_at', days: 7 }, { dryRun: true });
+
+    await user.click(screen.getByRole('button', { name: 'Delete and save' }));
+
+    await waitFor(() => expect(setDatasetRetention).toHaveBeenCalledTimes(2));
+    expect(setDatasetRetention).toHaveBeenLastCalledWith(
+      'ds-1',
+      { column: 'seen_at', days: 7 },
+      { dryRun: undefined },
+    );
+  });
+
+  it('saves without asking when no row is past the cutoff', async () => {
+    const user = userEvent.setup();
+    vi.mocked(setDatasetRetention).mockResolvedValue({
+      retention: { column: 'seen_at', days: 60 },
+      rows_past_cutoff: 0,
+      cutoff: '2026-08-18T12:00:00Z',
+    });
+    render(<RetentionCard dataset={feed()} canEdit />);
+
+    const days = screen.getByLabelText('Days to keep');
+    await user.clear(days);
+    await user.type(days, '60');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(setDatasetRetention).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('cancelling the confirmation saves nothing', async () => {
+    const user = userEvent.setup();
+    vi.mocked(setDatasetRetention).mockResolvedValue({
+      retention: { column: 'seen_at', days: 7 },
+      rows_past_cutoff: 1,
+      cutoff: '2026-10-10T12:00:00Z',
+    });
+    render(<RetentionCard dataset={feed()} canEdit />);
+
+    const days = screen.getByLabelText('Days to keep');
+    await user.clear(days);
+    await user.type(days, '7');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('1 row is older than');
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(setDatasetRetention).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns retention off without a confirmation', async () => {
+    const user = userEvent.setup();
+    vi.mocked(setDatasetRetention).mockResolvedValue({ retention: null, rows_past_cutoff: 0, cutoff: null });
+    render(<RetentionCard dataset={feed()} canEdit />);
+
+    await user.click(screen.getByRole('button', { name: 'Turn off' }));
+
+    await waitFor(() => expect(setDatasetRetention).toHaveBeenCalledWith('ds-1', null, { dryRun: undefined }));
+  });
+
+  it('refuses a days value outside 1 to 3650', async () => {
+    const user = userEvent.setup();
+    render(<RetentionCard dataset={feed()} canEdit />);
+
+    const days = screen.getByLabelText('Days to keep');
+    await user.clear(days);
+    await user.type(days, '3651');
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(days).toHaveAttribute('aria-invalid', 'true');
+  });
+});

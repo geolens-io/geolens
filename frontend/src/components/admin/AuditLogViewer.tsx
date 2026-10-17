@@ -88,6 +88,7 @@ const CURRENT_AUDIT_ACTIONS = [
   'dataset.pointcloud_read',
   'dataset.previous_version_dropped',
   'dataset.restore',
+  'dataset.retention_prune',
   'dataset.transfer_owner',
   'dataset.view',
   'embed_token.bulk_revoke',

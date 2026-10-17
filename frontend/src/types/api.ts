@@ -124,6 +124,10 @@ export type DatasetResponse = Omit<
 export type RestorePreviousVersionResponse =
   components['schemas']['RestorePreviousVersionResponse'];
 
+export type DatasetRetention = components['schemas']['DatasetRetention'];
+
+export type DatasetRetentionResponse = components['schemas']['DatasetRetentionResponse'];
+
 export type DatasetListResponse = components['schemas']['DatasetListResponse'];
 
 export type CreateDatasetRequest = components['schemas']['CreateEmptyDatasetRequest'];

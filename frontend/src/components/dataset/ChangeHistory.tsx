@@ -15,10 +15,11 @@ const actionLabelKeys: Record<string, string> = {
   'dataset.delete': 'changeHistory.actions.datasetDelete',
   'dataset.create': 'changeHistory.actions.datasetCreate',
   'dataset.transfer_owner': 'changeHistory.actions.datasetTransferOwner',
+  'dataset.retention_prune': 'changeHistory.actions.datasetRetentionPrune',
 };
 
 export function ChangeHistory({ datasetId }: ChangeHistoryProps) {
-  const { t } = useTranslation('dataset');
+  const { t, i18n } = useTranslation('dataset');
   const { data, isLoading, isError } = useDatasetHistory(datasetId, 0, 20);
 
   function getActionLabel(action: string): string {
@@ -28,6 +29,12 @@ export function ChangeHistory({ datasetId }: ChangeHistoryProps) {
 
   function formatDetails(log: AuditLogResponse): string | null {
     if (!log.details || Object.keys(log.details).length === 0) return null;
+    if (log.action === 'dataset.retention_prune' && typeof log.details.deleted === 'number') {
+      return t('changeHistory.retentionPruned', {
+        count: log.details.deleted,
+        formattedCount: log.details.deleted.toLocaleString(i18n.language),
+      });
+    }
     if (log.action === 'metadata.edit') {
       return t('changeHistory.changedFields', { fields: Object.keys(log.details).join(', ') });
     }
