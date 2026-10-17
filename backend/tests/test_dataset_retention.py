@@ -442,9 +442,26 @@ class TestSetting:
 
         assert preview.status_code == 200, preview.text
         assert preview.json()["rows_past_cutoff"] == 2
+        assert datetime.fromisoformat(preview.json()["cutoff"]).tzinfo is not None
         test_db_session.expire_all()
         stored = await test_db_session.get(Dataset, dataset.id)
         assert (stored.retention_column, stored.retention_days) == (None, None)
+
+    async def test_a_date_column_dry_run_returns_the_bare_cutoff_date(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, rows=[])
+        body = {"retention": {"column": "seen_on", "days": 30}}
+
+        before = (datetime.now(timezone.utc) - timedelta(days=30)).date()
+        preview = await self._put(
+            client, dataset.id, body, admin_auth_header, dry_run=True
+        )
+        after = (datetime.now(timezone.utc) - timedelta(days=30)).date()
+
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["cutoff"] in {before.isoformat(), after.isoformat()}
 
     async def test_the_owner_saves_and_clears_retention(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session

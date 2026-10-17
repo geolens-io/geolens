@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,10 +34,11 @@ router = APIRouter(
 )
 
 
-def _as_instant(cutoff: datetime | date) -> datetime:
-    if not isinstance(cutoff, datetime):
-        return datetime.combine(cutoff, time.min, tzinfo=timezone.utc)
-    return cutoff if cutoff.tzinfo else cutoff.replace(tzinfo=timezone.utc)
+def _wire_cutoff(cutoff: datetime | date) -> datetime | date:
+    """A date column's cutoff stays a bare date; a naive timestamp's is UTC."""
+    if isinstance(cutoff, datetime) and cutoff.tzinfo is None:
+        return cutoff.replace(tzinfo=timezone.utc)
+    return cutoff
 
 
 @router.put("/{dataset_id}/retention/", response_model=DatasetRetentionResponse)
@@ -100,5 +101,5 @@ async def set_dataset_retention(
     return DatasetRetentionResponse(
         retention=retention,
         rows_past_cutoff=rows_past_cutoff,
-        cutoff=_as_instant(cutoff) if cutoff is not None else None,
+        cutoff=_wire_cutoff(cutoff) if cutoff is not None else None,
     )

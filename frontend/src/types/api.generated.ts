@@ -8822,7 +8822,7 @@ export interface components {
             rows_past_cutoff: number;
             /**
              * Cutoff
-             * @description Rows older than this are past retention; null when off.
+             * @description Rows older than this are past retention: a date for a date column, else a UTC instant. Null when off.
              */
             cutoff?: string | null;
         };

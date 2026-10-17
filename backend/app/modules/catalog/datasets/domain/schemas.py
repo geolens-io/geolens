@@ -381,9 +381,12 @@ class DatasetRetentionResponse(BaseModel):
             "run deletes. 0 when retention is off."
         )
     )
-    cutoff: datetime | None = Field(
+    cutoff: datetime | date | None = Field(
         default=None,
-        description="Rows older than this are past retention; null when off.",
+        description=(
+            "Rows older than this are past retention: a date for a date "
+            "column, else a UTC instant. Null when off."
+        ),
     )
 
 
