@@ -606,9 +606,15 @@ async def export_dataset_endpoint(
     # Every in-app write to a table GeoLens owns rolls tile_cache_version or
     # the title, both in the selection key. A registered table can change in
     # place by direct SQL, and a `where` filter can resolve against the clock
-    # ('now', 'today'); only the TTL bounds either.
-    bytes_follow_key = where is None and geolens_owns_table(
-        dataset.source_format, dataset.record.record_type, dataset.origin_ref
+    # ('now', 'today'); only the TTL bounds either. Parquet only: ogr2ogr reads
+    # a PostGIS layer in heap order, which an UPDATE or synchronized scan moves.
+    bytes_follow_key = (
+        where is None
+        and parquet_plan is not None
+        and parquet_plan.has_gid
+        and geolens_owns_table(
+            dataset.source_format, dataset.record.record_type, dataset.origin_ref
+        )
     )
     del dataset
     await db.rollback()
@@ -687,6 +693,7 @@ async def export_dataset_endpoint(
                 dataset_title,
                 schema=data_schema,
                 plan=parquet_plan,
+                ordered=bytes_follow_key,
                 # fix(#1778): bound the row stream by the edge window the same
                 # way the ogr2ogr formats below are bounded.
                 deadline=request_deadline,

@@ -140,26 +140,24 @@ def temp_file_response(
     if_range: str | None = None,
     background: BackgroundTask | None = None,
 ) -> Response:
-    """Serve a just-converted file, without letting starlette see the Range.
+    """Serve a just-converted file that wasn't published.
 
-    fix(#1532): replaces ``FileResponse`` when publication doesn't
-    happen — starlette's own Range handling repeats #1532's splice on this
-    degraded path, and its mtime ETag disagreed with the artifact path's.
+    Not ``FileResponse``: starlette's own Range handling would slice a
+    conversion no later request can find, and its mtime ETag disagrees with
+    the artifact path's.
 
-    ``etag`` is the SAME validator the artifact path sends; None when the
-    file couldn't be hashed (no validator beats a wrong one).
-
-    fix(#1532): a matching ``If-Range`` gets a 206 from the local
-    file (export is byte-deterministic); a bare or mismatched one gets the
-    whole file, since this request BUILT it.
+    These bytes are never recorded, so nothing could later tell a resume of
+    them from one of another version: the response says ``Accept-Ranges:
+    none`` and carries no ETag, leaving a client nothing to resume against.
+    ``etag`` (the digest, None when unhashable) only proves an ``If-Range``
+    the client took from an artifact of the same bytes, which gets a 206 from
+    the local file; a bare or mismatched one gets the whole file.
     """
     size = os.path.getsize(file_path)
     headers = {
-        "accept-ranges": "bytes",
+        "accept-ranges": "none",
         "content-disposition": file_response_content_disposition(filename),
     }
-    if etag is not None:
-        headers["etag"] = etag
 
     proven = (
         etag is not None
@@ -168,7 +166,7 @@ def temp_file_response(
     )
     byte_range = parse_byte_range(range_header, size) if proven else None
     if byte_range == RANGE_UNSATISFIABLE:
-        raise _unsatisfiable(size, etag)
+        raise _unsatisfiable(size, None, accept_ranges="none")
     if byte_range is not None:
         start, end = byte_range
         return StreamingResponse(
@@ -190,10 +188,12 @@ def temp_file_response(
     )
 
 
-def _unsatisfiable(size: int, etag: str | None) -> HTTPException:
+def _unsatisfiable(
+    size: int, etag: str | None, *, accept_ranges: str = "bytes"
+) -> HTTPException:
     """The 416, built once for both the stored and the local representation."""
     headers = {
-        "accept-ranges": "bytes",
+        "accept-ranges": accept_ranges,
         # Size is the point of a 416 (how a client learns the real length).
         # No Content-Disposition: this body is a JSON error, not the export.
         "content-range": f"bytes */{size}",

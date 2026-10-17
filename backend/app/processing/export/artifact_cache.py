@@ -49,6 +49,20 @@ _MAX_PUBLISH_SECONDS = 600
 # conversion/ingest and the provider reports no capacity, so this is absolute.
 _BUDGET_BYTES = 8 * 1024 * 1024 * 1024
 
+
+def _exporter_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("geolens-backend")
+    except PackageNotFoundError:
+        return "source"
+
+
+# In every selection key: an upgrade can write different bytes for the same
+# selection, and nothing from before it may vouch for them.
+_EXPORTER_VERSION = _exporter_version()
+
 _last_sweep_at = 0.0
 
 
@@ -126,7 +140,7 @@ def selection_key(
         separators=(",", ":"),
     )
     version_payload = json.dumps(
-        [table_name, dataset_title, tile_cache_version],
+        [table_name, dataset_title, tile_cache_version, _EXPORTER_VERSION],
         separators=(",", ":"),
     )
     url_part = hashlib.sha256(url_payload.encode()).hexdigest()[:20]

@@ -428,6 +428,7 @@ class ParquetExportPlan(NamedTuple):
     where_sql: str
     params: dict
     json_columns: frozenset[str] = frozenset()
+    has_gid: bool = False
 
 
 async def plan_parquet_export(
@@ -459,16 +460,21 @@ async def plan_parquet_export(
     # The driver decodes json into Python objects, and Arrow would give every
     # row a struct slot for every key in the column, so Postgres writes these
     # as JSON text. udt_name is a domain's base type, and _json(b) for arrays.
-    json_columns = frozenset(
+    # The same read says whether gid, which live_columns omits, exists.
+    udt_names = dict(
         (
             await db.execute(
                 text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_schema = :schema AND table_name = :table_name "
-                    "AND udt_name IN ('json', 'jsonb', '_json', '_jsonb')"
+                    "SELECT column_name, udt_name FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = :table_name"
                 ).bindparams(schema=schema, table_name=table_name)
             )
-        ).scalars()
+        ).all()
+    )
+    json_columns = frozenset(
+        name
+        for name, udt in udt_names.items()
+        if udt in ("json", "jsonb", "_json", "_jsonb")
     )
 
     if where is not None:
@@ -521,7 +527,9 @@ async def plan_parquet_export(
             "with a bbox or attribute filter."
         )
 
-    return ParquetExportPlan(attr_names, where_sql, params, json_columns)
+    return ParquetExportPlan(
+        attr_names, where_sql, params, json_columns, "gid" in udt_names
+    )
 
 
 def _approx_bytes(value: object) -> int:
@@ -625,6 +633,7 @@ async def export_parquet(
     schema: str,
     plan: ParquetExportPlan,
     deadline: float | None = None,
+    ordered: bool = False,
 ) -> tuple[str, str, str]:
     """Write the planned selection to a GeoParquet file.
 
@@ -636,12 +645,15 @@ async def export_parquet(
     Rows are written in bounded batches, so memory does not grow with the
     selection.
 
+    ordered: read rows by ``gid`` (the plan must have one), so unchanged data
+        always writes the same bytes; a heap scan's order can move with an
+        UPDATE or a synchronized scan.
     deadline: ``time.monotonic()`` stamp for the whole request. Reuses
         ``export_subprocess_timeout_seconds`` since an unindexed table can
         stream past the edge-proxy window with nothing else to stop it. None
         outside a request.
     """
-    attr_names, where_sql, params, json_columns = plan
+    attr_names, where_sql, params, json_columns, _ = plan
 
     # Selects attribute columns directly (not via to_jsonb) so the async
     # driver returns native Python values and Arrow infers real types; json
@@ -656,6 +668,8 @@ async def export_parquet(
         )
     geom_idx = len(attr_names)
     from_sql = f"FROM {_qtable(table_name, schema=schema)} t WHERE {where_sql}"
+    if ordered:
+        from_sql += " ORDER BY t.gid"
 
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")

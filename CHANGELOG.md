@@ -15,23 +15,28 @@ and releases use semantic versioning.
   Cloudflare loads a versioned path under it, which a CSP source naming one
   file doesn't match, so the browser blocked the beacon and logged a CSP error
   on every page. Installs that set the file URL should switch to the host.
-- Dataset exports keep answering byte ranges with `206` after the cached
+- GeoParquet exports keep answering byte ranges with `206` after the cached
   export expires, as long as the data hasn't changed. A cached export is
   reused for a minute, and a ranged request that arrived after that and
   rebuilt it used to get the whole file back, so DuckDB `read_parquet` fell
-  back to downloading the whole GeoParquet file instead of the footer and the
-  columns a query names. A HEAD after the cache expires also reports the
-  export's length and ETag again, without building it, when the stored copy
-  is the only version that URL has served, since DuckDB reads ranges only
-  after a HEAD gives it a length. When the rebuild produces different bytes,
-  a ranged request still gets the whole new file and the next HEAD reports no
-  length. This covers datasets whose table GeoLens owns. A registered PostGIS
-  table can change outside GeoLens, so its exports behave as before: a
-  rebuild answers ranges with the whole file, and a HEAD after the cache
-  expires reports no length. An export with a `where` filter behaves as
-  before in the same two ways, because a filter such as
-  `event_date = 'today'` can select different rows as time passes. A
-  request whose `If-Range` names the current ETag still gets its range.
+  back to downloading the whole file instead of the footer and the columns a
+  query names. A HEAD after the cache expires also reports the export's
+  length and ETag again, without building it, when the stored copy is the
+  only version that URL has served, since DuckDB reads ranges only after a
+  HEAD gives it a length. GeoParquet exports now read rows in `gid` order, so
+  unchanged data always produces the same file.
+- This applies only where the export's bytes can't change without its cache
+  key changing: a GeoParquet export, with no `where` filter, of a table
+  GeoLens owns. A registered PostGIS table can change outside GeoLens, a
+  filter such as `event_date = 'today'` can select different rows as time
+  passes, and the other formats are written by ogr2ogr, which reads rows in
+  storage order. Those exports behave as before: a rebuild answers a range
+  with the whole file, and a HEAD after the cache expires reports no length.
+  A request whose `If-Range` names the current ETag still gets its range, and
+  upgrading GeoLens starts every export cache afresh.
+- When the export cache can't store a build, the download it sends instead
+  carries `Accept-Ranges: none` and no ETag, so clients don't try to resume
+  it.
 
 ## [1.25.1] - 2026-10-16
 
