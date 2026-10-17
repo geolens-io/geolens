@@ -46,6 +46,27 @@ def test_runbook_does_not_shell_source_env() -> None:
     )
 
 
+# env-value.sh exits 1 with no output when the key is absent from .env, so a bare
+# `VAR="$(scripts/env-value.sh KEY)"` blanks a value supplied only through the
+# environment. Snippets assign through `if _v=...; then VAR="$_v"; fi` instead.
+_UNGUARDED_ENV_VALUE = re.compile(
+    r'^[A-Za-z_][A-Za-z0-9_]*="\$\(scripts/env-value\.sh', re.MULTILINE
+)
+
+
+def test_runbook_env_value_assignments_are_guarded() -> None:
+    assert _UNGUARDED_ENV_VALUE.search(
+        'POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"'
+    )
+    assert not _UNGUARDED_ENV_VALUE.search(
+        'if _v="$(scripts/env-value.sh POSTGRES_DB)"; then POSTGRES_DB="$_v"; fi'
+    )
+    match = _UNGUARDED_ENV_VALUE.search(_read("RUNBOOK.md"))
+    assert match is None, (
+        f"unguarded env-value.sh assignment in RUNBOOK.md: {match.group(0)!r}"
+    )
+
+
 def test_runbook_uses_the_env_value_wrapper_for_postgres_settings() -> None:
     body = _read("RUNBOOK.md")
     assert "scripts/env-value.sh POSTGRES_USER" in body
