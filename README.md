@@ -65,7 +65,7 @@ or Microsoft to use the map builder. Demo data may be wiped at any time.
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
 <img src=".github/assets/geolens-dataset-page.png" alt="The dataset page for Atlantic Hurricane Tracks: storm tracks on a map preview, badges for vector, uploaded, source fresh, published and public, and the feature count, geometry, CRS, version and column count" width="100%">
 </picture>
-<br><sub>Every dataset has a page with a map preview, its metadata, its attributes and where it came from.</sub>
+<br><sub>Each dataset has a page with its metadata and source, plus a map preview when it has an extent.</sub>
 </td>
 </tr>
 <tr>
@@ -81,7 +81,7 @@ or Microsoft to use the map builder. Demo data may be wiped at any time.
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
 <img src=".github/assets/geolens-version-history.png" alt="Version history of the Significant Volcanic Eruptions dataset: three GeoJSON versions with dates, file names and feature counts, the current one marked, and a Restore button on the previous version" width="100%">
 </picture>
-<br><sub>Replacing a dataset keeps the old versions, and you can restore the previous one.</sub>
+<br><sub>Each replacement is recorded in the history, and you can restore the previous version.</sub>
 </td>
 </tr>
 <tr>
