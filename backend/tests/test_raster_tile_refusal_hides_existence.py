@@ -154,3 +154,71 @@ async def test_a_dead_credential_is_refused_with_401_alike(
         assert answers[private] == answers[missing], answers
         assert answers[missing][0] == 401, answers
         assert answers[missing][2] == "Bearer", answers
+
+
+@pytest.fixture
+async def non_raster_ids(test_db_session):
+    """Ids whose raster lookup fails with a detail only an existing id produces."""
+    owner = await get_user_id(test_db_session, settings.geolens_admin_username)
+    private_vector = await create_dataset(
+        test_db_session, created_by=owner, visibility="private"
+    )
+    draft_vector = await create_dataset(
+        test_db_session, created_by=owner, record_status="draft"
+    )
+    private_bare_raster = await create_raster_dataset(
+        test_db_session, created_by=owner, visibility="private"
+    )
+    public_vector = await create_dataset(test_db_session, created_by=owner)
+    return {
+        "private_vector": private_vector.id,
+        "draft_vector": draft_vector.id,
+        "private_bare_raster": private_bare_raster.id,
+        "public_vector": public_vector.id,
+    }
+
+
+async def test_a_stranger_cannot_tell_an_unreadable_non_raster_from_a_missing_id(
+    client: AsyncClient,
+    non_raster_ids,
+    people,  # noqa: F811
+    mint_key,  # noqa: F811
+) -> None:
+    _, stranger_id = people
+    key, _ = await mint_key(stranger_id)
+    headers = {"X-Api-Key": key}
+    ids = {
+        **{k: v for k, v in non_raster_ids.items() if k != "public_vector"},
+        "missing": uuid.uuid4(),
+    }
+
+    answers = {
+        name: _answer(await client.get(_tile_url(dataset_id), headers=headers))
+        for name, dataset_id in ids.items()
+    }
+
+    assert all(answer == answers["missing"] for answer in answers.values()), answers
+    assert answers["missing"][0] == 404, answers
+    assert answers["missing"][1]["detail"] == "Dataset not found", answers
+
+
+async def test_a_reader_keeps_the_specific_lookup_detail(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    non_raster_ids,
+    people,  # noqa: F811
+    mint_key,  # noqa: F811
+) -> None:
+    _, stranger_id = people
+    key, _ = await mint_key(stranger_id)
+    cases = [
+        ("public_vector", {"X-Api-Key": key}, "Not a raster dataset"),
+        ("private_vector", admin_auth_header, "Not a raster dataset"),
+        ("draft_vector", admin_auth_header, "Not a raster dataset"),
+        ("private_bare_raster", admin_auth_header, "No raster asset"),
+    ]
+
+    for name, headers, detail in cases:
+        resp = await client.get(_tile_url(non_raster_ids[name]), headers=headers)
+        assert resp.status_code == 404, (name, resp.text)
+        assert resp.json()["detail"] == detail, (name, resp.text)

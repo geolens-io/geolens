@@ -880,14 +880,48 @@ def _raster_embed_token_refused() -> HTTPException:
     )
 
 
+async def _check_raster_reader(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    user: Identity,
+    facts: Any,
+    dataset: Any = None,
+) -> None:
+    """Raise 404 "Dataset not found" unless ``user`` may read the dataset.
+
+    ``facts`` carries ``visibility``, ``record_status`` and ``created_by``, from
+    the raster metadata snapshot or a dataset's record. ``dataset`` saves a
+    lookup when the caller already holds the row.
+    """
+    port = get_processing_port()
+    if facts.visibility != "public":
+        # Routed through the permission extension rather than an inline policy
+        # mirror, so an overlay that denies the creator still wins here as it
+        # does on the token path.
+        if dataset is None:
+            dataset = await port.get_dataset(db, dataset_id)
+        if dataset is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+        await port.check_dataset_access(db, dataset, dataset_id, user)
+    elif facts.record_status != "published":
+        user_roles = await port.get_user_roles(db, user)
+        if "admin" not in user_roles and facts.created_by != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+
+
 async def _refuse_unseen_raster_lookup(
     request: Request, dataset_id: uuid.UUID, db: AsyncSession, user: Identity | None
 ) -> None:
     """Refuse a failed raster lookup as ``_resolve_raster_access`` refuses access.
 
-    An embed token that does not cover the id, or an anonymous caller, gets
-    the answer a dataset it cannot see gets, so a missing id, a non-raster and
-    a private raster read alike. Returns when the original 404 may stand.
+    A caller who could not read the dataset gets the answer a missing id gets,
+    so "Not a raster dataset" and "No raster asset" reach only an embed token
+    covering the id or a caller with read access. Returns when the original
+    404 may stand.
     """
     embed_token = request.headers.get("X-Embed-Token")
     if embed_token:
@@ -896,6 +930,9 @@ async def _refuse_unseen_raster_lookup(
         return
     if user is None:
         _refuse_unseen_tile(request)
+    dataset = await get_processing_port().get_dataset(db, dataset_id)
+    if dataset is not None:
+        await _check_raster_reader(db, dataset_id, user, dataset.record, dataset)
 
 
 async def _resolve_raster_access(
@@ -922,9 +959,6 @@ async def _resolve_raster_access(
             await _refuse_unseen_raster_lookup(request, dataset_id, db, user)
         capability_declined(request, user, exc)
 
-    visibility = meta.visibility
-    record_status = meta.record_status
-    created_by = meta.created_by
     storage_backend = meta.storage_backend
 
     # Auth priority 1: embed token
@@ -946,34 +980,13 @@ async def _resolve_raster_access(
         # is asking and an unresolvable credential earns the fail-closed 401.
         reject_unresolvable_credentials(request, user)
 
-        if visibility != "public":
-            # Auth priority 3: require authenticated user for non-public datasets
-            if user is None:
+        # Auth priority 3: the caller's own access. Anonymous callers read only
+        # public, published rasters; authenticated non-owners no unpublished one.
+        if user is None:
+            if meta.visibility != "public" or meta.record_status != "published":
                 _refuse_unseen_tile(request)
-
-            # fix(#929): routed through the permission extension rather than an
-            # inline policy mirror, so an overlay that deliberately denies the
-            # creator still wins here as it does on the token path.
-            port = get_processing_port()
-            dataset = await port.get_dataset(db, dataset_id)
-            if dataset is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-                )
-            await port.check_dataset_access(db, dataset, dataset_id, user)
         else:
-            # Public dataset: still block non-published for unauthenticated users
-            if record_status != "published":
-                if user is None:
-                    _refuse_unseen_tile(request)
-                # Authenticated non-owners cannot see unpublished
-                port = get_processing_port()
-                user_roles = await port.get_user_roles(db, user)
-                if "admin" not in user_roles and created_by != user.id:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Dataset not found",
-                    )
+            await _check_raster_reader(db, dataset_id, user, meta)
 
     if meta.members_beyond_audience:
         raise HTTPException(

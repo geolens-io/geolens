@@ -26,8 +26,11 @@ and releases use semantic versioning.
   signature parameters and 403 "Invalid or expired signature" with signature
   parameters that don't authorize, alike for a private raster, an unpublished
   one, a dataset that isn't a raster and an id that doesn't exist. An invalid
-  embed token answers 403 for an id that doesn't exist too. A credential that
-  doesn't resolve still answers 401.
+  embed token answers 403 for an id that doesn't exist too. A signed-in
+  caller who can't read a dataset that isn't a raster, or has no image, gets
+  the same 404 "Dataset not found" as for a missing id, where the raster route
+  said "Not a raster dataset" or "No raster asset". A credential that doesn't
+  resolve still answers 401.
 
 ### Upgrade notes
 
