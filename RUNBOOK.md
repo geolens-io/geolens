@@ -59,7 +59,7 @@ documentation.
 ### Automated backups are on by default
 
 The `backup` service starts with the Compose stack and runs at container start
-and then daily at 02:00 (`BACKUP_SCHEDULE`). Settings, destinations, retention
+and then once a day, at 02:00 unless `BACKUP_SCHEDULE` sets another time. Settings, destinations, retention
 and offsite upload are documented in the
 [Backups & Restore guide](https://docs.getgeolens.com/guides/admin/backups/).
 This section keeps what that guide does not: the recovery limits above and the
