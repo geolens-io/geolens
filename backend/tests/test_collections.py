@@ -618,15 +618,12 @@ class TestCollectionExtent:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """fix(#1006): the collections sibling of #1004, same cause and fix.
+        """A seam-crossing collection keeps the RFC 7946 bbox, west > east.
 
-        ``rollup_span_bbox`` collapses a crossing rollup to
-        ``[-180, s, 180, n]`` -- monotonic, and bit-identical to what a
-        genuinely global collection produces -- so ``BBoxPreview``'s #903
-        crossing guard was unreachable and a Fiji-shaped collection drew a
-        dashed band across the whole world on the card and the detail page.
-
-        The fixture is #1004's: points at lon 179.5, -179.5 and 178.44.
+        The monotonic ``[-180, s, 180, n]`` form is identical to a genuinely
+        global collection's bbox, which leaves ``BBoxPreview``'s crossing guard
+        unreachable and draws a band across the whole world on the card and the
+        detail page. The fixture points sit at lon 179.5, -179.5 and 178.44.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         west = await _create_dataset(

@@ -502,17 +502,11 @@ async def test_collections_api_extent_bbox_uses_the_spec_form(
 ):
     """``CollectionResponse.extent_bbox`` is the RFC 7946 §5.2 pair.
 
-    fix(#1006): this pinned the monotonic span form under #886, when
-    CollectionCard's BBoxPreview had no crossing guard. #903 added one
-    (``crossesAntimeridian``, ``splitBbox``), and the span form then defeated
-    it: ``rollup_span_bbox`` collapses a crossing rollup to
-    ``[-180, s, 180, n]``, which is bit-identical to what a genuinely global
-    collection produces, so no client-side test could tell them apart and a
-    Fiji-shaped collection drew a band across the whole world.
-
-    Rewritten rather than deleted --- it is the contract pin for this field, and
-    it now pins the opposite half of the same contract. Mirrors the sibling
-    per-dataset ``extent_bbox``, flipped in #1004."""
+    A collection that crosses the antimeridian keeps west > east. The monotonic
+    ``[-180, s, 180, n]`` form is identical to a genuinely global collection's
+    bbox, so a client's crossing guard (``crossesAntimeridian``, ``splitBbox``)
+    could not tell them apart and drew a band across the whole world. Mirrors
+    the per-dataset ``extent_bbox``."""
     coll, _ = await _seed_crossing_collection(test_db_session)
 
     resp = await client.get(
