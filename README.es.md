@@ -108,7 +108,7 @@ flowchart LR
 </p>
 
 Cada conjunto de datos registra el archivo, la tabla, el servicio o el ítem STAC del que procede y
-cuándo se actualizó por última vez. Si le indicas una frecuencia de actualización, GeoLens lo
+cuándo se actualizó por última vez. Si le indicas una frecuencia de actualización a un conjunto de datos importado, GeoLens lo
 marca como actualizado, pendiente o atrasado. En los servicios y las fuentes STAC, GeoLens también
 comprueba que la fuente siga respondiendo y avisa de los cambios de esquema en origen antes de que
 lleguen a tus mapas. Si un servicio desaparece, la copia importada sigue funcionando.
@@ -261,9 +261,9 @@ fuentes, entre ellas un archivo de relieve de unos 466 MB y 62 teselas de terren
 tu propio usuario administrador si lo cambiaste.
 
 ```sh
-pip install httpx                                     # the seed script needs Python 3.10+
+python3 -m venv .venv && .venv/bin/pip install httpx  # the seed script needs Python 3.10+
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  python scripts/seed-showcase.py --username admin
+  .venv/bin/python scripts/seed-showcase.py --username admin
 ```
 
 La [referencia de la API](https://docs.getgeolens.com/guides/api/) y las
