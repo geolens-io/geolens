@@ -27,6 +27,7 @@ from app.modules.catalog.authorization import (
     check_dataset_access_or_anonymous,
     get_user_roles,
     visible_lineage_summaries,
+    visible_extent_column,
     visible_lineage_summary,
     visible_vrt_extents,
     visible_vrt_source_counts,
@@ -650,7 +651,7 @@ async def _build_collection_metadata(
     # range instead of folding to a global bbox.
     extent_stmt = (
         select(
-            *rollup_bbox_columns(Record.spatial_extent),
+            *rollup_bbox_columns(visible_extent_column(user, user_roles)),
             func.min(Record.temporal_start).label("temporal_start"),
             func.max(Record.temporal_end).label("temporal_end"),
         )

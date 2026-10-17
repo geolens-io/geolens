@@ -57,6 +57,7 @@ from app.modules.catalog.maps.service_shared import (
     filter_layer_rows_by_dataset_visibility,
     generate_default_style,
     get_dataset_meta,
+    with_visible_vrt_extents,
 )
 
 __all__ = [
@@ -103,4 +104,5 @@ __all__ = [
     "_apply_map_visibility_filter",
     "_infer_layer_type",
     "_validate_share_token",
+    "with_visible_vrt_extents",
 ]

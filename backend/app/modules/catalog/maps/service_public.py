@@ -20,6 +20,7 @@ from app.modules.catalog.authorization import (
     answers_audience_questions,
     apply_visibility_filter,
     audience_admits,
+    visible_extent_column,
 )
 from app.modules.catalog.datasets.domain.models import (
     AttributeMetadata,
@@ -491,7 +492,7 @@ async def get_shared_map(
             Dataset.tile_cache_version,
             Dataset.publication_version,
             Record.attribution,
-            Record.spatial_extent,
+            visible_extent_column(user, user_roles),
         )
         .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)

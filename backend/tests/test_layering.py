@@ -1172,7 +1172,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 106,
+        "backend/app/modules/catalog/maps/service.py": 108,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 112,
         "backend/app/processing/ai/chat_service.py": 519,
@@ -1194,7 +1194,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 516,
         "backend/app/modules/catalog/maps/service_diff.py": 400,
-        "backend/app/modules/catalog/maps/service_shared.py": 400,
+        # Layer rows are shaped for the reader: visible datasets and VRT extents.
+        "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 665,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 557,
         # Internal pointer reads sit beside the detail query that shares them.
@@ -1388,11 +1389,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1454,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1538,
+    "backend/app/modules/catalog/maps/router.py": 1543,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1422,
+    "backend/app/modules/catalog/search/router.py": 1423,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1914,
+    "backend/app/standards/stac/router.py": 1915,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2811,
@@ -1417,7 +1418,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1501,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1039,
+    "backend/app/modules/catalog/authorization.py": 1086,
 }
 
 

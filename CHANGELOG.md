@@ -143,6 +143,9 @@ and releases use semantic versioning.
   anyone who can read every member, still get the full extent.
   A tile token for a VRT whose tiles are refused, because a member is no
   longer visible to everyone who can see the VRT, carries no `bounds`.
+  Collection extents, the catalog-wide extent in the OGC Records collection,
+  STAC collection extents and map layers' `dataset_extent_bbox` apply the
+  same rule.
 
 ## [1.25.1] - 2026-10-16
 

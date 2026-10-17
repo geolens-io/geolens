@@ -31,6 +31,7 @@ from app.modules.auth.dependencies import (
 from app.modules.catalog.authorization import (
     check_public_visibility_allowed,
     get_user_roles,
+    visible_vrt_extents,
 )
 from app.core.dependencies import get_db
 from app.modules.catalog.maps.schemas import (
@@ -81,6 +82,7 @@ from app.modules.catalog.maps.service import (
     revoke_share_token_by_map,
     update_map,
     validate_public_visibility,
+    with_visible_vrt_extents,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
@@ -356,7 +358,7 @@ async def import_map_style_endpoint(
         db,
         map_obj.id,
     )
-    layers = _layers_from_tuples(layer_tuples)
+    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
     assert map_obj is not None
     return MapStyleImportResponse(
         map=_build_map_response(
@@ -551,7 +553,7 @@ async def update_map_endpoint(
             detail="Map not found",
         )
 
-    layers = _layers_from_tuples(layer_tuples)
+    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
     await audit_emit(
         db,
         AuditEvent(
@@ -931,7 +933,7 @@ async def duplicate_map_endpoint(
     )
     await db.commit()
 
-    layers = _layers_from_tuples(layer_tuples)
+    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
     base_resp = _build_map_response(
         new_map,
         layers,
@@ -1382,6 +1384,9 @@ async def add_layer_endpoint(
     )
     await db.commit()
 
+    extents = await visible_vrt_extents(db, [body.dataset_id], user, user_roles)
+    if meta is not None and body.dataset_id in extents:
+        meta = meta._replace(extent=extents[body.dataset_id])
     return _build_layer_response(layer, _meta_to_kwargs(meta))
 
 

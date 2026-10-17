@@ -17,7 +17,11 @@ from sqlalchemy.orm import joinedload
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.geo import rollup_bbox, rollup_bbox_columns
 from app.core.identity import Identity
-from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.authorization import (
+    apply_visibility_filter,
+    get_user_roles,
+    visible_extent_column,
+)
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
@@ -344,7 +348,7 @@ async def batch_collection_extents(
     stmt = (
         select(
             CollectionDataset.collection_id,
-            *rollup_bbox_columns(Record.spatial_extent),
+            *rollup_bbox_columns(visible_extent_column(user, user_roles)),
             func.min(Record.temporal_start).label("temporal_start"),
             func.max(Record.temporal_end).label("temporal_end"),
         )

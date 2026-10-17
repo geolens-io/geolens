@@ -20,6 +20,7 @@ from app.modules.catalog.maps.service import (
     check_map_ownership,
     get_map,
     get_map_with_layers,
+    with_visible_vrt_extents,
 )
 from app.modules.catalog.ownership import require_transfer_admin, transfer_map_owner
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -68,7 +69,7 @@ async def patch_map_endpoint(
     )
     return _build_map_response(
         map_obj,
-        _layers_from_tuples(layer_tuples),
+        _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user)),
         forked_from_name=forked_name,
         created_by_username=owner_username,
         include_notes=True,

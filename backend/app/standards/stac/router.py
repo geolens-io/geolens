@@ -39,6 +39,7 @@ from app.modules.catalog.authorization import (
     can_export,
     get_user_roles,
     visible_lineage_summaries,
+    visible_extent_column,
     visible_lineage_summary,
     visible_vrt_extents,
 )
@@ -761,7 +762,7 @@ async def _build_collection_list(
         extent_stmt = (
             select(
                 CollectionDataset.collection_id,
-                *rollup_bbox_columns(Record.spatial_extent),
+                *rollup_bbox_columns(visible_extent_column(user, user_roles)),
                 func.min(Record.temporal_start),
                 func.max(Record.temporal_end),
                 func.array_agg(func.distinct(Record.license)),
@@ -967,7 +968,7 @@ async def get_collection(
     async def _fetch_extent() -> tuple | None:
         extent_stmt = (
             select(
-                *rollup_bbox_columns(Record.spatial_extent),
+                *rollup_bbox_columns(visible_extent_column(user, user_roles)),
                 func.min(Record.temporal_start),
                 func.max(Record.temporal_end),
                 func.array_agg(func.distinct(Record.license)),

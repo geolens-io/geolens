@@ -15,11 +15,15 @@ from typing import Any
 from fastapi import HTTPException, status
 from geoalchemy2 import WKTElement
 from sqlalchemy import (
+    ColumnElement,
     Select,
     Uuid,
+    and_,
     any_,
     bindparam,
+    case,
     column,
+    exists,
     func,
     literal,
     select,
@@ -28,7 +32,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import aliased, joinedload
 
 from app.core.geo import bbox_to_extent_wkt, rollup_bbox, rollup_bbox_columns
 from app.core.identity import Identity
@@ -529,6 +533,49 @@ async def visible_vrt_extents(
             None if bbox is None else WKTElement(bbox_to_extent_wkt(*bbox), srid=4326)
         )
     return extents
+
+
+def visible_extent_column(user: Identity | None, user_roles: set[str]) -> ColumnElement:
+    """``Record.spatial_extent`` as this requester sees it, in a statement over
+    ``Dataset`` joined to ``Record``.
+
+    A VRT with a member the requester cannot read shows its readable members'
+    extents, as in :func:`visible_vrt_extents`; every other row shows its own.
+    Members are checked one by one, so the cost stays with VRT rows.
+    """
+    from app.modules.catalog.datasets.domain.models import (
+        Dataset,
+        DatasetGrant,
+        Record,
+    )
+
+    links = _VRT_SOURCE_LINKS
+    member = aliased(Dataset)
+    member_record = aliased(Record)
+
+    def readable(stmt: Select[Any]) -> Select[Any]:
+        return apply_visibility_filter(
+            stmt.join(member_record, member_record.id == member.record_id),
+            user,
+            user_roles,
+            member_record,
+            DatasetGrant,
+        )
+
+    of_row = links.c.vrt_dataset_id == Dataset.id
+    readable_members = readable(
+        select(func.ST_Collect(member_record.spatial_extent))
+        .select_from(links.join(member, member.id == links.c.source_dataset_id))
+        .where(of_row)
+    ).scalar_subquery()
+    member_is_readable = readable(
+        select(member.id).where(member.id == links.c.source_dataset_id)
+    ).exists()
+    hides_member = exists().where(of_row, ~member_is_readable)
+    return case(
+        (and_(Record.record_type == "vrt_dataset", hides_member), readable_members),
+        else_=Record.spatial_extent,
+    )
 
 
 def can_view_dataset_provenance(

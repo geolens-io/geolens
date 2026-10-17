@@ -13,7 +13,11 @@ from sqlalchemy.orm import aliased
 from app.core.identity import Identity
 from app.core.record_types import capabilities
 from app.modules.auth.models import User
-from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.authorization import (
+    apply_visibility_filter,
+    get_user_roles,
+    visible_vrt_extents,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.style_json import (
@@ -314,7 +318,28 @@ async def filter_layer_rows_by_dataset_visibility(
     visible_ids = await readable_dataset_ids(
         session, {row.layer.dataset_id for row in layer_rows}, user
     )
-    return [row for row in layer_rows if row.layer.dataset_id in visible_ids]
+    return await with_visible_vrt_extents(
+        session,
+        [row for row in layer_rows if row.layer.dataset_id in visible_ids],
+        user,
+    )
+
+
+async def with_visible_vrt_extents(
+    session: AsyncSession, layer_rows: list[LayerRow], user: Identity | None
+) -> list[LayerRow]:
+    """``layer_rows`` with each VRT's extent as ``visible_vrt_extents`` shows it to ``user``."""
+    vrt_ids = [r.layer.dataset_id for r in layer_rows if r.record_type == "vrt_dataset"]
+    if not vrt_ids:
+        return layer_rows
+    user_roles = await get_user_roles(session, user) if user is not None else set()
+    extents = await visible_vrt_extents(session, vrt_ids, user, user_roles)
+    return [
+        row._replace(spatial_extent=extents[row.layer.dataset_id])
+        if row.layer.dataset_id in extents
+        else row
+        for row in layer_rows
+    ]
 
 
 async def readable_dataset_ids(
