@@ -304,7 +304,7 @@ async def _execute_search_tool(
                 else None,
                 # A VRT's stored extent covers members the user may not read.
                 "extent_bbox": None
-                if getattr(ds.record, "record_type", None) == "vrt_dataset"
+                if ds.record.record_type == "vrt_dataset"
                 else port.extract_bbox(ds),
                 "feature_count": ds.feature_count,
                 "column_info": sanitize_column_info(

@@ -118,6 +118,7 @@ def _make_fake_dataset(*, with_samples: bool = True):
         summary="A test dataset",
         keywords=[],
         spatial_extent=None,
+        record_type="vector_dataset",
     )
     return SimpleNamespace(
         id="00000000-0000-0000-0000-000000000001",

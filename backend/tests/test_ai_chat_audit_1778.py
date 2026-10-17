@@ -969,6 +969,7 @@ class TestDatasetContentSanitization:
                 title=_INJECTION,
                 summary=_INJECTION,
                 keywords=[SimpleNamespace(keyword=_INJECTION)],
+                record_type="vector_dataset",
             ),
             geometry_type="Point",
             feature_count=3,
