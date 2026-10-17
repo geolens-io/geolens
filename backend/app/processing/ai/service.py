@@ -302,7 +302,10 @@ async def _execute_search_tool(
                 ]
                 if ds.record.keywords
                 else None,
-                "extent_bbox": port.extract_bbox(ds),
+                # A VRT's stored extent covers members the user may not read.
+                "extent_bbox": None
+                if getattr(ds.record, "record_type", None) == "vrt_dataset"
+                else port.extract_bbox(ds),
                 "feature_count": ds.feature_count,
                 "column_info": sanitize_column_info(
                     ds.column_info[:20] if ds.column_info else None
@@ -582,6 +585,7 @@ async def _validate_and_persist_map(
             Record_orm.title,
             Record_orm.spatial_extent,
             DatasetORM.table_name,
+            Record_orm.record_type,
         )
         .join(Record_orm, DatasetORM.record_id == Record_orm.id)
         .where(DatasetORM.id.in_(dataset_ids))
@@ -594,7 +598,8 @@ async def _validate_and_persist_map(
         str(row[0]): {
             "geometry_type": row[1],
             "title": row[2],
-            "spatial_extent": row[3],
+            # A VRT's stored extent covers members the user may not read.
+            "spatial_extent": None if row[5] == "vrt_dataset" else row[3],
             "table_name": row[4],
         }
         for row in ds_result.all()

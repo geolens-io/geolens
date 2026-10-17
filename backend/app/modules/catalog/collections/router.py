@@ -19,6 +19,7 @@ from app.modules.catalog.authorization import (
     check_datasets_access_bulk,
     get_user_roles,
     visible_lineage_summaries,
+    visible_vrt_extents,
 )
 from app.modules.catalog.collections.schemas import (
     AddDatasetsResponse,
@@ -451,12 +452,19 @@ async def get_collection_datasets_endpoint(
     lineage = await visible_lineage_summaries(
         db, [d.record for d in datasets], user, user_roles
     )
+    vrt_extents = await visible_vrt_extents(
+        db,
+        [d.id for d in datasets if d.record.record_type == "vrt_dataset"],
+        user,
+        user_roles,
+    )
 
     return DatasetListResponse(
         datasets=[
             dataset_to_response(
                 d,
                 actors_by_id=actor_map,
+                vrt_extents=vrt_extents,
                 lineage_summary=lineage[d.record_id],
                 # feat(#1316): per-row, same reasoning as the plain dataset list.
                 can_view_provenance=can_view_dataset_provenance(

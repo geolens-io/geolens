@@ -145,9 +145,16 @@ and releases use semantic versioning.
   Spatial filters (`bbox` and `geometry` in search, `bbox` and `intersects` in
   STAC, and CQL2 spatial predicates in OGC API Records) match a VRT by that
   same extent, so a box drawn only around a hidden member no longer finds it.
-  Admins, and anyone who can read every member, see the full extent. A tile
-  token for a VRT whose tiles are refused, because a member is no longer
-  visible to everyone who can see the VRT, carries no `bounds`.
+  A VRT with no readable member matches as an empty geometry, under `NOT` as
+  well, and `geometry IS NULL` holds for it. Admins, and anyone who can read
+  every member, see the full extent. A tile token for a VRT whose tiles are
+  refused, because a member is no longer visible to everyone who can see the
+  VRT, carries no `bounds`. The AI assistant's dataset search, generated map
+  viewports and metadata prompts leave VRT extents out.
+- A CQL2 filter on OGC API Records that uses the `geometry` queryable outside
+  a spatial predicate or `IS NULL` (for example `geometry = POINT(1 2)`,
+  `IN`, `BETWEEN` or `LIKE`) answers 400 "Invalid CQL2 expression" instead of
+  comparing stored coordinates.
 
   Overlay authors: `EXTENSION_API_VERSION` is now 18. `ProcessingPort` gained
   the required `vrts_beyond_member_audience`, which the tile-token endpoints

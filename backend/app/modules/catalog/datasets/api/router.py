@@ -49,6 +49,7 @@ from app.modules.catalog.authorization import (
     check_vrt_serves,
     get_user_roles,
     visible_lineage_summary,
+    visible_vrt_extents,
 )
 from app.modules.catalog.datasets.domain.helpers import (
     WorkflowTransitionDenied,
@@ -488,6 +489,7 @@ async def update_dataset_metadata(
     response = dataset_to_response(
         dataset,
         actors_by_id=actors_by_id,
+        vrt_extents=await visible_vrt_extents(db, [dataset_id], user, user_roles),
         base_url=await get_dataset_service_url(db, request=request),
         # fix(#1103): "owner of the output" does not imply access to what
         # it was derived from -- a grant on the source can be revoked

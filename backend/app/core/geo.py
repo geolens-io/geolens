@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -85,6 +85,20 @@ def extent_to_bbox(extent: object | None) -> list[float] | None:
         return list(shape.bounds)
     except Exception:  # broad: input is user-supplied; any geoalchemy/shapely parse failure should fall back to None
         return None
+
+
+def shown_extent(
+    record: Any, dataset_id: object, vrt_extents: Mapping[Any, object] | None
+) -> object | None:
+    """The extent to serialize for a dataset's ``record``.
+
+    A VRT's stored extent covers members the requester may not read, so a VRT
+    shows only what ``vrt_extents`` (the requester's ``visible_vrt_extents``)
+    holds for it, and nothing when the caller resolved none.
+    """
+    if record.record_type == "vrt_dataset":
+        return (vrt_extents or {}).get(dataset_id)
+    return record.spatial_extent
 
 
 def extent_to_span_bbox(extent: object | None) -> list[float] | None:
@@ -273,6 +287,34 @@ def rollup_bbox_columns(geom_col: ColumnElement) -> list[ColumnElement]:
         func.ST_XMin(shifted),
         func.ST_XMax(shifted),
     ]
+
+
+def rollup_envelope(geom_col: ColumnElement) -> ColumnElement:
+    """Aggregate: the rows' extent as one geometry, as :func:`rollup_bbox` then
+    :func:`bbox_to_extent_wkt` would build it.
+
+    The narrower longitude domain wins, and a range that crosses ±180 comes
+    back split there into two parts. NULL when no row has an extent.
+    """
+    normal = func.ST_Extent(geom_col)
+    shifted = func.ST_Extent(_shifted_longitude_geom(geom_col))
+    south, north = func.ST_YMin(normal), func.ST_YMax(normal)
+    return case(
+        (
+            func.ST_XMax(shifted) - func.ST_XMin(shifted)
+            < func.ST_XMax(normal) - func.ST_XMin(normal) - _DOMAIN_MARGIN,
+            func.ST_WrapX(
+                func.ST_MakeEnvelope(
+                    func.ST_XMin(shifted), south, func.ST_XMax(shifted), north, 4326
+                ),
+                180,
+                -360,
+            ),
+        ),
+        else_=func.ST_MakeEnvelope(
+            func.ST_XMin(normal), south, func.ST_XMax(normal), north, 4326
+        ),
+    )
 
 
 def _narrower_domain(

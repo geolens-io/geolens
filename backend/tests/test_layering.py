@@ -1302,7 +1302,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/db/tenant_adoption.py": 1258,
     # CQL2 parsing, feature-filter validation, record-filter literal handling and
     # the requester's spatial extent share one pygeofilter walk.
-    "backend/app/standards/ogc/filtering.py": 1095,
+    "backend/app/standards/ogc/filtering.py": 1136,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1706,
@@ -1401,7 +1401,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/sandbox/validator.py": 1706,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
     # release and truncated-reply refusal around provider calls and SSE failures.
-    "backend/app/processing/ai/service.py": 1010,
+    "backend/app/processing/ai/service.py": 1015,
     # Record children share ownership, ordering and publication-version invariants.
     "backend/app/modules/catalog/records/service.py": 877,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
@@ -1418,7 +1418,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1501,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1149,
+    "backend/app/modules/catalog/authorization.py": 1151,
 }
 
 

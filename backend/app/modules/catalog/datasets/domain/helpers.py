@@ -31,7 +31,7 @@ from app.modules.catalog.sources.provenance import (
     derive_last_edited,
     resolve_actor,
 )
-from app.core.geo import extent_to_bbox, raster_crs_facts
+from app.core.geo import extent_to_bbox, raster_crs_facts, shown_extent
 from app.platform.dataset_origin import classify_origin, project_unknown
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -163,8 +163,8 @@ def dataset_to_response(
     resolve it via ``can_view_dataset_provenance`` in ``authorization.py``;
     it defaults to False so a forgetful call site redacts rather than leaks.
 
-    ``vrt_extents`` is the requester's ``visible_vrt_extents``; a dataset it
-    names shows that extent in place of the stored one.
+    ``vrt_extents`` is the requester's ``visible_vrt_extents``; a VRT it
+    leaves out shows no extent (``shown_extent``).
     """
     record = dataset.record
     actor_map = actors_by_id or {}
@@ -245,9 +245,7 @@ def dataset_to_response(
         # not the flattened span form. fix(#1112): mirrored by
         # dataset_extent_bbox in maps/_router_helpers.py for the same reason;
         # pinned by tests/test_antimeridian_extent.py.
-        extent_bbox=extent_to_bbox(
-            (vrt_extents or {}).get(dataset.id, record.spatial_extent)
-        ),
+        extent_bbox=extent_to_bbox(shown_extent(record, dataset.id, vrt_extents)),
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,
         license=record.license,

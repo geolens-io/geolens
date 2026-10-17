@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 import structlog
 
 from app.core.config import settings
-from app.core.geo import extent_to_bbox
+from app.core.geo import extent_to_bbox, shown_extent
 from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE, pointcloud_path
 from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
@@ -313,14 +313,13 @@ def dataset_to_ogc_record(
     fix(#1103): ``lineage_summary`` must arrive already access-checked
     (``visible_lineage_summary``) — this function has no requester to check
     the derived-from titles against. Omitted when the caller doesn't supply
-    it: missing is recoverable, leaked is not. A dataset named in
-    ``vrt_extents`` (``visible_vrt_extents``) shows that extent instead of the
-    stored one or ``spatial_extent_geojson``.
+    it: missing is recoverable, leaked is not. A VRT shows only what
+    ``vrt_extents`` (``visible_vrt_extents``) holds for it (``shown_extent``),
+    never its stored extent or ``spatial_extent_geojson``.
     """
     record = dataset.record
-    extent = record.spatial_extent
-    if vrt_extents is not None and dataset.id in vrt_extents:
-        extent = vrt_extents[dataset.id]
+    extent = shown_extent(record, dataset.id, vrt_extents)
+    if record.record_type == "vrt_dataset":
         spatial_extent_geojson = None
     localized = select_localized_record_text(record, preferred_languages)
     updated_user = getattr(record, "_provenance_updated_user", None)

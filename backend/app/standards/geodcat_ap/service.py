@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from app.core.geo import shown_extent
 from app.standards.dcat.service import (
     DCAT_CONTEXT,
     _lang_to_uri,
@@ -108,8 +109,8 @@ def record_to_geodcat_ap(
     access-checked by the caller — fix(#1103): not read off the record,
     since an analysis output's lineage names datasets an anonymous
     requester may not see. ``has_raster_asset`` gates the COG download
-    distribution the same way. A dataset named in ``vrt_extents``
-    (``visible_vrt_extents``) shows that extent.
+    distribution the same way. A VRT shows only the extent
+    ``vrt_extents`` (``visible_vrt_extents``) holds for it.
     """
     record = dataset.record
     result: dict = {}
@@ -202,7 +203,7 @@ def record_to_geodcat_ap(
     # Spatial extent → dcterms:Location with a GeoSPARQL WKT geometry, the
     # GeoDCAT-AP-recommended carrier for the bounding geometry.
     spatial = _spatial_to_geodcat_ap(
-        record, (vrt_extents or {}).get(dataset.id, record.spatial_extent)
+        record, shown_extent(record, dataset.id, vrt_extents)
     )
     if spatial is not None:
         result["dcterms:spatial"] = spatial

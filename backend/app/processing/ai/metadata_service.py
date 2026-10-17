@@ -118,7 +118,9 @@ async def _build_dataset_context(
     if record.source_organization:
         parts.append(f"Source organization: {record.source_organization}")
 
-    if record.spatial_extent is not None:
+    # Left out for a VRT: its stored extent covers members a requester may not
+    # read, and this context is cached for every requester.
+    if record.spatial_extent is not None and record.record_type != "vrt_dataset":
         bounds = extent_to_bbox(record.spatial_extent)
         if bounds is None:
             logger.debug("Failed to parse spatial bounds for AI context")

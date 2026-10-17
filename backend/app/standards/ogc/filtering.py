@@ -196,9 +196,36 @@ _OVERLAPPING_SPATIAL_OPS = frozenset(
     {"INTERSECTS", "CONTAINS", "WITHIN", "TOUCHES", "CROSSES", "OVERLAPS", "EQUALS"}
 )
 
-# ``extent_match(match, overlaps)``: rows whose extent satisfies ``match``;
-# ``overlaps`` is a test every match also passes on the stored extent, or None.
-ExtentMatch = Callable[[Callable[[Any], Any], Callable[[Any], Any] | None], Any]
+# ``extent_match(match, overlaps, missing_as_empty=True)``: rows whose extent
+# satisfies ``match``; ``overlaps`` is a test every match also passes on the
+# stored extent, or None. A missing extent is tested as an empty geometry
+# unless ``missing_as_empty`` is False.
+ExtentMatch = Callable[..., Any]
+
+# The pygeofilter nodes that may name the ``geometry`` queryable. Comparing,
+# ordering or listing a geometry has no meaning in CQL2, and evaluated on the
+# stored column it would read a VRT's hidden extent.
+_GEOMETRY_PARENTS = (
+    "SpatialComparisonPredicate",
+    "SpatialDistancePredicate",
+    "Relate",
+    "BBox",
+    "IsNull",
+)
+
+
+def _refuse_scalar_geometry(node: Any, parent: Any = None) -> None:
+    """Raise ValueError where ``geometry`` is used outside a spatial or null test."""
+    from pygeofilter import ast as pgf_ast
+
+    if isinstance(node, pgf_ast.Attribute) and node.name == "geometry":
+        allowed = tuple(getattr(pgf_ast, name) for name in _GEOMETRY_PARENTS)
+        if not isinstance(parent, allowed):
+            raise ValueError("geometry can only be used in a spatial predicate")
+    subnodes = node.get_sub_nodes() if hasattr(node, "get_sub_nodes") else None
+    for sub in subnodes if isinstance(subnodes, list) else [subnodes]:
+        if sub is not None:
+            _refuse_scalar_geometry(sub, node)
 
 
 @functools.cache
@@ -217,6 +244,8 @@ def _extent_evaluator() -> type:
 
         def _leaf(self, lhs, rhs, test, overlapping: bool):
             extent = FIELD_MAPPING["geometry"]
+            if lhs is extent and rhs is extent:
+                return self.extent_match(lambda geom: test(geom, geom), None)
             if lhs is extent:
                 other, match = rhs, (lambda geom: test(geom, rhs))
             elif rhs is extent:
@@ -225,6 +254,17 @@ def _extent_evaluator() -> type:
                 return test(lhs, rhs)
             overlaps = (lambda geom: geom.op("&&")(other)) if overlapping else None
             return self.extent_match(match, overlaps)
+
+        @handle(pgf_ast.IsNull)
+        def null(self, node, lhs):
+            if lhs is not FIELD_MAPPING["geometry"]:
+                return super().null(node, lhs)
+            op = "is_not_null" if node.not_ else "is_null"
+            return self.extent_match(
+                lambda geom: filters.runop(geom, None, op),
+                None,
+                missing_as_empty=False,
+            )
 
         @handle(pgf_ast.SpatialComparisonPredicate, subclasses=True)
         def spatial_operation(self, node, lhs, rhs):
@@ -293,6 +333,7 @@ def apply_cql2_filter(
     ast = parse_cql2_filter(filter_expr, filter_lang)
     _pin_timestamptz_literals(ast)
     try:
+        _refuse_scalar_geometry(ast)
         sa_filter = _extent_evaluator()(extent_match).evaluate(ast)
     except Exception as e:  # broad: to_filter errors vary by unsupported CQL2 shape
         raise HTTPException(

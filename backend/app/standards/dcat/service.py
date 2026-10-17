@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from app.core.geo import shown_extent
 from app.modules.catalog.records.localization import select_localized_record_text
 from app.standards.distributions import (
     PublishedDistribution,
@@ -266,8 +267,8 @@ def record_to_dcat(
     access-checked by the caller — fix(#1103): not read off the record,
     since an analysis output's lineage names datasets an anonymous
     requester may not see. Omitted when absent. ``has_raster_asset``
-    gates the COG download distribution the same way. A dataset named in
-    ``vrt_extents`` (``visible_vrt_extents``) shows that extent.
+    gates the COG download distribution the same way. A VRT shows only the
+    extent ``vrt_extents`` (``visible_vrt_extents``) holds for it.
     """
     record = dataset.record
     result: dict = {}
@@ -365,7 +366,7 @@ def record_to_dcat(
         result["dcterms:temporal"] = temporal
 
     # Spatial extent
-    spatial_extent = (vrt_extents or {}).get(dataset.id, record.spatial_extent)
+    spatial_extent = shown_extent(record, dataset.id, vrt_extents)
     if spatial_extent is not None:
         from app.core.geo import extent_to_span_bbox
 

@@ -239,3 +239,155 @@ async def test_cql2_disjoint_matches_a_vrt_by_its_readable_members(
 
     assert await disjoint(viewer_headers) is True
     assert await disjoint(admin_auth_header) is False
+
+
+async def _records_filter_hit(client, headers, token, vrt_id, expr, lang="cql2-text"):
+    params = {"q": token, "filter": expr, "filter-lang": lang}
+    resp = await client.get(
+        "/collections/datasets/items", params=params, headers=headers
+    )
+    assert resp.status_code == 200, f"{expr}: {resp.text}"
+    return any(f["id"] == str(vrt_id) for f in resp.json()["features"])
+
+
+async def test_negated_predicates_treat_a_fully_hidden_vrt_as_empty(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Probes inside and outside the stored extent give the same answer."""
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    vrt_id = await _vrt_with_members(test_db_session, [("private", HIDDEN)])
+    token = (
+        (await client.get(f"/datasets/{vrt_id}", headers=admin_auth_header))
+        .json()["title"]
+        .split(" ")[3]
+    )
+    inside, outside = (50.5, 50.5), (-100.0, -50.0)
+
+    def text_probes(x, y):
+        point = f"POINT({x} {y})"
+        box = f"BBOX(geometry, {x - 0.1}, {y - 0.1}, {x + 0.1}, {y + 0.1})"
+        return [
+            f"NOT S_INTERSECTS(geometry, {point})",
+            f"NOT S_WITHIN(geometry, {_wkt((x - 1, y - 1, x + 1, y + 1))})",
+            f"NOT S_CONTAINS(geometry, {point})",
+            f"NOT {box}",
+            f"NOT S_INTERSECTS(geometry, {point}) AND title LIKE '%{token}%'",
+            f"NOT S_INTERSECTS(geometry, {point}) OR title = 'no such title'",
+        ]
+
+    def json_probe(x, y):
+        return json.dumps(
+            {
+                "op": "not",
+                "args": [
+                    {
+                        "op": "s_intersects",
+                        "args": [
+                            {"property": "geometry"},
+                            {"type": "Point", "coordinates": [x, y]},
+                        ],
+                    }
+                ],
+            }
+        )
+
+    for x, y in (inside, outside):
+        for expr in text_probes(x, y):
+            assert await _records_filter_hit(
+                client, viewer_headers, token, vrt_id, expr
+            ), expr
+        assert await _records_filter_hit(
+            client, viewer_headers, token, vrt_id, json_probe(x, y), "cql2-json"
+        )
+    assert not await _records_filter_hit(
+        client, admin_auth_header, token, vrt_id, text_probes(*inside)[0]
+    )
+
+
+async def test_cql2_geometry_against_itself_uses_the_visible_extent(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    vrt_id = await _vrt_with_members(
+        test_db_session, [("public", READABLE), ("private", HIDDEN)]
+    )
+    token = (
+        (await client.get(f"/datasets/{vrt_id}", headers=admin_auth_header))
+        .json()["title"]
+        .split(" ")[3]
+    )
+    for expr in ("S_EQUALS(geometry, geometry)", "S_CONTAINS(geometry, geometry)"):
+        assert await _records_filter_hit(client, viewer_headers, token, vrt_id, expr)
+
+
+async def test_cql2_geometry_outside_a_spatial_predicate_is_refused(
+    client: AsyncClient, admin_auth_header: dict
+):
+    point = {"type": "Point", "coordinates": [1, 2]}
+    refused = [
+        ("geometry = POINT(1 2)", "cql2-text"),
+        ("POINT(1 2) <> geometry", "cql2-text"),
+        ("geometry IN (POINT(1 2))", "cql2-text"),
+        ("geometry BETWEEN 1 AND 2", "cql2-text"),
+        ("geometry LIKE 'x%'", "cql2-text"),
+    ]
+    refused += [
+        (json.dumps({"op": op, "args": [{"property": "geometry"}, point]}), "cql2-json")
+        for op in ("=", "<>", "<", "<=", ">", ">=")
+    ]
+    for expr, lang in refused:
+        resp = await client.get(
+            "/collections/datasets/items",
+            params={"filter": expr, "filter-lang": lang},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400, f"{expr}: {resp.status_code} {resp.text}"
+
+
+async def test_cql2_geometry_is_null_follows_the_visible_extent(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    vrt_id = await _vrt_with_members(test_db_session, [("private", HIDDEN)])
+    token = (
+        (await client.get(f"/datasets/{vrt_id}", headers=admin_auth_header))
+        .json()["title"]
+        .split(" ")[3]
+    )
+
+    async def hit(headers, expr):
+        return await _records_filter_hit(client, headers, token, vrt_id, expr)
+
+    assert await hit(viewer_headers, "geometry IS NULL")
+    assert not await hit(viewer_headers, "geometry IS NOT NULL")
+    assert not await hit(admin_auth_header, "geometry IS NULL")
+
+
+async def test_filters_and_responses_share_the_readable_envelope(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Two separate readable members: a box in the gap between them finds the VRT."""
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    vrt_id = await _vrt_with_members(
+        test_db_session,
+        [
+            ("public", READABLE),
+            ("public", (20.0, 20.0, 21.0, 21.0)),
+            ("private", HIDDEN),
+        ],
+    )
+    token = (
+        (await client.get(f"/datasets/{vrt_id}", headers=viewer_headers))
+        .json()["title"]
+        .split(" ")[3]
+    )
+    detail = await client.get(f"/datasets/{vrt_id}", headers=viewer_headers)
+    assert _rounded(detail.json()["extent_bbox"]) == (10.0, 10.0, 21.0, 21.0)
+
+    search = await client.get(
+        "/search/datasets/",
+        params={"q": token, "bbox": "15,15,16,16"},
+        headers=viewer_headers,
+    )
+    assert search.status_code == 200, search.text
+    assert any(f["id"] == str(vrt_id) for f in search.json()["features"])

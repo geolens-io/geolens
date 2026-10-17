@@ -13,7 +13,6 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
-from geoalchemy2 import WKTElement
 from sqlalchemy import (
     ColumnElement,
     Select,
@@ -26,6 +25,7 @@ from sqlalchemy import (
     exists,
     func,
     literal,
+    null,
     or_,
     select,
     table,
@@ -35,7 +35,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload
 
-from app.core.geo import bbox_to_extent_wkt, rollup_bbox, rollup_bbox_columns
+from app.core.geo import rollup_envelope
 from app.core.identity import Identity
 from app.core.permissions import EXPORT
 from app.modules.auth.permissions import get_effective_permissions
@@ -481,59 +481,27 @@ async def visible_vrt_extents(
     vrt_dataset_ids: Iterable[uuid.UUID],
     user: Identity | None,
     user_roles: set[str],
-) -> dict[uuid.UUID, WKTElement | None]:
-    """The extent shown to this requester for each VRT with a member they cannot read.
+) -> dict[uuid.UUID, Any]:
+    """Each VRT's extent as this requester sees it; see :func:`visible_extent_column`.
 
-    A VRT's stored extent covers every member, so it would show where a hidden
-    member lies. Such a VRT shows the extent of the members the requester can
-    read instead, or None when none of them has one. A VRT left out of the
-    result keeps its stored extent.
+    Every existing VRT among ``vrt_dataset_ids`` gets an entry, None when the
+    requester can read no member's extent.
     """
     wanted = set(vrt_dataset_ids)
     if not wanted:
         return {}
 
-    from app.modules.catalog.datasets.domain.models import (
-        Dataset,
-        DatasetGrant,
-        Record,
-    )
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
 
-    links = _VRT_SOURCE_LINKS
-    of_wanted = links.c.vrt_dataset_id == any_(
-        bindparam("vrt_ids", list(wanted), type_=ARRAY(Uuid))
-    )
-    readable = apply_visibility_filter(
-        select(Dataset.id, Record.spatial_extent)
+    rows = await db.execute(
+        select(Dataset.id, visible_extent_column(user, user_roles))
         .join(Record, Record.id == Dataset.record_id)
-        .where(Dataset.id.in_(select(links.c.source_dataset_id).where(of_wanted))),
-        user,
-        user_roles,
-        Record,
-        DatasetGrant,
-    ).subquery()
-    stmt = (
-        select(
-            links.c.vrt_dataset_id,
-            func.count(links.c.source_dataset_id.distinct()),
-            func.count(readable.c.id.distinct()),
-            *rollup_bbox_columns(readable.c.spatial_extent),
+        .where(
+            Dataset.id == any_(bindparam("vrt_ids", list(wanted), type_=ARRAY(Uuid))),
+            Record.record_type == "vrt_dataset",
         )
-        .select_from(
-            links.outerjoin(readable, readable.c.id == links.c.source_dataset_id)
-        )
-        .where(of_wanted)
-        .group_by(links.c.vrt_dataset_id)
     )
-    extents: dict[uuid.UUID, WKTElement | None] = {}
-    for vrt_id, linked, visible, *bounds in (await db.execute(stmt)).all():
-        if visible == linked:
-            continue
-        bbox = rollup_bbox(bounds)
-        extents[vrt_id] = (
-            None if bbox is None else WKTElement(bbox_to_extent_wkt(*bbox), srid=4326)
-        )
-    return extents
+    return dict(rows.tuples().all())
 
 
 def visible_extent_column(
@@ -542,10 +510,12 @@ def visible_extent_column(
     """``record.spatial_extent`` as this requester sees it.
 
     ``record`` defaults to ``Record`` in a statement that joins ``Dataset``; an
-    aliased ``Record`` finds its dataset itself. A VRT with a member the
-    requester cannot read shows its readable members' extents, as in
-    :func:`visible_vrt_extents`; every other row shows its own. Members are
-    checked one by one, so the cost stays with VRT rows.
+    aliased ``Record`` finds its dataset itself. A VRT's stored extent covers
+    every member, so one with a member the requester cannot read shows the
+    envelope of the members they can read (:func:`rollup_envelope`), clipped
+    to its stored envelope, or NULL when none has an extent. Every other row
+    shows its own. Members are checked one by one, so the cost stays with VRT
+    rows.
     """
     from app.modules.catalog.datasets.domain.models import (
         Dataset,
@@ -576,17 +546,26 @@ def visible_extent_column(
         )
 
     of_row = links.c.vrt_dataset_id == dataset_id
-    readable_members = readable(
-        select(func.ST_Collect(member_record.spatial_extent))
-        .select_from(links.join(member, member.id == links.c.source_dataset_id))
-        .where(of_row)
-    ).scalar_subquery()
+    readable_envelope = func.ST_Intersection(
+        readable(
+            select(rollup_envelope(member_record.spatial_extent))
+            .select_from(links.join(member, member.id == links.c.source_dataset_id))
+            .where(of_row)
+        ).scalar_subquery(),
+        func.ST_Envelope(record.spatial_extent),
+    )
     member_is_readable = readable(
         select(member.id).where(member.id == links.c.source_dataset_id)
     ).exists()
     hides_member = exists().where(of_row, ~member_is_readable)
     return case(
-        (and_(record.record_type == "vrt_dataset", hides_member), readable_members),
+        (
+            and_(record.record_type == "vrt_dataset", hides_member),
+            case(
+                (func.ST_IsEmpty(readable_envelope), null()),
+                else_=readable_envelope,
+            ),
+        ),
         else_=record.spatial_extent,
     )
 
@@ -598,16 +577,26 @@ def visible_extent_match(
     *,
     overlaps: Callable[[ColumnElement], ColumnElement] | None = None,
     record: Any = None,
+    missing_as_empty: bool = True,
 ) -> ColumnElement:
     """Rows whose extent, as this requester sees it, satisfies ``match``.
 
     Each arm tests one row's own extent, so the result composes under NOT and
-    OR like ``match`` itself. ``overlaps`` is a test that every match also
-    passes on the stored extent; it lets VRT rows use the spatial index too.
+    OR like ``match`` itself. A VRT that shows no extent is tested as an empty
+    geometry, so a predicate and its negation both answer for it instead of
+    leaving NULL where its stored extent lies; ``missing_as_empty=False``
+    keeps the NULL for an IS NULL test. ``overlaps`` is a test that every
+    match also passes on the stored extent, which holds because the shown
+    extent lies inside the stored envelope; it lets VRT rows use the spatial
+    index too.
     """
     from app.modules.catalog.datasets.domain.models import Record
 
     shown = visible_extent_column(user, user_roles, record)
+    if missing_as_empty:
+        shown = func.coalesce(
+            shown, func.ST_GeomFromText("GEOMETRYCOLLECTION EMPTY", 4326)
+        )
     record = Record if record is None else record
     is_vrt = record.record_type == "vrt_dataset"
     prefilter = [] if overlaps is None else [overlaps(record.spatial_extent)]
@@ -863,6 +852,11 @@ VRT_AUDIENCE_EXCEEDS_SOURCES = (
 )
 
 
+# Each pair binds its own audience arms; this keeps one statement well under
+# the 32767 parameters Postgres accepts.
+_AUDIENCE_PAIRS_PER_STATEMENT = 500
+
+
 async def _audiences_exceeded(
     db: AsyncSession, pairs: Sequence[tuple[Any, Any]]
 ) -> list[bool]:
@@ -875,6 +869,14 @@ async def _audiences_exceeded(
     as in the shared-map guard. An authority that can't answer
     (:func:`answers_audience_questions`) gets every pair counted.
     """
+    if len(pairs) > _AUDIENCE_PAIRS_PER_STATEMENT:
+        step = _AUDIENCE_PAIRS_PER_STATEMENT
+        return [
+            flag
+            for start in range(0, len(pairs), step)
+            for flag in await _audiences_exceeded(db, pairs[start : start + step])
+        ]
+
     from app.modules.auth.models import User
     from app.modules.catalog.datasets.domain.models import DatasetGrant
 
@@ -945,7 +947,7 @@ async def _record_audience_queries(
             Record.title,
         )
         .join(Record, Record.id == Dataset.record_id)
-        .where(Dataset.id.in_(wanted))
+        .where(Dataset.id == any_(bindparam("wanted", list(wanted), type_=ARRAY(Uuid))))
     )
     return {
         row.id: (

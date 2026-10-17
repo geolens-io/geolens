@@ -263,3 +263,68 @@ async def test_batch_tile_tokens_ask_about_every_mosaic_at_once(
     assert calls == [3]
     bounds = {k: _rounded(v["bounds"]) for k, v in batch.json()["tokens"].items()}
     assert bounds == {ids[0]: FULL, ids[1]: FULL, ids[2]: None}
+
+
+async def test_batch_tile_tokens_bound_the_audience_statements(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Eleven 500-member mosaics would bind 44,000 parameters in one statement."""
+    admin_id = await _get_admin_id(test_db_session)
+    vrt_ids = [
+        await _create_vrt_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        for _ in range(11)
+    ]
+    await test_db_session.execute(
+        text(
+            """
+            WITH recs AS (
+                INSERT INTO catalog.records (title, visibility, record_status, created_by)
+                SELECT 'VRT batch member ' || g, 'public', 'published', :owner
+                FROM generate_series(1, :n) AS g
+                RETURNING id
+            ), members AS (
+                INSERT INTO catalog.datasets (record_id, table_name)
+                SELECT id, 'vrt_batch_' || replace(id::text, '-', '') FROM recs
+                RETURNING id
+            ), numbered AS (
+                SELECT id, row_number() OVER () - 1 AS n FROM members
+            )
+            INSERT INTO catalog.vrt_source_links
+                (vrt_dataset_id, source_dataset_id, position)
+            SELECT (CAST(:vrts AS uuid[]))[1 + n / 500], id, n % 500 FROM numbered
+            """
+        ),
+        {"owner": admin_id, "n": 11 * 500, "vrts": vrt_ids},
+    )
+    await test_db_session.commit()
+    try:
+        batch = await client.post(
+            "/tiles/tokens/",
+            json={"dataset_ids": [str(vrt_id) for vrt_id in vrt_ids]},
+            headers=admin_auth_header,
+        )
+        assert batch.status_code == 200, batch.text
+        tokens = batch.json()["tokens"]
+        assert all("tile_url" in tokens[str(vrt_id)] for vrt_id in vrt_ids)
+    finally:
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text(
+                """
+                WITH links AS (
+                    DELETE FROM catalog.vrt_source_links
+                    WHERE vrt_dataset_id = ANY(CAST(:vrts AS uuid[]))
+                    RETURNING source_dataset_id
+                ), members AS (
+                    DELETE FROM catalog.datasets
+                    WHERE id IN (SELECT source_dataset_id FROM links)
+                    RETURNING record_id
+                )
+                DELETE FROM catalog.records WHERE id IN (SELECT record_id FROM members)
+                """
+            ),
+            {"vrts": vrt_ids},
+        )
+        await test_db_session.commit()

@@ -50,7 +50,7 @@ from app.standards.ogc.utils import (
     parse_accept_languages,
 )
 from app.standards.ogc.errors import BAD_REQUEST_RESPONSE, ERROR_RESPONSES_PUBLIC
-from app.core.geo import extent_to_bbox, rollup_bbox, rollup_bbox_columns
+from app.core.geo import extent_to_bbox, rollup_bbox, rollup_bbox_columns, shown_extent
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tile_scope import tile_template_query
 from app.modules.catalog.search.schemas import (
@@ -866,7 +866,7 @@ async def list_collections(
     dataset_collections = []
     for ds in datasets:
         extent = {}
-        spatial_extent = vrt_extents.get(ds.id, ds.record.spatial_extent)
+        spatial_extent = shown_extent(ds.record, ds.id, vrt_extents)
         if spatial_extent is not None:
             # fix(#892): OGC bbox convention needs west > east across a seam;
             # extent_to_bbox returns None on a parse failure, which degrades

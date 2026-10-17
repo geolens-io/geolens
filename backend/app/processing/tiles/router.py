@@ -1750,17 +1750,13 @@ async def get_tile_tokens_batch(
             asset.dataset_id: asset for asset in raster_asset_result.scalars().all()
         }
 
-    refused_mosaics = await _refused_mosaics(
-        db,
-        [ds for ds in datasets_by_id.values() if ds.id in raster_assets_by_dataset_id],
-    )
-
     # fix(#1518): CAPABILITY obligation. This handler resolves many ids, so
     # "did a capability authorize this request" is answerable only after the
     # loop: the token authorizes a SCOPE, and the loop works out which ids.
     capability_authorized = False
 
     tokens: dict[str, VectorTileToken | RasterTileToken | dict] = {}
+    authorized = []
     for dataset_id in unique_ids:
         dataset = datasets_by_id.get(dataset_id)
         key = str(dataset_id)
@@ -1779,14 +1775,21 @@ async def get_tile_tokens_batch(
                 tokens[key] = {"error": exc.detail}
                 continue
             capability_authorized = True
+        tokens[key] = {}
+        authorized.append(dataset)
 
-        raster_asset = raster_assets_by_dataset_id.get(dataset.id)
+    refused_mosaics = await _refused_mosaics(
+        db, [ds for ds in authorized if ds.id in raster_assets_by_dataset_id]
+    )
+    for dataset in authorized:
         token = _build_tile_token_for_dataset(
             dataset,
-            raster_asset,
+            raster_assets_by_dataset_id.get(dataset.id),
             withhold_bounds=dataset.id in refused_mosaics,
         )
-        tokens[key] = token if token is not None else {"error": _NO_TILES_DETAIL}
+        tokens[str(dataset.id)] = (
+            token if token is not None else {"error": _NO_TILES_DETAIL}
+        )
 
     # fix(#1518): the flag above is only set on the FALLBACK arm, which a
     # batch of public datasets never reaches, so the question is asked again

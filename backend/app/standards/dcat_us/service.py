@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from app.core.geo import shown_extent
 from app.standards.distributions import (
     RASTER_TILES_DISTRIBUTION_TYPE,
     TILESET_DISTRIBUTION_TYPE,
@@ -57,8 +58,8 @@ def record_to_dcat_us3(
     datasets an anonymous requester may not see. ``app_base_url`` is the
     public APP base URL, where the raster tile template is served
     (fix(#1469)). ``has_raster_asset`` gates the COG download distribution
-    the same way. A dataset named in ``vrt_extents``
-    (``visible_vrt_extents``) shows that extent.
+    the same way. A VRT shows only the extent
+    ``vrt_extents`` (``visible_vrt_extents``) holds for it.
     """
     record = dataset.record
     result: dict = {}
@@ -118,7 +119,7 @@ def record_to_dcat_us3(
         result["temporal"] = [temporal]
 
     spatial = _spatial_to_dcat_us3(
-        record, (vrt_extents or {}).get(dataset.id, record.spatial_extent)
+        record, shown_extent(record, dataset.id, vrt_extents)
     )
     if spatial is not None:
         result["spatial"] = spatial
