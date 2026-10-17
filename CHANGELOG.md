@@ -7,6 +7,15 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- The documented `CSP_SCRIPT_SRC_EXTRA` value for Cloudflare Web Analytics is
+  the host, `https://static.cloudflareinsights.com`. The 1.25.0 notes gave the
+  file URL `https://static.cloudflareinsights.com/beacon.min.js`, but
+  Cloudflare loads a versioned path under it, which a CSP source naming one
+  file doesn't match, so the browser blocked the beacon and logged a CSP error
+  on every page. Installs that set the file URL should switch to the host.
+
 ## [1.25.1] - 2026-10-16
 
 1.25.1 is the first release with API and worker container images for the
@@ -156,7 +165,7 @@ from the version number. Read the 1.25.0 upgrade notes when you move from
   `https://static.cloudflareinsights.com`. `script-src` is `'self'
   'wasm-unsafe-eval'` unless `CSP_SCRIPT_SRC_EXTRA` adds more, and the CSP
   gains `form-action 'self'`. A Cloudflare-proxied install that uses Web
-  Analytics sets `CSP_SCRIPT_SRC_EXTRA=https://static.cloudflareinsights.com/beacon.min.js`.
+  Analytics sets `CSP_SCRIPT_SRC_EXTRA=https://static.cloudflareinsights.com`.
   `/env-config.js` and the raster tile location send the frame, content-type
   and referrer headers again, and proxied `/api/` responses no longer carry
   `X-Content-Type-Options` and `Referrer-Policy` twice. (#2979, #2933, #3041)
@@ -422,8 +431,7 @@ from the version number. Read the 1.25.0 upgrade notes when you move from
   ISO weeks, not dumps. Check both values. (#3024)
 - The default CSP no longer allows `https://static.cloudflareinsights.com`.
   Cloudflare Web Analytics users set
-  `CSP_SCRIPT_SRC_EXTRA=https://static.cloudflareinsights.com/beacon.min.js`.
-  (#2979)
+  `CSP_SCRIPT_SRC_EXTRA=https://static.cloudflareinsights.com`. (#2979)
 - Outbound TLS from the AI providers and the OAuth client checks the
   operating system trust store instead of certifi. Add a private CA to the
   system store or point `SSL_CERT_FILE` at it. (#3014)
