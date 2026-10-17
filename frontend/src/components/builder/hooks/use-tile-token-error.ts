@@ -1,5 +1,5 @@
 /**
- * useTileTokenError — GAP-004
+ * useTileTokenError
  *
  * Surfaces a deduped toast.error when the builder's tile-token batch query
  * fails, mirroring the viewer's tokenError pattern (use-viewer-tokens.ts).

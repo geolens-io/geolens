@@ -1,5 +1,5 @@
 /**
- * PERF-08 (Phase 274): regression-lock that BuilderMap drops the always-on
+ * Regression-lock that BuilderMap drops the always-on
  * preserveDrawingBuffer constructor flag and that capture paths use the
  * documented triggerRepaint() + once('render') pattern instead.
  *
@@ -19,8 +19,8 @@ describe('PERF-08: WebGL canvas buffer is not retained permanently', () => {
     expect(codeOnly).not.toMatch(/preserveDrawingBuffer\s*:\s*true/);
   });
 
-  it('BuilderMap has a PERF-08 marker comment explaining the change', () => {
-    expect(builderMapSrc).toMatch(/PERF-08/);
+  it('BuilderMap has a comment explaining why preserveDrawingBuffer is not set', () => {
+    expect(builderMapSrc).toMatch(/preserveDrawingBuffer dropped/);
   });
 
   it('use-builder-save.ts calls triggerRepaint in at least 2 places', () => {

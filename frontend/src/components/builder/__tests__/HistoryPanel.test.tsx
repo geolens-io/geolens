@@ -80,7 +80,7 @@ describe('HistoryPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('History could not be loaded');
   });
 
-  // fix(#787 item 9): the error state told people to close and reopen the panel
+  // The error state told people to close and reopen the panel
   // instead of offering the retry the panel could do itself.
   it('offers a Try again button in the error state that refetches', () => {
     mockHistoryQuery({ isError: true });

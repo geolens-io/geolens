@@ -49,7 +49,7 @@ interface DatasetSearchPanelProps {
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
-  // fix(#526 B-050): dataset id currently being added — drives the per-row
+  // Dataset id currently being added — drives the per-row
   // in-flight spinner (the global isAdding flag alone gave no feedback about
   // WHICH row's click registered).
   addingDatasetId?: string | null;
@@ -78,14 +78,14 @@ function typeMeta(record: OGCRecordResponse, t: TFunction<'builder'>) {
   return t('search.vector', { defaultValue: 'Vector' });
 }
 
-// fix(#788): "1 features" — the counts were hardcoded English with no plural
+// "1 features" — the counts were hardcoded English with no plural
 // handling (the catalog search card pluralizes via t()). {{count, number}} in
 // the locale strings keeps the locale grouping formatNumber provided.
 function featureMeta(record: OGCRecordResponse, t: TFunction<'builder'>) {
   const props = record.properties;
   if (props.feature_count != null) return t('search.featureCount', { count: props.feature_count });
   if (props.row_count != null) return t('search.rowCount', { count: props.row_count });
-  // fix(#1778): width/height were never returned by the API under those flat
+  // width/height were never returned by the API under those flat
   // names -- this check was always false. proj:shape is [height, width].
   const shape = props['proj:shape'];
   if (shape != null) {
@@ -156,7 +156,7 @@ function DatasetMetadata({ record }: { record: OGCRecordResponse }) {
     [t('search.metadata.type', { defaultValue: 'Type' }), typeMeta(record, t)],
     [t('search.metadata.source', { defaultValue: 'Source' }), props.source_organization],
     [t('search.metadata.count', { defaultValue: 'Count' }), featureMeta(record, t)],
-    // fix(#1778): epsg was never returned under that flat name -- this was
+    // `epsg` was never returned under that flat name -- this was
     // always undefined, always falling through to props.crs. proj:code is
     // already formatted as "EPSG:{code}" by the serializer.
     [t('search.metadata.crs', { defaultValue: 'CRS' }), props['proj:code'] ?? props.crs],
@@ -225,13 +225,13 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           type="button"
           {...attributes}
           {...listeners}
-          // fix(#430 V-11): reworded so it no longer substring-matches "Add to map"
+          // Reworded so it no longer substring-matches "Add to map"
           // (the row/details action labels), keeping accessible names distinct.
           aria-label={t('search.dragHandle', { defaultValue: 'Drag into map' })}
-          // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
+          // Reveal the catalog drag grip on coarse-pointer/touch.
           data-touch-reveal=""
           className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm active:cursor-grabbing"
-          // builder-audit #338 P1-10: {...listeners} spreads dnd-kit's PointerSensor
+          // {...listeners} spreads dnd-kit's PointerSensor
           // activator (incl. onPointerDown). A bare onPointerDown={stopPropagation}
           // AFTER the spread would OVERRIDE the activator and break drag-to-add from
           // the handle. Compose instead: invoke the activator first, then stop
@@ -297,8 +297,8 @@ export function DatasetSearchPanel({
 }: DatasetSearchPanelProps) {
   const { t } = useTranslation('builder');
   const queryClient = useQueryClient();
-  // builder-audit #338 SEARCH-01: gate the Import/Upload CTAs on capability (matching
-  // the catalog SearchPage, fix GLUX-006) so a viewer-capable session that lands
+  // Gate the Import/Upload CTAs on capability (matching
+  // the catalog SearchPage) so a viewer-capable session that lands
   // here does not see dead-end Import affordances. Keep the `!!token` guard too:
   // on logout the cached permissions query can briefly still return data, while
   // `token` clears synchronously in the auth store.
@@ -342,7 +342,7 @@ export function DatasetSearchPanel({
     staleTime: 30_000,
   });
 
-  // Per UI-SPEC §4a: the `record_type` query param at line ~215 already constrains
+  // The `record_type` query param already constrains
   // the backend query. The previous client-side isRasterRecord filter was a bug that
   // capped raster discovery to whatever appeared in the all-types page-20 result.
   // isRasterRecord() is still used by typeMeta() for display purposes.
@@ -402,12 +402,12 @@ export function DatasetSearchPanel({
         className={compact ? 'h-8 gap-1 px-3 text-xs' : 'h-7 w-7 shrink-0'}
         onClick={() => onAddDataset(record.id)}
         disabled={isAdding}
-        // fix(#526 B-050): mark THIS row busy while its add is in flight
+        // Mark THIS row busy while its add is in flight
         // (SuggestCard pattern) — all buttons stay disabled during an add, but
         // only the clicked row shows the spinner.
         aria-busy={addingDatasetId === record.id}
         title={t('search.addToMap', { defaultValue: 'Add to map' })}
-        // fix(#430 V-11): the row action and the expanded-details action both render
+        // The row action and the expanded-details action both render
         // this button; give the details-panel instance a distinct accessible
         // name so screen readers/role+name queries don't see two identical
         // "Add to map <name>" buttons in one result row.
@@ -530,7 +530,7 @@ export function DatasetSearchPanel({
         </div>
       )}
 
-      {/* State: Loading — first fetch skeleton rows (AUD-10) */}
+      {/* State: Loading — first fetch skeleton rows */}
       {!isError && isLoading && (
         <div className="mt-3 space-y-1 px-1">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -538,7 +538,7 @@ export function DatasetSearchPanel({
           ))}
         </div>
       )}
-      {/* State: Refetching — progress band over stale list (AUD-13) */}
+      {/* State: Refetching — progress band over stale list */}
       {!isError && isFetching && !isLoading && (
         <div className="h-0.5 w-full bg-[var(--primary)] animate-pulse" />
       )}
@@ -555,7 +555,7 @@ export function DatasetSearchPanel({
             <p className="text-center text-sm font-semibold">
               {t('search.catalogEmpty', { defaultValue: 'Your catalog is empty. Upload a dataset to get started.' })}
             </p>
-            {/* builder-audit #338 SEARCH-01: only show the Upload CTA when the session can upload. */}
+            {/* Only show the Upload CTA when the session can upload. */}
             {canImport && (
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/import">
@@ -594,7 +594,7 @@ export function DatasetSearchPanel({
         )}
       </div>
 
-      {/* ux(#776): no pointer-events/opacity freeze during debounced
+      {/* No pointer-events/opacity freeze during debounced
           refetches — the pulse band above already signals them, and the
           freeze made visible rows unclickable on every keystroke pause. */}
       <div className="mt-3 max-h-[24rem] space-y-1 overflow-y-auto px-1">
@@ -609,7 +609,7 @@ export function DatasetSearchPanel({
         ))}
       </div>
 
-      {/* builder-audit #338 SEARCH-01: gate the footer Import CTA on can('upload'),
+      {/* Gate the footer Import CTA on can('upload'),
           matching the catalog search panel. */}
       {canImport && (
         <div className="mt-3 flex justify-end border-t border-border/60 px-1 pt-3">

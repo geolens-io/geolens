@@ -1,14 +1,14 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 
-// fix(#1877): this file must import nothing from BuilderMap.tsx — a static
+// This file must import nothing from BuilderMap.tsx — a static
 // import from it defeats MapBuilderPage's `lazy(() => import(BuilderMap))`
 // code-split boundary.
 
 type VisibleLayerBounds = [[number, number], [number, number]];
 
 /** Merges every visible layer's bbox into one box, unwrapping an
- * antimeridian crossing (west > east) rather than dropping it (fix #903). */
+ * antimeridian crossing (west > east) rather than dropping it. */
 export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -27,14 +27,14 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
       continue;
     }
 
-    // fix(#903): unwrap a `west > east` pair past 180 rather than dropping
+    // Unwrap a `west > east` pair past 180 rather than dropping
     // it — MapLibre normalizes the result, so a seam-crossing layer still
     // fits the few degrees it occupies.
     let west = bbox[0];
     let east = bbox[0] > bbox[2] ? bbox[2] + 360 : bbox[2];
 
     // Try all three turns of the globe the merged interval could sit on and
-    // keep whichever yields the smallest span (fix #903) — comparing west
+    // keep whichever yields the smallest span — comparing west
     // edges alone is not sufficient to find it.
     if (hasBounds) {
       let bestSpan = Infinity;
@@ -61,7 +61,7 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
   if (!hasBounds) return null;
   // No union of longitude intervals can exceed 360° — clamp here so a
   // seam-crossing layer added to a world-spanning one can't widen the key
-  // past the world bounds it started from (fix #903).
+  // past the world bounds it started from.
   if (maxX - minX >= 360) {
     minX = -180;
     maxX = 180;

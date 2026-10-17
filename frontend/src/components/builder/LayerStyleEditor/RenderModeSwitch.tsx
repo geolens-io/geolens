@@ -11,7 +11,7 @@ import type { BaseStyleEditorProps } from './types';
  * Dispatch key type for the RenderModeSwitch lookup table.
  * Derived from geomType + PointRenderMode (for circle layers).
  *
- * CD-19 fix: replaces 200+ LOC of nested ternaries with a flat lookup table.
+ * Replaces 200+ LOC of nested ternaries with a flat lookup table.
  */
 export type EditorDispatchKey =
   | 'fill'
@@ -24,7 +24,7 @@ export type EditorDispatchKey =
 interface RenderModeSwitchProps extends BaseStyleEditorProps {
   /**
    * The resolved dispatch key. Computed by the orchestrator from geomType +
-   * renderMode. builder-audit #338 TYPE-01: narrowed to EditorDispatchKey (no `| string`
+   * renderMode. Narrowed to EditorDispatchKey (no `| string`
    * widening) so a typo or new render mode is a compile error, not a silent
    * DEV-warn + null render. The orchestrator owns the exhaustive mapping.
    */
@@ -32,7 +32,7 @@ interface RenderModeSwitchProps extends BaseStyleEditorProps {
 }
 
 /**
- * Lookup-table component dispatcher (CD-19 fix).
+ * Lookup-table component dispatcher.
  *
  * Uses a record of EditorDispatchKey → Component instead of nested ternaries.
  * If the dispatchKey is unrecognized, logs a DEV-only warning and returns null.

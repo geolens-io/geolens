@@ -1,4 +1,4 @@
-// builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
+// Extracted from UnifiedStackPanel.tsx into a sibling
 // file. Sortable wrapper for the basemap group row.
 import { memo, useCallback, useMemo } from 'react';
 import { useDndContext } from '@dnd-kit/core';
@@ -16,12 +16,11 @@ interface BasemapGroupRowWrapperProps {
   onToggleVisibility: (id: string) => void;
   onSwapBasemap: () => void;
   onResetAppearance: () => void;
-  // Phase 1041: boundary signal — shows cursor-not-allowed when multi-selection is active
+  // Boundary signal — shows cursor-not-allowed when multi-selection is active
   isMultiSelectionActive?: boolean;
 }
 
-// UX-03 (Phase 1051 Plan 06): basemap group is SORTABLE — was useDroppable-only
-// in Phase 1040 (AUD-04 pinned it to bottom). Lifted to useSortable mirroring
+// Basemap group is SORTABLE, using useSortable like
 // FolderGroupRowWrapper so the user can drag the basemap between top and bottom
 // positions in the layer stack. The `data` option preserves the catalog
 // drop-target semantics (handleDragEnd in MapBuilderPage still reads
@@ -39,7 +38,7 @@ export const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   onResetAppearance,
   isMultiSelectionActive,
 }: BasemapGroupRowWrapperProps) {
-  // Phase 1051 Plan 13 (CTRL-01 gate-fix): when a NON-basemap catalog item is
+  // When a NON-basemap catalog item is
   // being dragged, disable the basemap-group sortable so dnd-kit's collision
   // detection does not resolve to basemap-group via closestCenter fallback.
   // The shadcn Dialog backdrop (`fixed inset-0 z-50`) intercepts pointer events

@@ -66,7 +66,7 @@ export function getParentGroupId(layer: MapLayerResponse): string | null {
   return (layer as GroupedLayer).parent_group_id ?? null;
 }
 
-// fix(#585): the single grouping predicate. StackRow's "Add to group…" menu and
+// The single grouping predicate. StackRow's "Add to group…" menu and
 // BulkActionBar's Group action previously disagreed (the bar also required
 // vector_dataset), but drag-and-drop membership (resolveDropGroupMembership)
 // has never checked record type — any non-group row can live in a group.
@@ -74,7 +74,7 @@ export function canJoinFolderGroup(layer: MapLayerResponse): boolean {
   return !isFolderGroupLayer(layer) && !getParentGroupId(layer);
 }
 
-// fix(#525 B-040): membership rule for intra-stack drops. childrenByGroup
+// Membership rule for intra-stack drops. childrenByGroup
 // renders by parent_group_id, not array position, so a drag that changes
 // position without updating membership silently snaps back on render.
 // A drop onto a group child adopts that child's group; onto a loose data row
@@ -88,13 +88,13 @@ export function resolveDropGroupMembership(
   return getParentGroupId(overLayer);
 }
 
-// fix(#392): handleUngroup / handleMoveLayerOutOfGroup previously only
+// handleUngroup / handleMoveLayerOutOfGroup previously only
 // cleared the frontend-only `parent_group_id` field, leaving any PERSISTED
 // `style_config.builder.folderGroupId` on the underlying layer object intact.
 // buildDuplicateRenderingInput copies style_config verbatim, so duplicating a
 // just-ungrouped layer before Save carried the stale pointer to the backend —
 // and the next query-invalidation resync would silently re-group it via
-// hydrateFolderGroupLayers. Callers must clear this alongside parent_group_id. (audit CR-01)
+// hydrateFolderGroupLayers. Callers must clear this alongside parent_group_id.
 export function clearPersistedFolderGroup(
   styleConfig: StyleConfig | null | undefined,
 ): StyleConfig | null {
@@ -115,7 +115,7 @@ export function getPersistedFolderGroup(layer: MapLayerResponse): PersistedFolde
   };
 }
 
-// fix(#767): group identity is persisted only on children (the builder.folderGroup*
+// Group identity is persisted only on children (the builder.folderGroup*
 // markers written by prepareLayersForPersistence below), so a group row with no
 // children has no carrier and cannot survive save+reload — it kept rendering,
 // accepting drops, and dirtying the map, then silently vanished (with any rename)
@@ -175,7 +175,7 @@ export function hydrateFolderGroupLayers(
   };
 }
 
-// fix(#833 codex): snapshot helper for the Save-diff baseline. The baseline
+// Snapshot helper for the Save-diff baseline. The baseline
 // keeps the hydrated/local layer shape, but its persisted folderGroupExpanded
 // markers must reflect the collapse state that was just SAVED (the live
 // groupMeta), not the state the map loaded with — copying localLayers
@@ -187,7 +187,7 @@ export function stampPersistedFolderGroupExpanded(
   layers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
 ): MapLayerResponse[] {
-  // fix(#833 codex round 6): children of a group created THIS session carry
+  // Children of a group created THIS session carry
   // only parent_group_id — no persisted marker yet — but the save that this
   // baseline snapshots just wrote one (prepareLayersForPersistence derives it
   // from the group row + groupMeta). Derive the same marker here, or every

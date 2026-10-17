@@ -1,4 +1,4 @@
-// Phase 1051 UX-03: Basemap row is draggable in the layer order with saved-map
+// Basemap row is draggable in the layer order with saved-map
 // persistence. Encodes position in MapBasemapConfig.basemap_position (jsonb,
 // no backend migration). Drag preserves basemap-as-group semantics — the
 // basemap row moves between 'top' and 'bottom' positions in the unified stack.
@@ -38,7 +38,7 @@ vi.mock('@/components/map/layer-icons', () => ({
   ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
     <span data-testid={`type-icon-${layerId}`} />
   ),
-  // fix(#452): StackRow's type icon is now the shared LayerTypeIcon.
+  // StackRow's type icon is now the shared LayerTypeIcon.
   LayerTypeIcon: ({ iconId }: { iconId: string }) => (
     <span data-testid={`type-icon-${iconId}`} />
   ),
@@ -142,7 +142,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof UnifiedStac
     onCreateGroupWithLayer: vi.fn(),
     onMoveLayerOutOfGroup: vi.fn(),
     existingFolderGroups: [],
-    // Phase 1051 WR-02: bulk handlers are required props on UnifiedStackPanel.
+    // Bulk handlers are required props on UnifiedStackPanel.
     onBulkVisibility: vi.fn(),
     onBulkOpacity: vi.fn(),
     onBulkGroup: vi.fn(),
@@ -416,7 +416,7 @@ describe('UX-03: reorderBasemapAboveData (map-sync helper)', () => {
     expect(map.moveLayer).not.toHaveBeenCalledWith('embed-layer-data-1');
   });
 
-  // BLDR-01: raster-type basemap layers (imagery) must NOT be lifted above data
+  // Raster-type basemap layers (imagery) must NOT be lifted above data
   // layers by reorderBasemapAboveData at position='top'. Prior to the fix,
   // the isLandLayer/isWaterLayer guards only matched vector fill layers, allowing
   // type==='raster' imagery layers to slip through and float above data —

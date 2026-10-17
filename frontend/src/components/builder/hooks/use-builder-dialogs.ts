@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-// STATE-08 (builder-audit #338 20260626): the former `aiAvailable`/`isMobile`
+// The former `aiAvailable`/`isMobile`
 // positional params were ignored — the sidebar-collapse state they once drove
 // was removed as dead code (zero production consumers). Dropped to remove the
 // phantom API surface.

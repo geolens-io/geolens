@@ -1,5 +1,5 @@
 /**
- * Phase 1201-01 (ENH-02 / ENH-03) — copy/paste/bulk-apply style handler tests.
+ * Copy/paste/bulk-apply style handler tests.
  *
  * Asserts:
  *  - handleCopyStyle stashes the source style + exposes copiedStyleGeometryClass
@@ -54,7 +54,7 @@ const MAP_ID = 'map-1';
 function renderBuilderLayers(mapData: MapResponse | undefined) {
   const addLayerMutation = { mutate: vi.fn(), mutateAsync: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn(), mutateAsync: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  // 6th positional param bridging into useBuilderSave's Save-diff baseline.
   const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
   return renderHook(() =>
     useBuilderLayers(mapData, makeMapRef(), MAP_ID, addLayerMutation, removeLayerMutation, saveBaselineSyncRef),
@@ -65,7 +65,7 @@ async function waitForInit() {
   await act(async () => {});
 }
 
-// fix(#910, codex P2): the paint expression that a real categorical source carries — the
+// The paint expression that a real categorical source carries — the
 // config and the expression are written together and copied together. A source paired
 // with a FLAT colour is an orphaned layer, and the paste now declines to propagate that
 // claim to the target, so these fixtures need the pair to be testing the paste at all.
@@ -208,12 +208,12 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
-  // fix(#910/#918, codex P2): bulk apply reaches neither handleStyleConfigChange nor
-  // handlePasteStyle, so the EDIT-05 exclusions had to be shared with it explicitly.
+  // Bulk apply reaches neither handleStyleConfigChange nor
+  // handlePasteStyle, so the exclusions had to be shared with it explicitly.
   // applyCopiedStyleToLayer merges the copied paint OVER the target's, which is what
   // strands the loser of each incompatible pair on the layer.
   describe('EDIT-05 fill exclusions', () => {
-    // fix(#910, codex P2): the pattern-wins tie-break is only correct when the pattern
+    // The pattern-wins tie-break is only correct when the pattern
     // is what was copied. Applying a SOLID style must displace the target's pattern, or
     // the operation silently keeps the old look and appears to do nothing.
     it('lets a copied solid colour displace the target pattern', async () => {
@@ -263,7 +263,7 @@ describe('useBuilderLayers — handleBulkApplyStyle (ENH-03)', () => {
       expect(updated.paint['fill-color']).toBe('#abc');
     });
 
-    // fix(#923): the other paste direction. The pair is symmetric, and the merge that
+    // The other paste direction. The pair is symmetric, and the merge that
     // strands the loser is the same one, so both directions have to be pinned.
     it('lets a pasted pattern displace the target solid colour', async () => {
       const src = makeMockLayer({

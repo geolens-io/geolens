@@ -1,10 +1,10 @@
 /**
- * Shape B staging buffer for destructive AI chat actions (Phase 1135 AI-01).
+ * Shape B staging buffer for destructive AI chat actions.
  *
- * ## Shape B Lock — NON-NEGOTIABLE (1135-CONTEXT.md D-Shape-B / Pitfall #3)
+ * ## Shape B Lock — NON-NEGOTIABLE
  *
  * This module wraps the CALLER'S supplied `dispatch` handler — it does NOT call
- * `dispatchLayerAction` directly (builder-audit #338 PARITY-01). In production it is
+ * `dispatchLayerAction` directly. In production it is
  * instantiated as `useChatActionStaging((action) => handleChatAction(action))`,
  * so accepted actions flow through ChatPanel's `handleChatAction` switch, which
  * in turn routes to the builder layer-action contract. The staging buffer holds
@@ -16,8 +16,7 @@
  * is byte-equal to pre-prompt after rejectAll().
  *
  * `BuilderActionSource` is NOT widened. No `'ai-pending'` or `'ai-committed'`
- * source values are introduced. The v1027 typed action boundary is unchanged.
- * See v1030 hard invariant #5.
+ * source values are introduced. The typed action boundary is unchanged.
  *
  * ## Destructive vs Non-Destructive Actions
  *
@@ -30,7 +29,7 @@
  *   - `set_filter`, `set_style`, `set_data_driven_style`, `set_label`,
  *     `set_opacity`, `toggle_visibility` — attribute/style-only mutations
  *
- * Callers in Plan 02 should branch:
+ * Callers should branch:
  *   if (isDestructiveAction(action)) staging.push(action);
  *   else dispatch(action);  // dispatch non-destructive directly
  *
@@ -51,7 +50,7 @@ import type { ChatAction } from '@/types/api';
 /**
  * PendingAction is a ChatAction held in the staging buffer awaiting user
  * confirmation. The staging module accepts any ChatAction shape; production
- * callers (Plan 02) only push destructive actions via isDestructiveAction gate.
+ * callers only push destructive actions via isDestructiveAction gate.
  */
 type PendingAction = ChatAction;
 

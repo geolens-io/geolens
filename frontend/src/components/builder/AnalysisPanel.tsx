@@ -40,7 +40,7 @@ const MAX_BUFFER_METERS = 100_000;
 // shadcn Select items can't carry an empty value — sentinels for "none".
 const BY_FIELD_NONE = '__none__';
 const MASK_LAYER_NONE = '__none__';
-// ux(#698): mirrors _POLYGONAL_TYPES in
+// Mirrors _POLYGONAL_TYPES in
 // backend/app/modules/catalog/datasets/api/router_analysis.py — the server
 // rejects any other mask dataset with a 422.
 const POLYGONAL_GEOMETRY_TYPES = new Set(['POLYGON', 'MULTIPOLYGON']);
@@ -53,7 +53,7 @@ function cql2Field<K extends string>(
   if (value === null || value === 'unsupported') return {};
   return { [key]: value } as Record<K, Cql2Expression>;
 }
-// fix(#1097 review): mirrors _ROW_FILTERING_OPERATIONS in
+// Mirrors _ROW_FILTERING_OPERATIONS in
 // backend/app/modules/catalog/datasets/domain/service_analysis.py. These drop
 // or multiply source rows, so the source's feature count says nothing about
 // the output and the server sends null for it. They are also the operations
@@ -61,7 +61,7 @@ function cql2Field<K extends string>(
 // spatial_join is absent on purpose: it reports match_count too, but as a
 // count of matched pairs beside a result that keeps every source row.
 const ROW_FILTERING_OPERATIONS = ['clip', 'select_by_location', 'intersect'] as const;
-// fix(#1097 review): a column the server will refuse must not be offered.
+// A column the server will refuse must not be offered.
 //
 // These mirror router_analysis.py. _SAFE_COLUMN_RE gates any column named as a
 // group key or a transferred field, so `Área`, `2020_pop` and `:id` are all
@@ -73,9 +73,8 @@ const ROW_FILTERING_OPERATIONS = ['clip', 'select_by_location', 'intersect'] as 
 // The picker filtered exactly one of these before: dissolve dropped
 // `source_count`. Everything else was offered and then refused on submit, so
 // the only way to learn a field was unusable was to run the operation. Both
-// pickers share the rule now rather than the join picker learning it alone —
-// the finding named the join picker, but the gap is in what the pickers know
-// about the server's rules, and dissolve had the same hole.
+// pickers share the rule: the gap is in what the pickers know about the
+// server's rules, and dissolve had the same hole as the join picker.
 const SAFE_COLUMN_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 // Mirrors MAX_IDENTIFIER_LENGTH in backend/app/platform/analysis_sql.py:
 // PostgreSQL's NAMEDATALEN - 1. Safe as a character count here because
@@ -84,11 +83,11 @@ const MAX_IDENTIFIER_LENGTH = 63;
 const NON_GROUPABLE_COLUMN_TYPES = new Set(['json', 'xml']);
 // The app turns focus refetching off globally; these queries need it.
 const FRESH_COLUMNS = { staleTime: 0, refetchOnWindowFocus: true };
-// ux(#686): buffer distances are metres on the wire; the picker converts so a
+// Buffer distances are metres on the wire; the picker converts so a
 // user thinking in feet or miles doesn't have to.
 const BUFFER_UNIT_METERS = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
 type BufferUnit = keyof typeof BUFFER_UNIT_METERS;
-// fix(#773 follow-up): the cap expressed in a display unit, floored to two
+// The cap expressed in a display unit, floored to two
 // decimals so the STATED maximum is itself a legal value. Rounding to nearest
 // overstated it — 100 000 m in feet displayed as 328,083.99 ft, which
 // converts back to 100 000.0005 m, over the cap, making the panel's own
@@ -96,7 +95,7 @@ type BufferUnit = keyof typeof BUFFER_UNIT_METERS;
 // (100 000 m and 100 km are exact; feet and miles floor slightly short).
 const maxBufferInUnit = (unit: BufferUnit): number =>
   Math.floor((MAX_BUFFER_METERS / BUFFER_UNIT_METERS[unit]) * 100) / 100;
-// ux(#773): switching the unit converts the displayed number so the PHYSICAL
+// Switching the unit converts the displayed number so the PHYSICAL
 // distance is preserved — "100 m" becomes "0.1 km", not a silent 1000×
 // reinterpretation. Rounded to 6 significant digits to trim float tails
 // (0.3 km → 300 m, not 300.00000000000006) while staying far finer than any
@@ -112,7 +111,7 @@ const convertDistanceBetweenUnits = (
   if (raw.trim() === '' || !Number.isFinite(value)) return raw;
   const converted = (value * BUFFER_UNIT_METERS[from]) / BUFFER_UNIT_METERS[to];
   let rounded = Number(converted.toPrecision(6));
-  // fix(#773 follow-up): a legal value must stay legal across a unit switch.
+  // A legal value must stay legal across a unit switch.
   // 100 000 m rounded to 6 digits became 328 084 ft, which the panel then
   // flagged invalid against its own cap. Round DOWN to the cap in the target
   // unit instead of letting the significant-digit rounding step over it.
@@ -137,7 +136,7 @@ const UNIT_KEY: Record<BufferUnit, string> = {
  * A viewport-scoping bbox for the preview request, or `undefined` when the
  * viewport cannot be sent as one non-crossing envelope.
  *
- * fix(#727 codex P2): `map.getBounds()` is MONOTONIC and UNWRAPPED — MapLibre
+ * `map.getBounds()` is MONOTONIC and UNWRAPPED — MapLibre
  * takes min/max over the four raw corner longitudes, so an antimeridian-
  * straddling viewport or a pan through extra world copies (`renderWorldCopies`
  * is on by default) returns values like `[179.5, …, 182, …]` or even
@@ -152,7 +151,7 @@ const UNIT_KEY: Record<BufferUnit, string> = {
  * one increasing envelope: a full-world viewport, and a genuinely
  * seam-crossing one.
  *
- * fix(#727 codex P3 round 4): west and east are normalized TOGETHER, not
+ * West and east are normalized TOGETHER, not
  * independently — west is wrapped once, and east is reconstructed by adding
  * back the raw width, never wrapped on its own. 180 and -180 are the same
  * meridian, so wrapping each end independently let a viewport starting
@@ -186,7 +185,7 @@ export function viewportPreviewBbox(
   // introducing float noise (`-74.1` round-tripped through `% 360` lands a
   // ULP off) on every ordinary viewport just to handle a rare wrapped one.
   if (rawWest >= -180 && rawEast <= 180) return [rawWest, south, rawEast, north];
-  // fix(#727 codex P3 round 4): wrap WEST only, then reconstruct east by
+  // Wrap WEST only, then reconstruct east by
   // adding back the raw (already validated non-negative, < 360) width —
   // never wrap east independently. 180 and -180 are the SAME meridian, so a
   // viewport starting exactly at the seam (e.g. [180, 190]) used to keep west
@@ -204,10 +203,10 @@ export function viewportPreviewBbox(
 
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
-  /** fix(#757)/fix(#760): keys the remembered form and the rehydrated job to
+  /** Keys the remembered form and the rehydrated job to
    *  the map they belong to. */
   mapId?: string;
-  /** ux(#772): the layer currently selected in the builder's stack. When it is
+  /** The layer currently selected in the builder's stack. When it is
    *  analysable, the panel opens targeting it instead of whatever sorts first —
    *  behind an explicit chat prefill, ahead of the remembered form's layer.
    *  Read at mount only, like every other initializer here. */
@@ -225,12 +224,12 @@ interface AnalysisPanelProps {
   ) => void;
   onClearPreview?: () => void;
   hasPreview?: boolean;
-  /** fix(#793 review): who drew the current ephemeral overlay. The
+  /** Who drew the current ephemeral overlay. The
    *  stale-restore cleanup only clears the panel's own previews — never a
    *  chat result sharing the slot. */
   previewSource?: 'analysis-panel';
   layerActions?: LayerActions;
-  /** feat(#675): initial form values handed off from a chat run_analysis
+  /** Initial form values handed off from a chat run_analysis
    *  preview ("Save as dataset"). Applied on mount only — BuilderRail keys the
    *  panel on the handoff so a new one remounts it. */
   prefill?: EphemeralAnalysisHandoff;
@@ -260,13 +259,13 @@ export function AnalysisPanel({
 }: AnalysisPanelProps) {
   const { t, i18n } = useTranslation('builder');
   const firstEligibleId = layers.find(isAnalysableLayer)?.id ?? '';
-  // feat(#675): a handoff layer that has since left the map (or lost its
+  // A handoff layer that has since left the map (or lost its
   // dataset) falls back to the default selection instead of an empty select.
   const prefillLayerId =
     prefill && layers.some((l) => l.id === prefill.layerId && isAnalysableLayer(l))
       ? prefill.layerId
       : undefined;
-  // ux(#772): the stack's selected row, when it is an analysable layer —
+  // The stack's selected row, when it is an analysable layer —
   // "analyze THIS layer" is the common intent behind opening the panel, so it
   // beats the remembered form's layer and the first-eligible default. A chat
   // prefill still wins: it names its own layer explicitly. Non-layer ids the
@@ -277,7 +276,7 @@ export function AnalysisPanel({
     layers.some((l) => l.id === selectedLayerId && isAnalysableLayer(l))
       ? selectedLayerId
       : undefined;
-  // fix(#757): the panel is conditionally mounted, so a rail switch, Escape,
+  // The panel is conditionally mounted, so a rail switch, Escape,
   // or a breakpoint crossing destroys it — restore the remembered form for
   // this map instead of losing a drawn mask and a typed name to a stray
   // click. A chat handoff (prefill) takes precedence; a remembered form
@@ -294,29 +293,29 @@ export function AnalysisPanel({
   });
   const initialLayerId =
     prefillLayerId ?? stackLayerId ?? savedForm?.layerId ?? firstEligibleId;
-  // ux(#772): a stack selection that DISPLACES the remembered layer makes this
+  // A stack selection that DISPLACES the remembered layer makes this
   // mount a different draft. The layer-coupled remembered fields (byField, any
   // run the form still owned) reset exactly as if the layer select had been
-  // edited — fix(#680)/fix(#793) semantics — while the layer-agnostic ones
+  // edited, while the layer-agnostic ones
   // (operation, distance, drawn mask, typed name) still restore.
   const stackDisplacesSavedLayer =
     stackLayerId != null && !!savedForm && savedForm.layerId !== stackLayerId;
   const [layerId, setLayerId] = useState(initialLayerId);
-  // fix(#793 review): the initializers here deliberately DROP a remembered
+  // The initializers here deliberately DROP a remembered
   // selection whose source or mask layer left the map while the panel was
   // closed — but the page-level preview overlay drawn from that selection is
   // still on screen, depicting a layer that no longer exists. Detected during
   // render, before the write-through effect below overwrites the slot with
   // the fallback form; cleared once, from the effect further down. The
   // tracked JOB, if any, deliberately survives: it runs server-side and
-  // fix(#760) wants it visible.
+  // the user still needs to see its progress.
   const staleRestoreRef = useRef(
     (() => {
       if (prefill || !mapId) return false;
       const remembered = useAnalysisFormStore.getState().forms[mapId];
       if (!remembered) return false;
       return (
-        // ux(#772): a stack selection displacing the remembered layer leaves
+        // A stack selection displacing the remembered layer leaves
         // any panel-drawn overlay depicting the displaced layer's result —
         // stale for the same reason a vanished layer's would be.
         stackDisplacesSavedLayer ||
@@ -325,7 +324,7 @@ export function AnalysisPanel({
         ) ||
         (remembered.maskLayerId !== MASK_LAYER_NONE &&
           !layers.some((l) => l.id === remembered.maskLayerId)) ||
-        // fix(#1097 review): a vanished JOIN layer strands the overlay for the
+        // A vanished JOIN layer strands the overlay for the
         // same reason a vanished mask layer does — the drawn result depicts a
         // pairing that can no longer be reproduced.
         (remembered.joinLayerId !== MASK_LAYER_NONE &&
@@ -350,17 +349,17 @@ export function AnalysisPanel({
   // Layer-sourced clip mask; mutually exclusive with a drawn mask.
   const [maskLayerId, setMaskLayerId] = useState(() =>
     savedForm &&
-    // ux(#772): a mask layer can't clip itself — the stack-selected layer may
+    // A mask layer can't clip itself — the stack-selected layer may
     // BE the remembered mask layer (mirrors the layer select's own guard).
     savedForm.maskLayerId !== initialLayerId &&
     layers.some((l) => l.id === savedForm.maskLayerId)
       ? savedForm.maskLayerId
       : MASK_LAYER_NONE,
   );
-  // feat(#953): the layer a spatial join counts against. MASK_LAYER_NONE is
+  // The layer a spatial join counts against. MASK_LAYER_NONE is
   // reused as the shared "no layer picked" sentinel rather than a second
   // identically-valued constant.
-  // fix(#1097 review): restored from the snapshot on the same terms as
+  // Restored from the snapshot on the same terms as
   // maskLayerId — a join layer cannot be the source layer, and a remembered
   // layer that has since left the map falls back to the sentinel.
   const [joinLayerId, setJoinLayerId] = useState(() =>
@@ -374,7 +373,7 @@ export function AnalysisPanel({
   // handles up to MAX_SPATIAL_JOIN_FIELDS; the panel offers a single Select
   // because that is the "which district is this point in" case, and it needs
   // no multi-select primitive that does not exist here yet.
-  // fix(#1097 review): the field names a column of the JOIN layer, so it is
+  // The field names a column of the JOIN layer, so it is
   // restorable exactly when that layer was — not on the source layer's terms
   // like byField below. If the join layer fell back to the sentinel above,
   // a remembered column of it means nothing.
@@ -384,7 +383,7 @@ export function AnalysisPanel({
       : BY_FIELD_NONE,
   );
   const [byField, setByField] = useState(
-    // ux(#772)/fix(#680) parity: a remembered group-by column belongs to the
+    // Same rule as the layer select: a remembered group-by column belongs to the
     // remembered layer — it must not carry to a stack-selected one.
     savedForm && !stackDisplacesSavedLayer ? savedForm.byField : BY_FIELD_NONE,
   );
@@ -394,7 +393,7 @@ export function AnalysisPanel({
     if (!prefill) return savedForm?.outputTitle ?? '';
     const layer = layers.find((l) => l.id === prefill.layerId);
     const base = layer?.display_name ?? layer?.dataset_name ?? '';
-    // feat(#953): a lookup, not a ternary chain. The chain's final else read
+    // A lookup, not a ternary chain. The chain's final else read
     // "Dissolve", so every operation added after it was silently labelled
     // Dissolve in the suggested title until someone extended the chain too.
     const opLabel: Record<AnalysisOperation, string> = {
@@ -411,18 +410,18 @@ export function AnalysisPanel({
     };
     return [base, opLabel[prefill.operation]].filter(Boolean).join(' — ');
   });
-  // fix(#760): rehydrate a still-tracked materialize for THIS map so a
+  // Rehydrate a still-tracked materialize for THIS map so a
   // reopened (or reloaded) panel shows the status line and completion
   // actions instead of a silently disabled Create button. NOT for a chat
-  // prefill (fix(#793 review)): that mount is a NEW draft — an unrelated
+  // prefill: that mount is a NEW draft — an unrelated
   // tracked run stays ambient rather than surfacing its status and
   // completion actions over the handed-off form.
   const [jobId, setJobId] = useState<string | null>(() => {
     if (prefill) return null;
-    // fix(#793 review): a restored draft that disowned the run (edited
+    // A restored draft that disowned the run (edited
     // mid-flight, then the panel closed) must not readopt it at mount — the
     // run stays ambient, exactly as the adoption effect below decides.
-    // ux(#772): a stack selection displacing the remembered layer disowns the
+    // A stack selection displacing the remembered layer disowns the
     // run the same way — the mounted form no longer matches its parameters.
     if (savedForm?.runDisowned || stackDisplacesSavedLayer) return null;
     const tracked = useAnalysisJobStore.getState().job;
@@ -430,7 +429,7 @@ export function AnalysisPanel({
       ? tracked.jobId
       : null;
   });
-  // fix(#764): the completed run's title, so "Add to map" can say what it
+  // The completed run's title, so "Add to map" can say what it
   // adds even after the input field is cleared or edited.
   const [lastRunTitle, setLastRunTitle] = useState(() => {
     if (prefill || savedForm?.runDisowned || stackDisplacesSavedLayer) return '';
@@ -440,7 +439,7 @@ export function AnalysisPanel({
       : '';
   });
   // A completed run raises TWO "Add to map" affordances (this button and the
-  // watcher's toast action). fix(#833): the single-use marker is the SHARED
+  // watcher's toast action). The single-use marker is the SHARED
   // useAnalysisAddedStore — a per-affordance flag deduped each button against
   // itself but not against the other, so clicking the toast action and then
   // this button added the layer twice. Keyed on the dataset id, so a NEW
@@ -450,15 +449,15 @@ export function AnalysisPanel({
   const addedDatasetIds = useAnalysisAddedStore((s) => s.addedDatasetIds);
   const pendingAddIds = useAnalysisAddedStore((s) => s.pendingAddIds);
   const markDatasetPending = useAnalysisAddedStore((s) => s.markPending);
-  // fix(#793 review): a materialize can outlive the panel instance that
+  // A materialize can outlive the panel instance that
   // started it — closed during the POST, reopened before the response lands.
   // The mount-time initializers above see no tracked job yet, so a job that
   // arrives in the store later for this map is adopted here. Once per job id:
   // a job this instance itself started is owned by the seq-guarded mutation
   // callbacks, and re-adopting a run the user has since disowned (inputs
-  // changed mid-flight) would resurrect exactly the state fix(#758) clears.
+  // changed mid-flight) would resurrect exactly the state a superseded-input guard clears.
   const adoptedJobsRef = useRef(new Set<string>());
-  // fix(#793 review): adoption is only for an instance whose form still
+  // Adoption is only for an instance whose form still
   // matches the run. Once the user edits ANYTHING after a run starts, a job
   // from that run belongs to abandoned parameters and must stay ambient
   // ("another analysis is running") — exactly what the seq guard would have
@@ -466,9 +465,9 @@ export function AnalysisPanel({
   // reset when a new run starts (Create blesses the current form), and
   // PERSISTED through the form store so closing and reopening the panel
   // between the edit and the POST response cannot launder the disowning.
-  // A chat prefill starts disowned outright (fix(#793 review)): it is a new
+  // A chat prefill starts disowned outright: it is a new
   // draft, so no pre-existing run may be adopted or clear its suggested
-  // title on completion. ux(#772): so does a mount whose stack selection
+  // title on completion. So does a mount whose stack selection
   // displaced the remembered layer — the run's blessed form is known to
   // differ from what this mount shows.
   const formEditedRef = useRef(
@@ -485,7 +484,7 @@ export function AnalysisPanel({
   }, [trackedJob, mapId]);
   const drawRef = useRef<TerraDraw | null>(null);
 
-  // fix(#757): remember the form for this map across unmounts. The snapshot
+  // Remember the form for this map across unmounts. The snapshot
   // ref is refreshed every render; the cleanup writes it back exactly once,
   // when the panel actually unmounts.
   const formSnapshotRef = useRef<SavedAnalysisForm | null>(null);
@@ -502,14 +501,14 @@ export function AnalysisPanel({
     outputTitle,
     runDisowned: formEditedRef.current,
   };
-  // fix(#793 review): the snapshot belongs to the user who typed it —
+  // The snapshot belongs to the user who typed it —
   // after a logout (the auth subscription just cleared the slot) this panel
   // must stop writing, or it would hand the previous user's form to the next
   // login. Captured once at mount: after an in-place identity change the
   // mounted values are still the previous user's, so staying silent is the
   // correct side of the line.
   const [formOwnerId] = useState(() => useAuthStore.getState().user?.id ?? null);
-  // fix(#793 review): the responsive breakpoint swap unmounts this panel
+  // The responsive breakpoint swap unmounts this panel
   // and mounts its replacement in the SAME React commit, and the
   // replacement's mount-only initializers read the store DURING render —
   // before any unmount cleanup of ours could run. So the store must already
@@ -525,16 +524,16 @@ export function AnalysisPanel({
     }
   });
 
-  // fix(#793 review): a restored drawn mask must be VISIBLE, not just
+  // A restored drawn mask must be VISIBLE, not just
   // set — the previous unmount tore down TerraDraw and its map layers, so
   // the panel said "Clip area set" over an empty map. Recreate the
   // kept-static overlay exactly as the finish handler leaves it. Best
   // effort: if TerraDraw rejects the feature, the mask still applies (the
   // pre-fix behavior), just without the outline. Shared by the mount
-  // restore below and the fix(#775) style.load re-add.
+  // restore below and the style.load re-add.
   const addStaticMaskOverlay = useCallback(
     (map: MaplibreMap, maskGeometry: GeoJSON.Polygon) => {
-      // fix(#793 review): held locally so the catch can reach a PARTIALLY
+      // Held locally so the catch can reach a PARTIALLY
       // started instance — drawRef is only assigned on full success, so
       // stopping drawRef there stopped nothing while the failed instance kept
       // its map layers and handlers attached.
@@ -575,7 +574,7 @@ export function AnalysisPanel({
     },
     [],
   );
-  // fix(#787 item 10): the clip Draw button gated on `mapInstanceRef.current`
+  // The clip Draw button gated on `mapInstanceRef.current`
   // read during render. Ref assignments don't re-render, so the button could
   // stay dead until an unrelated state change happened to re-render the panel.
   // Mirror the instance into state from an effect — the legal place to read a
@@ -603,16 +602,16 @@ export function AnalysisPanel({
     // permanent: the mask applied but never became visible, with no retry.
     // Mirrors use-ephemeral-layers' retry-until-attached idiom.
     if (drawRef.current) restoredMaskDrawnRef.current = true;
-    // No dep array (fix(#793 review)): the map arrives by REF assignment —
+    // No dep array: the map arrives by REF assignment —
     // no dep ever changes — but the lazy BuilderMap's load re-renders the
     // parent, so retrying every commit reaches the moment the map exists;
     // restoredMaskDrawnRef then latches this to a no-op.
   });
-  // fix(#775): a basemap switch calls setStyle, which wipes every
+  // A basemap switch calls setStyle, which wipes every
   // imperatively added source/layer — TerraDraw's static overlay included
   // (the 1.4.x adapter has no style-reload handling) — while `mask` and
   // drawRef survive, so the panel claimed "Clip area set" over a map with no
-  // visible mask and no re-add path. Mirror use-ephemeral-layers' fix(#394)
+  // visible mask and no re-add path. Mirror use-ephemeral-layers'
   // pattern: subscribe for the lifetime of the mask and rebuild the overlay
   // on every style.load. Stopping the orphaned instance first can throw over
   // the already-wiped layers (the adapter's unregister removes them
@@ -640,7 +639,7 @@ export function AnalysisPanel({
   // Shares its TanStack query with the page-level tracker (same key), so
   // there is exactly one 2s poll loop however many components watch the job.
   const { data: job, error: jobError } = useJobStatus(jobId);
-  // fix(#793 review): once the observed run COMPLETES, the typed name
+  // Once the observed run COMPLETES, the typed name
   // has served its purpose — clearing the mounted panel's copy keeps the
   // unmount snapshot from re-saving the finished run's name over the value
   // AnalysisJobWatcher just cleared in the form store. Success only, and
@@ -656,12 +655,12 @@ export function AnalysisPanel({
     if (observedJobStatus !== 'complete') return;
     if (!formEditedRef.current) setOutputTitle('');
   }, [observedJobStatus]);
-  // fix(#793 review): mirror AnalysisJobWatcher's gone path for the
+  // Mirror AnalysisJobWatcher's gone path for the
   // MOUNTED panel — a definitive 401/403/404 (retention sweep, revoked
   // access) never yields the terminal status the effect above keys on, so
   // without this the panel polls a dead id forever and keeps the old run's
   // name in the field, re-enabling Create with it once the watcher drops the
-  // global job. Transient errors keep polling, exactly as fix(#682) requires.
+  // global job. Transient errors keep polling, exactly as the polling contract requires.
   const jobGone =
     jobError instanceof ApiError && [401, 403, 404].includes(jobError.status);
   useEffect(() => {
@@ -675,7 +674,7 @@ export function AnalysisPanel({
 
   const datasetLayers = layers.filter(isAnalysableLayer);
   const selectedLayer = datasetLayers.find((l) => l.id === layerId);
-  // feat(#790): the layer a finished materialize produced, once it is on the
+  // The layer a finished materialize produced, once it is on the
   // map. The operation input is a LAYER id (the select below resolves it to
   // dataset_id), so the result has to be on the stack before it can be
   // chained — which is why the affordance appears alongside "Add to map"
@@ -684,7 +683,7 @@ export function AnalysisPanel({
     job?.status === 'complete' && job.dataset_id
       ? datasetLayers.find((l) => l.dataset_id === job.dataset_id)
       : undefined;
-  // Candidate clip-mask layers. ux(#698): filtered to polygonal layers rather
+  // Candidate clip-mask layers. Filtered to polygonal layers rather
   // than deferring to the server's 422 — dataset_geometry_type is already here,
   // so offering a point or line layer only buys the user a failed request.
   const maskLayerOptions = datasetLayers.filter(
@@ -696,11 +695,11 @@ export function AnalysisPanel({
     maskLayerId !== MASK_LAYER_NONE
       ? maskLayerOptions.find((l) => l.id === maskLayerId)
       : undefined;
-  // feat(#955): select_by_location takes its geometry from the same drawn-or-
+  // select_by_location takes its geometry from the same drawn-or-
   // layer pair clip does, and the API takes it in the same two fields, so the
   // panel shares the controls rather than growing a second spelling of them.
   const usesMask = operation === 'clip' || operation === 'select_by_location';
-  // feat(#956): intersect shares the layer PICKER but not the draw block — a
+  // Intersect shares the layer PICKER but not the draw block — a
   // drawn polygon carries no attributes to overlay with, which would make it an
   // expensive clip. The API reflects that too: `mask` is not an intersect
   // param, only `mask_dataset_id`.
@@ -755,7 +754,7 @@ export function AnalysisPanel({
               'Drawing needs a pointer. To clip without one, pick a polygon layer below.',
           }),
         };
-  // feat(#953): a join works in every direction — points in polygons, polygons
+  // A join works in every direction — points in polygons, polygons
   // over polygons, lines crossing polygons — so unlike the clip mask above
   // there is no geometry-type filter, only "not the source layer".
   const joinLayerOptions = datasetLayers.filter((l) => l.id !== layerId);
@@ -763,7 +762,7 @@ export function AnalysisPanel({
     joinLayerId !== MASK_LAYER_NONE
       ? joinLayerOptions.find((l) => l.id === joinLayerId)
       : undefined;
-  // fix(#1097 review): spatial_join needs the SOURCE's columns too, not just
+  // spatial_join needs the SOURCE's columns too, not just
   // dissolve. A transferred field lands as join_<name>, so a source that
   // already has join_zone — routinely, because it is the output of an earlier
   // spatial join — collides with a join layer's `zone`, and the server rejects
@@ -849,7 +848,7 @@ export function AnalysisPanel({
       // the name it has, so all of them compare the generated form. That is
       // what keeps them true if the prefix or the generated set changes.
       //
-      // fix(#1097 review): truncated first, mirroring
+      // Truncated first, mirroring
       // spatial_join_output_columns. PostgreSQL truncates an identifier past
       // 63 bytes with a notice rather than refusing it, so the name the
       // comparisons below need is the truncated one — an over-long alias can
@@ -888,11 +887,11 @@ export function AnalysisPanel({
     wasDrawingRef.current = isDrawing;
   }, [isDrawing]);
 
-  // fix(#758): a preview belongs to the inputs that produced it. Every input
+  // A preview belongs to the inputs that produced it. Every input
   // change bumps the sequence (so an in-flight response knows it has been
   // superseded) and clears the overlay + badge outright.
   const previewSeqRef = useRef(0);
-  // fix(#787 item 3): closing the panel mid-preview suppressed the result
+  // Closing the panel mid-preview suppressed the result
   // callbacks but left the request running. The controller for the preview in
   // flight, aborted on unmount and when a newer preview supersedes it.
   // Scope: this cancels the CLIENT half. The preview endpoint does not watch
@@ -904,11 +903,11 @@ export function AnalysisPanel({
   useEffect(() => () => previewAbortRef.current?.abort(), []);
   const jobIdRef = useRef(jobId);
   jobIdRef.current = jobId;
-  // fix(#793 review): an input change while the materialize POST is still on the
+  // An input change while the materialize POST is still on the
   // wire must reset too — jobId isn't set yet, but the run (and its name)
   // already belongs to the old parameters. Assigned below the mutation.
   const materializePendingRef = useRef(false);
-  // fix(#793 review): the shared slot may hold someone else's overlay (a
+  // The shared slot may hold someone else's overlay (a
   // chat query result) — an input change invalidates only a preview these
   // inputs produced: one the panel drew itself, or the chat run_analysis
   // handoff this panel was opened to continue. Render-assigned so
@@ -917,7 +916,7 @@ export function AnalysisPanel({
   ownsPreviewRef.current = previewSource === 'analysis-panel' || !!prefill;
   const handleInputsChanged = useCallback(() => {
     previewSeqRef.current += 1;
-    // fix(#787 item 3): the sequence bump only makes the response ineligible
+    // The sequence bump only makes the response ineligible
     // to be drawn; the mutation stays pending until the abandoned request
     // settles. canRun gates on isPending, so without this abort the user
     // cannot start the replacement preview they just changed the inputs for,
@@ -925,7 +924,7 @@ export function AnalysisPanel({
     previewAbortRef.current?.abort();
     formEditedRef.current = true;
     if (ownsPreviewRef.current) onClearPreview?.();
-    // fix(#764): a finished run's "Dataset created" + name must not survive
+    // A finished run's "Dataset created" + name must not survive
     // an input change — one more click would create an identically-named
     // dataset from different parameters. Global job tracking is untouched
     // (see the #682 note on the Create button).
@@ -941,7 +940,7 @@ export function AnalysisPanel({
     handleInputsChanged();
   }, [filterKey, handleInputsChanged]);
 
-  // feat(#790): switching the source layer is now reachable from two places —
+  // Switching the source layer is now reachable from two places —
   // the Layer select below and the chain affordance in the completion state —
   // so the resets live here rather than being spelled twice. A second copy
   // would drift: every one of these lines is a fix for a field that outlived
@@ -951,11 +950,11 @@ export function AnalysisPanel({
     setLayerId(nextLayerId);
     // A mask layer can't clip itself.
     if (nextLayerId === maskLayerId) setMaskLayerId(MASK_LAYER_NONE);
-    // fix(#680): a group-by column chosen for one dataset must not carry to
+    // A group-by column chosen for one dataset must not carry to
     // another — it may not exist there (422 from the API) or silently group by
     // a same-named field.
     setByField(BY_FIELD_NONE);
-    // fix(#1097 review): the transferred field is the same problem and was
+    // The transferred field is the same problem and was
     // left out of this reset. It belongs to the JOIN layer, so it survives a
     // source change intact — but whether it is usable depends on the SOURCE,
     // since join_<name> has to not collide with a source column. Picking
@@ -967,16 +966,16 @@ export function AnalysisPanel({
     setJoinField(BY_FIELD_NONE);
   };
 
-  // fix(#793 review), mount half: see staleRestoreRef above.
+  // Mount-time half: see staleRestoreRef above.
   useEffect(() => {
     if (!staleRestoreRef.current) return;
     staleRestoreRef.current = false;
-    // fix(#793 review): the shared ephemeral slot may meanwhile hold a
+    // The shared ephemeral slot may meanwhile hold a
     // NEWER result someone else wrote (a chat query) — only an overlay this
     // panel itself drew belongs to the stale form and goes with it.
     if (previewSource === 'analysis-panel') onClearPreview?.();
   }, [onClearPreview, previewSource]);
-  // fix(#793 review), mounted half: losing the selected source or mask
+  // Open-panel half: losing the selected source or mask
   // layer while the panel is open (deleted from the stack) is an input
   // change like any other — the overlay clears, a finished run's affordances
   // reset, and the selection falls back exactly as a fresh mount would.
@@ -985,7 +984,7 @@ export function AnalysisPanel({
   const maskLayerGone =
     maskLayerId !== MASK_LAYER_NONE &&
     !maskLayerOptions.some((l) => l.id === maskLayerId);
-  // feat(#953): a vanished join layer is an input change on the same terms.
+  // A vanished join layer is an input change on the same terms.
   const joinLayerGone =
     joinLayerId !== MASK_LAYER_NONE &&
     !joinLayerOptions.some((l) => l.id === joinLayerId);
@@ -1010,7 +1009,7 @@ export function AnalysisPanel({
   // Stop any active draw when the panel unmounts.
   useEffect(() => stopDrawing, [stopDrawing]);
 
-  // fix(#726): tell BuilderMap a draw mode owns the pointer, so a vertex click
+  // Tell BuilderMap a draw mode owns the pointer, so a vertex click
   // stops falling through and opening the clicked feature's popup. Mirrored
   // from isDrawing in one place rather than set alongside each transition —
   // the 'finish' handler drops to static mode without going through
@@ -1024,7 +1023,7 @@ export function AnalysisPanel({
   const startDrawing = useCallback(() => {
     const map = mapInstanceRef?.current;
     if (!map || drawRef.current) return;
-    // fix(#793 review): the preview is stale the moment drawing begins —
+    // The preview is stale the moment drawing begins —
     // the next line drops any layer-sourced mask, and cancelling the draw
     // leaves no mask at all, so a preview computed against the old mask must
     // not linger. The 'finish' handler still invalidates for the drawn mask.
@@ -1051,7 +1050,7 @@ export function AnalysisPanel({
     td.on('finish', (id: string | number) => {
       const feature = td.getSnapshotFeature(id);
       if (feature && feature.geometry.type === 'Polygon') {
-        // fix(#758): a new mask supersedes any preview drawn without it.
+        // A new mask supersedes any preview drawn without it.
         handleInputsChanged();
         setMask(feature.geometry as GeoJSON.Polygon);
         // Keep the drawn polygon visible (built-in static mode) so the user
@@ -1071,10 +1070,10 @@ export function AnalysisPanel({
 
   // The API takes metres; the input is whatever unit the user picked.
   const distanceValue = Number(distance) * BUFFER_UNIT_METERS[distanceUnit];
-  // fix(#773 follow-up): same floor as the unit-switch clamp, so the stated
+  // Same floor as the unit-switch clamp, so the stated
   // maximum is attainable — see maxBufferInUnit.
   const distanceMaxInUnit = maxBufferInUnit(distanceUnit);
-  // fix(#700 review): materialize requires the upload permission server-side
+  // Materialize requires the upload permission server-side
   // (it creates a dataset); hide the creation half for viewer roles instead
   // of letting them fill the form into a guaranteed 403. Preview stays.
   // Read before the mutations so their callbacks can branch on it too.
@@ -1090,10 +1089,10 @@ export function AnalysisPanel({
     distanceValue <= MAX_BUFFER_METERS;
 
   const previewMutation = useMutation({
-    // fix(#758): the request carries the sequence current at click time, so
+    // The request carries the sequence current at click time, so
     // a response that outlived its inputs (layer/operation/distance/mask
     // changed while it was in flight) is dropped instead of drawn.
-    // fix(#727): `bbox` rides along too — read at submit time in the onSubmit
+    // `bbox` rides along too — read at submit time in the onSubmit
     // handler below, alongside `seq`, so mutationFn and onSuccess see the
     // exact same value rather than each reading `mapInstanceRef.current`
     // independently at two different instants.
@@ -1105,7 +1104,7 @@ export function AnalysisPanel({
       bbox?: [number, number, number, number];
     }) => {
       const datasetId = selectedLayer?.dataset_id;
-      // ux(#698): thrown messages reach the user verbatim via the onError
+      // Thrown messages reach the user verbatim via the onError
       // `error.message || t(...)` fallback, so this one has to be translated.
       if (!datasetId)
         throw new Error(
@@ -1135,7 +1134,7 @@ export function AnalysisPanel({
                   : {}),
               }
             : {}),
-          // fix(#727): scope the preview to the map's current viewport so a
+          // Scope the preview to the map's current viewport so a
           // capped result draws a spatial sample instead of the first
           // PREVIEW_FEATURE_CAP rows in ingest order. Omitted (not sent as
           // undefined) when the map ref is empty, matching every other
@@ -1146,11 +1145,11 @@ export function AnalysisPanel({
         controller.signal,
       );
     },
-    // fix(#793 review): the error path checks the sequence too — a
+    // The error path checks the sequence too — a
     // rejection from a request whose inputs were already abandoned must not
     // raise "Analysis failed" over a newer, possibly successful preview.
     onError: (error: Error, { seq }) => {
-      // fix(#787 item 3): a preview this panel cancelled is not a failure to
+      // A preview this panel cancelled is not a failure to
       // report. The seq guard alone does not cover the unmount abort, which
       // aborts WITHOUT bumping the sequence, and the callback still fires
       // (the rejection outlives the commit that unsubscribed the observer) —
@@ -1167,7 +1166,7 @@ export function AnalysisPanel({
     onSuccess: (result, { seq, bbox: requestBbox }) => {
       if (seq !== previewSeqRef.current) return;
       if (!result.feature_count || !result.bbox) {
-        // fix(#676) parity: chat surfaces clear a stale overlay on an empty
+        // Chat surfaces clear a stale overlay on an empty
         // result; without this the previous preview kept describing a result
         // the toast says doesn't exist.
         onClearPreview?.();
@@ -1178,7 +1177,7 @@ export function AnalysisPanel({
         );
         return;
       }
-      // fix(#1097 review): which total the server sent, and what it MEANS.
+      // Which total the server sent, and what it MEANS.
       // For 1:1 operations it sends source_feature_count and the notice says
       // "source features". For the row-filtering ones (select_by_location,
       // intersect) the source count cannot describe the output, so it sends
@@ -1186,7 +1185,7 @@ export function AnalysisPanel({
       // this read used to discard, leaving the user the generic cap message
       // despite the server having paid for an exact count.
       //
-      // fix(#1097 review): keyed off the OPERATION, not off source_feature_count
+      // Keyed off the OPERATION, not off source_feature_count
       // being null. Null has two causes, and only one of them means "read
       // match_count instead": the operation filters rows, or the dataset's
       // cached feature_count snapshot is simply absent (legacy imports,
@@ -1210,17 +1209,15 @@ export function AnalysisPanel({
       const matchedTotal = filtersRows ? (result.match_count ?? null) : null;
       const total = matchedTotal ?? result.source_feature_count ?? null;
       const resultBbox = result.bbox as [number, number, number, number];
-      // fix(#727 codex round 3): whether `total` is viewport-scoped depends
-      // on WHICH field it came from. source_feature_count is scoped whenever
-      // the request carried a bbox (the service overrides the cached
-      // whole-table snapshot with a live bbox-scoped count). match_count is
-      // per-operation: intersect's rides the SAME statement the geometry
-      // preview runs, so it inherits that statement's bbox filter too (fix(
-      // #727 codex round 2) threaded bbox into render_intersect_preview) —
-      // but select_by_location's match_count is a SEPARATE uncapped query
-      // the request's bbox never reaches (see AnalysisPreviewResponse.
-      // match_count's docs), so it stays unscoped even though its preview
-      // rows are viewport-limited too.
+      // Whether `total` is viewport-scoped depends on WHICH field it came
+      // from. source_feature_count is scoped whenever the request carried a
+      // bbox (the service overrides the cached whole-table snapshot with a
+      // live bbox-scoped count). match_count is per-operation: intersect's
+      // rides the SAME statement the geometry preview runs, so it inherits
+      // that statement's bbox filter too, but select_by_location's
+      // match_count is a SEPARATE uncapped query the request's bbox never
+      // reaches (see AnalysisPreviewResponse.match_count's docs), so it stays
+      // unscoped even though its preview rows are viewport-limited too.
       const matchedTotalIsScoped = operation === 'intersect' && requestBbox != null;
       const viewportScoped =
         matchedTotal != null
@@ -1240,13 +1237,13 @@ export function AnalysisPanel({
         toast.info(
           matchedTotal != null
             ? t(
-                // fix(#1097 review): a separate string, not the same one with
+                // A separate string, not the same one with
                 // a different number. This total is the OUTPUT row count, so
                 // calling it "source features" would misdescribe it — for
                 // intersect it is not even a count of source rows, since one
                 // source feature can produce several output pieces.
                 //
-                // fix(#727 codex round 3): intersect's matched total is
+                // intersect's matched total is
                 // viewport-scoped too when a bbox was sent (see
                 // matchedTotalIsScoped above) — naming the extent here for
                 // the SAME reason source_feature_count's scoped branch does.
@@ -1263,7 +1260,7 @@ export function AnalysisPanel({
               )
             : total != null
             ? t(
-                // fix(#727): a viewport-scoped total names the extent it was
+                // A viewport-scoped total names the extent it was
                 // computed against — without that, "500 of 22,324" reads
                 // exactly like the pre-fix arbitrary-500-rows case even
                 // though these 500 really are what's on screen.
@@ -1271,10 +1268,10 @@ export function AnalysisPanel({
                   ? 'analysisTools.truncatedNoticeTotalScoped'
                   : 'analysisTools.truncatedNoticeTotal',
                 {
-                  // fix(#680 review): "source features" — the total is the
+                  // "source features" — the total is the
                   // source dataset's COUNT(*), which can exceed the number of
                   // rows that produce output (NULL/EMPTY geometries).
-                  // fix(#788): both numbers passed raw — the locale strings
+                  // Both numbers passed raw — the locale strings
                   // group them via {{count, number}}/{{total, number}}, so count
                   // keeps driving plural selection AND renders locale-grouped.
                   defaultValue: viewportScoped
@@ -1288,7 +1285,7 @@ export function AnalysisPanel({
                 defaultValue: 'Preview capped at {{count, number}} features',
                 count: result.feature_count,
               }),
-          // ux(#686): a capped preview is exactly what materialize is for, so
+          // A capped preview is exactly what materialize is for, so
           // name it here instead of leaving the user to infer it. Omitted for
           // viewers, who have no Create dataset button to follow it to.
           canCreateDataset
@@ -1306,11 +1303,11 @@ export function AnalysisPanel({
 
   const materializeMutation = useMutation({
     mutationFn: async ({ seq: _seq }: { seq: number }) => {
-      // fix(#793 review): Create blesses the current form as this run's form
+      // Create blesses the current form as this run's form
       // — edits from here on disown the run again.
       formEditedRef.current = false;
       const datasetId = selectedLayer?.dataset_id;
-      // ux(#698): thrown messages reach the user verbatim via the onError
+      // Thrown messages reach the user verbatim via the onError
       // `error.message || t(...)` fallback, so this one has to be translated.
       if (!datasetId)
         throw new Error(
@@ -1338,7 +1335,7 @@ export function AnalysisPanel({
           : {}),
         ...filterFields,
       });
-      // fix(#793 review): mark the job as this instance's own BEFORE the
+      // Mark the job as this instance's own BEFORE the
       // store learns about it — the adoption effect must not treat it as a
       // foreign job and bypass the seq guard below.
       adoptedJobsRef.current.add(result.job_id);
@@ -1349,7 +1346,7 @@ export function AnalysisPanel({
       onAnalysisJobChange?.(result.job_id, title);
       return { ...result, title };
     },
-    // fix(#758)/fix(#764): a response whose inputs were superseded must not
+    // A response whose inputs were superseded must not
     // resurrect the panel's run state. Global tracking (onAnalysisJobChange
     // above) is deliberately unguarded — the job IS running either way.
     onSuccess: (result, { seq }) => {
@@ -1369,12 +1366,12 @@ export function AnalysisPanel({
   const paramsValid =
     (operation !== 'buffer' || distanceValid) &&
     (!usesMask || !!mask || !!maskLayer) &&
-    // feat(#956): layer only, so there is no drawn fallback to fall back to.
+    // Layer only, so there is no drawn fallback to fall back to.
     (operation !== 'intersect' || !!maskLayer) &&
-    // feat(#953): a join with nothing to join against is not a runnable form —
+    // A join with nothing to join against is not a runnable form —
     // reflect it here rather than letting the click earn a 422.
     (operation !== 'spatial_join' || !!joinLayer) &&
-    // fix(#1097 review): and the transferred field has to still be one the
+    // And the transferred field has to still be one the
     // picker would offer. Clearing it when the source changes handles the way
     // it went stale in practice; this handles the rest, because the field and
     // the rule that validates it depend on two different layers and either can
@@ -1440,7 +1437,7 @@ export function AnalysisPanel({
       onSubmit={(e) => {
         e.preventDefault();
         if (canRun) {
-          // fix(#727): read the viewport at submit time, the same instant
+          // Read the viewport at submit time, the same instant
           // `seq` is read — the mask-draw button above guards
           // `mapInstanceRef?.current` the same way, and a ref that hasn't
           // mounted yet just means no bbox goes out, matching this panel's
@@ -1539,9 +1536,9 @@ export function AnalysisPanel({
             handleInputsChanged();
             const next = v as AnalysisOperation;
             if (next !== 'clip' && next !== 'select_by_location') {
-              // fix(#680): leaving clip mode must drop the retained mask —
+              // Leaving clip mode must drop the retained mask —
               // the static-mode TerraDraw layers otherwise stay visible on
-              // the map under operations that ignore them. feat(#955): clip
+              // the map under operations that ignore them. Clip
               // and select_by_location both use the mask, so switching
               // BETWEEN them keeps the drawn area instead of making the user
               // redraw the same polygon.
@@ -1578,7 +1575,7 @@ export function AnalysisPanel({
             <SelectItem value="intersect">
               {t('analysisTools.opIntersect', { defaultValue: 'Intersect' })}
             </SelectItem>
-            {/* fix(#779): dissolve has no preview by design, and the whole
+            {/* Dissolve has no preview by design, and the whole
                 materialize block is hidden without the upload permission — a
                 viewer picking it got a form with no actions and a hint
                 naming a button they cannot see. Don't offer the dead end. */}
@@ -1726,7 +1723,7 @@ export function AnalysisPanel({
                 })}
               </SelectItem>
               {byFieldColumns.map((name) => (
-                // fix(#680 review): 'col:' prefix keeps a real column named
+                // 'col:' prefix keeps a real column named
                 // '__none__' from colliding with the no-grouping sentinel.
                 <SelectItem key={name} value={`col:${name}`}>
                   {name}
@@ -1763,7 +1760,7 @@ export function AnalysisPanel({
               onValueChange={(v) => {
                 handleInputsChanged();
                 const next = v as BufferUnit;
-                // ux(#773): keep the physical distance, not the number —
+                // Keep the physical distance, not the number —
                 // without this, "100 m" switched to miles silently meant
                 // "100 miles".
                 setDistance(convertDistanceBetweenUnits(distance, distanceUnit, next));
@@ -1794,7 +1791,7 @@ export function AnalysisPanel({
               </SelectContent>
             </Select>
           </div>
-          {/* ux(#723): an out-of-range distance disabled both Preview and
+          {/* An out-of-range distance disabled both Preview and
               Create dataset with nothing said. aria-invalid alone is not a
               message — it marks the field for a screen reader without telling
               anyone, sighted or not, what the accepted range is. */}
@@ -1821,7 +1818,7 @@ export function AnalysisPanel({
 
       {usesMask && maskLayer == null && (
         <div className="space-y-1.5">
-          {/* fix(#754): no htmlFor here — a <label for> pointed at a button
+          {/* No htmlFor here — a <label for> pointed at a button
               OVERRIDES the button's own text in the accessible-name
               computation, so Cancel and Clear were both announced as "Draw
               clip area". The buttons below are self-labeling. */}
@@ -1876,7 +1873,7 @@ export function AnalysisPanel({
               >
                 {maskCopy.draw}
               </Button>
-              {/* ux(#686): drawing is pointer-only. Name the keyboard-reachable
+              {/* Drawing is pointer-only. Name the keyboard-reachable
                   alternative instead of leaving it to be discovered. */}
               <p className="text-xs text-muted-foreground">
                 {maskCopy.pointerHint}
@@ -1908,7 +1905,7 @@ export function AnalysisPanel({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={MASK_LAYER_NONE}>{maskCopy.layerNone}</SelectItem>
-              {/* fix(#779): say why the list is empty instead of showing a
+              {/* Say why the list is empty instead of showing a
                   dropdown with a lone "None" entry. */}
               {maskLayerOptions.length === 0 && (
                 <SelectItem value="__no_polygon_layers__" disabled>
@@ -1955,7 +1952,7 @@ export function AnalysisPanel({
           </Button>
         )}
 
-        {/* fix(#700 review): hidden without the upload permission — the
+        {/* Hidden without the upload permission — the
             gating mirrors DatasetSearchPanel's import CTA. */}
         {canCreateDataset && (
           <div className="space-y-1.5 border-t pt-3">
@@ -1967,7 +1964,7 @@ export function AnalysisPanel({
             <Input
               id="analysis-output-title"
               value={outputTitle}
-              // fix(#793 review): a name typed while a run is pending is the
+              // A name typed while a run is pending is the
               // NEXT draft's — it disowns the running job's claim on this
               // field (so its completion won't clear it) without touching
               // the preview or the run status.
@@ -1975,7 +1972,7 @@ export function AnalysisPanel({
                 formEditedRef.current = true;
                 setOutputTitle(e.target.value);
               }}
-              // ux(#698): matches the server's bound, so an over-long title is
+              // Matches the server's bound, so an over-long title is
               // stopped at the keystroke instead of after clicking Create.
               maxLength={500}
               placeholder={t('analysisTools.outputTitlePlaceholder', {
@@ -2001,7 +1998,7 @@ export function AnalysisPanel({
                     : undefined
               }
               onClick={() => {
-                // fix(#682 review): reset only this panel's local status line.
+                // Reset only this panel's local status line.
                 // Clearing the GLOBAL tracking here would orphan a job that is
                 // still running (the server then 429s the replacement), losing
                 // the original job's completion notification for good — the
@@ -2030,12 +2027,12 @@ export function AnalysisPanel({
                     })}
               </p>
             )}
-            {/* fix(#784): one PERSISTENT status region, mounted empty with the
+            {/* One PERSISTENT status region, mounted empty with the
                 form — a live region that mounts already populated is not
                 announced, so the previous conditionally-rendered <p>s kept the
                 first message ("Creating dataset…") silent for AT. Every
                 message now arrives as a mutation inside an existing region.
-                fix(#760): the one-job-per-user cap disables the button — the
+                The one-job-per-user cap disables the button — the
                 "another analysis" branch says so instead of leaving a disabled
                 primary control unexplained (covers a job started before a
                 reload or from another panel). */}
@@ -2056,11 +2053,11 @@ export function AnalysisPanel({
                       'Another analysis is still running — wait for it to finish.',
                   })
                 : job
-                  ? // ux(#698): reuse the watcher's jobFailedDetail template
+                  ? // Reuse the watcher's jobFailedDetail template
                     // rather than concatenating the raw server error onto a
                     // translated prefix, which left half the sentence untranslated.
                     job.status === 'failed'
-                    ? // fix(#1953): the coded reason is not a detail worth
+                    ? // The coded reason is not a detail worth
                       // showing; the plain line below already says it failed.
                       job.error_message &&
                       job.error_message !== INTERNAL_FAILURE_REASON
@@ -2073,7 +2070,7 @@ export function AnalysisPanel({
                         })
                     : job.status === 'complete'
                       ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
-                      : // fix(#1677): cancel made this a reachable terminal
+                      : // Cancel made this a reachable terminal
                         // status. Without its own branch a cancelled run fell
                         // through to the current_step copy below and sat on
                         // "Saving the dataset…" — `job` is this panel's own
@@ -2104,7 +2101,7 @@ export function AnalysisPanel({
                 size="sm"
                 className="w-full"
                 // Completion raises this button AND the watcher's toast
-                // action. fix(#833): both share one single-use guard —
+                // action. Both share one single-use guard —
                 // pending while the add mutation is in flight (re-armed if
                 // it fails), confirmed once it succeeds.
                 disabled={
@@ -2123,7 +2120,7 @@ export function AnalysisPanel({
                   layerActions.onAddDataset(job.dataset_id);
                 }}
               >
-                {/* fix(#764): name the dataset this adds — after a rail
+                {/* Name the dataset this adds — after a rail
                     round-trip or reload the field above may no longer say. */}
                 {addedDatasetIds.includes(job.dataset_id)
                   ? t('analysisTools.addedToMap', { defaultValue: 'Added to map' })
@@ -2135,7 +2132,7 @@ export function AnalysisPanel({
                     : t('analysisTools.addToMap', { defaultValue: 'Add to map' })}
               </Button>
             )}
-            {/* feat(#790): chain a second operation onto the result without
+            {/* Chain a second operation onto the result without
                 leaving the panel. Before this, running one was materialize →
                 wait → Add to map → scroll back up and hunt the new layer out
                 of the source picker.

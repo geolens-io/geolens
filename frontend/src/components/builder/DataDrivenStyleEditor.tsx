@@ -47,7 +47,7 @@ interface DataDrivenStyleEditorProps {
     opts?: { replace?: boolean },
   ) => void;
   /**
-   * ENH-08: Zero-based ordinal of this layer within the map's data-driven
+   * Zero-based ordinal of this layer within the map's data-driven
    * layer set.  Used to rotate the default palette so successive freshly-added
    * layers don't collide on the same colors.  Defaults to 0 when omitted.
    * Only affects FRESH layers (no existingConfig.ramp); saved layers keep
@@ -71,7 +71,7 @@ type ClassificationMethod =
   | 'manual';
 
 /**
- * KISS-N2: compute classification breaks + effective class count, shared
+ * Compute classification breaks + effective class count, shared
  * between the graduated-color and graduated-size effects.
  * - quantile method: uses precomputed quantiles when available (actual class
  *   count becomes breaks.length + 1 because each break separates two classes)
@@ -145,16 +145,16 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
   return [2, 20]; // radius default
 }
 
-// fix(#392): API/AI-authored (seeded) graduated configs often omit classCount
+// API/AI-authored (seeded) graduated configs often omit classCount
 // and sizeRange since they're fully implied by colors/sizes/breaks — derive
 // them so styleConfigAlreadyMatches (and the local state seeded from the same
 // config) recognize a complete seeded config as already-matching instead of
-// treating the omission as drift and silently regenerating on mount. (audit UX-L1)
+// treating the omission as drift and silently regenerating on mount.
 //
-// fix(#392): a config can carry BOTH colors and sizes (e.g. a double-encoded
+// A config can carry BOTH colors and sizes (e.g. a double-encoded
 // graduated-radius layer that also stores its color ramp), and the two arrays
 // can diverge in length. `preferSizes` lets a size-target caller derive from
-// `sizes.length` instead of unconditionally preferring `colors.length`. (audit WR-01)
+// `sizes.length` instead of unconditionally preferring `colors.length`.
 function effectiveClassCountOf(
   cfg: StyleConfig | null | undefined,
   preferSizes = false,
@@ -178,7 +178,7 @@ function effectiveSizeRangeOf(cfg: StyleConfig | null | undefined): [number, num
 }
 
 /**
- * builder-audit #338 COMPLEXITY-01: the three styling effects (categorical color,
+ * The three styling effects (categorical color,
  * graduated color, graduated size) each wrote back canonical style via
  * onStyleConfigChange, guarded by a long deep-equality skip-check whose ONLY job
  * is to prevent an infinite onStyleConfigChange -> re-render -> effect loop.
@@ -215,7 +215,7 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
   if (p.mode === 'categorical') {
     const values = p.categoryValues ?? [];
     const dataValues = new Set(values);
-    // fix(#461): clobber-on-open — skip the regenerate when
+    // Clobber-on-open — skip the regenerate when
     // every styled category still exists in the data, even if the data has
     // ADDITIONAL distinct values the saved config never listed. Requiring exact
     // length+order equality meant merely OPENING the style editor regenerated
@@ -226,7 +226,7 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
     // editor opened. A stale category value no longer present in the data still
     // fails the check, so a genuinely drifted config regenerates as before.
     //
-    // fix(#461, codex P2): when the column has NO distinct values the effect
+    // When the column has NO distinct values the effect
     // writes `categories: []`; that empty config must count as a match or the
     // effect re-writes every render (an empty dataset / all-null column loops).
     // So for empty data, match iff the saved categories are also empty; for
@@ -272,8 +272,8 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
       ec.target === p.target &&
       ec.column === p.column &&
       ec.method === p.method &&
-      // fix(#392): this is the size-target branch — derive classCount from
-      // sizes.length, not colors.length, for a config that carries both. (audit WR-01)
+      // This is the size-target branch — derive classCount from
+      // sizes.length, not colors.length, for a config that carries both.
       effectiveClassCountOf(ec, true) === p.classCount &&
       ec.sizes &&
       ecSizeRange &&
@@ -286,7 +286,7 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
   }
 }
 
-// P1-07: when a line layer's color switches to a data-driven solid color
+// When a line layer's color switches to a data-driven solid color
 // (categorical/graduated), a stale `line-gradient` paint entry is incompatible
 // and must be dropped from the candidate paint. No-op for non-line color props.
 // The `builder.lineGradient` intent stub is cleared centrally in
@@ -312,17 +312,17 @@ export function DataDrivenStyleEditor({
     existingConfig?.mode ?? 'categorical',
   );
   const [column, setColumn] = useState<string>(existingConfig?.column ?? '');
-  // ENH-08: For fresh layers (no saved ramp) seed the default via rotating
+  // For fresh layers (no saved ramp) seed the default via rotating
   // palette selection so successive adds don't all start with the same color.
   // Saved layers always keep their persisted ramp.
   const [ramp, setRamp] = useState<string>(
     existingConfig?.ramp ?? nextRotatingRamp(existingConfig?.mode ?? 'categorical', rampRotationIndex),
   );
-  // fix(#392): only derive classCount/sizeRange from a persisted config when
+  // Only derive classCount/sizeRange from a persisted config when
   // that config is actually in graduated mode — a `mode: 'categorical'`
   // config can still carry stray graduated-shaped fields (StyleConfig is an
   // open `[key: string]: unknown` bag), and deriving from them here would
-  // silently poison a later switch back to graduated mode. (audit WR-01)
+  // silently poison a later switch back to graduated mode.
   const [classCount, setClassCount] = useState<number>(
     existingConfig?.mode === 'graduated'
       ? existingConfig?.classCount ??
@@ -354,7 +354,7 @@ export function DataDrivenStyleEditor({
     existingConfig?.reversed ?? false,
   );
 
-  // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce for per-category / per-class color picker.
+  // 200ms debounce for per-category / per-class color picker.
   // drags in DataDrivenStyleEditor. The HexColorPicker fires onChange on every
   // drag pixel; debouncing collapses rapid calls into a single map repaint.
   const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -382,7 +382,7 @@ export function DataDrivenStyleEditor({
     columnForCategorical ? layer.dataset_id : undefined,
     columnForCategorical,
   );
-  // fix(#960): categorical mode needs the stats endpoint too. useColumnValues pages
+  // Categorical mode needs the stats endpoint too. useColumnValues pages
   // at 100 (500 max), so its length is a page size, not a cardinality — the warning
   // read "100 categories" on a column with thousands and the swatch list stopped at
   // 100 with nothing saying so. `distinct_count` is exact and full-table (#315).
@@ -438,7 +438,7 @@ export function DataDrivenStyleEditor({
     return () => clearTimeout(colorDebounceRef.current);
   }, []);
 
-  // fix(#910, codex P2): the classification lives in THREE places — the paint
+  // The classification lives in THREE places — the paint
   // expression, `style_config`, and this component's local `column`/`mode` state — and
   // the third one is the copy nobody reconciled. A classification can now be retired
   // from outside this editor (the commit boundary retires one whose expression a paint
@@ -471,9 +471,9 @@ export function DataDrivenStyleEditor({
     const colorProp = getColorProperty(geomType);
 
     // Preserve existing per-category colors when column and ramp haven't changed.
-    // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
+    // Skip-guard lives in styleConfigAlreadyMatches.
     //
-    // fix(#910, codex P2): that guard compares the saved config against this effect's
+    // That guard compares the saved config against this effect's
     // own state, which assumes paint agrees with config — and an orphaned classification
     // is precisely that assumption failing, so the guard cannot be trusted to detect one.
     // It matters here rather than only at the write boundary because a layer arrives
@@ -539,8 +539,8 @@ export function DataDrivenStyleEditor({
     if (invalid || breaks.length === 0) return;
 
     // Preserve existing graduated colors when config hasn't changed.
-    // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
-    // fix(#910, codex P2): and never skip on an orphaned config — see effect 1.
+    // Skip-guard lives in styleConfigAlreadyMatches.
+    // And never skip on an orphaned config — see effect 1.
     if (!colorClassificationIsOrphaned(styleConfig, layer.paint ?? {}, geomType) &&
       styleConfigAlreadyMatches({
         existing: styleConfig,
@@ -603,7 +603,7 @@ export function DataDrivenStyleEditor({
 
     if (invalid || breaks.length === 0) return;
 
-    // Guard: skip if existing config already matches. builder-audit #338 COMPLEXITY-01:
+    // Guard: skip if existing config already matches.
     // skip-guard lives in styleConfigAlreadyMatches, which uses classCount (local
     // state) consistently with the written config below to prevent infinite effect
     // loops when effectiveClassCount differs from classCount.
@@ -646,7 +646,7 @@ export function DataDrivenStyleEditor({
   }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, onStyleConfigChange, manualBreakValues]);
 
   /**
-   * fix(#918, codex P2): what the clear paths owe a patterned layer.
+   * What the clear paths owe a patterned layer.
    *
    * Dropping the pattern alone made an exploratory Mode switch destructive: the
    * layer went from red hatching to default blue, with the red surviving only in
@@ -710,7 +710,7 @@ export function DataDrivenStyleEditor({
   function handleModeChange(newMode: 'categorical' | 'graduated') {
     setMode(newMode);
     setColumn('');
-    // ENH-08: suggest a data-appropriate ramp when the user switches modes.
+    // Suggest a data-appropriate ramp when the user switches modes.
     // This is a mode change (not a first-add), so use the data-character
     // default (index 0) rather than the rotation index.
     setRamp(suggestRampForMode(newMode));
@@ -726,10 +726,10 @@ export function DataDrivenStyleEditor({
       if (radiusProp) nextPaint[radiusProp] = 5;
       if (widthProp) nextPaint[widthProp] = 2;
     } else {
-      // fix(#392): entering graduated mode must never carry forward a
+      // Entering graduated mode must never carry forward a
       // classCount/sizeRange that could have been derived from stray
       // graduated-shaped fields on a categorical config at mount — reset to
-      // defaults so a later graduated session always starts clean. (audit WR-01)
+      // defaults so a later graduated session always starts clean.
       setClassCount(5);
       setSizeRange(defaultSizeRange('color'));
     }
@@ -760,7 +760,7 @@ export function DataDrivenStyleEditor({
       );
       const newConfig: StyleConfig = { ...styleConfig, categories: updated, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
+      // 200ms debounce — HexColorPicker fires on every drag pixel.
       clearTimeout(colorDebounceRef.current);
       colorDebounceRef.current = setTimeout(() => {
         onStyleConfigChange(layerId, newConfig, paint);
@@ -780,7 +780,7 @@ export function DataDrivenStyleEditor({
       const expression = buildGraduatedExpression(styleConfig.column, styleConfig.breaks, updatedColors);
       const newConfig: StyleConfig = { ...styleConfig, colors: updatedColors, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
+      // 200ms debounce — HexColorPicker fires on every drag pixel.
       clearTimeout(colorDebounceRef.current);
       colorDebounceRef.current = setTimeout(() => {
         onStyleConfigChange(layerId, newConfig, paint);
@@ -790,7 +790,7 @@ export function DataDrivenStyleEditor({
     [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange, colorDebounceRef],
   );
 
-  // fix(#960): the honest counts. `values` is one page (100 by default, 500 max);
+  // The honest counts. `values` is one page (100 by default, 500 max);
   // `distinct_count` is the exact full-table cardinality. The advice triggers on the
   // true count, and when the swatch list is only a prefix of it, the copy says so.
   const shownCategories = valuesData?.values.length ?? 0;
@@ -799,7 +799,7 @@ export function DataDrivenStyleEditor({
   const categoriesTruncated = distinctCategories != null && distinctCategories > shownCategories;
   const hasTooManyCategories =
     mode === 'categorical' && !!valuesData && totalCategories > 20;
-  // fix(#952): the mixed-ADAPTER predicate, not classifyGeometry(...) === 'other'.
+  // The mixed-ADAPTER predicate, not classifyGeometry(...) === 'other'.
   // Both catch GEOMETRY / GEOMETRYCOLLECTION (created and sketch datasets), but
   // 'other' also swallows null and exotic types like CURVE, which resolveAdapterType
   // routes to the plain fill adapter — telling those layers that their line and point
@@ -905,7 +905,7 @@ export function DataDrivenStyleEditor({
         </p>
       )}
 
-      {/* fix(#952): a ramp on a mixed-geometry layer writes one colour property,
+      {/* A ramp on a mixed-geometry layer writes one colour property,
           chosen by geometry — 'other' resolves to fill-color — and the mixed adapter
           then filters that key out of the line and circle sublayers. So only the
           polygons classify, while the legend shows the full classification as though
@@ -917,7 +917,7 @@ export function DataDrivenStyleEditor({
         </p>
       )}
 
-      {/* fix(#430 V-10): Mode defaults to Categorical, whose Column dropdown only lists
+      {/* Mode defaults to Categorical, whose Column dropdown only lists
           text columns — numeric columns (e.g. `mag`) were invisible with no hint
           unless the current mode had ZERO compatible columns. Surface a persistent,
           actionable pointer whenever numeric columns exist but are hidden by

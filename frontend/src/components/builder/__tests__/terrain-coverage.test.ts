@@ -62,7 +62,7 @@ describe('demViewportCoverage', () => {
   });
 });
 
-// fix(#1128): the antimeridian cases, in both encodings a DEM can arrive in.
+// The antimeridian cases, in both encodings a DEM can arrive in.
 // The spec form (`west > east`) is what BuilderMap passes today — the layer's
 // `dataset_extent_bbox`. The span form is what the tile token still carries and
 // what the builder used to pass; it survives as the no-extent fallback, and it
@@ -102,7 +102,7 @@ describe('demViewportCoverage across the antimeridian', () => {
     expect(demViewportCoverage([1.5, -18, 2.5, -16], SEAM_VIEW)).toBe(0);
   });
 
-  // fix(#1124 codex P2): `renderWorldCopies` is on by default, so getBounds()
+  // `renderWorldCopies` is on by default, so getBounds()
   // keeps running further out the more the user pans east or west. There is no
   // bound on how far, which is why the scoring cannot enumerate a fixed set of
   // turns. FAR_VIEW is SEAM_VIEW moved two whole turns east (+720) and must
@@ -153,7 +153,7 @@ describe('shouldWarnSmallDemCoverage across the antimeridian', () => {
     expect(shouldWarnSmallDemCoverage(FIJI_SPAN, WIDE_VIEW)).toBe(true);
   });
 
-  // fix(#1124 codex P2): both directions again, but two turns east of the seam.
+  // Both directions again, but two turns east of the seam.
   const FAR_VIEW = [899.5, -18, 902, -16];
   const FAR_WIDE_VIEW = [840, -60, 960, 60];
 
@@ -168,8 +168,8 @@ describe('shouldWarnSmallDemCoverage across the antimeridian', () => {
   });
 });
 
-// fix(#1128): the issue's own table, pinned to the number. A Fiji-shaped DEM
-// and a globe-spanning one are THE SAME VALUE in the tile token's span form
+// The Fiji-shaped vs globe-spanning bounds table, pinned to the number. A
+// Fiji-shaped DEM and a globe-spanning one are THE SAME VALUE in the tile token's span form
 // ([-180, s, 180, n]), which is why the guard went silent for the first; the
 // spec form separates them. Both rows are pinned, because a fix that only
 // stops the false negative could regress into warning about the DEM that

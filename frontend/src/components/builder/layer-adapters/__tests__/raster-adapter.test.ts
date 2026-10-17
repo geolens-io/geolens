@@ -49,7 +49,7 @@ describe('buildColormapTileUrl', () => {
     expect(result.startsWith(BASE)).toBe(true);
   });
 
-  // fix(#688): the raster template now arrives signed, so the base already
+  // The raster template now arrives signed, so the base already
   // carries a query string. A blind `?` folded the style params into the
   // `scope` VALUE — a "Scope mismatch" 403 on a private raster, and silently
   // dropped styling on a public one.
@@ -97,7 +97,7 @@ describe('buildColormapTileUrl', () => {
     expect(result).toContain('stretch=stddev');
   });
 
-  // RASTER-STRETCH-UI-02: stretch is forwarded independently of colormap so
+  // Stretch is forwarded independently of colormap so
   // percentile/stddev apply on the default grayscale render too.
   it('forwards stretch with NO colormap_name on the default gray colormap', () => {
     const result = buildColormapTileUrl(BASE, { _colormap: 'gray', _stretch: 'percentile' });
@@ -126,7 +126,7 @@ describe('buildColormapTileUrl', () => {
     expect(absolutized).toBe('https://example.com/api/raster-tiles/abc/tiles/{z}/{x}/{y}.png?colormap_name=plasma');
   });
 
-  // ── RASTER-STRETCH-UI-01: pmin / pmax / sigma forwarding ──────────────────
+  // ── pmin / pmax / sigma forwarding ──────────────────
 
   it('forwards pmin/pmax for non-default percentile (5/95)', () => {
     const result = buildColormapTileUrl(BASE, { _stretch: 'percentile', _pmin: 5, _pmax: 95 });

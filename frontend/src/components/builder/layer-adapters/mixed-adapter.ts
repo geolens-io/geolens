@@ -9,7 +9,7 @@ import {
   getFeatureOpacity,
   sourceLayerSpec,
 } from './shared';
-// builder-audit #338 ADAPT-03 precedent (cluster-adapter): sibling sublayers reuse
+// Follows the cluster-adapter precedent: sibling sublayers reuse
 // the standalone adapters' owned-property sets and defaults instead of duplicating them.
 import { CIRCLE_OWNED_PAINT_PROPERTIES, resolveCirclePaint } from './circle-adapter';
 import {
@@ -24,7 +24,7 @@ import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import { labelLayerId, withLabelCompanion } from '../label-layer-utils';
 
 /**
- * fix(#430 codex r23): renderer for the generic GEOMETRY sentinel.
+ * Renderer for the generic GEOMETRY sentinel.
  *
  * A created (sketch) dataset that mixes geometry families keeps
  * `geometry_type='GEOMETRY'` (see backend `_derive_created_geometry_type`).
@@ -71,7 +71,7 @@ export function mixedFamilyFilter(
 ): FilterSpecification {
   const base = MIXED_FAMILY_FILTERS[family];
   if (!Array.isArray(filter) || filter.length === 0) return base;
-  // fix(#431 codex r3): normalize legacy-syntax data filters (e.g.
+  // Normalize legacy-syntax data filters (e.g.
   // ['==', 'status', 'open'] from older saved maps) to expression syntax
   // before composing. A single legacy child makes MapLibre classify the whole
   // ['all', ...] as a LEGACY filter, which then rejects the expression-syntax
@@ -111,7 +111,7 @@ function mixedOutlinePaint(input: AdapterLayerInput): Record<string, unknown> {
   };
 }
 
-// fix(#431 codex r3): the line-family sublayer honors authored line layout
+// The line-family sublayer honors authored line layout
 // (line-cap/line-join via Advanced JSON), mirroring the standalone line
 // adapter's defaults + owned-layout handling. Other layout keys are excluded —
 // a circle-*/fill-* layout key on a line layer would abort addLayer entirely.

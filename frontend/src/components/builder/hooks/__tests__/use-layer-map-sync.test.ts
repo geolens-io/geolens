@@ -1,5 +1,5 @@
 // useLayerMapSync commits each handler's change to builder state: composition, the
-// EDIT-05 fill exclusions and the fill-colour stash. The map writes are in the .writes suite.
+// Fill exclusions and the fill-colour stash. The map writes are in the .writes suite.
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
@@ -169,7 +169,7 @@ describe('adapter.addLayers respects input.visible (BUG-01 root cause)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// BUG-019 regression: applyLayerUpdate composes multi-field updates inside
+// Regression: applyLayerUpdate composes multi-field updates inside
 // functional setState.
 //
 // Pre-fix: `const updated = updater(layersRef.current.find(...))` captured the
@@ -345,7 +345,7 @@ describe('useLayerMapSync — handleStyleConfigChange line-gradient cleanup (P1-
   });
 });
 
-// fix(#918): fill-color / fill-pattern is the same exclusion shape. MapLibre gives
+// fill-color / fill-pattern is the same exclusion shape. MapLibre gives
 // the pattern precedence, so a ramp applied over a pattern rendered the pattern
 // while the appearance section, the legend and saved paint all claimed the ramp.
 describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918)', () => {
@@ -437,7 +437,7 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
     expect('fill-pattern' in (layers().find((l) => l.id === LAYER_ID)!.paint ?? {})).toBe(true);
   });
 
-  // fix(#910, codex P2): the funnel half of the stash clear. A config that collapsed
+  // The funnel half of the stash clear. A config that collapsed
   // to null because fillColorSaved was its only field hits the "keep the existing
   // builder" branch, which resurrects the stash — `replace` is what makes it stick.
   it('wipes the builder when a replace write clears its last field', () => {
@@ -478,7 +478,7 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
     expect(builder?.outlineWidth).toBe(3);
   });
 
-  // fix(#910, codex P2): the both-keys collision also arrives with NO data-driven
+  // The both-keys collision also arrives with NO data-driven
   // config. Paste-style merges a copied fill-pattern onto a target that kept its own
   // fill-color, so this is the shape handlePasteStyle actually sends.
   it('drops the target fill-color when a pasted pattern arrives beside it', () => {
@@ -527,7 +527,7 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
     expect(builder?.outlineWidth).toBe(2);
   });
 
-  // fix(#910, codex P2): this asserted the drop and the drop was wrong. An expression
+  // This asserted the drop and the drop was wrong. An expression
   // has no stashable form, so removing it is unrecoverable — and it does not take a
   // pattern click to get here: an Advanced-JSON layer carrying both keys re-sends
   // that paint through the funnel on ANY later builder edit, so an outline-width
@@ -553,7 +553,7 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
     expect(builder?.fillColorSaved).toBeUndefined();
   });
 
-  // fix(#914): the drop above is what makes the tint correct, so pin the two
+  // The drop above is what makes the tint correct, so pin the two
   // together. `fillPatternTint` prefers a string `fill-color` in paint over the
   // stash, so leaving the target's colour there — which is what MapLibre would
   // tolerate, since the pattern wins visually either way — tints the pasted
@@ -580,7 +580,7 @@ describe('useLayerMapSync — handleStyleConfigChange fill-pattern cleanup (#918
   });
 });
 
-// fix(#461, codex P2): Revert-to-saved passes { replace: true } so the saved
+// Revert-to-saved passes { replace: true } so the saved
 // config is restored verbatim. Without it, the default builder-preserve would
 // strand a discarded builder-only edit (e.g. outline width) and keep the layer dirty.
 describe('useLayerMapSync — handleStyleConfigChange replace mode (revert)', () => {
@@ -624,7 +624,7 @@ describe('useLayerMapSync — handleStyleConfigChange replace mode (revert)', ()
   });
 });
 
-// fix(#910/#918, codex P2): the EDIT-05 rule is enforced at applyLayerUpdate, the one
+// The rule is enforced at applyLayerUpdate, the one
 // boundary every handler in this hook commits through, so it holds on paths that never
 // touch handleStyleConfigChange. The provenance rule is read off the paint diff: the key
 // the write INTRODUCED is the one the user asked for.
@@ -744,7 +744,7 @@ describe('useLayerMapSync — EDIT-05 at the commit boundary', () => {
   });
 });
 
-// fix(#910, codex P2): the stash has to track WHO owns the fill across a sequence of
+// The stash has to track WHO owns the fill across a sequence of
 // writes, not just the write in front of it. A solid colour taking the fill leaves any
 // previous stash stale; keeping it meant the next pattern write found the slot occupied
 // and None restored a colour from two edits back.
@@ -838,7 +838,7 @@ describe('useLayerMapSync — the fill-colour stash across successive writes', (
   });
 });
 
-// fix(#910, codex P2): presence is not intent. On a layer that already carried BOTH fill
+// Presence is not intent. On a layer that already carried BOTH fill
 // keys, editing the colour left both "added" checks false, so pattern-wins fired and the
 // edit the user just made was deleted. The diff compares values now.
 describe('useLayerMapSync — a CHANGED fill key counts as intent, not just a new one', () => {
@@ -920,7 +920,7 @@ describe('useLayerMapSync — a CHANGED fill key counts as intent, not just a ne
   });
 });
 
-// fix(#910, codex P2): the displacement is a TRANSITION to a pattern-owned fill, not
+// The displacement is a TRANSITION to a pattern-owned fill, not
 // necessarily a collision. Advanced JSON replacing paint wholesale, or an AI set_style
 // with replace_paint, hands over a pattern-only object that already dropped the colour —
 // so nothing collided, nothing was stashed, and None fell back to default blue.
@@ -984,7 +984,7 @@ describe('useLayerMapSync — a replacement paint still stashes the colour it di
   });
 });
 
-// fix(#910, codex P2): style_config and paint are two records of one fact, and the
+// style_config and paint are two records of one fact, and the
 // surfaces split between them — the map draws the expression, the legend and the style
 // editor read the config. A paint replacement (Advanced JSON, an AI `replace_paint`) can
 // drop the expression and leave the config behind, and every reader downstream then
@@ -1035,7 +1035,7 @@ describe('useLayerMapSync — an orphaned colour classification is reconciled at
     const config = configOf(layers().find((l) => l.id === LID)!);
     expect(config?.mode).toBeUndefined();
     expect(config?.categories).toBeUndefined();
-    // fix(#910, codex P2): and `column` goes with them. Keeping it as "the user's
+    // And `column` goes with them. Keeping it as "the user's
     // selection" re-applied the classification the next time the editor mounted, because
     // a config with a column and no mode reads to a fresh DataDrivenStyleEditor as a live
     // categorical classification.
@@ -1178,7 +1178,7 @@ describe('useLayerMapSync — an orphaned colour classification is reconciled at
   });
 });
 
-// fix(#910, codex P2): the provenance diff has to compare expression VALUES. The
+// The provenance diff has to compare expression VALUES. The
 // Advanced JSON editor applies `JSON.parse` of the whole block, so every array-valued
 // key comes back as a fresh object even when its text never changed — and a reference
 // comparison read that as "the user asked for this colour" and deleted the pattern.
@@ -1248,7 +1248,7 @@ describe('useLayerMapSync — provenance survives a JSON round-trip of an untouc
   });
 });
 
-// fix(#910, codex P2): `fill-pattern: null` means NO pattern — MapLibre reads it as unset,
+// `fill-pattern: null` means NO pattern — MapLibre reads it as unset,
 // and `FillEditor` already tests `!= null`. A presence-only collision test read it as a
 // live pattern, so an unrelated edit fell through to pattern-wins and deleted the only
 // colour the layer had. Reachable from an imported or API-authored style, which gets

@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { normalizeTerrainExaggeration } from '@/components/builder/map-sync';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
-// STATE-02: terrain bind/unbind/exaggeration cluster, relocated verbatim out of
+// Terrain bind/unbind/exaggeration cluster, relocated verbatim out of
 // the useBuilderLayers god-hook. PURE RELOCATION — handler bodies are unchanged;
 // shared state (layersRef + terrain config setters) is threaded in as params.
 interface UseTerrainLayersParams {

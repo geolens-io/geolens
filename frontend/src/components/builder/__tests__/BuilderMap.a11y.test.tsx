@@ -72,7 +72,7 @@ vi.mock('@/components/builder/map-sync', async (importOriginal) => {
   };
 });
 
-// SF-08: Shared map state mock that exposes a manual `emit` so tests can trigger
+// Shared map state mock that exposes a manual `emit` so tests can trigger
 // MapLibre `map.on('error')` after onLoad fires. Mirrors the ViewerMap
 // basemap-config test pattern (`ViewerMap.basemap-config.test.tsx:25-93`).
 type FakeMap = {
@@ -415,7 +415,7 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
     });
   });
 
-  // WR-02 (Phase 1050-rev): the latch must NOT permanently suppress 5xx
+  // The latch must NOT permanently suppress 5xx
   // errors. After ~3s post-load, a 5xx is no longer "transient save-time
   // basemap reload" — it's an ongoing tile-server outage, and the user
   // must see a banner + toast so they know the system is degraded.
@@ -699,7 +699,7 @@ describe('BuilderMap terrain activation', () => {
       minzoom: 0,
       maxzoom: 17,
       bounds: [-74.05, 44.08, -73.85, 44.32],
-      // fix(#1472 review): the DEM's required credit. This fixture's layer
+      // The DEM's required credit. This fixture's layer
       // carries none, so it is null rather than absent — the option is always
       // passed, and the source spec omits the key when there is nothing to say.
       attribution: null,

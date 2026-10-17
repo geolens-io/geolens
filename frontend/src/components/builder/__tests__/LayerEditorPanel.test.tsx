@@ -11,7 +11,7 @@ vi.mock('react-i18next', () => ({
       if (key === 'layerItem.filterTab') return 'Filter';
       if (key === 'layerItem.labelsTab') return 'Labels';
       if (key === 'layerItem.popupTab') return 'Popup';
-      // fix(#788 item 1): interpolate params into defaultValue so keys like
+      // Interpolate params into defaultValue so keys like
       // basemapSublayer.breadcrumb ("Basemap · {{name}} ›") resolve for the
       // breadcrumb assertions.
       let result = options?.defaultValue ?? key;
@@ -35,7 +35,7 @@ vi.mock('../RasterLayerControls', () => ({
   RasterLayerControls: () => <div data-testid="raster-layer-controls" />,
 }));
 
-// EASY-18: spy mock that records the props it receives and exposes a button
+// Spy mock that records the props it receives and exposes a button
 // that invokes onFilterChange(null) so the forwarding tests can assert the
 // dispatcher boundary in LayerEditorPanel.
 let capturedFilterEditorProps: Record<string, unknown> = {};
@@ -311,7 +311,7 @@ describe('LayerEditorPanel', () => {
       expect(pills.filter((p) => p.getAttribute('aria-pressed') === 'false')).toHaveLength(pills.length - 1);
     });
 
-    // fix(#430 V-09): a fresh/default layer (no mode-specific customization) has
+    // A fresh/default layer (no mode-specific customization) has
     // nothing to lose switching render-as modes, so the confirm is skipped.
     it('clicking a non-active render-as pill on a FRESH layer switches immediately — no confirm', () => {
       // Point layer has multiple options (point/symbol/heatmap/cluster).
@@ -332,12 +332,12 @@ describe('LayerEditorPanel', () => {
       }
       fireEvent.click(pills[0] as HTMLElement);
       expect(handlers.onRenderModeChange).toHaveBeenCalled();
-      // fix(#788): the inline confirm is a role="group" (non-modal), no longer
+      // The inline confirm is a role="group" (non-modal), no longer
       // an alertdialog it couldn't honor.
       expect(screen.queryByRole('group', { name: /Compatible style/ })).not.toBeInTheDocument();
     });
 
-    // fix(#430 V-09): a layer whose current mode HAS diverged from its defaults
+    // A layer whose current mode HAS diverged from its defaults
     // (here: heatmap with a non-default ramp) still confirms before applying.
     function makeCustomizedHeatmapLayer() {
       return makeLayer({
@@ -367,7 +367,7 @@ describe('LayerEditorPanel', () => {
       }
       fireEvent.click(pills[0] as HTMLElement);
       // Switch is destructive — inline confirm opens, no actual mutation yet.
-      // fix(#788): role="group" labelled by the message, which is a role="alert"
+      // role="group" labelled by the message, which is a role="alert"
       // so assistive tech announces the confirm when it appears.
       expect(screen.getByRole('group', { name: /Compatible style/ })).toBeInTheDocument();
       expect(screen.getByRole('alert')).toHaveTextContent(/Compatible style/);
@@ -412,7 +412,7 @@ describe('LayerEditorPanel', () => {
       expect(screen.queryByRole('group', { name: /Compatible style/ })).not.toBeInTheDocument();
     });
 
-    // fix(#788): Escape with the confirm pending cancels the pending switch and
+    // Escape with the confirm pending cancels the pending switch and
     // is consumed — previously it bubbled to the builder <aside>, which closed
     // the whole editor panel with the confirm still open.
     it('Escape with the render-as confirm pending cancels it, is consumed, and restores focus to the active pill', () => {
@@ -783,7 +783,7 @@ describe('LayerEditorPanel', () => {
     });
   });
 
-  // fix(#524 B-034): the tab strip uses a roving tabindex (inactive tabs are
+  // The tab strip uses a roving tabindex (inactive tabs are
   // tabIndex=-1), so without arrow-key handling a keyboard-only user has NO
   // path to the Filter/Labels/Popup editors.
   describe('tablist keyboard navigation (B-034)', () => {

@@ -331,7 +331,7 @@ describe('FillEditor', () => {
     expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
   });
 
-  // IN-01 pin: exercises deriveExtrusionRange directly with a numeric column +
+  // Pin: exercises deriveExtrusionRange directly with a numeric column +
   // currentHeightCol set, but values that are genuinely non-parseable strings.
   // Confirms Number.isFinite filtering suppresses the range hint correctly.
   it('hides range hint when all sample values are non-parseable strings (IN-01 pin)', () => {
@@ -403,8 +403,8 @@ describe('FillEditor', () => {
     expect(screen.getByRole('button', { name: 'Hatch' })).toBeInTheDocument();
   });
 
-  // fix(#922): the picker routes through the dedicated onFillPatternChange
-  // handler, which enforces the EDIT-05 fill-color/fill-pattern exclusion by
+  // The picker routes through the dedicated onFillPatternChange
+  // handler, which enforces the fill-color/fill-pattern exclusion by
   // DELETING keys. The old onPaintProp fallback set them to undefined instead.
   it('clicking a pattern swatch calls onFillPatternChange(id)', () => {
     const onFillPatternChange = vi.fn();
@@ -460,7 +460,7 @@ describe('FillEditor', () => {
     expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
   });
 
-  // fix(#910): gating truth table. A pattern click deletes fill-color, which on a
+  // Gating truth table. A pattern click deletes fill-color, which on a
   // data-driven layer destroys the classification expression and in extrusion
   // mode resets the extrusion (it reads rawPaint['fill-color']).
   it('does NOT render Fill Pattern section when isDataDriven=true, and explains why', () => {
@@ -477,7 +477,7 @@ describe('FillEditor', () => {
     expect(screen.getByText('Patterns unavailable')).toBeInTheDocument();
   });
 
-  // fix(#910, codex P2): Advanced JSON and the AI set_style action write paint
+  // Advanced JSON and the AI set_style action write paint
   // through onPaintChange, bypassing the exclusion in handleStyleConfigChange — so a
   // data-driven layer can arrive already patterned, and hiding the picker strands it.
   it('DOES render Fill Pattern section on a data-driven layer that already has a pattern', () => {
@@ -495,8 +495,8 @@ describe('FillEditor', () => {
         })}
       />,
     );
-    // fix(#910, codex P2): recovery only — applying a pattern to a classified layer
-    // is impossible by EDIT-05 and the funnel strips it straight back, so a swatch
+    // Recovery only — applying a pattern to a classified layer
+    // is impossible and the funnel strips it straight back, so a swatch
     // that silently reverts must not be offered.
     expect(screen.getByText('Fill Pattern (clear only)')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'None' }).length).toBeGreaterThan(0);
@@ -517,7 +517,7 @@ describe('FillEditor', () => {
     expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
   });
 
-  // fix(#910, codex P2): selecting a height column with a pattern already applied
+  // Selecting a height column with a pattern already applied
   // must not strand the layer — the clearing control has to stay reachable.
   it('DOES render Fill Pattern section in 3D-extrusion mode when a pattern is active', () => {
     const layer = makeFillLayer({ paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 } });
@@ -536,7 +536,7 @@ describe('FillEditor', () => {
     expect(screen.queryByRole('button', { name: 'Dots' })).toBeNull();
   });
 
-  // fix(#910, codex P2): fill-pattern accepts MapLibre expressions and
+  // fill-pattern accepts MapLibre expressions and
   // AdvancedJsonEditor lets one through; a string-only gate left the colour picker
   // live, where editing it writes both keys back.
   it('treats an expression-valued fill-pattern as an active pattern', () => {
@@ -554,7 +554,7 @@ describe('FillEditor', () => {
     expect(screen.getByText('Color unavailable')).toBeInTheDocument();
     // Still clearable: the picker renders with no swatch selected.
     expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
-    // fix(#910, codex P2): None is reachable but NOT the current state — a pattern is
+    // None is reachable but NOT the current state — a pattern is
     // drawing. Reporting aria-pressed here told a screen reader the opposite. No
     // swatch matches an expression either, so nothing in the grid is pressed.
     expect(screen.getAllByRole('button', { name: 'None' })[0]).toHaveAttribute('aria-pressed', 'false');
@@ -588,7 +588,7 @@ describe('FillEditor', () => {
     expect(screen.getByLabelText('Toggle stroke visibility')).toBeInTheDocument();
   });
 
-  // ── EDIT-05: solid↔pattern stale-key mutual exclusion ─────────────────────
+  // ── Solid↔pattern stale-key mutual exclusion ─────────────────────
 
   it('EDIT-05: clicking a pattern swatch calls onFillPatternChange(id) when provided, not onPaintProp', () => {
     const onFillPatternChange = vi.fn();

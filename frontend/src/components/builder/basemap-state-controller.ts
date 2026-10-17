@@ -309,7 +309,7 @@ export function resetBasemapSublayer(
 }
 
 export function resetBasemapAppearance(): BuilderBasemapPatch {
-  // fix(#654, codex round 2): also restore label visibility. Labels are the
+  // Also restore label visibility. Labels are the
   // one sublayer whose visibility persists outside basemap_config
   // (showBasemapLabels), so clearing the config alone reset roads/buildings/
   // boundaries but left labels hidden — inconsistent with the sibling eye
@@ -317,7 +317,7 @@ export function resetBasemapAppearance(): BuilderBasemapPatch {
   return { basemapConfig: null, showBasemapLabels: true };
 }
 
-// fix(#585): true when resetting appearance (basemap_config → null) would
+// True when resetting appearance (basemap_config → null) would
 // actually change the normalized config — the "Reset appearance" enable
 // signal. Stored configs are often materialized all-defaults objects, so a
 // non-null check alone reads every map as customized. Null-valued keys are
@@ -331,7 +331,7 @@ export function hasCustomBasemapAppearance(
   showBasemapLabels: boolean | null | undefined,
 ): boolean {
   const labels = showBasemapLabels ?? true;
-  // codex P2 on #654: explicit default-valued optional metadata must read as
+  // Explicit default-valued optional metadata must read as
   // clean too — dragging the basemap back to bottom writes basemap_position:
   // 'bottom', and 'mercator' is the projection default; the null baseline
   // omits both keys, so keeping them would flag an all-defaults map as custom.
@@ -347,7 +347,7 @@ export function hasCustomBasemapAppearance(
         ),
       ),
     );
-  // fix(#654, codex round 2): the baseline is the TRUE default (labels on),
+  // The baseline is the TRUE default (labels on),
   // not the current labels flag — reset restores label visibility, so a
   // labels-only-hidden map must read as custom or Reset disables itself on
   // exactly the state it exists to undo.

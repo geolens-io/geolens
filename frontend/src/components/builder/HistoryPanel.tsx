@@ -126,7 +126,7 @@ export function HistoryPanel({ mapId, limit = 50, className }: HistoryPanelProps
         title={t('history.errorTitle', { defaultValue: 'History could not be loaded' })}
         description={t('history.errorDescription')}
         role="alert"
-        // fix(#787 item 9): the copy used to tell people to close and reopen the
+        // The copy used to tell people to close and reopen the
         // panel. Refetching is what that did, so offer the button instead —
         // same affordance as DatasetSearchPanel's error state.
         action={(

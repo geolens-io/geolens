@@ -1,5 +1,5 @@
 /**
- * Phase 1047-04 — UnifiedStackPanel render performance tests (PERF-02, PB-05, PB-08).
+ * UnifiedStackPanel render performance tests.
  *
  * Focus: Validate that stable handler refs from MapBuilderPage's useCallbacks
  * don't cause BulkActionBar or StackRow re-renders when selectedIds changes.
@@ -20,10 +20,10 @@
  *
  * 3. Use a simple render-count ref to verify that an unaffected row's
  *    RenderCounter does not increment when a sibling row's selection changes
- *    (this is the PB-05 invariant).
+ *    (this is the invariant).
  *
  * Full Profiler timing measurements are captured via Playwright e2e in
- * builder-large-map.spec.ts (PERF-02 / PERF-03 test blocks).
+ * builder-large-map.spec.ts (test blocks).
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -192,14 +192,13 @@ describe('UnifiedStackPanel — render performance (PERF-02, PB-05, PB-08)', () 
   });
 
   /**
-   * Test 4 (PERF-02 memoization documentation):
+   * Test 4 (memoization documentation):
    *
    * The 50-row hover latency assertion is implemented in Playwright e2e at
    * e2e/perf/builder-large-map.spec.ts → "input-latency: hover latency on
    * 50-layer stack is < 30ms p50". It requires a live Docker stack.
    *
-   * The vitest Profiler API approach was evaluated but deferred per plan
-   * acceptance criteria: "Profiler API tests are notoriously fragile" —
+   * A vitest Profiler API approach was rejected as fragile:
    * React's concurrent scheduler can batch renders unpredictably, making
    * exact render-count assertions flaky across React versions and test
    * environments. The Playwright test provides more meaningful end-to-end

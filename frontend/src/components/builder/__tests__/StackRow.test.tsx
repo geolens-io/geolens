@@ -25,7 +25,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// fix(#452): no layer-icons mock — the type icon (glyph chip + colorized
+// No layer-icons mock — the type icon (glyph chip + colorized
 // vector icon) is now the shared LayerTypeIcon inside that module, so the DEM
 // glyph tests below exercise the real rendering path end-to-end.
 
@@ -179,7 +179,7 @@ describe('StackRow', () => {
     const props = defaultProps();
     render(<StackRow {...props} />);
 
-    // Phase 1052: dropped role="option" from row; locate by id instead.
+    // Dropped role="option" from row; locate by id instead.
     const row = document.getElementById(`stack-row-${props.layer.id}`);
     expect(row).not.toBeNull();
 
@@ -262,7 +262,7 @@ describe('StackRow', () => {
     expect(onSelectLayer).not.toHaveBeenCalled();
   });
 
-  // SP-10: visibility toggle exposes aria-pressed reflecting layer.visible so
+  // Visibility toggle exposes aria-pressed reflecting layer.visible so
   // assistive tech can read the toggled state.
   it('eye toggle has aria-pressed=true when layer.visible=true', () => {
     const layer = makeLayer({ id: 'vis-on', visible: true });
@@ -297,7 +297,7 @@ describe('StackRow', () => {
     expect(menuTexts).toContain('Rename layer');
     expect(menuTexts).toContain('Duplicate');
     expect(menuTexts).toContain('Delete layer');
-    // fix(#585): the group flow lives behind an "Add to group…" submenu trigger
+    // The group flow lives behind an "Add to group…" submenu trigger
     expect(screen.getByTestId('kebab-add-to-group')).toBeInTheDocument();
 
     // Verify core order
@@ -308,7 +308,7 @@ describe('StackRow', () => {
     expect(dupIdx).toBeLessThan(deleteIdx);
   });
 
-  // fix(#585): right-click / Shift+F10 open the same kebab menu.
+  // Right-click / Shift+F10 open the same kebab menu.
   it('right-clicking the row opens the kebab menu without selecting the row', () => {
     const onSelectLayer = vi.fn();
     const layer = makeLayer({ id: 'ctx-layer' });
@@ -338,7 +338,7 @@ describe('StackRow', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /Delete layer/i }));
 
     // The kebab item opens an inline confirm — `onRemove` is invoked only when
-    // the destructive `Delete` button inside it is clicked. fix(#788): the
+    // the destructive `Delete` button inside it is clicked. The
     // confirm is a role="group" (non-modal), labelled by its role="alert"
     // message, no longer an alertdialog it couldn't honor.
     const confirm = screen.getByRole('group', { name: 'Are you sure? This cannot be undone.' });
@@ -349,7 +349,7 @@ describe('StackRow', () => {
     expect(onRemove).toHaveBeenCalledWith('delete-layer');
   });
 
-  // fix(#788): Escape dismisses the pending confirm (consumed, so it cannot
+  // Escape dismisses the pending confirm (consumed, so it cannot
   // trigger ancestor Escape behavior) and hands focus back to the row.
   it('Escape inside the delete confirm cancels it without calling onRemove and refocuses the row', () => {
     const onRemove = vi.fn();
@@ -379,7 +379,7 @@ describe('StackRow', () => {
     expect(onDuplicate).toHaveBeenCalledWith('dup-layer');
   });
 
-  // fix(#585): the kebab links to the dataset detail page — new tab so the
+  // The kebab links to the dataset detail page — new tab so the
   // unsaved-changes guard never fires mid-edit.
   it('kebab "Open dataset detail" is a new-tab link to /datasets/{dataset_id}', () => {
     const layer = makeLayer({ id: 'link-layer', dataset_id: 'ds-42' });
@@ -393,7 +393,7 @@ describe('StackRow', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  // ux(#772): kebab entry into the Analysis panel, prefilled with this layer.
+  // Kebab entry into the Analysis panel, prefilled with this layer.
   it('kebab "Analyze this layer" calls onAnalyzeLayer for an analysable layer', () => {
     const onAnalyzeLayer = vi.fn();
     const layer = makeLayer({ id: 'analyzable-layer' });
@@ -435,7 +435,7 @@ describe('StackRow', () => {
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
 
-    // fix(#585): "Add to group…" is a submenu trigger; its content mounts on open
+    // "Add to group…" is a submenu trigger; its content mounts on open
     const subTrigger = screen.getByTestId('kebab-add-to-group');
     fireEvent.click(subTrigger);
     expect(screen.getByRole('menuitem', { name: /New group/i })).toBeInTheDocument();
@@ -470,7 +470,7 @@ describe('StackRow', () => {
     expect(row).toBeInTheDocument();
   });
 
-  // Phase 1199 STACK-01: live duplicate "Copy N of M" disambiguation badge.
+  // Live duplicate "Copy N of M" disambiguation badge.
   describe('disambiguation badge (STACK-01)', () => {
     it('renders "Copy 1 of 2" / "Copy 2 of 2" on both duplicate rows and none on a single layer', () => {
       // Two renderings of the same dataset, mirroring how UnifiedStackPanel
@@ -612,7 +612,7 @@ describe('DEM type icon', () => {
     }
   });
 
-  // codex(#451): the "draws nothing" badge (overlay off + not the terrain
+  // The "draws nothing" badge (overlay off + not the terrain
   // source) keeps an eye-on DEM row honest; absent otherwise.
   it('renders the draws-nothing badge only when drawsNothing is set', () => {
     const layer = makeDEMLayerFixture({
@@ -654,7 +654,7 @@ describe('Add to group sub-flow', () => {
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
 
-    // fix(#585): open the "Add to group…" submenu first
+    // Open the "Add to group…" submenu first
     fireEvent.click(screen.getByTestId('kebab-add-to-group'));
     // Only "New group…" — no other group items
     const menuItems = screen.getAllByRole('menuitem').filter((i) => i.textContent?.includes('New group'));
@@ -680,7 +680,7 @@ describe('Add to group sub-flow', () => {
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
 
-    // fix(#585): open the "Add to group…" submenu first
+    // Open the "Add to group…" submenu first
     fireEvent.click(screen.getByTestId('kebab-add-to-group'));
     // Both groups appear
     expect(screen.getByText('Hydrology')).toBeInTheDocument();
@@ -703,7 +703,7 @@ describe('Add to group sub-flow', () => {
     );
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
-    // fix(#585): open the "Add to group…" submenu first
+    // Open the "Add to group…" submenu first
     fireEvent.click(screen.getByTestId('kebab-add-to-group'));
     fireEvent.click(screen.getByText('Hydrology'));
 
@@ -725,7 +725,7 @@ describe('Add to group sub-flow', () => {
     );
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
-    // fix(#585): open the "Add to group…" submenu first
+    // Open the "Add to group…" submenu first
     fireEvent.click(screen.getByTestId('kebab-add-to-group'));
     fireEvent.click(screen.getByRole('menuitem', { name: /New group/i }));
 
@@ -877,7 +877,7 @@ describe('row keydown target guard (v1.6.0 audit A7)', () => {
   });
 
   it('a space can be typed into the rename input and Enter commits without re-firing the row action', async () => {
-    // fix(#997): delay: null. user-event's default inserts a real-timer
+    // Delay: null. user-event's default inserts a real-timer
     // setTimeout(0) between keystrokes, and this is the only test in the file
     // that types more than one — three keystrokes plus a clear, each yielding
     // to the macrotask queue. Under the parallel full-suite run the worker
@@ -1007,7 +1007,7 @@ describe('label indicator', () => {
     expect(screen.queryByTestId('label-indicator')).not.toBeInTheDocument();
   });
 
-  // fix(#526 B-042): INVERTED — symbol mode renders label text consolidated in
+  // INVERTED — symbol mode renders label text consolidated in
   // the primary symbol layer, so a symbol point with label_config.column DOES
   // show text on the map and must show the badge (the old suppression was a
   // false negative built on a wrong comment).
@@ -1023,7 +1023,7 @@ describe('label indicator', () => {
   });
 });
 
-// ux(#840): categorical layers name their styled column inline so the row
+// Categorical layers name their styled column inline so the row
 // answers "what do the colors mean" without opening the legend.
 describe('categorical subtitle (ux #840)', () => {
   const categoricalConfig = {
@@ -1067,7 +1067,7 @@ describe('categorical subtitle (ux #840)', () => {
     expect(screen.queryByTestId('stack-row-categories')).not.toBeInTheDocument();
     unmount();
 
-    // codex(#841): symbol mode keeps column/categories for round-tripping but
+    // Symbol mode keeps column/categories for round-tripping but
     // renders marker icons — the color-category summary would mislead.
     for (const render_mode of ['heatmap', 'symbol'] as const) {
       const layer = makeLayer({

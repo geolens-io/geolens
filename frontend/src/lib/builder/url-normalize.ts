@@ -1,13 +1,13 @@
 /**
- * Canonical-form origin normalization for SharePanel chip input (Plan 04).
+ * Canonical-form origin normalization for SharePanel chip input.
  *
  * Mirrors backend `_normalize_origin` in
  * `backend/app/modules/embed_tokens/schemas.py:14-31` so the chip the user
  * sees after pressing Enter equals the string the backend persists after PATCH.
- * Eliminates Pitfall #8 (flash-of-non-canonical-text between optimistic render
- * and PATCH response).
+ * This avoids a flash of non-canonical text between the optimistic render
+ * and the PATCH response.
  *
- * CSP invariant (ROADMAP SC #1, locked decision in 1137-CONTEXT.md):
+ * CSP invariant:
  * `*` is NEVER a valid origin. `normalizeOrigin('*')` throws `WildcardOriginError`.
  */
 

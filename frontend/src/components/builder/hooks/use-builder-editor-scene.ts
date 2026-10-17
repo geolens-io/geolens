@@ -35,8 +35,8 @@ export function deriveBuilderEditorScene(
   if (expandedLayerId === 'settings') return 'settings';
   if (expandedLayerId === 'basemap-group') return 'basemap-group';
   if (expandedLayerId.startsWith('basemap:')) return 'basemap-sublayer';
-  // fix(#392): folder groups are structural containers, not
-  // stylable layers; never fall through to a real editing scene for them. (audit B-004a/LM-01)
+  // Folder groups are structural containers, not
+  // stylable layers; never fall through to a real editing scene for them.
   if (editingLayer && isFolderGroupLayer(editingLayer)) return 'group';
   if (editingLayer?.is_dem === true) return 'dem';
   return 'default';
@@ -136,9 +136,9 @@ export function useBuilderEditorScene({
     [expandedLayerId, localLayers],
   );
 
-  // fix(#392): a group:folder row IS a member of localLayers,
+  // A group:folder row IS a member of localLayers,
   // so without this guard editingLayer would resolve to the group row and bind
-  // the editor to its inherited (phantom) geometry. Treat it as non-editable. (audit B-004a/LM-01)
+  // the editor to its inherited (phantom) geometry. Treat it as non-editable.
   const editingLayer = matchedLayer && isFolderGroupLayer(matchedLayer) ? null : matchedLayer;
 
   const editingSavedLayer = useMemo(

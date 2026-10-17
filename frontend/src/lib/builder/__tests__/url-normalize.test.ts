@@ -56,7 +56,7 @@ describe('normalizeOrigin', () => {
     expect(() => normalizeOrigin('*')).toThrow(/Wildcard origin not allowed/);
   });
 
-  // CR-02: wildcard in parsed hostname (https://*.example.com passes prefix guard)
+  // Wildcard in parsed hostname (https://*.example.com passes prefix guard)
   it("throws WildcardOriginError for https://*.example.com", () => {
     expect(() => normalizeOrigin('https://*.example.com')).toThrow(WildcardOriginError);
   });

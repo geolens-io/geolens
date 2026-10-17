@@ -7,7 +7,7 @@ import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
 
-// builder-audit #338 ADAPT-06: re-export the single hillshade default from builder-defaults
+// Re-export the single hillshade default from builder-defaults
 // (was a byte-identical local copy that diverged from renderAs's DEFAULT_HILLSHADE_PAINT).
 export const HILLSHADE_PAINT_DEFAULTS = DEFAULT_HILLSHADE_PAINT;
 
@@ -170,7 +170,7 @@ export const hillshadeAdapter: LayerAdapter = {
   addLayers(map, input) {
     const { sourceId, tileUrl, tileSize, minzoom, maxzoom, bounds, attribution } = input;
     if (!map.getSource(sourceId)) {
-      // builder-audit #338 ADAPT-01: shared normalizeRasterBounds, computed once instead
+      // Shared normalizeRasterBounds, computed once instead
       // of the prior double-call inside the spread ternary.
       const normalizedBounds = normalizeRasterBounds(bounds);
       map.addSource(sourceId, {
@@ -180,7 +180,7 @@ export const hillshadeAdapter: LayerAdapter = {
         minzoom: minzoom ?? 0,
         maxzoom: maxzoom ?? 18,
         ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
-        // fix(#1472 review): the dataset's required credit line, read by
+        // The dataset's required credit line, read by
         // MapLibre's attribution control off the source it renders from.
         ...(attribution ? { attribution } : {}),
         encoding: 'mapbox',

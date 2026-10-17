@@ -126,7 +126,7 @@ describe('getDataDrivenColumnsForLayer', () => {
     expect(cols).toEqual([]);
   });
 
-  // builder-audit #338 P1-03: filter-only columns must survive the z<10 attribute
+  // Filter-only columns must survive the z<10 attribute
   // budget, so the column collector now walks layer.filter for get/has refs.
   it('extracts a filter-only column referenced via ["get", col] (P1-03)', () => {
     const cols = getDataDrivenColumnsForLayer({
@@ -203,7 +203,7 @@ describe('getDataDrivenColumnsForLayer', () => {
     expect(cols).toEqual([]);
   });
 
-  // fix(#1778): the symbol adapter's per-category icon-image is a data-driven
+  // The symbol adapter's per-category icon-image is a data-driven
   // LAYOUT expression, so the paint walk cannot reach it. Counterfactual: on
   // main both cases return [] and the tile request omits the column, so every
   // feature renders the fallback icon below z10.
@@ -241,7 +241,7 @@ describe('getDataDrivenColumnsForLayer', () => {
     expect(cols).toEqual(['top_level']);
   });
 
-  // fix(#1778 codex round 2 P2): `style_config.symbol ?? style_config.builder.symbol`
+  // `style_config.symbol ?? style_config.builder.symbol`
   // picked ONE object whole, so a categoryColumn stashed under `builder` was
   // dropped the moment any top-level symbol object existed. The adapter merges
   // the two field by field, and the tile column list has to resolve the column

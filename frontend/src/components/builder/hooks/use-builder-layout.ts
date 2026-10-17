@@ -1,11 +1,11 @@
 import * as React from "react"
 
-// Locked breakpoints from UI-SPEC §"Responsive breakpoints" (Phase 1034)
+// Locked breakpoints
 // At < BUILDER_RAIL_BREAKPOINT: sidebar collapses to 64px icon rail
 // At < BUILDER_EDITOR_HIDDEN_BREAKPOINT: editor column hidden entirely
 const BUILDER_RAIL_BREAKPOINT = 1100
 const BUILDER_EDITOR_HIDDEN_BREAKPOINT = 800
-// fix(#438): UX-06 — below this the top bar cramps (LIVE-03) and the builder is
+// Below this the top bar cramps and the builder is
 // not a real editing surface; we show a "desktop recommended" affordance.
 const BUILDER_MOBILE_BREAKPOINT = 768
 
@@ -37,7 +37,7 @@ export function useBuilderLayout() {
     }
   }, [])
 
-  // STATE-08 (builder-audit #338 20260626): the deprecated isCompact/isMobile aliases
+  // The deprecated isCompact/isMobile aliases
   // were removed — the only production consumer (MapBuilderPage) reads
   // isRail/isEditorHidden directly.
   return {

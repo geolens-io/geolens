@@ -89,7 +89,7 @@ describe('LabelEditor LAYER-01 — toggle no-op when no columns available', () =
     // Behavioral counterpart to the test above: the disabled DOM attribute also has
     // to actually suppress the click (Radix sometimes propagates onCheckedChange
     // even with disabled if pointer-events are misconfigured). Together these two
-    // tests lock LAYER-01's primary defense — the in-component handleToggle bail-out
+    // tests lock the primary defense — the in-component handleToggle bail-out
     // at LabelEditor.tsx:73-75 is unreachable while the disabled guard is in place,
     // so it is not separately exercised here.
     const onLabelChange = vi.fn();

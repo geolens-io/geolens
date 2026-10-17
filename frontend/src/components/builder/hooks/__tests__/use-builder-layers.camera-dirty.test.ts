@@ -1,5 +1,5 @@
 /**
- * fix(#1854): every save rewrote center/zoom/bearing/pitch from the live map,
+ * Every save rewrote center/zoom/bearing/pitch from the live map,
  * but nothing in the builder's clean check looked at the camera. A pan or zoom
  * therefore left `hasUnsavedChanges` false, so there was no navigation
  * blocker, no beforeunload, and the new view was lost on navigate-away, while

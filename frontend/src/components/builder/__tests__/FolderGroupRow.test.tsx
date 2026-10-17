@@ -144,7 +144,7 @@ describe('FolderGroupRow keyboard operability (v1.6.0 audit A7)', () => {
     // The confirm mounts INSIDE the row div — its buttons' Enter/Space used to
     // bubble to the container keydown and be preventDefaulted (mouse-only).
     //
-    // fix(#1100): two things reach for focus after this render, and which one
+    // Two things reach for focus after this render, and which one
     // lands last is a race. Radix returns focus to the kebab trigger
     // asynchronously on menu close, and the confirm autofocuses "Keep group".
     // The old wait — one rAF, then a waitFor that focused and asserted — closed
@@ -228,7 +228,7 @@ describe('FolderGroupRow', () => {
   it('Test 1: Renders the ▸ glyph in the type-icon cell using the folder-group token', () => {
     render(<FolderGroupRow {...defaultProps()} />);
 
-    // fix(#438): DS-05 — the type icon moved from an inline OKLCH amber style to
+    // The type icon moved from an inline OKLCH amber style to
     // the theme-aware --type-folder token classes.
     const typeIcon = Array.from(document.querySelectorAll('[aria-hidden="true"]')).find(
       (el) => el.textContent === '▸',
@@ -427,7 +427,7 @@ describe('FolderGroupRow', () => {
     const deleteItem = screen.getByRole('menuitem', { name: /Delete group/i });
     fireEvent.click(deleteItem);
 
-    // fix(#788): the confirm is a role="group" (non-modal), labelled by its
+    // The confirm is a role="group" (non-modal), labelled by its
     // role="alert" message — no longer an alertdialog it couldn't honor.
     const confirm = screen.getByRole('group', { name: 'Delete this group and all its layers?' });
     expect(within(confirm).getByRole('alert')).toHaveTextContent('Delete this group and all its layers?');
@@ -465,7 +465,7 @@ describe('FolderGroupRow', () => {
     expect(screen.queryByRole('group', { name: /Delete this group/ })).not.toBeInTheDocument();
   });
 
-  // fix(#788): Escape dismisses the pending confirm (consumed, so it cannot
+  // Escape dismisses the pending confirm (consumed, so it cannot
   // trigger ancestor Escape behavior) and hands focus back to the row.
   it('Escape inside the delete confirm cancels it without calling onDeleteGroup and refocuses the row', () => {
     const onDeleteGroup = vi.fn();
@@ -484,7 +484,7 @@ describe('FolderGroupRow', () => {
   });
 
   it('Test 17: When confirmingDelete=true, "Keep group" button is the leading safe-choice action (autoFocus declared)', () => {
-    // fix(#777): the safe-choice UI contract is the app's canonical AlertDialog order —
+    // The safe-choice UI contract is the app's canonical AlertDialog order —
     // safe choice first ("Keep group", secondary variant, autoFocus), destructive last ("Delete all").
     // In practice, jsdom + Radix focus management makes document.activeElement unreliable here.
     // We verify: (a) the confirm appears, (b) Keep group button exists and is secondary variant,
@@ -495,7 +495,7 @@ describe('FolderGroupRow', () => {
     fireEvent.pointerDown(kebabTrigger, { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByRole('menuitem', { name: /Delete group/i }));
 
-    // fix(#788): role="group" — anchored by the confirm's aria-labelledby id.
+    // role="group" — anchored by the confirm's aria-labelledby id.
     const confirm = container.querySelector('[role="group"][aria-labelledby="confirm-delete-group-1"]');
     expect(confirm).toBeTruthy();
 
@@ -555,7 +555,7 @@ describe('FolderGroupRow', () => {
       expect(input.selectionEnd).toBe('My Group'.length);
     });
 
-    // Phase 1051 WR-09: removed brittle Function.prototype.toString source-text
+    // Removed brittle Function.prototype.toString source-text
     // assertion. Coverage is provided by behavioral tests 19, 20, and 22 (which
     // exercise the actual double-click → focus + Escape paths). The source-text
     // pattern breaks under minification, coverage instrumentation, and trivially
@@ -615,8 +615,8 @@ describe('FolderGroupRow', () => {
     it('Test 25: BUG-03 — the inline-rename hook schedules its focus call via requestAnimationFrame (source assertion)', () => {
       // Defense-in-depth: the rAF-deferred focus is what wins the race vs Radix
       // restoreFocus in production. A regression that drops the rAF wrapper would
-      // re-introduce the focus-race bug. builder-audit #338 STACK-03 moved this logic
-      // into the shared useInlineRename hook, so the source assertion now targets
+      // re-introduce the focus-race bug. This logic lives
+      // in the shared useInlineRename hook, so the source assertion targets
       // the hook (consumed by both FolderGroupRow and StackRow).
       const source = useInlineRename.toString();
       expect(source).toContain('requestAnimationFrame');
@@ -624,8 +624,8 @@ describe('FolderGroupRow', () => {
 
     it('BUG-03 negative control — input is NOT focused synchronously when editing flips to true (MAP-16 regression guard)', async () => {
       // If this test ever fails, the rAF deferral was likely removed from
-      // FolderGroupRow.tsx editing useEffect — that re-introduces the v1011
-      // BUG-03 dnd-kit/Radix focus race. Revert the synchronous-focus change
+      // FolderGroupRow.tsx editing useEffect — that re-introduces the
+      // dnd-kit/Radix focus race. Revert the synchronous-focus change
       // before merging.
       //
       // Strategy: stub requestAnimationFrame to CAPTURE callbacks without

@@ -71,7 +71,7 @@ vi.mock('../ColorRampPicker', () => ({
 // --- Helpers ---
 
 /**
- * fix(#910, codex P2): a colour expression in paint, which is what a real save writes
+ * A colour expression in paint, which is what a real save writes
  * alongside a colour classification — the two are written together and persist together.
  * Fixtures that pair a classification with a flat colour model a layer that cannot come
  * out of a save, and the editor now REGENERATES for one (that disagreement is the #918
@@ -163,7 +163,7 @@ describe('DataDrivenStyleEditor', () => {
       });
     });
 
-    // fix(#910, codex P2): the guard above compares the saved config against this
+    // The guard above compares the saved config against this
     // component's own state, which assumes paint agrees with config — so it cannot
     // detect the one case where it doesn't. A layer arrives here orphaned from STORAGE
     // (written straight through the API/SDK/AI, or saved before the write boundary
@@ -193,7 +193,7 @@ describe('DataDrivenStyleEditor', () => {
       expect(Array.isArray((newPaint as Record<string, unknown>)['fill-color'])).toBe(true);
     });
 
-    // fix(#910, codex P2): the mirror of the case above, and the harder one. When the
+    // The mirror of the case above, and the harder one. When the
     // claim is retired from OUTSIDE this editor — the commit boundary retiring one whose
     // expression an Advanced JSON paint replacement removed, or Reset destroying one —
     // regenerating would overwrite the paint the user explicitly asked for. Local
@@ -232,7 +232,7 @@ describe('DataDrivenStyleEditor', () => {
       await waitFor(() => expect(onStyleConfigChange).not.toHaveBeenCalled());
     });
 
-    // fix(#910, codex P2): the closed-editor half of the same hazard. The transition
+    // The closed-editor half of the same hazard. The transition
     // guard above only sees a claim being retired while this component is MOUNTED; when
     // the paint replacement happens with the panel closed, the editor mounts fresh with
     // no transition to observe. It seeds local `column` from the config and defaults local
@@ -413,7 +413,7 @@ describe('DataDrivenStyleEditor', () => {
   });
 
   describe('useEffect guard — graduated', () => {
-    // fix(#910, codex P2): the graduated-colour effect carries the same orphan check as
+    // The graduated-colour effect carries the same orphan check as
     // the categorical one — a settled config whose expression is missing from paint
     // regenerates instead of skipping. Wired separately, so pinned separately.
     it('regenerates a settled graduated config when paint carries no expression', async () => {
@@ -780,7 +780,7 @@ describe('DataDrivenStyleEditor', () => {
       await user.click(screen.getAllByRole('combobox')[0]);
       await user.click(await screen.findByRole('option', { name: 'Categorical' }));
 
-      // fix(#918, codex P2): the clear paths now pass `replace` so they can drop the
+      // The clear paths now pass `replace` so they can drop the
       // pattern colour stash; with no builder block the config is still null.
       expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
         'circle-color': MAP_COLORS.default.fill,
@@ -925,7 +925,7 @@ describe('DataDrivenStyleEditor', () => {
       expect(classesRow).not.toBeNull();
       expect(within(classesRow as HTMLElement).getByText('4')).toBeInTheDocument();
 
-      // No spurious write on mount either — same guard the B-003 tests pin.
+      // No spurious write on mount either — same guard the tests pin.
       await waitFor(() => {
         expect(onStyleConfigChange).not.toHaveBeenCalled();
       });
@@ -1149,7 +1149,7 @@ describe('DataDrivenStyleEditor', () => {
       expect(clearedConfig).toBeNull();
     });
 
-    // fix(#918, codex P2): a Mode switch on a patterned-but-unclassified layer used
+    // A Mode switch on a patterned-but-unclassified layer used
     // to drop the pattern and expose the default blue, leaving the user's colour in
     // the stash only — exploring the Mode selector should not repaint the layer a
     // colour it never had.
@@ -1195,7 +1195,7 @@ describe('DataDrivenStyleEditor', () => {
       expect(config).toBeNull();
     });
 
-    // fix(#918): the clear paths write a non-data-driven config, so the exclusion
+    // The clear paths write a non-data-driven config, so the exclusion
     // in handleStyleConfigChange does not fire for them. A surviving fill-pattern
     // would win over the freshly defaulted fill-color on the map.
     it('drops a surviving fill-pattern when clearing a ramp', async () => {
@@ -1372,7 +1372,7 @@ describe('DataDrivenStyleEditor', () => {
     });
   });
 
-  // fix(#960): the values endpoint pages at 100 (500 max), so its length is a page
+  // The values endpoint pages at 100 (500 max), so its length is a page
   // size. The warning used to report it as the category count, and the swatch list
   // stopped there with nothing saying it was a prefix.
   describe('#960 honest category counts', () => {
@@ -1419,7 +1419,7 @@ describe('DataDrivenStyleEditor', () => {
     });
   });
 
-  // fix(#952): a ramp on a mixed-geometry layer only colours the polygons, because
+  // A ramp on a mixed-geometry layer only colours the polygons, because
   // getColorProperty resolves 'other' to fill-color and the mixed adapter filters
   // that key out of the line and circle sublayers.
   describe('#952 mixed-geometry colour scope hint', () => {

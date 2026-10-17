@@ -8,7 +8,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 
 /**
- * fix(#726): a clip-drawing vertex click also opened the clicked feature's
+ * A clip-drawing vertex click also opened the clicked feature's
  * popup, so a five-point mask left five popups behind and the last one covered
  * the result.
  *
@@ -94,7 +94,7 @@ const polygonLayer = {
 function renderPanel() {
   const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   // startDrawing bails without a map; the adapter is mocked. on/off: the
-  // finished polygon sets a mask, whose fix(#775) style.load subscription
+  // finished polygon sets a mask, whose style.load subscription
   // attaches to the map.
   const mapInstanceRef = {
     current: { on: vi.fn(), off: vi.fn() } as unknown as MaplibreMap,

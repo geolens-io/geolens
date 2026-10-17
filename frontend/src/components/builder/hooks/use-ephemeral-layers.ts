@@ -10,7 +10,7 @@ const EPHEMERAL_LAYERS = [
 ] as const;
 const EPHEMERAL_SOURCE = 'ephemeral-result';
 
-/** feat(#675): the params needed to reconstruct a chat run_analysis preview in
+/** The params needed to reconstruct a chat run_analysis preview in
  *  the Analysis panel, so "Save as dataset" can prefill it. */
 export interface EphemeralAnalysisHandoff {
   operation: 'buffer' | 'centroid';
@@ -24,31 +24,31 @@ export function useEphemeralLayers(
   const [ephemeralResult, setEphemeralResult] = useState<{
     geojson: GeoJSON.FeatureCollection;
     bbox: [number, number, number, number];
-    /** fix(#674 audit): set when the server capped the result, so the preview
+    /** Set when the server capped the result, so the preview
      *  surface can disclose "N of TOTAL" instead of passing a capped preview
-     *  off as the whole answer. fix(#1009): this hook feeds both surfaces —
+     *  off as the whole answer. This hook feeds both surfaces —
      *  the builder's stack row and the badge (viewer, and the builder's
      *  <1100px rail) — so the field is deliberately surface-agnostic. */
     truncated?: boolean;
     totalCount?: number;
-    /** fix(#727): set when totalCount was computed against the map's
+    /** Set when totalCount was computed against the map's
      *  viewport rather than the whole dataset — so "N of TOTAL" can name the
      *  previewed extent instead of implying TOTAL describes the same area
      *  the source dataset does. Chat previews never set this: they send no
      *  bbox, so their totalCount (when present) is always the whole-dataset
      *  count, unchanged from before this field existed. */
     viewportScoped?: boolean;
-    /** feat(#675): present when the overlay came from a chat run_analysis
+    /** Present when the overlay came from a chat run_analysis
      *  preview the builder can hand off to the Analysis panel. */
     analysis?: EphemeralAnalysisHandoff;
-    /** feat(#1241): the chat prompt that produced this preview. The builder
+    /** The chat prompt that produced this preview. The builder
      *  uses it to suggest a title when the preview is saved as a dataset —
      *  the same "a handoff lands on the save form with a title already in it"
      *  pattern AnalysisPanel's prefill uses. Absent for Analysis-panel
      *  previews (they carry `analysis` instead) and for the cold-load
      *  handoff, which stashes geometry only. */
     prompt?: string;
-    /** fix(#793 review): stamped by the Analysis panel's own previews so
+    /** Stamped by the Analysis panel's own previews so
      *  its stale-restore cleanup can tell them from a chat result sharing
      *  this slot — it must never clear an overlay someone else drew. */
     source?: 'analysis-panel';
@@ -79,7 +79,7 @@ export function useEphemeralLayers(
       }
       if (map.getSource(EPHEMERAL_SOURCE)) map.removeSource(EPHEMERAL_SOURCE);
 
-      // fix(#1472 review): deliberately carries no `attribution`, unlike every
+      // Deliberately carries no `attribution`, unlike every
       // other dataset-backed source in the builder. This renders the OUTPUT of
       // a spatial operation, not a dataset — the geometry is computed, the
       // result is transient (cleared on the next run and never persisted or
@@ -135,7 +135,7 @@ export function useEphemeralLayers(
 
     }
 
-    // fix(#394) LM-02/B-028: zoom only on the FIRST add for this result — the
+    // Zoom only on the FIRST add for this result — the
     // persistent style.load re-adds below must not re-fit the viewport on
     // every basemap switch.
     let zoomed = false;
@@ -152,15 +152,15 @@ export function useEphemeralLayers(
     if (map.isStyleLoaded()) {
       addLayersAndMaybeZoom();
     } else {
-      // fix(#533 follow-up): on the ?chat_result=1 cold-load pickup the
+      // On the ?chat_result=1 cold-load pickup the
       // dataset-layer sync leaves the style transiently not-loaded while the
       // initial `style.load` has ALREADY fired, so the subscription below
       // never fires and the overlay is silently dropped (badge shows, map
       // stays at world view). One-shot `idle` retries once the map settles —
-      // same idiom as BuilderMap's SP-03 layer-sync gate.
+      // same idiom as BuilderMap's layer-sync gate.
       map.once('idle', addLayersAndMaybeZoom);
     }
-    // fix(#394) LM-02/B-028: subscribe for the LIFETIME of the result — a
+    // Subscribe for the LIFETIME of the result — a
     // basemap/style reload wipes the overlay from the map while the result
     // badge stays, with no re-show path. The previous `once` only covered the
     // initial not-yet-loaded case.

@@ -44,7 +44,7 @@ describe('dataset attribution on the builder sync input', () => {
   });
 });
 
-// fix(#1472 review): a terrain-mode DEM has no visible layer, so the attributed
+// A terrain-mode DEM has no visible layer, so the attributed
 // source its adapter built is unreferenced and MapLibre's `used` flag is false.
 // The terrain source is counted through `usedForTerrain` instead, which makes it
 // the only place a terrain-only DEM's credit can come from on the builder.

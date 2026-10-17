@@ -25,7 +25,7 @@ vi.mock('@/components/map/layer-icons', () => ({
   ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
     <span data-testid={`type-icon-${layerId}`} />
   ),
-  // fix(#452): StackRow's type icon is now the shared LayerTypeIcon.
+  // StackRow's type icon is now the shared LayerTypeIcon.
   LayerTypeIcon: ({ iconId }: { iconId: string }) => (
     <span data-testid={`type-icon-${iconId}`} />
   ),
@@ -163,8 +163,8 @@ describe('BasemapGroupRow', () => {
     expect(onSelectGroup).toHaveBeenCalledWith('grp-3');
   });
 
-  // Phase 1051 CR-02 regression coverage (Phase 1051 iter-3 WR-02):
-  // The CR-02 fix guards handleRowClick + onKeyDown against firing onSelectGroup
+  // Regression coverage:
+  // The fix guards handleRowClick + onKeyDown against firing onSelectGroup
   // during multi-selection (which would unmount the BulkActionBar mid-selection).
   // These tests pin that contract so a future refactor cannot silently re-introduce
   // the bug by removing the isMultiSelectionActive branch.
@@ -236,7 +236,7 @@ describe('BasemapGroupRow', () => {
     expect(onResetAppearance).toHaveBeenCalledOnce();
   });
 
-  // fix(#585): "Reset appearance" disables (with an inline reason) when the
+  // "Reset appearance" disables (with an inline reason) when the
   // basemap has no appearance customizations to reset.
   it('Test 7b: "Reset appearance" is disabled with a reason when hasCustomAppearance=false', () => {
     const onResetAppearance = vi.fn();
@@ -277,7 +277,7 @@ describe('BasemapGroupRow', () => {
     expect(onSelectGroup).not.toHaveBeenCalled();
   });
 
-  // SP-10: visibility toggle exposes aria-pressed reflecting visible state.
+  // Visibility toggle exposes aria-pressed reflecting visible state.
   it('Test 10b: eye toggle has aria-pressed=true when visible=true', () => {
     render(<BasemapGroupRow {...defaultProps({ visible: true })} />);
     const eyeBtn = screen.getByRole('button', { name: /Toggle visibility/i, pressed: true });
@@ -290,7 +290,7 @@ describe('BasemapGroupRow', () => {
     expect(eyeBtn).toBeInTheDocument();
   });
 
-  // builder-audit #338 STACK-06: the dead visibilityDisabled locked-eye branch was
+  // The dead visibilityDisabled locked-eye branch was
   // removed (no call site ever passed it). Former tests 10d/10e that exercised
   // that branch are deleted; Test 10f below pins the production default.
   it('Test 10f: the eye is an enabled button (no locked glyph) and toggles', () => {
@@ -330,7 +330,7 @@ describe('BasemapGroupRow', () => {
     expect(row).toBeInTheDocument();
   });
 
-  // UX-01 (Phase 1051 Plan 04): caret hit-target ≥24×24 via h-6 w-6 + -mx-1, ChevronRight Lucide glyph.
+  // Caret hit-target ≥24×24 via h-6 w-6 + -mx-1, ChevronRight Lucide glyph.
   // jsdom cannot measure getBoundingClientRect reliably (per critical_planning_directive #10);
   // tests assert className tokens and SVG presence — Playwright MCP measures actual rendered geometry.
   describe('UX-01: caret hit-target & icon', () => {
@@ -343,7 +343,7 @@ describe('BasemapGroupRow', () => {
       // Hit target dimensions
       expect(caretBtn!.className).toContain('h-6');
       expect(caretBtn!.className).toContain('w-6');
-      // Negative horizontal margin extends visual box within 16px grid column (sketch 002 A "A-strict")
+      // Negative horizontal margin extends visual box within 16px grid column
       expect(caretBtn!.className).toContain('-mx-1');
       // Flex centering for icon alignment within hit target
       expect(caretBtn!.className).toContain('flex');

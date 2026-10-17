@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
-// fix(#431 codex r2): a mixed-geometry (GEOMETRY sentinel) layer's paint and
+// A mixed-geometry (GEOMETRY sentinel) layer's paint and
 // layout span three MapLibre layer types — the adapter fans the same dict out
 // to fill/line/circle sublayers via filterPaintForLayerType. Split the block
 // by family prefix so each subset validates against its own layer type;
@@ -55,7 +55,7 @@ export function validatePropertyBlock(
   // Use a GeoJSON source stub (no source-layer needed) with lineMetrics
   // enabled so line-gradient expressions using ["line-progress"] validate
   // — line-gradient REQUIRES a GeoJSON source per MapLibre spec, and the
-  // project supports it via the Phase 255 lineMetrics + adapter engine.
+  // project supports it via the lineMetrics + adapter engine.
   const layer: Record<string, unknown> = {
     id: '_validate_target',
     type: layerType,
@@ -79,7 +79,7 @@ export function validatePropertyBlock(
     // any object shape; cast to satisfy the compiler.
     errors = validateStyleMin(testStyle as unknown as Parameters<typeof validateStyleMin>[0]) ?? [];
   } catch {
-    // fix(#394) ST-05: a validator crash must BLOCK the apply (null sentinel),
+    // A validator crash must BLOCK the apply (null sentinel),
     // not wave the paste through — returning [] here applied unvalidated JSON
     // straight to MapLibre, exactly the failure class this editor exists to
     // prevent.
@@ -117,7 +117,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
   const contentId = useId();
   const errorId = useId();
 
-  // fix(#921 review): collapsing the block must not throw away a draft. Seed
+  // Collapsing the block must not throw away a draft. Seed
   // the text only when there is nothing to preserve; Apply and Cancel are the
   // two explicit exits that reset it.
   function handleToggle() {
@@ -145,7 +145,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
       if (layerType) {
         const validationErrors = validatePropertyBlock(parsed, layerType, block);
         if (validationErrors === null) {
-          // fix(#394) ST-05: validator crashed — block the apply.
+          // Validator crashed — block the apply.
           setError(t('style.validatorUnavailable', {
             defaultValue: 'This JSON could not be validated — simplify the value and try again.',
           }));
@@ -165,7 +165,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
     }
   }
 
-  // fix(#921): one disclosure button that stays mounted, so its expanded state is
+  // One disclosure button that stays mounted, so its expanded state is
   // reportable; the error is announced and wired to the textarea.
   return (
     <div className="space-y-1.5">
@@ -181,7 +181,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
       >
         {label}
       </button>
-      {/* fix(#921 review): the aria-controls target stays mounted and `hidden`
+      {/* The aria-controls target stays mounted and `hidden`
           while collapsed — an id reference that resolves to nothing is exactly
           what AT hits when it meets the collapsed trigger. */}
       <div id={contentId} hidden={!editing} className="space-y-1.5">
@@ -222,7 +222,7 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
   const [open, setOpen] = useState(defaultOpen);
   const blocksId = useId();
 
-  // fix(#916): symbol mode keeps circle paint on the layer (renderAs.ts:444) but
+  // Symbol mode keeps circle paint on the layer (renderAs.ts:444) but
   // real symbol layout — validate each block against what it actually holds.
   // Validating the stored circle paint as 'symbol' rejected every key, so Apply
   // always errored and the Paint block was a dead end for the whole mode.

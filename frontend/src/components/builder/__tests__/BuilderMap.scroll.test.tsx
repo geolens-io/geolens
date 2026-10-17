@@ -1,5 +1,5 @@
 /**
- * MAP-19 — Map container does not scroll the page body during pan/zoom.
+ * Map container does not scroll the page body during pan/zoom.
  *
  * This test pins the static surface: the BuilderMap outer wrapper and the
  * MapBuilderPage parent column do NOT have `overflow-auto`, `overflow-scroll`,
@@ -9,10 +9,7 @@
  * before MapLibre.
  *
  * Live behavior (page body scrollY === 0 during canvas pan/zoom) is verified
- * in Plan 06's Playwright MCP at 800×600 and 414×896 viewports.
- *
- * Source: todo.md L136 ("map is scrollable") + Phase 1133 audit classifies
- * this as a `genuine-new-gap` requiring static + live verification.
+ * in a Playwright MCP run at 800×600 and 414×896 viewports.
  *
  * Uses Vite ?raw imports — same pattern as preserve-drawing-buffer.test.ts
  * (no node:fs / @types/node dependency in tsconfig.app.json).
@@ -48,7 +45,7 @@ describe('MAP-19 — BuilderMap scroll containment', () => {
     // page column, the first 2 tests will fail. Reverification surface:
     // 1. Search frontend/src/components/builder/BuilderMap.tsx
     // 2. Search frontend/src/pages/MapBuilderPage.tsx parent column
-    // 3. Live MCP smoke at 800×600 and 414×896 in Plan 06.
+    // 3. Live MCP smoke at 800×600 and 414×896.
     expect(true).toBe(true);
   });
 });

@@ -1,11 +1,11 @@
 /**
- * EASY-18 (Phase 1138-03): Hook that returns the rendered-feature count for
+ * Hook that returns the rendered-feature count for
  * `layer` on `map` using map.queryRenderedFeatures, idle-debounced.
  *
- * READ-ONLY API: queryRenderedFeatures is not covered by Pitfall #9
- * (which forbids only write APIs: setPaintProperty / setLayoutProperty /
- * setFilter). This hook is allowed to call queryRenderedFeatures because
- * it never mutates the map — it only inspects rendered state.
+ * READ-ONLY API: queryRenderedFeatures is not covered by the editor guard
+ * in `pitfall-9-editor-polish.test.ts`, which forbids only write APIs
+ * (setPaintProperty / setLayoutProperty / setFilter). This hook is allowed to
+ * call queryRenderedFeatures because it never mutates the map — it only inspects rendered state.
  *
  * Returns null when:
  *   - map is null (no instance yet)
@@ -27,7 +27,7 @@ export function useFilteredFeatureCount(
   const [count, setCount] = useState<number | null>(null);
   const layerId = layer?.id ?? null;
   const layerFilter = layer?.filter ?? null;
-  // fix(#526 B-046): resolved adapter type (a stable string) so the count can
+  // Resolved adapter type (a stable string) so the count can
   // query the adapter's full sublayer-id set (mixed families, cluster bubbles).
   const adapterType = resolveAdapterType(
     layer?.dataset_geometry_type ?? null,
@@ -56,8 +56,8 @@ export function useFilteredFeatureCount(
       // MapLibre layer ids are registered as `layer-${uuid}` (see
       // use-layer-map-sync.ts), NOT the raw layer.id UUID. Querying the bare
       // UUID always missed, so the count was permanently null and the
-      // "0 features after filter" hint (EASY-18) never fired.
-      // fix(#526 B-046): query the adapter's FULL layer-id set, not just the
+      // "0 features after filter" hint never fired.
+      // Query the adapter's FULL layer-id set, not just the
       // primary id — a mixed layer's points/lines render on sibling sublayers
       // and a clustered layer's features render on the cluster bubbles, so the
       // primary-only count read 0 while the map plainly showed features,

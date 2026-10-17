@@ -1,4 +1,4 @@
-// builder-audit #338 SYNC-04: single source of truth for the companion-layer id
+// Single source of truth for the companion-layer id
 // scheme. Before this module the suffixes (`-outline`, `-extrusion`, `-arrow`,
 // `-label`, `-colorrelief`, `-cluster`, `-cluster-count`) were hand-spelled in
 // map-sync.ts, use-layer-map-sync.ts, use-builder-layers.ts, and
@@ -38,9 +38,9 @@ interface CompanionLayerIds {
   cluster: string;
   /** Cluster count label companion (`layer-${id}-cluster-count`). */
   clusterCount: string;
-  /** Mixed-geometry line-family companion (`layer-${id}-lines`, fix #430 codex r23). */
+  /** Mixed-geometry line-family companion (`layer-${id}-lines`). */
   mixedLines: string;
-  /** Mixed-geometry point-family companion (`layer-${id}-points`, fix #430 codex r23). */
+  /** Mixed-geometry point-family companion (`layer-${id}-points`). */
   mixedPoints: string;
 }
 

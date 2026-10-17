@@ -1,9 +1,9 @@
 /**
- * fix(#392): duplicate-layer-on-save P1 regression.
+ * Duplicate-layer-on-save regression.
  *
  * useBuilderLayers' handleAddDataset / handleDuplicateRendering insert a
  * server-created layer into localLayers AND mark the map dirty in the SAME
- * update (the WR-02/CR-01 sort_order-renumber fix requires this — the sibling
+ * update (the sort_order-renumber fix requires this — the sibling
  * renumber is itself an unpersisted diff). useBuilderSave's baselineLayersRef
  * (the Save-diff baseline buildLayerDiff reads) previously only refreshed
  * while `!hasUnsavedChanges`, so it never learned about the new server layer
@@ -91,7 +91,7 @@ function useCombinedBuilder(
   removeLayerMutation: Parameters<typeof useBuilderLayers>[4],
 ) {
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
-  // fix(#392): the SAME callback-ref bridge MapBuilderPage owns between
+  // The SAME callback-ref bridge MapBuilderPage owns between
   // useBuilderLayers and useBuilderSave — see MapBuilderPage.tsx (~line 204+7)
   // and use-builder-save.ts's `saveBaselineSyncRef` effect.
   const saveBaselineSyncRef = useRef<SaveBaselineSync>({ add: () => {}, remove: () => {} });
@@ -163,8 +163,8 @@ describe('fix(#392): duplicate-layer-on-save P1 — Save-diff baseline sync', ()
     const createdLayer = makeBuilderLayer({ id: 'created-1', dataset_id: 'ds-new', sort_order: 0 });
     act(() => { onSuccess(createdLayer); });
 
-    // Sanity: the add did in fact dirty the map (WR-02 sibling-renumber fix) and
-    // the created layer is immediately visible (P1-08 optimistic merge).
+    // Sanity: the add did in fact dirty the map (sibling-renumber fix) and
+    // the created layer is immediately visible (optimistic merge).
     expect(result.current.hasUnsavedChanges).toBe(true);
     expect(result.current.localLayers.some((l) => l.id === 'created-1')).toBe(true);
 
@@ -230,7 +230,7 @@ describe('fix(#392): duplicate-layer-on-save P1 — Save-diff baseline sync', ()
 });
 
 /**
- * fix(#1778): "layer deletes prune the clean-state baseline but never the
+ * "layer deletes prune the clean-state baseline but never the
  * save-diff baseline, so a delete on an already-dirty map guarantees a stale
  * diff on the next save" (codebase audit 2026-08-30).
  *
@@ -275,7 +275,7 @@ describe('fix(#1778): delete prunes the Save-diff baseline on an already-dirty m
     expect(diff.updated).toEqual([{ id: 'keep', opacity: 0.4 }]);
   });
 
-  // fix(#1778 codex round 1 P2): the baseline prune used to run only when the
+  // The baseline prune used to run only when the
   // WHOLE batch succeeded. On a partial success the confirmed-deleted rows left
   // local state anyway, so they stayed in both baselines, the next Save
   // re-emitted them in diff.removed, and the stale-conflict recovery fired (or

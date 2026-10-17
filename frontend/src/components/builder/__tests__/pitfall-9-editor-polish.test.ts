@@ -1,19 +1,19 @@
 /**
- * Phase 1136 EDITOR Pitfall #9 grep guard (phase-scoped).
+ * EDITOR grep guard, scoped to the paint-ownership editor files.
  *
- * Asserts that the editor source files modified during Phase 1136
- * (RasterEditor.tsx dropped from the set in fix(#915) — dead code, deleted)
+ * Asserts that the editor source files modified for the paint-ownership work
+ * (RasterEditor.tsx is not in the set: it was dead code and is deleted)
  * contain ZERO direct `map.setPaintProperty` / `map.setLayoutProperty`
  * callsites. All paint/layout mutations from these files MUST route
- * through the v1026 owned-property contract:
+ * through the owned-property contract:
  *   - paint: `onPaintProp(key, value)` → adapter `syncPaint` → `*_OWNED_PAINT_PROPERTIES`
  *   - layout: `onLayoutChange(layerId, layout)` → reconciler hook `handleLayoutChange`
- *             (documented exception per Phase 1133 WALK-04 audit)
+ *             (a documented exception)
  *
- * This guard is SCOPED to those phase-1136 files. The broader baseline
+ * This guard is SCOPED to those files. The broader baseline
  * of documented exceptions (label-layer-utils, ViewerMap.tsx, reconciler
- * hooks, basemap-style-mutation.ts) is the responsibility of Phase 1133
- * WALK-04's audit table, not this guard.
+ * hooks, basemap-style-mutation.ts) is the responsibility of
+ * the documented-exceptions audit, not this guard.
  *
  * Uses Vite `?raw` imports (no node:fs / @types/node dependency in tsconfig.app.json).
  */

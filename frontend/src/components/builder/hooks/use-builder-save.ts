@@ -25,7 +25,7 @@ import { syntheticTerrainEntry } from '@/components/builder/terrain-legend';
 import { getPersistedFolderGroup, prepareLayersForPersistence, stampPersistedFolderGroupExpanded, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
-// feat(#1486): the three rendered-image paths all composite from the WebGL
+// The three rendered-image paths all composite from the WebGL
 // canvas, which no DOM attribution control can reach. See lib/map-image-attribution.
 import {
   attributionBandHeightBudget,
@@ -36,7 +36,7 @@ import {
   OG_ATTRIBUTION,
   THUMBNAIL_ATTRIBUTION,
 } from '@/lib/map-image-attribution';
-// fix(#430 V-01): capability gate used to detect fields the builder has no editor
+// Capability gate used to detect fields the builder has no editor
 // for on a given layer type (see unmanagedNullableFields below).
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 
@@ -44,11 +44,11 @@ import { getLayerCapabilities } from '@/lib/layer-capabilities';
  *  resulting offscreen canvas. Crops from the center without distortion
  *  (letterbox / pillarbox math). Supports any target aspect ratio.
  *
- *  SHARE-08 (Phase 1142): extracted from the former inline doCapture crop block
+ *  Extracted from the former inline doCapture crop block
  *  to allow two crops (400×250 thumbnail, 1200×630 OG image) to share one
  *  render event with a single triggerRepaint().
  *
- *  fix(#1479 Codex P2 round 1): `backdrop` is painted under the crop when the
+ *  `backdrop` is painted under the crop when the
  *  globe space backdrop is on screen. The WebGL canvas is transparent wherever
  *  a ray missed the planet, so without it the sphere lands on whatever the
  *  encoder substitutes for alpha — white once composited, black for JPEG,
@@ -87,7 +87,7 @@ function cropResize(
   return offscreen;
 }
 
-/** fix(#1502): channel stddev below this reads as "no content". The demo's
+/** Channel stddev below this reads as "no content". The demo's
  *  two blank uploads measured 0.00 and 1.88; the flattest REAL thumbnail
  *  observed on a seeded instance measured 22.9, and even a bare world-basemap
  *  capture measures ~24 (all measured as luminance on grey-dominated frames,
@@ -97,7 +97,7 @@ function cropResize(
  *  while a frame that never painted cannot. */
 export const BLANK_CHANNEL_STDDEV = 4;
 
-/** fix(#1504 review round 2): stddev alone rejects legitimately SPARSE maps —
+/** Stddev alone rejects legitimately SPARSE maps —
  *  a lone point feature on the "No basemap" uniform background computes to a
  *  stddev around 2, under the threshold. So a low-variance frame gets a second
  *  chance: count pixels deviating meaningfully from the mean color. The two
@@ -109,8 +109,8 @@ const SPARSE_CHANNEL_DELTA = 25;
 export const SPARSE_PIXEL_COUNT = 8;
 
 /** Max per-channel standard deviation over RGBA data, scanning every pixel
- *  (sampling can miss a dot — #1504 review round 2). Channel-space rather
- *  than luminance (#1504 review round 3): isoluminant hue changes — say a
+ *  (sampling can miss a dot). Channel-space rather
+ *  than luminance: isoluminant hue changes — say a
  *  red/green categorical split at equal lightness — are invisible to a
  *  luminance statistic but enormous per channel. Pure so it is testable
  *  without a canvas (jsdom has none). */
@@ -164,7 +164,7 @@ export function isBlankPixelData(rgba: Uint8ClampedArray | number[]): boolean {
   return true;
 }
 
-/** fix(#1502): whether a captured frame is effectively a solid fill.
+/** Whether a captured frame is effectively a solid fill.
  *
  *  The capture pipeline is fail-open at every stage before this point —
  *  waitForVisibleLayerSources proceeds on its 5s deadline, whenMapIdle fires
@@ -191,18 +191,18 @@ export function isEffectivelyBlank(canvas: HTMLCanvasElement): boolean {
 /** Crop and resize the map canvas to a 400x250 JPEG thumbnail AND a 1200x630
  *  OG image, then upload both.
  *
- *  PERF-08 (Phase 274): we no longer keep preserveDrawingBuffer permanently
+ *  We no longer keep preserveDrawingBuffer permanently
  *  enabled. Force one render frame and read pixels from the freshly-painted
  *  canvas. Using `once('render')` is more reliable than relying on the
  *  synchronous post-triggerRepaint state because some browsers async-defer
  *  the repaint to the next animation frame.
  *
- *  SHARE-08 (Phase 1142): the single onRender callback now captures BOTH
- *  targets from the same srcCanvas without a second triggerRepaint (Pitfall #5).
+ *  The single onRender callback now captures BOTH
+ *  targets from the same srcCanvas without a second triggerRepaint.
  *  The OG upload is fire-and-forget with its own catch so an OG failure does
  *  not prevent the thumbnail save. */
 /** Who asked for this capture. The blank-frame guard applies ONLY to 'auto'
- *  (#1504 review round 4): auto-capture fires on first open, where a uniform
+ *  captures, which fire on first open, where a uniform
  *  frame means the unpainted-canvas race. On an explicit save the map is
  *  loaded and painted — a uniform frame is the map's true appearance (the
  *  user removed its content), and skipping the upload would leave a stale
@@ -210,7 +210,7 @@ export function isEffectivelyBlank(canvas: HTMLCanvasElement): boolean {
  *  true so no retry ever corrects it. */
 type CaptureTrigger = 'auto' | 'save';
 
-/** Whether the ENTIRE source frame reads as unpainted (#1504 review round 5).
+/** Whether the ENTIRE source frame reads as unpainted (#1504).
  *
  *  The guard's one job is detecting the unpainted-canvas race, and an
  *  unpainted canvas is blank EVERYWHERE — so the honest measurement is the
@@ -222,8 +222,8 @@ type CaptureTrigger = 'auto' | 'save';
  *  appearance at its aspect ratio and must upload.
  *
  *  WebGL pixels are unreadable through 2D APIs on the source itself, so the
- *  frame is copied into a 2D canvas — BOUNDED to ~1M pixels (#1504 review
- *  round 6): a native copy on a DPR-2 2560×1440 display is ~14.7M pixels and
+ *  frame is copied into a 2D canvas — BOUNDED to ~1M pixels: a native copy
+ *  on a DPR-2 2560×1440 display is ~14.7M pixels and
  *  over 110 MiB of transient RGBA inside the render callback, and an
  *  allocation failure would fail open into exactly the blank upload this
  *  guard prevents. The downscale is safe for both classifications: an
@@ -267,19 +267,19 @@ function doCapture(
     }
     try {
       const srcCanvas = map.getCanvas();
-      // fix(#1479 Codex P2 round 1): both crops carry the space backdrop when
+      // Both crops carry the space backdrop when
       // the map is showing one, so a globe map's thumbnail and OG card match
       // the builder instead of putting the sphere back on a flat background.
       const backdrop = hasGlobeSpaceBackdrop(map)
         ? MAP_COLORS.exportImage.globeBackground
         : undefined;
 
-      // fix(#1502): never persist an unpainted AUTO-captured frame (see
+      // Never persist an unpainted AUTO-captured frame (see
       // CaptureTrigger for why explicit saves are exempt, and
       // isCanvasFrameBlank for why the FULL frame is measured rather than the
-      // crops). Skipping leaves `hasThumbnail` false, and re-arming the SF-07
+      // crops). Skipping leaves `hasThumbnail` false, and re-arming the
       // guard converts the permanent failure into a transient one within the
-      // SPA session, not just across hard reloads (#1504 review round 1) —
+      // SPA session, not just across hard reloads (#1504) —
       // the next open of the map simply retries.
       if (trigger === 'auto' && isCanvasFrameBlank(srcCanvas)) {
         rearmAutoCapture(mapId);
@@ -289,7 +289,7 @@ function doCapture(
         return;
       }
 
-      // feat(#1486): both crops carry the credit line. Read once — the entries
+      // Both crops carry the credit line. Read once — the entries
       // are identical for the two targets, only the type size differs — and
       // draw into each finished crop. This has to be a canvas draw: the crops
       // composite from the WebGL canvas, so MapLibre's own DOM attribution
@@ -321,7 +321,7 @@ function doCapture(
         // Silent failure for thumbnails
       });
 
-      // 1200×630 OG image — fire-and-forget, isolated failure (SHARE-08)
+      // 1200×630 OG image — fire-and-forget, isolated failure
       uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
         if (import.meta.env.DEV) console.warn('[og-image] capture upload failed');
       });
@@ -432,13 +432,13 @@ function waitForVisibleLayerSources(
 }
 
 /** Run a thumbnail capture immediately for the given args.
- *  PERF-08 (Phase 274): doCapture uses map.triggerRepaint() + map.once('render')
+ *  doCapture uses map.triggerRepaint() + map.once('render')
  *  to read pixels from a freshly-painted canvas (no permanent preserveDrawingBuffer).
  *  Auto-capture can run before BuilderMap has synced GeoLens sources, so we wait
  *  for visible layer sources first via waitForVisibleLayerSources before calling
  *  doCapture. Callers should go through captureThumbnail (debounced wrapper).
  *
- *  POLISH-01 (Phase 1233-01): when `layersRef` is provided and the snapshot `layers`
+ *  When `layersRef` is provided and the snapshot `layers`
  *  is empty, the first auto-capture is deferred: we poll `layersRef.current` (the
  *  live ref updated every render) until a layer appears, then proceed through
  *  waitForVisibleLayerSources normally. This fixes the new-map + ?add_dataset race
@@ -473,7 +473,7 @@ function runCaptureNow(
     }
     doCapture(map, mapId, queryClient, trigger, captureIsStale);
   };
-  // POLISH-01: defer the first capture when a layer-add is pending (layersRef
+  // Defer the first capture when a layer-add is pending (layersRef
   // provided) but no layers have synced yet. Poll the live ref so we pick up
   // the layer that ?add_dataset adds after initializedRef resolves.
   if (layers.length === 0 && layersRef) {
@@ -487,9 +487,9 @@ function runCaptureNow(
         return;
       }
       if (Date.now() >= deadline) {
-        // SF-05: genuinely empty after the deadline — fall back to idle path so
+        // Genuinely empty after the deadline — fall back to idle path so
         // we never leave an open poll. Re-check cancellation INSIDE the idle
-        // callback (WR-02): whenMapIdle can fire up to ~3s later, possibly after
+        // callback: whenMapIdle can fire up to ~3s later, possibly after
         // an unmount, so the guard must be at capture time, not registration time.
         whenMapIdleAndRasterLoaded(map, mapId, [], () => {
           if (!signal?.cancelled) capture();
@@ -504,7 +504,7 @@ function runCaptureNow(
   waitForVisibleLayerSources(map, mapId, layers, capture, signal);
 }
 
-/** SP-16: 500ms trailing-edge debounce around captureThumbnail.
+/** 500ms trailing-edge debounce around captureThumbnail.
  *  Smoke evidence showed two back-to-back `PUT /maps/<id>/thumbnail/`
  *  requests when a single layer-add triggered both the save-path capture
  *  and a chained auto-capture. Coalesce all invocations within a 500ms
@@ -513,7 +513,7 @@ function runCaptureNow(
 const THUMBNAIL_DEBOUNCE_MS = 500;
 const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** SF-07 (Phase 1050-04): module-level guard that tracks per-mapId
+/** Module-level guard that tracks per-mapId
  *  auto-capture initiation. Survives Vite-dev StrictMode hook unmount /
  *  remount cycles where the per-hook-instance `thumbCaptured` ref would
  *  otherwise reset to false and allow a second PUT after the first
@@ -525,19 +525,19 @@ const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
  *  remembers "an auto-capture has already been initiated for this map in
  *  this session" until an explicit reset.
  *
- *  WR-03 (Phase 1050-rev): this guard is NOT cleared on hook unmount or mapId
- *  change, because doing so re-introduces the SF-07 duplicate-capture bug under
+ *  This guard is NOT cleared on hook unmount or mapId
+ *  change, because doing so re-introduces the duplicate-capture bug under
  *  Vite-dev StrictMode (unmount → remount → guard cleared → second PUT fires
  *  after the first's debounce has already settled).
  *
- *  STATE-07 (builder-audit #338 20260626): the guard is now a bounded LRU instead of
+ *  The guard is a bounded LRU rather than
  *  an unbounded write-only Set. The just-captured map's key stays resident (so
  *  StrictMode remount is still deduped), but the structure no longer accumulates
  *  one entry per visited map for the lifetime of the tab, and old maps age out
  *  past the cap — so a server-side thumbnail deletion can re-trigger auto-capture
  *  once the user has moved through enough other maps, without a hard reload. The
  *  `__resetThumbnailDebounceForTests` helper clears it in vitest setup. */
-/** Phase 1051 WR-07: keyed by `userId:mapId` so a cross-user session does NOT
+/** Keyed by `userId:mapId` so a cross-user session does NOT
  *  inherit the previous user's guard entry. Previously keyed by `mapId` only,
  *  which leaked across auth-switch and blocked legitimate auto-captures after
  *  the same browser logged in as a different user with access to the same map. */
@@ -557,7 +557,7 @@ function captureThumbnail(
   trigger: CaptureTrigger = 'save',
   captureIsStale?: (mapId: string) => boolean,
 ) {
-  // SP-16: clear any prior pending capture for this mapId; the latest call
+  // Clear any prior pending capture for this mapId; the latest call
   // wins (trailing edge), reflecting the final state once the window settles.
   const existing = pendingCaptures.get(mapId);
   if (existing) clearTimeout(existing);
@@ -569,7 +569,7 @@ function captureThumbnail(
 
   const timer = setTimeout(() => {
     pendingCaptures.delete(mapId);
-    // POLISH-01: pass layersRef through so runCaptureNow can defer on the
+    // Pass layersRef through so runCaptureNow can defer on the
     // new-map + ?add_dataset path. Save-path callers do not pass layersRef,
     // so they remain on the existing waitForVisibleLayerSources path.
     runCaptureNow(map, mapId, queryClient, layers, signal, layersRef, trigger, superseded);
@@ -578,7 +578,7 @@ function captureThumbnail(
   pendingCaptures.set(mapId, timer);
 }
 
-/** SF-07 (Phase 1050-04): module-scoped predicate that decides whether an
+/** Module-scoped predicate that decides whether an
  *  auto-capture should be initiated for this mapId in this session.
  *  Returns true on the FIRST call for a given mapId (and marks the id as
  *  taken); returns false on every subsequent call until the guard is
@@ -586,7 +586,7 @@ function captureThumbnail(
  *  StrictMode-driven remount cannot bypass it. The trailing-edge debounce
  *  in `captureThumbnail` still applies for the legitimate first call. */
 export function shouldAutoCapture(mapId: string, userId: string | null): boolean {
-  // Phase 1051 WR-07: key by both userId and mapId. anon users (token only,
+  // Key by both userId and mapId. anon users (token only,
   // no resolvable user) collapse to a stable 'anon' bucket so anonymous
   // sessions still benefit from StrictMode dedupe within a single tab.
   const key = `${userId ?? 'anon'}:${mapId}`;
@@ -607,7 +607,7 @@ export function shouldAutoCapture(mapId: string, userId: string | null): boolean
   return true;
 }
 
-/** fix(#1504 review): when doCapture rejects a blank frame, the SF-07 guard
+/** When doCapture rejects a blank frame, the guard
  *  must be re-armed or the promised "retry on next open" only survives a hard
  *  reload — the module LRU outlives unmount/remount within an SPA session.
  *  Keys are `userId:mapId` and doCapture does not know the user, so drop every
@@ -618,7 +618,7 @@ export function rearmAutoCapture(mapId: string): void {
   }
 }
 
-/** Test helper — clear any pending debounced captures AND the SF-07
+/** Test helper — clear any pending debounced captures AND the
  *  module-level auto-capture guard so module-level state doesn't leak
  *  across vitest cases. Called from `beforeEach`. */
 export function __resetThumbnailDebounceForTests(): void {
@@ -675,7 +675,7 @@ function stableJson(value: unknown): string {
 }
 
 /**
- * fix(#430 V-01): the subset of PATCHABLE_LAYER_FIELDS that (a) the backend treats
+ * The subset of PATCHABLE_LAYER_FIELDS that (a) the backend treats
  * as explicitly-nullable on a PATCH (`_NULLABLE_PATCH_FIELDS` — an explicit
  * `null` NULLs the column, an omitted key leaves it untouched, per
  * `service_diff.py`) AND (b) this specific layer's TYPE has no builder editor
@@ -711,8 +711,8 @@ function unmanagedNullableFields(
 
 function toLayerInput(layer: MapLayerResponse): MapLayerInput {
   return {
-    // fix(#430 codex): carry the layer id so a full PUT reconciles rows in
-    // place (V-14) instead of regenerating every layer UUID. Builder layer ids
+    // Carry the layer id so a full PUT reconciles rows in
+    // place instead of regenerating every layer UUID. Builder layer ids
     // are always server-issued UUIDs (instant-add POSTs before local state).
     id: layer.id,
     dataset_id: layer.dataset_id,
@@ -759,12 +759,12 @@ function hasDiff(diff: MapLayerDiffRequest): boolean {
   );
 }
 
-// fix(#1778): only a status that means "this deployment has no layer-diff
+// Only a status that means "this deployment has no layer-diff
 // endpoint" may escalate to the lossy full PUT. The old predicate matched
 // 400/404/409/422 with a prose regex, which is exactly the shape the backend
 // uses for a STALE diff. See isStaleLayerDiffError below.
 //
-// fix(#1778 codex round 3): 404 is back, because it is the compatibility case
+// 404 is back, because it is the compatibility case
 // the PUT fallback exists for. A backend predating PATCH /maps/{id}/layers
 // answers 404 for the unknown route (FastAPI sends {"detail": "Not Found"}; an
 // edge proxy in front of it may send no JSON at all), and without 404 here
@@ -794,7 +794,7 @@ function isUnsupportedLayerPatchError(error: unknown): boolean {
   return !MAP_NOT_FOUND_DETAIL.test(apiErrorDetailText(error));
 }
 
-// fix(#1778): the two details apply_layer_diff raises when the diff names layer
+// The two details apply_layer_diff raises when the diff names layer
 // ids the map no longer has (backend service_diff.py). That means someone else
 // changed this map's layers since this session loaded it, so overwriting the
 // map with the stale client's snapshot would resurrect what they deleted and
@@ -802,7 +802,7 @@ function isUnsupportedLayerPatchError(error: unknown): boolean {
 const STALE_LAYER_DIFF_DETAIL =
   /Layer diff references layer ids outside this map|Layer order references unknown or removed layers/i;
 
-/** fix(#1778): raised when the stale-diff recovery below cannot complete, so
+/** Raised when the stale-diff recovery below cannot complete, so
  *  the outer catch can say "the map changed elsewhere" instead of the generic
  *  save-failed message. */
 class StaleLayerDiffError extends Error {
@@ -819,7 +819,7 @@ function isStaleLayerDiffError(error: unknown): boolean {
 }
 
 /**
- * fix(#1778): drop the parts of a rejected diff the server can no longer apply.
+ * Drop the parts of a rejected diff the server can no longer apply.
  *
  * Deliberately NOT a fresh `buildLayerDiff` against the refetched map: a layer
  * another session ADDED is absent from this session's `localLayers`, so a full
@@ -852,7 +852,7 @@ export function reconcileLayerDiffWithServer(
 }
 
 /**
- * fix(#1778 codex round 1): merge this session's relative order into the
+ * Merge this session's relative order into the
  * server's current sequence instead of sending only the ids this session knows.
  *
  * `apply_layer_diff` numbers the ids it is given from 0 and then APPENDS every
@@ -897,7 +897,7 @@ interface LayerDiffResult {
 type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 
 /** Bridge between the layer-mutation hooks and useBuilderSave's diff baseline.
- *  fix(#392) added `add`; fix(#1778) added the symmetric `remove`. */
+ *  `add` registers a layer in the baseline; `remove` is its inverse. */
 export interface SaveBaselineSync {
   add: (layer: MapLayerResponse) => void;
   remove: (layerIds: Iterable<string>) => void;
@@ -908,12 +908,12 @@ export function buildLayerDiff(
   currentLayers: MapLayerResponse[],
   groupMeta: Record<string, FolderGroupMeta> = {},
 ): LayerDiffResult {
-  // fix(#805): prepare BOTH sides through prepareLayersForPersistence so an
+  // Prepare BOTH sides through prepareLayersForPersistence so an
   // unchanged grouped map diffs empty. The baseline used to be prepared
   // without any groupMeta, so baseline children lacked the folderGroupExpanded
   // marker while current children carried it — every save of a grouped map
   // then emitted a spurious per-child style_config PATCH.
-  // fix(#833): the baseline is prepared with its OWN persisted collapse state
+  // The baseline is prepared with its OWN persisted collapse state
   // (derived from the folderGroupExpanded markers it was loaded with), not the
   // live groupMeta — stamping the live value on both sides hid every collapse
   // change from the diff, so collapse-only edits persisted only when another
@@ -943,12 +943,12 @@ export function buildLayerDiff(
     if (!baseline) continue;
 
     const unmanaged = unmanagedNullableFields(layer);
-    // fix(#767 B8): folder-group markers are written into style_config by
+    // Folder-group markers are written into style_config by
     // prepareLayersForPersistence for EVERY layer type, so a baseline that
     // carried them makes a null-out an intentional clear (ungrouping), not a
     // "field never populated" artifact. Without this, ungrouping a raster
     // layer never PATCHed (its empty style_config compacts to null and the
-    // V-01 guard below swallowed it) and the group resurrected on reload.
+    // guard below swallowed it) and the group resurrected on reload.
     const baselineHadFolderGroup =
       getPersistedFolderGroup({ style_config: baseline.style_config } as MapLayerResponse) !== null;
     const currentSnapshot = toLayerSnapshot(layer);
@@ -958,12 +958,12 @@ export function buildLayerDiff(
       const baselineValue = baseline[field];
       if (stableJson(currentValue) === stableJson(baselineValue)) continue;
 
-      // fix(#430 V-01): never emit an explicit null-out for a nullable field this
+      // Never emit an explicit null-out for a nullable field this
       // layer's type has no editor for — omit the key entirely (server keeps
       // whatever it already has) instead of nulling real data. Only applies
       // in the null/erasure direction; a genuinely new non-null value for an
       // unmanaged field (shouldn't normally happen) still patches through.
-      // fix(#767 B8): style_config is exempt when the baseline carried
+      // style_config is exempt when the baseline carried
       // folder-group markers — that null is a managed, deliberate erasure.
       if (
         currentValue == null &&
@@ -1008,28 +1008,28 @@ interface SaveState {
   terrainConfig: MapTerrainConfig | null;
   localName: string;
   localDescription: string;
-  /** ENH-06: custom map-level legend title. Null = no override. */
+  /** Custom map-level legend title. Null = no override. */
   legendTitle: string | null;
   dockNotes: string;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
   hasThumbnail?: boolean;
-  /** fix(#392): callback ref populated by useBuilderSave and invoked by
+  /** Callback ref populated by useBuilderSave and invoked by
    *  useBuilderLayers' layer-create paths (handleAddDataset / handleDuplicateRendering)
    *  so the server-created layer is registered into the Save-diff baseline
    *  the moment it is inserted (see the effect below for the full rationale).
-   *  fix(#1778): `remove` is the delete half, called by the single and bulk
+   *  `remove` is the delete half, called by the single and bulk
    *  delete paths alongside their savedLayerBaselineRef prune. */
   saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>;
-  /** POLISH-01 (Phase 1233-01): set to true when the builder was opened with a
+  /** Set to true when the builder was opened with a
    *  ?add_dataset URL param so the first auto-capture is deferred until the
    *  layer-add effect has synced localLayers. Omit (or set false) for normal
    *  maps — existing behavior is preserved (empty map → idle path). */
   pendingLayerAdd?: boolean;
 }
 
-/** fix(#756): the state fields handleSave snapshots into its payloads. If any
+/** The state fields handleSave snapshots into its payloads. If any
  *  of them changes identity while the save's network round-trip is in flight,
  *  the dirty flag must survive the save — clearing it would absorb the
  *  mid-save edit into the baseline and let the query-invalidation resync
@@ -1065,7 +1065,7 @@ export function useBuilderSave(state: SaveState) {
   const baselineLayersRef = useRef<MapLayerResponse[]>([]);
   useEffect(() => {
     if (!state.hasUnsavedChanges) {
-      // fix(#833 codex): stamp the live groupMeta expansion into the snapshot's
+      // Stamp the live groupMeta expansion into the snapshot's
       // persisted markers. After a save clears the dirty flag, localLayers'
       // markers still carry the LOADED collapse state, so a verbatim copy made
       // the just-saved collapse invisible to the next diff (expand→save then
@@ -1077,10 +1077,10 @@ export function useBuilderSave(state: SaveState) {
     }
   }, [state.hasUnsavedChanges, state.localLayers, state.groupMeta]);
 
-  // fix(#756): handleSave destructures `state` once at call time and then
+  // handleSave destructures `state` once at call time and then
   // awaits the network; this ref always points at the latest rendered state
   // so the post-await code can tell whether anything was edited meanwhile.
-  // codex(#792 round 2): assigned during RENDER, not in a passive effect —
+  // Assigned during RENDER, not in a passive effect —
   // effects run after paint, so a mutation resolving right as an edit
   // commits could read the stale ref and clear the dirty flag anyway.
   const latestStateRef = useRef(state);
@@ -1097,12 +1097,12 @@ export function useBuilderSave(state: SaveState) {
     sentCamera: BuilderCamera,
   ): boolean {
     const latest = latestStateRef.current;
-    // fix(#1854): the camera is read off the map, not off SaveState, so a pan
+    // The camera is read off the map, not off SaveState, so a pan
     // during the round trip changes none of the fields below. What was
     // persisted is sentCamera; any other view on screen now is still unsaved,
     // and clearing the flag here would hide it until a refetch that may fail.
     if (!sameMapCamera(sentCamera, readMapCamera(latest.mapInstanceRef.current))) return true;
-    // codex(#792): the plugins payload reads usePluginStore directly, not
+    // The plugins payload reads usePluginStore directly, not
     // SaveState, so a mid-save plugin toggle changes none of the fields
     // below — compare the store's Set identity too (every toggle produces
     // a new Set).
@@ -1112,9 +1112,9 @@ export function useBuilderSave(state: SaveState) {
 
   const { saveBaselineSyncRef } = state;
   useEffect(() => {
-    // fix(#392): let layer-create paths register the server-created layer into the
+    // Let layer-create paths register the server-created layer into the
     // Save-diff baseline. Marking the map dirty in the same update that inserts a
-    // POST-created layer (the WR-02/CR-01 sort_order fix) otherwise leaves this
+    // POST-created layer (the sort_order fix) otherwise leaves this
     // baseline unaware of the new server id, so buildLayerDiff reports it as
     // diff.added and the PATCH endpoint creates a duplicate. Register the PURE
     // server layer (no local grouping/reorder) so grouping/order still diff normally.
@@ -1124,7 +1124,7 @@ export function useBuilderSave(state: SaveState) {
           baselineLayersRef.current = [...baselineLayersRef.current, { ...layer }];
         }
       },
-      // fix(#1778): the mirror of `add`. The baseline effect above only
+      // The mirror of `add`. The baseline effect above only
       // refreshes while the map is CLEAN, so a delete on an already-dirty map
       // left the deleted ids in this baseline; the next save then emitted them
       // in diff.removed and the backend rejected the whole diff. The delete
@@ -1155,12 +1155,12 @@ export function useBuilderSave(state: SaveState) {
     } = state;
     if (!id) return;
     setLastSaveFailed(false);
-    // codex(#792): snapshot the plugin set the payload below will serialize,
+    // Snapshot the plugin set the payload below will serialize,
     // so the post-await comparison can tell a mid-save plugin toggle apart.
     const sentPluginSet = usePluginStore.getState().activePlugins;
 
     // Block save if any layer's popup expression references unknown columns.
-    // Server-side validation is shape-only (per CONTEXT.md / RESEARCH §4),
+    // Server-side validation is shape-only,
     // so the frontend is the primary UX gate for placeholder correctness.
     const invalidLayer = localLayers.find((l) => {
       const cfg = l.popup_config;
@@ -1177,11 +1177,11 @@ export function useBuilderSave(state: SaveState) {
     }
 
     const map = mapInstanceRef.current;
-    // fix(#1854): the persisted camera goes through the shared normalizer that
+    // The persisted camera goes through the shared normalizer that
     // the builder's dirty check also reads, so a pan that would change the
     // stored view is exactly the pan that marks the map unsaved.
     const camera = readMapCamera(map);
-    // fix(#1854): useUpdateMap only invalidates the detail query, so mapData
+    // useUpdateMap only invalidates the detail query, so mapData
     // keeps the pre-save camera until the refetch lands, and forever if it
     // fails. The dirty check reads mapData, so publish what the server holds.
     const commitSavedCamera = () => {
@@ -1192,7 +1192,7 @@ export function useBuilderSave(state: SaveState) {
       );
     };
 
-    // Phase 1051 UX-03: basemap_position is encoded as a field on basemapConfig
+    // basemap_position is encoded as a field on basemapConfig
     // (MapBasemapConfig.basemap_position jsonb), so it round-trips through the
     // wholesale basemap_config pass-through below without a dedicated field.
     // Legacy maps load with basemap_position=undefined and default to 'bottom'
@@ -1212,7 +1212,7 @@ export function useBuilderSave(state: SaveState) {
       bearing: camera.bearing,
       pitch: camera.pitch,
       plugins: resolvePluginsPayload(id, queryClient, enabledPluginIds),
-      // ENH-06: persist the custom legend title. Empty/null clears it server-side.
+      // Persist the custom legend title. Empty/null clears it server-side.
       legend_title: legendTitle && legendTitle.trim() ? legendTitle.trim() : null,
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
@@ -1223,7 +1223,7 @@ export function useBuilderSave(state: SaveState) {
 
     try {
       const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
-      // HT-13 note: the DEM editor's hillshade overlay (style_config.render_mode)
+      // Note: the DEM editor's hillshade overlay (style_config.render_mode)
       // and 3D terrain binding (terrain_config) are now INDEPENDENT authorities.
       // A save that persists only one of them (e.g. the layer PATCH commits and
       // the metadata PUT fails) is therefore NOT a contradiction — it's an
@@ -1231,7 +1231,7 @@ export function useBuilderSave(state: SaveState) {
       // recoverable by re-toggling. So the split PATCH+PUT path is safe and we
       // keep it, rather than forcing every combined save through the lossy
       // full-replacement PUT (which can null server-only layer fields — see the
-      // #430 V-01 note below). The failed-save toast already prompts a retry.
+      // note below). The failed-save toast already prompts a retry.
       if (unsupported) {
         await updateMap.mutateAsync({ id, data: fullReplacementPayload });
       } else {
@@ -1239,7 +1239,7 @@ export function useBuilderSave(state: SaveState) {
           try {
             await patchMapLayers.mutateAsync({ id, diff });
           } catch (error) {
-            // fix(#1778): a stale diff is a CONFLICT, not a missing endpoint.
+            // A stale diff is a CONFLICT, not a missing endpoint.
             // Refetch the map, drop the ids the server no longer has, and retry
             // the PATCH. A failure here falls through to the outer catch with a
             // dedicated message; it must never reach the full PUT below.
@@ -1267,22 +1267,22 @@ export function useBuilderSave(state: SaveState) {
               return;
             }
             if (!isUnsupportedLayerPatchError(error)) throw error;
-            // fix(#430 V-01): this fallback converts a rejected partial PATCH into a
+            // This fallback converts a rejected partial PATCH into a
             // full PUT replacement (every layer re-serialized via toLayerInput,
-            // including a lossy style_config/paint round-trip and — per V-14 —
+            // including a lossy style_config/paint round-trip and
             // fresh layer-row UUIDs). It used to report the same plain
             // "Map saved" success toast as a normal save, silently hiding that
             // a full re-sync occurred. Surface it instead so the user knows to
             // double-check layer styling rather than trusting a clean save.
             await updateMap.mutateAsync({ id, data: fullReplacementPayload });
-            // fix(#833 codex): baseline carries the SENT collapse state, not
+            // Baseline carries the SENT collapse state, not
             // the loaded markers — see the baseline effect above.
             baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
             commitSavedCamera();
             toast.warning(t('toasts.mapSavedFullResync', {
               defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
             }));
-            // fix(#756): the baseline above is the SENT snapshot; only clear
+            // The baseline above is the SENT snapshot; only clear
             // the dirty flag when nothing was edited during the await, so a
             // mid-save edit stays diffable and guarded.
             if (!editedDuringSave(state, sentPluginSet, camera)) {
@@ -1295,12 +1295,12 @@ export function useBuilderSave(state: SaveState) {
         await updateMap.mutateAsync({ id, data: metadataPayload });
       }
 
-      // fix(#833 codex): baseline carries the SENT collapse state, not the
+      // Baseline carries the SENT collapse state, not the
       // loaded markers — see the baseline effect above.
       baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
       commitSavedCamera();
       toast.success(t('toasts.mapSaved'));
-      // fix(#756): the baseline above is the SENT snapshot; only clear the
+      // The baseline above is the SENT snapshot; only clear the
       // dirty flag when nothing was edited during the network await —
       // otherwise the baseline effect would absorb the mid-save edit and the
       // query-invalidation resync would overwrite it on screen.
@@ -1316,7 +1316,7 @@ export function useBuilderSave(state: SaveState) {
       }
     } catch (err) {
       setLastSaveFailed(true);
-      // fix(#1778): the map's layers changed in another session and the diff
+      // The map's layers changed in another session and the diff
       // could not be reconciled. Say so, rather than reporting a generic
       // failure or overwriting the map with this session's stale snapshot.
       if (err instanceof StaleLayerDiffError) {
@@ -1351,7 +1351,7 @@ export function useBuilderSave(state: SaveState) {
     if (!map) return;
 
     const doExport = () => {
-      // PERF-08 (Phase 274): force a render frame, then composite chrome
+      // Force a render frame, then composite chrome
       // (title, legend, branding) onto an offscreen canvas. The WebGL canvas
       // no longer retains its drawing buffer, so we register the read on the
       // next render event tick and trigger an immediate repaint.
@@ -1402,7 +1402,7 @@ export function useBuilderSave(state: SaveState) {
             return;
           }
 
-          // feat(#1486): the attribution band has to be MEASURED before the
+          // The attribution band has to be MEASURED before the
           // canvas is sized, since its height feeds totalH. It measures on this
           // same context rather than a scratch canvas — `off` has its width but
           // not yet its height, and setting the height below resets the context
@@ -1412,7 +1412,7 @@ export function useBuilderSave(state: SaveState) {
           // enterprise licence may suppress, a basemap or dataset credit is a
           // licensing obligation and is drawn either way.
           //
-          // fix(#1541 codex P2 round 2): the band is the only elastic term in
+          // The band is the only elastic term in
           // totalH, so it gets the height a browser will still encode, less
           // what the fixed blocks have already spent. Unbounded, a
           // contract-maximum map (200 layers x 5,000 characters of credit)
@@ -1450,7 +1450,7 @@ export function useBuilderSave(state: SaveState) {
             cursorY += titleBlockH;
           }
 
-          // fix(#1479 Codex P2 round 1): the map band, and only the map band,
+          // The map band, and only the map band,
           // gets the space color under the canvas — the globe's void is
           // transparent, so it would otherwise composite onto the white fill
           // above and export as a sphere on white. The title/legend/footer
@@ -1466,7 +1466,7 @@ export function useBuilderSave(state: SaveState) {
             cursorY += 12 * dpr;
             ctx.fillStyle = MAP_COLORS.exportImage.text;
             ctx.font = `600 ${14 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
-            // D5: honor the custom map-level legend title (ENH-06) like the
+            // Honor the custom map-level legend title like the
             // on-screen legend; fall back to the localized default header.
             const legendHeaderText = state.legendTitle?.trim()
               ? state.legendTitle.trim()
@@ -1542,7 +1542,7 @@ export function useBuilderSave(state: SaveState) {
             }
           }
 
-          // feat(#1486): between the legend and the branding footer, on white
+          // Between the legend and the branding footer, on white
           // rather than over imagery — so no scrim, and no credit is ever
           // dropped for want of room (it wraps to a second line instead).
           //
@@ -1621,12 +1621,12 @@ export function useBuilderSave(state: SaveState) {
 
   const maybeAutoCaptureThumbnail = useCallback((map: MaplibreMap) => {
     if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
-    // SF-07: the per-instance `thumbCaptured` ref doesn't survive a
+    // The per-instance `thumbCaptured` ref doesn't survive a
     // Vite-dev StrictMode hook unmount / remount, so a second hook
     // instance for the same mapId can re-enter here with a fresh ref.
     // The module-level `shouldAutoCapture` guard owns the
     // "already initiated for this mapId this session" invariant.
-    // Phase 1051 WR-07: pass the current user id so the guard key is scoped per
+    // Pass the current user id so the guard key is scoped per
     // user. The previous mapId-only key persisted across logout/login and blocked
     // legitimate captures after auth switch.
     const userId = useAuthStore.getState().user?.id ?? null;
@@ -1636,14 +1636,14 @@ export function useBuilderSave(state: SaveState) {
     }
     thumbCaptured.current = true;
     captureSignalRef.current = { cancelled: false };
-    // POLISH-01: when a layer-add is pending (new-map + ?add_dataset path), pass
+    // When a layer-add is pending (new-map + ?add_dataset path), pass
     // the live localLayersRef so runCaptureNow can defer the capture until layers
     // arrive. For all other paths, layersRef is undefined → existing behavior.
     const layersRef = state.pendingLayerAdd ? localLayersRef : undefined;
     captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef, 'auto', captureIsStale);
   }, [state.hasThumbnail, state.mapId, state.pendingLayerAdd, queryClient, captureIsStale]);
 
-  // P-08: Cancel in-flight polling on unmount
+  // Cancel in-flight polling on unmount
   useEffect(() => {
     return () => { captureSignalRef.current.cancelled = true; };
   }, []);
@@ -1657,17 +1657,17 @@ export function useBuilderSave(state: SaveState) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        // EASY-02 (Phase 1138-01): preventDefault fires unconditionally to suppress
+        // preventDefault fires unconditionally to suppress
         // the browser "Save Page As" dialog whenever Cmd/Ctrl+S is pressed in the builder,
         // regardless of pending state or open modals.
         e.preventDefault();
-        // EASY-02 (Phase 1138-01): no-op when any Radix dialog/sheet is open so
+        // No-op when any Radix dialog/sheet is open so
         // typing Cmd+S inside the Share dialog or Add Dataset modal does not race
         // a layer mutation against open-modal context. Radix sets
         // data-state="open" on its content element; we check the role-dialog
         // selector (covers Dialog and, via role="dialog", Sheet — which also
         // carries data-slot="sheet-content").
-        // ux(#777): Radix AlertDialog content renders role="alertdialog", NOT
+        // Radix AlertDialog content renders role="alertdialog", NOT
         // role="dialog" — matched explicitly so the unsaved-changes leave
         // dialog (now an AlertDialog) still suppresses Cmd+S. The builder's
         // inline row confirms also use role="alertdialog" but have no

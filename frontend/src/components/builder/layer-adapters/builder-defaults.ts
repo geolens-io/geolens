@@ -1,5 +1,5 @@
 /**
- * builder-audit #338 ADAPT-05 / ADAPT-06 / DRY-04 / DRY-06: single source of truth for
+ * Single source of truth for
  * per-render-mode default paint and the arrow/extrusion magic constants that the
  * layer adapters and renderAs both need.
  *
@@ -15,7 +15,7 @@
 import { MAP_COLORS } from '@/lib/map-colors';
 
 /**
- * builder-audit #338 ADAPT-05: reconcile the two conflicting DEFAULT_HEATMAP_PAINT
+ * Reconcile the two conflicting DEFAULT_HEATMAP_PAINT
  * (renderAs radius 18 / weight 0.5 vs heatmap-adapter radius 30 / weight 1) to ONE
  * value. We prefer the ADAPTER's authored values (radius 30, weight 1) because
  * those are what a freshly-created heatmap actually renders with at add-time.
@@ -34,7 +34,7 @@ export const DEFAULT_HEATMAP_PAINT = {
 } as const;
 
 /**
- * builder-audit #338 ADAPT-06: single hillshade default (previously byte-identical
+ * Single hillshade default (previously byte-identical
  * copies in renderAs.DEFAULT_HILLSHADE_PAINT and
  * hillshade-adapter.HILLSHADE_PAINT_DEFAULTS). Shadow/highlight/accent are map
  * roles rather than CSS theme colors, so they live in MAP_COLORS with the other
@@ -50,7 +50,7 @@ export const DEFAULT_HILLSHADE_PAINT = {
 } as const;
 
 /**
- * builder-audit #338 ADAPT-03 / DRY-04: canonical default circle paint, matching the
+ * Canonical default circle paint, matching the
  * add-time fallback used by BOTH circle-adapter and cluster-adapter (the dominant
  * path). NOTE: renderAs's render-as-switch circle default previously used a white
  * (#ffffff) stroke; render-as-created circles will now start with the token stroke
@@ -65,7 +65,7 @@ export const DEFAULT_CIRCLE_PAINT = {
 } as const;
 
 /**
- * builder-audit #338 DRY-04: canonical default fill paint. fill-opacity is reconciled
+ * Canonical default fill paint. fill-opacity is reconciled
  * to MAP_COLORS.default.fillOpacity (0.30). NOTE: render-mode-switch-created
  * polygons previously started at fill-opacity 0.45; they will now start at 0.30,
  * matching map-colors.ts and shared.ts OPACITY_DEFAULTS.fill.
@@ -82,14 +82,14 @@ export const DEFAULT_LINE_PAINT = {
   'line-width': 2,
 } as const;
 
-/** builder-audit #338 DRY-06: arrow render-mode defaults (size 14, spacing 80 px). */
+/** Arrow render-mode defaults (size 14, spacing 80 px). */
 export const DEFAULT_ARROW_SIZE = 14;
 export const DEFAULT_ARROW_SPACING = 80;
 
 /** The builder's zoom bounds, which stand in for an end of the range the layout does not save. */
 export const FULL_ZOOM_RANGE = { minzoom: 0, maxzoom: 22 } as const;
 
-/** builder-audit #338 DRY-06: 3D fill-extrusion defaults. Below the min zoom the
+/** 3D fill-extrusion defaults. Below the min zoom the
  *  extrusion is not shown; the opacity cap bounds a freshly-converted extrusion. */
 export const DEFAULT_EXTRUSION_MIN_ZOOM = 14;
 export const DEFAULT_EXTRUSION_OPACITY_CAP = 0.85;

@@ -1,7 +1,7 @@
 /**
- * Phase 1051 Plan 02 — handleRemove (single-layer delete) regression tests (BUG-02).
+ * handleRemove (single-layer delete) regression tests.
  *
- * BUG-02: handleRemove was a no-op from the user's perspective because it called
+ * handleRemove was a no-op from the user's perspective because it called
  * removeLayerMutation.mutate but never optimistically removed the layer from
  * localLayers. The mutation's invalidateQueries refetch is gated by the
  * useEffect at use-builder-layers.ts:181-186 (`!hasUnsavedChanges`) which is
@@ -100,7 +100,7 @@ function renderBuilderLayers(
 
   const typedRef = mapRef as unknown as React.RefObject<import('maplibre-gl').Map | null>;
 
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff
+  // 6th positional param bridging into useBuilderSave's Save-diff
   // baseline — a plain no-op ref is sufficient for tests that don't assert on it.
   const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
 
@@ -122,7 +122,7 @@ async function waitForInit() {
 }
 
 // ---------------------------------------------------------------------------
-// handleRemove (BUG-02)
+// handleRemove
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleRemove (BUG-02)', () => {
@@ -132,7 +132,7 @@ describe('useBuilderLayers — handleRemove (BUG-02)', () => {
     const layerC = makeMockLayer({ id: 'c', sort_order: 2 });
 
     // Override the mutate to NOT call onSuccess — this proves the optimistic
-    // filter happens before the API responds (which is the core of BUG-02).
+    // filter happens before the API responds (which is the core of the optimistic delete).
     const mutateSpy = vi.fn();
     const { result } = renderBuilderLayers(
       makeMapData([layerA, layerB, layerC]),
@@ -250,7 +250,7 @@ describe('useBuilderLayers — handleRemove (BUG-02)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// MAP-17 — adapter-driven companion sweep
+// Adapter-driven companion sweep
 // ---------------------------------------------------------------------------
 
 describe('MAP-17 — adapter-driven companion sweep', () => {

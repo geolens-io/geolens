@@ -122,7 +122,7 @@ describe('MapTitleBar', () => {
 
     // No "Unsaved changes" indicator
     expect(screen.queryByLabelText('Unsaved changes')).not.toBeInTheDocument();
-    // SP-06: builder-save-status testid moved to the Save button itself; the
+    // Builder-save-status testid moved to the Save button itself; the
     // separate "[OK Saved]" badge was removed because it duplicated the button.
     const saveBtn = screen.getByTestId('builder-save-status');
     expect(saveBtn).toHaveTextContent('Saved');
@@ -161,17 +161,17 @@ describe('MapTitleBar', () => {
       />,
     );
 
-    // SP-06: testid now lives on the Save button itself
+    // Testid now lives on the Save button itself
     const saveBtn = screen.getByTestId('builder-save-status');
     expect(saveBtn).toHaveAttribute('data-save-status', 'failed');
-    // fix(#782): the status text moved OUT of the button (its aria-label
+    // The status text moved OUT of the button (its aria-label
     // overrode the old inner sr-only span) into the adjacent status region;
     // the aria-label folds the status in ("Retry save, Save failed").
     expect(screen.getByRole('status')).toHaveTextContent('Save failed');
     expect(screen.getByRole('button', { name: /^Retry save/ })).toHaveTextContent('Retry');
   });
 
-  // fix(#782): the button's aria-label used to override the sr-only status
+  // The button's aria-label used to override the sr-only status
   // span inside it (aria-label wins over element contents in the
   // accessible-name computation), so the save state never reached AT.
   it('folds the save status into the Save button name and mirrors it in a role="status" region', () => {
@@ -245,7 +245,7 @@ describe('MapTitleBar', () => {
 
     const downloadItem = await screen.findByRole('menuitem', { name: /Download PNG/i });
     const infoItem = screen.getByRole('menuitem', { name: /Map info/i });
-    // fix(#585): while the fork is pending the item shows in-flight feedback —
+    // While the fork is pending the item shows in-flight feedback —
     // "Duplicating…" + spinner — instead of the idle "Duplicate map" label.
     const forkItem = screen.getByRole('menuitem', { name: /Duplicating/i });
     expect(forkItem.querySelector('.animate-spin')).not.toBeNull();
@@ -292,7 +292,7 @@ describe('MapTitleBar', () => {
     expect(onFork).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#430 V-15): "View as viewer" overflow item.
+  // "View as viewer" overflow item.
   it('overflow dropdown omits "View as viewer" when onViewAsViewer is not provided', async () => {
     const user = userEvent.setup();
     render(<MapTitleBar {...defaultProps({ overflow: makeOverflow() })} />);

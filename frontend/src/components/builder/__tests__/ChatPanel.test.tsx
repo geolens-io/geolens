@@ -40,7 +40,7 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
   };
 }
 
-/** One overlay feature. feat(#1241 codex r1): overlay completeness is judged
+/** One overlay feature. Overlay completeness is judged
  *  against row_count, so a fixture's feature COUNT is now load-bearing. */
 function feature() {
   return { type: 'Feature', geometry: { type: 'Point', coordinates: [-73.9, 40.8] }, properties: {} };
@@ -171,7 +171,7 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'find features');
 
     await waitFor(() => {
-      // feat(#1241): the meta now always carries the prompt behind the result,
+      // The meta now always carries the prompt behind the result,
       // so a plain preview (no truncation, no analysis) can be saved as a
       // dataset with its question suggested as the name.
       expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox, {
@@ -180,7 +180,7 @@ describe('ChatPanel', () => {
     });
   });
 
-  // fix(#1009): "the preview surface" throughout, not "the badge" — the builder
+  // "the preview surface" throughout, not "the badge" — the builder
   // path this panel feeds now renders the ephemeral stack row.
   it('forwards the truncation pair so the preview can disclose "N of TOTAL" (#674 audit)', async () => {
     const geojson = { type: 'FeatureCollection', features: [] };
@@ -211,7 +211,7 @@ describe('ChatPanel', () => {
     });
   });
 
-  // fix(#1076): a clip filters rows, so run_analysis reports no source total —
+  // A clip filters rows, so run_analysis reports no source total —
   // the flag arrives alone. Requiring a total dropped it here and a capped
   // clip preview reached the preview surface looking complete.
   it('forwards a cap that arrives without a total', async () => {
@@ -245,7 +245,7 @@ describe('ChatPanel', () => {
   // The other direction: an uncapped result must forward nothing, or the
   // preview discloses a truncation that did not happen.
   //
-  // feat(#1241 codex r1): the fixture holds one feature per matched row. The
+  // The fixture holds one feature per matched row. The
   // overlay is complete only when it carries every row the answer matched, and
   // the server never emits an empty FeatureCollection (_extract_geojson
   // returns None when no row is mappable), so a features:[] fixture with
@@ -277,7 +277,7 @@ describe('ChatPanel', () => {
     });
   });
 
-  // feat(#1241 codex r1): `truncated` is the SQL sandbox's row cap. When the
+  // `truncated` is the SQL sandbox's row cap. When the
   // model selects geometry itself the sandbox runs at its 1000-row default and
   // the server then slices the OVERLAY to its own 50-row budget, so a 300-row
   // answer arrives as a short FeatureCollection with the flag false. Believing
@@ -417,7 +417,7 @@ describe('ChatPanel', () => {
     expect(props.onClearPreview).not.toHaveBeenCalled();
   });
 
-  // fix(#527 B-054/C-06): NaN and inverted bboxes pass the range comparisons
+  // NaN and inverted bboxes pass the range comparisons
   // and throw in fitBounds downstream — both must be rejected.
   it.each([
     ['NaN bbox', [NaN, 40, -73, 41]],
@@ -488,7 +488,7 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'filter to parks');
 
     await waitFor(() => {
-      // builder-audit #338 P1-13: AI filters are validated + normalized through the shared
+      // AI filters are validated + normalized through the shared
       // filter contract before apply, so the legacy bare-field form is canonicalized.
       expect(props.onFilterChange).toHaveBeenCalledWith('layer-1', ['==', ['get', 'type'], 'park']);
     });
@@ -923,7 +923,7 @@ describe('ChatPanel', () => {
       layers: [makeLayer({
         dataset_geometry_type: 'Point',
         paint: {},
-        // fix(#392): partial StyleConfig fixture — real runtime shape, cast only.
+        // Partial StyleConfig fixture — real runtime shape, cast only.
         style_config: { render_mode: 'heatmap' } as unknown as StyleConfig,
       })],
     });
@@ -963,14 +963,14 @@ describe('ChatPanel', () => {
       layers: [makeLayer({
         dataset_geometry_type: 'Point',
         paint: {},
-        // fix(#392): partial StyleConfig fixture — real runtime shape, cast only.
+        // Partial StyleConfig fixture — real runtime shape, cast only.
         style_config: { render_mode: 'heatmap' } as unknown as StyleConfig,
       })],
     });
     await typeAndSend(user, 'restyle the heatmap by magnitude');
 
     await waitFor(() => {
-      // fix(#392): heatmap-* paint survives validation AND the fallback render_mode is
+      // heatmap-* paint survives validation AND the fallback render_mode is
       // carried into the persisted style_config (onStyleConfigChange replaces it), so the
       // layer stays a heatmap on save/reload instead of reverting to a circle.
       expect(props.onStyleConfigChange).toHaveBeenCalledWith(
@@ -1207,7 +1207,7 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'how many parks');
     expect(await screen.findByText('Here are your results')).toBeInTheDocument();
 
-    // STALE-01: the snapshot is reset at the start of every turn, so the query-only
+    // The snapshot is reset at the start of every turn, so the query-only
     // turn (which captures no snapshot) cannot leave a stale Undo button that would
     // revert the earlier, unrelated style edit.
     await waitFor(() => {
@@ -1245,7 +1245,7 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'filter');
     expect(await screen.findByText('Tried to filter')).toBeInTheDocument();
     expect(props.onFilterChange).not.toHaveBeenCalled();
-    // fix(#392): a rejected filter is intent, not effect — it must not inflate the applied count. (audit CH-07)
+    // A rejected filter is intent, not effect — it must not inflate the applied count.
     expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
   });
@@ -1291,7 +1291,7 @@ describe('ChatPanel', () => {
     const props = renderPanel();
     await typeAndSend(user, 'remove the layer');
 
-    // Phase 1135 AI-01: remove_layer is a destructive action — it goes into the staging
+    // remove_layer is a destructive action — it goes into the staging
     // buffer and only dispatches after the user accepts. Accept it first.
     const acceptAll = await screen.findByRole('button', { name: /accept all/i });
     await user.click(acceptAll);
@@ -1980,7 +1980,7 @@ describe('ChatPanel — storage-denied contexts (#1536)', () => {
     sessionStorage.clear();
   });
 
-  // fix(#1536): cleanStaleLayerRefs read sessionStorage one line ABOVE the try
+  // cleanStaleLayerRefs read sessionStorage one line ABOVE the try
   // that wrapped the rest of it, and the property access is what raises
   // SecurityError in a sandboxed frame with an opaque origin. acceptAll
   // dispatches the staged batch in a bare for loop with no per-action catch

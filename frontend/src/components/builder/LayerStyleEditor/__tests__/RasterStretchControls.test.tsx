@@ -4,7 +4,7 @@ import { RasterStretchControls } from '../RasterStretchControls';
 /**
  * Direct coverage for the COLORMAP / STRETCH section.
  *
- * fix(#915): these gating, clamping, and sigma cases used to be exercised
+ * These gating, clamping, and sigma cases used to be exercised
  * through the (now deleted) RasterEditor wrapper. `RasterLayerControls.test.tsx`
  * never supplies `bandCount`, so this child returns null there and none of it
  * would be covered — these are the ported cases, aimed at the live component.
@@ -105,7 +105,7 @@ describe('RasterStretchControls — percentile bounds', () => {
   it('commits a valid low bound on blur', () => {
     const { onPaintProp } = renderControls(1, { _stretch: 'percentile' });
     const pmin = screen.getAllByRole('spinbutton')[0];
-    // fix(#438) BLD-03: the inputs clamp on blur, not on every keystroke.
+    // The inputs clamp on blur, not on every keystroke.
     fireEvent.change(pmin, { target: { value: '10' } });
     fireEvent.blur(pmin);
     expect(onPaintProp).toHaveBeenCalledWith('_pmin', 10);
@@ -121,7 +121,7 @@ describe('RasterStretchControls — percentile bounds', () => {
     expect(onPaintProp.mock.calls.filter(([k, v]) => k === '_pmin' && (v === 99 || v === -5))).toHaveLength(0);
   });
 
-  // fix(#1778): the pmin/pmax Label had no htmlFor and the sibling <input>
+  // The pmin/pmax Label had no htmlFor and the sibling <input>
   // had no id, so both percentile bounds announced as unnamed spin buttons.
   // This surface never appears in the gating axe suite: it only renders for
   // raster layers, and the suite's seeded layer is vector.

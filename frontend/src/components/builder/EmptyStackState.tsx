@@ -12,7 +12,7 @@ interface EmptyStackStateProps {
   onAddDataset: (datasetId: string) => void;
 }
 
-// AUD-02: shared eyebrow class string — single source of truth for 10px uppercase label
+// Shared eyebrow class string — single source of truth for 10px uppercase label
 // imported by UnifiedStackPanel for the basemap-dock BASEMAP eyebrow label
 export const eyebrowClassName = 'block text-2xs font-semibold tracking-wide text-muted-foreground uppercase px-1';
 
@@ -201,13 +201,13 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
     >
       {/* Prompt */}
       <div className="text-center">
-        {/* fix(#438): A11Y-05 — was <h4>, which skipped h2/h3 under the builder's
+        {/* Was <h4>, which skipped h2/h3 under the builder's
             new <h1>. Styling is unchanged; only the level moves onto the outline. */}
         <h2 className="text-sm font-semibold">
           {t('unifiedStack.emptyHeading', { defaultValue: 'Add your first layer' })}
         </h2>
         <p className="text-xs text-muted-foreground mt-1">
-          {/* fix(#780): stock installs ship SUGGESTED_DATASETS=[] — the copy must
+          {/* Stock installs ship SUGGESTED_DATASETS=[] — the copy must
               not point at a starter list (or an Upload button) that isn't there. */}
           {t('unifiedStack.emptyBody', { defaultValue: 'Search the catalog to find datasets for your map.' })}
         </p>
@@ -276,7 +276,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
         <div className="flex flex-col items-center gap-3 px-4 py-4 text-center">
           <MapPin className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">
-            {/* fix(#780): name the control that actually exists on this surface —
+            {/* Name the control that actually exists on this surface —
                 the header's "Add data" button — not the modal-internal Upload. */}
             {t('unifiedStack.emptyHelpBody', { defaultValue: 'Search the catalog to find datasets, or use the Add data button to add your own.' })}
           </p>

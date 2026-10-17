@@ -98,7 +98,7 @@ describe('ZoomExpressionEditor', () => {
     expect(onChange).toHaveBeenCalledWith(['interpolate', ['linear'], ['zoom'], 4, 3, 12, 12]);
   });
 
-  // fix(#922): a re-hydration that replaces the paint array with an equal one
+  // A re-hydration that replaces the paint array with an equal one
   // (save, render-mode switch, style paste) used to revert a half-typed stop,
   // because the sync effect keyed on object identity.
   it('keeps an in-progress edit when the value is replaced by an equal array', () => {

@@ -1,5 +1,5 @@
 /**
- * Phase 1045 SP-04 — selection-utils
+ * Selection-utils
  *
  * Pure helper that computes the next layer-row selection state from a click
  * event. Extracted so it can be unit-tested without rendering the panel.
@@ -37,7 +37,7 @@ function layerMatchesSearch(layer: MapLayerResponse, query: string): boolean {
 }
 
 /**
- * fix(#771): the ordered list of row ids the stack actually RENDERS — children
+ * The ordered list of row ids the stack actually RENDERS — children
  * of collapsed groups and rows hidden by the layer search are excluded. The raw
  * flat layer array previously fed shift-click range selection directly, so a
  * range could sweep up rows the user cannot see and bulk delete/visibility/

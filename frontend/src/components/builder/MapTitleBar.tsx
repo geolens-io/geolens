@@ -14,7 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-// builder-audit #338 STACK-07: shared platform detection + Save chord.
+// Shared platform detection + Save chord.
 import { SAVE_SHORTCUT } from '@/lib/platform';
 
 export interface OverflowActions {
@@ -23,7 +23,7 @@ export interface OverflowActions {
   onFork: () => void;
   isForkPending: boolean;
   /**
-   * fix(#430 V-15): opens the read-only viewer UI of this map (`?preview=viewer`,
+   * Opens the read-only viewer UI of this map (`?preview=viewer`,
    * handled by MapViewerGate) in a new tab, so an editor can check the viewer
    * layout without losing their in-progress builder session. NOT an
    * anonymous-data preview — requests still carry the editor's session, so
@@ -85,7 +85,7 @@ export function MapTitleBar({
       : saveStatus === 'saving'
         ? t('titleBar.saveStatus.saving', { defaultValue: 'Saving...' })
         : t('tooltips.allSaved', { defaultValue: 'All changes saved' });
-  // fix(#782): aria-label OVERRIDES element contents in the accessible-name
+  // aria-label OVERRIDES element contents in the accessible-name
   // computation, so an sr-only status span inside the button was never
   // conveyed. Fold the status into the label itself; the role="status" region
   // below announces status CHANGES without the button needing focus.
@@ -160,7 +160,7 @@ export function MapTitleBar({
             </Tooltip>
           )}
 
-          {/* SP-06: a single Save button carries all three states (Save / Saving... /
+          {/* A single Save button carries all three states (Save / Saving... /
               Saved / Save failed). The "[OK Saved]" badge that previously lived to
               the left was a duplicate signal — the button's label, dot indicator,
               and tooltip already convey state. */}
@@ -200,7 +200,7 @@ export function MapTitleBar({
               {saveTooltip}
             </TooltipContent>
           </Tooltip>
-          {/* fix(#782): persistent live region — mounts with the title bar
+          {/* Persistent live region — mounts with the title bar
               (initial "Saved" is deliberately not announced) and each status
               change (Saving… / Saved / Save failed) is announced without
               focus. The previous sr-only span INSIDE the button was dead: the
@@ -227,7 +227,7 @@ export function MapTitleBar({
                 <Info className="h-3.5 w-3.5 me-2" />
                 {t('tooltips.mapInfo', { defaultValue: 'Map info' })}
               </DropdownMenuItem>
-              {/* fix(#585): in-flight feedback — spinner + "Duplicating…" while
+              {/* In-flight feedback — spinner + "Duplicating…" while
                   the fork mutation is pending (was disabled-only, invisible
                   until the settle toast). */}
               <DropdownMenuItem onClick={overflow.onFork} disabled={overflow.isForkPending}>

@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-// PB-07 (Phase 1047 Plan 02): lazy-load DatasetSearchPanel so the ~35 KB chunk only
+// Lazy-load DatasetSearchPanel so the ~35 KB chunk only
 // loads when the Add Data dialog opens, not on initial builder mount.
 const DatasetSearchPanel = lazy(() =>
   import('@/components/builder/DatasetSearchPanel').then((m) => ({ default: m.DatasetSearchPanel }))
@@ -41,7 +41,7 @@ interface BuilderDialogsProps {
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
-  // fix(#526 B-050): dataset id currently being added (per-row spinner).
+  // Dataset id currently being added (per-row spinner).
   addingDatasetId?: string | null;
   addDataInitialQuery?: string;
   // Fires before a pointer-down outside the dialog closes it.
@@ -140,7 +140,7 @@ export function BuilderDialogs({
           onOpenChange={onShowShareChange}
           hasUnsavedChanges={hasUnsavedChanges}
           saveStatus={saveStatus}
-          // fix(#430 V-17): drives the "hidden from viewers" warning listing
+          // Drives the "hidden from viewers" warning listing
           // layers whose dataset is private/unpublished on this public/shared map.
           layers={layers}
         />
@@ -198,7 +198,7 @@ export function BuilderDialogs({
       </Dialog>
 
       {/* Unsaved changes leave warning.
-          ux(#777): a modal AlertDialog with the canonical Cancel-then-Action
+          Rendered as a modal AlertDialog with the canonical Cancel-then-Action
           footer, matching the DatasetPage / AdminSettingsPage navigation guards
           — was a dismissible Dialog with a hand-rolled footer.
           Note on the blocker callbacks: AlertDialogAction/Cancel ALSO close
