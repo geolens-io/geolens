@@ -20,9 +20,9 @@
 
 [English](README.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [简体中文](README.zh.md)
 
-[![Dernière version](https://img.shields.io/github/v/release/geolens-io/geolens?style=flat-square&label=release)](https://github.com/geolens-io/geolens/releases/latest)
+[![Dernière version](https://img.shields.io/github/v/release/geolens-io/geolens?style=flat-square&label=version)](https://github.com/geolens-io/geolens/releases/latest)
 [![État de la CI](https://img.shields.io/github/actions/workflow/status/geolens-io/geolens/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
-[![Licence : Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-2563eb?style=flat-square)](LICENSE)
+[![Licence : Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-2563eb?style=flat-square)](LICENSE)
 
 </div>
 
@@ -262,7 +262,7 @@ données ouvertes publiques), lancez le script d’amorçage. Utilisez votre pro
 d’administrateur si vous l’avez changé.
 
 ```sh
-pip install httpx
+pip install httpx                                     # the seed script needs Python 3.10+
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
   python scripts/seed-showcase.py --username admin
 ```
