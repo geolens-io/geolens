@@ -246,3 +246,35 @@ async def test_a_denying_permission_extension_hides_the_lookup_detail(
 
     assert all(answer == answers["missing"] for answer in answers.values()), answers
     assert answers["missing"][1]["detail"] == "Dataset not found", answers
+
+
+async def test_a_valid_embed_token_gets_the_lookup_answer_despite_a_dead_bearer(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """The embed capability authorizes on its own, as on the success path."""
+    from tests.test_embed_tokens import _create_map_with_layer
+
+    owner = await get_user_id(test_db_session, settings.geolens_admin_username)
+    vector = await create_dataset(
+        test_db_session, created_by=owner, visibility="private"
+    )
+    map_obj, _ = await _create_map_with_layer(
+        test_db_session, client, admin_auth_header, vector, created_by=owner
+    )
+    minted = await client.post(
+        f"/maps/{map_obj.id}/embed-tokens/",
+        json={"name": "raster lookup"},
+        headers=admin_auth_header,
+    )
+    assert minted.status_code == 201, minted.text
+    embed = {"X-Embed-Token": minted.json()["raw_token"]}
+
+    alone = await client.get(_tile_url(vector.id), headers=embed)
+    with_dead_bearer = await client.get(
+        _tile_url(vector.id),
+        headers={**embed, "Authorization": "Bearer not-a-real-token"},
+    )
+
+    assert alone.status_code == 404, alone.text
+    assert alone.json()["detail"] == "Not a raster dataset", alone.text
+    assert _answer(with_dead_bearer) == _answer(alone), with_dead_bearer.text

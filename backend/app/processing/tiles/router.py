@@ -914,20 +914,26 @@ async def _check_raster_reader(
 
 
 async def _refuse_unseen_raster_lookup(
-    request: Request, dataset_id: uuid.UUID, db: AsyncSession, user: Identity | None
+    request: Request,
+    dataset_id: uuid.UUID,
+    db: AsyncSession,
+    user: Identity | None,
+    exc: HTTPException,
 ) -> None:
     """Refuse a failed raster lookup as ``_resolve_raster_access`` refuses access.
 
     A caller who could not read the dataset gets the answer a missing id gets,
     so "Not a raster dataset" and "No raster asset" reach only an embed token
-    covering the id or a caller with read access. Returns when the original
-    404 may stand.
+    covering the id or a caller with read access. An embed token covering the
+    id gets ``exc`` whatever other credential the request carries, as it is
+    served on the success path. Returns when ``exc`` may stand for the
+    caller's own identity.
     """
     embed_token = request.headers.get("X-Embed-Token")
     if embed_token:
         if not await validate_embed_token_access(embed_token, dataset_id, db, request):
             capability_declined(request, user, _raster_embed_token_refused())
-        return
+        raise exc
     if user is None:
         _refuse_unseen_tile(request)
     port = get_processing_port()
@@ -962,7 +968,7 @@ async def _resolve_raster_access(
         meta = await _resolve_raster_meta(db, dataset_id, requested_version)
     except HTTPException as exc:
         if exc.status_code == status.HTTP_404_NOT_FOUND:
-            await _refuse_unseen_raster_lookup(request, dataset_id, db, user)
+            await _refuse_unseen_raster_lookup(request, dataset_id, db, user, exc)
         capability_declined(request, user, exc)
 
     storage_backend = meta.storage_backend
