@@ -15,3 +15,14 @@ export function expiryPresetToIso(preset: ApiKeyExpiryPreset, now: Date = new Da
 export function isApiKeyExpired(expiresAt: string | null | undefined, now: Date = new Date()): boolean {
   return !!expiresAt && new Date(expiresAt).getTime() <= now.getTime();
 }
+
+export type ApiKeyStatus = 'active' | 'expired' | 'revoked';
+
+/** Revoked wins over expired: a revoked key stays revoked whatever its expiry says. */
+export function apiKeyStatus(
+  key: { is_active: boolean; expires_at?: string | null },
+  now: Date,
+): ApiKeyStatus {
+  if (!key.is_active) return 'revoked';
+  return isApiKeyExpired(key.expires_at, now) ? 'expired' : 'active';
+}

@@ -7,7 +7,8 @@ import { formatDate } from '@/lib/format';
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
 import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
-import { expiryPresetToIso, isApiKeyExpired, type ApiKeyExpiryPreset } from '@/lib/api-key-expiry';
+import { apiKeyStatus, expiryPresetToIso, isApiKeyExpired, type ApiKeyExpiryPreset } from '@/lib/api-key-expiry';
+import { useExpiryClock } from '@/hooks/use-expiry-clock';
 import type { ApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +51,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
   } = useApiKeys(userId, pageCount);
   const createApiKey = useCreateApiKey();
   const revokeApiKey = useRevokeApiKey();
+  const now = useExpiryClock(keys.map((key) => key.expires_at));
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [keyName, setKeyName] = useState('');
@@ -181,7 +183,8 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
             </p>
           )}
           {keys.map((key) => {
-            const expired = key.is_active && isApiKeyExpired(key.expires_at);
+            const status = apiKeyStatus(key, now);
+            const expired = status === 'expired';
             return (
             <div
               key={key.id}
@@ -197,9 +200,9 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                   )}
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${
-                      activeDotColor[String(key.is_active && !expired) as keyof typeof activeDotColor]
+                      activeDotColor[String(status === 'active') as keyof typeof activeDotColor]
                     }`}
-                    title={key.is_active ? t('apiKeys.active') : t('apiKeys.revoked')}
+                    title={t(`apiKeys.${status}`)}
                     aria-hidden="true"
                   />
                   {/* #305: state was conveyed by dot color + non-announced title only; add a text alt for assistive tech */}
@@ -228,7 +231,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                   {key.expires_at && (
                     <>
                       {' · '}
-                      {t(expired ? 'apiKeys.expiredOn' : 'apiKeys.expiresOn', {
+                      {t(isApiKeyExpired(key.expires_at, now) ? 'apiKeys.expiredOn' : 'apiKeys.expiresOn', {
                         date: formatDate(key.expires_at),
                       })}
                     </>

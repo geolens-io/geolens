@@ -9,6 +9,7 @@
  * - Create and revoke mutation errors are announced via role=alert (GLUX-014).
  */
 import userEvent from '@testing-library/user-event';
+import { act } from '@testing-library/react';
 import { render, screen } from '@/test/test-utils';
 import { vi } from 'vitest';
 import { MyApiKeySection } from '@/components/settings/MyApiKeySection';
@@ -322,5 +323,38 @@ describe('API key expiry', () => {
 
     expect(container.querySelector('span.rounded-full.bg-destructive')).toBeInTheDocument();
     expect(container.querySelector('span.rounded-full.bg-success')).not.toBeInTheDocument();
+  });
+
+  it('keeps a revoked key revoked but still dates its past expiry as expired', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ is_active: false, expires_at: '2020-01-01T00:00:00Z' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText('admin:apiKeys.revoked')).toBeInTheDocument();
+    expect(screen.queryByText('admin:apiKeys.expired')).not.toBeInTheDocument();
+    expect(screen.getByText(/admin:apiKeys\.expiredOn/)).toBeInTheDocument();
+    expect(screen.queryByText(/admin:apiKeys\.expiresOn/)).not.toBeInTheDocument();
+  });
+
+  it('flips an open list to expired when a key passes its expiry', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(new Date('2026-01-10T12:00:00Z'));
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ expires_at: '2026-01-10T12:01:00Z' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+    expect(screen.getByText('admin:apiKeys.active')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(61_000);
+    });
+
+    expect(screen.getByText('admin:apiKeys.expired')).toBeInTheDocument();
+    expect(screen.queryByText('admin:apiKeys.active')).not.toBeInTheDocument();
   });
 });
