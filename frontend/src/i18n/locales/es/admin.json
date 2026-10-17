@@ -800,7 +800,7 @@
     "configured": "Configurado",
     "loading": "Cargando estado de infraestructura...",
     "errorLoading": "Error al cargar el estado de infraestructura",
-    "allOperational": "Todos los sistemas operativos",
+    "allOperational": "Todos los sistemas funcionan correctamente",
     "degraded": "Rendimiento degradado",
     "autoRefresh": "Se actualiza automáticamente cada 30s",
     "noCdn": "Sin CDN",
