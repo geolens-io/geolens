@@ -236,7 +236,8 @@ lists every setting.
 Publish the sample file with the CLI, then read it back over OGC API Features:
 
 ```sh
-pipx install geolens-cli                              # needs Python 3.11+
+python3 -m venv .venv && . .venv/bin/activate         # needs Python 3.11+
+pip install geolens-cli
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 export GEOLENS_API_KEY="paste-your-api-key-here"      # create one on your Settings page
@@ -256,9 +257,10 @@ and 62 terrain tiles; `--no-oceans` and `--no-terrain` skip those, and
 changed it.
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install httpx  # the seed script needs Python 3.10+
+python3 -m venv .venv && . .venv/bin/activate         # the same virtualenv as above
+pip install httpx
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  .venv/bin/python scripts/seed-showcase.py --username admin
+  python scripts/seed-showcase.py --username admin
 ```
 
 The [API reference](https://docs.getgeolens.com/guides/api/) and the
