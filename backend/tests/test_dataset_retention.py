@@ -1515,6 +1515,63 @@ class TestRelationShape:
             await test_db_session.execute(text(f"DROP SERVER {server} CASCADE"))
             await test_db_session.commit()
 
+    @pytest.mark.parametrize("kind", ["foreign-table", "materialized-view"])
+    async def test_a_standalone_foreign_table_or_matview_is_refused_and_skipped(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, kind
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        relation = (
+            f"{dataset.table_name}_{'files' if kind == 'foreign-table' else 'mv'}"
+        )
+        server = f"ret_files_{uuid.uuid4().hex[:8]}"
+        columns = (
+            "gid integer, geom geometry, geom_4326 geometry, seen_at timestamptz, "
+            "seen_on date, seen_local timestamp, name text"
+        )
+        if kind == "foreign-table":
+            await test_db_session.execute(
+                text("CREATE EXTENSION IF NOT EXISTS file_fdw")
+            )
+            await test_db_session.execute(
+                text(f"CREATE SERVER {server} FOREIGN DATA WRAPPER file_fdw")
+            )
+            await test_db_session.execute(
+                text(
+                    f"CREATE FOREIGN TABLE data.{relation} ({columns}) SERVER {server} "
+                    "OPTIONS (filename '/dev/null', format 'csv')"
+                )
+            )
+        else:
+            await test_db_session.execute(
+                text(
+                    f"CREATE MATERIALIZED VIEW data.{relation} AS "
+                    f"SELECT * FROM data.{dataset.table_name}"
+                )
+            )
+        await test_db_session.execute(
+            text("UPDATE catalog.datasets SET table_name = :t WHERE id = :id"),
+            {"t": relation, "id": dataset.id},
+        )
+        await test_db_session.commit()
+        try:
+            await self._refused(
+                client, admin_auth_header, dataset.id, "retention_unsupported_relation"
+            )
+            with structlog.testing.capture_logs() as logs:
+                assert await retention.prune_expired_rows(now=NOW) == {}
+            events = [entry["event"] for entry in logs]
+            assert "dataset_retention_failed" not in events
+            assert "dataset_retention_batch_rolled_back" in events
+            assert await _names(test_db_session, dataset) == {"old", "recent"}
+        finally:
+            if kind == "foreign-table":
+                await test_db_session.execute(text(f"DROP SERVER {server} CASCADE"))
+            else:
+                await test_db_session.execute(
+                    text(f"DROP MATERIALIZED VIEW IF EXISTS data.{relation}")
+                )
+            await test_db_session.commit()
+
     async def test_a_child_attached_mid_batch_keeps_its_rows_and_their_referrers(
         self, seed, test_db_session, monkeypatch
     ):
@@ -1943,6 +2000,95 @@ class TestSetting:
             .where(Dataset.id == dataset.id)
         )
         assert editor == admin_id
+
+    async def test_a_dataset_turned_non_spatial_while_the_save_waits_is_refused(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, monkeypatch
+    ):
+        from app.modules.catalog.datasets.api import router_retention
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, rows=[])
+        real_get = router_retention.get_dataset
+
+        async def load_then_flip(session, dataset_id):
+            loaded = await real_get(session, dataset_id)
+            await _commit_elsewhere(
+                "UPDATE catalog.datasets SET geometry_type = NULL WHERE id = :id",
+                {"id": dataset.id},
+            )
+            await _commit_elsewhere(
+                "UPDATE catalog.records SET record_type = 'table' WHERE id = "
+                "(SELECT record_id FROM catalog.datasets WHERE id = :id)",
+                {"id": dataset.id},
+            )
+            return loaded
+
+        monkeypatch.setattr(router_retention, "get_dataset", load_then_flip)
+
+        resp = await self._put(
+            client,
+            dataset.id,
+            {"retention": {"column": "seen_at", "days": 30}},
+            admin_auth_header,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert _refusal_code(resp) == "retention_not_feature_dataset"
+        assert await _stored_setting(test_db_session, dataset.id) == (None, None)
+
+    async def test_a_dry_run_holds_the_table_against_an_alter(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, monkeypatch
+    ):
+        import app.core.db as db_module
+        from sqlalchemy.exc import DBAPIError
+
+        from app.core.db.sqlstate import is_lock_conflict
+        from app.modules.catalog.datasets.api import router_retention
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            rows=[
+                {
+                    "name": "old",
+                    "seen_at": datetime.now(timezone.utc) - timedelta(days=90),
+                }
+            ],
+        )
+        real_check = router_retention.check_retention
+        refused: list[bool] = []
+
+        async def alter_attempt_then_check(session, target, retention):
+            async with db_module.async_session() as other:
+                await other.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                try:
+                    await other.execute(
+                        text(
+                            f"ALTER TABLE data.{dataset.table_name} "
+                            "ALTER COLUMN seen_at TYPE text"
+                        )
+                    )
+                    await other.commit()
+                except DBAPIError as exc:
+                    refused.append(is_lock_conflict(exc))
+                    await other.rollback()
+            return await real_check(session, target, retention)
+
+        monkeypatch.setattr(
+            router_retention, "check_retention", alter_attempt_then_check
+        )
+
+        preview = await self._put(
+            client,
+            dataset.id,
+            {"retention": {"column": "seen_at", "days": 30}},
+            admin_auth_header,
+            dry_run=True,
+        )
+
+        assert refused == [True]
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["rows_past_cutoff"] == 1
 
     async def test_the_owner_saves_and_clears_retention(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session

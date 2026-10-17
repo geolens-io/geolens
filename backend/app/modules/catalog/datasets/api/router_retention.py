@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, update
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
@@ -20,6 +21,7 @@ from app.modules.catalog.authorization import (
 )
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import (
+    DatasetRetention,
     DatasetRetentionResponse,
     DatasetRetentionUpdate,
 )
@@ -29,6 +31,7 @@ from app.modules.catalog.features.retention import (
     check_retention,
     count_rows_past,
     hold_table_for_setting,
+    relation_kind_refusal,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -43,6 +46,45 @@ def _as_instant(cutoff: datetime | date) -> datetime:
     if not isinstance(cutoff, datetime):
         return datetime.combine(cutoff, time.min, tzinfo=timezone.utc)
     return cutoff if cutoff.tzinfo else cutoff.replace(tzinfo=timezone.utc)
+
+
+def _refused(exc: RetentionRefused) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=refusal_detail(exc)
+    )
+
+
+async def _hold_qualifying_table(db: AsyncSession, dataset: Dataset) -> None:
+    """Refuse a relation that is no plain table, then hold the table to the end
+    of the request, before any catalog row, the order feature writes use."""
+    try:
+        refusal = await relation_kind_refusal(db, dataset.table_name)
+        if refusal is not None:
+            raise refusal
+        await hold_table_for_setting(db, dataset.table_name)
+    except RetentionRefused as exc:
+        raise _refused(exc)
+
+
+async def _locked_cutoff(
+    db: AsyncSession, dataset: Dataset, retention: DatasetRetention
+) -> datetime | date:
+    """Check the setting against the dataset as it stands under the locks.
+
+    The dataset is reloaded first: a replacement may have changed it while
+    this request waited for them.
+    """
+    try:
+        await db.refresh(dataset)
+        await db.refresh(dataset.record)
+    except InvalidRequestError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+    try:
+        return await check_retention(db, dataset, retention)
+    except RetentionRefused as exc:
+        raise _refused(exc)
 
 
 @router.put("/{dataset_id}/retention/", response_model=DatasetRetentionResponse)
@@ -76,23 +118,18 @@ async def set_dataset_retention(
     rows_past_cutoff = 0 if dry_run else None
     cutoff = None
     if retention is not None:
-        if not dry_run:
-            # The data table before the catalog rows, the order feature writes use.
-            await hold_table_for_setting(db, dataset.table_name)
-        try:
-            cutoff = await check_retention(db, dataset, retention)
-        except RetentionRefused as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=refusal_detail(exc),
-            )
-        if dry_run:
+        await _hold_qualifying_table(db, dataset)
+
+    if dry_run:
+        if retention is not None:
+            cutoff = await _locked_cutoff(db, dataset, retention)
             rows_past_cutoff = await count_rows_past(
                 db, dataset.table_name, retention.column, cutoff
             )
-
-    if not dry_run:
+    else:
         await lock_dataset_rows_for_write(db, dataset)
+        if retention is not None:
+            cutoff = await _locked_cutoff(db, dataset, retention)
         # Both columns, from the request: the instance predates the lock, so
         # assigning to it would write only what differs from a stale value.
         stored = await db.execute(

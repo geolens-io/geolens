@@ -26,7 +26,7 @@ from sqlalchemy import case, func, or_, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.sqlstate import is_lock_conflict
+from app.core.db.sqlstate import is_lock_conflict, sqlstate
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.record_types import capabilities
@@ -60,6 +60,8 @@ TEMPORAL_TYPES = frozenset(
 # The name is spliced into SQL, quoted, so only plain names qualify.
 _PLAIN_COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _GID_FLOOR = -(2**63)
+# LOCK TABLE on a foreign table or a materialized view.
+WRONG_OBJECT_TYPE = "42809"
 
 # What would make a delete reach past the rows a batch picked, or skip them,
 # or change rows behind the batch's count. tgtype bit 8 is DELETE.
@@ -157,6 +159,37 @@ async def column_type(
     )
 
 
+async def _relation_facts(session: AsyncSession, table_name: str):
+    return (
+        await session.execute(
+            _RELATION_FACTS,
+            {
+                "schema": tenant_data_schema(current_tenant_var.get()),
+                "table": table_name,
+            },
+        )
+    ).one_or_none()
+
+
+def _unsupported_relation() -> RetentionRefused:
+    return RetentionRefused(
+        "Retention needs the dataset's data in a plain table; this dataset "
+        "reads it from a view, a partitioned table or another relation.",
+        code="retention_unsupported_relation",
+    )
+
+
+async def relation_kind_refusal(
+    session: AsyncSession, table_name: str
+) -> RetentionRefused | None:
+    """Refuse a relation that is no plain table, before anything locks it.
+
+    ``LOCK TABLE`` itself fails on a foreign table or a materialized view.
+    """
+    facts = await _relation_facts(session, table_name)
+    return _unsupported_relation() if facts is None or facts.kind != "r" else None
+
+
 async def unsupported_table(
     session: AsyncSession, table_name: str
 ) -> RetentionRefused | None:
@@ -167,21 +200,9 @@ async def unsupported_table(
     pointing at it, no enabled DELETE trigger of any timing or level and no
     DELETE rule.
     """
-    facts = (
-        await session.execute(
-            _RELATION_FACTS,
-            {
-                "schema": tenant_data_schema(current_tenant_var.get()),
-                "table": table_name,
-            },
-        )
-    ).one_or_none()
+    facts = await _relation_facts(session, table_name)
     if facts is None or facts.kind != "r":
-        return RetentionRefused(
-            "Retention needs the dataset's data in a plain table; this dataset "
-            "reads it from a view, a partitioned table or another relation.",
-            code="retention_unsupported_relation",
-        )
+        return _unsupported_relation()
     if facts.gid_type not in {"smallint", "integer", "bigint"}:
         return RetentionRefused(
             "Retention pages through a table by its integer gid column, which "
@@ -228,6 +249,9 @@ async def hold_table_for_setting(session: AsyncSession, table_name: str) -> None
         # codeql[py/sql-injection] table via quote_table; the mode is a literal
         await session.execute(text(f"LOCK TABLE ONLY {quoted} IN ROW EXCLUSIVE MODE"))
     except DBAPIError as exc:
+        if sqlstate(exc) == WRONG_OBJECT_TYPE:
+            await session.rollback()
+            raise _unsupported_relation() from exc
         if not is_lock_conflict(exc):
             raise
         await session.rollback()
@@ -327,10 +351,17 @@ async def _hold_live_window(
     replaced, ``unsupported_table`` refuses it, or the column is no longer a
     date or timestamp.
     """
+    if await relation_kind_refusal(session, window.table_name) is not None:
+        raise _BatchStale("table_or_column_changed")
     quoted = get_catalog_port().quote_table(window.table_name)
-    async with worker_lock_budget(session):
-        # codeql[py/sql-injection] table via quote_table; the mode is a literal
-        await session.execute(text(f"LOCK TABLE {quoted} IN ROW EXCLUSIVE MODE"))
+    try:
+        async with worker_lock_budget(session):
+            # codeql[py/sql-injection] table via quote_table; the mode is a literal
+            await session.execute(text(f"LOCK TABLE {quoted} IN ROW EXCLUSIVE MODE"))
+    except DBAPIError as exc:
+        if sqlstate(exc) != WRONG_OBJECT_TYPE:
+            raise
+        raise _BatchStale("table_or_column_changed") from exc
     type_name = await column_type(session, window.table_name, window.column)
     if (
         await current_table_oid(session, window.table_name) != window.table_oid
