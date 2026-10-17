@@ -1137,7 +1137,7 @@ class TestFriendlyOpenFailureMessage:
 
 
 def _sanitize(value: "str | None") -> "str | None":
-    """`_sanitize_authorization_token` for a WFS job (fix(#1746 B2b)).
+    """`_sanitize_authorization_token` for a WFS job.
 
     The format only selects the builder's allowlist branch, and both
     header-auth formats compose an identical bearer line, so every case below
@@ -1153,7 +1153,7 @@ class TestSecFu04SanitizeAuthorizationToken:
     into libcurl through the GDAL_HTTP_HEADER_FILE pipeline, so the shape and
     the charsets are a security boundary rather than a formatting preference.
 
-    fix(#1746 B2b): the value crossing from the door to the worker is
+    The value crossing from the door to the worker is
     the finished header line, so this judges a line — printable ASCII, no CR or
     LF, one ``": "`` separator, an RFC 7230 field name — and keeps the
     base64url charset and the length floor on the bearer branch of it.
@@ -1182,21 +1182,21 @@ class TestSecFu04SanitizeAuthorizationToken:
         assert _sanitize(line) == line
 
     def test_sec_fu_04_crlf_injection_raises_value_error(self):
-        """A line carrying CR/LF raises ValueError naming the credential-line guard."""
+        """A line carrying CR/LF raises ValueError."""
         line = "Authorization: Bearer valid.jwt.sig\r\nX-Smuggled-Header: evil"
         with pytest.raises(ValueError) as exc_info:
             _sanitize(line)
         msg = str(exc_info.value)
-        assert "SEC-FU-04" in msg
+        assert "did not arrive as one header line" in msg
 
     def test_sec_fu_04_a_second_separator_raises_value_error(self):
         """Two ``: `` separators are two headers, whatever the writer intended."""
         with pytest.raises(ValueError) as exc_info:
             _sanitize("X-Api-Key: a: b")
-        assert "SEC-FU-04" in str(exc_info.value)
+        assert "did not arrive as one header line" in str(exc_info.value)
 
     def test_sec_fu_04_a_legacy_bare_token_becomes_its_line(self):
-        """fix(#1746 B2b codex): the pre-#1770 wire value keeps working.
+        """The pre-#1770 wire value keeps working.
 
         A worker that starts while authenticated WFS or OGC API jobs are
         already queued reads a bare bearer token out of the queue row, or out
@@ -1219,7 +1219,7 @@ class TestSecFu04SanitizeAuthorizationToken:
         for bad in ("short", "has spaces here", "plus+slash/", "sig\r\nX-Evil: 1"):
             with pytest.raises(ValueError) as exc_info:
                 _sanitize(bad)
-            assert "SEC-FU-04" in str(exc_info.value)
+            assert "The service credential" in str(exc_info.value)
             # Policy-only: from here a bad line and a bad legacy token are
             # indistinguishable, and neither names the value.
             assert bad not in str(exc_info.value)
@@ -1227,13 +1227,13 @@ class TestSecFu04SanitizeAuthorizationToken:
     def test_sec_fu_04_an_invalid_field_name_raises_value_error(self):
         with pytest.raises(ValueError) as exc_info:
             _sanitize("Bad Name: value")
-        assert "SEC-FU-04" in str(exc_info.value)
+        assert "named a header this build will not write" in str(exc_info.value)
 
     def test_sec_fu_04_whitespace_in_the_bearer_token_raises_value_error(self):
         """A space inside the token is refused by the bearer charset."""
         with pytest.raises(ValueError) as exc_info:
             _sanitize("Authorization: Bearer valid jwt sig")
-        assert "SEC-FU-04" in str(exc_info.value)
+        assert "non-base64url" in str(exc_info.value)
 
     def test_sec_fu_04_unicode_raises_value_error(self):
         """A non-ASCII character anywhere in the value is refused.
@@ -1244,13 +1244,13 @@ class TestSecFu04SanitizeAuthorizationToken:
         """
         with pytest.raises(ValueError) as exc_info:
             _sanitize("X-Api-Key: signaturé")  # U+00E9
-        assert "SEC-FU-04" in str(exc_info.value)
+        assert "cannot be written into an HTTP header" in str(exc_info.value)
 
     def test_sec_fu_04_empty_string_raises_value_error(self):
         """Empty string raises ValueError (operator misconfiguration guard)."""
         with pytest.raises(ValueError) as exc_info:
             _sanitize("")
-        assert "SEC-FU-04" in str(exc_info.value)
+        assert "did not arrive as one header line" in str(exc_info.value)
 
     def test_sec_fu_04_none_returns_none(self):
         """None passes through unchanged (the no-token path from the calling code)."""
