@@ -1,6 +1,5 @@
 import {
   buildZoomExpression,
-  isSupportedZoomExpression,
   parseZoomExpression,
   validateZoomExpressionDraft,
 } from '../zoom-expressions';
@@ -59,10 +58,5 @@ describe('zoom expression helpers', () => {
     expect(parsedInterpolate).not.toBeNull();
     expect(buildZoomExpression(parsedStep!)).toEqual(step);
     expect(buildZoomExpression(parsedInterpolate!)).toEqual(interpolate);
-  });
-
-  it('identifies supported zoom expressions', () => {
-    expect(isSupportedZoomExpression(['step', ['zoom'], 1, 8, 2])).toBe(true);
-    expect(isSupportedZoomExpression(['step', ['get', 'value'], 1, 8, 2])).toBe(false);
   });
 });

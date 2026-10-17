@@ -259,17 +259,6 @@ export function getRendererCapabilities(
     .map(({ labelKey, ...entry }) => ({ ...entry, label: t(labelKey) }));
 }
 
-export function getRendererCapability(
-  id: RenderAsId,
-  layer?: RenderAsLayer,
-  t: BuilderTranslator = defaultBuilderTranslator,
-): RendererCapability | null {
-  const entries = layer
-    ? getRendererCapabilities(layer, t)
-    : RENDERER_CAPABILITIES.map(({ labelKey, ...entry }) => ({ ...entry, label: t(labelKey) }));
-  return entries.find((entry) => entry.id === id) ?? null;
-}
-
 export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
   const source = getRenderAsSource(layer);
   const renderMode = layer.style_config?.render_mode;
@@ -307,10 +296,6 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
   }
 
   return null;
-}
-
-export function isSupportedRenderAsId(value: string): value is RenderAsId {
-  return RENDERER_CAPABILITIES.some((entry) => entry.id === value);
 }
 
 /**

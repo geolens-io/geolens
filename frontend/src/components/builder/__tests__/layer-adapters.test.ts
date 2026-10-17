@@ -1,16 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  getAdapter,
-  resolveAdapterType,
-  circleAdapter,
-  symbolAdapter,
-  lineAdapter,
-  fillAdapter,
-  rasterAdapter,
-  hillshadeAdapter,
-  heatmapAdapter,
-  clusterAdapter,
-} from '@/components/builder/layer-adapters';
+import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import { resolveAdapterType } from '@/components/builder/layer-adapters/shared';
+import { circleAdapter } from '@/components/builder/layer-adapters/circle-adapter';
+import { symbolAdapter } from '@/components/builder/layer-adapters/symbol-adapter';
+import { lineAdapter } from '@/components/builder/layer-adapters/line-adapter';
+import { fillAdapter } from '@/components/builder/layer-adapters/fill-adapter';
+import { rasterAdapter } from '@/components/builder/layer-adapters/raster-adapter';
+import { hillshadeAdapter } from '@/components/builder/layer-adapters/hillshade-adapter';
+import { heatmapAdapter } from '@/components/builder/layer-adapters/heatmap-adapter';
+import { clusterAdapter } from '@/components/builder/layer-adapters/cluster-adapter';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 
 vi.mock('@/lib/tile-utils', () => ({

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  dedupeOrigins,
   InvalidOriginError,
   normalizeOrigin,
   WildcardOriginError,
@@ -79,24 +78,6 @@ describe('normalizeOrigin', () => {
   // malformed string throws InvalidOriginError
   it("throws InvalidOriginError for malformed input that URL constructor rejects", () => {
     expect(() => normalizeOrigin('not a url at all')).toThrow(InvalidOriginError);
-  });
-});
-
-describe('dedupeOrigins', () => {
-  it("deduplicates entries that normalize to the same canonical form", () => {
-    expect(dedupeOrigins(['https://example.com', 'HTTPS://Example.com/'])).toEqual(['https://example.com']);
-  });
-
-  it("preserves insertion order while dropping duplicates", () => {
-    expect(dedupeOrigins(['https://a.com', 'https://b.com', 'https://a.com'])).toEqual(['https://a.com', 'https://b.com']);
-  });
-
-  it("returns empty array for empty input", () => {
-    expect(dedupeOrigins([])).toEqual([]);
-  });
-
-  it("filters out wildcard entries without throwing, preserving valid entries", () => {
-    expect(dedupeOrigins(['*', 'https://example.com'])).toEqual(['https://example.com']);
   });
 });
 

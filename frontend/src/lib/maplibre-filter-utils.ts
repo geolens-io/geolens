@@ -53,31 +53,6 @@ export function buildNullableSafeNumericAccessor(
 // builder-audit #338 FILT-01 / DRY-01: one canonical field extractor + filter parser
 // ---------------------------------------------------------------------------
 
-/**
- * Extract the underlying property name a filter operand reads.
- *
- * builder-audit #338 FILT-01: also unwraps the ["to-number", ["get", field], _]
- * accessor the editor emits for every numeric-column comparison — the chip
- * summarizer previously only understood ["get", field] and bare strings, so
- * numeric filters silently produced no chip.
- */
-export function extractFilterField(expr: unknown): string | null {
-  if (Array.isArray(expr) && expr[0] === 'get' && typeof expr[1] === 'string') {
-    return expr[1];
-  }
-  if (
-    Array.isArray(expr) &&
-    expr[0] === 'to-number' &&
-    Array.isArray(expr[1]) &&
-    expr[1][0] === 'get' &&
-    typeof expr[1][1] === 'string'
-  ) {
-    return expr[1][1];
-  }
-  if (typeof expr === 'string') return expr;
-  return null;
-}
-
 export interface CanonicalFilterCondition {
   field: string;
   operator: string;

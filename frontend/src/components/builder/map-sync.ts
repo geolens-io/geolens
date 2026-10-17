@@ -67,13 +67,6 @@ export {
 export const TERRAIN_SOURCE_ID = 'terrain-dem';
 export const TERRAIN_EXAGGERATION_MIN = 0;
 export const TERRAIN_EXAGGERATION_MAX = 3;
-export const MAP_STACK_Z_ORDER_POLICY = [
-  'surface terrain',
-  'basemap relief and detail',
-  'user data geometry',
-  'basemap labels',
-  'user data labels',
-] as const;
 
 export function normalizeTerrainExaggeration(value: number | null | undefined) {
   if (!Number.isFinite(value)) return 1;

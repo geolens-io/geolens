@@ -93,38 +93,3 @@ export function normalizeOrigin(input: string): string {
   }
   return `${scheme}://${host}`;
 }
-
-/**
- * Deduplicates an array of origin strings by canonical form.
- *
- * - Wildcard entries (`*`) are silently filtered out (not thrown).
- * - Invalid entries are silently filtered out.
- * - First-seen order is preserved for valid, non-duplicate entries.
- *
- * @param inputs Raw origin strings (may be unnormalized or include wildcards)
- * @returns Array of unique canonical origin strings
- */
-export function dedupeOrigins(inputs: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  for (const input of inputs) {
-    let canonical: string;
-    try {
-      canonical = normalizeOrigin(input);
-    } catch (err) {
-      if (err instanceof WildcardOriginError || err instanceof InvalidOriginError) {
-        // Silently skip wildcards and invalid entries.
-        continue;
-      }
-      throw err;
-    }
-
-    if (!seen.has(canonical)) {
-      seen.add(canonical);
-      result.push(canonical);
-    }
-  }
-
-  return result;
-}

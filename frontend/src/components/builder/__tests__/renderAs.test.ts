@@ -7,10 +7,8 @@ import {
   getCurrentRenderAs,
   getRenderAsOptions,
   getRendererCapabilities,
-  getRendererCapability,
   getRenderAsSource,
   hasCustomizedRenderAsStyle,
-  isSupportedRenderAsId,
 } from '../renderAs';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
@@ -105,7 +103,7 @@ describe('renderAs view model', () => {
   it('exposes line arrow as a renderer capability for line layers', () => {
     const line = layer({ dataset_geometry_type: 'MULTILINESTRING' });
     const capabilities = getRendererCapabilities(line);
-    const arrow = getRendererCapability('arrow', line);
+    const arrow = capabilities.find((entry) => entry.id === 'arrow');
 
     expect(RENDERER_CAPABILITIES.length).toBeGreaterThan(0);
     expect(capabilities.map((entry) => entry.id)).toEqual(['line', 'arrow']);
@@ -118,7 +116,7 @@ describe('renderAs view model', () => {
 
   it('exposes point cluster as a cluster-source-gated capability for bounded point layers', () => {
     const point = layer({ dataset_geometry_type: 'POINT', dataset_feature_count: 100 });
-    const cluster = getRendererCapability('cluster', point);
+    const cluster = getRendererCapabilities(point).find((entry) => entry.id === 'cluster');
 
     expect(getRendererCapabilities(point).map((entry) => entry.id)).toEqual(['point', 'symbol', 'heatmap', 'cluster']);
     expect(cluster).toMatchObject({
@@ -200,10 +198,11 @@ describe('renderAs view model', () => {
   });
 
   it('does not expose punted v1002 renderers', () => {
+    const supportedIds = RENDERER_CAPABILITIES.map((entry) => entry.id);
     for (const renderer of UNSUPPORTED_V1002_RENDERERS) {
-      expect(isSupportedRenderAsId(renderer)).toBe(false);
+      expect(supportedIds).not.toContain(renderer);
     }
-    expect(isSupportedRenderAsId('cluster')).toBe(true);
+    expect(supportedIds).toContain('cluster');
 
     const allOptionIds = [
       ...optionIds(layer({ dataset_geometry_type: 'POINT' })),

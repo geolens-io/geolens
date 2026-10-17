@@ -3,7 +3,6 @@ import type { FilterSpecification } from 'maplibre-gl';
 import {
   sanitizeNullableNumericFilter,
   parseCanonicalFilter,
-  extractFilterField,
   validateRawFilter,
   FilterValidationError,
   maplibreFilterToCql2,
@@ -56,26 +55,8 @@ describe('sanitizeNullableNumericFilter', () => {
 });
 
 // ---------------------------------------------------------------------------
-// builder-audit #338 FILT-01 / DRY-01: shared field extractor + canonical parser
+// builder-audit #338 FILT-01 / DRY-01: canonical parser
 // ---------------------------------------------------------------------------
-describe('extractFilterField', () => {
-  it('unwraps ["get", f]', () => {
-    expect(extractFilterField(['get', 'name'])).toBe('name');
-  });
-
-  it('FILT-01: unwraps the ["to-number", ["get", f], _] numeric accessor', () => {
-    expect(extractFilterField(['to-number', ['get', 'pop'], -1])).toBe('pop');
-  });
-
-  it('returns a bare string field name', () => {
-    expect(extractFilterField('name')).toBe('name');
-  });
-
-  it('returns null for an unrecognized operand', () => {
-    expect(extractFilterField(['literal', [1, 2]])).toBeNull();
-  });
-});
-
 describe('parseCanonicalFilter', () => {
   it('parses a bare comparison as one editable condition with rawValue', () => {
     const result = parseCanonicalFilter(['==', ['get', 'name'], 'foo'] as FilterSpecification);

@@ -102,10 +102,6 @@ export function parseZoomExpression(value: unknown): ZoomExpressionDraft | null 
   return null;
 }
 
-export function isSupportedZoomExpression(value: unknown): value is ZoomExpression {
-  return parseZoomExpression(value) !== null;
-}
-
 export function validateZoomExpressionDraft(draft: ZoomExpressionDraft): ZoomExpressionValidationResult {
   const errors: string[] = [];
   const minStops = draft.kind === 'step' ? 1 : 2;

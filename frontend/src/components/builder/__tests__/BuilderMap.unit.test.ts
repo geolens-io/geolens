@@ -4,7 +4,6 @@ import {
   ensureRasterDemTerrainSource,
   getExpressionSafeOpacity,
   isTerrainCapableDemLayer,
-  MAP_STACK_Z_ORDER_POLICY,
   normalizeTerrainExaggeration,
   simplifyPaint,
   TERRAIN_SOURCE_ID,
@@ -274,16 +273,6 @@ describe('basemap appearance helpers', () => {
     expect(map.setLayoutProperty).toHaveBeenCalledWith('place-label', 'visibility', 'none');
     expect(map.setPaintProperty).toHaveBeenCalledWith('road-primary', 'line-opacity', 0.35);
     expect(map.setPaintProperty).not.toHaveBeenCalledWith('layer-user-roads', 'line-opacity', expect.anything());
-  });
-
-  it('documents the map stack z-order policy', () => {
-    expect(MAP_STACK_Z_ORDER_POLICY).toEqual([
-      'surface terrain',
-      'basemap relief and detail',
-      'user data geometry',
-      'basemap labels',
-      'user data labels',
-    ]);
   });
 });
 

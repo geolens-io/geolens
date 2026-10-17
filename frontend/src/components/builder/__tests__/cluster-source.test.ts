@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getClusterSourceKey, getClusterSourceStrategy, shouldFetchClusterGeoJson, shouldUseServerClusterTiles } from '../cluster-source';
+import { getClusterSourceKey, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '../cluster-source';
 
 const baseLayer = {
   dataset_geometry_type: 'POINT',
@@ -15,7 +15,6 @@ describe('cluster source strategy', () => {
 
     expect(getClusterSourceStrategy(layer)).toMatchObject({ kind: 'bounded-geojson', status: 'eligible' });
     expect(shouldFetchClusterGeoJson(layer)).toBe(true);
-    expect(shouldUseServerClusterTiles(layer)).toBe(false);
   });
 
   it('uses server tiles for large point cluster layers', () => {
@@ -23,7 +22,6 @@ describe('cluster source strategy', () => {
 
     expect(getClusterSourceStrategy(layer)).toMatchObject({ kind: 'server-tile', status: 'too-many-features' });
     expect(shouldFetchClusterGeoJson(layer)).toBe(false);
-    expect(shouldUseServerClusterTiles(layer)).toBe(true);
   });
 
   it('falls back for missing counts or unsupported geometry', () => {

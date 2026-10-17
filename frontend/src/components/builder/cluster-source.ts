@@ -112,10 +112,6 @@ export function canUseClusterSource(layer: ClusterSourceLayer) {
   return isVectorLayer(layer) && isPointGeometry(layer) && count != null;
 }
 
-export function shouldUseServerClusterTiles(layer: ClusterSourceLayer) {
-  return getClusterSourceStrategy(layer).kind === 'server-tile';
-}
-
 export function shouldFetchClusterGeoJson(layer: ClusterSourceLayer) {
   return getClusterSourceStrategy(layer).kind === 'bounded-geojson';
 }
