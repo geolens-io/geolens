@@ -547,6 +547,98 @@ class TestRun:
         assert await self._extent_is_null(test_db_session, dataset) is True
         assert await _settle_pending(test_db_session, dataset.id) is False
 
+    async def _registered_table_without_a_gid_key(self, seed, test_db_session, rows):
+        """A table edited outside GeoLens: no key on gid, rows given explicit gids."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, column="seen_at", days=30, rows=[])
+        table = dataset.table_name
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{table} DROP CONSTRAINT {table}_pkey")
+        )
+        for gid, name, seen_at in rows:
+            await self._insert_with_gid(test_db_session, table, gid, name, seen_at)
+        await test_db_session.commit()
+        return dataset
+
+    @staticmethod
+    async def _insert_with_gid(session, table, gid, name, seen_at):
+        await session.execute(
+            text(
+                f"INSERT INTO data.{table} (gid, geom, geom_4326, seen_at, name) "
+                "VALUES (:gid, ST_SetSRID(ST_MakePoint(10.5, 10.5), 4326), "
+                "ST_SetSRID(ST_MakePoint(10.5, 10.5), 4326), :seen_at, :name)"
+            ),
+            {"gid": gid, "name": name, "seen_at": seen_at},
+        )
+
+    async def test_a_shared_gid_deletes_only_the_expired_row(
+        self, seed, test_db_session
+    ):
+        old = NOW - timedelta(days=90)
+        dataset = await self._registered_table_without_a_gid_key(
+            seed,
+            test_db_session,
+            [
+                (1, "old_1", old),
+                (1, "recent_1", NOW),
+                (2, "old_2", old),
+                (2, "undated_2", None),
+            ],
+        )
+
+        assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 2}
+
+        assert await _names(test_db_session, dataset) == {"recent_1", "undated_2"}
+        audits = await _prune_audits(test_db_session, dataset.id)
+        assert [audit.details["deleted"] for audit in audits] == [2]
+        assert (await _catalog_state(test_db_session, dataset.id)).feature_count == 2
+
+    async def test_a_gid_shared_with_an_inheritance_child_deletes_only_expired_rows(
+        self, seed, test_db_session
+    ):
+        old = NOW - timedelta(days=90)
+        dataset = await self._registered_table_without_a_gid_key(
+            seed, test_db_session, [(1, "parent_old", old)]
+        )
+        child = f"{dataset.table_name}_child"
+        await test_db_session.execute(
+            text(f"CREATE TABLE data.{child} () INHERITS (data.{dataset.table_name})")
+        )
+        await self._insert_with_gid(test_db_session, child, 1, "child_recent", NOW)
+        await self._insert_with_gid(test_db_session, child, 3, "child_old", old)
+        await test_db_session.commit()
+        try:
+            assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 2}
+            assert await _names(test_db_session, dataset) == {"child_recent"}
+        finally:
+            await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{child}"))
+            await test_db_session.commit()
+
+    async def test_a_batch_of_shared_gids_stays_within_its_limit(
+        self, seed, test_db_session, monkeypatch
+    ):
+        old = NOW - timedelta(days=90)
+        dataset = await self._registered_table_without_a_gid_key(
+            seed,
+            test_db_session,
+            [(gid, f"old_{gid}_{copy}", old) for gid in range(1, 7) for copy in "ab"],
+        )
+        statements: list[int] = []
+        real_delete = retention._delete_batch
+
+        async def counted(session, window, after, limit):
+            gids = await real_delete(session, window, after, limit)
+            statements.append(len(gids))
+            return gids
+
+        monkeypatch.setattr(retention, "_delete_batch", counted)
+
+        pruned = await retention.prune_expired_rows(now=NOW, batch_rows=5)
+
+        assert statements == [5, 5, 2]
+        assert pruned == {dataset.id: 12}
+        assert await _names(test_db_session, dataset) == set()
+
     async def test_a_run_stops_at_its_batch_bound_and_the_next_run_goes_on(
         self, seed, test_db_session
     ):
