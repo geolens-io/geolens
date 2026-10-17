@@ -50,14 +50,18 @@ def test_runbook_does_not_shell_source_env() -> None:
 # `VAR="$(scripts/env-value.sh KEY)"` blanks a value supplied only through the
 # environment. Snippets assign through `if _v=...; then VAR="$_v"; fi` instead.
 _UNGUARDED_ENV_VALUE = re.compile(
-    r'^[A-Za-z_][A-Za-z0-9_]*="\$\(scripts/env-value\.sh', re.MULTILINE
+    r'^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*="\$\(scripts/env-value\.sh',
+    re.MULTILINE,
 )
 
 
 def test_runbook_env_value_assignments_are_guarded() -> None:
-    assert _UNGUARDED_ENV_VALUE.search(
-        'POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"'
-    )
+    for bad in (
+        'POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"',
+        '  POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"',
+        'export POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"',
+    ):
+        assert _UNGUARDED_ENV_VALUE.search(bad), bad
     assert not _UNGUARDED_ENV_VALUE.search(
         'if _v="$(scripts/env-value.sh POSTGRES_DB)"; then POSTGRES_DB="$_v"; fi'
     )

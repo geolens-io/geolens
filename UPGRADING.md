@@ -1,8 +1,10 @@
 # Upgrading GeoLens
 
-An upgrade backs up the database, pulls the new images, runs the migrations
-(fail-closed), and brings the stack up behind a health gate. If anything fails,
-you re-pin the old version and restore the pre-upgrade dump. The
+An upgrade pulls the new images, backs up the database, runs the migrations
+(fail-closed), and brings the stack up behind a health gate. A failure before
+the migrations leaves the database untouched; fix it and re-run. If you need to
+roll back after the migrations ran, re-pin the old version and restore the
+pre-upgrade dump. The
 [upgrade guide](https://docs.getgeolens.com/guides/quickstart/upgrade/) has the
 full procedure, the manual and source-build flows, and the notes for each release.
 

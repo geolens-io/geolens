@@ -79,7 +79,7 @@ grep -q 'UPGRADING.md' "$ROOT/README.md" \
   || bad "README does not link to UPGRADING.md"
 
 # The full procedure lives in the docs-site upgrade guide; the doc must link it.
-grep -q 'docs.getgeolens.com/guides/quickstart/upgrade/' "$DOC" \
+grep -Fq 'docs.getgeolens.com/guides/quickstart/upgrade/' "$DOC" \
   && ok "doc links the docs-site upgrade guide" \
   || bad "doc does not link the docs-site upgrade guide"
 

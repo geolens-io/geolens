@@ -113,7 +113,9 @@ has the details.
 Offsite upload is opt-in (`BACKUP_S3_ENABLED=true` plus the shared `S3_*`
 settings; see the guide's
 [Configuration](https://docs.getgeolens.com/guides/admin/backups/#configuration)
-table). A failed upload is logged as `ERROR: S3 upload failed for <key>` and
+table). A failed upload is logged as `ERROR: S3 upload failed for <key>`, and
+missing bucket or credential settings as `ERROR: BACKUP_S3_ENABLED=true but
+S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are not all set`. Either one
 fails the cycle (non-zero exit) **after** local retention pruning has run, so
 the local dump is kept and pruned normally and the failure shows in the
 container logs.
