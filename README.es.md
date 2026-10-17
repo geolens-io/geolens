@@ -254,8 +254,11 @@ catálogo completo, describe las fuentes en un manifiesto `geolens.yaml` y ejecu
 [`examples/manifests/`](examples/manifests/) tiene plantillas y la
 [guía de la CLI](https://docs.getgeolens.com/guides/cli/) describe el esquema.
 
-Para cargar en tu instalación los mapas y conjuntos de datos de la demostración (datos abiertos
-públicos), ejecuta el script de carga. Usa tu propio usuario administrador si lo cambiaste.
+Para cargar en tu instalación los mapas y conjuntos de datos de la demostración, ejecuta el
+script de carga. Necesita acceso a internet y descarga datos abiertos públicos de una docena de
+fuentes, entre ellas un archivo de relieve de unos 466 MB y 62 teselas de terreno; `--no-oceans` y
+`--no-terrain` las omiten, y [scripts/README.md](scripts/README.md) lista todas las opciones. Usa
+tu propio usuario administrador si lo cambiaste.
 
 ```sh
 pip install httpx                                     # the seed script needs Python 3.10+
