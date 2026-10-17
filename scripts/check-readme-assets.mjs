@@ -7,31 +7,14 @@
 // this file pins for it, and that no image sits in .github/assets/ unpinned.
 // Needs no database, browser, or network — pure stdlib, safe anywhere.
 //
-// WHY A GATE OVER THE COMMITTED FILES
+// Some image tools resize a file in place when it is opened for viewing (the
+// `image-sanitizer` Claude Code plugin shrinks anything over 1200px wide on
+// Read), long after the capture that produced it. Only a check over the
+// committed files sees that, so the gate pins exact sizes.
 //
-// The `image-sanitizer` Claude Code plugin registers a PreToolUse hook on the
-// Read TOOL. Before a read is served it runs, in place:
-//     magick <file> -resize "${CLAUDE_IMAGE_MAX_DIMENSION:-1200}x...>"
-// on any path with an image extension. Shrink-only, aspect preserved, 1200px
-// cap. So the rewrite is synchronous and deterministic — not a race — and it is
-// triggered by somebody choosing to eyeball a committed image, which usually
-// happens long after whatever produced it exited. Only a check you can run at
-// commit time sees that.
-//
-// This is the third such gate. docs (getgeolens.com/docs) has verify-build.sh
-// QUICK-03; marketing (getgeolens.com) has scripts/verify-screenshots.mjs. The
-// README shots were the one unguarded surface, because they are produced in one
-// repo (getgeolens.com/scripts/capture-readme.ts) and committed in another
-// (here). The gate belongs where the files are committed and where CI can run it
-// on every PR — so, here.
-//
-// Note this is a VERIFICATION script, not a capture script: .github/assets/README.md
-// asks that capture tooling stay out of this public repo, and it does. Nothing
-// here launches a browser or talks to a GeoLens.
-//
-// The operator rule this enforces: never open a master with an image-previewing
-// tool. Measure with `sips -g pixelWidth -g pixelHeight`, and copy to a throwaway
-// path first if you want to look at one.
+// Never open a master with an image-previewing tool. Measure with
+// `sips -g pixelWidth -g pixelHeight`, and copy to a throwaway path first if you
+// want to look at one.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,15 +25,7 @@ const repoRoot = path.resolve(scriptDir, '..');
 const assetDir = path.join(repoRoot, '.github/assets');
 
 // Every image committed under .github/assets/, with the size it must be on disk.
-//
-// `capturedAt` records the size the upstream capture recipe DECLARES for a shot,
-// when that differs from what is committed. It is documentation of a known
-// deficit, not a second assertion: the gate pins `width`/`height` so nothing can
-// degrade further, and reports the gap so it stays visible instead of being
-// silently blessed. Clear a `capturedAt` by recapturing and updating
-// `width`/`height` to match it in the same commit.
 const README_ASSETS = {
-  // --- Shown in README.md, 1600x900 on disk --------------------------------
   // Light and dark pairs, except QGIS, which has one theme. The provenance
   // shot is cropped to the Source panel.
   'geolens-manhattan-3d-hero.jpg': { width: 1600, height: 900 },
@@ -81,29 +56,13 @@ const README_ASSETS = {
   'geolens-admin-overview-dark.png': { width: 1600, height: 900 },
   'geolens-admin-permissions.png': { width: 1600, height: 900 },
   'geolens-admin-permissions-dark.png': { width: 1600, height: 900 },
-
-  // --- Not in README.md; linked from the translations or announcements -----
-  'geolens-search.png': { width: 1600, height: 900 },
-  'geolens-dataset.png': { width: 1600, height: 900 },
-  'geolens-ai-labels.png': { width: 1600, height: 900 },
-  'geolens-dataset-chat.png': { width: 1200, height: 750 },
-  'geolens-dataset-chat-dark.png': { width: 1200, height: 750 },
-  'geolens-admin-users.png': { width: 1200, height: 750 },
-  'geolens-admin-users-dark.png': { width: 1200, height: 750 },
-  // Wider than the sanitizer's 1200px cap, so one Read would shrink them.
-  'source-panel-service.png': { width: 1232, height: 522 },
-  'source-panel-vrt.png': { width: 1232, height: 619 },
-  'source-state-dataset-header.png': { width: 1232, height: 116 },
-  'source-state-search-chips.png': { width: 760, height: 176 },
-  'scheduled-sync-completed.png': { width: 1232, height: 256 },
-  'scheduled-sync-setup.png': { width: 512, height: 556 },
 };
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif']);
 
 // PNG + JPEG header parse. Deliberately dependency-free: this gate has to run in
 // a bare CI job with nothing installed, and shelling out to sips would tie it to
-// macOS. Mirrors readImageDimensions() in getgeolens.com/scripts/lib/capture-core.mjs.
+// macOS.
 function readImageDimensions(file) {
   const buf = fs.readFileSync(file);
   if (buf.length > 24 && buf.toString('ascii', 1, 4) === 'PNG') {
@@ -128,7 +87,6 @@ function readImageDimensions(file) {
 
 const failures = [];
 const rows = [];
-const deficits = [];
 
 for (const [filename, expected] of Object.entries(README_ASSETS)) {
   const file = path.join(assetDir, filename);
@@ -155,25 +113,13 @@ for (const [filename, expected] of Object.entries(README_ASSETS)) {
     failures.push(
       `${filename} is ${actual.width}x${actual.height} on disk; expected ${expected.width}x${expected.height}`,
     );
-  } else if (expected.capturedAt) {
-    deficits.push(
-      `${filename}: pinned at ${expected.width}x${expected.height}, but the capture recipe ` +
-        `declares ${expected.capturedAt.width}x${expected.capturedAt.height}`,
-    );
   }
 }
 
-// A new image that nobody pinned is a new unguarded surface — which is the exact
-// hole this gate exists to close. Fail rather than ignore it.
-//
-// fix(#1500 review): `readdirSync` returns immediate children only, so an image
-// at `.github/assets/<subdir>/shot.png` was seen as a directory name, matched no
-// image extension, and slipped through unpinned — the gate reporting success on
-// precisely the file it was meant to cover. The manifest is keyed by bare
-// filename, so rather than recurse (which would make two files of the same name
-// in different directories collide on one key), reject subdirectories outright.
-// AGENTS.md puts README images in `.github/assets/`, flat, so this enforces the
-// documented layout instead of quietly supporting a second one.
+// An unpinned image is an unguarded one, so it fails the gate. The manifest is
+// keyed by bare filename, and AGENTS.md keeps README images flat in
+// .github/assets/, so a subdirectory fails too rather than hiding images from
+// the scan below.
 const entries = fs.readdirSync(assetDir, { withFileTypes: true });
 
 for (const entry of entries) {
@@ -206,21 +152,13 @@ if (failures.length > 0) {
   for (const line of failures) console.error(`  ${line}`);
   console.error(
     '\n  An image at exactly 1200px on its long edge was almost certainly resized in\n' +
-      '  place by the image-sanitizer plugin, which hooks the Read tool. Restore it with\n' +
+      '  place when someone opened it. Restore it with\n' +
       '  `git checkout -- .github/assets/<file>` if it is committed correctly. Never open\n' +
       '  a master with an image-previewing tool — measure with\n' +
       '  `sips -g pixelWidth -g pixelHeight`, and copy to a throwaway path first if you\n' +
-      '  want to look at it. The capture recipe lives in the getgeolens.com repo\n' +
-      '  (`npm run capture:readme`); see .github/assets/README.md.',
+      '  want to look at it. .github/assets/README.md describes how the shots are made.',
   );
   process.exit(1);
-}
-
-if (deficits.length > 0) {
-  console.log(`\n${deficits.length} image(s) are pinned below their declared capture size:`);
-  for (const line of deficits) console.log(`  - ${line}`);
-  console.log('  Recapture with `npm run capture:readme` from the getgeolens.com repo, then');
-  console.log('  update width/height here and drop the capturedAt entry in the same commit.');
 }
 
 console.log(`\nOK: all ${rows.length} README images are at their pinned size.`);

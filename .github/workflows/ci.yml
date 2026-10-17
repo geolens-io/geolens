@@ -1143,17 +1143,9 @@ jobs:
   # ---------- README assets ----------
   # Gate over the committed README screenshots in .github/assets/.
   #
-  # The image-sanitizer Claude Code plugin resizes images IN PLACE from a
-  # PreToolUse hook on the Read tool (shrink-only, 1200px cap), so any committed
-  # image wider than that silently loses resolution the first time someone opens
-  # it to look at it. docs and marketing (both in getgeolens.com) each grew a gate
-  # against this; the README shots did not, because they are produced in that repo
-  # and committed in THIS one, so neither side owned the check. Three of the
-  # source-panel crops are 1232px wide and were live-vulnerable.
-  #
-  # No path filter on purpose: the corruption edits the images, so a filtered job
-  # would still fire, but this also catches a manifest edit that quietly unpins a
-  # file. Pure stdlib Node — no DB, browser, or network. Runs on every push/PR.
+  # Pins every README image to its exact size (see scripts/check-readme-assets.mjs
+  # for why). No path filter on purpose: it also catches a manifest edit that
+  # quietly unpins a file. Pure stdlib Node, no DB, browser or network.
   readme-assets:
     name: README Assets
     runs-on: ubuntu-26.04

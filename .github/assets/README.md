@@ -1,9 +1,8 @@
 # README assets
 
-Images embedded in the top-level `README.md`. They're committed here because
-GitHub renders README images from the repository itself, not from an
-external URL or CDN. Keep finished images in this folder; keep the *capture
-tooling* out of this public repo (see "Where the tooling lives" below).
+Images embedded in the top-level `README.md` and its translations. They're
+committed here because GitHub renders README images from the repository itself,
+not from an external URL or CDN.
 
 ## Current set
 
@@ -35,9 +34,6 @@ The logo is the reticle emblem from `geolens-io/branding`, as light and dark SVG
 (`geolens-emblem{,-dark}.svg`). `BRANDING-VERSION` records the release they came
 from; update them by syncing a newer release rather than editing them here.
 
-The other images here are not in `README.md`. The translated READMEs, announcement
-posts and older release notes link to them, so they stay until nothing does.
-
 ## Seeding the data
 
 `scripts/seed-showcase.py` builds the showcase maps and datasets behind the hero,
@@ -66,11 +62,6 @@ the map builder and dataset page, and 1024×576 for version history. The QGIS sh
 comes from a PyQGIS script run with `--code` that adds the connection and layers
 and saves `iface.mainWindow().grab()`, downscaled from 2x.
 
-The private getgeolens.com site repo also has an automated recipe,
-`npm run capture:readme`, that writes straight into this folder. It still
-captures the previous framing (the hero with the layer editor open and the older
-search), so don't run it over this set until it is updated.
-
 Review the `git diff` here before committing; these images are public.
 
 ## Keeping the committed files intact
@@ -79,10 +70,7 @@ Review the `git diff` here before committing; these images are public.
 folder to an exact pixel size and fails if one moves. CI runs it on every PR, and
 there is a pre-commit hook for it.
 
-It exists because these files get silently downscaled. The `image-sanitizer`
-Claude Code plugin hooks the **Read** tool and runs `magick -resize` in place on
-anything wider than 1200px, so a committed image loses resolution the moment
-somebody opens it to look at it — long after whatever produced it exited. Never
+Some image tools resize a file in place when it is opened for viewing, so never
 open a master with an image-previewing tool. Measure with `sips -g pixelWidth -g
 pixelHeight`, and copy to a throwaway path first if you want to see one.
 
@@ -95,12 +83,3 @@ the gate fails on an unpinned file rather than ignoring it.
   personal data. A throwaway stack seeded from scratch is the easiest way.
 - Optionally strip metadata before committing (`magick in.png -strip out.png`;
   JPG at quality ~88 for maps and terrain).
-
-## Where the tooling lives
-
-The reusable Playwright capture machinery and the canonical capture recipe live
-in the private getgeolens.com site repo (it drives that site's own
-marketing/docs screenshots, and `capture:readme` is a third target list sharing
-the same core). Do not add capture scripts to this public repo. The recipe writes
-finished images in from the live stack, the same way brand assets are vendored
-(`BRANDING-VERSION`) — the copy is automated, the tooling stays out.
