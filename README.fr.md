@@ -48,6 +48,91 @@ La [démonstration](https://demo.getgeolens.com) ne demande ni installation ni c
 avec Google, GitHub ou Microsoft pour utiliser le générateur de cartes. Les données de
 démonstration peuvent être effacées à tout moment.
 
+## De plus près
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
+<img src=".github/assets/geolens-catalog-search.png" alt="Recherche dans le catalogue GeoLens pour « where storms hit the coast », hors connexion, listant des jeux de données sur les ouragans et le littoral avec des badges de type, de source et d’actualité à côté des filtres" width="100%">
+</picture>
+<br><sub>Recherche par le sens : « where storms hit the coast » trouve des trajectoires d’ouragans et des couches d’exposition du littoral.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
+<img src=".github/assets/geolens-dataset-page.png" alt="La page du jeu de données Atlantic Hurricane Tracks : trajectoires de tempêtes sur un aperçu cartographique, badges vectoriel, chargé, source à jour, publié et public, et le nombre d’entités, la géométrie, le SRC, la version et le nombre de colonnes" width="100%">
+</picture>
+<br><sub>Chaque jeu de données a une page avec un aperçu cartographique, ses métadonnées, ses attributs et son origine.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-import-preview-dark.png">
+<img src=".github/assets/geolens-import-preview.png" alt="L’onglet URL de service de la page Importer des données, avec l’aperçu de la couche ArcGIS USGS Significant Earthquakes : SRC, type de géométrie, nombre d’entités, nom de la couche et lignes d’exemple" width="100%">
+</picture>
+<br><sub>Avant d’importer une couche de service, GeoLens en affiche les colonnes et les premières lignes.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
+<img src=".github/assets/geolens-version-history.png" alt="Historique des versions du jeu de données Significant Volcanic Eruptions : trois versions GeoJSON avec dates, noms de fichiers et nombres d’entités, la version actuelle repérée et un bouton Restaurer sur la version précédente" width="100%">
+</picture>
+<br><sub>Remplacer un jeu de données conserve les anciennes versions, et vous pouvez restaurer la précédente.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
+<img src=".github/assets/geolens-builder-style.png" alt="Le générateur de cartes avec la carte Restless Earth sur un globe : une carte de chaleur des séismes le long des limites de plaques du Pacifique, la liste des couches groupées et le panneau de style de la carte de chaleur avec ses palettes de couleurs" width="100%">
+</picture>
+<br><sub>Les couches s’affichent en points, symboles, cartes de chaleur ou regroupements, et la liste des palettes peut se limiter à celles adaptées au daltonisme.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
+<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Le générateur de cartes GeoLens affichant le Cervin en terrain 3D à partir du lidar swissALTI3D, avec sommets nommés, itinéraires d’escalade, la liste des couches et une légende" width="100%">
+</picture>
+<br><sub>Un terrain 3D issu de vos propres données d’élévation, ici le Cervin à partir du lidar swissALTI3D.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
+<img src=".github/assets/geolens-stac-imagery.jpg" alt="Le générateur de cartes affichant quatre scènes Sentinel-2 en vraies couleurs, à des dates différentes, au-dessus de New York et du nord du New Jersey, référencées depuis le catalogue STAC Earth Search, avec la liste des couches et la légende" width="100%">
+</picture>
+<br><sub>Des scènes Sentinel-2 référencées depuis un catalogue STAC. L’imagerie reste où elle est et est découpée en tuiles à la demande.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-share-embed-dark.png">
+<img src=".github/assets/geolens-share-embed.png" alt="La boîte de dialogue de partage d’une carte : visibilité réglée sur Public, avec Vous seul et Tous les membres de l’équipe comme autres options, un lien de partage et un code d’intégration iframe" width="100%">
+</picture>
+<br><sub>Gardez une carte pour vous, ouvrez-la à votre équipe ou rendez-la publique avec un lien et un code d’intégration.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
+<img src=".github/assets/geolens-admin-overview.png" alt="La page Aperçu de l’administration : Tous les systèmes opérationnels, avec l’état de la base de données, du stockage, du cache et du cache de tuiles, le nombre total de jeux de données, les ajouts récents et l’espace utilisé, à côté du menu d’administration" width="100%">
+</picture>
+<br><sub>L’aperçu de l’administration montre l’état des services à côté des totaux de jeux de données et de stockage.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-permissions-dark.png">
+<img src=".github/assets/geolens-admin-permissions.png" alt="La page Permissions de l’administration : des capacités comme Télécharger des jeux de données, Exporter des données, Modifier les métadonnées et Gérer les utilisateurs, avec une case à cocher pour chacun des rôles Lecteur, Éditeur et Administrateur" width="100%">
+</picture>
+<br><sub>Les rôles lecteur, éditeur et administrateur, avec chaque capacité activée ou non par rôle.</sub>
+</td>
+</tr>
+</table>
+
 ## Comment tout s’articule
 
 ```mermaid
@@ -75,15 +160,6 @@ flowchart LR
 ```
 
 ## Un seul catalogue pour des données dispersées
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
-    <img src=".github/assets/geolens-catalog-search.png" alt="Recherche dans le catalogue GeoLens pour « where storms hit the coast », listant six jeux de données sur les ouragans et le littoral avec vignettes, badges d’origine et badges d’actualité, à côté des filtres de type, de mot-clé, de collection, de lieu et de date" width="100%">
-  </picture>
-  <br>
-  <sub>Recherche par le sens : « where storms hit the coast » trouve des trajectoires d’ouragans, des couloirs de tempêtes et des couches d’exposition du littoral.</sub>
-</p>
 
 - Chargez des Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, File Geodatabase
   zippées, CSV, Excel ou GeoTIFF (convertis en Cloud-Optimized GeoTIFF). Les jeux 3D Tiles et les
@@ -116,15 +192,6 @@ schéma en amont avant qu’ils n’atteignent vos cartes. Si un service dispara
 fonctionner.
 
 ## Créer et partager des cartes
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-    <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Le générateur de cartes GeoLens affichant le Cervin en terrain 3D à partir du lidar swissALTI3D, avec sommets nommés, itinéraires d’escalade, la liste des couches et une légende" width="100%">
-  </picture>
-  <br>
-  <sub>Le Cervin en terrain 3D à partir du lidar swissALTI3D, avec les sommets et les itinéraires d’escalade d’OpenStreetMap.</sub>
-</p>
 
 - Couches de points, de symboles, de cartes de chaleur, de regroupements, de lignes, de flèches,
   de remplissages, d’extrusion 3D, de rasters et d’ombrage du relief, avec styles pilotés par les
