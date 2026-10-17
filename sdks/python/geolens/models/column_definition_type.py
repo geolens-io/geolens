@@ -1,6 +1,8 @@
 from typing import Literal, cast
 
-ColumnDefinitionType = Literal["boolean", "date", "float", "integer", "text"]
+ColumnDefinitionType = Literal[
+    "boolean", "date", "float", "integer", "text", "timestamp"
+]
 
 COLUMN_DEFINITION_TYPE_VALUES: set[ColumnDefinitionType] = {
     "boolean",
@@ -8,6 +10,7 @@ COLUMN_DEFINITION_TYPE_VALUES: set[ColumnDefinitionType] = {
     "float",
     "integer",
     "text",
+    "timestamp",
 }
 
 

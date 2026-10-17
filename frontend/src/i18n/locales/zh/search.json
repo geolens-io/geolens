@@ -199,6 +199,10 @@
     "addColumn": "添加列",
     "removeColumn": "移除列",
     "submit": "创建数据集",
+    "discardTitle": "放弃这个新数据集？",
+    "discardDescription": "你输入的内容尚未保存。你可以继续编辑，或将其放弃。",
+    "discardAction": "放弃",
+    "keepEditing": "继续编辑",
     "submitting": "正在创建...",
     "success": "数据集创建成功",
     "typeOptions": {
@@ -206,7 +210,8 @@
       "integer": "整数",
       "float": "浮点数",
       "date": "日期",
-      "boolean": "布尔值"
+      "boolean": "布尔值",
+      "timestamp": "时间戳"
     },
     "errors": {
       "titleRequired": "标题为必填项",

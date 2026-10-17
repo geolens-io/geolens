@@ -179,6 +179,10 @@
     "addColumn": "Agregar columna",
     "removeColumn": "Eliminar columna",
     "submit": "Crear conjunto de datos",
+    "discardTitle": "¿Descartar este conjunto de datos nuevo?",
+    "discardDescription": "Lo que has introducido no se ha guardado. Puedes seguir editando o descartarlo.",
+    "discardAction": "Descartar",
+    "keepEditing": "Seguir editando",
     "submitting": "Creando...",
     "success": "Conjunto de datos creado exitosamente",
     "typeOptions": {
@@ -186,7 +190,8 @@
       "integer": "Entero",
       "float": "Decimal",
       "date": "Fecha",
-      "boolean": "Booleano"
+      "boolean": "Booleano",
+      "timestamp": "Marca de tiempo"
     },
     "errors": {
       "titleRequired": "El título es obligatorio",

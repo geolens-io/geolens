@@ -3877,7 +3877,8 @@
               "integer",
               "float",
               "date",
-              "boolean"
+              "boolean",
+              "timestamp"
             ],
             "title": "Type",
             "type": "string"

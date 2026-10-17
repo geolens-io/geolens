@@ -122,7 +122,7 @@ class QualityDetail(BaseModel):
 
 class ColumnDefinition(BaseModel):
     name: str
-    type: Literal["text", "integer", "float", "date", "boolean"]
+    type: Literal["text", "integer", "float", "date", "boolean", "timestamp"]
 
 
 class CreateEmptyDatasetRequest(BaseModel):

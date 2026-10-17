@@ -199,6 +199,10 @@
     "addColumn": "Add Column",
     "removeColumn": "Remove column",
     "submit": "Create Dataset",
+    "discardTitle": "Discard this new dataset?",
+    "discardDescription": "What you entered has not been saved. You can keep editing or discard it.",
+    "discardAction": "Discard",
+    "keepEditing": "Keep editing",
     "submitting": "Creating...",
     "success": "Dataset created successfully",
     "typeOptions": {
@@ -206,7 +210,8 @@
       "integer": "Integer",
       "float": "Float",
       "date": "Date",
-      "boolean": "Boolean"
+      "boolean": "Boolean",
+      "timestamp": "Timestamp"
     },
     "errors": {
       "titleRequired": "Title is required",

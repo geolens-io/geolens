@@ -30,6 +30,10 @@ and releases use semantic versioning.
   `FeatureCreate | FeatureCollectionCreate` and returns a union of the two 201
   shapes, so TypeScript callers that read `id` from the result narrow it
   first.
+- The Create Dataset dialog offers a Timestamp column type. It creates the
+  same `timestamp with time zone` column as adding a timestamp column to an
+  existing dataset, and `POST /datasets/create/` now accepts `timestamp` as a
+  column type.
 
 ### Fixed
 
@@ -39,6 +43,9 @@ and releases use semantic versioning.
 - The dataset page no longer scrolls sideways on a phone-width screen. A long
   table name in the header and the URL in the "Connect with" code block now
   truncate, and their copy buttons stay visible.
+- Closing the Create Dataset dialog with Escape, an outside click, the close
+  button or the new Cancel button asks before throwing away what you entered.
+  An empty form and a successful create still close straight away.
 - The documented `CSP_SCRIPT_SRC_EXTRA` value for Cloudflare Web Analytics is
   the host, `https://static.cloudflareinsights.com`. The 1.25.0 notes gave the
   file URL `https://static.cloudflareinsights.com/beacon.min.js`, but

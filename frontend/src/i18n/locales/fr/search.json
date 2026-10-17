@@ -179,6 +179,10 @@
     "addColumn": "Ajouter une colonne",
     "removeColumn": "Supprimer la colonne",
     "submit": "Créer le jeu de données",
+    "discardTitle": "Abandonner ce nouveau jeu de données ?",
+    "discardDescription": "Ce que vous avez saisi n'a pas été enregistré. Vous pouvez continuer à modifier ou l'abandonner.",
+    "discardAction": "Abandonner",
+    "keepEditing": "Continuer à modifier",
     "submitting": "Création...",
     "success": "Jeu de données créé avec succès",
     "typeOptions": {
@@ -186,7 +190,8 @@
       "integer": "Entier",
       "float": "Décimal",
       "date": "Date",
-      "boolean": "Booléen"
+      "boolean": "Booléen",
+      "timestamp": "Horodatage"
     },
     "errors": {
       "titleRequired": "Le titre est obligatoire",

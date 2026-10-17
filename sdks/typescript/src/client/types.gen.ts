@@ -2319,7 +2319,7 @@ export type ColumnDefinition = {
     /**
      * Type
      */
-    type: 'text' | 'integer' | 'float' | 'date' | 'boolean';
+    type: 'text' | 'integer' | 'float' | 'date' | 'boolean' | 'timestamp';
 };
 
 /**

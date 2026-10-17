@@ -7409,7 +7409,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "text" | "integer" | "float" | "date" | "boolean";
+            type: "text" | "integer" | "float" | "date" | "boolean" | "timestamp";
         };
         /**
          * ColumnInfo

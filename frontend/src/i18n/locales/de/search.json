@@ -179,6 +179,10 @@
     "addColumn": "Spalte hinzufügen",
     "removeColumn": "Spalte entfernen",
     "submit": "Datensatz erstellen",
+    "discardTitle": "Diesen neuen Datensatz verwerfen?",
+    "discardDescription": "Ihre Eingaben wurden nicht gespeichert. Sie können weiter bearbeiten oder sie verwerfen.",
+    "discardAction": "Verwerfen",
+    "keepEditing": "Weiter bearbeiten",
     "submitting": "Wird erstellt...",
     "success": "Datensatz erfolgreich erstellt",
     "typeOptions": {
@@ -186,7 +190,8 @@
       "integer": "Ganzzahl",
       "float": "Gleitkommazahl",
       "date": "Datum",
-      "boolean": "Wahrheitswert"
+      "boolean": "Wahrheitswert",
+      "timestamp": "Zeitstempel"
     },
     "errors": {
       "titleRequired": "Titel ist erforderlich",

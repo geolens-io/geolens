@@ -213,6 +213,7 @@ class TestInteractiveCreateTenantRouting:
             return_value=("tenant_empty_layer", None)
         )
         port.grant_reader_access = unittest.mock.AsyncMock()
+        port.get_column_info = unittest.mock.AsyncMock(return_value=[])
         dataset = object()
         monkeypatch.setattr(service_create, "get_catalog_port", lambda: port)
         create_dataset = unittest.mock.AsyncMock(return_value=dataset)
@@ -238,6 +239,9 @@ class TestInteractiveCreateTenantRouting:
             "tenant_empty_layer",
             schema=_SCHEMA_A,
             role=_ROLE_A,
+        )
+        port.get_column_info.assert_awaited_once_with(
+            session, "tenant_empty_layer", schema=_SCHEMA_A
         )
 
     @pytest.mark.asyncio
