@@ -166,3 +166,49 @@ async def test_vrt_with_no_readable_member_shows_no_extent(
     assert viewer == dict.fromkeys(viewer, None)
     admin = await _surface_extents(client, vrt_id, admin_auth_header)
     assert {k: _rounded(v) for k, v in admin.items()} == dict.fromkeys(admin, FULL)
+
+
+async def _tile_token_bounds(client: AsyncClient, vrt_id: uuid.UUID, headers):
+    single = await client.get(f"/tiles/token/{vrt_id}/", headers=headers)
+    assert single.status_code == 200, single.text
+    batch = await client.post(
+        "/tiles/tokens/", json={"dataset_ids": [str(vrt_id)]}, headers=headers
+    )
+    assert batch.status_code == 200, batch.text
+    return single.json()["bounds"], batch.json()["tokens"][str(vrt_id)]["bounds"]
+
+
+async def test_tile_token_withholds_bounds_while_the_mosaic_is_refused(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A member another user narrowed makes the mosaic's tiles 409; the token
+    then carries no bounds that would locate it."""
+    admin_id = await _get_admin_id(test_db_session)
+    editor_headers, editor_id = await _make_editor(client, admin_auth_header)
+    vrt_id = await _create_vrt_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    await _set_extent(test_db_session, vrt_id, FULL)
+    member = await _create_raster_dataset(
+        test_db_session, created_by=editor_id, visibility="public"
+    )
+    await _link_source(test_db_session, vrt_id, member, 0)
+    narrow = await client.patch(
+        f"/datasets/{member}", json={"visibility": "private"}, headers=editor_headers
+    )
+    assert narrow.status_code == 200, narrow.text
+
+    tiles = await client.get(
+        "/tiles/raster-auth-check/", params={"dataset_id": str(vrt_id)}
+    )
+    assert tiles.status_code == 409, tiles.text
+    assert await _tile_token_bounds(client, vrt_id, admin_auth_header) == (None, None)
+
+
+async def test_tile_token_keeps_bounds_for_a_mosaic_that_serves(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    vrt_id = await _vrt_with_members(test_db_session, [("public", READABLE)])
+
+    single, batch = await _tile_token_bounds(client, vrt_id, admin_auth_header)
+    assert _rounded(single) == _rounded(batch) == FULL
