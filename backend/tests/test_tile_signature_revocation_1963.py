@@ -151,7 +151,8 @@ class TestUnpublishRetiresOutstandingSignatures:
             params={"dataset_id": str(dataset.id), **params},
         )
 
-        assert resp.status_code == 404, resp.text
+        assert resp.status_code == 403, resp.text
+        assert resp.json()["detail"] == "Invalid or expired signature"
 
     async def test_vector_refuses_a_signature_minted_before_the_unpublish(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -260,7 +261,8 @@ class TestUnpublishRetiresOutstandingSignatures:
             },
         )
 
-        assert resp.status_code == 404, resp.text
+        assert resp.status_code == 403, resp.text
+        assert resp.json()["detail"] == "Invalid or expired signature"
 
 
 @pytest.mark.usefixtures("_init_tile_pool_for_tests")
@@ -292,7 +294,8 @@ class TestGoingPrivateRetiresOutstandingSignatures:
             },
         )
 
-        assert resp.status_code == 401, resp.text
+        assert resp.status_code == 403, resp.text
+        assert resp.json()["detail"] == "Invalid or expired signature"
 
     @pytest.mark.parametrize("route", ["data", "clusters/data"])
     async def test_vector_routes_refuse_a_signature_minted_while_public(
@@ -672,7 +675,7 @@ class TestASharedCacheIsNotACapabilityChannel:
         [
             ("public", "published", "public", 200),
             ("public", "internal", "private", 404),
-            ("private", "published", "private", 401),
+            ("private", "published", "private", 404),
         ],
     )
     async def test_raster_cache_status_implies_anonymous_readability(

@@ -309,7 +309,7 @@ class TestTileTokenEndpoint:
     async def test_token_unauthenticated_on_private_dataset(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Unauthenticated request on a private dataset returns 401."""
+        """Unauthenticated request on a private dataset returns 404."""
         table_name = f"sign_test_{uuid.uuid4().hex[:8]}"
         user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await _create_tile_test_dataset(
@@ -320,7 +320,7 @@ class TestTileTokenEndpoint:
         )
 
         resp = await client.get(f"/tiles/token/{dataset.id}/")
-        assert resp.status_code == 401
+        assert resp.status_code == 404
 
     async def test_token_nonexistent_dataset_returns_404(
         self, client: AsyncClient, admin_auth_header: dict

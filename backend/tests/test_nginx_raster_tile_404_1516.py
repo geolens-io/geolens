@@ -13,7 +13,7 @@ The mapping was added when a tile outside the raster's extent 404'd upstream.
 ``raster_tile_proxy`` converts Titiler's out-of-bounds 404 into a 204 itself
 now, so it no longer catches that case, and the only 404s left to catch are
 genuine. Measured against the api: in-footprint 200, out-of-extent 204, missing
-dataset 404, private-and-anonymous 401.
+dataset 404, private-and-anonymous 404.
 
 This file is a text check on the config. The behaviour was verified by running
 nginx over it against the dev api.

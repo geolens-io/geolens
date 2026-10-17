@@ -172,7 +172,7 @@ class TestRasterMetaCache:
         Scenario:
           1. Admin calls raster-auth-check → metadata is cached.
           2. Anonymous caller (no auth) hits the same endpoint.
-          3. The anonymous caller MUST be denied (401), not served the admin's
+          3. The anonymous caller MUST be denied (404), not served the admin's
              cached allow decision.
         """
         admin_id = await get_user_id(test_db_session, "admin")
@@ -200,7 +200,7 @@ class TestRasterMetaCache:
             "/tiles/raster-auth-check/",
             params={"dataset_id": str(dataset.id)},
         )
-        assert anon_resp.status_code == 401, (
+        assert anon_resp.status_code == 404, (
             f"PERF-002 FAIL: cached metadata bypassed auth; got {anon_resp.status_code}"
         )
 

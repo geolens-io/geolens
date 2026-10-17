@@ -16,6 +16,26 @@ and releases use semantic versioning.
   file doesn't match, so the browser blocked the beacon and logged a CSP error
   on every page. Installs that set the file URL should switch to the host.
 
+### Security
+
+- Anonymous raster tile and tile token requests can no longer tell a private
+  dataset from one that doesn't exist. `GET /tiles/token/{dataset_id}/`
+  answers 404 "Dataset not found" for a non-public dataset, where it answered
+  401 "Authentication required", and `POST /tiles/tokens/` reports that id
+  with the same "Dataset not found" error. Raster tiles answer 404 without
+  signature parameters and 403 "Invalid or expired signature" with signature
+  parameters that don't authorize, alike for a private raster, an unpublished
+  one, a dataset that isn't a raster and an id that doesn't exist. An invalid
+  embed token answers 403 for an id that doesn't exist too. A credential that
+  doesn't resolve still answers 401.
+
+### Upgrade notes
+
+- Anonymous requests for a non-public raster tile or tile token answer 404
+  instead of 401. A client that read that 401 as a cue to sign in needs
+  another signal, such as the dataset's own 404. Requests carrying an expired
+  or invalid credential still answer 401.
+
 ## [1.25.1] - 2026-10-16
 
 1.25.1 is the first release with API and worker container images for the

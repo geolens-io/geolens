@@ -200,20 +200,21 @@ def sync_detailed(
     default is used in place of the value sent.
 
     Responds 204 when the tile falls outside the raster, 400 for an
-    unsupported format, 401 when authentication is required, or when a request
-    that no capability authorized carried a credential which did not resolve,
-    403 when the embed token is invalid or expired
-    or a multi-tenant request arrives with no tenant context, 422 for an
-    out-of-range stretch parameter, and 503 when the renderer cannot be
-    reached. A different failure from the renderer is passed through with its
-    own status.
+    unsupported format, 401 when a request that no capability authorized
+    carried a credential which did not resolve, 403 when the embed token is
+    invalid or expired or a multi-tenant request arrives with no tenant
+    context, 422 for an out-of-range stretch parameter, and 503 when the
+    renderer cannot be reached. A different failure from the renderer is
+    passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
-    request, so does a dataset the caller may not read: an authorization denial
-    on a non-public raster, and an unpublished raster asked for by a caller who
-    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
-    dataset's existence undisclosed.
+    request, so does a dataset the caller may not read: a non-public raster
+    asked for anonymously or by a caller without access, and an unpublished
+    raster asked for by a caller who is neither its owner nor an admin. An
+    anonymous request whose signature parameters did not authorize gets 403
+    instead, for a missing dataset as for one it cannot see. Either way a
+    refusal never discloses that the dataset exists.
 
     Args:
         dataset_id (UUID):
@@ -311,20 +312,21 @@ def sync(
     default is used in place of the value sent.
 
     Responds 204 when the tile falls outside the raster, 400 for an
-    unsupported format, 401 when authentication is required, or when a request
-    that no capability authorized carried a credential which did not resolve,
-    403 when the embed token is invalid or expired
-    or a multi-tenant request arrives with no tenant context, 422 for an
-    out-of-range stretch parameter, and 503 when the renderer cannot be
-    reached. A different failure from the renderer is passed through with its
-    own status.
+    unsupported format, 401 when a request that no capability authorized
+    carried a credential which did not resolve, 403 when the embed token is
+    invalid or expired or a multi-tenant request arrives with no tenant
+    context, 422 for an out-of-range stretch parameter, and 503 when the
+    renderer cannot be reached. A different failure from the renderer is
+    passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
-    request, so does a dataset the caller may not read: an authorization denial
-    on a non-public raster, and an unpublished raster asked for by a caller who
-    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
-    dataset's existence undisclosed.
+    request, so does a dataset the caller may not read: a non-public raster
+    asked for anonymously or by a caller without access, and an unpublished
+    raster asked for by a caller who is neither its owner nor an admin. An
+    anonymous request whose signature parameters did not authorize gets 403
+    instead, for a missing dataset as for one it cannot see. Either way a
+    refusal never discloses that the dataset exists.
 
     Args:
         dataset_id (UUID):
@@ -417,20 +419,21 @@ async def asyncio_detailed(
     default is used in place of the value sent.
 
     Responds 204 when the tile falls outside the raster, 400 for an
-    unsupported format, 401 when authentication is required, or when a request
-    that no capability authorized carried a credential which did not resolve,
-    403 when the embed token is invalid or expired
-    or a multi-tenant request arrives with no tenant context, 422 for an
-    out-of-range stretch parameter, and 503 when the renderer cannot be
-    reached. A different failure from the renderer is passed through with its
-    own status.
+    unsupported format, 401 when a request that no capability authorized
+    carried a credential which did not resolve, 403 when the embed token is
+    invalid or expired or a multi-tenant request arrives with no tenant
+    context, 422 for an out-of-range stretch parameter, and 503 when the
+    renderer cannot be reached. A different failure from the renderer is
+    passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
-    request, so does a dataset the caller may not read: an authorization denial
-    on a non-public raster, and an unpublished raster asked for by a caller who
-    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
-    dataset's existence undisclosed.
+    request, so does a dataset the caller may not read: a non-public raster
+    asked for anonymously or by a caller without access, and an unpublished
+    raster asked for by a caller who is neither its owner nor an admin. An
+    anonymous request whose signature parameters did not authorize gets 403
+    instead, for a missing dataset as for one it cannot see. Either way a
+    refusal never discloses that the dataset exists.
 
     Args:
         dataset_id (UUID):
@@ -526,20 +529,21 @@ async def asyncio(
     default is used in place of the value sent.
 
     Responds 204 when the tile falls outside the raster, 400 for an
-    unsupported format, 401 when authentication is required, or when a request
-    that no capability authorized carried a credential which did not resolve,
-    403 when the embed token is invalid or expired
-    or a multi-tenant request arrives with no tenant context, 422 for an
-    out-of-range stretch parameter, and 503 when the renderer cannot be
-    reached. A different failure from the renderer is passed through with its
-    own status.
+    unsupported format, 401 when a request that no capability authorized
+    carried a credential which did not resolve, 403 when the embed token is
+    invalid or expired or a multi-tenant request arrives with no tenant
+    context, 422 for an out-of-range stretch parameter, and 503 when the
+    renderer cannot be reached. A different failure from the renderer is
+    passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
-    request, so does a dataset the caller may not read: an authorization denial
-    on a non-public raster, and an unpublished raster asked for by a caller who
-    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
-    dataset's existence undisclosed.
+    request, so does a dataset the caller may not read: a non-public raster
+    asked for anonymously or by a caller without access, and an unpublished
+    raster asked for by a caller who is neither its owner nor an admin. An
+    anonymous request whose signature parameters did not authorize gets 403
+    instead, for a missing dataset as for one it cannot see. Either way a
+    refusal never discloses that the dataset exists.
 
     Args:
         dataset_id (UUID):

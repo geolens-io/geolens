@@ -1805,10 +1805,10 @@ def test_delegated_guards_still_enforce_access() -> None:
         "access to a non-public dataset to check_dataset_access"
     )
     tile_auth = _source_of(tiles_router._authorize_vector_tile_request)
-    tile_refusal = _source_of(tiles_router._refuse_unseen_vector_tile)
+    tile_refusal = _source_of(tiles_router._refuse_unseen_tile)
     assert (
         "visibility" in tile_auth
-        and "_refuse_unseen_vector_tile" in tile_auth_calls
+        and "_refuse_unseen_tile" in tile_auth_calls
         and "403" in tile_refusal
         and "404" in tile_refusal
     ), (

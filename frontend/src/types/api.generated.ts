@@ -5512,20 +5512,21 @@ export interface paths {
          *     default is used in place of the value sent.
          *
          *     Responds 204 when the tile falls outside the raster, 400 for an
-         *     unsupported format, 401 when authentication is required, or when a request
-         *     that no capability authorized carried a credential which did not resolve,
-         *     403 when the embed token is invalid or expired
-         *     or a multi-tenant request arrives with no tenant context, 422 for an
-         *     out-of-range stretch parameter, and 503 when the renderer cannot be
-         *     reached. A different failure from the renderer is passed through with its
-         *     own status.
+         *     unsupported format, 401 when a request that no capability authorized
+         *     carried a credential which did not resolve, 403 when the embed token is
+         *     invalid or expired or a multi-tenant request arrives with no tenant
+         *     context, 422 for an out-of-range stretch parameter, and 503 when the
+         *     renderer cannot be reached. A different failure from the renderer is
+         *     passed through with its own status.
          *
          *     404 covers more than a missing dataset. A dataset that is unknown, is not a
          *     raster or has no image answers 404. Where no capability authorized the
-         *     request, so does a dataset the caller may not read: an authorization denial
-         *     on a non-public raster, and an unpublished raster asked for by a caller who
-         *     is neither its owner nor an admin. That is deliberate, so a refusal keeps a
-         *     dataset's existence undisclosed.
+         *     request, so does a dataset the caller may not read: a non-public raster
+         *     asked for anonymously or by a caller without access, and an unpublished
+         *     raster asked for by a caller who is neither its owner nor an admin. An
+         *     anonymous request whose signature parameters did not authorize gets 403
+         *     instead, for a missing dataset as for one it cannot see. Either way a
+         *     refusal never discloses that the dataset exists.
          */
         get: operations["raster_tile_proxy_tiles_raster_proxy__dataset_id___z___x___y___fmt__get"];
         put?: never;
@@ -5552,8 +5553,9 @@ export interface paths {
          *
          *     Both responses include a discriminated ``kind`` field.
          *
-         *     Public datasets can be accessed without authentication.
-         *     Private/restricted datasets require authentication and RBAC checks.
+         *     A public, published dataset needs no authentication. Any other dataset
+         *     needs a caller with access to it, and answers 404 to everyone else,
+         *     anonymous callers included, exactly as an unknown dataset does.
          */
         get: operations["get_tile_token_tiles_token__dataset_id___get"];
         put?: never;

@@ -463,10 +463,10 @@ class TestRasterAuthCheck:
         )
         assert resp.status_code == 404
 
-    async def test_auth_check_401_for_unauthenticated_private(
+    async def test_auth_check_404_for_unauthenticated_private(
         self, client: AsyncClient, test_db_session
     ):
-        """Private raster, no auth -> 401."""
+        """Private raster, no auth -> 404, as for a missing dataset."""
         admin_id = await _get_admin_id(test_db_session)
         await _create_raster_dataset(
             test_db_session, created_by=admin_id, visibility="private"
@@ -480,7 +480,7 @@ class TestRasterAuthCheck:
             "/tiles/raster-auth-check/",
             params={"dataset_id": str(dataset.id)},
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 404
 
     async def test_auth_check_404_for_nonexistent_dataset(
         self, client: AsyncClient, test_db_session
@@ -946,17 +946,17 @@ class TestRasterTokenEndpoint:
         assert "scope" in data
         assert "expires_in" in data
 
-    async def test_raster_token_401_for_private_unauthenticated(
+    async def test_raster_token_404_for_private_unauthenticated(
         self, client: AsyncClient, test_db_session
     ):
-        """Private raster, no auth -> 401."""
+        """Private raster, no auth -> 404, as for a missing dataset."""
         admin_id = await _get_admin_id(test_db_session)
         record, dataset, asset = await _create_raster_dataset(
             test_db_session, created_by=admin_id, visibility="private"
         )
 
         resp = await client.get(f"/tiles/token/{dataset.id}/")
-        assert resp.status_code == 401
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -1197,7 +1197,7 @@ class TestSignedRasterTileTemplate:
         assert resp.status_code == 200
         assert asset.asset_uri in resp.headers["x-geolens-asset-openpath"]
 
-    async def test_an_unsigned_request_for_a_private_raster_still_401s(
+    async def test_an_unsigned_request_for_a_private_raster_is_still_refused(
         self, client: AsyncClient, test_db_session
     ):
         """The signed branch is additive; it does not open the unsigned path."""
@@ -1210,7 +1210,7 @@ class TestSignedRasterTileTemplate:
             "/tiles/raster-auth-check/", params={"dataset_id": str(dataset.id)}
         )
 
-        assert resp.status_code == 401
+        assert resp.status_code == 404
 
     async def test_a_tampered_signature_falls_through_to_normal_auth(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -1230,10 +1230,10 @@ class TestSignedRasterTileTemplate:
             params={"dataset_id": str(dataset.id), **params},
         )
 
-        # fix(#688 codex r1): an unusable signature falls through to the normal
-        # branches rather than refusing, so an unauthenticated caller lands on
-        # the same 401 it would have got without presenting one at all.
-        assert resp.status_code == 401
+        # An unusable signature falls through to the normal branches, which
+        # refuse an anonymous caller with signature parameters as they would
+        # for a missing dataset.
+        assert resp.status_code == 403
 
     async def test_a_signature_minted_for_another_dataset_does_not_authorize(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -1259,7 +1259,7 @@ class TestSignedRasterTileTemplate:
             params={"dataset_id": str(other.id), **self._signed_params(token)},
         )
 
-        assert resp.status_code == 401
+        assert resp.status_code == 403
 
     async def test_an_expired_signature_does_not_authorize(
         self, client: AsyncClient, test_db_session
@@ -1284,7 +1284,7 @@ class TestSignedRasterTileTemplate:
             },
         )
 
-        assert resp.status_code == 401
+        assert resp.status_code == 403
 
     async def test_a_non_numeric_exp_does_not_500(
         self, client: AsyncClient, test_db_session
@@ -1304,7 +1304,7 @@ class TestSignedRasterTileTemplate:
             },
         )
 
-        assert resp.status_code == 401
+        assert resp.status_code == 403
 
     async def test_a_signed_template_renders_an_unpublished_public_draft(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
