@@ -114,7 +114,9 @@ def test_catalog_search_probes_each_folded_piece(predicate: str):
         geometry_geojson=json.dumps(_SEAM_AREA), spatial_predicate=predicate
     )
 
-    sql = _sql(_apply_common_filters(select(Record.id), filters))
+    sql = _sql(
+        _apply_common_filters(select(Record.id), filters, user=None, user_roles=set())
+    )
 
     _assert_probes_each_piece(sql)
     assert ("ST_Intersects(records_1.spatial_extent, anon_" in sql) is (
@@ -126,7 +128,7 @@ def test_catalog_search_probes_each_folded_piece(predicate: str):
 
 
 def test_stac_intersects_probes_each_folded_piece():
-    clauses, _ = _build_search_filters(intersects=_SEAM_AREA)
+    clauses, _ = _build_search_filters(None, set(), intersects=_SEAM_AREA)
 
     sql = _sql(select(Record.id).where(*clauses))
 

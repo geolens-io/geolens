@@ -14,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.identity import Identity
-from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.authorization import (
+    apply_visibility_filter,
+    visible_extent_match,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.search.service_filters import (
     SearchFilters,
@@ -30,7 +33,9 @@ from app.modules.catalog.search.service_semantic import (
 )
 
 
-def _apply_search_only_filters(stmt: Select, filters: SearchFilters) -> Select:
+def _apply_search_only_filters(
+    stmt: Select, filters: SearchFilters, user: Identity | None, user_roles: set[str]
+) -> Select:
     """Apply filters that belong to /search but NOT to /facets.
 
     Handles record_type, record_ids, external_ids, date_from, date_to,
@@ -67,7 +72,14 @@ def _apply_search_only_filters(stmt: Select, filters: SearchFilters) -> Select:
     if filters.cql2_filter:
         from app.standards.ogc.filtering import apply_cql2_filter
 
-        stmt = apply_cql2_filter(stmt, filters.cql2_filter, filters.cql2_filter_lang)
+        stmt = apply_cql2_filter(
+            stmt,
+            filters.cql2_filter,
+            filters.cql2_filter_lang,
+            extent_match=lambda match, overlaps: visible_extent_match(
+                user, user_roles, match, overlaps=overlaps
+            ),
+        )
     return stmt
 
 
@@ -86,9 +98,11 @@ def vetting_filters(
     off so the type counts cover every type.
     """
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-    stmt = _apply_common_filters(stmt, filters, skip_text=True)
+    stmt = _apply_common_filters(
+        stmt, filters, user=user, user_roles=user_roles, skip_text=True
+    )
     if search_only:
-        stmt = _apply_search_only_filters(stmt, filters)
+        stmt = _apply_search_only_filters(stmt, filters, user, user_roles)
     return stmt
 
 

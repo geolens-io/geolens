@@ -212,3 +212,54 @@ async def test_tile_token_keeps_bounds_for_a_mosaic_that_serves(
 
     single, batch = await _tile_token_bounds(client, vrt_id, admin_auth_header)
     assert _rounded(single) == _rounded(batch) == FULL
+
+
+async def test_batch_tile_tokens_ask_about_every_mosaic_at_once(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    from app.platform.extensions import get_processing_port
+
+    admin_id = await _get_admin_id(test_db_session)
+    editor_headers, editor_id = await _make_editor(client, admin_auth_header)
+    serving = [
+        await _vrt_with_members(test_db_session, [("public", READABLE)])
+        for _ in range(2)
+    ]
+    refused = await _create_vrt_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    await _set_extent(test_db_session, refused, FULL)
+    member = await _create_raster_dataset(
+        test_db_session, created_by=editor_id, visibility="public"
+    )
+    await _link_source(test_db_session, refused, member, 0)
+    narrow = await client.patch(
+        f"/datasets/{member}", json={"visibility": "private"}, headers=editor_headers
+    )
+    assert narrow.status_code == 200, narrow.text
+
+    # Without a registered overlay each call builds a new default port.
+    port_cls = type(get_processing_port())
+    calls: list[int] = []
+    bulk = port_cls.vrts_beyond_member_audience
+    single = port_cls.vrt_members_beyond_audience
+
+    async def counted_bulk(self, session, vrts):
+        calls.append(len(vrts))
+        return await bulk(self, session, vrts)
+
+    async def counted_single(self, session, member_ids, vrt):
+        calls.append(-1)
+        return await single(self, session, member_ids, vrt)
+
+    monkeypatch.setattr(port_cls, "vrts_beyond_member_audience", counted_bulk)
+    monkeypatch.setattr(port_cls, "vrt_members_beyond_audience", counted_single)
+    ids = [str(vrt_id) for vrt_id in [*serving, refused]]
+    batch = await client.post(
+        "/tiles/tokens/", json={"dataset_ids": ids}, headers=admin_auth_header
+    )
+
+    assert batch.status_code == 200, batch.text
+    assert calls == [3]
+    bounds = {k: _rounded(v["bounds"]) for k, v in batch.json()["tokens"].items()}
+    assert bounds == {ids[0]: FULL, ids[1]: FULL, ids[2]: None}

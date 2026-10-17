@@ -135,17 +135,23 @@ and releases use semantic versioning.
 ### Security
 
 - A VRT's extent covers only the member rasters the requester can read.
-  Dataset detail and lists, search, OGC API Records items, OGC API collection
-  metadata, STAC items, and DCAT, DCAT-US and GeoDCAT-AP records and feeds
-  reported the extent of every member, which showed where a member hidden
-  from the requester lies, although the VRT's member list already left that
-  member out. A requester who can read no member gets no extent. Admins, and
-  anyone who can read every member, still get the full extent.
-  A tile token for a VRT whose tiles are refused, because a member is no
-  longer visible to everyone who can see the VRT, carries no `bounds`.
-  Collection extents, the catalog-wide extent in the OGC Records collection,
-  STAC collection extents and map layers' `dataset_extent_bbox` apply the
-  same rule.
+  Every surface that showed or matched a VRT by its stored extent spanned all
+  of its members, which showed where a member hidden from the requester lies,
+  although the VRT's member list already left that member out. Dataset detail
+  and lists, search, OGC API Records items and collection metadata, STAC
+  items and collections, DCAT, DCAT-US and GeoDCAT-AP records and feeds,
+  collection extents and map layers' `dataset_extent_bbox` now report the
+  extent of the readable members, or none when no member is readable.
+  Spatial filters (`bbox` and `geometry` in search, `bbox` and `intersects` in
+  STAC, and CQL2 spatial predicates in OGC API Records) match a VRT by that
+  same extent, so a box drawn only around a hidden member no longer finds it.
+  Admins, and anyone who can read every member, see the full extent. A tile
+  token for a VRT whose tiles are refused, because a member is no longer
+  visible to everyone who can see the VRT, carries no `bounds`.
+
+  Overlay authors: `EXTENSION_API_VERSION` is now 18. `ProcessingPort` gained
+  the required `vrts_beyond_member_audience`, which the tile-token endpoints
+  call once for all the mosaics they mint.
 
 ## [1.25.1] - 2026-10-16
 

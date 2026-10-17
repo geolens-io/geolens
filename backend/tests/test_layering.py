@@ -1209,9 +1209,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 581,
+        "backend/app/platform/extensions/defaults_processing_port.py": 586,
         "backend/app/platform/extensions/defaults_extensions.py": 433,
-        "backend/app/modules/catalog/search/service_filters.py": 366,
+        "backend/app/modules/catalog/search/service_filters.py": 377,
     }
 
     files_to_check = list(facade_line_budgets)
@@ -1300,9 +1300,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/db/tenant_adoption_sql.py": 2093,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
     "backend/app/core/db/tenant_adoption.py": 1258,
-    # CQL2 parsing, feature-filter validation and record-filter literal handling share
-    # one pygeofilter walk.
-    "backend/app/standards/ogc/filtering.py": 1012,
+    # CQL2 parsing, feature-filter validation, record-filter literal handling and
+    # the requester's spatial extent share one pygeofilter walk.
+    "backend/app/standards/ogc/filtering.py": 1095,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1706,
@@ -1393,7 +1393,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1423,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1915,
+    "backend/app/standards/stac/router.py": 1940,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2811,
@@ -1418,7 +1418,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1501,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
-    "backend/app/modules/catalog/authorization.py": 1086,
+    "backend/app/modules/catalog/authorization.py": 1149,
 }
 
 

@@ -40,6 +40,7 @@ from app.modules.catalog.authorization import (
     get_user_roles,
     visible_lineage_summaries,
     visible_extent_column,
+    visible_extent_match,
     visible_lineage_summary,
     visible_vrt_extents,
 )
@@ -1110,7 +1111,7 @@ async def get_collection_items(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid bbox: {e}",
             )
-        stmt = stmt.where(make_bbox_filter(Record.spatial_extent, bbox_vals))
+        stmt = stmt.where(_visible_bbox_filter(user, user_roles, bbox_vals))
 
     # Filter by datetime
     if datetime_param:
@@ -1364,7 +1365,21 @@ async def get_item(
     )
 
 
+def _visible_bbox_filter(
+    user: Identity | None, user_roles: set[str], bbox_vals: list[float]
+):
+    """Rows whose extent, as ``user`` sees it, intersects ``bbox_vals``."""
+    return visible_extent_match(
+        user,
+        user_roles,
+        lambda extent: make_bbox_filter(extent, bbox_vals),
+        overlaps=lambda extent: make_bbox_filter(extent, bbox_vals),
+    )
+
+
 def _build_search_filters(
+    user: Identity | None,
+    user_roles: set[str],
     *,
     bbox: str | list[float] | None = None,
     intersects: str | dict | None = None,
@@ -1450,7 +1465,15 @@ def _build_search_filters(
         _geom = wrap_geometry_longitudes(
             func.ST_SetSRID(func.ST_GeomFromGeoJSON(intersects_str), 4326)
         )
-        filters.append(wrapped_spatial_filter(Record, _geom))
+        filters.append(
+            wrapped_spatial_filter(
+                Record,
+                _geom,
+                extent_match=lambda candidate, test: visible_extent_match(
+                    user, user_roles, test, record=candidate
+                ),
+            )
+        )
     elif bbox:
         # Filter by bbox (only if intersects not provided). parse_bbox takes the
         # GET string and the POST list, so both spellings validate identically.
@@ -1461,7 +1484,7 @@ def _build_search_filters(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid bbox: {e}",
             )
-        filters.append(make_bbox_filter(Record.spatial_extent, bbox_vals))
+        filters.append(_visible_bbox_filter(user, user_roles, bbox_vals))
 
     return filters, False
 
@@ -1551,6 +1574,8 @@ async def _execute_search(
     (from POST JSON body) to avoid unnecessary serialization round-trips.
     """
     filters, ids_empty = _build_search_filters(
+        user,
+        user_roles,
         bbox=bbox,
         intersects=intersects,
         ids=ids,

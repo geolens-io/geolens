@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -540,7 +540,12 @@ def wrap_geometry_longitudes(geom: ColumnElement) -> ColumnElement:
 
 
 def wrapped_spatial_filter(
-    entity: Any, folded: ColumnElement, predicate: str = "intersects"
+    entity: Any,
+    folded: ColumnElement,
+    predicate: str = "intersects",
+    *,
+    extent_match: Callable[[Any, Callable[[ColumnElement], ColumnElement]], Any]
+    | None = None,
 ) -> ColumnElement:
     """Rows of ``entity`` whose ``spatial_extent`` meets ``folded`` under ``predicate``.
 
@@ -549,11 +554,18 @@ def wrapped_spatial_filter(
     the predicate then admit the whole latitude band. Probing the index once per
     piece keeps each probe to its own side of the seam. Intersection decomposes
     over pieces; ``within`` is checked against the whole fold.
+
+    ``extent_match(candidate, test)`` replaces the test on the stored extent,
+    for a caller whose rows may show a narrower extent than they store.
     """
     candidate = aliased(entity)
     pieces = func.ST_Dump(folded).table_valued("geom")
     spatial_fn = func.ST_Within if predicate == "within" else func.ST_Intersects
     target = folded if predicate == "within" else pieces.c.geom
+
+    def test(extent: ColumnElement) -> ColumnElement:
+        return spatial_fn(extent, target)
+
     matches = (
         select(candidate.id)
         .select_from(pieces)
@@ -561,7 +573,9 @@ def wrapped_spatial_filter(
             candidate,
             and_(
                 candidate.spatial_extent.op("&&")(func.ST_Envelope(pieces.c.geom)),
-                spatial_fn(candidate.spatial_extent, target),
+                test(candidate.spatial_extent)
+                if extent_match is None
+                else extent_match(candidate, test),
             ),
         )
     )

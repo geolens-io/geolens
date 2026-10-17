@@ -98,6 +98,9 @@ class FakeProcessingPort:
     async def vrt_members_beyond_audience(self, session, member_ids, vrt):
         return []
 
+    async def vrts_beyond_member_audience(self, session, vrts):
+        return [False] * len(vrts)
+
     async def run_analysis_preview(
         self,
         session,

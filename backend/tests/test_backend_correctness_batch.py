@@ -13,8 +13,14 @@ from app.modules.catalog.search.service_candidates import _apply_search_only_fil
 from app.modules.catalog.search.service_filters import SearchFilters
 from app.processing.ai.schemas import LLMMapSpec
 from app.standards.ogc.filtering import apply_cql2_filter, compile_feature_cql2
+
+
 from app.standards.stac.router import _apply_datetime_filter
 from tests.factories import create_dataset, get_user_id
+
+
+def _stored_extent(match, overlaps):
+    return match(Record.spatial_extent)
 
 
 @pytest.mark.anyio
@@ -83,7 +89,10 @@ async def test_search_date_range_ignores_session_timezone(test_db_session, zone)
     await test_db_session.execute(text(f"SET TIME ZONE '{zone}'"))
     filters = SearchFilters(date_from=date(2026, 3, 10), date_to=date(2026, 3, 10))
     stmt = _apply_search_only_filters(
-        select(Record.id).join(Dataset, Dataset.record_id == Record.id), filters
+        select(Record.id).join(Dataset, Dataset.record_id == Record.id),
+        filters,
+        None,
+        set(),
     )
     assert await _labels(test_db_session, stmt, named) == ["end", "start"]
 
@@ -111,7 +120,9 @@ async def test_records_cql2_temporal_filter_ignores_session_timezone(
 ):
     named = await _records_created_at_the_day_edges(test_db_session)
     await test_db_session.execute(text(f"SET TIME ZONE '{zone}'"))
-    stmt = apply_cql2_filter(select(Record.id), expression, "cql2-text")
+    stmt = apply_cql2_filter(
+        select(Record.id), expression, "cql2-text", extent_match=_stored_extent
+    )
     assert await _labels(test_db_session, stmt, named) == ["end", "start"]
 
 
@@ -120,7 +131,9 @@ def test_records_cql2_filter_nested_to_the_length_cap_is_a_400_not_a_crash():
 
     expression = " OR ".join(["srid = 1"] * 999)
     with pytest.raises(HTTPException) as refused:
-        apply_cql2_filter(select(Record.id), expression, "cql2-text")
+        apply_cql2_filter(
+            select(Record.id), expression, "cql2-text", extent_match=_stored_extent
+        )
     assert refused.value.status_code == 400
 
 

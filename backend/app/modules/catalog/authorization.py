@@ -9,7 +9,7 @@ module (Phase 213).
 import enum
 import uuid
 from dataclasses import replace
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -26,6 +26,7 @@ from sqlalchemy import (
     exists,
     func,
     literal,
+    or_,
     select,
     table,
     union_all,
@@ -535,13 +536,16 @@ async def visible_vrt_extents(
     return extents
 
 
-def visible_extent_column(user: Identity | None, user_roles: set[str]) -> ColumnElement:
-    """``Record.spatial_extent`` as this requester sees it, in a statement over
-    ``Dataset`` joined to ``Record``.
+def visible_extent_column(
+    user: Identity | None, user_roles: set[str], record: Any = None
+) -> ColumnElement:
+    """``record.spatial_extent`` as this requester sees it.
 
-    A VRT with a member the requester cannot read shows its readable members'
-    extents, as in :func:`visible_vrt_extents`; every other row shows its own.
-    Members are checked one by one, so the cost stays with VRT rows.
+    ``record`` defaults to ``Record`` in a statement that joins ``Dataset``; an
+    aliased ``Record`` finds its dataset itself. A VRT with a member the
+    requester cannot read shows its readable members' extents, as in
+    :func:`visible_vrt_extents`; every other row shows its own. Members are
+    checked one by one, so the cost stays with VRT rows.
     """
     from app.modules.catalog.datasets.domain.models import (
         Dataset,
@@ -549,6 +553,15 @@ def visible_extent_column(user: Identity | None, user_roles: set[str]) -> Column
         Record,
     )
 
+    if record is None:
+        record, dataset_id = Record, Dataset.id
+    else:
+        dataset_id = (
+            select(Dataset.id)
+            .where(Dataset.record_id == record.id)
+            .correlate(record)
+            .scalar_subquery()
+        )
     links = _VRT_SOURCE_LINKS
     member = aliased(Dataset)
     member_record = aliased(Record)
@@ -562,7 +575,7 @@ def visible_extent_column(user: Identity | None, user_roles: set[str]) -> Column
             DatasetGrant,
         )
 
-    of_row = links.c.vrt_dataset_id == Dataset.id
+    of_row = links.c.vrt_dataset_id == dataset_id
     readable_members = readable(
         select(func.ST_Collect(member_record.spatial_extent))
         .select_from(links.join(member, member.id == links.c.source_dataset_id))
@@ -573,8 +586,34 @@ def visible_extent_column(user: Identity | None, user_roles: set[str]) -> Column
     ).exists()
     hides_member = exists().where(of_row, ~member_is_readable)
     return case(
-        (and_(Record.record_type == "vrt_dataset", hides_member), readable_members),
-        else_=Record.spatial_extent,
+        (and_(record.record_type == "vrt_dataset", hides_member), readable_members),
+        else_=record.spatial_extent,
+    )
+
+
+def visible_extent_match(
+    user: Identity | None,
+    user_roles: set[str],
+    match: Callable[[ColumnElement], ColumnElement],
+    *,
+    overlaps: Callable[[ColumnElement], ColumnElement] | None = None,
+    record: Any = None,
+) -> ColumnElement:
+    """Rows whose extent, as this requester sees it, satisfies ``match``.
+
+    Each arm tests one row's own extent, so the result composes under NOT and
+    OR like ``match`` itself. ``overlaps`` is a test that every match also
+    passes on the stored extent; it lets VRT rows use the spatial index too.
+    """
+    from app.modules.catalog.datasets.domain.models import Record
+
+    shown = visible_extent_column(user, user_roles, record)
+    record = Record if record is None else record
+    is_vrt = record.record_type == "vrt_dataset"
+    prefilter = [] if overlaps is None else [overlaps(record.spatial_extent)]
+    return or_(
+        and_(record.record_type != "vrt_dataset", match(record.spatial_extent)),
+        and_(is_vrt, *prefilter, match(shown)),
     )
 
 
@@ -980,6 +1019,30 @@ async def vrt_members_beyond_audience(
     ids = list(members)
     flags = await _audiences_exceeded(db, [(vrt, members[i][0]) for i in ids])
     return [dataset_id for dataset_id, flag in zip(ids, flags, strict=True) if flag]
+
+
+async def vrts_beyond_member_audience(
+    db: AsyncSession,
+    vrts: Sequence[tuple[RecordAudienceQuery, Iterable[uuid.UUID]]],
+) -> list[bool]:
+    """For each ``(vrt, member_ids)``: does a member lie beyond the VRT's
+    audience? :func:`vrt_members_beyond_audience` for many VRTs in two
+    statements."""
+    listed = [(vrt, list(member_ids)) for vrt, member_ids in vrts]
+    members = await _record_audience_queries(
+        db, {member for _, ids in listed for member in ids}
+    )
+    pairs = [
+        (index, vrt, members[member][0])
+        for index, (vrt, ids) in enumerate(listed)
+        for member in ids
+        if member in members
+    ]
+    flags = await _audiences_exceeded(db, [(vrt, member) for _, vrt, member in pairs])
+    beyond = [False] * len(listed)
+    for (index, _, _), flag in zip(pairs, flags, strict=True):
+        beyond[index] = beyond[index] or flag
+    return beyond
 
 
 async def check_vrt_within_member_audience(

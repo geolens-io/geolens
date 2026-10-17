@@ -9,12 +9,14 @@ query execution.
 Only CQL2 is supported; the legacy CQL1/WFS 2.0 syntax is rejected.
 """
 
+import functools
 import json
 import math
 import re
 import uuid
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -189,8 +191,89 @@ def _pin_timestamptz_literals(root: Any) -> None:
         )
 
 
+# Spatial operators whose every match also overlaps the literal's bounding box.
+_OVERLAPPING_SPATIAL_OPS = frozenset(
+    {"INTERSECTS", "CONTAINS", "WITHIN", "TOUCHES", "CROSSES", "OVERLAPS", "EQUALS"}
+)
+
+# ``extent_match(match, overlaps)``: rows whose extent satisfies ``match``;
+# ``overlaps`` is a test every match also passes on the stored extent, or None.
+ExtentMatch = Callable[[Callable[[Any], Any], Callable[[Any], Any] | None], Any]
+
+
+@functools.cache
+def _extent_evaluator() -> type:
+    from pygeofilter import ast as pgf_ast
+    from pygeofilter.backends.evaluator import handle
+    from pygeofilter.backends.sqlalchemy import filters
+    from pygeofilter.backends.sqlalchemy.evaluate import SQLAlchemyFilterEvaluator
+
+    class ExtentEvaluator(SQLAlchemyFilterEvaluator):
+        """Tests each spatial predicate on the extent ``extent_match`` resolves."""
+
+        def __init__(self, extent_match: ExtentMatch):
+            super().__init__(FIELD_MAPPING, None)
+            self.extent_match = extent_match
+
+        def _leaf(self, lhs, rhs, test, overlapping: bool):
+            extent = FIELD_MAPPING["geometry"]
+            if lhs is extent:
+                other, match = rhs, (lambda geom: test(geom, rhs))
+            elif rhs is extent:
+                other, match = lhs, (lambda geom: test(lhs, geom))
+            else:
+                return test(lhs, rhs)
+            overlaps = (lambda geom: geom.op("&&")(other)) if overlapping else None
+            return self.extent_match(match, overlaps)
+
+        @handle(pgf_ast.SpatialComparisonPredicate, subclasses=True)
+        def spatial_operation(self, node, lhs, rhs):
+            op = node.op.name
+            return self._leaf(
+                lhs,
+                rhs,
+                lambda a, b: filters.spatial(a, b, op),
+                op in _OVERLAPPING_SPATIAL_OPS,
+            )
+
+        @handle(pgf_ast.Relate)
+        def spatial_pattern(self, node, lhs, rhs):
+            return self._leaf(
+                lhs,
+                rhs,
+                lambda a, b: filters.spatial(a, b, "RELATE", pattern=node.pattern),
+                False,
+            )
+
+        @handle(pgf_ast.SpatialDistancePredicate, subclasses=True)
+        def spatial_distance(self, node, lhs, rhs):
+            return self._leaf(
+                lhs,
+                rhs,
+                lambda a, b: filters.spatial(
+                    a, b, node.op.value, distance=node.distance, units=node.units
+                ),
+                False,
+            )
+
+        @handle(pgf_ast.BBox)
+        def bbox(self, node, lhs):
+            box = filters.parse_bbox(
+                [node.minx, node.miny, node.maxx, node.maxy], node.crs
+            )
+            return self._leaf(
+                lhs, box, lambda a, b: filters.spatial(a, b, "INTERSECTS"), True
+            )
+
+    return ExtentEvaluator
+
+
 def apply_cql2_filter(
-    stmt: Any, filter_expr: str, filter_lang: str = "cql2-text"
+    stmt: Any,
+    filter_expr: str,
+    filter_lang: str = "cql2-text",
+    *,
+    extent_match: ExtentMatch,
 ) -> Any:
     """Parse a CQL2 expression and apply it as a WHERE clause to a SQLAlchemy statement.
 
@@ -198,6 +281,8 @@ def apply_cql2_filter(
         stmt: SQLAlchemy select statement to add the filter to.
         filter_expr: The CQL2 filter expression string.
         filter_lang: Either "cql2-text" or "cql2-json".
+        extent_match: Builds each spatial predicate on the ``geometry``
+            queryable, so a caller can test the extent its requester sees.
 
     Returns:
         The statement with the CQL2 filter applied.
@@ -205,12 +290,10 @@ def apply_cql2_filter(
     Raises:
         HTTPException(400): On invalid CQL2 expression or filter translation error.
     """
-    from pygeofilter.backends.sqlalchemy import to_filter
-
     ast = parse_cql2_filter(filter_expr, filter_lang)
     _pin_timestamptz_literals(ast)
     try:
-        sa_filter = to_filter(ast, FIELD_MAPPING)
+        sa_filter = _extent_evaluator()(extent_match).evaluate(ast)
     except Exception as e:  # broad: to_filter errors vary by unsupported CQL2 shape
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

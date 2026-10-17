@@ -127,11 +127,16 @@ class TestExtensionApiVersionConstant:
         overlay that replaces the ``processing_port`` key without it fails
         every VRT tile and build.
 
+        v18 adds the required ``vrts_beyond_member_audience`` method to
+        ``ProcessingPort``. Both tile-token endpoints call it, so an overlay
+        that replaces the ``processing_port`` key without it fails every
+        raster tile token.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 17
+        assert EXTENSION_API_VERSION == 18
 
 
 class TestCheckExtensionApiVersion:

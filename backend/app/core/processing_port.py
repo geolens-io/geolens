@@ -217,6 +217,16 @@ class ProcessingPort(Protocol):
         self, session: AsyncSession, member_ids: Sequence[uuid.UUID], vrt: Any
     ) -> list[uuid.UUID]: ...
 
+    # REQUIRED (EXTENSION_API_VERSION 17 -> 18): the batch tile-token endpoint
+    # asks once for every mosaic in the batch. Each item is ``(vrt,
+    # member_ids)``; the answer says, per item, whether a member is beyond the
+    # VRT's audience, as ``vrt_members_beyond_audience`` would.
+    async def vrts_beyond_member_audience(
+        self,
+        session: AsyncSession,
+        vrts: Sequence[tuple[Any, Sequence[uuid.UUID]]],
+    ) -> list[bool]: ...
+
     async def run_analysis_preview(
         self,
         session: AsyncSession,

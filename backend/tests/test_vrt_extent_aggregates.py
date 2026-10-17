@@ -5,6 +5,7 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import json
 import uuid
 
 from httpx import AsyncClient
@@ -134,3 +135,107 @@ async def test_map_layer_extent_covers_only_readable_members(
     )
     admin = await layer_extents(admin_auth_header)
     assert {k: _rounded(v) for k, v in admin.items()} == dict.fromkeys(admin, FULL)
+
+
+def _box(bounds) -> dict:
+    w, s, e, n = bounds
+    return {
+        "type": "Polygon",
+        "coordinates": [[[w, s], [e, s], [e, n], [w, n], [w, s]]],
+    }
+
+
+def _wkt(bounds) -> str:
+    w, s, e, n = bounds
+    return f"POLYGON(({w} {s},{e} {s},{e} {n},{w} {n},{w} {s}))"
+
+
+async def _spatial_hits(client, vrt_id, headers, collection_id, bounds) -> dict:
+    """Whether each spatial filter over ``bounds`` returns the VRT."""
+    vid = str(vrt_id)
+    token = (await client.get(f"/datasets/{vid}", headers=headers)).json()["title"]
+    token = token.split(" ")[3]
+    box = ",".join(str(v) for v in bounds)
+    geometry = json.dumps(_box(bounds))
+
+    async def found(path, ids_key="id", method="get", **kwargs):
+        resp = await getattr(client, method)(path, headers=headers, **kwargs)
+        assert resp.status_code == 200, f"{path}: {resp.text}"
+        return any(f[ids_key] == vid for f in resp.json()["features"])
+
+    return {
+        "search_bbox": await found(
+            "/search/datasets/", params={"q": token, "bbox": box}
+        ),
+        "search_geometry": await found(
+            "/search/datasets/", params={"q": token, "geometry": geometry}
+        ),
+        "search_within": await found(
+            "/search/datasets/",
+            params={"q": token, "bbox": box, "spatial_predicate": "within"},
+        ),
+        "cql2_intersects": await found(
+            "/collections/datasets/items",
+            params={"q": token, "filter": f"S_INTERSECTS(geometry, {_wkt(bounds)})"},
+        ),
+        "cql2_not_disjoint": await found(
+            "/collections/datasets/items",
+            params={"q": token, "filter": f"NOT S_DISJOINT(geometry, {_wkt(bounds)})"},
+        ),
+        "stac_bbox": await found("/stac/search", params={"ids": vid, "bbox": box}),
+        "stac_intersects": await found(
+            "/stac/search",
+            method="post",
+            json={"ids": [vid], "intersects": _box(bounds)},
+        ),
+        "stac_collection_bbox": await found(
+            f"/stac/collections/{collection_id}/items", params={"bbox": box}
+        ),
+    }
+
+
+async def test_spatial_filters_match_a_vrt_by_its_readable_members(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    vrt_id = await _vrt_with_members(
+        test_db_session, [("public", READABLE), ("private", HIDDEN)]
+    )
+    collection_id = await _collection_with(client, admin_auth_header, vrt_id)
+
+    async def hits(headers, bounds):
+        return await _spatial_hits(client, vrt_id, headers, collection_id, bounds)
+
+    over_hidden = await hits(viewer_headers, HIDDEN)
+    assert over_hidden == dict.fromkeys(over_hidden, False)
+    over_readable = await hits(viewer_headers, READABLE)
+    assert over_readable == dict.fromkeys(over_readable, True)
+    admin = await hits(admin_auth_header, HIDDEN)
+    assert admin == {**dict.fromkeys(admin, True), "search_within": False}
+
+
+async def test_cql2_disjoint_matches_a_vrt_by_its_readable_members(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A negative predicate must not exclude a VRT for its hidden member."""
+    viewer_headers, _ = await _make_editor(client, admin_auth_header)
+    vrt_id = await _vrt_with_members(
+        test_db_session, [("public", READABLE), ("private", HIDDEN)]
+    )
+    token = (
+        (await client.get(f"/datasets/{vrt_id}", headers=admin_auth_header))
+        .json()["title"]
+        .split(" ")[3]
+    )
+
+    async def disjoint(headers) -> bool:
+        resp = await client.get(
+            "/collections/datasets/items",
+            params={"q": token, "filter": f"S_DISJOINT(geometry, {_wkt(HIDDEN)})"},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        return any(f["id"] == str(vrt_id) for f in resp.json()["features"])
+
+    assert await disjoint(viewer_headers) is True
+    assert await disjoint(admin_auth_header) is False

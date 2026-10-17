@@ -98,6 +98,11 @@ class DefaultProcessingPort:
 
         return await vrt_members_beyond_audience(session, member_ids, vrt)
 
+    async def vrts_beyond_member_audience(self, session, vrts):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.authorization import vrts_beyond_member_audience
+
+        return await vrts_beyond_member_audience(session, vrts)
+
     async def run_analysis_preview(  # type: ignore[no-untyped-def]
         self,
         session,

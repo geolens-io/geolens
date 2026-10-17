@@ -145,7 +145,12 @@ logger = logging.getLogger(__name__)
 # method. Raster tile serving and VRT builds ask it whether a mosaic reaches
 # anyone who cannot read one of its members, so an overlay replacing the
 # ``processing_port`` slot without it fails every VRT tile and build.
-EXTENSION_API_VERSION: int = 17
+#
+# 17 -> 18: ProcessingPort gained the required ``vrts_beyond_member_audience``
+# method. The tile-token endpoints ask it for every mosaic they mint at once
+# and leave out a refused mosaic's bounds, so an overlay replacing the
+# ``processing_port`` slot without it fails every raster tile token.
+EXTENSION_API_VERSION: int = 18
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:
