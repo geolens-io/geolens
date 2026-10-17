@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="frontend/public/app-icon-dark.png" alt="GeoLens 标志：地球仪上方的放大镜，带十字准线刻度" width="96">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-emblem-dark.svg">
+    <img src=".github/assets/geolens-emblem.svg" alt="GeoLens 标志：地球仪上方的放大镜，带十字准线刻度" width="96">
+  </picture>
 </p>
 
 <h1 align="center">GeoLens</h1>
@@ -57,7 +60,7 @@ GeoLens 面向空间数据分散在文件共享、PostGIS 数据库、网络服�
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
 <img src=".github/assets/geolens-dataset-page.png" alt="Atlantic Hurricane Tracks 数据集页面：地图预览上的风暴路径，矢量、已上传、数据源时效正常、已发布和公开徽章，以及要素数量、几何类型、CRS、版本和列数" width="100%">
 </picture>
-<br><sub>每个数据集都有一个页面，包含地图预览、元数据、属性和来源。</sub>
+<br><sub>每个数据集都有一个页面，包含元数据和来源，有范围时还有地图预览。</sub>
 </td>
 </tr>
 <tr>
@@ -73,7 +76,7 @@ GeoLens 面向空间数据分散在文件共享、PostGIS 数据库、网络服�
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
 <img src=".github/assets/geolens-version-history.png" alt="Significant Volcanic Eruptions 数据集的版本历史：三个 GeoJSON 版本，附日期、文件名和要素数量，当前版本已标出，上一个版本带“恢复”按钮" width="100%">
 </picture>
-<br><sub>替换数据集时会保留旧版本，并可恢复上一个版本。</sub>
+<br><sub>每次替换都会记入历史，并可恢复上一个版本。</sub>
 </td>
 </tr>
 <tr>
