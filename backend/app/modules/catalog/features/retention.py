@@ -58,8 +58,8 @@ TEMPORAL_TYPES = frozenset(
 _PLAIN_COLUMN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _GID_FLOOR = -(2**63)
 
-# What would make a delete reach past the rows a batch picked, or skip them.
-# tgtype bits 1, 2 and 8 are ROW, BEFORE and DELETE.
+# What would make a delete reach past the rows a batch picked, or skip them,
+# or change rows behind the batch's count. tgtype bit 8 is DELETE.
 _RELATION_FACTS = text(
     "SELECT c.relkind::text AS kind, "
     "EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhparent = c.oid) AS inherited, "
@@ -67,7 +67,7 @@ _RELATION_FACTS = text(
     "AND f.confrelid = c.oid) AS referenced, "
     "EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = c.oid "
     "AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A') "
-    "AND t.tgtype & 11 = 11) AS before_delete_trigger, "
+    "AND t.tgtype & 8 = 8) AS delete_trigger, "
     "EXISTS (SELECT 1 FROM pg_rewrite r WHERE r.ev_class = c.oid "
     "AND r.ev_type = '4') AS delete_rule, "
     # The batch pages on gid, so it must be an integer, a domain's base included.
@@ -161,7 +161,7 @@ async def unsupported_table(
 
     Only a plain table with an integer gid qualifies whose deletes remove
     exactly the rows asked for: no inheritance children, no foreign key
-    pointing at it, no BEFORE DELETE row trigger that could keep a row and no
+    pointing at it, no enabled DELETE trigger of any timing or level and no
     DELETE rule.
     """
     facts = (
@@ -196,11 +196,11 @@ async def unsupported_table(
             "deleting its rows would also change the rows that point at them.",
             code="retention_referenced",
         )
-    if facts.before_delete_trigger:
+    if facts.delete_trigger:
         return RetentionRefused(
-            "Retention can't run on a table with a BEFORE DELETE row trigger, "
-            "which can keep rows a delete asks for.",
-            code="retention_before_delete_trigger",
+            "Retention can't run on a table with a DELETE trigger, which can "
+            "keep rows a delete asks for or change rows behind its count.",
+            code="retention_delete_trigger",
         )
     if facts.delete_rule:
         return RetentionRefused(

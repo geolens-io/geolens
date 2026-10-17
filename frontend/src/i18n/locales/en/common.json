@@ -490,12 +490,12 @@
     "retentionUnsupportedRelation": "Retention needs the dataset's data in an ordinary table. This dataset reads it from a view, a partitioned table or another kind of relation, so retention can't be turned on here.",
     "retentionHasChildren": "Retention can't run on a table that other tables inherit from, because deleting from it could reach their rows. Remove the inheriting tables to use retention.",
     "retentionReferenced": "A foreign key points at this table, so deleting its old rows would also change the rows that refer to them. Remove the foreign key to use retention.",
-    "retentionBeforeDeleteTrigger": "This table has a BEFORE DELETE trigger that can stop rows from being deleted. Remove or disable the trigger to use retention.",
     "retentionDeleteRule": "This table has a DELETE rule that changes what a delete does. Remove the rule to use retention.",
     "retentionNotFeatureDataset": "Retention works only on datasets whose features have geometry.",
     "retentionColumnMissing": "The column {{column}} no longer exists. Choose another date or timestamp column.",
     "retentionColumnNotTemporal": "The column {{column}} isn't a date or timestamp column. Choose a date or timestamp column.",
-    "retentionGidUnusable": "Retention pages through the table by its whole-number gid column, which this table no longer has. Restore an integer gid column to use retention."
+    "retentionGidUnusable": "Retention pages through the table by its whole-number gid column, which this table no longer has. Restore an integer gid column to use retention.",
+    "retentionDeleteTrigger": "Retention can't run on a table with a delete trigger, because the trigger can keep rows or change other rows when old ones are deleted. Remove the trigger to use retention."
   },
   "settings": {
     "apiKeys": {

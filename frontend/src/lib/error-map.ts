@@ -241,10 +241,10 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
 
 /** The dataset retention setting's refusal codes (`RetentionRefused` in `backend/app/modules/catalog/features/retention.py`). */
 const RETENTION_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
-  retention_before_delete_trigger: 'errors.retentionBeforeDeleteTrigger',
   retention_column_missing: 'errors.retentionColumnMissing',
   retention_column_not_temporal: 'errors.retentionColumnNotTemporal',
   retention_delete_rule: 'errors.retentionDeleteRule',
+  retention_delete_trigger: 'errors.retentionDeleteTrigger',
   retention_gid_unusable: 'errors.retentionGidUnusable',
   retention_has_children: 'errors.retentionHasChildren',
   retention_not_feature_dataset: 'errors.retentionNotFeatureDataset',

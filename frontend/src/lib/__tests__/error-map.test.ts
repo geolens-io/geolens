@@ -9,7 +9,7 @@ describe('API error localization boundary', () => {
     ['retention_unsupported_relation', 'errors.retentionUnsupportedRelation', 'needs the dataset\'s data in an ordinary table'],
     ['retention_has_children', 'errors.retentionHasChildren', 'other tables inherit from'],
     ['retention_referenced', 'errors.retentionReferenced', 'Remove the foreign key'],
-    ['retention_before_delete_trigger', 'errors.retentionBeforeDeleteTrigger', 'BEFORE DELETE trigger'],
+    ['retention_delete_trigger', 'errors.retentionDeleteTrigger', 'delete trigger'],
     ['retention_delete_rule', 'errors.retentionDeleteRule', 'DELETE rule'],
     ['retention_gid_unusable', 'errors.retentionGidUnusable', 'whole-number gid column'],
     ['retention_not_feature_dataset', 'errors.retentionNotFeatureDataset', 'features have geometry'],

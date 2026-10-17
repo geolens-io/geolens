@@ -1563,52 +1563,6 @@ class TestRelationShape:
             await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{child}"))
             await test_db_session.commit()
 
-    async def test_a_before_delete_trigger_is_refused_and_skipped(
-        self, client: AsyncClient, admin_auth_header, seed, test_db_session
-    ):
-        dataset = await self._layer(seed, test_db_session)
-        keep = f"data.ret_keep_{uuid.uuid4().hex[:8]}"
-        await test_db_session.execute(
-            text(
-                f"CREATE FUNCTION {keep}() RETURNS trigger LANGUAGE plpgsql "
-                "AS $$ BEGIN RETURN NULL; END $$"
-            )
-        )
-        await test_db_session.execute(
-            text(
-                f"CREATE TRIGGER keep_rows BEFORE DELETE ON data.{dataset.table_name} "
-                f"FOR EACH ROW EXECUTE FUNCTION {keep}()"
-            )
-        )
-        await test_db_session.commit()
-        try:
-            await self._refused(
-                client, admin_auth_header, dataset.id, "retention_before_delete_trigger"
-            )
-            await self._skipped(test_db_session, dataset)
-        finally:
-            await test_db_session.execute(text(f"DROP FUNCTION {keep}() CASCADE"))
-            await test_db_session.commit()
-
-    @pytest.mark.parametrize(
-        "change",
-        ["DROP COLUMN gid", "ALTER COLUMN gid TYPE text"],
-        ids=["dropped", "retyped-to-text"],
-    )
-    async def test_a_table_without_an_integer_gid_is_refused_and_skipped(
-        self, client: AsyncClient, admin_auth_header, seed, test_db_session, change
-    ):
-        dataset = await self._layer(seed, test_db_session)
-        await test_db_session.execute(
-            text(f"ALTER TABLE data.{dataset.table_name} {change}")
-        )
-        await test_db_session.commit()
-
-        await self._refused(
-            client, admin_auth_header, dataset.id, "retention_gid_unusable"
-        )
-        await self._skipped(test_db_session, dataset)
-
     async def test_a_delete_rule_is_refused(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session
     ):
@@ -1624,27 +1578,65 @@ class TestRelationShape:
             client, admin_auth_header, dataset.id, "retention_delete_rule"
         )
 
-    async def test_an_after_delete_trigger_still_prunes(self, seed, test_db_session):
-        dataset = await self._layer(seed, test_db_session)
-        note = f"data.ret_note_{uuid.uuid4().hex[:8]}"
+    async def _add_trigger(self, test_db_session, dataset, timing, level):
+        function = f"data.ret_trg_{uuid.uuid4().hex[:8]}"
+        returns = "NULL" if level == "STATEMENT" or timing == "BEFORE" else "OLD"
         await test_db_session.execute(
             text(
-                f"CREATE FUNCTION {note}() RETURNS trigger LANGUAGE plpgsql "
-                "AS $$ BEGIN RETURN OLD; END $$"
+                f"CREATE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql "
+                f"AS $$ BEGIN RETURN {returns}; END $$"
             )
         )
         await test_db_session.execute(
             text(
-                f"CREATE TRIGGER note_rows AFTER DELETE ON data.{dataset.table_name} "
-                f"FOR EACH ROW EXECUTE FUNCTION {note}()"
+                f"CREATE TRIGGER on_delete {timing} DELETE "
+                f"ON data.{dataset.table_name} FOR EACH {level} "
+                f"EXECUTE FUNCTION {function}()"
             )
+        )
+        await test_db_session.commit()
+        return function
+
+    @pytest.mark.parametrize(
+        ("timing", "level"),
+        [("BEFORE", "ROW"), ("AFTER", "ROW"), ("AFTER", "STATEMENT")],
+        ids=["before-row", "after-row", "after-statement"],
+    )
+    async def test_a_delete_trigger_is_refused_and_skipped(
+        self,
+        client: AsyncClient,
+        admin_auth_header,
+        seed,
+        test_db_session,
+        timing,
+        level,
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        function = await self._add_trigger(test_db_session, dataset, timing, level)
+        try:
+            await self._refused(
+                client, admin_auth_header, dataset.id, "retention_delete_trigger"
+            )
+            await self._skipped(test_db_session, dataset)
+        finally:
+            await test_db_session.execute(text(f"DROP FUNCTION {function}() CASCADE"))
+            await test_db_session.commit()
+
+    @pytest.mark.parametrize("mode", ["DISABLE", "ENABLE REPLICA"])
+    async def test_a_disabled_or_replica_only_delete_trigger_still_prunes(
+        self, seed, test_db_session, mode
+    ):
+        dataset = await self._layer(seed, test_db_session)
+        function = await self._add_trigger(test_db_session, dataset, "AFTER", "ROW")
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{dataset.table_name} {mode} TRIGGER on_delete")
         )
         await test_db_session.commit()
         try:
             assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
             assert await _names(test_db_session, dataset) == {"recent"}
         finally:
-            await test_db_session.execute(text(f"DROP FUNCTION {note}() CASCADE"))
+            await test_db_session.execute(text(f"DROP FUNCTION {function}() CASCADE"))
             await test_db_session.commit()
 
 

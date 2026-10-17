@@ -361,12 +361,12 @@
     "retentionUnsupportedRelation": "La retención necesita que los datos del conjunto estén en una tabla normal. Este conjunto los lee de una vista, una tabla particionada u otro tipo de relación, así que aquí no se puede activar.",
     "retentionHasChildren": "La retención no puede ejecutarse en una tabla de la que heredan otras tablas, porque al borrar en ella podría alcanzar sus filas. Quita las tablas que heredan para usar la retención.",
     "retentionReferenced": "Una clave foránea apunta a esta tabla, así que borrar sus filas antiguas cambiaría también las filas que las referencian. Quita la clave foránea para usar la retención.",
-    "retentionBeforeDeleteTrigger": "Esta tabla tiene un disparador BEFORE DELETE que puede impedir que se borren filas. Quita o desactiva el disparador para usar la retención.",
     "retentionDeleteRule": "Esta tabla tiene una regla DELETE que cambia lo que hace un borrado. Quita la regla para usar la retención.",
     "retentionNotFeatureDataset": "La retención solo funciona en conjuntos de datos cuyas entidades tienen geometría.",
     "retentionColumnMissing": "La columna {{column}} ya no existe. Elige otra columna de fecha o marca de tiempo.",
     "retentionColumnNotTemporal": "La columna {{column}} no es de fecha ni de marca de tiempo. Elige una columna de fecha o marca de tiempo.",
-    "retentionGidUnusable": "La retención recorre la tabla por su columna gid de números enteros, que esta tabla ya no tiene. Restaura una columna gid entera para usar la retención."
+    "retentionGidUnusable": "La retención recorre la tabla por su columna gid de números enteros, que esta tabla ya no tiene. Restaura una columna gid entera para usar la retención.",
+    "retentionDeleteTrigger": "La retención no puede ejecutarse en una tabla con un disparador de borrado, porque puede conservar filas o cambiar otras al borrar las antiguas. Quita el disparador para usar la retención."
   },
   "settings": {
     "apiKeys": {
