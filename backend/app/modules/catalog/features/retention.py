@@ -3,10 +3,11 @@
 A dataset with retention keeps the rows whose retention column is no older
 than its last ``retention_days`` days; a row where that column is null is
 kept. A run deletes older rows in batches of ``BATCH_ROWS`` by ascending gid,
-committing each batch, so no transaction holds a large share of a table's row
-locks. After a dataset's last batch its feature count and extent are
-recomputed, its tile cache version rolls and one audit row records the run.
-A timestamp without time zone is read as UTC.
+committing each batch with an audit row recording it, so no transaction holds
+a large share of a table's row locks and no committed deletion goes
+unrecorded. After a dataset's last batch its feature count and extent are
+recomputed and its tile cache version rolls. A timestamp without time zone is
+read as UTC.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.record_types import capabilities
-from app.modules.audit.service import AuditEvent, audit_emit
+from app.modules.audit.service import AuditEvent, audit_emit_required
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.schemas import DatasetRetention
 from app.modules.catalog.datasets.domain.service import get_dataset
@@ -172,8 +173,28 @@ async def _delete_batch(
     return list(result.scalars())
 
 
-async def _settle(dataset_id: uuid.UUID, deleted: int, window: _Window) -> None:
-    """Recompute count and extent, roll the tile version and audit the run."""
+async def _audit_batch(
+    session: AsyncSession, dataset_id: uuid.UUID, window: _Window, deleted: int
+) -> None:
+    await audit_emit_required(
+        session,
+        AuditEvent(
+            user_id=None,
+            action="dataset.retention_prune",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "deleted": deleted,
+                "column": window.column,
+                "retention_days": window.days,
+                "cutoff": window.cutoff.isoformat(),
+            },
+        ),
+    )
+
+
+async def _settle(dataset_id: uuid.UUID) -> None:
+    """Recompute count and extent and roll the tile version."""
     from app.core.db import async_session
 
     for attempt in range(SETTLE_ATTEMPTS):
@@ -187,21 +208,6 @@ async def _settle(dataset_id: uuid.UUID, deleted: int, window: _Window) -> None:
                 if attempt + 1 == SETTLE_ATTEMPTS:
                     raise
                 continue
-            await audit_emit(
-                session,
-                AuditEvent(
-                    user_id=None,
-                    action="dataset.retention_prune",
-                    resource_type="dataset",
-                    resource_id=dataset_id,
-                    details={
-                        "deleted": deleted,
-                        "column": window.column,
-                        "retention_days": window.days,
-                        "cutoff": window.cutoff.isoformat(),
-                    },
-                ),
-            )
             await record_live_data_write(session, dataset)
             await session.commit()
             return
@@ -224,7 +230,6 @@ async def prune_dataset(
 
     deleted = 0
     after = _GID_FLOOR
-    last_window: _Window | None = None
     try:
         for _ in range(max_batches):
             async with async_session() as session:
@@ -232,17 +237,18 @@ async def prune_dataset(
                 if window is None:
                     break
                 gids = await _delete_batch(session, window, after, batch_rows)
+                if gids:
+                    await _audit_batch(session, dataset_id, window, len(gids))
                 await session.commit()
             if gids:
                 deleted += len(gids)
-                last_window = window
                 after = max(gids)
             if len(gids) < batch_rows:
                 break
     finally:
         # Also after a failed batch, for the batches already committed.
-        if deleted and last_window is not None:
-            await _settle(dataset_id, deleted, last_window)
+        if deleted:
+            await _settle(dataset_id)
     return deleted
 
 

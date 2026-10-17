@@ -150,10 +150,12 @@ async def _prune_audits(session, dataset_id: uuid.UUID) -> list[AuditLog]:
     session.expire_all()
     return list(
         await session.scalars(
-            select(AuditLog).where(
+            select(AuditLog)
+            .where(
                 AuditLog.action == "dataset.retention_prune",
                 AuditLog.resource_id == dataset_id,
             )
+            .order_by(AuditLog.created_at)
         )
     )
 
@@ -273,8 +275,65 @@ class TestRun:
         assert statements == [10, 10, 5]
         assert await _names(test_db_session, dataset) == {"new"}
         audits = await _prune_audits(test_db_session, dataset.id)
-        assert [audit.details["deleted"] for audit in audits] == [25]
+        assert [audit.details["deleted"] for audit in audits] == [10, 10, 5]
         assert (await _catalog_state(test_db_session, dataset.id)).feature_count == 1
+
+    async def test_a_worker_lost_mid_run_leaves_each_committed_batch_audited(
+        self, seed, test_db_session, monkeypatch
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        old = NOW - timedelta(days=90)
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[{"name": f"old{i}", "seen_at": old} for i in range(25)],
+        )
+        real_delete = retention._delete_batch
+        calls = 0
+
+        async def second_batch_fails(session, window, after, limit):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("worker lost")
+            return await real_delete(session, window, after, limit)
+
+        async def never_settles(*_args):
+            raise RuntimeError("worker lost")
+
+        monkeypatch.setattr(retention, "_delete_batch", second_batch_fails)
+        monkeypatch.setattr(retention, "_settle", never_settles)
+
+        assert dataset.id not in await retention.prune_expired_rows(
+            now=NOW, batch_rows=10
+        )
+
+        assert len(await _names(test_db_session, dataset)) == 15
+        audits = await _prune_audits(test_db_session, dataset.id)
+        assert [audit.details["deleted"] for audit in audits] == [10]
+        assert audits[0].details["cutoff"] == CUTOFF.isoformat()
+
+    async def test_a_batch_whose_audit_row_fails_deletes_nothing(
+        self, seed, test_db_session, monkeypatch
+    ):
+        from app.modules.audit import service as audit_service
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[{"name": "old", "seen_at": NOW - timedelta(days=90)}],
+        )
+
+        async def insert_fails(*_args, **_kwargs):
+            raise RuntimeError("audit store down")
+
+        monkeypatch.setattr(audit_service, "log_action", insert_fails)
+
+        assert dataset.id not in await retention.prune_expired_rows(now=NOW)
+        assert await _names(test_db_session, dataset) == {"old"}
 
     async def test_a_run_stops_at_its_batch_bound_and_the_next_run_goes_on(
         self, seed, test_db_session

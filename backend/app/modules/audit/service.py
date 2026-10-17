@@ -21,6 +21,7 @@ __all__ = [
     "AuditEvent",
     "audit_emit",
     "audit_emit_durable",
+    "audit_emit_required",
     "extension_audit_sinks",
     "log_action",
     "prune_audit_logs",
@@ -209,6 +210,25 @@ async def recently_audited(
     return found is not None
 
 
+async def audit_emit_required(session: AsyncSession, event: AuditEvent) -> None:
+    """Write ``event``'s audit row in the caller's transaction, then the other sinks.
+
+    Unlike :func:`audit_emit`, a failed insert raises, so the write it records
+    rolls back with it instead of committing unrecorded.
+    """
+    await log_action(
+        session,
+        user_id=event.user_id,
+        action=event.action,
+        resource_type=event.resource_type,
+        resource_id=event.resource_id,
+        details=event.details,
+        ip_address=event.ip_address,
+    )
+    await session.flush()
+    await audit_emit(session, event, sinks=extension_audit_sinks())
+
+
 async def prune_audit_logs(
     session: AsyncSession, *, cutoff: datetime, batch_size: int, retention_days: int
 ) -> int:
@@ -239,17 +259,7 @@ async def prune_audit_logs(
                     "retention_days": retention_days,
                 },
             )
-            # Written directly, not through the fail-open sink path: a failed
-            # insert must roll the deletion back instead of leaving it unrecorded.
-            await log_action(
-                session,
-                user_id=None,
-                action=event.action,
-                resource_type=event.resource_type,
-                details=event.details,
-            )
-            await session.flush()
-            await audit_emit(session, event, sinks=extension_audit_sinks())
+            await audit_emit_required(session, event)
         await session.commit()
         deleted += count
         if count < batch_size:

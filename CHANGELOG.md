@@ -58,11 +58,11 @@ and releases use semantic versioning.
 - A feature dataset can keep only its last N days of rows, judged by one of
   its date or timestamp columns. Set it under Structure > Retention, or with
   `PUT /datasets/{id}/retention/`. The worker deletes older rows once an hour
-  in batches, then updates the feature count, extent and tile version and
-  writes one `dataset.retention_prune` audit row per dataset. Rows with no
-  value in the column are kept, and a timestamp without time zone is read as
-  UTC. Retention is off by default. Saving a setting that would delete rows
-  right away first shows how many and asks to confirm.
+  in batches, each committed with a `dataset.retention_prune` audit row of
+  its count, then updates the feature count, extent and tile version. Rows
+  with no value in the column are kept, and a timestamp without time zone is
+  read as UTC. Retention is off by default. Saving a setting that would
+  delete rows right away first shows how many and asks to confirm.
 
 ### Fixed
 
