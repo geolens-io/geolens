@@ -244,7 +244,7 @@ Einstellung auf.
 Veröffentlichen Sie die Beispieldatei mit der CLI und lesen Sie sie dann über OGC API Features zurück:
 
 ```sh
-python3 -m venv .venv && . .venv/bin/activate         # needs Python 3.11+
+python3 -m venv .venv && . .venv/bin/activate         # Python 3.11+; on Debian/Ubuntu, apt install python3-venv
 pip install geolens-cli
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
