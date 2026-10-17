@@ -256,9 +256,11 @@ zu verwalten, beschreiben Sie die Quellen in einem Manifest `geolens.yaml` und f
 `geolens apply` aus; [`examples/manifests/`](examples/manifests/) enthält Vorlagen, und die
 [CLI-Anleitung](https://docs.getgeolens.com/guides/cli/) beschreibt das Schema.
 
-Um die Karten und Datensätze der Demo (öffentliche offene Daten) in Ihre Installation zu laden,
-führen Sie das Seed-Skript aus. Verwenden Sie Ihren eigenen Admin-Benutzernamen, falls Sie ihn
-geändert haben.
+Um die Karten und Datensätze der Demo in Ihre Installation zu laden, führen Sie das Seed-Skript
+aus. Es braucht Internetzugang und lädt öffentliche offene Daten aus etwa einem Dutzend Quellen
+herunter, darunter eine Reliefdatei von rund 466 MB und 62 Geländekacheln; `--no-oceans` und
+`--no-terrain` überspringen diese, und [scripts/README.md](scripts/README.md) listet alle Optionen
+auf. Verwenden Sie Ihren eigenen Admin-Benutzernamen, falls Sie ihn geändert haben.
 
 ```sh
 pip install httpx                                     # the seed script needs Python 3.10+
