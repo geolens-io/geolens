@@ -199,7 +199,7 @@ que un administrador configura un proveedor, y todos los flujos de trabajo funci
 
 ## Instalación
 
-Necesitas Git, Docker Engine 24+ y Docker Compose v2. Una instalación nueva ejecuta seis contenedores
+Necesitas Git, curl, Docker Engine 24+ y Docker Compose v2. Una instalación nueva ejecuta seis contenedores
 con unos 1,3 GB de memoria en linux/amd64 o linux/arm64.
 
 ```sh
