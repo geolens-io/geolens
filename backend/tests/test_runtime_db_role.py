@@ -86,6 +86,24 @@ def test_bootstrap_restore_and_upgrade_share_one_role_reconciler() -> None:
     assert "cannot reuse that" in runbook
 
 
+def test_restore_scripts_cite_existing_runbook_headings() -> None:
+    headings = []
+    in_fence = False
+    for line in (ROOT / "RUNBOOK.md").read_text(encoding="utf-8").splitlines():
+        if line.startswith("```"):
+            in_fence = not in_fence
+        elif not in_fence and re.match(r"#{1,6} ", line):
+            headings.append(line.lstrip("#").strip())
+    cited = []
+    for script in ("restore.sh", "backup-entrypoint.sh"):
+        source = (ROOT / "scripts" / script).read_text(encoding="utf-8")
+        cited += re.findall(r'§\s*\\?"([^"\\]+)\\?"', source)
+
+    assert cited
+    missing = [name for name in cited if not any(name in h for h in headings)]
+    assert not missing, f"scripts cite RUNBOOK sections that do not exist: {missing}"
+
+
 def test_init_db_is_one_entrypoint_for_container_and_managed_postgres() -> None:
     """fix(#1992): one bootstrap script, both deployments.
 
