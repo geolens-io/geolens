@@ -41,6 +41,91 @@ GeoLens 面向空间数据分散在文件共享、PostGIS 数据库、网络服�
 
 [演示](https://demo.getgeolens.com)无需安装或账号；使用 Google、GitHub 或 Microsoft 登录即可体验地图构建器。演示数据可能随时被清除。
 
+## 界面一览
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
+<img src=".github/assets/geolens-catalog-search.png" alt="GeoLens 目录搜索“where storms hit the coast”（未登录），列出飓风和沿海数据集，带类型、数据源和时效徽章，旁边是数据集筛选器" width="100%">
+</picture>
+<br><sub>按含义搜索：“where storms hit the coast”能找到飓风路径和沿海暴露图层。</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
+<img src=".github/assets/geolens-dataset-page.png" alt="Atlantic Hurricane Tracks 数据集页面：地图预览上的风暴路径，矢量、已上传、数据源时效正常、已发布和公开徽章，以及要素数量、几何类型、CRS、版本和列数" width="100%">
+</picture>
+<br><sub>每个数据集都有一个页面，包含地图预览、元数据、属性和来源。</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-import-preview-dark.png">
+<img src=".github/assets/geolens-import-preview.png" alt="“导入数据”页面的“服务 URL”标签页预览 USGS Significant Earthquakes ArcGIS 图层：CRS、几何类型、要素数量、图层名称和示例行" width="100%">
+</picture>
+<br><sub>导入服务图层之前，GeoLens 会预览其列和前几行数据。</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
+<img src=".github/assets/geolens-version-history.png" alt="Significant Volcanic Eruptions 数据集的版本历史：三个 GeoJSON 版本，附日期、文件名和要素数量，当前版本已标出，上一个版本带“恢复”按钮" width="100%">
+</picture>
+<br><sub>替换数据集时会保留旧版本，并可恢复上一个版本。</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
+<img src=".github/assets/geolens-builder-style.png" alt="地图构建器中球面视图的 Restless Earth 地图：沿太平洋板块边界分布的地震热力图、分组图层列表，以及带色带的热力图样式面板" width="100%">
+</picture>
+<br><sub>图层可渲染为点、符号、热力图或聚类，色带列表可限定为色盲友好的色带。</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
+<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens 地图构建器用 swissALTI3D 激光雷达将马特洪峰渲染为 3D 地形，带标注的山峰、攀登路线、图层列表和图例" width="100%">
+</picture>
+<br><sub>用您自己的高程数据生成 3D 地形，这里是由 swissALTI3D 激光雷达生成的马特洪峰。</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
+<img src=".github/assets/geolens-stac-imagery.jpg" alt="地图构建器显示纽约市和新泽西州北部上空四幅不同日期的 Sentinel-2 真彩色影像，引用自 Earth Search STAC 目录，旁边是图层列表和图例" width="100%">
+</picture>
+<br><sub>引用自 STAC 目录的 Sentinel-2 影像。影像保留在原处，按请求切片。</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-share-embed-dark.png">
+<img src=".github/assets/geolens-share-embed.png" alt="地图的共享对话框：可见性设为“公开”，其他选项为“仅自己”和“所有团队成员”，另有共享链接和 iframe 嵌入代码" width="100%">
+</picture>
+<br><sub>可以只留给自己、向团队开放，或通过链接和嵌入代码公开地图。</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
+<img src=".github/assets/geolens-admin-overview.png" alt="管理后台“概览”页面：所有系统运行正常，显示数据库、存储、缓存和瓦片缓存状态、数据集总数、最近新增和已用存储，旁边是管理菜单" width="100%">
+</picture>
+<br><sub>管理概览在数据集和存储总数旁边显示服务健康状况。</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-permissions-dark.png">
+<img src=".github/assets/geolens-admin-permissions.png" alt="管理后台“权限”页面：上传数据集、导出数据、编辑元数据和管理用户等权限，查看者、编辑者和管理员三个角色各有一个复选框" width="100%">
+</picture>
+<br><sub>查看者、编辑者和管理员三种角色，每个角色可单独开启或关闭各项权限。</sub>
+</td>
+</tr>
+</table>
+
 ## 整体结构
 
 ```mermaid
@@ -69,15 +154,6 @@ flowchart LR
 
 ## 一个目录，汇集分散的数据
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
-    <img src=".github/assets/geolens-catalog-search.png" alt="GeoLens 目录搜索“where storms hit the coast”，列出六个飓风和沿海数据集，带缩略图、来源徽章和时效徽章，旁边是类型、关键词、集合、位置和日期筛选器" width="100%">
-  </picture>
-  <br>
-  <sub>按含义搜索：“where storms hit the coast”能找到飓风路径、风暴走廊和沿海暴露图层。</sub>
-</p>
-
 - 上传 Shapefile、GeoPackage、GeoJSON、GeoParquet、FlatGeobuf、KML/KMZ、zip 压缩的 File Geodatabase、CSV、Excel 或 GeoTIFF（会转换为云优化 GeoTIFF）。3D Tiles 和 COPC 点云会托管起来，供 CesiumJS、QGIS 和 Potree 使用。
 - 原位提供 GeoLens 自身 PostGIS 数据库中已有的表，按需导入并刷新 WFS、ArcGIS 和 OGC API Features 图层，或引用远程 STAC 资产而不复制。
 - 在浏览器中绘制新数据集。
@@ -97,15 +173,6 @@ flowchart LR
 每个数据集都会记录它的来源：上传的文件、数据库表、服务、STAC 条目，或在浏览器中绘制的数据。导入的数据集还会记录上次刷新的时间，设定更新节奏后，GeoLens 会把它们标记为时效正常、待刷新或已逾期。对于服务和 STAC 数据源，GeoLens 还会检查数据源是否仍能响应；对于服务，它还会在上游字段结构的变化影响您的地图之前发出提示。如果某个服务下线，已导入的副本仍可继续使用。
 
 ## 构建和共享地图
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-    <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens 地图构建器用 swissALTI3D 激光雷达将马特洪峰渲染为 3D 地形，带标注的山峰、攀登路线、图层列表和图例" width="100%">
-  </picture>
-  <br>
-  <sub>由 swissALTI3D 激光雷达生成的马特洪峰 3D 地形，山峰和攀登路线来自 OpenStreetMap。</sub>
-</p>
 
 - 点、符号、热力图、聚类、线、箭头、面、3D 挤出、栅格和山体阴影图层，支持数据驱动样式、标注、图标、图案、筛选器和弹出窗口。地形来自您自己的高程模型。
 - 缓冲区、质心、裁剪、融合、空间连接、按位置选择、测量和相交。大多数操作可在地图上预览，每个结果都保存为新数据集，可在构建器或 CLI 中完成。
