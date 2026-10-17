@@ -20,9 +20,9 @@
 
 [English](README.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [简体中文](README.zh.md)
 
-[![Latest release](https://img.shields.io/github/v/release/geolens-io/geolens?style=flat-square&label=release)](https://github.com/geolens-io/geolens/releases/latest)
-[![CI status](https://img.shields.io/github/actions/workflow/status/geolens-io/geolens/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-2563eb?style=flat-square)](LICENSE)
+[![最新版本](https://img.shields.io/github/v/release/geolens-io/geolens?style=flat-square&label=%E7%89%88%E6%9C%AC)](https://github.com/geolens-io/geolens/releases/latest)
+[![CI 状态](https://img.shields.io/github/actions/workflow/status/geolens-io/geolens/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
+[![许可证：Apache-2.0](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-Apache--2.0-2563eb?style=flat-square)](LICENSE)
 
 </div>
 
@@ -198,7 +198,7 @@ curl -H "X-Api-Key: $GEOLENS_API_KEY" \
 要把演示中的地图和数据集（公开的开放数据）加载到您的安装中，请运行种子脚本。如果修改过管理员用户名，请改用您自己的。
 
 ```sh
-pip install httpx
+pip install httpx                                     # the seed script needs Python 3.10+
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
   python scripts/seed-showcase.py --username admin
 ```
