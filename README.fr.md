@@ -94,7 +94,7 @@ flowchart LR
 - Dessinez de nouveaux jeux de données dans le navigateur.
 - Retrouvez les données par recherche approximative, ou par le sens une fois un fournisseur
   d’embeddings configuré. Filtrez par type, lieu et période, regroupez les jeux de données en
-  collections, modifiez les métadonnées et restaurez des versions antérieures.
+  collections, modifiez les métadonnées et restaurez la version précédente d'un jeu de données après un remplacement.
 
 ## Savoir d’où vient chaque jeu de données
 
