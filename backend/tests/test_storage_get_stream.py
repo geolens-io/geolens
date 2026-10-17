@@ -88,7 +88,7 @@ async def test_get_stream_handle_cleanup(
 
 
 # ---------------------------------------------------------------------------
-# S3, fix(#1540) review P1: the same contract, and one request to honour it
+# S3: the same contract, and one request to honour it
 # ---------------------------------------------------------------------------
 
 
@@ -122,7 +122,7 @@ def s3_provider(monkeypatch):
 async def test_s3_get_stream_is_one_request_not_one_per_chunk(s3_provider) -> None:
     """The amplification this method exists to remove.
 
-    fix(#1540 review P1): the COG route's stale-resume fallback streamed the
+    The COG route's stale-resume fallback streamed the
     whole object through a per-chunk ranged read, so a 5 GiB COG became 5,120
     object-store requests — selectable by any caller willing to send a stale
     validator, and billed by the rate limiter as one request. A single
@@ -166,7 +166,7 @@ async def test_s3_get_stream_missing_key_raises(s3_provider) -> None:
 async def test_s3_get_range_stream_is_one_request(s3_provider) -> None:
     """A range is one ranged GetObject, however many chunks it arrives in.
 
-    fix(#1540 review P1), second occurrence: the COG route served ranges by
+    The COG route once served ranges by
     calling ``get_range`` per 1 MiB, so ``Range: bytes=0-`` on a 5 GiB object
     became 5,120 serial requests. This is the method that makes a range cost
     one, and the count is measured at the botocore layer rather than inferred.

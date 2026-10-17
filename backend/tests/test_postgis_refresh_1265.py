@@ -331,7 +331,7 @@ def test_a_slow_query_is_not_reported_as_a_broken_table() -> None:
 
 
 def test_the_verdict_survives_an_aborted_transaction_wrapper() -> None:
-    """fix(#1313 review): the outermost SQLSTATE is not always the real one.
+    """The outermost SQLSTATE is not always the real one.
 
     ``extract_metadata``'s spatial fast path catches every exception and
     immediately retries its per-helper queries inside the transaction the
@@ -645,7 +645,7 @@ class TestPostgisRefreshExecution:
     async def test_the_measurement_runs_under_one_read_only_snapshot(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1313 review): one transaction is not one state by default.
+        """One transaction is not one state by default.
 
         The session's default isolation is READ COMMITTED, where every
         statement takes its own snapshot — so the count, the extent, the
@@ -753,7 +753,7 @@ class TestPostgisRefreshExecution:
     async def test_tiles_are_purged_even_when_the_count_is_unchanged(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1313 review): the count is not a proxy for "the tiles are fine".
+        """The count is not a proxy for "the tiles are fine".
 
         Editing geometry, rewriting attributes, or deleting and reinserting
         the same number of rows changes every tile while leaving the total
@@ -1343,7 +1343,7 @@ class TestPostgisRefreshExecution:
     async def test_a_table_that_gains_geometry_advertises_the_spatial_formats(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1314): the persisted half of the modality change.
+        """The persisted half of the modality change.
 
         ``record_type`` is re-derived above, and ``build_assets`` computes its
         links from it live — but ``record_distributions`` rows are generated

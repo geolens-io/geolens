@@ -27,7 +27,7 @@ from app.platform.sandbox.validator import _MAX_BUFFER_MATCH_ATTEMPTS, validate_
 def _recording_validator_logger():
     """Collect the validator's structured rejection events, immune to caching.
 
-    fix(#1024): `structlog.testing.capture_logs()` observes the GLOBAL
+    `structlog.testing.capture_logs()` observes the GLOBAL
     structlog configuration, so what it sees depends on what else ran earlier
     in the same xdist worker rather than on the code under test. Under `-n 4`
     it started yielding `[]` here while the rejection itself still happened,
@@ -670,7 +670,7 @@ class TestResourceAmplificationRejected:
 
     def test_rejects_unknown_postgis_function(self):
         _assert_rejects("SELECT ST_MakeEnvelope(0, 0, 1, 1, 4326)")
-        # fix(#1001): ST_GeneratePoints is the attacker-chosen-cardinality
+        # ST_GeneratePoints is the attacker-chosen-cardinality
         # generator the allowlist comment cites. Kept alongside ST_MakeEnvelope
         # rather than replacing it: #1001 admits the buffer's machinery only
         # inside the rendered template, so ST_MakeEnvelope on its own is still
@@ -775,7 +775,7 @@ class TestResourceAmplificationRejected:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1001): the canonical geodesic buffer
+# The canonical geodesic buffer
 # ---------------------------------------------------------------------------
 
 
@@ -819,13 +819,13 @@ def _unlisted_names_in_canonical_buffer() -> set[str]:
 
 
 class TestCanonicalGeodesicBufferAdmitted:
-    """fix(#1001): every metric buffer on the NL->SQL surface is
+    """Every metric buffer on the NL->SQL surface is
     render_geodesic_buffer's output, and the fail-closed allowlist refused it —
     every buffer question in the surface was dead. The functions it needs are
     admitted only inside a subtree that re-renders to exactly the same AST,
     never per call.
 
-    fix(#1589): the model no longer types that output. It writes a
+    The model no longer types that output. It writes a
     geolens_buffer() marker and processing/ai/buffer_marker.py expands it
     before validation, so what arrives here is unchanged and so is this."""
 

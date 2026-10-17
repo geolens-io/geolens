@@ -33,7 +33,7 @@ def _reset_label_counter(counter, label_value: str) -> None:
 async def tile_cache():
     """Create TileCacheProvider backed by fakeredis (binary mode).
 
-    fix(#1859): closes the fake client's connection pool afterwards. Leaving
+    Closes the fake client's connection pool afterwards. Leaving
     one open per test leaked event-loop resources into the rest of the
     session under `-n 4`.
     """

@@ -5,7 +5,7 @@ Covers:
 - TestVrtDeletion: Deleting VRT cleans only rasters/ prefix, not originals/ or source COG storage
 
 Pure unit tests -- no DB, no real files, no network -- with two exceptions
-added by fix(#1327): the guard now also refuses to delete a source a
+added for the guard's second duty: it also refuses to delete a source a
 still-in-flight VRT generation has STAGED (it has no link row yet), and that
 branch is SQL a mocked session cannot exercise.
 """
@@ -31,7 +31,7 @@ from app.platform.storage.provider import StoredObject
 # delete_dataset's retired-name write (#1443) into an un-awaited coroutine
 # that records nothing and raises a RuntimeWarning at garbage-collection.
 #
-# fix(#1847): each also needs ``execute`` to return a result object, not a
+# Each also needs ``execute`` to return a result object, not a
 # coroutine: the acquisition reads the stored extent, and on a bare AsyncMock
 # ``result.first()`` is a coroutine. ``_mock_session()`` defines that shape.
 
@@ -122,7 +122,7 @@ class TestDeleteGuard:
         ):
             with pytest.raises(DependentVrtError) as exc_info:
                 _deletion = await delete_dataset(mock_session, dataset_id, "My COG")
-                # fix(#1847): the reap is the caller's, after its commit.
+                # The reap is the caller's, after its commit.
                 await reap_managed_storage(
                     list(_deletion.storage_prefixes), _deletion.tenant_id
                 )
@@ -197,7 +197,7 @@ class TestDeleteGuard:
         ):
             with pytest.raises(DependentVrtError) as exc_info:
                 _deletion = await delete_dataset(mock_session, dataset_id, "Shared COG")
-                # fix(#1847): the reap is the caller's, after its commit.
+                # The reap is the caller's, after its commit.
                 await reap_managed_storage(
                     list(_deletion.storage_prefixes), _deletion.tenant_id
                 )
@@ -212,7 +212,7 @@ class TestDeleteGuard:
     async def test_delete_cog_staged_by_an_in_flight_generation_raises_error(
         self, test_db_session
     ):
-        """fix(#1327): a staged member is still a dependency.
+        """A staged member is still a dependency.
 
         Database-backed on purpose. add_vrt_source no longer writes a
         vrt_source_links row up front, so a source can be a declared member of
@@ -346,7 +346,7 @@ async def test_delete_dataset_fails_closed_without_multi_tenant_context(monkeypa
                 _deletion = await delete_dataset(
                     mock_session, dataset_id, "Tenant vector"
                 )
-                # fix(#1847): the reap is the caller's, after its commit.
+                # The reap is the caller's, after its commit.
                 await reap_managed_storage(
                     list(_deletion.storage_prefixes), _deletion.tenant_id
                 )
@@ -393,7 +393,7 @@ class TestVrtDeletion:
                 "app.platform.storage.provider.get_storage", return_value=mock_storage
             ):
                 result = await delete_dataset(mock_session, dataset_id, "My VRT")
-                # fix(#1847): the reap is the caller's, after its commit.
+                # The reap is the caller's, after its commit.
                 await reap_managed_storage(
                     list(result.storage_prefixes), result.tenant_id
                 )
@@ -441,7 +441,7 @@ class TestVrtDeletion:
                     return_value=mock_storage,
                 ):
                     _deletion = await delete_dataset(mock_session, dataset_id, "My VRT")
-                    # fix(#1847): the reap is the caller's, after its commit.
+                    # The reap is the caller's, after its commit.
                     await reap_managed_storage(
                         list(_deletion.storage_prefixes), _deletion.tenant_id
                     )
@@ -492,7 +492,7 @@ class TestVrtDeletion:
                 "app.platform.storage.provider.get_storage", return_value=mock_storage
             ):
                 _deletion = await delete_dataset(mock_session, dataset_id, "My COG")
-                # fix(#1847): the reap is the caller's, after its commit.
+                # The reap is the caller's, after its commit.
                 await reap_managed_storage(
                     list(_deletion.storage_prefixes), _deletion.tenant_id
                 )
@@ -542,7 +542,7 @@ class TestVrtDeletion:
                 "app.platform.storage.provider.get_storage", return_value=mock_storage
             ):
                 _deletion = await delete_dataset(mock_session, vrt_id, "My VRT")
-                # fix(#1847): the reap is the caller's, after its commit.
+                # The reap is the caller's, after its commit.
                 await reap_managed_storage(
                     list(_deletion.storage_prefixes), _deletion.tenant_id
                 )
@@ -575,7 +575,7 @@ class TestVrtDeletion:
                 "app.platform.storage.provider.get_storage", return_value=mock_storage
             ):
                 _deletion = await delete_dataset(mock_session, dataset_id, "My VRT")
-                # fix(#1847): the reap is the caller's, after its commit.
+                # The reap is the caller's, after its commit.
                 await reap_managed_storage(
                     list(_deletion.storage_prefixes), _deletion.tenant_id
                 )

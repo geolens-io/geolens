@@ -34,7 +34,7 @@ class TestServiceTypeGuard:
     def test_raster_dataset_rejected_for_wfs(self):
         """All supported service types are vector — reject for raster_dataset.
 
-        feat(#1221): raster reupload is supported now, but only from a file.
+        Raster reupload is supported now, but only from a file.
         A service refresh stays refused because nothing fetches a GeoTIFF from
         a feature service, so the refusal message changed while the status did
         not.
@@ -95,7 +95,7 @@ class TestFilePathStillWorks:
         assert "standalone vrt" in exc.value.detail.lower()
 
     def test_raster_accepts_tif(self):
-        """feat(#1221): the gate this issue relaxed. A raster dataset takes a
+        """The gate admits raster replacement. A raster dataset takes a
         raster replacement — that is the whole point of the replace path."""
         _assert_compatible_record_type(_ds("raster_dataset"), "landcover.tif")
         _assert_compatible_record_type(_ds("raster_dataset"), "landcover.TIFF")

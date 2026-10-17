@@ -158,7 +158,7 @@ class TestSecretEncryption:
 
     def test_encryption_key_derived_via_hkdf(self):
         """Key derivation uses HKDF, not raw JWT secret."""
-        # fix(#1871): reads the legacy key directly. _get_fernet() is now the
+        # Reads the legacy key directly. _get_fernet() is now the
         # whole key chain (MultiFernet), which exposes no single signing key.
         from app.modules.auth.oauth.encryption import _jwt_derived_fernet
         from app.core.config import settings
@@ -682,7 +682,7 @@ class TestFindOrCreateOAuthUser:
 
     @pytest.fixture(autouse=True)
     def _registration_on(self, monkeypatch):
-        """fix(#1778): JIT provisioning now honours REGISTRATION_ENABLED, whose
+        """JIT provisioning now honours REGISTRATION_ENABLED, whose
         shipped default is False. These cases are about the provisioning logic
         itself, so they run with the operator switch on; the gate has its own
         tests in tests/test_oauth_registration_gate_1778.py."""
@@ -744,7 +744,7 @@ class TestFindOrCreateOAuthUser:
         assert "viewer" in role_names
 
     async def test_jit_persists_email_verified_claim(self, client, test_db_session):
-        """fix(#623): JIT provisioning persists the IdP's email_verified claim.
+        """JIT provisioning persists the IdP's email_verified claim.
 
         The User(...) construction omitted the field, so every SSO account
         persisted the model default (false) — 27 of 27 on the public demo. Both
@@ -790,7 +790,7 @@ class TestFindOrCreateOAuthUser:
     async def test_returning_user_email_verified_refreshes(
         self, client, test_db_session
     ):
-        """fix(#623): a returning OAuth user converges to the IdP's assertion.
+        """A returning OAuth user converges to the IdP's assertion.
 
         Accounts provisioned before the JIT fix stay false forever otherwise;
         the migration only backfills provably-verified GitHub rows, so this is
@@ -834,7 +834,7 @@ class TestFindOrCreateOAuthUser:
     async def test_returning_user_email_verified_not_flipped_for_other_email(
         self, client, test_db_session
     ):
-        """fix(#623): a verified claim for a DIFFERENT address verifies nothing.
+        """A verified claim for a DIFFERENT address verifies nothing.
 
         The IdP asserting it verified some other mailbox says nothing about the
         address this account actually stores.

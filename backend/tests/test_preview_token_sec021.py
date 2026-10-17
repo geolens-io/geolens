@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from app.modules.catalog.sources.schemas import ProbeRequest, ServicePreviewRequest
 
-# fix(#1746): autouse where imported — the bearer header now lands in
+# autouse where imported — the bearer header now lands in
 # gdal_header_dir(), so without this the suite writes into the real /tmp.
 from tests.test_ogr_subprocess_env import gdal_header_tmpdir  # noqa: F401
 
@@ -62,7 +62,7 @@ def test_none_token_accepted(model):
 
 
 def _bearer(token: str):
-    """The structured credential the preview path takes (fix(#1746))."""
+    """The structured credential the preview path takes."""
     from app.core.service_tokens import CredentialMethod, ServiceCredential
 
     return ServiceCredential(
@@ -125,18 +125,18 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
     )
     assert env["GDAL_HTTP_USERAGENT"] == "GeoLens"
     assert token not in env["GDAL_HTTP_HEADERS"]
-    # fix(#937): GDAL_HTTP_FOLLOWLOCATION is not a GDAL option and provides no
+    # GDAL_HTTP_FOLLOWLOCATION is not a GDAL option and provides no
     # redirect protection; the preview path must not claim it as a defense.
     assert "GDAL_HTTP_FOLLOWLOCATION" not in env
     assert "GDAL_HTTP_HEADER_FILE" in env, "expected the 0600 header-file pattern"
     assert captured.get("mode") == 0o600
-    # fix(#1746 B2b): byte-identical to what this path wrote before the
+    # byte-identical to what this path wrote before the
     # composition moved into the shared builder. The prefix used to be
     # composed here; the parity is the point.
     assert captured.get("content") == f"Authorization: Bearer {token}\n"
     # Plan rule A: the Authorization header follows only to the host it was
     # given to, stated explicitly rather than inherited, and not "NO" -- see
-    # test_service_auth_transport_1746 for why (fix(#1746)).
+    # test_service_auth_transport_1746 for why.
     assert (
         env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"] == "IF_SAME_HOST"
     )
@@ -185,9 +185,8 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
 
     Verifies ESRI field types map to OGR names, CRS prefers latestWkid, the
     sample query reads ``attributes`` (ArcGIS) not ``properties``, and the
-    preview now carries the layer's feature count (fix(#1746): the preview
-    used to always report feature_count=None even though the probe already
-    showed a real count for the same layer).
+    preview now carries the layer's feature count, matching the real
+    count the probe already shows for the same layer.
     """
     import httpx
 
@@ -249,7 +248,7 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
 
 @pytest.mark.anyio
 async def test_fetch_arcgis_layer_preview_count_failure_degrades_to_none():
-    """fix(#1746): a returnCountOnly=true failure must degrade feature_count
+    """A returnCountOnly=true failure must degrade feature_count
     to None, not fail the whole preview."""
     import httpx
 

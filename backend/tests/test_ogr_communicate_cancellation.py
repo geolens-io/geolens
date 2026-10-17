@@ -1,8 +1,8 @@
-"""fix(#1435): client-disconnect cancellation must kill the ogr2ogr child.
+"""Client-disconnect cancellation must kill the ogr2ogr child.
 
 ``asyncio.wait_for`` re-raises ``CancelledError`` on outer-task cancellation
-without touching the awaited subprocess, so `_communicate_with_timeout`'s
-pre-fix code — which only caught `asyncio.TimeoutError` — let a cancelled
+without touching the awaited subprocess, so a `_communicate_with_timeout`
+that only catches `asyncio.TimeoutError` lets a cancelled
 caller unwind while the child kept running with nothing left to reap it.
 ``BaseHTTPMiddleware`` layers such as ``DynamicCORSMiddleware`` cancel the
 downstream task on ``http.disconnect``, so this is reachable from a real

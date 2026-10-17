@@ -1,4 +1,4 @@
-"""fix(#1778): POST /maps/import needs the layer cap its sibling doors carry.
+"""POST /maps/import needs the layer cap its sibling doors carry.
 
 Codebase audit 2026-08-30 (8dc529f17): `MapStyleImportRequest.layers` was the
 one layer-carrying schema in the module with no bound at all. A 5000-layer body

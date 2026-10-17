@@ -134,7 +134,7 @@ def test_additional_columns_unioned_below_zoom_threshold():
 
 
 def test_additional_columns_cannot_escape_empty_allowlist():
-    """fix(#1778): allowlist=[] means no attributes, `cols=` included.
+    """allowlist=[] means no attributes, `cols=` included.
 
     Was `test_additional_columns_unioned_with_empty_allowlist`, which pinned
     the opposite. `tile_columns == []` is documented as "never project
@@ -152,7 +152,7 @@ def test_additional_columns_cannot_escape_empty_allowlist():
 
 
 def test_additional_columns_intersected_with_allowlist():
-    """fix(#1778): `cols=` may reorder/extend the zoom budget, not the allowlist."""
+    """`cols=` may reorder/extend the zoom budget, not the allowlist."""
     result = _select_tile_columns(
         _DATASET_COLUMNS,
         14,
@@ -213,7 +213,7 @@ def test_additional_columns_none_or_empty_preserves_legacy_behavior():
 
 
 def test_build_tile_query_orders_before_the_feature_cap():
-    """fix(#1778): the 50k `LIMIT` needs an ORDER BY to be a pure function.
+    """The 50k `LIMIT` needs an ORDER BY to be a pure function.
 
     Without one, a tile whose bbox selects more than `_TILE_FEATURE_LIMIT`
     rows returns an arbitrary subset, so the content-hash ETag flips between

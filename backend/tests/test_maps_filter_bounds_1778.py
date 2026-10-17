@@ -1,4 +1,4 @@
-"""fix(#1778): the layer filter column needs the bounds its siblings carry.
+"""The layer filter column needs the bounds its siblings carry.
 
 Codebase audit 2026-08-30 (8dc529f17): ``MapLayer.filter`` was the one open
 JSONB layer column with no size cap. The cap's own comment enumerates the open

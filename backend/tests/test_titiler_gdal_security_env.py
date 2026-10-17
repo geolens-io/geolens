@@ -1,4 +1,4 @@
-"""fix(#1192, #1193): pin the titiler service's GDAL security env and worker knob.
+"""Pin the titiler service's GDAL security env and worker knob.
 
 Two invariants, both learned from settings that read as decisions and were not.
 

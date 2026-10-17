@@ -1,4 +1,4 @@
-"""fix(#1778): an over-long password is a refusal, never a 500 or a crash-loop.
+"""An over-long password is a refusal, never a 500 or a crash-loop.
 
 Codebase audit 2026-08-30, "A password over 72 bytes 500s /auth/login and skips
 the login-failure audit row; the same input crash-loops first boot".

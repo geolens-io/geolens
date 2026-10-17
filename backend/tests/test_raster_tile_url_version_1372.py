@@ -1,4 +1,4 @@
-"""fix(#1372, #2007): raster tile URLs carry ``v=`` and ``pv=``.
+"""Raster tile URLs carry ``v=`` and ``pv=``.
 
 nginx's shared raster_cache keys on ``$arg_v`` and ``$arg_pv``
 (frontend/nginx.conf), so a raster replace — which bumps

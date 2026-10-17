@@ -437,7 +437,7 @@ class TestReservationFailureReleasesTheKey:
     async def test_a_database_failure_during_the_bind_still_clears_the_key(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814): the settlement runs on a reset session.
+        """The settlement runs on a reset session.
 
         A failed statement leaves the transaction refusing every further one,
         so a settlement issued straight onto it raises there too.
@@ -549,7 +549,7 @@ class TestReservationFailureReleasesTheKey:
     async def test_a_durable_reservation_whose_commit_raises_is_adopted(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814): the reservation insert is ambiguous too.
+        """The reservation insert is ambiguous too.
 
         A durable insert whose acknowledgement is lost left a running row
         holding the key with nothing that would ever stage or queue it.
@@ -633,7 +633,7 @@ class TestReservationFailureReleasesTheKey:
     async def test_a_durable_bind_whose_commit_raises_reaps_its_bytes(
         self, test_db_session, clean_tables
     ):
-        """fix(#1888): the row settles to failed and nothing can retry a
+        """The row settles to failed and nothing can retry a
         manifest-keyed row, so the staged copy it still names is reaped."""
         request = _request(
             _manifest_dataset(
@@ -672,7 +672,7 @@ class TestReservationFailureReleasesTheKey:
         assert response.results[0].action == "error"
         assert "acknowledgement lost" in response.results[0].message
         queue.assert_not_awaited()
-        # fix(#1888): the bind landed, but a failed manifest row has no retry.
+        # The bind landed, but a failed manifest row has no retry.
         assert not staged.exists()
 
         settled = await _jobs_for_key(test_db_session, "manifest-1814-ambiguous")
@@ -708,7 +708,7 @@ class TestReservationFailureReleasesTheKey:
     async def test_a_failed_dispatch_reaps_the_staged_copy(
         self, test_db_session, clean_tables
     ):
-        """fix(#1888): a terminal manifest failure leaves no staged object behind,
+        """A terminal manifest failure leaves no staged object behind,
         including when the orphan guard has already settled the row before the
         entry's own settlement reads it."""
         request = _request(
@@ -781,7 +781,7 @@ class TestReservationFailureReleasesTheKey:
     async def test_a_settlement_that_never_commits_keeps_its_bytes(
         self, test_db_session, clean_tables
     ):
-        """fix(#1888): the reap follows the commit that made the decision. A first
+        """The reap follows the commit that made the decision. A first
         attempt whose commit is lost non-durably and a second that errors before
         deciding leave the durable pending row and the bytes it names alone."""
         request = _request(
@@ -850,7 +850,7 @@ class TestReservationFailureReleasesTheKey:
     async def test_a_poisoned_reconciliation_read_still_settles(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814): any step of a settlement can find the transaction already
+        """Any step of a settlement can find the transaction already
         unusable, so each attempt resets first and one retry follows a database
         error. A failure at the read cannot strand the writes behind it."""
         request = _request(
@@ -940,7 +940,7 @@ class TestReservationFailureReleasesTheKey:
     async def test_the_settlement_retry_cannot_settle_a_rotated_attempt(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814): the settlement CAS pins the attempt it started with.
+        """The settlement CAS pins the attempt it started with.
 
         A durable settlement whose acknowledgement is lost can be followed by
         /jobs/{id}/retry rotating the token, and a reset reloads the new one.
@@ -994,7 +994,7 @@ class TestReservationFailureReleasesTheKey:
     async def test_a_cancelled_reservation_commit_is_not_swallowed(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814): a cancellation must not become a staging run.
+        """A cancellation must not become a staging run.
 
         The reservation is reconciled either way, but a request cancelled at
         the commit stops instead of downloading through a shutdown.
@@ -1103,7 +1103,7 @@ class TestReservationFailureReleasesTheKey:
 class TestStaleReservations:
     """The reservation runs under the fixed running lease, not the pending one.
 
-    fix(#1814): a pending row with no file_path and no queue task is reapable
+    A pending row with no file_path and no queue task is reapable
     by four actors mid-download, and the pending timeout may legally be 61s.
     """
 
@@ -1324,7 +1324,7 @@ class TestStaleReservations:
     async def test_bind_logs_the_observed_status_on_a_cas_miss(
         self, test_db_session, clean_tables
     ):
-        """fix(#2017): a CAS miss on the bind logs what the row actually is,
+        """A CAS miss on the bind logs what the row actually is,
         so an operator can tell a sweep from a cancel."""
         user = await _admin_user(test_db_session)
         request = _request(_manifest_dataset(key="manifest-2017-cas-miss"))
@@ -1371,7 +1371,7 @@ class TestManifestJobsAreNotGenericallyRetryable:
     async def test_generic_retry_is_refused_for_a_manifest_keyed_job(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814): re-apply owns retries for a manifest key.
+        """re-apply owns retries for a manifest key.
 
         `retry_job` runs its own failed -> pending CAS without the key's
         advisory lock, so it can queue a second job for a key a concurrent
@@ -1428,7 +1428,7 @@ class TestManifestJobsAreNotGenericallyRetryable:
 class TestFencedWritesAreSingleStatements:
     """One fenced UPDATE per transition, not a fenced one plus an ORM flush.
 
-    fix(#1814): plain assignment marks the instance dirty, so the caller's
+    Plain assignment marks the instance dirty, so the caller's
     commit flushes a second, unfenced update over the fenced one.
     """
 
@@ -1499,7 +1499,7 @@ class TestDryRunReservesNothing:
     async def test_dry_run_writes_nothing_and_leaves_a_stale_row_alone(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814): a preview is a read.
+        """A preview is a read.
 
         The expiry runs only for a real apply, at the cost that a preview can
         report an entry in flight where an apply would take it.
@@ -1579,7 +1579,7 @@ class TestDryRunReservesNothing:
 
 
 class TestManifestAdmitBound:
-    """fix(#2017): the admit-plus-bind step carries its own deadline, so a
+    """The admit-plus-bind step carries its own deadline, so a
     heartbeat-less running row can't be reaped mid-admit."""
 
     def test_stage_and_admit_budgets_stay_inside_the_lease_with_margin(self) -> None:

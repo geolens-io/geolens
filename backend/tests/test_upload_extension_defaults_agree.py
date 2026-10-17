@@ -1,6 +1,6 @@
 """Every shipped default for the allowed-upload-extension list says the same thing.
 
-fix(#1682): adding a format to ``Settings.upload_allowed_extensions``
+Adding a format to ``Settings.upload_allowed_extensions``
 is not enough to ship it. Both compose files inject
 ``UPLOAD_ALLOWED_EXTENSIONS`` with a literal fallback, and an injected value
 wins over the Settings default — so under the documented ``make dev`` and
@@ -98,7 +98,7 @@ def test_admin_ui_fallback_is_not_narrower_than_the_server():
 
 
 class TestDegradedConfigLookupFallbacks:
-    """fix(#1682): the DB-failure fallbacks, which had frozen literals.
+    """The DB-failure fallbacks, which had frozen literals.
 
     Both upload doors tolerate a persistent_config read failure by falling back
     to a hard-coded list. Those literals stayed put through two format

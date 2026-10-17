@@ -1,4 +1,4 @@
-"""Tests for feat(#1710) — the URL-import download as a background job.
+"""Tests for the URL-import download as a background job.
 
 What this file pins, beyond the two-phase coverage in
 ``test_url_import_1705.py``:
@@ -373,7 +373,7 @@ class TestWorkerTransition:
 
 
 class TestEveryFailureSettles:
-    """fix(#1710): no raise after the row is adopted may leave it running."""
+    """No raise after the row is adopted may leave it running."""
 
     async def test_a_failure_in_the_adoption_block_settles_the_row(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
@@ -729,7 +729,7 @@ class TestFailureWriteIsBudgeted:
     ):
         """Settlement writes the failure through the shared fenced helper.
 
-        fix(#1957): its None means the write never happened and the
+        Its None means the write never happened and the
         transaction was ended, which is not a fence miss. The row stays
         running so the stale sweep settles it, rather than being reported as
         already settled by someone else.
@@ -1132,7 +1132,7 @@ def _addrinfo(ip: str, port: int | None):
 def _resolve_only(monkeypatch, hostname: str, ip: str) -> None:
     """Answer for ONE hostname; delegate every other name to the real resolver.
 
-    fix(#1710): a blanket `getaddrinfo` stub also answers for the database
+    A blanket `getaddrinfo` stub also answers for the database
     host. Any connection opened while it is installed is pointed at ``ip``,
     so the task's own DB work fails and the row is left `running` — which
     looks exactly like the guard failing to refuse. It only reproduces when

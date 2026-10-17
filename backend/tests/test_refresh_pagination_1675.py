@@ -718,7 +718,7 @@ async def test_refresh_no_progress_page_fails_the_run(
 async def test_partially_populated_pages_fail_the_run(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):
-    """fix(#1675): a server that caps responses below its advertised
+    """A server that caps responses below its advertised
     page size returns SOME rows per page, so the offset skips records while
     the count keeps growing — positive growth must not be enough."""
     from app.processing.ingest.ogr import IngestionError
@@ -745,7 +745,7 @@ async def test_partially_populated_pages_fail_the_run(
 async def test_probe_failure_still_stamps_origin_contact(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):
-    """fix(#1675): a refresh that dies in the page-info probe (e.g.
+    """A refresh that dies in the page-info probe (e.g.
     an ArcGIS 498/499 token error) still CONTACTED the origin — the failure
     path must stamp last_checked_at even though no subprocess ever spawned."""
     from app.processing.ingest.ogr import IngestionError

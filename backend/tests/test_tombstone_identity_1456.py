@@ -1,6 +1,6 @@
 """A tombstone must carry the identity of the relation whose name it freed.
 
-fix(#1456). ``catalog.retired_table_names`` recorded only the freed NAME. That
+``catalog.retired_table_names`` recorded only the freed NAME. That
 cannot tell "the table I detached" from "a new table wearing its name", and it
 says nothing about who owned the dataset that held it. Both answers have to be
 read inside the delete transaction, because both of their sources die in it:
@@ -206,7 +206,7 @@ class TestTheDroppedRelationIsIdentified:
 
 
 class TestADetachWhoseTableAlreadyVanished:
-    """The registered path that still frees the name (fix(#1452)).
+    """The registered path that still frees the name.
 
     The relation is already gone when the delete runs, so there is no identity
     left to record — the honest oid is NULL. The owner is not lost with it,
@@ -368,8 +368,8 @@ class TestNothingElseChanged:
         """The probe now also reads an oid on this path, and must not use it.
 
         Recording a tombstone here would make the operator's own table
-        permanently unregisterable, which is the whole reason fix(#1452) reads
-        the relation rather than the origin.
+        permanently unregisterable, which is the whole reason the registered
+        path reads the relation rather than the origin.
         """
         owner = await _make_user(test_db_session)
         table_name = await _operator_table(test_db_session)

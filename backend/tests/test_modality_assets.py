@@ -25,7 +25,7 @@ API_URL = "http://localhost:8080/api"
 
 class TestRasterTilesAssetVersion:
     def test_raster_tiles_href_carries_tile_cache_version(self):
-        """fix(#1372): the advertised template is versioned so a
+        """The advertised template is versioned so a
         refetching STAC/OGC client stops sharing the unversioned nginx cache
         entry after a replace."""
         ds = _make_dataset(record_type="raster_dataset", table_name=None)
@@ -40,7 +40,7 @@ class TestRasterTilesAssetVersion:
         assert assets["raster_tiles"]["href"].endswith(".png?pv=0")
 
     def test_vector_tiles_href_carries_the_publication_version(self):
-        """fix(#2007): the one tile template here that is never signed, so `pv`
+        """The one tile template here that is never signed, so `pv`
         is what a shared cache keys its response on."""
         ds = _make_dataset(record_type="vector_dataset", table_name="parcels")
         ds.publication_version = 4
@@ -165,7 +165,7 @@ APP_URL = "http://localhost:8080"
 
 
 class TestRasterTilesAssetOrigin:
-    """fix(#315 follow-up): the raster_tiles asset must use the APP origin
+    """The raster_tiles asset must use the APP origin
     (/raster-tiles/...), never the /api origin which has no such route.
     Sibling endpoints (STAC items, OGC records, search) thread public_app_url
     into build_assets just like PR #315 did for the OGC rel=tiles links.

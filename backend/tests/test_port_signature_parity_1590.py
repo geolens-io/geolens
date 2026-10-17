@@ -181,7 +181,7 @@ def _protocol_default_pairs() -> list[tuple[type, type, str]]:
 def test_pair_map_covers_every_default_the_facade_exports() -> None:
     """The pair map must fail toward REPORTING an unpaired default, not toward silence.
 
-    fix(#1590 review): a hand-written list of (Protocol, default) pairs only
+    A hand-written list of (Protocol, default) pairs only
     catches drift in whatever it already knows to check. A new Default*
     class added to the registry facade without a matching entry in
     ``_protocol_default_pairs()`` would sweep clean by omission, not by
@@ -211,7 +211,7 @@ def test_pair_map_covers_every_default_the_facade_exports() -> None:
 def test_default_implementations_match_their_protocol_signatures() -> None:
     """Every default's methods must accept exactly what its Protocol promises.
 
-    fix(#1590): four default methods had drifted from their Protocol — a
+    Four default methods had drifted from their Protocol — a
     renamed parameter pair (``compute_schema_diff``) and three bare
     ``**kwargs`` shims (the presigned-upload trio) that only failed once a
     keyword caller or a forwarding overlay hit the gap. The same sweep also

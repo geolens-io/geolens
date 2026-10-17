@@ -362,7 +362,7 @@ class TestStacExtensionsRemoved:
 
 
 # ---------------------------------------------------------------------------
-# raster_tiles asset origin (fix(#315) follow-up)
+# raster_tiles asset origin
 # ---------------------------------------------------------------------------
 
 

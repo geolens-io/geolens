@@ -1,4 +1,4 @@
-"""fix(#1315): the Procrastinate worker gets a live MVT tile cache.
+"""The Procrastinate worker gets a live MVT tile cache.
 
 ``invalidate_tile_cache_for_table()`` resolves its provider through the
 ``get_tile_cache()`` singleton, and that singleton used to be set only by the

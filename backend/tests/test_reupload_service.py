@@ -66,7 +66,7 @@ async def _create_service_reupload_job(
             "service_type": "WFS 2.0.0",
             "layer_id": None,
             "source_type": "service_url",
-            # fix(#1746): router_refresh stamps this; reupload_commit does
+            # router_refresh stamps this; reupload_commit does
             # not. It is the only thing separating the two doors inside a
             # task that serves both.
             **({"refresh": True} if refresh else {}),
@@ -341,7 +341,7 @@ class TestServiceReuploadWorker:
         assert dataset.source_format == "wfs"
         assert dataset.source_filename == "roads_wfs"
 
-        # fix(#1746): the swap records that the pull needed a credential, as a
+        # The swap records that the pull needed a credential, as a
         # boolean. True or ABSENT, never False — a token-less success stores
         # the ref shape it stored before the key existed, which is also how a
         # service that went public gets un-marked. The token itself is never
@@ -416,7 +416,7 @@ class TestServiceReuploadWorker:
         refresh: bool,
         expected: str,
     ):
-        """fix(#1746): the copy names the door the operator actually used.
+        """The copy names the door the operator actually used.
 
         One task serves the refresh endpoint and the re-upload commit, and the
         old string said "Retry commit" on both — advice about a door half the

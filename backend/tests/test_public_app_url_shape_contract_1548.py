@@ -28,14 +28,14 @@ SHAPE, and one classification on top of it. Whether a shape-valid value is
 TRUSTED in context is a separate question — a loopback origin is shape-valid but
 untrusted when the caller is somewhere else — which is why loopback entries sit
 under ``valid`` in the fixture, and the decision itself lives in
-``assert_domain_lock_is_enforceable``. fix(#1555): WHICH origins are loopback is
+``assert_domain_lock_is_enforceable``. WHICH origins are loopback is
 back here, though, because it is not each side's private opinion either. It was
 an enumerated set of three spellings on both sides, and ``127.0.0.2`` — loopback
 to every operating system, and to the frontend's `loopback-default` state once
 it was fixed there — has to mean the same thing in both halves or the UI and the
 API disagree about which deployments are misconfigured.
 
-fix(#1555) also puts the setting's OTHER door under the same rule: an admin PUT
+The setting's OTHER door is under the same rule: an admin PUT
 goes through ``validate_public_app_url``, which held the ``/api`` clause the
 environment path lacked while lacking every host-spelling clause the environment
 path had. Both are asserted here, against the same values.
@@ -136,7 +136,7 @@ def test_the_loopback_table_has_cases_on_both_sides():
 
 
 def test_every_origin_the_spec_calls_loopback_is_read_as_loopback():
-    """fix(#1555): loopback is a range, and both sides have to agree on it.
+    """Loopback is a range, and both sides have to agree on it.
 
     The consumer is asserted, not the helper: ``_is_localhost_origin`` is what
     ``assert_domain_lock_is_enforceable`` asks, and reading ``127.0.0.2`` as a
@@ -178,7 +178,7 @@ def test_no_origin_the_spec_calls_routable_is_read_as_loopback():
         "mailto:ops@example.com",
         "file:///etc/hosts",
         "not-a-url",
-        # fix(#1555): an API base is not an app URL, and this door never
+        # An API base is not an app URL, and this door never
         # applied the clause the persisted one had.
         "https://maps.example.com/api",
     ],
@@ -231,7 +231,7 @@ async def test_a_non_http_setting_cannot_authorize_a_domain_lock(
 async def test_a_loopback_setting_outside_127_0_0_1_cannot_authorize_a_domain_lock(
     monkeypatch,
 ):
-    """fix(#1555): the finding, end to end through the gate.
+    """The finding, end to end through the gate.
 
     ``http://127.0.0.2:8080`` is a perfectly well-formed origin — it passes the
     whole shape rule, which is why the previous check let it through. It is also
@@ -313,7 +313,7 @@ async def test_a_deployment_on_a_routable_host_still_gets_its_domain_lock(
         "https://maps.example.com/api/",
         "https://example.com/geolens/api",
         "https://192.168.1",
-        # fix(#1555 review): resolve to the API base in a browser, and were
+        # Resolve to the API base in a browser, and were
         # left alone by urlsplit, so both doors used to take them.
         "https://maps.example.com/api/.",
         "https://maps.example.com/api/./",
@@ -321,7 +321,7 @@ async def test_a_deployment_on_a_routable_host_still_gets_its_domain_lock(
     ],
 )
 def test_both_entry_points_of_the_setting_refuse_the_same_values(configured):
-    """fix(#1555): one rule, wherever ``public_app_url`` enters.
+    """One rule, wherever ``public_app_url`` enters.
 
     The setting has two doors — the environment, read by
     ``is_usable_public_origin``, and the admin API, validated by
@@ -402,7 +402,7 @@ def test_both_entry_points_accept_a_value_a_viewer_could_reach(configured):
 def test_the_api_path_rule_reads_the_path_a_browser_resolves(
     path, browser_resolves_to, is_api_base
 ):
-    """fix(#1555 review): ``urlsplit`` is not a URL parser's normalizer.
+    """``urlsplit`` is not a URL parser's normalizer.
 
     ``expected`` is what ``new URL('https://x' + path).pathname`` returns,
     measured in Node rather than reasoned about, with one deliberate exception:

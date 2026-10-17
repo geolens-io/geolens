@@ -642,8 +642,8 @@ async def test_the_port_hands_the_anchors_identity_to_its_caller(
 def test_both_stored_readers_use_the_stored_anchor_predicate():
     """The selection and the scoring must apply the same rule.
 
-    They are two independent readers of one question, and fix(#1580) already had
-    to fix this exact pair once — scoping the selection left the scoring
+    They are two independent readers of one question, and this exact pair has
+    already needed a fix once — scoping the selection left the scoring
     reporting distances measured off a foreign model's row. A rule that lives in
     two call sites can drift in the source even when no test data can tell them
     apart.
@@ -697,7 +697,7 @@ def test_both_stored_readers_use_the_stored_anchor_predicate():
 async def test_a_commit_between_the_two_reads_cannot_split_the_anchor(
     client: AsyncClient, admin_auth_header: dict, test_db_session, space, monkeypatch
 ):
-    """fix(#1580): the ranking and the scoring share ONE anchor read.
+    """The ranking and the scoring share ONE anchor read.
 
     `_load_self_record_and_embedding` read the anchor to score with, and
     `get_nearest_record_ids` read it again to rank against. Two reads under READ
@@ -776,7 +776,7 @@ async def test_a_commit_between_the_two_reads_cannot_split_the_anchor(
 async def test_the_anchor_prefers_the_row_search_would_use(
     test_db_session, space, monkeypatch
 ):
-    """fix(#1580): live-usable first, timestamp only as a tiebreak.
+    """Live-usable first, timestamp only as a tiebreak.
 
     PostgreSQL `now()` is TRANSACTION-START time, and both the column default and
     the ingest re-stamp used it. A job that opens its transaction, spends thirty
@@ -890,7 +890,7 @@ async def test_both_write_branches_stamp_the_statement_clock():
 
     `now()` is TRANSACTION-START time, so a writer that spends thirty seconds in
     a provider call before committing stamps a row with a time from before the
-    work — and fix(#1580) made this column decide which row a comparison anchors
+    work — and this column decides which row a comparison anchors
     on, so an ordering built on it inherited that error.
 
     BOTH branches, because they have to agree with each other. Stamping only the

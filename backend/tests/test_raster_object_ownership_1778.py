@@ -231,7 +231,7 @@ async def _stale_running_row_naming(session, keys: list[str]) -> uuid.UUID:
 
 
 class TestRecorderChecksItsOwnFence:
-    """fix(#1778 audit): every other fenced job-row write in this codebase
+    """Every other fenced job-row write in this codebase
     checks its match. ``update_ingest_job_for_attempt`` in ``heartbeat.py``
     returns ``bool(rowcount)`` and every caller branches on a miss; this
     recorder used to be the one exception, silently committing nothing when

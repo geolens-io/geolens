@@ -1,9 +1,9 @@
-"""fix(#569): CRS classification for honest raster resolution display.
+"""CRS classification for honest raster resolution display.
 
 The frontend must not format degree resolutions as meters, so raster metadata
 has to know the stored CRS's class and its angular unit.
 
-fix(#939): PROJ answers both questions whenever it can parse the stored WKT;
+PROJ answers both questions whenever it can parse the stored WKT;
 the keyword sniff survives only as the fallback for WKT it rejects. Most
 fixtures below are deliberately abbreviated so they exercise that fallback —
 ``test_real_epsg_wkt_round_trips_through_both_helpers`` covers the valid WKT
@@ -25,7 +25,7 @@ WKT2_PROJECTED = (
 WKT2_COMPOUND_GEOGRAPHIC = 'COMPOUNDCRS["WGS 84 + EGM2008 height",GEOGCRS["WGS 84",DATUM["World Geodetic System 1984"]],VERTCRS["EGM2008 height"]]'
 WKT2_COMPOUND_PROJECTED = 'COMPOUNDCRS["NAD83 / UTM 18N + NAVD88",PROJCRS["NAD83 / UTM zone 18N",BASEGEOGCRS["NAD83"]],VERTCRS["NAVD88 height"]]'
 WKT_ENGINEERING = 'ENGCRS["Site grid",EDATUM["Site origin"]]'
-# fix(#939): degree-unit fixtures for wkt_has_degree_unit. Grads GEOGCS is
+# degree-unit fixtures for wkt_has_degree_unit. Grads GEOGCS is
 # geographic per the keyword test but its resolutions are not degrees.
 WKT1_GEOGRAPHIC_DEGREE = 'GEOGCS["NAD83",DATUM["North_American_Datum_1983",SPHEROID["GRS 1980",6378137,298.257222101]],UNIT["degree",0.0174532925199433]]'
 WKT2_GEOGRAPHIC_DEGREE = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563]],CS[ellipsoidal,2],AXIS["latitude",north],AXIS["longitude",east],ANGLEUNIT["degree",0.0174532925199433]]'
@@ -62,7 +62,7 @@ def test_engineering_and_missing_are_unknown():
     assert wkt_is_geographic("") is None
 
 
-# fix(#939): wkt_has_degree_unit — the companion unit test wkt_is_geographic
+# wkt_has_degree_unit — the companion unit test wkt_is_geographic
 # deliberately does not perform.
 
 

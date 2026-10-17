@@ -31,7 +31,7 @@ REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
 RELEASE_YML = REPO_ROOT / ".github" / "workflows" / "release.yml"
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
-# fix(#1673): tracks the step name, which changed when the Buttondown
+# Tracks the step name, which changed when the Buttondown
 # newsletter joined the site and examples dispatches as a third target.
 STEP_NAME_MARKER = "Notify downstream"
 
@@ -43,8 +43,8 @@ def _dispatch_step() -> dict[str, Any]:
     """The single step in release.yml that sends the release dispatches.
 
     Matched on a prefix of its name rather than the whole string. That is not
-    rename-proof — fix(#1673) renamed the step past the old ``"Notify the
-    site"`` marker and this had to move with it — but the ``== 1`` assertion
+    rename-proof — a step renamed past the old ``"Notify the
+    site"`` marker needs this to move with it — but the ``== 1`` assertion
     below is what makes that safe: a marker that no longer matches fails
     loudly here instead of letting every assertion in this file pass
     vacuously against a step it could not find. Renaming the step means
@@ -221,7 +221,7 @@ class TestBackendFilterCoversThisWorkflow:
     def test_release_yml_triggers_backend_tests(self):
         """A release.yml-only PR must run Backend Tests.
 
-        Same class as fix(#561), fix(#1088) and fix(#1517) in ci.yml: a backend
+        Same class as the other ci.yml path filters: a backend
         test that reads a file by literal path is dead weight unless changing
         that file turns the suite on.
         """

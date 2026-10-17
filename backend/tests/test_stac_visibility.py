@@ -306,7 +306,7 @@ async def test_stac_item_non_owner_cannot_read_private(
 
 
 # ---------------------------------------------------------------------------
-# fix(#401): supplied-but-stale credentials must 401, not fall to anon 404
+# supplied-but-stale credentials must 401, not fall to anon 404
 # ---------------------------------------------------------------------------
 
 
@@ -320,7 +320,7 @@ async def test_stac_item_non_owner_cannot_read_private(
     ],
 )
 async def test_stac_stale_bearer_returns_401_not_404(client: AsyncClient, path: str):
-    """fix(#401): supplied credentials that fail to resolve get 401 — not the
+    """Supplied credentials that fail to resolve get 401 — not the
     anonymous 404 — so a stale-token caller's private raster triggers the
     client's refresh-on-401 retry instead of permanently 404ing."""
     resp = await client.get(
@@ -332,7 +332,7 @@ async def test_stac_stale_bearer_returns_401_not_404(client: AsyncClient, path: 
 
 @pytest.mark.anyio
 async def test_stac_search_post_stale_bearer_returns_401(client: AsyncClient):
-    """fix(#401): POST /stac/search with a stale bearer 401s too."""
+    """POST /stac/search with a stale bearer 401s too."""
     resp = await client.post(
         "/stac/search",
         json={"limit": 1},

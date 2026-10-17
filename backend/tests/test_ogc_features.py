@@ -410,7 +410,7 @@ async def test_collection_items_pagination(
 async def test_pagination_links_preserve_include_geometry_false(
     client: AsyncClient, public_dataset: Dataset
 ):
-    """fix(#1778): include_geometry=false must survive into the self and
+    """include_geometry=false must survive into the self and
     next pagination links.
 
     include_geometry is excluded from property_filters (it's in
@@ -492,7 +492,7 @@ async def test_get_single_feature_not_found(
 
 
 # ---------------------------------------------------------------------------
-# fix(#315): raster/VRT collections have no feature items (must 404, never 500)
+# raster/VRT collections have no feature items (must 404, never 500)
 # ---------------------------------------------------------------------------
 
 
@@ -563,7 +563,7 @@ async def test_collections_list_raster_tiles_link_is_versioned(
     """The collections LIST advertises the same versioned
     raster template as the collection detail.
 
-    fix(#1372 flake): the list defaults to limit=50 with unordered offset
+    The list defaults to limit=50 with unordered offset
     pagination, and this worker's shared DB accumulates datasets from sibling
     tests, so a single-page scan can miss the fixture dataset and the bare
     next() raised StopIteration inside the coroutine. Page through instead.
@@ -587,7 +587,7 @@ async def test_collections_list_raster_tiles_link_is_versioned(
 
 
 # ---------------------------------------------------------------------------
-# fix(#315): a missing-table VECTOR dataset must 503, never 500
+# A missing-table VECTOR dataset must 503, never 500
 # ---------------------------------------------------------------------------
 
 

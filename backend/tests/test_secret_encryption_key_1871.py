@@ -197,7 +197,7 @@ class TestBootGuard:
         with pytest.raises(ValidationError, match="same value as JWT_SECRET_KEY"):
             _make_settings(jwt_secret_key=shared, secret_encryption_key=shared)
 
-    # fix(#1882): fixed values with explicit ids. A key generated here would be
+    # Fixed values with explicit ids. A key generated here would be
     # generated once per xdist worker, and pytest-xdist aborts the run when two
     # workers collect different test ids.
     @pytest.mark.parametrize(
@@ -223,7 +223,7 @@ class TestBootGuard:
             )
 
     def test_refuses_a_previous_key_equal_to_the_current_one(self):
-        """fix(#1882 audit): the chain would hold one key twice."""
+        """The chain would hold one key twice."""
         shared = _new_key()
         with pytest.raises(ValidationError, match="nothing is being rotated"):
             _make_settings(
@@ -585,7 +585,7 @@ class TestRotationScript:
     async def test_a_failed_write_does_not_print_the_ciphertext(
         self, test_db_session, secret_settings, empty_oauth_providers
     ):
-        """fix(#1882 audit): the sweep's engine sets hide_parameters.
+        """The sweep's engine sets hide_parameters.
 
         A StatementError renders its bound parameters into the message, and
         the API's DB error handler logs that message. Bound here is the new

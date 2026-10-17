@@ -1,4 +1,4 @@
-"""fix(#1828): a credentialed WFS whose DescribeFeatureType schema includes a
+"""A credentialed WFS whose DescribeFeatureType schema includes a
 location on another origin is refused before GDAL is handed the source.
 
 The WFS driver resolves every ``xs:include`` of the schema it is given, with

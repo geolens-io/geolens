@@ -177,7 +177,7 @@ async def test_filter_visible_subset_invariant(
     assert rec_a.id in over_plain
     assert {rec_b.id, rec_c.id, rec_d.id} <= base_plain  # visible at baseline
     assert not ({rec_b.id, rec_c.id, rec_d.id} & over_plain)  # narrowed out
-    # fix(#515): the grant path must be LIVE — the restricted record reaches the
+    # The grant path must be LIVE — the restricted record reaches the
     # baseline via Dataset.record_id -> DatasetGrant -> UserRole, and survives
     # the ABAC narrowing because it is internal/alpha (within policy).
     assert rec_restricted.id in base_plain

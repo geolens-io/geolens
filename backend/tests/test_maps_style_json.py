@@ -354,7 +354,7 @@ def test_builtin_pattern_export_keeps_the_stashed_fill_color():
 def test_builtin_pattern_export_seeds_over_an_explicit_null_fill_color():
     """`fill-color: null` is not a colour, so the stash still wins.
 
-    fix(#910, codex P2): an API-authored or imported layer can carry an explicit null
+    An API-authored or imported layer can carry an explicit null
     there, and a presence test read that as "already coloured" — #917 then stripped the
     pattern and left the null in place (`_strip_wrong_typed_values` does not pop it), so
     MapLibre resolved the null to its own default instead of the saved colour. Measured
@@ -2137,7 +2137,7 @@ def test_symbol_icon_expression_to_string_input_and_labels_st04():
 
 
 def test_vector_source_maxzoom_mirrors_live_builder_394():
-    """fix(#394): plain vector sources export maxzoom 14 (overzoom beyond, like
+    """Plain vector sources export maxzoom 14 (overzoom beyond, like
     the live builder); server-cluster sources keep 22 so clusters can expand."""
     plain = _layer(style_config=None)
     source = style_json._source_for_layer(plain)
@@ -2238,7 +2238,7 @@ def test_symbol_export_icon_allow_overlap_follows_label_toggle():
 
 
 # ---------------------------------------------------------------------------
-# fix(#917): builtin fill patterns are not in the served sprite
+# builtin fill patterns are not in the served sprite
 # ---------------------------------------------------------------------------
 
 
@@ -2319,7 +2319,7 @@ def test_a_non_builtin_fill_pattern_is_left_alone(pattern):
     ],
 )
 def test_a_composite_fill_pattern_is_left_exactly_as_authored(pattern):
-    """fix(#917): composites are deliberately untouched, not an unfinished case.
+    """Composites are deliberately untouched, not an unfinished case.
 
     MapLibre SKIPS a missing pattern and fires `styleimagemissing`, documented
     as the hook for supplying the image at runtime, so an export naming a
@@ -2342,7 +2342,7 @@ def test_a_composite_fill_pattern_is_left_exactly_as_authored(pattern):
     assert _fill_paint(style)["fill-pattern"] == pattern
 
 
-# fix(#1069): the read-side bound. Writes are shape-checked now (see
+# The read-side bound. Writes are shape-checked now (see
 # `_validate_maplibre_style_dict` in maps/schemas.py), but rows written before
 # that check are still in the database, and validating new writes does nothing
 # about them. Both tests below install a serializer that DOES descend into a
@@ -2403,7 +2403,7 @@ def test_a_layer_that_cannot_be_validated_is_dropped_not_500(monkeypatch):
     assert f"layer-{good.id}" in emitted
 
 
-# fix(#1472 review): an exported style is a published artifact rendered outside
+# An exported style is a published artifact rendered outside
 # this instance, so a dataset whose terms require credit has to carry it into
 # every source type the exporter emits.
 _SWISSTOPO_CREDIT = "© swisstopo — swissALTI3D"
@@ -2455,7 +2455,7 @@ def test_exported_source_omits_attribution_when_no_credit_is_required(credit):
 
 
 def test_exported_source_attribution_is_html_escaped():
-    """fix(#1472 review): the style spec's `attribution` is an HTML string the
+    """The style spec's `attribution` is an HTML string the
     consuming application assigns to innerHTML, so this export hands a third
     party a render context we do not control. The write guard keeps `<`/`>` out
     of the column; this keeps a value that predates it, or arrives by a direct
@@ -2475,8 +2475,8 @@ def test_exported_source_attribution_neutralizes_stored_markup():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1626): the primary fill/line layer applies layer.opacity on export.
-# fix(#1625): it does so by folding, never by emitting the v6 -layer-opacity
+# The primary fill/line layer applies layer.opacity on export.
+# It does so by folding, never by emitting the v6 -layer-opacity
 # keys, which abort the whole style load on maplibre-gl < 6.
 # ---------------------------------------------------------------------------
 def _primary(style, layer_type):
@@ -2525,7 +2525,7 @@ def test_export_folds_master_opacity_into_expression_fill_opacity_1626():
 
 
 def test_export_folds_the_builder_default_when_paint_has_no_fill_opacity_1626():
-    """fix(#1631 review): absent per-feature opacity means the BUILDER default
+    """Absent per-feature opacity means the BUILDER default
     (fill 0.3, mirrored from getFeatureOpacity in layer-adapters/shared.ts),
     not the spec default of 1 — the live builder draws such a polygon at
     0.3 * master, and the export has to match it."""
@@ -2572,7 +2572,7 @@ def test_export_treats_wrong_typed_fill_opacity_as_absent_when_folding_1626():
     )
     style = build_maplibre_style(_map(), [layer])
     fill = _primary(style, "fill")
-    # fix(#1631 review): wrong-typed counts as absent, so the builder default
+    # wrong-typed counts as absent, so the builder default
     # (0.3) is the per-feature starting point, same as the test above.
     assert fill["paint"]["fill-opacity"] == pytest.approx(0.15)
     assert fill["metadata"]["geolens"]["feature_opacity"] is None
@@ -2770,7 +2770,7 @@ def test_import_drops_an_expression_layer_opacity_with_a_warning_1625():
 @pytest.mark.parametrize("master", [0.0, 0.25, 1.0])
 @pytest.mark.parametrize("geometry", ["POLYGON", "LINESTRING", "POINT"])
 def test_import_restores_a_zero_master_opacity_1778(geometry, master):
-    """fix(#1778): `float(x or 1)` read a stored 0.0 as absent and returned 1.0.
+    """`float(x or 1)` read a stored 0.0 as absent and returned 1.0.
 
     A layer the user made fully transparent came back fully opaque, and for
     fill and line `_restore_master_opacity` popped the folded `*-opacity` out
@@ -2823,7 +2823,7 @@ def test_a_non_numeric_stored_master_opacity_falls_back_to_one_1778():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): zoom range and popup config survive a GeoLens round trip
+# Zoom range and popup config survive a GeoLens round trip
 # ---------------------------------------------------------------------------
 
 

@@ -280,7 +280,7 @@ class TestRefreshAuditTrail:
 
 
 class TestReconciliationCounterPublishesOnlyAfterCommit:
-    """fix(#1277 review): a counter increment cannot be taken back.
+    """A counter increment cannot be taken back.
 
     The sweep used to increment where it ran, inside the transaction. Any
     later failure in the same pass rolls the cancellations back and leaves the

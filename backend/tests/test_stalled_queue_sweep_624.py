@@ -1,4 +1,4 @@
-"""fix(#624): the stalled-queue sweep fails jobs whose worker died mid-job.
+"""The stalled-queue sweep fails jobs whose worker died mid-job.
 
 The procrastinate API contract these mocks stand in for (``get_stalled_jobs``
 with a heartbeat window, ``finish_job_by_id_async``, ``prune_stalled_workers``)
@@ -40,7 +40,7 @@ def _job(
         id=job_id,
         task_name=task_name,
         task_kwargs={"job_id": ingest_job_id} if ingest_job_id else {},
-        # fix(#1778): `queue` is a required field on procrastinate's Job, and
+        # `queue` is a required field on procrastinate's Job, and
         # the sweep labels its failure counter with it. Leaving it off is the
         # same class of drift this docstring already warns about for
         # `task_kwargs` -- the stub passed while the real Job carried more.
@@ -112,7 +112,7 @@ async def test_unpersisted_job_is_skipped():
 
 @pytest.mark.anyio
 async def test_sweep_loop_keeps_running_after_a_failure():
-    """fix(#624): the sweep must repeat, and survive its own failures.
+    """The sweep must repeat, and survive its own failures.
 
     A startup-only sweep is always one restart behind: under
     `restart: unless-stopped` the replacement worker is up seconds after the
@@ -147,7 +147,7 @@ async def test_sweep_loop_keeps_running_after_a_failure():
 
 
 def test_procrastinate_prune_window_matches_the_sweep_window():
-    """fix(#624): the two stalled-worker windows must not diverge.
+    """The two stalled-worker windows must not diverge.
 
     Procrastinate's own ``Worker.run()`` prunes workers silent longer than
     ``stalled_worker_timeout``. ``procrastinate_jobs.worker_id`` is ON DELETE SET
@@ -173,7 +173,7 @@ def test_procrastinate_prune_window_matches_the_sweep_window():
 
 
 def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
-    """fix(#624): honour a long WORKER_SHUTDOWN_TIMEOUT.
+    """Honour a long WORKER_SHUTDOWN_TIMEOUT.
 
     Procrastinate's ``Worker._shutdown`` cancels the heartbeat side task BEFORE
     waiting ``shutdown_graceful_timeout`` for running jobs, so a worker finishing
@@ -188,7 +188,7 @@ def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
     monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
     assert stalled_worker_seconds() == JOB_TIMEOUT_SECONDS
 
-    # fix(#624): a split-queue raster worker's long graceful window
+    # A split-queue raster worker's long graceful window
     # sits under the floor, so a general worker running the GLOBAL sweep cannot
     # classify it as stalled — no fleet-wide config coordination needed.
     monkeypatch.setattr(settings, "worker_shutdown_timeout", 30)
@@ -201,7 +201,7 @@ def test_stalled_window_never_undercuts_graceful_shutdown(monkeypatch):
 
 @pytest.mark.anyio
 async def test_job_whose_ingest_row_is_still_leasing_is_left_alone():
-    """fix(#624): a live lease outranks any stalled-worker timeout.
+    """A live lease outranks any stalled-worker timeout.
 
     Procrastinate's worker heartbeat and the ingest task's own lease are
     independent: `Worker._shutdown` cancels the former, then waits out
@@ -232,7 +232,7 @@ async def test_job_whose_ingest_row_is_still_leasing_is_left_alone():
 
 @pytest.mark.anyio
 async def test_the_sweep_purges_the_tokens_of_only_the_rows_it_failed():
-    """fix(#1755 item 12): a crashed worker never reaches
+    """A crashed worker never reaches
     `purge_token_on_failure`, so the sweep that declares its row dead is where
     the token stops being needed. A job left alone may still be running.
     """
@@ -300,7 +300,7 @@ async def test_job_with_no_lease_to_read_still_gets_swept():
 
 @pytest.mark.anyio
 async def test_lease_lookup_runs_under_each_job_s_tenant():
-    """fix(#624): hosted leases are only visible under their tenant.
+    """Hosted leases are only visible under their tenant.
 
     `ingest_jobs` is FORCE-RLS scoped by `app.current_tenant` in hosted mode, so
     one un-tenanted SELECT would see nothing and read every hosted lease as dead

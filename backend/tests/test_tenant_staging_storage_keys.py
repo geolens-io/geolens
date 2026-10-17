@@ -205,14 +205,14 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
 
     logical = "staging/job-a/roads.geojson"
     physical = f"tenants/{TENANT_A}/{logical}"
-    # fix(#1202 review): completion freezes the upload to an unwritable key
+    # Completion freezes the upload to an unwritable key
     # first and judges THAT, so the tenant prefix has to survive the derivation.
     frozen_logical = "staging/job-a/frozen/roads.geojson"
     frozen_physical = f"tenants/{TENANT_A}/{frozen_logical}"
     job = MagicMock(
         id=uuid.uuid4(),
         source_filename="roads.geojson",
-        # fix(#1202 review): completion is one-shot and keys off file_path, so
+        # Completion is one-shot and keys off file_path, so
         # the mock has to start where create_ingest_job leaves a presigned job
         # — empty — rather than with MagicMock's truthy auto-attribute.
         file_path="",
@@ -231,7 +231,7 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     db.get = AsyncMock(return_value=job)
     storage = AsyncMock()
     storage.exists.return_value = True
-    # fix(#1202): completion content-validates from a ranged read of the
+    # Completion content-validates from a ranged read of the
     # physical key, so the fake has to serve bytes rather than a sentinel.
     storage.get_range.return_value = b"{}"
     # The pre-copy size fast path measures the staging object before the
@@ -242,10 +242,10 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     with (
         patch.object(router, "get_job_or_404", AsyncMock(return_value=job)),
         patch.object(router, "get_storage", return_value=storage),
-        # refactor(#1711): the staging delete is _cleanup_saved_upload, which
+        # The staging delete is _cleanup_saved_upload, which
         # resolves the provider itself.
         patch("app.platform.storage.get_storage", return_value=storage),
-        # fix(#1207): the completion sequence moved into presigned.py so both
+        # The completion sequence moved into presigned.py so both
         # doors share it, so verify is patched at its new home.
         patch.object(presigned_module, "verify_completed_presigned_upload", verify),
         patch.object(router.UPLOAD_MAX_SIZE_MB, "get", AsyncMock(return_value=10)),
@@ -281,7 +281,7 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
     dataset_id = uuid.uuid4()
     user = MagicMock(id=uuid.uuid4())
     dataset = MagicMock(id=dataset_id)
-    # fix(#1207): completion is one-shot and keys off file_path, so the mock
+    # Completion is one-shot and keys off file_path, so the mock
     # starts where create_ingest_job leaves a presigned job — empty.
     job = MagicMock(id=uuid.uuid4(), user_metadata={}, file_path="")
     db = AsyncMock()
@@ -290,7 +290,7 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
     storage.exists = AsyncMock(return_value=True)
     port = MagicMock()
     port.create_ingest_job = AsyncMock(return_value=job)
-    # fix(#1207): the reupload door reaches the whole completion sequence
+    # The reupload door reaches the whole completion sequence
     # through one port method now; it returns the frozen LOGICAL key.
     port.lock_presigned_job = AsyncMock(return_value=job)
     port.should_assemble_multipart = AsyncMock(return_value=False)
@@ -342,7 +342,7 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
         logical = f"staging/{job.id}/roads.geojson"
         physical = f"tenants/{TENANT_A}/{logical}"
         assert response.s3_key == physical
-        # fix(#1848): the presigned facts land through a guarded UPDATE rather
+        # The presigned facts land through a guarded UPDATE rather
         # than the ORM instance, so they are read off the statement the door ran.
         bound = db.execute.await_args.args[0].compile().params["user_metadata"]
         assert bound["s3_key"] == logical
@@ -366,7 +366,7 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
     storage.generate_presigned_put_url.assert_called_once_with(
         physical, "application/octet-stream", 1800
     )
-    # fix(#1207): the door no longer probes storage itself — the existence
+    # The door no longer probes storage itself — the existence
     # check moved inside finalize_presigned_object, which resolves the tenant
     # namespace from the logical key it is handed (asserted below). What stays
     # this door's job is minting the presign against the PHYSICAL key, above,
@@ -375,7 +375,7 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
     # The door hands finalize the LOGICAL key; the helper resolves the tenant
     # namespace itself, which is what keeps the two doors identical here.
     assert port.finalize_presigned_object.await_args.kwargs["logical_key"] == logical
-    # fix(#1207): the door binds the FROZEN key, not the client-writable
+    # The door binds the FROZEN key, not the client-writable
     # staging one — the whole point of the freeze. Tenant prefix still absent
     # from what is stored, exactly as before.
     assert job.file_path == f"staging/{job.id}/frozen/roads.geojson"
@@ -407,10 +407,10 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     monkeypatch.setattr(settings, "upload_staging_dir", str(staging_root))
     monkeypatch.setattr(settings, "ingest_jobs_retention_days", 1)
 
-    # fix(#1234): five sweep statements now — the pending clause is two, one
+    # Five sweep statements now — the pending clause is two, one
     # for unbound rows at 1h and one for bound-but-uncommitted at 24h.
-    # feat(#1219): six, with the abandoned-refresh-run sweep after them.
-    # fix(#1274 review): seven — the refresh-run sweep is two statements,
+    # Six, with the abandoned-refresh-run sweep after them.
+    # Seven — the refresh-run sweep is two statements,
     # the legacy-completion recorder before the abandonment cancel.
     # Eight — the VRT RasterAsset UPDATE split
     # into two (composition-preserving -> 'ready', composition-changed ->

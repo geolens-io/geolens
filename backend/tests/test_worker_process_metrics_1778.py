@@ -1,4 +1,4 @@
-"""fix(#1778): the job worker must publish RSS and DB-pool metrics.
+"""The job worker must publish RSS and DB-pool metrics.
 
 ``main()`` started exactly three background tasks: the health server, the job
 metrics collector and credential renewal. The memory collector exists for the

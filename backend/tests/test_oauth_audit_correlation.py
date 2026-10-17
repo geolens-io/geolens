@@ -319,7 +319,7 @@ async def test_callback_domain_not_allowed_emits_failure_audit(
 
 
 # ---------------------------------------------------------------------------
-# Test 5b: fix(#1778): OAuthRegistrationDisabledError gets the same treatment
+# Test 5b: OAuthRegistrationDisabledError gets the same treatment
 # ---------------------------------------------------------------------------
 
 

@@ -300,7 +300,7 @@ class TestSamlRetainedOnDowngrade:
 
         try:
             # Downgrade BELOW 0010 (removes 'github', keeps 'saml').
-            # fix(#430): target 0010's parent explicitly — a relative "-1" was
+            # Target 0010's parent explicitly — a relative "-1" was
             # head-coupled and stopped landing below 0010 the moment a newer
             # migration (0011_allow_generic_geometry_type) became head.
             r = _run_alembic("downgrade", "0009_email_verification")

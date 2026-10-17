@@ -148,7 +148,7 @@ class TestRasterTokenZoomMetadata:
     def test_falls_back_to_legacy_maxzoom_without_metadata(self):
         assert _raster_maxzoom_from_metadata(None, None) == 18
 
-    # fix(#939): the degrees-vs-metres decision was `epsg == 4326`, so every
+    # The degrees-vs-metres decision was `epsg == 4326`, so every
     # other geographic CRS had its degree resolutions read as metres and
     # derived maxzoom 22 instead of 7 (measured on the live ETOPO 9518
     # dataset). Fixtures mirror that raster: 21600x10800 at 1/60 degree.
@@ -214,7 +214,7 @@ class TestRasterTokenZoomMetadata:
                 'ANGLEUNIT["degree",0.0174532925199433]]',
             ),
             (
-                # fix(#939): WKT2:2015 spelling — GEODCRS with an
+                # WKT2:2015 spelling — GEODCRS with an
                 # ellipsoidal CS, the form rasterio still emits.
                 4269,
                 'GEODCRS["NAD83",DATUM["North American Datum 1983",'
@@ -246,7 +246,7 @@ class TestRasterTokenZoomMetadata:
         assert _raster_maxzoom_from_metadata(asset, self._ETOPO_BOUNDS) == 7
 
     def test_grads_geographic_crs_falls_back_to_bounds_estimate(self):
-        # fix(#939): a grads GEOGCS (NTF Paris family) is geographic but its
+        # A grads GEOGCS (NTF Paris family) is geographic but its
         # stored resolution is neither metres nor degrees. Pinned behavior:
         # skip the stored resolution and use the bounds/width estimate, which
         # for this global fixture also lands on 7 (vs 22 if the grads value
@@ -312,7 +312,7 @@ class TestRasterAuthCheck:
     async def test_auth_check_mismatched_tile_version_is_not_cacheable(
         self, client: AsyncClient, test_db_session
     ):
-        """fix(#1372): tile_cache_version is advertised in public URLs
+        """tile_cache_version is advertised in public URLs
         and increments predictably, so a caller could pre-warm the NEXT
         version's nginx cache key with pre-replace bytes. A `v` that does not
         match the dataset's current version must therefore never produce a
@@ -340,7 +340,7 @@ class TestRasterAuthCheck:
         assert resp.status_code == 200
         assert resp.headers.get("x-geolens-cache-status") == "private"
 
-        # fix(#1372): duplicate v — nginx keys on the FIRST value,
+        # Duplicate v — nginx keys on the FIRST value,
         # Starlette's .get() would return the LAST, so a naive check passes
         # while nginx caches under the future key. Exactly one v is required.
         resp = await client.get(
@@ -349,7 +349,7 @@ class TestRasterAuthCheck:
         assert resp.status_code == 200
         assert resp.headers.get("x-geolens-cache-status") == "private"
 
-        # fix(#1372): nginx matches the param NAME case-insensitively
+        # nginx matches the param NAME case-insensitively
         # ($arg_v sees V=999); an exact-case backend check would miss it.
         resp = await client.get(
             "/tiles/raster-auth-check/",
@@ -398,7 +398,7 @@ class TestRasterAuthCheck:
         viewer_auth_header: dict,
         test_db_session,
     ):
-        """fix(#929): the raster auth gate mirrors can_access_dataset, so the
+        """The raster auth gate mirrors can_access_dataset, so the
         creator exemption applies here too — a non-admin owner of a restricted
         raster gets 200, while another authenticated non-grantee stays 404."""
         from tests.conftest import _create_test_user
@@ -434,7 +434,7 @@ class TestRasterAuthCheck:
         test_db_session,
         monkeypatch,
     ):
-        """fix(#929): the raster gate consults the permission
+        """The raster gate consults the permission
         extension rather than hard-coding an owner short-circuit, so an
         overlay policy that deliberately denies a dataset's creator
         (revoked clearance, ABAC) is enforced here too."""
@@ -843,7 +843,7 @@ class TestRasterTokenEndpoint:
     async def test_raster_token_url_carries_tile_cache_version(
         self, client: AsyncClient, test_db_session
     ):
-        """fix(#1372): the signed template carries v=<tile_cache_version>, the
+        """The signed template carries v=<tile_cache_version>, the
         segment nginx's shared raster cache keys on ($arg_v) — a raster replace
         bumps the version, so the shared cache rolls instead of serving
         pre-replace bytes for up to proxy_cache_valid."""
@@ -1137,7 +1137,7 @@ async def test_band_stats_failure_is_reused_then_retried_after_ttl(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# fix(#688): signed raster tile templates
+# Signed raster tile templates
 # ---------------------------------------------------------------------------
 
 
@@ -1309,7 +1309,7 @@ class TestSignedRasterTileTemplate:
     async def test_a_signed_template_renders_an_unpublished_public_draft(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#688): the draft-preview case.
+        """The draft-preview case.
 
         A public-but-unpublished raster is an owner/admin preview, and the mint
         endpoint issues a template for it. Gating the signature branch on
@@ -1342,7 +1342,7 @@ class TestSignedRasterTileTemplate:
     async def test_an_expired_signature_does_not_break_a_signed_in_session(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#688): the signature is additive, never a restriction.
+        """The signature is additive, never a restriction.
 
         MapLibre keeps requesting the URL it was handed, so a preemptive refusal
         403'd an in-app map holding a valid session the moment its 15-minute

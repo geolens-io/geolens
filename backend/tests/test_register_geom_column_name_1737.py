@@ -1,4 +1,4 @@
-"""fix(#1737): a spatial table whose geometry column is not named `geom`
+"""A spatial table whose geometry column is not named `geom`
 must be refused at registration, not catalogued as a non-spatial table.
 
 ``register_existing_table`` decides "is this spatial?" by looking for the

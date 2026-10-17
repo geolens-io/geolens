@@ -772,7 +772,7 @@ class TestDistributions:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """fix(#1463): the tile template is XYZ, and says so.
+        """The tile template is XYZ, and says so.
 
         The URL is ``/tiles/data.{table}/{z}/{x}/{y}.pbf`` — no capabilities
         document, no TileMatrixSet negotiation. It carried ``OGC:WMTS``, which

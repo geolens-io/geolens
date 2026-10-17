@@ -1,4 +1,4 @@
-"""fix(#937): TiTiler must not claim redirect protection it does not have.
+"""TiTiler must not claim redirect protection it does not have.
 
 This file used to assert that both compose files set
 ``GDAL_HTTP_FOLLOWLOCATION=NO`` on the titiler service. That variable is not

@@ -1,4 +1,4 @@
-"""fix(#1607): the showcase content geolens-examples addresses by id stays put.
+"""The showcase content geolens-examples addresses by id stays put.
 
 The examples repo hardcodes demo fixtures: `ci/fixtures.json` names the
 meteorites dataset (viewport paging, the vector-tile handoff, a search phrase)
@@ -367,7 +367,7 @@ def test_help_names_the_sentinel_exception_under_force_pinned():
     stale-map loop first, which deletes every row under the name AND their
     share links, so there the override really does destroy the uuid the
     examples link. An operator reads the help, not the source, so the help has
-    to carry the exception (fix(#1607)).
+    to carry the exception.
     """
     result = _run("--help")
     assert result.returncode == 0
@@ -655,7 +655,7 @@ def test_only_sentinel2_replaces_layers_in_place():
 
     The rebind goes through _rebind_pinned_rows so that EVERY retained row is
     rebound, not just the primary - a builder reaching _replace_map_layers
-    directly would be back to rebinding one row (fix(#1607)).
+    directly would be back to rebinding one row.
     """
     assert _callers_of("_replace_map_layers") == {"_rebind_pinned_rows"}
     assert _callers_of("_rebind_pinned_rows") == {"build_sentinel2"}

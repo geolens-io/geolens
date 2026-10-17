@@ -1,4 +1,4 @@
-"""fix(#1596): the anonymous wildcard has to cover catalog search too.
+"""The anonymous wildcard has to cover catalog search too.
 
 ``DynamicCORSMiddleware`` answers an origin outside ``CORS_ALLOWED_ORIGINS``
 with a credential-free wildcard policy, but only for paths
@@ -109,7 +109,7 @@ async def test_search_preflight_is_answered(client, deny_all_origins):
 async def test_search_preflight_advertises_only_what_the_route_answers(
     client, deny_all_origins
 ):
-    """fix(#1470) again, on the new surface: no promise the route will refuse.
+    """No promise the route will refuse.
 
     Search is registered ``GET``-only. FastAPI's ``APIRoute`` does not add HEAD
     alongside GET the way starlette's plain ``Route`` does, and the derived-HEAD

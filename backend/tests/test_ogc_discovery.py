@@ -211,7 +211,7 @@ async def test_anonymous_standards_cors_default_is_read_only(client, monkeypatch
 
 
 async def test_head_is_served_wherever_the_preflight_advertises_it(client, monkeypatch):
-    """fix(#1470): the preflight said HEAD was allowed; the route said 405.
+    """The preflight said HEAD was allowed; the route said 405.
 
     ``_set_public_cors_headers`` answers a standards preflight with
     ``GET, HEAD, POST, OPTIONS``, so a browser client that trusts it sent HEAD
@@ -325,7 +325,7 @@ async def test_conformance_contains_required_classes(client):
     assert not any(value.endswith("/conf/oas30") for value in data["conformsTo"])
 
 
-# fix(#1856 item 2): the prose list in the API description and the URIs
+# The prose list in the API description and the URIs
 # /conformance serves are two statements of one fact. Each family maps to the
 # phrase the description must use; a family with no entry fails below, so a
 # newly advertised class cannot land without the prose following it.
@@ -341,7 +341,7 @@ _CONFORMANCE_PROSE = {
 async def test_the_api_description_matches_what_conformance_serves(client):
     """The human-readable list must not claim more than the machine one.
 
-    fix(#1856 item 2). The description advertised the OAS 3.0 classes of
+    The description advertised the OAS 3.0 classes of
     Common and Features Part 1 while the served document is OpenAPI 3.1, so
     the class is not met. /conformance never claimed it, which is the half a
     QGIS or GDAL client reads; the prose was where it was wrong, and it also
@@ -392,7 +392,7 @@ async def test_conformance_f_json_accepted(client):
     assert response.status_code == 200
 
 
-# fix(#1674 codex): qgis/QGIS#62156 (merged 2025-06-05, first released in QGIS
+# qgis/QGIS#62156 (merged 2025-06-05, first released in QGIS
 # 3.44) fixed the OAPIF provider's server-capability detection to recognize
 # the FINAL-SPEC conformance class name `cql2/1.0/conf/basic-spatial-functions`
 # -- QGIS<3.44 only recognized the deprecated draft name

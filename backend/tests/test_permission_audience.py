@@ -1,4 +1,4 @@
-"""The audience seam agrees with the ladder it claims to mirror (feat(#1068)).
+"""The audience seam agrees with the ladder it claims to mirror.
 
 ``DefaultPermissionExtension.record_audience`` answers "which principals can
 read this record?" — the set-shaped reading of the rule ``filter_visible``
@@ -160,7 +160,7 @@ async def test_the_audience_is_exactly_who_filter_visible_admits(
     visibility: str,
     record_status: str,
 ):
-    """feat(#1068): the two readings of the ladder name the same accounts.
+    """The two readings of the ladder name the same accounts.
 
     Sixteen cells, each covering a rung the ladder handles differently: the
     creator exemption on ``private`` and ``restricted``, the grant on

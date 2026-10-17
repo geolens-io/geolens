@@ -96,7 +96,7 @@ class _MemoryCache:
     async def set_if_absent(
         self, key: str, value: object, ttl: int = 300, *, security: bool = False
     ) -> bool:
-        """fix(#1778): mirrors the provider contract: never overwrite."""
+        """Mirrors the provider contract: never overwrite."""
         if key in self.values:
             return False
         self.values[key] = value
@@ -188,7 +188,7 @@ async def test_catalog_invalidation_only_evicts_active_tenant(
     assert await cache.get(keys[TENANT_B]) == TENANT_B
 
 
-# fix(#886): _build_collection_metadata's extent query now leads with the six
+# _build_collection_metadata's extent query now leads with the six
 # rollup_bbox_columns() aggregates and slices the row positionally, so the fake
 # row has to be indexable as well as attribute-addressable.
 class _ExtentRow(NamedTuple):
@@ -499,7 +499,7 @@ async def test_embed_token_invalidation_is_tenant_local(
         current_tenant_var.reset(tenant_a_token)
 
     assert revoked is token_record
-    # fix(#1778): the revoking tenant's entry is REPLACED by a denial rather
+    # The revoking tenant's entry is REPLACED by a denial rather
     # than deleted, so a request that raced the revoke cannot re-publish a
     # positive under the same key. The other tenant's entry is untouched.
     assert cache.values[keys[TENANT_A]] == {"is_valid": False}

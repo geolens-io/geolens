@@ -18,7 +18,7 @@ from tests.factories import create_dataset, get_user_id
 def _fresh_has_embeddings_cache():
     """Clear the module-global has_embeddings cache before every test.
 
-    fix(#433 follow-up): same hazard class as test_hybrid_search.py — this file
+    Same hazard class as test_hybrid_search.py — this file
     inserts RecordEmbedding rows, so under xdist a stale cached False (poisoned
     by an earlier empty-table test on the same worker, TTL 30s) would starve
     the vector path, and our own inserts can poison True for later tests.

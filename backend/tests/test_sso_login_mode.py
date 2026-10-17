@@ -178,7 +178,7 @@ class TestPasswordLoginEnabledGate:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """fix(#1230 second-opinion review): the password_login_disabled
+        """The password_login_disabled
         denial path had no test coverage. Mirrors
         test_non_admin_login_rejected_when_flag_off, with an audit-log
         assertion added.

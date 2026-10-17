@@ -58,7 +58,7 @@ async def _assert_blocks_until_lock_released(seed_coro_factory):
 
 
 async def test_seed_initial_admin_blocks_on_advisory_lock(test_db_session, monkeypatch):
-    # fix(#909): seed_initial_admin() now late-binds async_session from
+    # seed_initial_admin() now late-binds async_session from
     # app.core.db, which the client fixture already patches — no per-module
     # repoint needed.
 
@@ -88,7 +88,7 @@ async def test_seed_roles_blocks_on_advisory_lock(test_db_session, monkeypatch):
     # blocks regardless of whether rows already exist — and truncating
     # catalog.roles CASCADE would strip the admin's role link without the fixture
     # re-linking it, poisoning the shared per-worker DB for later tests.
-    # fix(#909): seed_roles late-binds async_session from app.core.db, which
+    # seed_roles late-binds async_session from app.core.db, which
     # the client fixture already patches — no per-module repoint needed.
 
     await _assert_blocks_until_lock_released(seed_roles)

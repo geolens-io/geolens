@@ -83,7 +83,7 @@ def _self_signed_pem() -> str:
 
 @pytest.fixture(autouse=True)
 def _registration_on(monkeypatch):
-    """fix(#1778): the SAML overlay provisions through find_or_create_oauth_user
+    """The SAML overlay provisions through find_or_create_oauth_user
     (see IdentityExtension in app/core/identity.py), which now honours
     REGISTRATION_ENABLED. Its shipped default is False, so an unknown SAML
     subject is refused before it reaches anything this module is about. The

@@ -58,13 +58,13 @@ def test_openapi_schema_no_additional_properties_true_on_maps_import() -> None:
         f"Missing fields: {expected - fields.keys()}"
     )
 
-    # fix(#1672): the sprite field accepts the array form the export emits.
+    # The sprite field accepts the array form the export emits.
     sprite_schema = json.dumps(fields["sprite"])
     assert "MapSpriteEntry" in sprite_schema or "array" in sprite_schema, sprite_schema
 
 
 def test_openapi_style_json_export_declares_its_shape() -> None:
-    """fix(#1672): the style.json 200 is an object pointing at the MapLibre
+    """The style.json 200 is an object pointing at the MapLibre
     spec (deliberately not a field-by-field mirror), not an empty schema."""
     with open("openapi.json") as f:
         spec = json.load(f)
@@ -76,7 +76,7 @@ def test_openapi_style_json_export_declares_its_shape() -> None:
     schema = ok["content"]["application/json"]["schema"]
     assert schema.get("type") == "object", schema
     assert "maplibre-style-spec" in schema.get("description", ""), schema
-    # fix(#1672): the open-object semantics must be explicit or
+    # The open-object semantics must be explicit or
     # openapi-typescript closes the type to Record<string, never>.
     assert schema.get("additionalProperties") is True, schema
 
@@ -130,7 +130,7 @@ class TestMapsImportTypedBody:
     async def test_sprite_accepts_string_and_array_forms(
         self, client: AsyncClient, editor_auth_header: dict
     ) -> None:
-        """fix(#1672): sprite is a string OR the array form the export emits."""
+        """Sprite is a string OR the array form the export emits."""
         for sprite in (
             "https://example.com/sprites/basic",
             [{"id": "geolens", "url": "/maps/sprites/geolens"}],
@@ -161,7 +161,7 @@ class TestMapsImportTypedBody:
     async def test_exported_style_round_trips_through_import(
         self, client: AsyncClient, editor_auth_header: dict
     ) -> None:
-        """fix(#1672): GET /maps/{id}/style.json output is valid import input.
+        """GET /maps/{id}/style.json output is valid import input.
 
         The export always emits `sprite` as `[{id, url}]`; before the sprite
         field accepted the array form, this exact round-trip failed with 422.

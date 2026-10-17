@@ -92,7 +92,7 @@ def claim_backend(
 ) -> str:
     """Run a #1903 counting test against both claim backends.
 
-    fix(#2018): the shared arm runs on fakeredis rather than a live Valkey.
+    The shared arm runs on fakeredis rather than a live Valkey.
     What the port has to preserve is the counting invariant, and that is
     decided by SET NX EX and GETDEL semantics, which fakeredis implements.
     """
@@ -155,7 +155,7 @@ async def test_semantic_search_rate_limit_returns_429(client: AsyncClient):
 async def test_search_facets_rate_limited(client: AsyncClient):
     """GET /search/facets/?q=<unique-N> returns 429 after threshold is exceeded.
 
-    fix(#1855): facets embed the query to count over the same candidate set as
+    Facets embed the query to count over the same candidate set as
     /search/datasets/, so an unlimited /search/facets/ would be a way around
     the embedding-cost cap. The endpoint carries the same limit.
     """
@@ -188,7 +188,7 @@ async def test_search_datasets_and_facets_share_one_bucket(
 ):
     """Alternating the two search routes cannot embed twice the advertised cap.
 
-    fix(#1855): both routes embed a novel ``q``, and slowapi scopes a plain
+    Both routes embed a novel ``q``, and slowapi scopes a plain
     ``@limiter.limit`` to the handler, so two buckets let a caller alternate
     them for 2x the limit. With one shared bucket the (limit + 1)th call is a
     429 whichever route it lands on, and the same 429 starting from either.
@@ -221,7 +221,7 @@ async def test_search_datasets_and_facets_share_one_bucket(
 async def test_paired_query_claims_the_bucket_once_whichever_route_is_first(
     client: AsyncClient, first_route: str, claim_backend: str
 ):
-    """fix(#1903): the SPA's unordered paired request spends one token, not two.
+    """The SPA's unordered paired request spends one token, not two.
 
     The SPA fires /search/datasets/ and /search/facets/ together on every
     query change with neither awaiting the other, so which one reaches its
@@ -270,7 +270,7 @@ async def test_paired_query_claims_the_bucket_once_whichever_route_is_first(
 async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
     client: AsyncClient, claim_backend: str
 ):
-    """fix(#1903): a same-route burst still pays per request.
+    """A same-route burst still pays per request.
 
     A claim is a single-use, cross-route consume, not a standing amnesty for
     the whole coordination window: a concurrent burst against ONE route for
@@ -313,7 +313,7 @@ async def test_same_route_repeat_does_not_ride_a_cross_route_claim(
 async def test_rejected_request_does_not_seed_a_claim(
     client: AsyncClient, claim_backend: str
 ):
-    """fix(#1903): a 429'd request must not create an exemption.
+    """A 429'd request must not create an exemption.
 
     exempt_when runs before the limiter's own admit/reject check, so it
     fires for a request that gets rejected too. Exhaust the bucket on an
@@ -355,7 +355,7 @@ async def test_rejected_request_does_not_seed_a_claim(
 async def test_claim_is_scoped_to_the_requesting_client(
     client: AsyncClient, claim_backend: str
 ):
-    """fix(#1903): a claim is scoped to the client that made it.
+    """A claim is scoped to the client that made it.
 
     The bucket is per-IP, so two different clients requesting the
     same query must not be able to consume each other's claim: client B's
@@ -407,7 +407,7 @@ async def test_claim_is_scoped_to_the_requesting_client(
 async def test_claim_functions_degrade_without_crashing_when_tenant_unscoped(
     monkeypatch: pytest.MonkeyPatch, claim_backend: str
 ):
-    """fix(#1903): an unscoped multi-tenant request must not 500.
+    """An unscoped multi-tenant request must not 500.
 
     ``tenant_cache_key()`` raises when multi-tenant mode has no verified
     tenant context (a trusted unscoped host). ``exempt_when`` runs
@@ -442,7 +442,7 @@ async def test_claim_functions_degrade_without_crashing_when_tenant_unscoped(
 async def test_four_request_chain_for_one_query_spends_exactly_two_tokens(
     client: AsyncClient, claim_backend: str
 ):
-    """fix(#1903): datasets, facets, datasets, facets for one q spends
+    """Datasets, facets, datasets, facets for one q spends
     exactly two tokens -- an exempted request never records a claim, so it
     cannot seed the next exemption.
 
@@ -484,7 +484,7 @@ async def test_four_request_chain_for_one_query_spends_exactly_two_tokens(
 async def test_a_pair_split_across_two_workers_still_spends_one_token(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """fix(#2018): the exemption survives the pair landing on two workers.
+    """The exemption survives the pair landing on two workers.
 
     A second uvicorn process cannot be built in-process, so the boundary is
     modelled the way the code meets it: the sibling has its own client on the
@@ -546,7 +546,7 @@ class _DeadClaimClient:
 def test_a_claim_another_worker_redeemed_is_not_re_served_locally(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """fix(#2018): one charged token must never fund two exemptions.
+    """One charged token must never fund two exemptions.
 
     Worker A records into the shared store and worker B redeems it there, so
     A never sees that consume and cannot drop a local copy of the claim. A
@@ -594,7 +594,7 @@ def test_a_claim_another_worker_redeemed_is_not_re_served_locally(
 def test_a_fallback_claim_outliving_the_cooldown_is_still_redeemed(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """fix(#2018): a store "no key" is not authoritative over a local claim.
+    """A store "no key" is not authoritative over a local claim.
 
     The cooldown bounds how long the store goes unprobed, not the life of
     the claims written while it is armed: a record skipped at t=4.9 lives
@@ -652,7 +652,7 @@ def test_a_fallback_claim_outliving_the_cooldown_is_still_redeemed(
 async def test_a_claim_store_outage_falls_back_to_the_process_local_registry(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """fix(#2018): a store that answers nothing must not answer "exempt".
+    """A store that answers nothing must not answer "exempt".
 
     Both halves of one pair run against a store whose every call raises. The
     pair still coordinates, because the local registry is still there; a

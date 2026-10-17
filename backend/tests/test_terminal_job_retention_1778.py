@@ -1,4 +1,4 @@
-"""fix(#1778): terminal queue rows need a retention path.
+"""Terminal queue rows need a retention path.
 
 Nothing in the repository ever deleted a failed, cancelled or aborted
 ``procrastinate_jobs`` row or its events. ``delete_old_jobs`` was never called,

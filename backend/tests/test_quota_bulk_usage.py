@@ -1,4 +1,4 @@
-"""fix(#435): quota usage for a page of users costs one aggregate, not one per user.
+"""Quota usage for a page of users costs one aggregate, not one per user.
 
 The admin user list labelled its loading "batch" and then called
 `get_user_quota_usage()` once per row, at up to 200 rows per page. Each call ran its

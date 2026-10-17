@@ -28,7 +28,7 @@ from app.platform.cache.scope import is_publicly_cacheable
 class _FakeRequest:
     """Minimal stand-in for starlette's Request.
 
-    fix(#1518): ``query_params`` is part of the shape now, not decoration.
+    ``query_params`` is part of the shape now, not decoration.
     ``_authorize_vector_tile_request`` reaches ``request_carries_credentials``,
     which reads the deprecated ``?api_key=`` lane as well as the headers, and a
     double missing the attribute fails with AttributeError rather than

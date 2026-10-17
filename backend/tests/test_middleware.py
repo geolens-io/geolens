@@ -126,7 +126,7 @@ async def test_rate_limiting(client: AsyncClient):
 
 
 def test_lazy_route_handler_resolution_strips_root_path():
-    """fix(#747 Codex P2): rewrite-less ROOT_PATH deployments keep the /api
+    """rewrite-less ROOT_PATH deployments keep the /api
     prefix in scope['path']; the lazy-include fallback must strip root_path
     the way starlette's matcher does, or nested routes resolve to no handler
     and the global default rate limit silently stops applying to them."""

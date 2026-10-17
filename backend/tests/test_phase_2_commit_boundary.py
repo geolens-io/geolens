@@ -2,7 +2,7 @@
 
 The four helpers re-exported by ``app.processing.ingest.metadata``
 (``ensure_geom_column``, ``clip_to_mercator_bounds``, ``add_4326_column``,
-``grant_reader_access`` — fix(#1042): they now live in metadata_geometry,
+``grant_reader_access``; they now live in metadata_geometry,
 metadata_mercator and metadata_projection) are called from inside
 ``_finalize_ingest``'s phase-2 transaction at ``tasks_common.py:821``. If any
 of them commits

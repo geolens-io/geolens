@@ -192,7 +192,7 @@ async def test_health_check_passes(azurite_provider):
 async def test_get_range_stream_round_trip(azurite_provider):
     """A window streams back byte-exact, from one download call.
 
-    fix(#1540 review P1): the COG route used to serve a range by calling
+    The COG route used to serve a range by calling
     ``get_range`` once per 1 MiB, which on this provider is a download call per
     chunk. Azure reaches that path by the ordinary route, not an exotic one:
     managed rasters are ``storage_backend="local"`` whatever the object store.
@@ -214,7 +214,7 @@ async def test_get_stream_round_trip(azurite_provider):
 
     This method raised ``NotImplementedError`` behind a
     docstring claiming the router always redirects Azure through a SAS URL. It
-    does not — fix(#1540) established that no ingest path writes
+    does not — no ingest path writes
     ``storage_backend="azure"``, so managed assets take the LOCAL branch, whose
     whole-object GET calls this — and the cached export download added a second
     caller. The raise landed while ``StreamingResponse`` was already consuming

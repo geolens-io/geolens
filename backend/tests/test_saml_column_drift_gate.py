@@ -1,4 +1,4 @@
-"""fix(#435): `alembic check` must see drift on the four core-owned SAML columns.
+"""`alembic check` must see drift on the four core-owned SAML columns.
 
 `env.py`'s `include_object` hid `idp_entity_id`, `idp_sso_url`, `idp_certificate`,
 and `sp_entity_id` from autogenerate whenever no enterprise overlay was installed.

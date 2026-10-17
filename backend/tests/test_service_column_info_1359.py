@@ -1,4 +1,4 @@
-"""fix(#1359): every ingest path must land the source's real attribute columns.
+"""Every ingest path must land the source's real attribute columns.
 
 The reported symptom was ``column_info == ['id']`` on an ArcGIS
 FeatureServer import whose preview listed ~29 fields. The stored value was

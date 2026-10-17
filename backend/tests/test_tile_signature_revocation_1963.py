@@ -1,4 +1,4 @@
-"""fix(#1963): a publication change retires a dataset's tile signatures.
+"""A publication change retires a dataset's tile signatures.
 
 A signature bound only ``scope`` and ``exp``, and neither carried the state
 that granted it, so a template minted while a dataset was published and public

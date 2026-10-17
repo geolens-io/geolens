@@ -42,7 +42,7 @@ _LIVENESS_MARKER = "notification_log_liveness_probe"
 class _LiveLogs:
     """Real log output for one test, with a liveness proof attached.
 
-    fix(#1064): replaces a loop over ``caplog.records`` that asserted a secret
+    Replaces a loop over ``caplog.records`` that asserted a secret
     was absent from each record. caplog captures ZERO structlog records in
     this suite, so the loop body never ran and the assertion passed vacuously
     — it has never been able to fail, and would not have fired if the leak it
@@ -87,7 +87,7 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     stops this test from freezing a module-level proxy and manufacturing the
     very hazard it exists to catch (#1063's mechanism).
 
-    fix(#1064): an earlier version called `structlog.reset_defaults()`
+    An earlier version called `structlog.reset_defaults()`
     instead, reasoning that the library default leaves
     `cache_logger_on_first_use` False and is therefore the safe end. That was
     wrong, and wrong in a security-relevant direction: `reset_defaults()`
@@ -97,13 +97,13 @@ def _live_logs(capsys: pytest.CaptureFixture[str]) -> Any:
     version that leaves no trace — resetting to a default is still changing
     state the caller established.
 
-    Captured at DEBUG, not INFO (fix(#1064)): a channel logging a
+    Captured at DEBUG, not INFO: a channel logging a
     revealed credential at debug level would otherwise be filtered out before
     this saw it, and the test would pass while a deployment running
     LOG_LEVEL=DEBUG emitted the secret. The assertions this replaced used
     `caplog.at_level(logging.DEBUG)`, so anything narrower is a regression.
     """
-    # fix(#1064): the setup_logging call and the cache disable that has
+    # The setup_logging call and the cache disable that has
     # to follow it now live together in configured_logging(); composing them
     # here by hand is the ordering trap that helper exists to remove.
     with configured_logging(log_level="DEBUG"):

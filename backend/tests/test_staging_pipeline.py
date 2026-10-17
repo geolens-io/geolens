@@ -889,7 +889,7 @@ class TestIngestVectorIntoStagingErrors:
 
 
 # ---------------------------------------------------------------------------
-# fix(#448): ensure_geom_4326_gist_index — the staging-swap index regression
+# ensure_geom_4326_gist_index — the staging-swap index regression
 # ---------------------------------------------------------------------------
 
 

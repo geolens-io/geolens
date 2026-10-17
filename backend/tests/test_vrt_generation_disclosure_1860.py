@@ -1,6 +1,6 @@
 """Who sees a VRT generation's failure text and the id of whoever triggered it.
 
-fix(#1860): ``GET /datasets/{dataset_id}/vrt/generations/`` gated on
+``GET /datasets/{dataset_id}/vrt/generations/`` gated on
 ``check_dataset_access``, which is a VISIBILITY check by its own contract: it
 admits any signed-in caller on a published public or internal dataset. It then
 returned every history row's ``error_message`` and ``triggered_by``.

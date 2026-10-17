@@ -171,7 +171,7 @@ def test_detection_is_alive() -> None:
 
 @pytest.mark.architecture
 def test_every_visibility_mutation_routes_through_the_gate() -> None:
-    """feat(#1691): each discovered surface calls the ONE shared gate."""
+    """Each discovered surface calls the ONE shared gate."""
     offenders = [
         f"  {r.key} [{','.join(r.methods)} {r.path}]"
         for r in _flagged_routes()

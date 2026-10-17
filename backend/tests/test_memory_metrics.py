@@ -1,4 +1,4 @@
-"""fix(#643): worker RSS sampling — gauge, watermark warning, rate limiting."""
+"""Worker RSS sampling — gauge, watermark warning, rate limiting."""
 
 import pytest
 

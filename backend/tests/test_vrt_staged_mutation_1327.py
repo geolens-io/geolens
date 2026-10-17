@@ -1,4 +1,4 @@
-"""fix(#1327): how a staged source mutation is written, delivered, and skewed.
+"""How a staged source mutation is written, delivered, and skewed.
 
 Three things that only mean something together:
 
@@ -8,9 +8,9 @@ Three things that only mean something together:
    cannot show that a request wrote one column and left a table alone).
 2. They deliver it under the STAGED task name, while a plain regenerate keeps
    the legacy name.
-3. That name is what makes a version skew loud. fix(#1327 codex P1): during a
-   rolling upgrade the API can be new while a worker is still pre-#1327; the
-   old worker would ignore `staged_source_ids`, rebuild from the live links and
+3. That name is what makes a version skew loud. During a
+   rolling upgrade the API can be new while a worker is still on the old
+   name; the old worker would ignore `staged_source_ids`, rebuild from the live links and
    report success, silently dropping an accepted add or remove. Procrastinate
    fails a job whose task name the worker does not have, and the test below
    measures that against the pinned version rather than assuming it.
@@ -150,7 +150,7 @@ async def test_remove_source_404s_without_staging_anything(
 def _capture_defer(monkeypatch) -> list[dict]:
     """Record every (task, kwargs) the endpoints hand to Procrastinate.
 
-    fix(#1327 codex P1): the task NAME is the compatibility gate, so the tests
+    The task NAME is the compatibility gate, so the tests
     that care about skew assert on the delivery itself rather than on a mocked
     task object standing in for it.
     """

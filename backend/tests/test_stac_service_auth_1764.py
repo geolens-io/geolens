@@ -1,4 +1,4 @@
-"""Request-only authentication for STAC sources (feat(#1764)).
+"""Request-only authentication for STAC sources.
 
 A STAC credential is a header on every hop and reaches no GDAL header file,
 so the format sets, the charset and the wire-line round trip are asserted

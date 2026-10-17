@@ -5,12 +5,8 @@ runs migrations at import time and so cannot be imported as a normal module.
 Every test here compiles the REAL function out of that source (see
 ``_load_real_discover_fn``) and drives it with fake entry points.
 
-fix(#1665): there used to be a hand-written mirror of the function at the top of
-this file that four tests exercised instead. One of them asserted that a failing
-plugin is "swallowed ... without breaking discovery" — the behaviour that let a
-broken overlay produce a partial schema under a zero exit code. It stayed green
-across the fix because it pinned the copy, not the code. The mirror is gone;
-there is now one subject.
+A hand-written mirror would pin the copy rather than the code, and let a broken
+overlay produce a partial schema under a zero exit code.
 """
 
 from __future__ import annotations
@@ -109,7 +105,7 @@ def test_real_discover_skips_nonexistent_dir():
 def test_real_discover_broken_overlay_beside_a_working_one_raises(tmp_path):
     """A broken overlay raises even when another overlay discovered paths.
 
-    fix(#1665): the GEOLENS_EDITION=enterprise guard further down env.py only
+    The GEOLENS_EDITION=enterprise guard further down env.py only
     fires when NO paths were discovered at all, so this mixed case slipped past
     it entirely — the migration ran with one overlay's chain silently absent.
     """
@@ -143,7 +139,7 @@ def test_real_discover_oss_install_is_silent(caplog):
 def test_real_discover_entry_point_that_cannot_import_raises():
     """An enumerated entry point whose module is missing is BROKEN, not absent.
 
-    fix(#1665, codex P1): this used to be read as "the overlay package is simply
+    This used to be read as "the overlay package is simply
     not installed" and skipped silently. But the entry point's presence already
     proves a distribution declared it, so the module failing to import means the
     install is broken — and a ModuleNotFoundError raised from INSIDE the

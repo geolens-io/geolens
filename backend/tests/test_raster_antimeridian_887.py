@@ -134,7 +134,7 @@ def _project(epsg: int, lonlat_bounds: tuple[float, float, float, float]):
 def _dst_x_offs(vrt_path: str) -> list[float]:
     """Destination x offsets — float, because they are legitimately fractional.
 
-    Both writers keep sub-pixel offsets (fix(#887)), so this must not coerce to
+    Both writers keep sub-pixel offsets, so this must not coerce to
     int; `50.0 == 50` keeps whole-pixel assertions readable.
     """
     root = parse_vrt(vrt_path).getroot()
@@ -696,7 +696,7 @@ def _plain_vrt_xml(
 ) -> str:
     """A gdalbuildvrt-shaped VRT with the given per-source DstRects.
 
-    fix(#887): the seam decision is read from this XML, so a test asserting
+    The seam decision is read from this XML, so a test asserting
     "left alone" needs a fixture that genuinely does not straddle the seam —
     stubbing seam XML and non-crossing source paths would assert nothing.
     """
@@ -1626,7 +1626,7 @@ async def _seed_raster(
 class TestRasterTokenAcrossTheSeam:
     """Every test here MUST take ``clean_tables``.
 
-    fix(#887): ``test_db_session`` does not roll back — the worker's database is
+    ``test_db_session`` does not roll back — the worker's database is
     shared across the whole session and isolation is by explicit cleanup. A
     committed two-ring extent that outlives its test breaks
     ``test_record_translations_migration``, whose alembic round-trip downgrades

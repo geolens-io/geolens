@@ -71,7 +71,7 @@ _SPAN_CASES = [
         'SELECT data."Roads".marker FROM data."Roads"',
         'SELECT "<S>"."Roads".marker FROM "<S>"."Roads"',
     ),
-    # fix(#559): a literal that spells a table reference or an operator, in any
+    # A literal that spells a table reference or an operator, in any
     # quoting form, is not SQL and must survive byte for byte.
     (
         "SELECT 'data.roads <=> &&' AS lit, marker FROM data.roads",
@@ -89,7 +89,7 @@ _SPAN_CASES = [
         "SELECT 'e\u00e9\U0001f5fa' AS lit, marker FROM data /* c */ . roads -- tail",
         "SELECT 'e\u00e9\U0001f5fa' AS lit, marker FROM \"<S>\" /* c */ . roads -- tail",
     ),
-    # fix(#557): sqlglot parses the pgvector cosine operator as NullSafeEQ, so
+    # sqlglot parses the pgvector cosine operator as NullSafeEQ, so
     # re-rendering the tree turned ranking into IS NOT DISTINCT FROM.
     (
         "SELECT embedding <=> '[1]'::vector AS cos, embedding <-> '[2]'::vector AS l2 "
@@ -102,7 +102,7 @@ _SPAN_CASES = [
         "SELECT a IS NOT DISTINCT FROM b, embedding <=> '[1]'::vector "
         'FROM "<S>".roads',
     ),
-    # fix(#1892): the deleted sentinel swap restored EVERY `&&` as `<=>` once a
+    # The deleted sentinel swap restored EVERY `&&` as `<=>` once a
     # real cosine operator was present, so a PostGIS bbox overlap beside one was
     # rewritten into a distance operator.
     (
@@ -142,7 +142,7 @@ def test_rewrite_replaces_only_schema_identifier_spans(sql, expected):
     "meta", [{}, {"start": 0, "end": 3}, {"start": 19, "end": 10_000}]
 )
 def test_rewrite_refuses_unusable_source_offsets(monkeypatch, meta):
-    """fix(#1892): each span is proven against the text before anything is
+    """Each span is proven against the text before anything is
     spliced, so a parser that stops reporting usable offsets fails closed."""
     import sqlglot
     from sqlglot import exp
@@ -194,7 +194,7 @@ def test_analysis_preview_sql_binds_to_the_tenant_schema():
 
 @pytest.mark.parametrize("suffix", [";", " ;  ", ";;", " ; ;", ";;;", ";; -- pasted"])
 def test_validator_strips_the_trailing_terminator_run(suffix):
-    """fix(#1892): execute_safe splices validated SQL inside a LIMIT wrapper, so
+    """execute_safe splices validated SQL inside a LIMIT wrapper, so
     any surviving ``;`` is a syntax error. ``;;`` is ordinary paste damage."""
     from app.platform.sandbox.validator import validate_sql
 
@@ -232,7 +232,7 @@ def test_validator_still_rejects_what_the_strip_leaves(sql):
     ("schema", "table"), [("DATA", "roads"), ("Data", "roads"), ("Data", "Roads")]
 )
 def test_schema_rewrite_folds_unquoted_logical_schema(schema, table):
-    """fix(#1891): an unquoted schema folds to lowercase, as PostgreSQL and the
+    """An unquoted schema folds to lowercase, as PostgreSQL and the
     validator fold it, so any spelling of ``data`` is the logical schema and must
     reach the physical tenant schema; the table part is left as written."""
     from app.platform.sandbox.executor import _rewrite_logical_data_schema
@@ -248,7 +248,7 @@ def test_schema_rewrite_folds_unquoted_logical_schema(schema, table):
 
 
 def test_schema_rewrite_folds_unquoted_three_part_column():
-    """fix(#1891): a schema-qualified column reference folds the same way as a
+    """A schema-qualified column reference folds the same way as a
     table reference."""
     from app.platform.sandbox.executor import _rewrite_logical_data_schema
 
@@ -262,7 +262,7 @@ def test_schema_rewrite_folds_unquoted_three_part_column():
 
 
 def test_schema_rewrite_leaves_quoted_uppercase_schema_alone():
-    """fix(#1891): quoted ``"DATA"`` keeps its case, so it is another schema:
+    """Quoted ``"DATA"`` keeps its case, so it is another schema:
     the rewrite leaves it in place and the access check refuses it."""
     from app.platform.sandbox.executor import _rewrite_logical_data_schema
     from app.platform.sandbox.validator import check_table_access, validate_sql
@@ -318,7 +318,7 @@ async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     "sql",
     [
         "SELECT id FROM data.alpha WHERE note = 'unterminated",
-        # fix(#1892): parse_one reports a second statement as one Block, so the
+        # parse_one reports a second statement as one Block, so the
         # rewrite used to pass `a; b` through and rewrite both halves.
         "SELECT 1; DROP TABLE data.alpha",
         "SELECT id FROM data.alpha; SELECT * FROM data.beta",
@@ -326,7 +326,7 @@ async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
 )
 @pytest.mark.asyncio
 async def test_multi_tenant_rejects_unusable_sql_before_connecting(monkeypatch, sql):
-    """fix(#1892): the rewrite parses before anything is executed, so SQL it
+    """The rewrite parses before anything is executed, so SQL it
     cannot bind raises SandboxError with no connection opened. execute_safe has
     direct callers that skip the validator."""
     monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)
@@ -428,7 +428,7 @@ async def test_logical_data_query_reads_only_active_tenant_schema(monkeypatch):
                     current_tenant_var.reset(token)
                 observed[tenant_id] = result.rows[0][0]
 
-            # fix(#1892): the shape the span rewrite has to get right, run for
+            # The shape the span rewrite has to get right, run for
             # real: unquoted DATA, a comment inside the reference, a non-ASCII
             # literal ahead of it and a trailing line comment.
             token = current_tenant_var.set(_TENANT_A)

@@ -1,4 +1,4 @@
-"""fix(#1738): out-of-band writes to a registered table have to become visible.
+"""Out-of-band writes to a registered table have to become visible.
 
 Registering an existing table copies no data: the catalog points at the live
 relation and every read is served from it. ``geom_4326`` is the exception —

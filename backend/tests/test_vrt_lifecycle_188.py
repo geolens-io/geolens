@@ -293,7 +293,7 @@ class TestVrtRegenerateEndpoint:
         assert "/datasets/{dataset_id}/vrt/regenerate/" in paths
 
     def test_endpoint_uses_advisory_lock(self):
-        """fix(#1955): the lock moved into the shared admission helper."""
+        """The lock moved into the shared admission helper."""
         from app.modules.catalog.datasets.api import router_vrt as router_mod
         from app.platform.catalog_locks import admit_vrt_mutation
 
@@ -371,7 +371,7 @@ class TestIngestRouterTriggeredBy:
 
 @pytest.mark.anyio
 async def test_remote_vrt_source_health_uses_bounded_safe_http_probe(monkeypatch):
-    # fix(#1222): the probe moved to app.modules.catalog.sources.origin_probe so the
+    # The probe moved to app.modules.catalog.sources.origin_probe so the
     # standalone STAC/service health check reuses it. router_vrt still holds
     # the name, so calling it through the router module keeps this test's
     # original claim — the VRT flow probes through the safe client — while

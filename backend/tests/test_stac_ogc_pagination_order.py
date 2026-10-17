@@ -1,8 +1,7 @@
 """Deterministic pagination coverage for OFFSET/LIMIT endpoints that had no
 row-order tiebreaker.
 
-fix(#1778): codebase audit 2026-08-30 (8dc529f17) found three STAC/OGC
-OFFSET/LIMIT endpoints with NO ``order_by`` at all (STAC collection items,
+Three STAC/OGC OFFSET/LIMIT endpoints had NO ``order_by`` at all (STAC collection items,
 STAC search, OGC ``/collections``) and two siblings whose ``order_by`` sorted
 on non-unique server-default columns (collection membership ``sort_order``,
 record contact ``sort_order``). PostgreSQL gives no row-order guarantee for
@@ -160,7 +159,7 @@ async def test_stac_collection_items_pagination_no_dupes_no_drops(
     assert len(seen) == len(set(seen)), "duplicate ids paging STAC collection items"
     assert set(seen) == expected, "missing/extra ids paging STAC collection items"
 
-    # fix(#1778): the counterfactual -- on main the paginated dataset query
+    # The counterfactual -- on main the paginated dataset query
     # carries no ORDER BY at all, so this fails there regardless of the
     # (Postgres-plan-dependent, not reliably reproducible in a small static
     # test table) dupe/drop symptom above.
@@ -202,7 +201,7 @@ async def test_stac_search_pagination_no_dupes_no_drops(
     assert len(seen) == len(set(seen)), "duplicate ids paging STAC search"
     assert set(seen) == expected, "missing/extra ids paging STAC search"
 
-    # fix(#1778): the counterfactual -- fails on main, no ORDER BY at all.
+    # The counterfactual -- fails on main, no ORDER BY at all.
     paginated_sql = [
         s for s in captured if "OFFSET" in s.upper() and "catalog.datasets" in s
     ]
@@ -259,7 +258,7 @@ async def test_ogc_collections_list_pagination_no_dupes_no_drops(
     assert len(all_ids) == len(set(all_ids)), "duplicate ids paging OGC /collections"
     assert set(all_ids) == expected, "missing/extra ids paging OGC /collections"
 
-    # fix(#1778): the counterfactual -- fails on main, no ORDER BY at all.
+    # The counterfactual -- fails on main, no ORDER BY at all.
     paginated_sql = [
         s for s in captured if "OFFSET" in s.upper() and "catalog.datasets" in s
     ]
@@ -328,7 +327,7 @@ async def test_collection_datasets_pagination_no_dupes_no_drops(
     assert len(all_ids) == len(set(all_ids)), "duplicate ids paging collection datasets"
     assert set(all_ids) == expected, "missing/extra ids paging collection datasets"
 
-    # fix(#1778): the counterfactual -- on main, ORDER BY exists but only on
+    # The counterfactual -- on main, ORDER BY exists but only on
     # sort_order/added_at (both tied for every row here), no dataset_id
     # tiebreaker, so this fails there even though an ORDER BY is present.
     # dataset_id also appears in the JOIN condition, so isolate the ORDER BY
@@ -409,7 +408,7 @@ async def test_record_contacts_pagination_no_dupes_no_drops(
     assert len(all_ids) == len(set(all_ids)), "duplicate ids paging record contacts"
     assert set(all_ids) == expected_ids, "missing/extra ids paging record contacts"
 
-    # fix(#1778): the counterfactual -- on main, ORDER BY exists but only on
+    # The counterfactual -- on main, ORDER BY exists but only on
     # sort_order (tied at 0 for every row here), no id tiebreaker.
     paginated_sql = [
         s for s in captured if "OFFSET" in s.upper() and "record_contacts" in s

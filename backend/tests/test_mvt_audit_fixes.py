@@ -185,12 +185,12 @@ def test_cluster_query_emits_positive_offset_gid():
 
 
 # ---------------------------------------------------------------------------
-# fix(#868): cluster bucket grid — px->extent conversion + absolute anchoring
+# Cluster bucket grid — px->extent conversion + absolute anchoring
 # ---------------------------------------------------------------------------
 
 
 def test_cluster_query_converts_px_radius_to_extent_units():
-    """fix(#868): $6 arrives in CSS/screen pixels but the grid lives in MVT
+    """$6 arrives in CSS/screen pixels but the grid lives in MVT
     extent units. At 512 px tile display one pixel is 4096/512 = 8 extent
     units; the old math skipped the factor and built a ~8x-too-fine grid
     (overlapping clusters + unclustered singles leaking at low zoom)."""
@@ -200,7 +200,7 @@ def test_cluster_query_converts_px_radius_to_extent_units():
 
 
 def test_cluster_query_buckets_on_absolute_3857_grid():
-    """fix(#868): the bucket grid anchors to absolute EPSG:3857 coordinates,
+    """The bucket grid anchors to absolute EPSG:3857 coordinates,
     not the tile's own minx/miny. Bucket size at a fixed zoom is identical
     for every tile, so absolute anchoring is what makes adjacent tiles at
     one zoom share a single aligned grid (no cluster seams at borders)."""
@@ -241,7 +241,7 @@ def test_cluster_query_buckets_on_absolute_3857_grid():
 
 
 def test_cluster_query_derives_expansion_zoom_from_member_spread():
-    """fix(#874): expansion_zoom is the cluster's own split zoom, derived from
+    """expansion_zoom is the cluster's own split zoom, derived from
     the member spread against the halving bucket grid — not the constant
     cluster_max_zoom + 1 that made click-to-zoom jump from z2 to z15."""
     query = _build_cluster_tile_query("places")
@@ -286,7 +286,7 @@ async def test_invalidate_tile_cache_for_table_noop_without_provider(monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# fix(#403): cluster tiles project attribute columns onto UNCLUSTERED features
+# Cluster tiles project attribute columns onto UNCLUSTERED features
 # ---------------------------------------------------------------------------
 
 

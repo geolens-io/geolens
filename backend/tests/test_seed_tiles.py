@@ -131,7 +131,7 @@ class TestBboxToTiles:
 
 
 class TestSpecBboxToTiles:
-    """fix(#934): the spec-form reader seeds a crossing extent per lobe."""
+    """The spec-form reader seeds a crossing extent per lobe."""
 
     def test_non_crossing_matches_bbox_to_tiles(self):
         spec = list(spec_bbox_to_tiles(-75, 40, -73, 41.5, z=10))

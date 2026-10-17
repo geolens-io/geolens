@@ -1,4 +1,4 @@
-"""fix(#1543): a settings batch evicts its cache keys as one step.
+"""A settings batch evicts its cache keys as one step.
 
 ``update_settings`` commits the whole batch and only then invalidates the cache.
 While that invalidation ran one key at a time, a reader landing in the middle

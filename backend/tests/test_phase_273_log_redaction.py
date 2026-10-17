@@ -74,7 +74,7 @@ def test_processor_redacts_non_string_values():
 
 
 def test_processor_recurses_into_nested_dicts():
-    """fix(#1844): the deliberate change this test's predecessor demanded.
+    """The deliberate change this test's predecessor demanded.
 
     It used to pin the opposite -- "redaction is shallow, nested dicts are not
     walked" -- as a documented CPU trade-off, and said in its own docstring
@@ -123,13 +123,13 @@ def test_integration_token_redacted_in_log_output(capsys):
     """End-to-end: configure structlog via setup_logging, log a token,
     verify the raw token does NOT appear and [REDACTED] DOES.
 
-    fix(#1064): `setup_logging()` replaces the root handlers and sets
+    `setup_logging()` replaces the root handlers and sets
     `cache_logger_on_first_use=True`, and nothing here put either back — so
     every test after this one in the same worker inherited both. That is the
     leaked-global class this file's own subject matter is about, and the
     caching half is what makes a later `capture_logs()` see nothing.
 
-    fix(#1064): `configured_logging()` replaces a fixture that only
+    `configured_logging()` replaces a fixture that only
     saved and restored. Restoring was never sufficient on its own — while
     caching is on, any module-level proxy emitting inside the window freezes
     permanently, and a proxy-local bind survives every restore. The helper

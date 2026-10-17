@@ -15,7 +15,7 @@ the helper exposes so a future change cannot silently regress them:
 4. ``commit_persists_on_normal_exit`` — explicit ``session.commit()`` inside
    the block persists (caller owns the commit decision; the helper does not
    auto-commit on exit).
-5. ``require_status`` (fix(#1778)) — an optional status predicate
+5. ``require_status`` — an optional status predicate
    that joins the attempt fence. Without it, a row the stale sweep already
    failed on a heartbeat timeout, with no retry having rotated the attempt
    token yet, still matched an ``(id, attempt)``-only fence: a worker only
@@ -240,7 +240,7 @@ async def test_phase_session_commit_persists_on_normal_exit(test_db_session):
 
 
 # ---------------------------------------------------------------------------
-# 5. require_status (fix(#1778))
+# 5. require_status
 # ---------------------------------------------------------------------------
 
 
@@ -325,7 +325,7 @@ def test_every_phase2_site_requires_running() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The row lock (fix(#1778))
+# The row lock
 # ---------------------------------------------------------------------------
 
 
@@ -334,7 +334,7 @@ def test_every_phase2_site_requires_running() -> None:
 async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
     test_db_session, settle
 ) -> None:
-    """fix(#1778): the pin for the TOCTOU the earlier
+    """The pin for the TOCTOU the earlier
     status check left open. A plain SELECT is not a lock, so the sweep could still fail a row in the
     window between ``_job_phase_session``'s read and the phase's first
     irreversible write. ``require_status`` now takes ``FOR NO KEY UPDATE``,

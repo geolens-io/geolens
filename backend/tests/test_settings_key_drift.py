@@ -1,7 +1,7 @@
 """Static-analysis test: every settings-key literal the admin frontend sends
 or reads must be a member of the backend PersistentConfig registry.
 
-fix(#1778): the settings channel (46 registry keys against ~120 hand-written
+The settings channel (46 registry keys against ~120 hand-written
 frontend literals) has no type, no OpenAPI enum, and no drift test.
 ``updateSettings`` (frontend/src/api/settings.ts) takes a bare
 ``Record<string, unknown>`` and PUTs it to ``/settings/``. The registry map

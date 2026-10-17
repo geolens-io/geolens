@@ -270,7 +270,7 @@ async def test_facets_returns_keyword_groups(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1855): facet counts are taken over the results' candidate set
+# Facet counts are taken over the results' candidate set
 # ---------------------------------------------------------------------------
 
 
@@ -401,7 +401,7 @@ async def test_facets_count_the_semantic_candidate_set(
     admin_auth_header: dict,
     semantic_facet_datasets: dict,
 ):
-    """fix(#1855): with semantic mode on, facets count what the results return.
+    """With semantic mode on, facets count what the results return.
 
     The query matches nothing lexically, so on the lexical-only facets this
     read record_type {} beside three results.
@@ -537,7 +537,7 @@ async def test_facets_scan_the_embeddings_once_per_request(
     admin_auth_header: dict,
     semantic_facet_datasets: dict,
 ):
-    """fix(#1855): one cosine scan per facets request, whatever the facet count.
+    """One cosine scan per facets request, whatever the facet count.
 
     The candidate CTE feeds five separately executed aggregates, so a cosine
     subquery inside it ran once per aggregate; the vector arm is materialised

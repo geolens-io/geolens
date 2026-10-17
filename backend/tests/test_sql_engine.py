@@ -125,7 +125,7 @@ class TestSchemaContext:
 class TestSqlPrompt:
     """Tests for SQL_SYSTEM_PROMPT + build_sql_user_message().
 
-    fix(#448): the prompt is split — static reference in the (cacheable)
+    The prompt is split — static reference in the (cacheable)
     system prompt, schema + question in the user message. The combined text
     keeps the pre-split assertions meaningful.
     """
@@ -193,7 +193,7 @@ class TestSqlPrompt:
         assert "human-friendly units" in self.prompt
 
     def test_advertised_vector_operators_pass_the_validator(self):
-        """fix(#558): every pgvector operator the prompt tells the model to emit
+        """Every pgvector operator the prompt tells the model to emit
         must survive the sandbox validator. ``<#>`` fails ``sqlglot.parse``, so
         advertising it means the model's inner-product queries are rejected as
         invalid_query before they run. Scanning the prompt keeps this honest —
@@ -253,7 +253,7 @@ class TestQueryDataTool:
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_geometry_appended_and_stripped_from_table(self, mock_gen, mock_exec):
-        """fix(#544): geom_4326 is appended to the executed SQL when the model
+        """geom_4326 is appended to the executed SQL when the model
         omits it, and the raw WKB column is stripped from the tabular payload
         once the geojson is extracted."""
         import shapely
@@ -275,7 +275,7 @@ class TestQueryDataTool:
         )
         executed_sql = mock_exec.call_args.args[0]
         assert "geom_4326" in executed_sql
-        # fix(#556 review P2): appended-geometry queries cap the fetch to the
+        # appended-geometry queries cap the fetch to the
         # overlay render budget so full geometries for discarded rows are not
         # transferred.
         assert mock_exec.call_args.kwargs.get("row_limit") == 50
@@ -292,7 +292,7 @@ class TestQueryDataTool:
     async def test_no_row_limit_cap_when_geometry_not_appended(
         self, mock_gen, mock_exec
     ):
-        """fix(#556 review P2): the fetch cap is scoped to the append. A query
+        """The fetch cap is scoped to the append. A query
         the model wrote with its own geometry (or SELECT *) keeps the default
         row limit, preserving the accurate row_count."""
         import shapely
@@ -320,7 +320,7 @@ class TestQueryDataTool:
     async def test_truncated_appended_query_recovers_true_row_count(
         self, mock_gen, mock_exec
     ):
-        """fix(#556 review P2): when the geometry-transfer cap truncates the
+        """When the geometry-transfer cap truncates the
         result, row_count is recovered from a geometry-free COUNT so the model
         and UI see the true total, not the render budget."""
         import shapely
@@ -386,7 +386,7 @@ class TestQueryDataTool:
     async def test_geometry_append_falls_back_when_column_absent(
         self, mock_gen, mock_exec
     ):
-        """fix(#556 review P2): a geom-only dataset (geometry_type but no
+        """A geom-only dataset (geometry_type but no
         geom_4326) makes the appended query fail; fall back to the model's
         original SQL so attribute rows still return (overlay dropped)."""
         mock_gen.return_value = "SELECT name FROM data.cities"
@@ -417,7 +417,7 @@ class TestQueryDataTool:
     async def test_model_written_geom_4326_missing_degrades_cleanly(
         self, mock_gen, mock_exec
     ):
-        """fix(#560): when the model selects geom_4326 itself (so nothing is
+        """When the model selects geom_4326 itself (so nothing is
         appended) on a legacy geom-only table, the missing-column error degrades
         to a clean note — there is no attribute-only fallback to retry, and the
         user must not get a generic "something went wrong"."""
@@ -442,7 +442,7 @@ class TestQueryDataTool:
     async def test_geom_4326_in_order_by_missing_degrades_after_retry(
         self, mock_gen, mock_exec
     ):
-        """fix(#560): the model referenced geom_4326 only in ORDER BY, so the
+        """The model referenced geom_4326 only in ORDER BY, so the
         append fires (nothing geometric in the SELECT) yet BOTH the appended
         query and the attribute-only retry miss the column — degrade cleanly
         rather than propagate a generic failure."""
@@ -472,7 +472,7 @@ class TestQueryDataTool:
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_qualified_geom_4326_missing_degrades(self, mock_gen, mock_exec):
-        """fix(#560, PR #563 Codex P2): overlay/intersect queries alias the
+        """overlay/intersect queries alias the
         geometry column (`a.geom_4326`), so Postgres reports the miss WITHOUT
         quotes and WITH the qualifier — `column a.geom_4326 does not exist`.
         This qualified form (the primary #560 case) must still degrade cleanly,
@@ -495,7 +495,7 @@ class TestQueryDataTool:
     )
     @patch("app.processing.ai.chat_service.generate_sql", new_callable=AsyncMock)
     async def test_other_missing_column_is_not_mis_degraded(self, mock_gen, mock_exec):
-        """fix(#560, PR #563 Codex P2): a DIFFERENT undefined column must surface
+        """A DIFFERENT undefined column must surface
         the normal failure, not the geometry-degrade note — even though the DB
         error echoes the SQL text (which contains geom_4326). Detection matches
         the exact `column "geom_4326" does not exist` phrase, not the tokens

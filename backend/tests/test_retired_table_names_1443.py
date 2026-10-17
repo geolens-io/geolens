@@ -1,6 +1,6 @@
 """A physical table name freed by a delete must never be handed out again.
 
-fix(#1443). ``generate_table_name`` collided only against LIVE catalog rows
+``generate_table_name`` collided only against LIVE catalog rows
 and LIVE relations, and a delete clears both — so the name of a deleted dataset
 went straight back into circulation. GH-1429 keyed tile BYTES on the dataset id,
 which cannot reach the tile router's ``table_name -> metadata`` map: the vector
@@ -141,7 +141,7 @@ class TestNameIsNeverRedrawn:
 
 
 class TestGeneratedNamesFitPostgresIdentifiers:
-    """fix(#1444 review): a suffix must never push a name past 63 bytes.
+    """A suffix must never push a name past 63 bytes.
 
     PostgreSQL truncates a longer identifier silently. At a 60-character base,
     `_100` is the first candidate that crosses the limit, and a truncated
@@ -335,7 +335,7 @@ class TestRecordingSites:
 
 
 class TestTenantScope:
-    """fix(#1444 review): a name binds for its own tenant, plus the NULL scope.
+    """A name binds for its own tenant, plus the NULL scope.
 
     Mirrors migration 0020's per-tenant uniqueness on `datasets.table_name`.
     Names are already per-tenant everywhere it matters — the tile metadata
@@ -402,7 +402,7 @@ class TestTenantScope:
 
 
 class TestRegistrationCannotBypassRetirement:
-    """fix(#1444 review): registration takes its name from the caller.
+    """Registration takes its name from the caller.
 
     It is the one path that does not go through generate_table_name, so the
     probe has to be repeated there. Recreate a physical table under a deleted
@@ -520,7 +520,7 @@ class TestSchema:
             "tenant_id": "YES",
             "dataset_id": "YES",
             "retired_at": "NO",
-            # fix(#1456): the freed relation's oid and the prior owner's id.
+            # The freed relation's oid and the prior owner's id.
             # Nullable, and not optionally so: every row written before that
             # migration carries NULL in both and no backfill is possible, since
             # both sources were already gone when those rows were written.

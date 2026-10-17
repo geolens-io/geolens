@@ -375,7 +375,7 @@ class TestGithubDomainEnforcement:
 
     @pytest.fixture(autouse=True)
     def _registration_on(self, monkeypatch):
-        """fix(#1778): JIT provisioning now honours REGISTRATION_ENABLED, whose
+        """JIT provisioning now honours REGISTRATION_ENABLED, whose
         shipped default is False. This class is about the DOMAIN check, so it
         runs with the operator switch on; the switch has its own tests in
         tests/test_oauth_registration_gate_1778.py."""

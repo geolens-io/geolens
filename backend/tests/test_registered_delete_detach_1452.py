@@ -1,6 +1,6 @@
 """Deleting a REGISTERED dataset must detach, never drop.
 
-fix(#1452). ``register_existing_table`` points the catalog at a table the
+``register_existing_table`` points the catalog at a table the
 operator built, and registration copies no data — the dataset row is a
 reference, not a managed copy. ``delete_dataset``'s vector branch dropped it
 anyway, so removing a catalog entry destroyed the operator's original.

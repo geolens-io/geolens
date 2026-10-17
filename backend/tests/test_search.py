@@ -1634,7 +1634,7 @@ async def test_search_datasets_raster_band_nodata_presence(
     shape the client's tri-state nodataState() depends on telling apart.
 
     Pins both states plus the "defined" state as a sanity anchor:
-      - A defined nodata value serializes as that value. fix(#1778): through
+      - A defined nodata value serializes as that value. Through
         the shared `stac_band_nodata` normaliser, a defined value now
         serializes as a NUMBER rather than the raw stored string, since the
         STAC Raster Extension requires one; the three sentinel strings

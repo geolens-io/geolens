@@ -1,4 +1,4 @@
-"""Regression tests for the shared exports temp-dir sweep (fix(#435)).
+"""Regression tests for the shared exports temp-dir sweep.
 
 The sweeper lives in ``app.core.runtime.staging`` so the API lifespan and the
 worker share one age-aware implementation; entries younger than 1 hour survive.
@@ -143,7 +143,7 @@ def test_sweep_missing_dir_is_noop(tmp_path: Path) -> None:
 
 
 def test_api_and_worker_share_one_sweeper() -> None:
-    """fix(#435): both startup paths bind the same age-aware sweeper.
+    """Both startup paths bind the same age-aware sweeper.
 
     The API lifespan used to delete every `exports/` entry unconditionally, which
     truncated exports owned by a surviving sibling Uvicorn worker on the shared

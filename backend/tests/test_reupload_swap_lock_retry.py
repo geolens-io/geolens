@@ -287,7 +287,7 @@ class TestReuploadSwapRetry:
         assert dataset.tile_cache_version == 2
 
     async def test_service_swap_stamps_last_checked_at(self, monkeypatch) -> None:
-        """fix(#1271 review): a service reupload fetched its bytes from the
+        """A service reupload fetched its bytes from the
         origin moments before the swap, so the swap IS a contact. Clearing
         probe state without re-stamping the timestamp made the API claim the
         origin was never contacted right after it demonstrably was."""

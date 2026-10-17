@@ -6,15 +6,15 @@ Covers:
 - TestMutationSerialization: 409 when VRT is regenerating
 - TestRegenerateVrtTask: regenerate_vrt task logic (build, swap, metadata update, error handling)
 - TestStatusField: GET /datasets/{id} response includes raster.status
-- TestStagedSourceSetReading: fix(#1327) — what the task accepts as a staged
+- TestStagedSourceSetReading: what the task accepts as a staged
   member set, and what it refuses
 
 All tests are pure unit tests -- no DB, no real files, no network. Keep it that
 way: the autouse `_stub_vrt_source_authz` fixture below patches module-level
 names, and a DB/client-backed test here can make a router module import for the
 FIRST time while those patches are live, permanently binding the mocks into
-that module (fix(#1327 codex P1) hit exactly this and moved its HTTP coverage
-to tests/test_vrt_staged_mutation_1327.py).
+that module (HTTP coverage for staged mutations lives in
+tests/test_vrt_staged_mutation_1327.py for this reason).
 """
 
 import asyncio
@@ -88,7 +88,7 @@ def _make_mock_asset(
 def _added_generation(mock_db: AsyncMock):
     """The single VrtGeneration the endpoint under test handed to ``db.add``.
 
-    fix(#1327): the staged member set is the endpoint's whole output now, and
+    The staged member set is the endpoint's whole output now, and
     it lives on that row — these doubles never reach a database, so the object
     passed to ``db.add`` is the only place to read it back from.
     """
@@ -322,7 +322,7 @@ class TestAddSource:
             assert json.loads(json.dumps(exc_info.value.detail)) == [
                 error.model_dump(mode="json")
             ]
-            # fix(#1327): a rejected request stages nothing. Validation still
+            # A rejected request stages nothing. Validation still
             # runs synchronously and still runs BEFORE the generation exists,
             # so an incompatible source leaves no intent behind for a task to
             # pick up later.
@@ -379,7 +379,7 @@ class TestAddSource:
         asyncio.run(_check())
 
     def test_stages_post_add_set_and_leaves_links_untouched(self, monkeypatch):
-        """fix(#1327): the addition is STAGED on the generation, not applied.
+        """The addition is STAGED on the generation, not applied.
 
         The endpoint issues no write against vrt_source_links, and the
         generation it creates carries the full post-add member set with the new
@@ -578,7 +578,7 @@ class TestRemoveSource:
         asyncio.run(_check())
 
     def test_stages_post_removal_set_and_leaves_links_untouched(self, monkeypatch):
-        """fix(#1327): the removal is STAGED on the generation, not applied.
+        """The removal is STAGED on the generation, not applied.
 
         Two properties in one place, because they are the same property: the
         endpoint issues no write against vrt_source_links, and the generation
@@ -805,7 +805,7 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    # fix(#909): tasks_vrt late-binds; patch the origin
+                    # tasks_vrt late-binds; patch the origin
                     "app.core.db.async_session"
                 ) as mock_async_session,
                 patch(
@@ -840,7 +840,7 @@ class TestRegenerateVrtTask:
     def test_task_clears_current_generation_id_on_failure(self):
         """On failure, current_generation_id is cleared (set to None).
 
-        fix(#1962): in its own committed transaction, ahead of the job row.
+        In its own committed transaction, ahead of the job row.
         """
 
         async def _check():
@@ -867,7 +867,7 @@ class TestRegenerateVrtTask:
         asyncio.run(_check())
 
     def test_the_asset_settles_before_the_job_and_generation_write(self):
-        """fix(#1962): the reverse order puts both writes back in one abort."""
+        """The reverse order puts both writes back in one abort."""
         import ast
         import inspect
 
@@ -986,7 +986,7 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    # fix(#909): tasks_vrt late-binds; patch the origin
+                    # tasks_vrt late-binds; patch the origin
                     "app.core.db.async_session"
                 ) as mock_async_session,
                 patch(
@@ -1139,7 +1139,7 @@ class TestRegenerateVrtTask:
 
             with (
                 patch(
-                    # fix(#909): tasks_vrt late-binds; patch the origin
+                    # tasks_vrt late-binds; patch the origin
                     "app.core.db.async_session"
                 ) as mock_async_session,
                 patch(
@@ -1301,7 +1301,7 @@ class TestStatusField:
 
 
 # ---------------------------------------------------------------------------
-# TestStagedSourceSetReading — fix(#1327)
+# TestStagedSourceSetReading
 # ---------------------------------------------------------------------------
 
 
@@ -1466,7 +1466,7 @@ def _build_mock_db_success_add(
 
     Returns (mock_db, expected_job_id, mock_create_ingest_job, existing_ids) —
     ``existing_ids`` in position order, so a caller can assert the staged set
-    is exactly those plus the new source (fix(#1327)).
+    is exactly those plus the new source.
     """
     mock_db = AsyncMock()
     call_count = [0]
@@ -1501,7 +1501,7 @@ def _build_mock_db_success_add(
         elif n == 5:
             # Load existing source assets
             result_mock.scalars.return_value.all.return_value = existing_assets
-        # fix(#1327): there is no 6th query. The MAX(position) lookup and the
+        # There is no 6th query. The MAX(position) lookup and the
         # link INSERT that followed it are gone — order in the staged set is
         # the position.
         return result_mock
@@ -1518,7 +1518,7 @@ def _build_mock_db_success_add(
 def _link_rows(source_ids: list[uuid.UUID]) -> list[MagicMock]:
     """Rows as the ordered vrt_source_links SELECT returns them.
 
-    fix(#1327): remove_vrt_source reads the member set ONCE, in position order,
+    remove_vrt_source reads the member set ONCE, in position order,
     and answers the count guard, the "is it linked" guard and the staged
     post-removal set from that single read — so these doubles supply link rows
     where they used to supply a COUNT(*) scalar and a separate position row.

@@ -1,5 +1,5 @@
 """Rule-1 structural guard: every route handler that fetches a guarded model
-must call a sanctioned access check (fix(#822)).
+must call a sanctioned access check.
 
 The pre-commit Rule-1 hook (.pre-commit-config.yaml, visibility-filter-coverage)
 is a cheap commit-time grep with three blind spots flagged by the 1.6.0
@@ -92,7 +92,7 @@ _CORE_GUARDS = (
     "check_dataset_access",
     "check_dataset_write_access",
     "apply_visibility_filter",
-    # fix(#1298): batch sibling of check_dataset_access — same fail-closed
+    # Batch sibling of check_dataset_access — same fail-closed
     # 404, one query for the whole set instead of one per id.
     "check_datasets_access_bulk",
 )
@@ -118,7 +118,7 @@ _DELEGATED_GUARDS = (
     # for the tile-token minting endpoints; delegates non-public RBAC to
     # port.check_dataset_access and 404s unpublished-public for non-owners.
     "_enforce_tile_token_access",
-    # search: app/modules/catalog/search/service_candidates.py, fix(#1855):
+    # search: app/modules/catalog/search/service_candidates.py:
     # the candidate selection /search/datasets/ and /search/facets/ share;
     # applies apply_visibility_filter through vetting_filters.
     "select_candidates",
@@ -279,7 +279,7 @@ ALLOWLIST: dict[str, str] = {
         "upload-gated physical-table registration; select is a dedupe existence check"
     ),
     # ---------------------------------------------------------------------
-    # fix(#1860): the IngestJob sweep. These seven handlers fetch a job
+    # The IngestJob sweep. These seven handlers fetch a job
     # row and none of them calls a CATALOG guard, because a job is owned by
     # the user who created it rather than reached through a dataset's
     # visibility. Each names the check it does apply instead.
@@ -359,7 +359,7 @@ def _guarded_model_classes() -> tuple[type, ...]:
     from app.platform.jobs.models import IngestJob
     from app.processing.embeddings.models import RecordEmbedding
 
-    # fix(#1860): IngestJob joined the set because a job row carries the
+    # IngestJob joined the set because a job row carries the
     # uploader's filename and the failure text of their run, and every
     # job-row endpoint reported "no fetch detected" while it was outside.
     # A whole class of read was invisible to this gate rather than clean.
@@ -1132,7 +1132,7 @@ PROVENANCE_ALLOWLIST: dict[str, str] = {
     "app.modules.admin.router.list_admin_jobs": (
         "manage_users-gated operator console; the cross-user view is the feature"
     ),
-    # fix(#2025): the embedding backfill's run history, on the coverage endpoint
+    # The embedding backfill's run history, on the coverage endpoint
     # the admin AI panel reads. One instance-wide operation per tenant, so there
     # is no narrower audience its error codes could be graded for.
     "app.modules.admin.router.get_embedding_stats": (
@@ -1171,7 +1171,7 @@ def _response_models(annotation: Any, depth: int = 0, seen: set[Any] | None = No
 def test_every_provenance_detail_route_decides_who_sees_it() -> None:
     """A run's failure text and the id of who triggered it are not visibility.
 
-    fix(#1860): Rule 1 above cannot see this class. It asks whether a handler
+    Rule 1 above cannot see this class. It asks whether a handler
     checked access at all, and both handlers this test was written for did:
     they filtered the DATASET and then served every field of the run to
     whoever that let in. Two sibling doors onto the same fields had already
@@ -1757,7 +1757,7 @@ def test_delegated_guards_still_enforce_access() -> None:
     from app.modules.catalog.maps import service_layers
     from app.processing.tiles import router as tiles_router
 
-    # fix(#929 review): the bulk check delegates to the permission extension
+    # The bulk check delegates to the permission extension
     # via apply_visibility_filter instead of inlining a policy mirror, so an
     # overlay that replaces the extension governs the map-attach paths too.
     bulk_calls = _calls_in(service_layers.bulk_check_dataset_access)
@@ -1772,7 +1772,7 @@ def test_delegated_guards_still_enforce_access() -> None:
 
     from app.modules.catalog.search import service_candidates, service_datasets
 
-    # fix(#1855): the shared candidate selection is credited as a guard only
+    # The shared candidate selection is credited as a guard only
     # while it still routes every base statement through apply_visibility_filter.
     assert "vetting_filters" in _calls_in(service_candidates.select_candidates), (
         "search select_candidates no longer applies vetting_filters"

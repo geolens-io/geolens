@@ -153,7 +153,7 @@ async def vrt_db_state(
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset
 
-    # fix(#909): tasks_vrt now late-binds async_session from app.core.db,
+    # tasks_vrt now late-binds async_session from app.core.db,
     # which the `client` fixture already patches to the test factory — the
     # per-module re-patch this comment used to defend is gone by design.
 
@@ -305,7 +305,7 @@ async def test_regenerate_vrt_happy_path_end_to_end(
 
     session = test_db_session
 
-    # fix(#1329 follow-up): capture the pre-swap version so [17] asserts the
+    # Capture the pre-swap version so [17] asserts the
     # bump itself, not a hardcoded absolute.
     pre_version_result = await session.execute(
         select(Dataset.tile_cache_version).where(
@@ -444,13 +444,13 @@ async def test_regenerate_vrt_happy_path_end_to_end(
     # a geoalchemy2 Geometry element. Just assert non-None.
     assert vrt_record.spatial_extent is not None
 
-    # [16] feat(#1267): the owning dataset's last_refreshed_at is stamped in
+    # [16] The owning dataset's last_refreshed_at is stamped in
     # the same transaction as the generation swap, at the generation's own
     # completed_at instant — not a separate now() call.
     assert vrt_dataset.last_refreshed_at is not None
     assert vrt_dataset.last_refreshed_at == generation.completed_at
 
-    # [17] fix(#1329 follow-up): the swap rolls tile_cache_version in the
+    # [17] The swap rolls tile_cache_version in the
     # same transaction as the pointer swap, like every other refresh door.
     # The URL `v=` buster and the raster meta cache key both read it, so an
     # unbumped swap leaves pre-swap tiles valid until cache TTLs expire.
@@ -464,7 +464,7 @@ async def test_regenerate_vrt_happy_path_end_to_end(
         assert bounds.right > bounds.left
         assert bounds.top > bounds.bottom
 
-    # [17] fix(#1327): this delivery staged no member set (the legacy shape
+    # [17] This delivery staged no member set (the legacy shape
     # this test exercises carries none), so the task built from the live links
     # and applied nothing to them.
     assert generation.staged_source_ids is None
@@ -474,7 +474,7 @@ async def test_regenerate_vrt_happy_path_end_to_end(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1327): staged source-link mutation.
+# Staged source-link mutation.
 #
 # add_vrt_source/remove_vrt_source record the intended member set on the
 # VrtGeneration row and leave vrt_source_links alone; regenerate_vrt builds
@@ -602,9 +602,9 @@ async def test_staged_set_lands_with_the_artifact_it_describes(
     link table now equals the staged set in staged order, and built_from — the
     published statement of what the artifact holds — agrees with both.
 
-    Invoked through ``regenerate_vrt_staged``, the task name a staged mutation
-    is actually delivered under (fix(#1327 codex P1)), so this exercises the
-    production entrypoint rather than the shared body behind it.
+    Invoked through ``regenerate_vrt_staged``, which carries a
+    staged mutation, so this exercises the production path rather than the
+    shared body behind it.
     """
     from app.processing.ingest.tasks import regenerate_vrt_staged
     from app.processing.raster.models import RasterAsset, VrtGeneration
@@ -894,7 +894,7 @@ async def test_a_bounded_abort_on_the_job_row_still_settles_the_vrt_asset(
     clean_tables,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """fix(#1962): an aborted job write leaves the asset settled anyway."""
+    """An aborted job write leaves the asset settled anyway."""
     import app.processing.ingest.tasks_vrt as tasks_vrt
     from app.platform.jobs.models import IngestJob
     from app.processing.ingest.tasks import regenerate_vrt
@@ -968,7 +968,7 @@ async def test_an_unsettled_asset_leaves_its_generation_sweepable(
     clean_tables,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """fix(#1962): the generation stays non-terminal when the asset does.
+    """The generation stays non-terminal when the asset does.
 
     ``sweep_stale_vrt_assets`` reaches an abandoned pair only through a
     ``pending``/``running`` generation, so stamping one terminal under an asset
@@ -1054,7 +1054,7 @@ async def test_a_legacy_delivery_with_no_generation_still_settles_its_asset(
     quicklook_stub,
     clean_tables,
 ):
-    """fix(#1962): the only release path for a NULL-pointer asset.
+    """The only release path for a NULL-pointer asset.
 
     ``sweep_stale_vrt_assets`` finds assets through the generations it just
     failed, so an asset left ``regenerating`` with no pointer is unreachable to
@@ -1155,7 +1155,7 @@ async def test_a_dangling_pointer_from_a_rolled_back_claim_is_settled(
     quicklook_stub,
     clean_tables,
 ):
-    """fix(#1962): released unless a LIVE generation owns the asset.
+    """Released unless a LIVE generation owns the asset.
 
     A pointer at a generation that is already terminal, or at no row at all, is
     invisible to ``sweep_stale_vrt_assets``, which reaches an asset only through

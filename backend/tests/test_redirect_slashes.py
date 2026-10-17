@@ -268,7 +268,7 @@ class TestAllTrailingSlashRoutesAcceptBothShapes:
         ``/api/``. Adding a new trailing-slash-only route without a
         sibling will fail this test, surfacing the missing alias.
 
-        fix(#1778): this used to walk ``app.routes``
+        This used to walk ``app.routes``
         directly (``isinstance(route, APIRoute)``), which fastapi 0.140
         stopped flattening for included routers — the walk saw 0 of 168
         real trailing-slash (method, path) pairs and stayed green

@@ -1,4 +1,4 @@
-"""fix(#1778): a deleted map must not leave its thumbnail and OG image behind.
+"""A deleted map must not leave its thumbnail and OG image behind.
 
 Codebase audit 2026-08-30 (8dc529f17): ``delete_map`` dropped the row and
 nothing anywhere called ``storage.delete`` for a ``maps/`` key, so both images
@@ -435,9 +435,8 @@ class TestAStalledUploadDoesNotBlockOtherWriters:
         this also proves two DIFFERENT requests' calls into the same helper
         do not deadlock or serialize on an unrelated stalled write.
 
-        fix(#1809): this used to assert a wall-clock bound (``elapsed < 2``),
-        which failed under CI load with no product bug (2.147s observed on
-        #1798). The property under test isn't "fast" but "does not wait on
+        A wall-clock bound (``elapsed < 2``) fails under CI load with no
+        product bug. The property under test isn't "fast" but "does not wait on
         the stalled PUT", so assert ordering instead: the delete's response
         is observed while the PUT is still parked on ``release_put``, proven
         by the upload task still being unfinished at that point.
@@ -1733,7 +1732,7 @@ class TestLockMapForAssetWriteFailsFast:
     async def test_the_icon_route_holds_no_per_map_lock(self) -> None:
         """The finding does not apply to icons: confirmed, not assumed.
 
-        Icons are deliberately global (fix(#1621), see ``sprites.py``) and
+        Icons are deliberately global (see ``sprites.py``) and
         ``create_icon_asset`` never calls ``lock_map_for_asset_write`` or takes
         any ``with_for_update()`` of its own. There is no per-map row for an
         icon upload to contend on, so it has nothing to bound.

@@ -1,4 +1,4 @@
-"""fix(#1955): admission control for the three VRT regeneration doors.
+"""Admission control for the three VRT regeneration doors.
 
 ADR-002 Decision 5b admits one mutation per dataset through a partial unique
 index the VRT path never writes to. Its three doors read the asset status,

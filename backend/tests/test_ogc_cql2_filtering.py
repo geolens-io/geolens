@@ -265,7 +265,7 @@ async def test_search_datasets_unsupported_filter_lang_returns_400(client: Async
 
 
 # ---------------------------------------------------------------------------
-# feat(#1614): feature collections validate filter (rejection replaced fix(#315))
+# Feature collections validate filter
 # ---------------------------------------------------------------------------
 
 
@@ -285,9 +285,7 @@ async def test_feature_items_filter_check_ordering(
     expected_status: int,
     detail_fragment: str,
 ):
-    """feat(#1614) replaced the fix(#315) presence-based rejection.
-
-    ``filter`` on per-dataset feature collections is now parsed and validated
+    """``filter`` on per-dataset feature collections is now parsed and validated
     server-side, with a deliberate check order: a parse failure is the
     caller's bug and 400s with no database access, while a valid filter
     against this dataset (which has no backing table) reports the same
@@ -476,7 +474,7 @@ async def test_cql2_filter_respects_visibility(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1666): keywords and filter-lang over the wire, on both search routes.
+# Keywords and filter-lang over the wire, on both search routes.
 # ---------------------------------------------------------------------------
 
 
@@ -525,9 +523,8 @@ async def test_empty_filter_lang_is_treated_as_not_supplied(
 ):
     """`?filter-lang=` keeps defaulting to cql2-text rather than 400ing.
 
-    fix(#1666) moved the check off the raw query string and onto the bound
-    value. The raw read skipped its check on any falsy value, so preserving
-    that means an explicitly empty parameter is still "not supplied".
+    The check reads the bound value. The old raw read skipped it on any falsy
+    value, so an explicitly empty parameter must still count as "not supplied".
     """
     resp = await client.get(path, params={"filter": "srid=4326", "filter-lang": ""})
     assert resp.status_code == 200, resp.text

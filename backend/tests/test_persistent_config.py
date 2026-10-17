@@ -344,7 +344,7 @@ async def test_log_level_side_effect(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_log_level_side_effect_raises_httpx_floor_too(client: AsyncClient):
-    """fix(#1746): a runtime LOG_LEVEL change must raise httpx's floor.
+    """A runtime LOG_LEVEL change must raise httpx's floor.
 
     `apply_http_logger_levels()` keeps httpx/httpcore at least WARNING, but
     that floor has to track root upward too: a LOG_LEVEL=CRITICAL change made

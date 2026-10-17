@@ -1,4 +1,4 @@
-"""fix(#836): the raster-family record-type check has one canonical home.
+"""The raster-family record-type check has one canonical home.
 
 The membership check ``record_type in ("raster_dataset", "vrt_dataset")`` was
 pasted across modules/, processing/, and standards/ as tuple/set literals.

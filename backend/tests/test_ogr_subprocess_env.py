@@ -3,7 +3,7 @@
 Pins the migration from GDAL_HTTP_HEADERS env var to a 0600 tempfile
 referenced by GDAL_HTTP_HEADER_FILE.
 
-fix(#1746 B2b): what crosses the queue to this worker is one finished
+What crosses the queue to this worker is one finished
 header line rather than a bare token, so the ``token`` argument here is a line.
 The worker composes nothing; it validates the line and writes it. The bearer
 case is asserted byte for byte against what this path wrote before, which is
@@ -26,7 +26,7 @@ _BEARER_LINE = f"Authorization: Bearer {_BEARER_TOKEN}"
 
 @pytest.fixture(autouse=True)
 def gdal_header_tmpdir(tmp_path, monkeypatch):
-    """fix(#1746): keep header files out of the real /tmp/gdal-auth.
+    """Keep header files out of the real /tmp/gdal-auth.
 
     The mkstemp for the bearer header passes ``dir=gdal_header_dir()``, which
     creates and returns ``GDAL_HEADER_DIR`` — the container tmpfs in
@@ -110,7 +110,7 @@ async def test_token_not_in_subprocess_env_via_header_file():
     #    given to. Stated explicitly rather than inherited from GDAL's default,
     #    and NOT "NO" -- that would drop it on a same-host canonical redirect
     #    too, which a protected service answers with a 401
-    #    (fix(#1746 B2b)).
+    #   .
     assert (
         captured_env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"]
         == "IF_SAME_HOST"
@@ -161,7 +161,7 @@ async def test_no_token_no_header_file_created():
     # No header file, no header env var.
     assert "GDAL_HTTP_HEADERS" not in captured_env
     assert "GDAL_HTTP_HEADER_FILE" not in captured_env
-    # fix(#937): GDAL_HTTP_FOLLOWLOCATION is not a GDAL option and provides no
+    # GDAL_HTTP_FOLLOWLOCATION is not a GDAL option and provides no
     # redirect protection; it must not be reintroduced as if it did.
     assert "GDAL_HTTP_FOLLOWLOCATION" not in captured_env
 

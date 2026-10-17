@@ -1,4 +1,4 @@
-"""fix(#1778): turning on an OAuth provider must not turn on signup.
+"""Turning on an OAuth provider must not turn on signup.
 
 Codebase audit 2026-08-30, "Enabling any OAuth provider silently overrides the
 operator's 'registration disabled' switch and auto-provisions active accounts".

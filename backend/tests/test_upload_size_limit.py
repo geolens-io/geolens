@@ -164,7 +164,7 @@ async def test_upload_commit_failure_cleans_owned_staged_file(tmp_path):
     staged.write_bytes(b"{}")
     job = MagicMock(id=uuid.uuid4(), user_metadata={})
     db = AsyncMock()
-    # fix(#1848): the first commit is the one that frees the pooled connection
+    # The first commit is the one that frees the pooled connection
     # before the upload. The failure under test is still the one after it.
     db.commit.side_effect = [None, RuntimeError("commit failed")]
     cleanup = AsyncMock()

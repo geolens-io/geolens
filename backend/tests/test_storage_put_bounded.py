@@ -1,4 +1,4 @@
-"""fix(#435): large-file paths must stay bounded and must not block the event loop.
+"""large-file paths must stay bounded and must not block the event loop.
 
 `LocalStorageProvider.put()` called `data.read()` on the event-loop thread before its
 thread handoff, so a COG, VRT, or archived original passed as an open file handle was
@@ -124,7 +124,7 @@ async def test_put_rejects_traversal_before_touching_the_filesystem(
 
 
 async def test_cancelled_put_waits_for_the_copy_thread(tmp_path: Path) -> None:
-    """fix(#435): cancelling a put must not leave a thread reading `data`.
+    """Cancelling a put must not leave a thread reading `data`.
 
     `asyncio.to_thread` cannot cancel a running thread. Once `put()` reads from the
     caller's handle instead of a `bytes` snapshot, an early return would let the
@@ -185,7 +185,7 @@ async def test_cancelled_put_of_bytes_still_cancels(tmp_path: Path) -> None:
 async def test_repeated_cancellation_still_drains_the_copy_thread(
     tmp_path: Path,
 ) -> None:
-    """fix(#435): a second cancel during the drain must not abandon the thread.
+    """A second cancel during the drain must not abandon the thread.
 
     `asyncio.wait`/`asyncio.shield` are themselves cancellable, so a shutdown or outer
     timeout that cancels twice could return before `copyfileobj` releases the caller's

@@ -539,7 +539,7 @@ async def test_authlib_sessions_receive_fresh_safe_transports(
 ) -> None:
     """Both client hooks, not just the one discovery uses.
 
-    fix(#1861): ``_get_session`` serves discovery and JWKS;
+    ``_get_session`` serves discovery and JWKS;
     ``_get_oauth_client`` serves the token exchange and the userinfo fetch,
     which are the two requests carrying the client secret and the access
     token. Before this fix only the first hook was covered, and the assertion

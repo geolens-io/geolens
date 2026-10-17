@@ -233,7 +233,7 @@ async def test_datetime_no_filter_returns_all(
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778): a null-temporal record (no temporal_start/temporal_end) matched
+# A null-temporal record (no temporal_start/temporal_end) matched
 # ANY datetime filter unconditionally via the bare `.is_(None)` OR-arm in
 # _apply_common_filters (service_filters.py) -- datetime=1900-01-01 matched a
 # record actually created in 2026. dataset_to_ogc_record advertises
@@ -301,7 +301,7 @@ async def test_datetime_own_day_still_matches_null_temporal_record(
 
 
 # ---------------------------------------------------------------------------
-# fix(#315): malformed datetime -> 400 (not 500) on every datetime chokepoint
+# Malformed datetime -> 400 (not 500) on every datetime chokepoint
 # ---------------------------------------------------------------------------
 
 

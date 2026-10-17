@@ -1,8 +1,8 @@
-"""fix(#724): the pending reaper must not fail jobs that are genuinely queued.
+"""The pending reaper must not fail jobs that are genuinely queued.
 
 ``fail_stale_jobs`` marked every ``pending`` IngestJob older than
 ``stale_pending_cutoff_seconds`` as failed with "never queued". That conflated two
-different states, and since fix(#695) deferred analysis to priority -10 —
+different states, and since analysis is deferred to priority -10 —
 where waiting behind a steady upload stream is by design and unbounded — the
 wrong one became reachable in normal operation.
 
@@ -51,7 +51,7 @@ def _user(user_id: uuid.UUID) -> SimpleNamespace:
 def _dispatched_metadata() -> dict:
     """The `user_metadata` a row carries once a dispatch has been attempted.
 
-    fix(#1744): `defer_with_orphan_guard` stamps `commit_attempted_at` before
+    `defer_with_orphan_guard` stamps `commit_attempted_at` before
     every defer, so a row that reached the queue at all has this key. Its
     absence is now what makes the sweep read a row as an abandoned upload, so
     a fixture describing "the defer never landed" has to carry it or it
@@ -217,11 +217,11 @@ async def _make_pending_job(
 ):
     """A pending job aged past a cutoff, with file_path as given.
 
-    fix(#1556): `presigned` is now a parameter because it discriminates two
+    `presigned` is now a parameter because it discriminates two
     classes that both reach the unbound half. Default True keeps every existing
     caller describing the presigned upload it already described.
 
-    fix(#1744): `commit_attempted` is what discriminates them now. Default
+    `commit_attempted` is what discriminates them now. Default
     False, because the rows these fixtures describe are mostly ones nobody
     dispatched; a caller that means "the defer never landed" passes True.
     """
@@ -259,7 +259,7 @@ async def _make_pending_job(
 
 
 class TestBoundPendingSweep:
-    """fix(#1234): the 1h abandonment clause must not race a completion.
+    """The 1h abandonment clause must not race a completion.
 
     A presigned completion sets `file_path` and then commits. Between those the
     row is `pending` WITH a `file_path`, and the 1h sweep used to fail it out
@@ -331,7 +331,7 @@ class TestBoundPendingSweep:
     async def test_an_unbound_job_is_still_settled_at_1h(self, test_db_session) -> None:
         """The policy itself is deliberate and stays.
 
-        fix(#1556): the TERMINAL STATE moved for this row and only this row —
+        The TERMINAL STATE moved for this row and only this row —
         a presigned upload with nothing bound is an abandonment, not a failed
         ingest. The 1h clause, the class it selects and the sites that apply it
         are all untouched; see TestAbandonedUploadsAreCancelled for the split.
@@ -353,7 +353,7 @@ class TestBoundPendingSweep:
         backfill also carries `file_path=""`, and a dispatch that never landed
         is a real failure of something the user asked for.
 
-        fix(#1744): the row says so itself now. Both of those doors reach the
+        The row says so itself now. Both of those doors reach the
         queue through the guard that stamps `commit_attempted_at`, so a defer
         that died still leaves the stamp behind."""
         from app.platform.jobs.router import fail_stale_jobs
@@ -437,7 +437,7 @@ def test_put_url_ttl_cannot_outlive_the_job() -> None:
 
 
 def test_part_url_ttl_cannot_outlive_the_job() -> None:
-    """fix(#1234): the server was selling 7200s part URLs on a 3600s lifetime."""
+    """The server was selling 7200s part URLs on a 3600s lifetime."""
     from app.core.config import settings
     from app.platform.storage.s3 import S3StorageProvider
 
@@ -494,7 +494,7 @@ class TestPollingPathHonoursTheSameGuard:
     ) -> None:
         """The 1h abandonment policy is deliberate and stays on this path too.
 
-        fix(#1556): terminal state only — this row is a presigned upload with
+        Terminal state only — this row is a presigned upload with
         nothing bound, so the poll settles it `cancelled` exactly as the
         background sweep does. The non-presigned twin below keeps `failed`.
         """
@@ -571,7 +571,7 @@ class TestPollingPathHonoursTheSameGuard:
 
 
 class TestAbandonedUploadsAreCancelled:
-    """fix(#1556): a presigned upload nobody ever bound bytes to is not a
+    """A presigned upload nobody ever bound bytes to is not a
     failed ingest.
 
     On the public demo two rows (uls.csv, 2026-08-18) sat in the admin jobs
@@ -632,7 +632,7 @@ class TestAbandonedUploadsAreCancelled:
         """#1235's absolute-path class, unchanged: a real file exists and
         retry matters, so the row must stay `failed`.
 
-        fix(#1744): what keeps it failed is the stamp, not the path. The same
+        What keeps it failed is the stamp, not the path. The same
         absolute path with no stamp is an upload nobody committed, which the
         test below covers."""
         from app.platform.jobs.router import fail_stale_jobs
@@ -723,7 +723,7 @@ class TestAbandonedUploadsAreCancelled:
     async def test_the_outcome_counts_cancellations_apart_from_failures(
         self, test_db_session
     ) -> None:
-        """fix(#1556 review, codex P2): settling the row was only half of it.
+        """Settling the row was only half of it.
 
         `pending_failed` is read as a failure count by the admin cleanup
         response, by its `job.cleanup_stale` audit event and by the sweeper's
@@ -818,7 +818,7 @@ class TestAbandonedUploadsAreCancelled:
 
 
 def test_the_published_cleanup_response_drops_the_new_count_without_raising() -> None:
-    """fix(#1556 review, codex P2): the boundary, pinned deliberately.
+    """The boundary, pinned deliberately.
 
     `pending_cancelled` reaches the audit event's `details` (a JSONB blob with
     no schema) and the multi-tenant fleet totals. It stops at
@@ -1054,7 +1054,7 @@ class TestThePollPathSkipsUpdatesItCannotMatch:
         self, test_db_session: AsyncSession
     ) -> None:
         """The skip must not become the guard: past the cutoff the UPDATE runs
-        and the row goes terminal exactly as before (fix(#1556): `cancelled`
+        and the row goes terminal exactly as before (`cancelled`
         for this presigned-and-unbound row)."""
         job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
 
@@ -1066,7 +1066,7 @@ class TestThePollPathSkipsUpdatesItCannotMatch:
 
 
 class TestAbandonedDirectUploadsAreCancelled:
-    """fix(#1744): the door #1556 did not reach.
+    """Abandoned direct uploads.
 
     `POST /ingest/upload` says it in its own docstring: it stages the file and
     does NOT auto-queue, so a `pending` row with no Procrastinate job is the
@@ -1215,7 +1215,7 @@ class TestAbandonedDirectUploadsAreCancelled:
 
 
 class TestRetryIsNotAStalePending:
-    """fix(#1556): the retry reopens the pending window, so it has to reset it.
+    """The retry reopens the pending window, so it has to reset it.
 
     ``retry_job`` commits `failed` -> `pending` and only then dispatches, so the
     orphan guard can flip the row back if the queue is down. Between those two

@@ -91,7 +91,7 @@ def test_every_subset_collapses_onto_one_key_at_high_zoom(cols):
 def test_an_allowlisted_name_adds_nothing_at_any_zoom():
     """An explicit `tile_columns` allowlist is the same case as the zoom default.
 
-    fix(#1778, second pass): a name OUTSIDE the allowlist now adds nothing
+    A name OUTSIDE the allowlist now adds nothing
     either, because `_select_tile_columns` intersects `cols=` with
     `tile_columns` instead of unioning past it. That is the same collapse this
     module was written for -- the tile is byte-identical to the unfiltered one
@@ -117,7 +117,7 @@ def test_two_distinct_subsets_keep_distinct_keys_below_the_threshold():
 
 
 def test_permutations_and_duplicates_still_collapse():
-    """The fix(#403) property survives: sorted and deduped."""
+    """Sorted and deduped keys survive."""
     assert _key("value,name", LOW) == "name,value"
     assert _key("name,value", LOW) == "name,value"
     assert _key("value,value, name ", LOW) == "name,value"

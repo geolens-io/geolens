@@ -24,7 +24,7 @@ from app.modules.catalog.search import service_semantic
 def _reset_cache():
     """Clear the embedding cache and in-flight registry before every test.
 
-    fix(#1903): a leaked ``asyncio.Task`` in ``_embedding_inflight`` is bound
+    A leaked ``asyncio.Task`` in ``_embedding_inflight`` is bound
     to this test's event loop, which closes when the test ends -- the next
     test's same-key call would await a task on a dead loop.
     """
@@ -41,7 +41,7 @@ def _mock_session_with_model(model_name: str = "text-embedding-3-small"):
     return session
 
 
-# fix(#1546): the cache key carries the configuration fingerprint alongside the
+# The cache key carries the configuration fingerprint alongside the
 # model name. These tests are about the OTHER key components, so they hold it
 # constant; `test_cache_partitioned_by_configuration` below is the one that
 # moves it.
@@ -95,7 +95,7 @@ async def test_generate_embedding_caches_result_on_second_call():
 
 @pytest.mark.asyncio
 async def test_concurrent_calls_for_the_same_key_coalesce_into_one_provider_call():
-    """fix(#1903): two overlapping calls for the same query share ONE
+    """Two overlapping calls for the same query share ONE
     provider call, not two.
 
     A rate-limit exemption can be granted before either half of a paired
@@ -146,7 +146,7 @@ async def test_concurrent_calls_for_the_same_key_coalesce_into_one_provider_call
 
 @pytest.mark.asyncio
 async def test_joined_waiter_survives_the_originators_cancellation():
-    """fix(#1903): cancelling one participant must not cancel the shared
+    """Cancelling one participant must not cancel the shared
     task or its siblings.
 
     Awaiting a bare ``Task`` makes it the awaiter's ``_fut_waiter``, so
@@ -193,7 +193,7 @@ async def test_joined_waiter_survives_the_originators_cancellation():
 
 @pytest.mark.asyncio
 async def test_provider_error_clears_the_inflight_key_so_the_next_call_retries():
-    """fix(#1903): a failed shared embed must not poison later calls.
+    """A failed shared embed must not poison later calls.
 
     ``_embed_and_cache``'s ``finally`` pops the in-flight entry on any
     outcome, success or failure, so a provider error on one call does not
@@ -255,7 +255,7 @@ async def test_cache_partitioned_by_model_name():
 
 @pytest.mark.asyncio
 async def test_cache_partitioned_by_configuration():
-    """fix(#1546): one model name, two configurations, two cache entries.
+    """One model name, two configurations, two cache entries.
 
     The stored rows are filtered by the LIVE configuration. If this cache kept
     serving a query vector generated under the previous one, the filter would

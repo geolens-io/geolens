@@ -75,7 +75,7 @@ async def test_export_dataset_creates_temp_dir_after_staging_guard_passes(
 ) -> None:
     monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
 
-    # fix(#1778): this double used to restate run_ogr2ogr_export's parameter
+    # This double used to restate run_ogr2ogr_export's parameter
     # list by hand. That is a mirror with no one holding it: adding a keyword
     # to the real function made the double reject a call the real function
     # accepts, and the failure named this test rather than the change. It now
@@ -116,7 +116,7 @@ async def test_export_dataset_creates_temp_dir_after_staging_guard_passes(
 def test_sweep_stale_gdal_header_files_removes_only_old_matching_files(
     tmp_path: Path,
 ) -> None:
-    """fix(#1746): only ``gdal_auth_*.hdr`` files older than ``max_age_seconds``
+    """Only ``gdal_auth_*.hdr`` files older than ``max_age_seconds``
     are removed. A fresh header file (still owned by a running ogr2ogr
     subprocess) and a non-matching old file both survive.
     """

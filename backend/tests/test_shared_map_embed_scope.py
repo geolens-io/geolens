@@ -1,4 +1,4 @@
-"""fix(#394): shared-map embed-token scope + tile_version.
+"""shared-map embed-token scope + tile_version.
 
 Covers:
   - GET /maps/shared/{token} honors X-Embed-Token — layers backed
@@ -382,7 +382,7 @@ class TestGeojsonZEmbedFallback:
     async def test_geojson_z_accepts_embed_token_for_scoped_dataset(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """fix(#394) codex P2: the viewer's bounded-GeoJSON path sends
+        """The viewer's bounded-GeoJSON path sends
         X-Embed-Token, and the union exposes embed-scoped private layers
         to embeds — the endpoint must honor the token or those layers 401.
 
@@ -404,7 +404,7 @@ class TestGeojsonZEmbedFallback:
         await _downgrade_to_private(test_db_session, private_ds)
 
         anon = await client.get(f"/datasets/{private_ds.id}/features.geojson")
-        # fix(#390): anon on a private dataset now 404s (non-leaking) rather
+        # anon on a private dataset now 404s (non-leaking) rather
         # than 401; the embed token remains the only anon authorization path.
         assert anon.status_code == 404
 

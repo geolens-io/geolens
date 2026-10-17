@@ -138,7 +138,7 @@ async def _cleanup_data_table(session, table_name: str) -> None:
     await session.commit()
 
 
-# fix(#868): coordinates for the cluster bucket-semantics regression test.
+# Coordinates for the cluster bucket-semantics regression test.
 # EPSG:3857 meters. pair_a/pair_b sit ~30 CSS px apart on a z0 tile (512 px
 # display), inside one 48-px bucket of the world-min-anchored grid; "lone"
 # is far away in its own bucket so it must come through as a single.
@@ -154,7 +154,7 @@ _CLUSTER_SEMANTICS_POINTS = (
 async def _create_cluster_semantics_table(
     session, table_name: str, points=_CLUSTER_SEMANTICS_POINTS
 ) -> None:
-    """Point table holding the fix(#868) bucket-semantics fixture points."""
+    """Point table holding the bucket-semantics fixture points."""
     await session.execute(
         text(
             f"CREATE TABLE IF NOT EXISTS data.{table_name} ("
@@ -358,14 +358,14 @@ class TestTileEndpoint:
             )
 
         assert resp.status_code == 200
-        # fix(#403): the cluster endpoint now supports the cols= opt-in, so
+        # The cluster endpoint now supports the cols= opt-in, so
         # its cache lookups carry a cols_key segment (empty without cols=).
-        # fix(#868): the key carries the cluster SQL semantic version, bumped to
-        # v3 by fix(#874) (per-cluster expansion_zoom) so deploys drop stale tiles.
-        # fix(#1429): the dataset id sits between the table and the cluster
+        # The key carries the cluster SQL semantic version, bumped to
+        # v3 (per-cluster expansion_zoom) so deploys drop stale tiles.
+        # The dataset id sits between the table and the cluster
         # segments, so a reused table name cannot read the previous dataset's
         # cluster tiles, and `label` carries the bare table name for the metric.
-        # fix(#2007): the publication version follows the dataset id.
+        # The publication version follows the dataset id.
         mock_cache.get.assert_awaited_once_with(
             f"{table_name}:ds{dataset.id.hex}:p{dataset.publication_version}"
             f":v{dataset.tile_cache_version}:cluster:v3:r64:z12",
@@ -701,7 +701,7 @@ class TestTilePool:
 
 @pytest.mark.usefixtures("_init_tile_pool_for_tests")
 class TestClusterBucketSemantics:
-    """fix(#868): SQL-level regression tests for the cluster bucket grid.
+    """SQL-level regression tests for the cluster bucket grid.
 
     The shipped math treated cluster_radius (CSS px) as MVT extent units,
     building a ~8x-too-fine grid: overlapping cluster circles plus
@@ -804,7 +804,7 @@ class TestClusterBucketSemantics:
         assert singles[0]["name"] == "lone"  # attr projection on singles
 
     async def test_straddling_cell_emitted_by_exactly_one_tile(self, test_db_session):
-        """fix(#868, codex P2 on PR #872): a bucket cell straddling a tile
+        """A bucket cell straddling a tile
         border is computed from its complete membership by both neighbors
         (expanded candidate scan) and emitted by exactly one of them, the
         tile whose envelope contains the cell's ownership anchor (the cell
@@ -1051,7 +1051,7 @@ class TestClusterBucketSemantics:
         assert len(neighbor_rows) == 0
 
     async def test_expansion_zoom_is_the_cluster_split_zoom(self, test_db_session):
-        """fix(#874): expansion_zoom is the zoom at which THIS cluster stops
+        """expansion_zoom is the zoom at which THIS cluster stops
         sharing one bucket cell, not the constant cluster_max_zoom + 1 the
         query used to emit for every cluster (click-to-zoom on a z2
         continent-sized cluster jumped straight to z15).

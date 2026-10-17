@@ -378,7 +378,7 @@ async def test_authed_facets_bypasses_cache(
 
 @pytest.mark.anyio
 async def test_build_cache_key_includes_public_app_url():
-    """fix(#315): public_app_url is in the search cache key.
+    """public_app_url is in the search cache key.
 
     raster_tiles asset hrefs are built against the app origin, so two requests
     that differ only in public_app_url (e.g. a multi-origin deploy with a fixed

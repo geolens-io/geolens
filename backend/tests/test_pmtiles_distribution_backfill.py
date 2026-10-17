@@ -69,7 +69,7 @@ def _migration_0055():
 def _revision_below_0055() -> str:
     """The revision 0055 sits on, read from 0055's own ``down_revision``.
 
-    fix(#1383 precedent): a bare ``downgrade -1`` reverts whatever the
+    A bare ``downgrade -1`` reverts whatever the
     CURRENT head is, so it silently steps over 0055 the moment a later
     migration lands on top. Naming the target keeps this test about its own
     migration whatever else is stacked above it.
@@ -224,7 +224,7 @@ class TestPmtilesDistributionBackfill:
         """The NOT EXISTS guard must read auto_generated only (0054's lesson, applied here).
 
         ``generate_distributions`` deliberately probes only auto-generated
-        rows (fix(#1370)) so a user's own download/pmtiles entry at some
+        rows so a user's own download/pmtiles entry at some
         other URL never blocks the platform's own export row — both are
         meant to coexist. A migration that checked ANY row would leave this
         dataset permanently missing the platform row after an upgrade.

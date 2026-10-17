@@ -251,7 +251,7 @@ class TestProbeEndpoint:
     async def test_probe_mid_probe_redirect_ssrf_does_not_echo_the_host(
         self, client: AsyncClient, admin_auth_header: dict, mock_validate_ssrf
     ) -> None:
-        """fix(#1770 P3, `sources/router.py` mid-probe `SSRFError`).
+        """A mid-probe `SSRFError` in `sources/router.py`.
 
         `SSRFResolutionError` (`platform/security.py`) interpolates the raw,
         unresolved hostname into its own message -- every other `SSRFError`
@@ -287,7 +287,7 @@ class TestProbeEndpoint:
         mock_validate_ssrf,
         test_db_session,
     ) -> None:
-        """fix(#1858, `sources/probe.py::_header_auth_probe`).
+        """`sources/probe.py::_header_auth_probe`.
 
         `SSRFError` subclasses `ValueError`, and the two header-auth adapters
         catch only httpx and endpoint-check failures, so a refused redirect
@@ -341,7 +341,7 @@ class TestProbeEndpoint:
         mock_validate_ssrf,
         test_db_session,
     ) -> None:
-        """fix(#1858, `adapters/ogcapi.py` `/collections` step).
+        """The `/collections` step in `adapters/ogcapi.py`.
 
         That clause caught `SSRFError` and returned None, which is
         `probe_ogcapi` saying "not an OGC API service". The probe then tried
@@ -688,7 +688,7 @@ class TestPreviewEndpoint:
             assert resp.status_code == 500
 
     # -----------------------------------------------------------------
-    # fix(#1755 item 9): one test per typed refusal `run_service_preview`
+    # One test per typed refusal `run_service_preview`
     # and its callees can raise, so `preview_service_layer`'s broad
     # `except Exception` never turns one into a 500 the way it turned
     # `RuntimeError` into one above. Each mocks `run_service_preview`
@@ -996,7 +996,7 @@ class TestPreviewEndpoint:
         mock_validate_ssrf,
         test_db_session,
     ):
-        """fix(#1858, `sources/router.py` ArcGIS preview branch).
+        """The ArcGIS preview branch in `sources/router.py`.
 
         `fetch_arcgis_layer_preview`'s metadata read has no local `except`, so
         an `SSRFError` from the redirect revalidation hook or the guard
@@ -1088,9 +1088,7 @@ class TestPreviewEndpoint:
         mock_validate_ssrf,
         test_db_session,
     ):
-        """fix(#1858).
-
-        `read_arcgis_json` parsed the layer metadata document with a bare
+        """`read_arcgis_json` parsed the layer metadata document with a bare
         `json.loads`. A balanced nesting 300,000 deep is a ~600 KB body, so it
         clears every byte and structural-token bound the read applies, and
         `json.loads` answers `RecursionError` -- a `RuntimeError`, caught by
@@ -1440,7 +1438,7 @@ class TestDuplicateSourceDetection:
     ):
         """POST /services/preview/ with same source_url+format+user returns 409.
 
-        fix(#1286): also the un-backfilled-row regression test for the
+        Also the un-backfilled-row regression test for the
         origin_ref re-key — the dataset below carries neither ``origin_uri``
         nor ``origin_ref`` (a row migration 0036 could not backfill), so the
         guard can only catch it through the ``source_url`` fallback branch.
@@ -1560,7 +1558,7 @@ class TestDuplicateSourceDetection:
         mock_run_preview,
         mock_fetch_arcgis_preview,
     ):
-        """fix(#1286): the guard keys on ``origin_ref``, not ``origin_uri``.
+        """The guard keys on ``origin_ref``, not ``origin_uri``.
 
         ``source_url`` is reachable through the metadata PATCH, so keying the
         guard on it alone let an owner edit their way past it and register the
@@ -1661,7 +1659,7 @@ class TestDuplicateSourceDetection:
         mock_run_preview,
         mock_fetch_arcgis_preview,
     ):
-        """fix(#1286): a fully-bound, never-refreshed dataset is still caught.
+        """A fully-bound, never-refreshed dataset is still caught.
 
         ``origin_uri`` and ``origin_ref`` agree (the ordinary post-#1218
         shape — no writer has touched the binding since import), so the
@@ -1709,7 +1707,7 @@ class TestDuplicateSourceDetection:
         mock_run_preview,
         mock_fetch_arcgis_preview,
     ):
-        """fix(#1286): a respelled origin_uri can no longer open the hole.
+        """A respelled origin_uri can no longer open the hole.
 
         Reproduces the PR #1277 class of bug: a writer (e.g. a
         refresh) rewrites ``origin_uri`` to a different spelling of the same
@@ -1762,7 +1760,7 @@ class TestDuplicateSourceDetection:
         mock_run_preview,
         mock_fetch_arcgis_preview,
     ):
-        """fix(#1286 codex review, PR #1320): an incomplete origin_ref still
+        """An incomplete origin_ref still
         falls through to the source_url fallback.
 
         Migration 0036's service backfill can populate ``origin_uri`` from

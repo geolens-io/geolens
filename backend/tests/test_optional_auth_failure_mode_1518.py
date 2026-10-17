@@ -5,7 +5,7 @@ it: what happens when the caller DID supply a credential and it does not
 resolve — expired, revoked, or mistyped? There are only two answers, and before
 #1518 the codebase gave both. ``get_optional_user_or_401`` returned 401 and
 reached 8 handlers (the OGC and STAC detail routes, because those were the
-routers in scope for fix(#401)); the other 58 took the plain dependency and
+routers in scope for that fix); the other 58 took the plain dependency and
 silently continued as anonymous, returning 200 and the public subset. The split
 was never designed. It was inherited from which router got patched.
 
@@ -475,7 +475,7 @@ async def test_the_two_dependencies_actually_differ(test_db_session) -> None:
     assert excinfo.value.status_code == 401
 
     # The no-schema variant exists to keep bearer security markers off public
-    # operations (fix(#430)), NOT to opt out of the failure-mode rule. It
+    # operations, NOT to opt out of the failure-mode rule. It
     # delegates, so it must answer identically — a future edit that pointed it
     # at the raw resolver would reintroduce the #1518 split on the STAC public
     # routes without tripping the allowlist above.
@@ -940,7 +940,7 @@ def test_no_security_schema_ops_get_401_without_security() -> None:
     """Documenting the status must not stamp auth back onto public operations.
 
     ``get_optional_user_no_security_schema`` exists so genuinely public STAC
-    operations carry no bearer markers in generated clients (fix(#430)). A 401
+    operations carry no bearer markers in generated clients. A 401
     RESPONSE is not a security REQUIREMENT, and this is the test that keeps the
     two from being conflated — without it, moving the 401 into
     ``_normalize_security_contract`` (the obvious place) would quietly

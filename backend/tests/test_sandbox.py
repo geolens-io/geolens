@@ -139,7 +139,7 @@ class TestRejectSelectInto:
 
 
 class TestRejectNestedMutation:
-    """fix(#1011): the SELECT-only check inspects the root node, so a write
+    """The SELECT-only check inspects the root node, so a write
     statement nested inside a CTE or a scalar subquery used to validate. Only
     SET TRANSACTION READ ONLY in execute_safe stopped it from running, which
     made a one-line change to how that transaction opens the difference
@@ -231,7 +231,7 @@ class TestValidateParseError:
         ],
     )
     def test_unterminated_literal_is_invalid_query(self, sql):
-        """fix(#1778): sqlglot raises TokenError, a SIBLING of ParseError.
+        """sqlglot raises TokenError, a SIBLING of ParseError.
 
         Before the fix these four escaped validate_sql entirely, landed in the
         sandbox boundary's broad catch as category ``query_failed`` and came
@@ -502,7 +502,7 @@ class TestReadOnlyTransaction:
     async def test_trailing_line_comment_does_not_break_the_limit_wrapper(
         self, client, test_db_session
     ):
-        """fix(#1778): a query ending in ``--`` used to comment out the wrapper.
+        """A query ending in ``--`` used to comment out the wrapper.
 
         ``execute_safe`` splices validated SQL into
         ``SELECT * FROM (<sql>) AS _q LIMIT n``. With the tail on the same
@@ -520,7 +520,7 @@ class TestReadOnlyTransaction:
     async def test_validated_terminator_run_survives_the_limit_wrapper(
         self, client, test_db_session, suffix
     ):
-        """fix(#1892): a terminator inside the wrapper's parentheses is a syntax
+        """A terminator inside the wrapper's parentheses is a syntax
         error, so the validator strips the whole run. The raw statement is the
         control."""
         from app.platform.sandbox.validator import validate_sql
@@ -682,7 +682,7 @@ async def _stub_allowlist(db, user, **kwargs):
 
 
 class TestTimeoutThreading:
-    """fix(#1011): execute_safe has always taken timeout_ms, but the public
+    """execute_safe has always taken timeout_ms, but the public
     wrapper did not expose it, so every caller silently got the 10 s default
     and none could ask for less."""
 
@@ -814,7 +814,7 @@ class TestValidateAndExecuteIntegration:
 
 
 class TestExecutionErrorClassification:
-    """fix(#680 review): only data-driven failures may map to a 4xx category —
+    """Only data-driven failures may map to a 4xx category —
     infrastructure failures must stay generic (callers report those as 500)."""
 
     def test_data_and_internal_errors_classify_as_data_error(self):

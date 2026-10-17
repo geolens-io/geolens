@@ -369,7 +369,7 @@ async def _stamped_tenant_ids(db_url: str, dataset_id) -> tuple:
                 "SELECT d.tenant_id AS dataset_tenant_id,"
                 "       r.tenant_id AS record_tenant_id,"
                 "       d.table_name AS table_name,"
-                # fix(#1218): the origin pointer rides along so the
+                # The origin pointer rides along so the
                 # test below can check it against the same row's real tenant.
                 "       d.origin_uri AS origin_uri,"
                 "       d.origin_ref AS origin_ref"
@@ -424,7 +424,7 @@ class TestMaterializeStampsTenantAttribution:
     async def test_registered_origin_pointer_names_the_tenant_schema(
         self, tenant_analysis
     ):
-        """fix(#1218): the origin pointer follows physical placement.
+        """The origin pointer follows physical placement.
 
         ``register_existing_table`` derived the pointer from
         ``dataset.tenant_id``, which is NULL on the ORM instance at that
@@ -466,7 +466,7 @@ class TestMaterializeStampsTenantAttribution:
             "origin_uri does not name the tenant schema the table lives in.\n"
             f"  stored={row.origin_uri!r} expected='postgis://{qualified}'"
         )
-        # fix(#1452): the analysis materialize path CTAS'd this output table
+        # The analysis materialize path CTAS'd this output table
         # and registers it with managed=True, so delete may drop it again.
         # An operator-registered table carries no `managed` key at all.
         assert row.origin_ref == {
@@ -743,7 +743,7 @@ def test_shared_engine_carries_the_tenant_begin_hook():
 
 
 def test_worker_session_factory_is_bound_to_a_hooked_engine():
-    """fix(#1171): the assertion above does not imply this one.
+    """The assertion above does not imply this one.
 
     Every DB test in this module monkeypatches ``app.core.db.async_session``
     onto a factory it built itself, so none of them can observe the production

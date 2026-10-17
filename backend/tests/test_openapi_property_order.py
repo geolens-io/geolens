@@ -1,4 +1,4 @@
-"""fix(#1257): schema property order must follow Pydantic declaration order.
+"""Schema property order must follow Pydantic declaration order.
 
 openapi-python-client derives generated constructor argument order from each
 schema's ``properties`` insertion order. ``sort_keys=True`` alphabetized it,

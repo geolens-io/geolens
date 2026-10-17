@@ -1,6 +1,6 @@
 """EXPLAIN verification for the origin_ref duplicate-source guard indexes.
 
-perf(#1324). Follow-up to #1286 / PR #1320, which re-keyed the
+Follow-up to #1286 / PR #1320, which re-keyed the
 service-preview guard (``catalog/sources/router.py``) and the STAC-import
 guard (``catalog/sources/stac_router.py``) from ``origin_uri`` onto the
 structured ``origin_ref`` identity. Migration 0040_dataset_origin_ref_indexes

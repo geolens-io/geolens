@@ -196,7 +196,7 @@ class TestReapPresignedStagingObject:
         storage.delete.assert_not_awaited()
 
     async def test_a_non_terminal_status_never_sweeps(self, monkeypatch):
-        """fix(#1207): the guard moved into this helper from three identical
+        """The guard moved into this helper from three identical
         copies in the task tails. A non-terminal exit — job or dataset missing,
         heartbeat claim lost — may be re-claimed by another attempt that still
         needs the staging bytes."""
@@ -325,7 +325,7 @@ async def test_failed_raster_ingest_sweeps_its_presigned_staging_object(
 async def test_validation_failure_still_sweeps_the_presigned_staging_object(
     test_db_session, tmp_path, monkeypatch
 ) -> None:
-    """fix(#1202): the early return, not the happy path.
+    """The early return, not the happy path.
 
     ``_validate_upload_file_safety`` failing returns from the phase-1 session
     block before the phase-2 snapshot. The staging-key capture used to live in
@@ -393,7 +393,7 @@ async def test_validation_failure_still_sweeps_the_presigned_staging_object(
 
 
 class TestPostExpirySweep:
-    """fix(#1202): the backstop that outlives the PUT URL.
+    """The backstop that outlives the PUT URL.
 
     Both other sweeps are event-triggered and a fast ingest fires both while
     the URL is still valid, so a re-PUT after them recreates an object nothing

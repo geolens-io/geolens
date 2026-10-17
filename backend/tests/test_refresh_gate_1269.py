@@ -280,7 +280,7 @@ async def _execute_service(task_kwargs: dict, *, expected_token: str | None) -> 
             await fake_session.execute(
                 text(
                     f'CREATE TABLE "{schema}"."{table_name}" '
-                    # fix(#2031): the staged layer carries geometry, like the
+                    # The staged layer carries geometry, like the
                     # vector dataset it replaces — the swap now refuses a
                     # geometry-less replacement of one.
                     "(gid serial PRIMARY KEY, name text, "
@@ -448,7 +448,7 @@ def _install_stac_transport(
         async def _handle(request: httpx.Request) -> httpx.Response:
             return _handler(request)
 
-        # fix(#1330 review): no route table this stub serves ever answers a
+        # No route table this stub serves ever answers a
         # 3xx, so `follow_redirects` is dead weight on a raw AsyncClient —
         # exactly the shape Rule 2's hook flags. Dropped rather than routed
         # through `make_safe_client()`, since there is no redirect for it to
@@ -1074,8 +1074,8 @@ class TestSentinelTokenSweep:
 
             # 2. ingest_jobs — every durable text/JSON column a regression
             # could write the credential into, not just user_metadata
-            # (fix(#1330 review): error_message is where a dispatch-failure
-            # message would plausibly compose it in).
+            # (error_message is where a dispatch-failure message would
+            # plausibly compose it in).
             job = (
                 await test_db_session.execute(
                     select(IngestJob).where(IngestJob.dataset_id == dataset.id)
@@ -1299,7 +1299,7 @@ class TestRecoveryPair:
         # Control rows: each dataset also carries a healthy row that belongs
         # to the OTHER sweep's domain, so "the other dataset's rows are
         # untouched" is a real assertion rather than one that would pass
-        # vacuously against rows that never existed (fix(#1330 review)).
+        # vacuously against rows that never existed.
         control_asset = RasterAsset(
             dataset_id=refresh_dataset.id,
             asset_uri=f"rasters/{refresh_dataset.id}/control.tif",
@@ -1330,7 +1330,7 @@ class TestRecoveryPair:
         now = datetime.now(timezone.utc)
         vrt_cutoff = now - timedelta(hours=1)
 
-        # fix(#1330 review): fail_stale_jobs runs the VRT sweep before the
+        # fail_stale_jobs runs the VRT sweep before the
         # run sweep on purpose — the run sweep depends on job-failure facts
         # the earlier sweeps establish. Call them in that same order so this
         # test actually exercises the sequence operators run, not its mirror.

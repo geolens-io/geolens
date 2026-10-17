@@ -108,7 +108,7 @@ def test_tiles_router_uses_helper():
 def test_stac_cog_info_uses_helper():
     """Pin: the STAC import path's Titiler calls go through build_titiler_cog_url.
 
-    feat(#1266): the calls moved from ``stac_router`` to ``sources/cog_info``
+    The calls moved from ``stac_router`` to ``sources/cog_info``
     when the refresh strategy needed to reach them — importing an API-edge
     module executes route registration as a side effect. The pin follows the
     code; the property it protects is unchanged. The router keeps its own

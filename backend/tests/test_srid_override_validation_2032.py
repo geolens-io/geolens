@@ -63,7 +63,7 @@ async def _noop_defer(fn, rollback=None, db=None, job=None):
 
 class TestRegistries:
     async def test_a_code_only_proj_knows_is_accepted(self, test_db_session):
-        """fix(#2032 review): a raster override never reaches PostGIS.
+        """A raster override never reaches PostGIS.
 
         The two EPSG databases are versioned independently, so a code PROJ has
         and this PostGIS install does not is the worker's to apply, not this

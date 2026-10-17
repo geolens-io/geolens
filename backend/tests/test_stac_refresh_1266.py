@@ -171,7 +171,7 @@ def cog_info(monkeypatch):
         "height": 512,
         "nodata": 0,
         "band_info": [{"min": 0, "max": 4095, "mean": 1200}],
-        # fix(#1334): the shape fetch_cog_info actually returns, so tests
+        # The shape fetch_cog_info actually returns, so tests
         # against this fixture exercise the same fields the refresh path
         # now writes to the asset row. crs_wkt and epsg are a
         # matched pair, same as a real _georeferencing result: leaving epsg
@@ -179,7 +179,7 @@ def cog_info(monkeypatch):
         # EPSG" rather than "the fixture just didn't set it".
         "crs_wkt": 'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]',
         "epsg": 32633,
-        # fix(#1375): res_x/res_y/is_rotated join them for the same reason —
+        # res_x/res_y/is_rotated join them for the same reason —
         # _geotransform reads all three off /cog/stac's proj:transform, so a
         # fixture without them would exercise only the degraded path.
         "res_x": 30.0,
@@ -573,7 +573,7 @@ class TestAssetSelection:
         )
 
     def test_an_empty_string_key_is_recognised_by_identity(self) -> None:
-        """fix(#1331): ``""`` is a legal JSON property name, so an item may
+        """``""`` is a legal JSON property name, so an item may
         key its data asset under the empty string — and a binding that
         recorded it names a real asset. Testing the stored key with
         truthiness treats ``""`` exactly like no key was ever recorded,
@@ -1297,7 +1297,7 @@ class TestResolution:
         """A canonical document that supersedes
         the representation supersedes its projection too.
 
-        fix(#1334 review): stubs the probe to report no CRS at all — its OWN
+        Stubs the probe to report no CRS at all — its OWN
         reading would otherwise outrank the document's declared one
         (``reconcile_epsg``), which is a different concern from the one this
         test isolates: WHICH document's declaration wins, not probe-vs-
@@ -1455,7 +1455,7 @@ class TestResolution:
     async def test_a_stored_url_that_serves_a_different_item_binds_nothing(
         self, stac_transport
     ) -> None:
-        """fix(#1266 review): a valid item is not the same claim as THIS item.
+        """A valid item is not the same claim as THIS item.
 
         A stored URL that redirects — a scene collapsed into a mosaic, a
         bucket serving a default document — hands back a perfectly well-formed
@@ -1592,7 +1592,7 @@ class TestResolution:
     async def test_a_searched_items_relative_asset_resolves_against_its_self_link(
         self, stac_transport
     ) -> None:
-        """fix(#1266 review): the base is the ITEM's address, not /search's.
+        """The base is the ITEM's address, not /search's.
 
         Joining a relative asset href against the search endpoint composes a
         path under the search URL — a different object, and possibly a live
@@ -1966,7 +1966,7 @@ class TestResolution:
     async def test_an_empty_string_keyed_binding_follows_the_move_it_could_not_guess(
         self, stac_transport
     ) -> None:
-        """fix(#1331): the same scenario as the ``visual`` case above, for the
+        """The same scenario as the ``visual`` case above, for the
         one key value truthiness treats as absent. Before the fix, the stored
         ``""`` key was ignored, the href match failed because the asset moved,
         and — since the item also gained a decoy the priority list would
@@ -2082,7 +2082,7 @@ class TestAssetKeyCapture:
         assert storable_asset_key(None) is None
 
     def test_an_empty_string_key_is_a_storable_key(self) -> None:
-        """fix(#1331): ``""`` is a legal JSON property name and clears the
+        """``""`` is a legal JSON property name and clears the
         length bound, so there is no reason to refuse it at capture — unlike
         an over-long key, it has nowhere it fails to fit. What made it
         misbehave was every downstream consultation reading it with
@@ -2193,7 +2193,7 @@ class TestAssetKeyCapture:
     async def test_import_records_an_empty_string_key(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """fix(#1331): a searched item may key its data asset under ``""``,
+        """A searched item may key its data asset under ``""``,
         and the import request echoes back whatever search surfaced —
         including that. Recording it is what lets the FIRST refresh after a
         move recover the asset by identity instead of falling back to a
@@ -2333,7 +2333,7 @@ class TestDispatch:
     async def test_a_credential_is_staged_by_reference_never_as_an_argument(
         self, client, admin_auth_header, test_db_session, credential_backend
     ) -> None:
-        """feat(#1764): the catalog may be protected, so the credential is
+        """The catalog may be protected, so the credential is
         carried — but a task argument is a durable row, so only the reference
         crosses and the secret lives in the single-use store."""
         admin_id = await get_user_id(test_db_session, "admin")
@@ -2379,7 +2379,7 @@ class TestDispatch:
     async def test_a_marked_dataset_refuses_a_token_less_refresh(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """feat(#1764): the marker says the last successful refresh used a
+        """The marker says the last successful refresh used a
         credential, so an anonymous one would reach the catalog, collect a 401
         and report a live dataset as inaccessible."""
         admin_id = await get_user_id(test_db_session, "admin")
@@ -2397,7 +2397,7 @@ class TestDispatch:
     async def test_a_marker_that_appears_during_the_reservation_is_caught(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """feat(#1764): a credentialed refresh finishing inside the window
+        """A credentialed refresh finishing inside the window
         marks the dataset without moving its origin, so the binding check
         passes and only the post-reservation recheck notices."""
         admin_id = await get_user_id(test_db_session, "admin")
@@ -2428,7 +2428,7 @@ class TestDispatch:
     async def test_a_binding_recording_no_catalog_refuses_a_credential(
         self, client, admin_auth_header, test_db_session, credential_backend
     ) -> None:
-        """fix(#1764): a credential is anchored on the catalog URL the caller
+        """A credential is anchored on the catalog URL the caller
         submitted at import. A binding from before that was recorded has no
         anchor, and falling back to the stored item pointer would let a
         document from that era name where the credential goes."""
@@ -2556,13 +2556,13 @@ class TestWorker:
         assert described.band_info == [{"min": 0, "max": 4095, "mean": 1200}]
         # One integer band is imagery, not elevation.
         assert described.is_dem is False
-        # fix(#1334): the moved object's own CRS, from the same probe as
+        # The moved object's own CRS, from the same probe as
         # band_count/dtype/nodata — not left stale like the fields above
         # would be if the refresh only wrote the address.
         assert described.crs_wkt == (
             'PROJCS["WGS 84 / UTM zone 33N",AUTHORITY["EPSG","32633"]]'
         )
-        # fix(#1375): and the pixel geometry, which a move is more likely to
+        # And the pixel geometry, which a move is more likely to
         # change than anything else here — a re-tiled or reprojected
         # replacement is exactly where the old resolution stops describing
         # the new object.
@@ -2594,7 +2594,7 @@ class TestWorker:
     async def test_a_refresh_without_a_transform_leaves_pixel_geometry_alone(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
-        """fix(#1375 review): the three affine-derived columns are one fact.
+        """The three affine-derived columns are one fact.
 
         ``fetch_cog_info``'s transform probe is optional — ``/cog/info`` can
         answer while ``/cog/stac`` fails — and an earlier version of this
@@ -3169,7 +3169,7 @@ class TestWorker:
 
 
 class TestCredentialedRefresh:
-    """feat(#1764): a protected catalog is re-read as the same caller the
+    """A protected catalog is re-read as the same caller the
     import was, and the marker that records it is written from the credential
     the attempt actually used."""
 
@@ -3253,7 +3253,7 @@ class TestCredentialedRefresh:
         stac_transport,
         credential_backend,
     ) -> None:
-        """fix(#1764): a single-use credential is gone after one claim. The
+        """A single-use credential is gone after one claim. The
         attempt fails without contacting the catalog, and the failure is
         WRITTEN, so the run does not sit pending and hold the dataset against
         the admission index for an hour."""
@@ -3296,7 +3296,7 @@ class TestCredentialedRefresh:
 
 
 class TestOriginAssetRepair:
-    """feat(#1692): the refresh repairs the served origin asset.
+    """The refresh repairs the served origin asset.
 
     The import persists the origin item's primary data asset as a
     ``dataset_assets`` row, which is what puts a COG href a generic STAC

@@ -1,4 +1,4 @@
-"""feat(#565): POST /api/query/ — the raw read-only SQL sandbox endpoint.
+"""POST /api/query/ — the raw read-only SQL sandbox endpoint.
 
 Pins the hardening decisions recorded in #565 (and its prerequisite #1011):
 
@@ -289,7 +289,7 @@ async def test_derived_table_correlated_work_is_rejected(
 async def test_out_of_scope_cte_name_cannot_mask_a_catalog_table(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P1): a CTE named after a catalog relation in an inner
+    """A CTE named after a catalog relation in an inner
     scope must not let an unqualified outer reference reach pg_catalog. Admin
     can access any dataset, so this is the worst case for the bypass."""
     headers = admin_auth_header
@@ -1378,7 +1378,7 @@ def test_capacity_bound_is_pool_derived_and_at_least_one():
 def test_capacity_bound_divides_the_pooler_budget_by_worker_count(
     monkeypatch, workers, expected
 ):
-    """fix(#2045): one external pooler serves every worker, so 4 is split N ways."""
+    """One external pooler serves every worker, so 4 is split N ways."""
     from app.core.config import settings
     from app.processing.ai.sandbox_bounds import capacity_bound
 
@@ -1388,7 +1388,7 @@ def test_capacity_bound_divides_the_pooler_budget_by_worker_count(
 
 
 def test_capacity_bound_prefers_an_explicit_slot_count_under_a_pooler(monkeypatch):
-    """fix(#2045): an explicit SANDBOX_QUERY_SLOTS beats the worker split."""
+    """An explicit SANDBOX_QUERY_SLOTS beats the worker split."""
     from app.core.config import settings
     from app.processing.ai.sandbox_bounds import capacity_bound
 
@@ -1617,7 +1617,7 @@ async def test_rejection_emits_query_reject_audit(
 async def test_body_validation_rejection_is_not_durably_audited(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    """fix(#565 codex P2): a body-validation 422 is a PRE-sandbox rejection —
+    """A body-validation 422 is a PRE-sandbox rejection —
     it never became a query and bypasses the per-request limiter, so durably
     auditing it would let cheap malformed requests amplify into unbounded audit
     writes. It is logged, not written to the durable trail."""
@@ -1674,7 +1674,7 @@ async def test_each_rate_limit_dimension_fires(
 async def test_rate_limited_requests_are_not_durably_audited(
     client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
 ):
-    """fix(#565 codex P2): a 429 IS the limiter shedding load, so writing a
+    """A 429 IS the limiter shedding load, so writing a
     durable audit row per throttled request would defeat the throttle. The
     successful call is audited (query.execute); the 429s add no reject rows."""
     from app.platform.ratelimit import limiter

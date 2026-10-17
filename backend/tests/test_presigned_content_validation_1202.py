@@ -63,7 +63,7 @@ class _FakeS3Storage:
         self.range_reads: list[tuple[str, int, int]] = []
         self.whole_object_reads: list[str] = []
         self.copies: list[tuple[str, str]] = []
-        # Every expiration the doors hand to a signing call (fix(#1235)).
+        # Every expiration the doors hand to a signing call.
         self.signed_ttls: list[int] = []
         # Multipart state, modelled the way S3 actually behaves: uploaded
         # parts are NOT visible as an object, and the upload id is spent by a
@@ -75,7 +75,7 @@ class _FakeS3Storage:
     def generate_presigned_put_url(
         self, key: str, content_type: str, expiration: int = 3600
     ) -> str:
-        # fix(#1235): mirrors the provider signature — the doors now
+        # Mirrors the provider signature — the doors now
         # pass a deadline-anchored expiration.
         self.signed_ttls.append(expiration)
         return f"https://s3.invalid/{key}?signed=1"
@@ -847,7 +847,7 @@ async def test_completion_locks_the_job_row_before_reading_file_path(
 async def test_the_locked_refetch_reads_the_committed_file_path(
     test_db_session,
 ) -> None:
-    """fix(#1202): the lock must INFORM, not just serialize.
+    """The lock must INFORM, not just serialize.
 
     The earlier pin proves a `FOR UPDATE` statement reaches the database. It does
     NOT prove the handler then reads the committed value: SQLAlchemy does not
@@ -917,7 +917,7 @@ async def test_the_locked_refetch_reads_the_committed_file_path(
 async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
     client, admin_auth_header, test_db_session, both_doors
 ) -> None:
-    """fix(#1213): the second one-shot fact, on this door too.
+    """The second one-shot fact, on this door too.
 
     The upload door never stamps `failed` itself, so it reaches this state by
     a different route: the stale-pending reaper marks an abandoned presigned
@@ -978,7 +978,7 @@ async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
 
 
 class TestFinalizeCleanupContract:
-    """fix(#1213): the two failure-path holes, at the helper.
+    """The two failure-path holes, at the helper.
 
     Driven against `finalize_presigned_object` directly rather than through a
     door, because both are about which objects survive which exit — the
@@ -1081,7 +1081,7 @@ class TestFinalizeCleanupContract:
 async def test_a_cancel_during_assembly_leaves_the_retry_a_way_back(
     client, admin_auth_header, test_db_session, both_doors, monkeypatch
 ) -> None:
-    """fix(#1233): the cancel branch used to delete the assembled object.
+    """The cancel branch used to delete the assembled object.
 
     CompleteMultipartUpload has already consumed the upload id by then, and the
     object's presence is the ONLY record that assembly succeeded — it is what
@@ -1160,7 +1160,7 @@ async def test_a_cancel_during_assembly_leaves_the_retry_a_way_back(
 async def test_the_door_signs_urls_against_the_job_deadline(
     client, admin_auth_header, both_doors, monkeypatch, multipart
 ) -> None:
-    """fix(#1235): both URL kinds, through the real door.
+    """Both URL kinds, through the real door.
 
     The helper's arithmetic is unit-tested in test_stale_pending_reaper.py;
     this pins that the door actually PASSES it, for the single-PUT and the
@@ -1197,13 +1197,13 @@ async def test_the_door_signs_urls_against_the_job_deadline(
 async def test_each_part_url_is_signed_against_the_deadline_not_the_first_signature(
     client, admin_auth_header, both_doors, monkeypatch
 ) -> None:
-    """fix(#1235): the once-before-the-loop computation was the bug
+    """Computing the expiry once before the loop is the drift
     in miniature, not a conservative shortcut.
 
     `ExpiresIn` counts from the moment each signature is created, so reusing
     one remainder across the loop means a part signed d seconds in expires d
-    seconds PAST the job deadline — the same signing-time drift the first fix set out to
-    remove, scaled down to the loop's duration. Recomputed per signature, each
+    seconds PAST the job deadline — the same signing-time drift the per-signature
+    expiry exists to remove, scaled down to the loop's duration. Recomputed per signature, each
     successive TTL must be strictly SMALLER, because each one ends at the same
     wall-clock instant.
     """
@@ -1255,7 +1255,7 @@ async def test_each_part_url_is_signed_against_the_deadline_not_the_first_signat
 async def test_a_loop_that_outruns_the_window_answers_409_not_502(
     client, admin_auth_header, both_doors, monkeypatch
 ) -> None:
-    """fix(#1235): the per-signature refusal has to survive the
+    """The per-signature refusal has to survive the
     multipart error handler.
 
     Signing inside the loop means the refusal can now fire mid-loop. That code
@@ -1306,7 +1306,7 @@ async def test_a_loop_that_outruns_the_window_answers_409_not_502(
 async def test_scheduler_delay_before_the_thread_runs_does_not_extend_the_url(
     client, admin_auth_header, both_doors, monkeypatch
 ) -> None:
-    """fix(#1235): the last layer of the same drift.
+    """The last layer of the same drift.
 
     The earlier fix recomputed the remaining lifetime per signature, but on the EVENT LOOP,
     before `run_in_thread_draining` had queued anything. `ExpiresIn` starts
@@ -1375,7 +1375,7 @@ async def test_scheduler_delay_before_the_thread_runs_does_not_extend_the_url(
 
 
 def test_neither_door_computes_an_expiration_before_scheduling() -> None:
-    """fix(#1235): the reupload door is a mirror, pinned as one.
+    """The reupload door is a mirror, pinned as one.
 
     The behavioural test above drives the upload door, where the delay can be
     injected. This asserts the reupload twin has the same shape, because the
@@ -1405,7 +1405,7 @@ def test_neither_door_computes_an_expiration_before_scheduling() -> None:
 async def test_a_one_shot_put_that_outruns_the_window_answers_409_not_502(
     client, admin_auth_header, both_doors, monkeypatch
 ) -> None:
-    """fix(#1235): the single-PUT twin of the multipart case.
+    """The single-PUT twin of the multipart case.
 
     Moving the computation into the signing thread means the lifetime
     refusal now raises through this branch's broad `except Exception`, whose

@@ -361,7 +361,7 @@ _REFUSED_INPUTS = {
 
 
 class TestUnusableInputsAreRefusedAtTheDoor:
-    """fix(#1746): before the composition, and before the credential is spent.
+    """Before the composition, and before the credential is spent.
 
     Non-ASCII is the one worth naming. RFC 7617 makes UTF-8 the default charset
     for basic authentication, so refusing an accented letter reads like a bug
@@ -451,7 +451,7 @@ class TestUnusableInputsAreRefusedAtTheDoor:
     async def test_the_probe_judges_the_same_inputs_as_the_preview(
         self, client, admin_auth_header: dict
     ) -> None:
-        """fix(#1755 item 2): the two doors agreed on nothing before this.
+        """The two doors agreed on nothing before this.
 
         A credential the preview refuses used to probe cleanly, so the user
         learned at the next step rather than at the one they were on.
@@ -2176,7 +2176,7 @@ _PLAIN_SCHEMA = """<?xml version="1.0"?>
 
 
 def _describe_or(request: httpx.Request, capabilities: str) -> httpx.Response:
-    """fix(#1828): the check reads a DescribeFeatureType after the
+    """The check reads a DescribeFeatureType after the
     capabilities, so a double that answered every request with the
     capabilities document answers that one with a plain schema."""
     if request.url.params.get("REQUEST") == "DescribeFeatureType":
@@ -9133,7 +9133,7 @@ class TestAdapterProbeReadsAreBounded:
     - `processing/ingest/url_fetch.py`'s `fetch_url_to_path`: no credential
       header (`headers={"Accept-Encoding": "identity"}` only); already
       bounded by its own outer `asyncio.timeout`, identity-only streaming,
-      and its own `codeql[py/full-ssrf]` marker (fix(#1708)).
+      and its own `codeql[py/full-ssrf]` marker.
     - `catalog/sources/adapters/stac_asset_size.py`'s `_probe_size`: a
       one-byte `Range` request whose body is never read (the response is
       closed after its headers), under its own deadline and a concurrency

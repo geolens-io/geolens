@@ -1,4 +1,4 @@
-"""fix(#1778): the maps gallery listing must not aggregate the whole layer table.
+"""The maps gallery listing must not aggregate the whole layer table.
 
 Codebase audit 2026-08-30 (8dc529f17): ``list_maps`` read its per-map layer
 count from an uncorrelated ``GROUP BY map_id`` subquery LEFT JOINed onto the

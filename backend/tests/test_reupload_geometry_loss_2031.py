@@ -146,7 +146,7 @@ async def test_file_worker_allows_a_replacement_that_loses_nothing(
 async def test_service_worker_refuses_to_de_spatialize_a_vector_dataset(
     client: AsyncClient, test_db_session
 ):
-    """fix(#2031 review): this path reads geometry off the staging table."""
+    """This path reads geometry off the staging table."""
     admin_id, dataset, job = await _seed(
         test_db_session, record_type="vector_dataset", service=True
     )

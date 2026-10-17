@@ -94,7 +94,7 @@ def _mock_engine_returning(rows):
 
 @pytest.mark.asyncio
 async def test_refresh_job_metrics_zeroes_drained_queues():
-    """fix(#655): a queue whose todo/doing rows vanish reads 0, not its last value."""
+    """A queue whose todo/doing rows vanish reads 0, not its last value."""
     rows = [("todo", "q655", 7), ("doing", "q655", 2)]
     with patch("app.core.db.engine", _mock_engine_returning(rows)):
         await _refresh_job_metrics()
@@ -179,12 +179,12 @@ for _ in range(requests):
 
 
 def test_multiprocess_histogram_sums_across_simulated_workers(tmp_path):
-    """fix(#1240): a scrape used to see one worker's counter, not the fleet's.
+    """A scrape must see the fleet's counter, not one worker's.
 
     Two subprocesses simulate two uvicorn workers recording HTTP requests
     against the SAME histogram name under one PROMETHEUS_MULTIPROC_DIR (7
-    requests, then 3). Before the fix a scrape landed on whichever worker
-    answered -- 7 or 3, sawtoothing between the two on successive scrapes,
+    requests, then 3). Without merging, a scrape lands on whichever worker
+    answers -- 7 or 3, sawtoothing between the two on successive scrapes,
     which Prometheus reads as a counter reset. Merging via
     multiprocess.MultiProcessCollector must report the true total, 10, and
     that total must be stable (idempotent) across repeated reads without new
@@ -240,7 +240,7 @@ shutdown_worker_metrics()
 
 
 def test_multiprocess_rss_gauge_shows_every_live_worker(tmp_path):
-    """fix(#651) acceptance: `geolens_worker_rss_bytes` shows every live pid
+    """`geolens_worker_rss_bytes` shows every live pid
     in one scrape, not whichever single worker answered it.
     """
     multiproc_dir = str(tmp_path)
@@ -335,7 +335,7 @@ db_pool_checkedout.set(float(sys.argv[1]))
 
 
 def test_multiprocess_pool_gauge_uses_livesum_not_per_pid(tmp_path):
-    """fix(#651): pool.py gauges declare multiprocess_mode='livesum' so a
+    """pool.py gauges declare multiprocess_mode='livesum' so a
     scrape keeps returning ONE series -- the fleet total across live workers
     -- instead of the default 'all' mode auto-labelling by pid and silently
     multiplying the metric's cardinality (which would break any existing
@@ -799,7 +799,7 @@ _consolidate_dead_cumulative_metric_files()
     assert total_after == 17.0
 
 
-# fix(#1295): shared prelude for the two subprocesses below. Every ordering
+# Shared prelude for the two subprocesses below. Every ordering
 # event goes to ONE append-only file via a single O_APPEND os.write (atomic
 # for a short line), and every event is emitted while its process is inside
 # the lock state that event names -- so the file's line order IS the lock's
@@ -870,7 +870,7 @@ def test_sweep_waits_for_inflight_scrape_before_renaming(tmp_path):
     function's os.rename() claim step must never fire while a scrape holds
     the shared (reader) lock on the same PROMETHEUS_MULTIPROC_DIR.
 
-    fix(#1295): asserts on RECORDED LOCK ORDER, never on wall-clock floats.
+    Asserts on RECORDED LOCK ORDER, never on wall-clock floats.
     The first version of this test compared time.time() captured by the
     scrape process just AFTER its LOCK_UN against time.time() captured by
     the sweep process after its whole pass. Neither reading is causally
@@ -1297,7 +1297,7 @@ def test_same_process_sweep_during_scrape_does_not_deadlock(tmp_path):
 
 
 def test_shutdown_worker_metrics_marks_process_dead_when_multiprocess_active():
-    """fix(#1240, #651): a recycled worker (UVICORN_MAX_REQUESTS, #643) must
+    """A recycled worker (UVICORN_MAX_REQUESTS, #643) must
     drop its own multiprocess files on shutdown, or a respawn leaves a stale
     series that keeps being summed into every future scrape.
     """

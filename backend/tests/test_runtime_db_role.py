@@ -105,7 +105,7 @@ def test_restore_scripts_cite_existing_runbook_headings() -> None:
 
 
 def test_init_db_is_one_entrypoint_for_container_and_managed_postgres() -> None:
-    """fix(#1992): one bootstrap script, both deployments.
+    """One bootstrap script, both deployments.
 
     Host/port args are conditional so the in-container socket path (where
     neither is set) keeps working, and pg_stat_statements is probed before
@@ -118,7 +118,7 @@ def test_init_db_is_one_entrypoint_for_container_and_managed_postgres() -> None:
         assert var in source, f"init-db.sh no longer honours {var}"
     assert 'psql "${psql_args[@]}"' in source
 
-    # fix(#1992): a host .psqlrc can `\set ON_ERROR_STOP off`, so -v
+    # A host .psqlrc can `\set ON_ERROR_STOP off`, so -v
     # ON_ERROR_STOP=1 alone does not guarantee a failed statement aborts
     # the run; -X must precede it in the same psql_args assignment.
     args_line = next(
@@ -270,7 +270,7 @@ def test_compose_passes_explicit_bundled_migration_owner_to_local_db() -> None:
 
 
 def test_role_script_disables_host_psqlrc() -> None:
-    """fix(#1992): the reconciler also runs directly from a host (not just
+    """The reconciler also runs directly from a host (not just
     mounted in-container), so it needs the same -X guard as init-db.sh."""
     source = ROLE_SCRIPT.read_text(encoding="utf-8")
 
@@ -282,7 +282,7 @@ def test_role_script_disables_host_psqlrc() -> None:
 
 
 def test_init_test_db_disables_host_psqlrc() -> None:
-    """fix(#1992): init-test-db.sh also runs directly against a host
+    """init-test-db.sh also runs directly against a host
     Postgres, so it needs the same -X guard as init-db.sh."""
     source = INIT_TEST_DB_SCRIPT.read_text(encoding="utf-8")
 
@@ -294,7 +294,7 @@ def test_init_test_db_disables_host_psqlrc() -> None:
 
 
 def test_roundtrip_every_host_psql_call_disables_host_psqlrc() -> None:
-    """fix(#1992): every psql call the round-trip script makes straight to
+    """Every psql call the round-trip script makes straight to
     the host Postgres (the psql_admin helper included) must carry -X, like
     the role-authenticated calls beside it already did."""
     source = ROUNDTRIP_SCRIPT.read_text(encoding="utf-8")

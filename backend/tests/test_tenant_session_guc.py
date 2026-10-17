@@ -225,7 +225,7 @@ async def test_guc_never_set_in_single_tenant(fresh_engine):
 async def test_guc_refuses_a_tenant_id_that_is_not_a_uuid(fresh_engine):
     """A value with a single quote must not raise, and must not reach the GUC.
 
-    fix(#1778): the hook issues ``SET LOCAL app.current_tenant = '...'``
+    The hook issues ``SET LOCAL app.current_tenant = '...'``
     rather than ``SELECT set_config(..., true)``, because the SELECT form takes
     the transaction's first snapshot and locks out SET TRANSACTION ISOLATION
     LEVEL / DEFERRABLE. ``SET`` accepts no bind parameter, so the guard moved

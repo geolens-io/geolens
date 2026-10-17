@@ -44,13 +44,13 @@ class _FakeS3Storage:
         self.range_reads: list[tuple[str, int, int]] = []
         self.whole_object_reads: list[str] = []
         self.copies: list[tuple[str, str]] = []
-        # Every expiration the doors hand to a signing call (fix(#1235)).
+        # Every expiration the doors hand to a signing call.
         self.signed_ttls: list[int] = []
 
     def generate_presigned_put_url(
         self, key: str, content_type: str, expiration: int = 3600
     ) -> str:
-        # fix(#1235): the doors pass a deadline-anchored expiration
+        # The doors pass a deadline-anchored expiration
         # now, so the fake must mirror the provider signature.
         self.signed_ttls.append(expiration)
         return f"https://s3.invalid/{key}?signed=1"
@@ -538,7 +538,7 @@ async def test_a_failed_reupload_sweeps_its_presigned_staging_object(
 async def test_a_pipeline_failure_after_validation_still_sweeps_the_staging_object(
     client, admin_auth_header, test_db_session, tmp_path, monkeypatch
 ) -> None:
-    """fix(#1213): the broad-except path, not the early return.
+    """The broad-except path, not the early return.
 
     The sibling test above fails inside the early validation block, which sets
     `final_status = "failed"` on its way out. Everything AFTER that block — CRS
@@ -615,7 +615,7 @@ async def test_a_pipeline_failure_after_validation_still_sweeps_the_staging_obje
 async def test_a_successful_reupload_deletes_the_frozen_object_too(
     client, admin_auth_header, test_db_session, tmp_path, monkeypatch
 ) -> None:
-    """fix(#1213): the frozen copy is storage too, and it lingered.
+    """The frozen copy is storage too, and it lingered.
 
     Completion binds the job to `staging/{job}/frozen/...`; the task then
     downloads THAT and ingests. The tail unlinked only the local download and
@@ -700,7 +700,7 @@ async def test_a_successful_reupload_deletes_the_frozen_object_too(
 async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
     client, admin_auth_header, test_db_session, both_reupload_doors
 ) -> None:
-    """fix(#1213): the second one-shot fact — terminal status.
+    """The second one-shot fact — terminal status.
 
     A content refusal stamps `status="failed"` with `file_path` still empty, so
     a guard that checks only `file_path` lets the client re-PUT and complete
@@ -766,7 +766,7 @@ async def test_a_failed_job_cannot_be_completed_by_a_late_reput(
 async def test_a_failed_download_still_sweeps_the_frozen_object(
     client, admin_auth_header, test_db_session, tmp_path, monkeypatch
 ) -> None:
-    """fix(#1213): the reaper keyed off the wrong signal.
+    """The reaper keyed off the wrong signal.
 
     It required `file_path != original_file_path` — the path rewrite
     `resolve_file_path` performs when it downloads. That conflates "was

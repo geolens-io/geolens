@@ -179,7 +179,7 @@ async def _service_dataset(
         service_type=source_format,
         url=base_url,
         layer_id=str(layer_id),
-        # fix(#1746): True or None, never False — the worker writes it this
+        # True or None, never False — the worker writes it this
         # way at the swap and the key is simply absent for a public origin.
         auth_required=True if auth_required else None,
     )
@@ -1107,7 +1107,7 @@ class TestRefreshRefusals:
     async def test_a_rebind_landing_at_the_reservation_never_dispatches_the_old_origin(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1277 review): the TOCTOU between the snapshot and the reservation.
+        """The TOCTOU between the snapshot and the reservation.
 
         A re-upload that was already in flight finishes mid-request: it commits
         its swap, restamps `origin_ref`, and takes its own run terminal. The
@@ -1169,7 +1169,7 @@ class TestRefreshRefusals:
     async def test_an_unchanged_binding_still_picks_up_new_ingest_settings(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1277 review): the binding check is not the whole check.
+        """The binding check is not the whole check.
 
         A re-upload of the SAME url and the SAME layer completing during
         admission leaves `origin_ref` byte-identical, so the binding re-read
@@ -1547,7 +1547,7 @@ class TestCredentialHandoff:
     async def test_a_store_that_is_down_during_stash_returns_503_not_500(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
-        """fix(#1277 review): configured-but-unreachable is not configured.
+        """A configured-but-unreachable store is not configured.
 
         `credential_store_available()` only reads the setting, so a live
         outage gets past the door check and surfaces at the stash. That has to
@@ -1766,7 +1766,7 @@ class TestRedisBackendContract:
             await backend.put("k", "v", 900)
 
     async def test_a_transport_failure_on_write_is_translated(self) -> None:
-        """fix(#1277 review): redis-py exceptions must not escape this class.
+        """redis-py exceptions must not escape this class.
 
         Untranslated, a connection error during stash propagated out of the
         endpoint as an unhandled 500 instead of the 503 the door is written to
@@ -2245,7 +2245,7 @@ class TestServiceTokenPolicy:
         is about what reaches libcurl and must not rest on a validator in
         another process — but it must enforce the SHARED definition.
 
-        fix(#1746): widened from one door to all of them. Refresh was the only
+        Widened from one door to all of them. Refresh was the only
         door consuming the policy, so import commit, re-upload commit and
         service preview each judged the same token by a weaker rule and let it
         through — the second and third of those after stashing the single-use
@@ -2302,7 +2302,7 @@ class TestServiceTokenPolicy:
         # And the entry point every door now routes through names all four
         # rules, so a method added without a rule fails here rather than
         # silently composing an unjudged header.
-        # feat(#1764): two names moved. The format predicate the gate applies
+        # Two names moved. The format predicate the gate applies
         # is `carries_credential_as_header_line`, wider than the GDAL
         # header-file one by STAC; and the bearer rule is the builder's own
         # `bearer_token_rejection_reason`, which picks the charset by format,

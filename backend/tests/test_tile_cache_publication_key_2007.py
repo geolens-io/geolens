@@ -1,4 +1,4 @@
-"""fix(#2007): a cached tile response is keyed on the publication version.
+"""A cached tile response is keyed on the publication version.
 
 #2005 retired outstanding signatures on a publication-status or visibility
 transition, which stops the application from serving a tile to the holder of an

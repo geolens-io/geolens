@@ -1,4 +1,4 @@
-"""feat(#1746): the structured ``auth`` request contract at the service doors.
+"""The structured ``auth`` request contract at the service doors.
 
 Every door that can be handed a credential for a remote service accepts a
 nested ``auth`` object saying HOW to present it, alongside the flat ``token``
@@ -225,7 +225,7 @@ class TestProbeDoor:
     async def test_a_method_with_no_transport_reaches_detection(
         self, client: AsyncClient, admin_auth_header: dict, builder
     ) -> None:
-        """fix(#1746): the refusal moved AFTER detection.
+        """The refusal moved AFTER detection.
 
         This asserted the opposite: that an ArcGIS-SHAPED URL was refused
         before the network. That was the finding. `_looks_like_arcgis` matches
@@ -332,7 +332,7 @@ class TestProbeDoor:
     async def test_a_header_auth_service_takes_every_method(
         self, client: AsyncClient, admin_auth_header: dict, builder
     ) -> None:
-        """feat(#1746 B2b): the 422 above is lifted where a header can be sent.
+        """The 422 above is lifted where a header can be sent.
 
         The whole credential reaches the adapters, which compose the header
         themselves; the door hands down no bare token for a method that has
@@ -451,7 +451,7 @@ class TestPreviewDoor:
     async def test_a_header_auth_service_takes_every_method(
         self, client: AsyncClient, admin_auth_header: dict, builder
     ) -> None:
-        """feat(#1746 B2b): ogrinfo gets the credential, and no response echoes it."""
+        """ogrinfo gets the credential, and no response echoes it."""
         auth, secrets = builder()
         resp, preview = await self._post(client, admin_auth_header, {"auth": auth})
         assert resp.status_code == 200, resp.text
@@ -521,7 +521,7 @@ class TestReuploadCommitDoor:
         # token, and not some other value, is what was staged.
         assert "token" not in kwargs
         assert secret not in str(kwargs)
-        # feat(#1746 B2b) plan D9: what is staged is the finished header line,
+        # What is staged is the finished header line,
         # for a bearer credential exactly as for the other two methods, so one
         # wire format reaches the worker and one composer produced it.
         assert (
@@ -740,7 +740,7 @@ class TestRefreshDoor:
         credential_backend,  # noqa: F811
         builder,
     ) -> None:
-        """feat(#1746 B2b): the fourth door, and the one that judges twice.
+        """The fourth door, and the one that judges twice.
 
         The credential is composed once against the dataset's own format, and
         again against the binding read back after the reservation, because an
@@ -799,7 +799,7 @@ class TestServiceLayerTakesACredentialDirectly:
         self,
         credential_backend,  # noqa: F811
     ) -> None:
-        """feat(#1746 B2b): the in-process caller reaches the same wire format.
+        """The in-process caller reaches the same wire format.
 
         `service_format` is on the credential the caller constructs, which is
         what selects the transport when there is no request to read it from.
@@ -885,7 +885,7 @@ class TestServiceLayerTakesACredentialDirectly:
         kwargs = task.await_args.kwargs
         assert "token" not in kwargs
         assert secret not in str(kwargs)
-        # feat(#1746 B2b) plan D9: what is staged is the finished header line,
+        # What is staged is the finished header line,
         # for a bearer credential exactly as for the other two methods, so one
         # wire format reaches the worker and one composer produced it.
         assert (
@@ -937,7 +937,7 @@ class TestServiceLayerTakesACredentialDirectly:
         test_db_session,
         credential_backend,  # noqa: F811
     ) -> None:
-        """fix(#1746): the winner is judged, not the loser.
+        """The winner is judged, not the loser.
 
         The signature promises `credential` wins over `token` when both are
         given, but the legacy pre-check ran first and judged `token`, so an
@@ -1097,7 +1097,7 @@ class TestPublishedFieldsKeepTheirSlots:
 
 
 class TestABlankValueIsNotACredential:
-    """fix(#1760): the failure mode is an anonymous request, not an error.
+    """The failure mode is an anonymous request, not an error.
 
     Every check downstream of the door is a truthiness test, so a field that
     passed the shape validator while holding `""` produced `""` at the gate and
@@ -1245,7 +1245,7 @@ class TestABlankValueIsNotACredential:
 
 
 class TestImportCommitDoor:
-    """feat(#1746 B2b): the door the first four left bearer-only.
+    """The import commit door must carry the credential too.
 
     Without it a basic-protected WFS layer could be probed and previewed and
     then not imported, which is the shape of failure the closed door in #1760

@@ -8,9 +8,9 @@ Pins the 3-layer defense:
 - _build_vrt subprocess env applies CPL_VSIL_CURL_ALLOWED_EXTENSIONS +
   VRT_VIRTUAL_OVERVIEWS=NO
 
-fix(#937): the env used to also carry GDAL_HTTP_FOLLOWLOCATION=NO as a
-redirect clamp. That is not a GDAL configuration option and never blocked a
-redirect; the safe-env test below now asserts it stays ABSENT so it cannot
+The env must not carry GDAL_HTTP_FOLLOWLOCATION=NO as a
+redirect clamp. That is not a GDAL configuration option and never blocks a
+redirect; the safe-env test below asserts it stays ABSENT so it cannot
 be reintroduced as a claimed defense.
 """
 
@@ -260,6 +260,6 @@ class TestGdalBuildVrtSafeEnv:
         assert captured_env is not None
         assert captured_env.get("CPL_VSIL_CURL_ALLOWED_EXTENSIONS") == "tif,tiff,vrt"
         assert captured_env.get("VRT_VIRTUAL_OVERVIEWS") == "NO"
-        # fix(#937): not a GDAL option, provides no redirect protection —
+        # Not a GDAL option, provides no redirect protection —
         # must not be reintroduced as if it did.
         assert "GDAL_HTTP_FOLLOWLOCATION" not in captured_env

@@ -217,7 +217,7 @@ class TestProbeOrchestratorNoEnrichment:
     async def test_ogcapi_probe_never_invokes_ogrinfo(self):
         """A 17-collection OGC API probe never launches ogrinfo.
 
-        fix(#1859): asserts the short-circuit itself (no subprocess) rather
+        Asserts the short-circuit itself (no subprocess) rather
         than a wall-clock ceiling. Patches asyncio.create_subprocess_exec,
         the boundary run_ogrinfo calls, not run_ogrinfo's own attribute.
         """
