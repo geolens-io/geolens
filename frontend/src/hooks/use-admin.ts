@@ -396,11 +396,13 @@ export function useCreateApiKey() {
       userId,
       name,
       scope,
+      expiresAt,
     }: {
       userId: string;
       name: string;
       scope: ApiKeyScope;
-    }) => createApiKey(userId, name, { scope }),
+      expiresAt?: string | null;
+    }) => createApiKey(userId, name, { scope, expiresAt }),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.admin.apiKeys(variables.userId) });
     },

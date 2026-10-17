@@ -386,6 +386,16 @@
     "scope": "Berechtigung",
     "scopeFull": "Voller Zugriff",
     "scopeReadOnly": "Nur Lesen",
+    "expiry": "Läuft ab",
+    "expiryOptions": {
+      "never": "Läuft nie ab",
+      "30d": "30 Tage",
+      "90d": "90 Tage",
+      "1y": "1 Jahr"
+    },
+    "expired": "Abgelaufen",
+    "expiresOn": "Läuft ab am {{date}}",
+    "expiredOn": "Abgelaufen am {{date}}",
     "creating": "Wird erstellt...",
     "createError": "Schlüssel konnte nicht erstellt werden",
     "loadingKeys": "Schlüssel werden geladen...",

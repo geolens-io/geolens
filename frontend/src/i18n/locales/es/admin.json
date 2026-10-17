@@ -386,6 +386,16 @@
     "scope": "Alcance",
     "scopeFull": "Acceso completo",
     "scopeReadOnly": "Solo lectura",
+    "expiry": "Caduca",
+    "expiryOptions": {
+      "never": "Nunca caduca",
+      "30d": "30 días",
+      "90d": "90 días",
+      "1y": "1 año"
+    },
+    "expired": "Caducada",
+    "expiresOn": "Caduca el {{date}}",
+    "expiredOn": "Caducó el {{date}}",
     "creating": "Creando...",
     "createError": "Error al crear la clave",
     "loadingKeys": "Cargando claves...",

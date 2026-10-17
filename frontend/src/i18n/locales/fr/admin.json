@@ -386,6 +386,16 @@
     "scope": "Portée",
     "scopeFull": "Accès complet",
     "scopeReadOnly": "Lecture seule",
+    "expiry": "Expiration",
+    "expiryOptions": {
+      "never": "N'expire jamais",
+      "30d": "30 jours",
+      "90d": "90 jours",
+      "1y": "1 an"
+    },
+    "expired": "Expirée",
+    "expiresOn": "Expire le {{date}}",
+    "expiredOn": "Expirée le {{date}}",
     "creating": "Création...",
     "createError": "Échec de la création de la clé",
     "loadingKeys": "Chargement des clés...",

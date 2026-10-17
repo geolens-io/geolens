@@ -405,6 +405,16 @@
     "scope": "范围",
     "scopeFull": "完全访问",
     "scopeReadOnly": "只读",
+    "expiry": "有效期",
+    "expiryOptions": {
+      "never": "永不过期",
+      "30d": "30 天",
+      "90d": "90 天",
+      "1y": "1 年"
+    },
+    "expired": "已过期",
+    "expiresOn": "{{date}} 过期",
+    "expiredOn": "已于 {{date}} 过期",
     "creating": "正在创建...",
     "createError": "创建密钥失败",
     "loadingKeys": "正在加载密钥...",

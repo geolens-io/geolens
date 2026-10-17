@@ -5,7 +5,9 @@ import { formatDate } from '@/lib/format';
 // chore(#835): consolidated into the shared formatter (was written out here
 // and in settings/MyApiKeySection.tsx).
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
-import { activeDotColor } from '@/lib/status-colors';
+import { cn } from '@/lib/utils';
+import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
+import { expiryPresetToIso, isApiKeyExpired, type ApiKeyExpiryPreset } from '@/lib/api-key-expiry';
 import type { ApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +24,7 @@ import {
 import { Loader2, Trash } from 'lucide-react';
 import { ApiKeyRevealDialog } from './ApiKeyRevealDialog';
 import { ApiKeyScopeSelect } from './ApiKeyScopeSelect';
+import { ApiKeyExpirySelect } from './ApiKeyExpirySelect';
 import { Badge } from '@/components/ui/badge';
 
 interface ApiKeySectionProps {
@@ -51,6 +54,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [keyName, setKeyName] = useState('');
   const [keyScope, setKeyScope] = useState<ApiKeyScope>('full');
+  const [keyExpiry, setKeyExpiry] = useState<ApiKeyExpiryPreset>('never');
   const [revealKey, setRevealKey] = useState<ApiKeyCreateResponse | null>(null);
   const [revokingKey, setRevokingKey] = useState<ApiKeyResponse | null>(null);
 
@@ -63,9 +67,11 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
         userId,
         name: keyName.trim(),
         scope: keyScope,
+        expiresAt: expiryPresetToIso(keyExpiry),
       });
       setKeyName('');
       setKeyScope('full');
+      setKeyExpiry('never');
       setShowCreateForm(false);
       setRevealKey(result);
     } catch {
@@ -114,6 +120,11 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
             onChange={setKeyScope}
             disabled={createApiKey.isPending}
           />
+          <ApiKeyExpirySelect
+            value={keyExpiry}
+            onChange={setKeyExpiry}
+            disabled={createApiKey.isPending}
+          />
           <Button type="submit" size="sm" disabled={createApiKey.isPending || !keyName.trim()}>
             {createApiKey.isPending && <Loader2 className="size-4 animate-spin" />}
             {createApiKey.isPending ? t('apiKeys.creating') : t('common:create')}
@@ -126,6 +137,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
               setShowCreateForm(false);
               setKeyName('');
               setKeyScope('full');
+              setKeyExpiry('never');
             }}
           >
             {t('common:cancel')}
@@ -168,7 +180,9 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
               {t('apiKeys.showingOf', { shown: keys.length, total })}
             </p>
           )}
-          {keys.map((key) => (
+          {keys.map((key) => {
+            const expired = key.is_active && isApiKeyExpired(key.expires_at);
+            return (
             <div
               key={key.id}
               className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
@@ -190,8 +204,17 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                   />
                   {/* #305: state was conveyed by dot color + non-announced title only; add a text alt for assistive tech */}
                   <span className="sr-only">
-                    {key.is_active ? t('apiKeys.active') : t('apiKeys.revoked')}
+                    {!key.is_active
+                      ? t('apiKeys.revoked')
+                      : expired
+                        ? t('apiKeys.expired')
+                        : t('apiKeys.active')}
                   </span>
+                  {expired && (
+                    <Badge className={cn('px-1.5', semanticBadgeColors.destructive)}>
+                      {t('apiKeys.expired')}
+                    </Badge>
+                  )}
                   {/* fix(#875): an admin auditing another user's keys needs to
                       see which of them can write. */}
                   {key.scope === 'read_only' && (
@@ -202,6 +225,14 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('apiKeys.created', { date: formatDate(key.created_at) })} · {t('apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}
+                  {key.expires_at && (
+                    <>
+                      {' · '}
+                      {t(expired ? 'apiKeys.expiredOn' : 'apiKeys.expiresOn', {
+                        date: formatDate(key.expires_at),
+                      })}
+                    </>
+                  )}
                 </div>
               </div>
               {key.is_active && (
@@ -215,7 +246,8 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                 </Button>
               )}
             </div>
-          ))}
+            );
+          })}
           {hasMore && (
             <Button
               variant="outline"

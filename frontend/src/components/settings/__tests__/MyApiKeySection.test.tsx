@@ -216,6 +216,7 @@ describe('#875: API key scope', () => {
     expect(defaultCreateMutation.mutateAsync).toHaveBeenCalledWith({
       name: 'CI pipeline',
       scope: 'full',
+      expiresAt: null,
     });
   });
 
@@ -239,5 +240,75 @@ describe('#875: API key scope', () => {
     render(<MyApiKeySection />);
 
     expect(screen.queryByText('admin:apiKeys.scopeReadOnly')).not.toBeInTheDocument();
+  });
+});
+
+// Radix Select needs these in jsdom.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
+describe('API key expiry', () => {
+  beforeEach(() => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+    vi.mocked(useCreateMyApiKey).mockReturnValue(
+      defaultCreateMutation as unknown as ReturnType<typeof useCreateMyApiKey>,
+    );
+    vi.mocked(useRevokeMyApiKey).mockReturnValue(
+      defaultRevokeMutation as unknown as ReturnType<typeof useRevokeMyApiKey>,
+    );
+    defaultCreateMutation.mutateAsync.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends an expires_at 90 days out when the 90 day preset is chosen', async () => {
+    const user = userEvent.setup();
+    render(<MyApiKeySection />);
+    // Fake only Date so userEvent's timers keep running.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-01-10T12:00:00Z') });
+
+    await user.click(screen.getByRole('button', { name: 'admin:apiKeys.createKey' }));
+    await user.type(screen.getByLabelText('admin:apiKeys.keyName'), 'CI pipeline');
+    await user.click(screen.getByRole('combobox', { name: 'apiKeys.expiry' }));
+    await user.click(await screen.findByRole('option', { name: 'apiKeys.expiryOptions.90d' }));
+    await user.click(screen.getByRole('button', { name: 'create' }));
+
+    expect(defaultCreateMutation.mutateAsync).toHaveBeenCalledWith({
+      name: 'CI pipeline',
+      scope: 'full',
+      expiresAt: '2026-04-10T12:00:00.000Z',
+    });
+  });
+
+  it('shows when a key expires', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ expires_at: '2999-01-01T00:00:00Z' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText(/admin:apiKeys\.expiresOn/)).toBeInTheDocument();
+    expect(screen.getByText('admin:apiKeys.active')).toBeInTheDocument();
+  });
+
+  it('marks a key past its expiry as expired instead of active', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ expires_at: '2020-01-01T00:00:00Z' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText('admin:apiKeys.expired')).toBeInTheDocument();
+    expect(screen.queryByText('admin:apiKeys.active')).not.toBeInTheDocument();
   });
 });

@@ -7,6 +7,7 @@ import { formatDate } from '@/lib/format';
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
 import { cn } from '@/lib/utils';
+import { expiryPresetToIso, isApiKeyExpired, type ApiKeyExpiryPreset } from '@/lib/api-key-expiry';
 import type { MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,7 @@ import {
 import { Loader2, Trash } from 'lucide-react';
 import { ApiKeyRevealDialog } from '@/components/admin/ApiKeyRevealDialog';
 import { ApiKeyScopeSelect } from '@/components/admin/ApiKeyScopeSelect';
+import { ApiKeyExpirySelect } from '@/components/admin/ApiKeyExpirySelect';
 
 
 export function MyApiKeySection() {
@@ -36,6 +38,7 @@ export function MyApiKeySection() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [keyName, setKeyName] = useState('');
   const [keyScope, setKeyScope] = useState<ApiKeyScope>('full');
+  const [keyExpiry, setKeyExpiry] = useState<ApiKeyExpiryPreset>('never');
   const [revealKey, setRevealKey] = useState<ApiKeyCreateResponse | null>(null);
   const [revokingKey, setRevokingKey] = useState<MyApiKeyResponse | null>(null);
 
@@ -44,9 +47,14 @@ export function MyApiKeySection() {
     if (!keyName.trim()) return;
 
     try {
-      const result = await createApiKey.mutateAsync({ name: keyName.trim(), scope: keyScope });
+      const result = await createApiKey.mutateAsync({
+        name: keyName.trim(),
+        scope: keyScope,
+        expiresAt: expiryPresetToIso(keyExpiry),
+      });
       setKeyName('');
       setKeyScope('full');
+      setKeyExpiry('never');
       setShowCreateForm(false);
       setRevealKey(result);
     } catch {
@@ -96,6 +104,11 @@ export function MyApiKeySection() {
             onChange={setKeyScope}
             disabled={createApiKey.isPending}
           />
+          <ApiKeyExpirySelect
+            value={keyExpiry}
+            onChange={setKeyExpiry}
+            disabled={createApiKey.isPending}
+          />
           <Button type="submit" size="sm" disabled={createApiKey.isPending || !keyName.trim()}>
             {createApiKey.isPending && <Loader2 className="size-4 animate-spin" />}
             {createApiKey.isPending ? t('admin:apiKeys.creating') : t('create')}
@@ -108,6 +121,7 @@ export function MyApiKeySection() {
               setShowCreateForm(false);
               setKeyName('');
               setKeyScope('full');
+              setKeyExpiry('never');
             }}
           >
             {t('cancel')}
@@ -129,7 +143,9 @@ export function MyApiKeySection() {
 
       {keys && keys.length > 0 && (
         <div className="space-y-2">
-          {keys.map((key) => (
+          {keys.map((key) => {
+            const expired = key.is_active && isApiKeyExpired(key.expires_at);
+            return (
             <div
               key={key.id}
               className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
@@ -153,10 +169,14 @@ export function MyApiKeySection() {
                   <Badge
                     className={cn(
                       'px-1.5',
-                      key.is_active ? semanticBadgeColors.success : semanticBadgeColors.destructive,
+                      key.is_active && !expired ? semanticBadgeColors.success : semanticBadgeColors.destructive,
                     )}
                   >
-                    {key.is_active ? t('admin:apiKeys.active') : t('admin:apiKeys.revoked')}
+                    {!key.is_active
+                      ? t('admin:apiKeys.revoked')
+                      : expired
+                        ? t('admin:apiKeys.expired')
+                        : t('admin:apiKeys.active')}
                   </Badge>
                   {/* fix(#875): a read-only key is a different credential in
                       practice; the list has to say which one you are holding. */}
@@ -168,6 +188,14 @@ export function MyApiKeySection() {
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('admin:apiKeys.created', { date: formatDate(key.created_at) })} · {t('admin:apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}
+                  {key.expires_at && (
+                    <>
+                      {' · '}
+                      {t(expired ? 'admin:apiKeys.expiredOn' : 'admin:apiKeys.expiresOn', {
+                        date: formatDate(key.expires_at),
+                      })}
+                    </>
+                  )}
                 </div>
               </div>
               {key.is_active && (
@@ -182,7 +210,8 @@ export function MyApiKeySection() {
                 </Button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

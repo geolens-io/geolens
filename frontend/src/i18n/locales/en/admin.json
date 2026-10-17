@@ -405,6 +405,16 @@
     "scope": "Scope",
     "scopeFull": "Full access",
     "scopeReadOnly": "Read only",
+    "expiry": "Expires",
+    "expiryOptions": {
+      "never": "Never expires",
+      "30d": "30 days",
+      "90d": "90 days",
+      "1y": "1 year"
+    },
+    "expired": "Expired",
+    "expiresOn": "Expires {{date}}",
+    "expiredOn": "Expired {{date}}",
     "creating": "Creating...",
     "createError": "Failed to create key",
     "loadingKeys": "Loading keys...",

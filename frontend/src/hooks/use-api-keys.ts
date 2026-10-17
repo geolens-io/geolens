@@ -15,8 +15,15 @@ export function useMyApiKeys() {
 export function useCreateMyApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, scope }: { name: string; scope: ApiKeyScope }) =>
-      createMyApiKey(name, { scope }),
+    mutationFn: ({
+      name,
+      scope,
+      expiresAt,
+    }: {
+      name: string;
+      scope: ApiKeyScope;
+      expiresAt?: string | null;
+    }) => createMyApiKey(name, { scope, expiresAt }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.apiKeys.mine });
     },
