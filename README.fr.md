@@ -81,10 +81,10 @@ flowchart LR
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
-    <img src=".github/assets/geolens-catalog-search.png" alt="Recherche dans le catalogue GeoLens pour « où les tempêtes touchent la côte », listant six jeux de données sur les ouragans et le littoral avec vignettes, badges d’origine et badges d’actualité, à côté des filtres de type, de mot-clé, de collection, de lieu et de date" width="100%">
+    <img src=".github/assets/geolens-catalog-search.png" alt="Recherche dans le catalogue GeoLens pour « where storms hit the coast », listant six jeux de données sur les ouragans et le littoral avec vignettes, badges d’origine et badges d’actualité, à côté des filtres de type, de mot-clé, de collection, de lieu et de date" width="100%">
   </picture>
   <br>
-  <sub>Recherche par le sens : « où les tempêtes touchent la côte » trouve des trajectoires d’ouragans, des couloirs de tempêtes et des couches d’exposition du littoral, chacune indiquant son origine.</sub>
+  <sub>Recherche par le sens : « where storms hit the coast » trouve des trajectoires d’ouragans, des couloirs de tempêtes et des couches d’exposition du littoral, chacune indiquant son origine.</sub>
 </p>
 
 - **Charger des fichiers.** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ,
@@ -106,10 +106,10 @@ flowchart LR
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-provenance-dark.png">
-    <img src=".github/assets/geolens-provenance.png" alt="L’onglet Source du jeu de données USGS Earthquakes : importé depuis le service ArcGIS de l’USGS dans une copie propre, avec les dates de dernière actualisation et de dernière vérification, le nombre d’entités et les badges Opérationnel, À jour et Aucune évolution" width="100%">
+    <img src=".github/assets/geolens-provenance.png" alt="L’onglet Source du jeu de données USGS Earthquakes : importé depuis le service ArcGIS de l’USGS dans une copie propre, avec les dates de dernière actualisation et de dernière vérification, le nombre d’entités et les badges Disponible, À jour et Aucune évolution" width="100%">
   </picture>
   <br>
-  <sub>Séismes importés depuis le service de l’USGS. GeoLens conserve sa propre copie et indique quand il a actualisé et vérifié la source pour la dernière fois, et si cette source est opérationnelle, à jour et inchangée.</sub>
+  <sub>Séismes importés depuis le service de l’USGS. GeoLens conserve sa propre copie et indique quand il a actualisé et vérifié la source pour la dernière fois, et si cette source est disponible, à jour et inchangée.</sub>
 </p>
 
 Chaque jeu de données consigne comment il est entré dans le catalogue : de quel fichier, table,
@@ -197,10 +197,10 @@ Ses exemples en lecture seule s’exécutent sur la démonstration, et la CI les
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="Le panneau Demander à l’IA sur le jeu de données Major Hurricane Tracks répondant à « Combien de ces ouragans ont touché terre ? » par 119 sur 202, un tableau de comptage à deux lignes, une note sur la façon dont la colonne d’atterrissage a été interprétée et un bouton Ouvrir dans l’éditeur" width="100%">
+    <img src=".github/assets/geolens-ask-ai.png" alt="Le panneau Demander à l’IA sur le jeu de données Major Hurricane Tracks répondant à « How many of these hurricanes made landfall? » par 119 sur 202, un tableau de comptage à deux lignes, une note sur la façon dont la colonne d’atterrissage a été interprétée et un bouton Ouvrir dans l’éditeur" width="100%">
   </picture>
   <br>
-  <sub>« Combien de ces ouragans ont touché terre ? » obtient le décompte, un tableau et l’hypothèse derrière la réponse, avec un bouton qui ouvre le résultat dans le générateur de cartes.</sub>
+  <sub>« How many of these hurricanes made landfall? » obtient le décompte, un tableau et l’hypothèse derrière la réponse, avec un bouton qui ouvre le résultat dans le générateur de cartes.</sub>
 </p>
 
 GeoLens peut répondre à des questions sur un jeu de données, modifier des cartes à partir de
