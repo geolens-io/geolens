@@ -6,6 +6,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
@@ -16,6 +17,7 @@ from app.modules.catalog.authorization import (
     check_dataset_write_access,
     lock_dataset_rows_for_write,
 )
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetRetentionResponse,
     DatasetRetentionUpdate,
@@ -82,8 +84,22 @@ async def set_dataset_retention(
 
     if not dry_run:
         await lock_dataset_rows_for_write(db, dataset)
-        dataset.retention_column = retention.column if retention else None
-        dataset.retention_days = retention.days if retention else None
+        # Both columns, from the request: the instance predates the lock, so
+        # assigning to it would write only what differs from a stale value.
+        stored = await db.execute(
+            update(Dataset)
+            .where(Dataset.id == dataset_id)
+            .values(
+                retention_column=retention.column if retention else None,
+                retention_days=retention.days if retention else None,
+            )
+            .returning(Dataset.id)
+            .execution_options(synchronize_session=False)
+        )
+        if stored.one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
         await audit_emit(
             db,
             AuditEvent(

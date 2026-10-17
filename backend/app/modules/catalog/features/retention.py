@@ -65,6 +65,10 @@ class RetentionRefused(ValueError):
     """A retention setting the dataset cannot take."""
 
 
+class _BatchStale(Exception):
+    """The dataset, its table or its setting changed before the batch's lock."""
+
+
 @dataclass(frozen=True)
 class _Window:
     table_name: str
@@ -184,7 +188,9 @@ async def _record_batch(
 
     The catalog rows are taken after the delete, the order every feature
     write uses, and the count moves by what was deleted rather than by a
-    recount of the table.
+    recount of the table. Raises ``_BatchStale``, for the caller to roll the
+    delete back, when the dataset is gone or no longer names the table and
+    setting the delete used.
     """
     await lock_catalog_rows(
         session,
@@ -194,13 +200,27 @@ async def _record_batch(
         record_id=dataset.record_id,
         lock_timeout=WORKER_LOCK_TIMEOUT,
     )
+    stored = (
+        await session.execute(
+            select(
+                Dataset.table_name, Dataset.retention_column, Dataset.retention_days
+            ).where(Dataset.id == dataset.id)
+        )
+    ).one_or_none()
+    if stored is None or tuple(stored) != (
+        window.table_name,
+        window.column,
+        window.days,
+    ):
+        raise _BatchStale
     await session.execute(
         update(Dataset)
         .where(Dataset.id == dataset.id, Dataset.feature_count.is_not(None))
         .values(feature_count=func.greatest(Dataset.feature_count - deleted, 0))
         .execution_options(synchronize_session=False)
     )
-    await record_live_data_write(session, dataset)
+    if await record_live_data_write(session, dataset) is None:
+        raise _BatchStale
     await audit_emit_required(
         session,
         AuditEvent(
@@ -247,8 +267,10 @@ async def prune_dataset(
     """Delete up to ``max_batches`` batches of the dataset's expired rows.
 
     Each batch re-reads the setting, so turning retention off stops a run
-    after the batch in flight. Rows another transaction holds are skipped
-    until a later run. Returns the number deleted.
+    after the batch in flight, and a batch whose dataset or setting changed
+    before its lock deletes nothing and ends the dataset's run. Rows another
+    transaction holds are skipped until a later run. Returns the number
+    deleted.
     """
     from app.core.db import async_session
 
@@ -256,15 +278,21 @@ async def prune_dataset(
     after = _GID_FLOOR
     try:
         for _ in range(max_batches):
-            async with async_session() as session:
-                due = await _window(session, dataset_id, now)
-                if due is None:
-                    break
-                dataset, window = due
-                gids = await _delete_batch(session, window, after, batch_rows)
-                if gids:
-                    await _record_batch(session, dataset, window, len(gids))
-                await session.commit()
+            try:
+                async with async_session() as session:
+                    due = await _window(session, dataset_id, now)
+                    if due is None:
+                        break
+                    dataset, window = due
+                    gids = await _delete_batch(session, window, after, batch_rows)
+                    if gids:
+                        await _record_batch(session, dataset, window, len(gids))
+                    await session.commit()
+            except _BatchStale:
+                logger.warning(
+                    "dataset_retention_batch_rolled_back", dataset_id=str(dataset_id)
+                )
+                break
             if gids:
                 deleted += len(gids)
                 after = max(gids)

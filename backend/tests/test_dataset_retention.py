@@ -387,6 +387,204 @@ class TestRun:
         assert await _names(test_db_session, dataset) == {"old"}
 
 
+async def _commit_elsewhere(sql: str, params: dict) -> None:
+    """Commit a write in a session of its own, as a concurrent request would."""
+    import app.core.db as db_module
+
+    async with db_module.async_session() as other:
+        await other.execute(text(sql), params)
+        await other.commit()
+
+
+async def _stored_setting(session, dataset_id: uuid.UUID) -> tuple:
+    session.expire_all()
+    row = (
+        await session.execute(
+            select(Dataset.retention_column, Dataset.retention_days).where(
+                Dataset.id == dataset_id
+            )
+        )
+    ).one()
+    return tuple(row)
+
+
+_SET_RETENTION = (
+    "UPDATE catalog.datasets SET retention_column = :column, "
+    "retention_days = :days WHERE id = :id"
+)
+
+
+class TestRace:
+    """A run or a save meeting a change another transaction committed first."""
+
+    @pytest.fixture
+    def interleave(self, monkeypatch):
+        """Run ``action`` after each batch's DELETE, before its catalog lock."""
+
+        def install(action):
+            real_delete = retention._delete_batch
+
+            async def delete_then_act(session, window, after, limit):
+                gids = await real_delete(session, window, after, limit)
+                await action()
+                return gids
+
+            monkeypatch.setattr(retention, "_delete_batch", delete_then_act)
+
+        return install
+
+    async def _old_layer(self, seed, test_db_session):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[
+                {"name": f"old{i}", "seen_at": NOW - timedelta(days=90)}
+                for i in range(3)
+            ],
+        )
+        record_id = await test_db_session.scalar(
+            select(Dataset.record_id).where(Dataset.id == dataset.id)
+        )
+        return dataset, record_id, admin_id
+
+    async def _assert_untouched(self, test_db_session, dataset, *dataset_ids):
+        assert await _names(test_db_session, dataset) == {"old0", "old1", "old2"}
+        for dataset_id in dataset_ids:
+            assert await _prune_audits(test_db_session, dataset_id) == []
+
+    async def test_a_dataset_detached_before_the_lock_loses_no_rows(
+        self, seed, test_db_session, interleave
+    ):
+        dataset, record_id, _ = await self._old_layer(seed, test_db_session)
+        # Single and bulk delete both detach through delete_dataset, which
+        # leaves a registered table in place.
+        interleave(
+            lambda: _commit_elsewhere(
+                "DELETE FROM catalog.records WHERE id = :id", {"id": record_id}
+            )
+        )
+
+        assert await retention.prune_expired_rows(now=NOW) == {}
+        await self._assert_untouched(test_db_session, dataset, dataset.id)
+
+    async def test_a_table_registered_again_keeps_its_rows(
+        self, seed, test_db_session, interleave
+    ):
+        dataset, record_id, admin_id = await self._old_layer(seed, test_db_session)
+        new_record_id, new_dataset_id = uuid.uuid4(), uuid.uuid4()
+
+        async def detach_and_register_again():
+            await _commit_elsewhere(
+                "DELETE FROM catalog.records WHERE id = :id", {"id": record_id}
+            )
+            await _commit_elsewhere(
+                "INSERT INTO catalog.records (id, title, visibility, record_status, "
+                "record_type, created_by) VALUES (:id, 'Registered again', "
+                "'private', 'published', 'vector_dataset', :owner)",
+                {"id": new_record_id, "owner": admin_id},
+            )
+            await _commit_elsewhere(
+                "INSERT INTO catalog.datasets (id, record_id, table_name, srid, "
+                "geometry_type, feature_count, source_format) VALUES (:id, :record, "
+                "CAST(:table AS varchar), 4326, 'POINT', 3, 'geojson')",
+                {
+                    "id": new_dataset_id,
+                    "record": new_record_id,
+                    "table": dataset.table_name,
+                },
+            )
+
+        interleave(detach_and_register_again)
+        try:
+            assert await retention.prune_expired_rows(now=NOW) == {}
+            await self._assert_untouched(
+                test_db_session, dataset, dataset.id, new_dataset_id
+            )
+        finally:
+            await test_db_session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": new_record_id},
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.parametrize(
+        "changed", [("seen_at", 3650), ("seen_on", 30), (None, None)]
+    )
+    async def test_a_setting_changed_before_the_lock_deletes_nothing(
+        self, seed, test_db_session, interleave, changed
+    ):
+        dataset, _, _ = await self._old_layer(seed, test_db_session)
+        column, days = changed
+        interleave(
+            lambda: _commit_elsewhere(
+                _SET_RETENTION, {"id": dataset.id, "column": column, "days": days}
+            )
+        )
+
+        assert await retention.prune_expired_rows(now=NOW) == {}
+        await self._assert_untouched(test_db_session, dataset, dataset.id)
+
+    @pytest.mark.parametrize(
+        ("start", "concurrent", "requested"),
+        [
+            (("seen_at", 30), ("seen_at", 1), ("seen_on", 30)),
+            (("seen_at", 30), ("seen_on", 30), ("seen_at", 7)),
+            (("seen_at", 30), ("seen_on", 1), ("seen_at", 30)),
+            (("seen_at", 30), (None, None), ("seen_on", 30)),
+            ((None, None), ("seen_at", 1), None),
+        ],
+        ids=["column-only", "days-only", "unchanged", "enable", "clear"],
+    )
+    async def test_a_save_stores_what_it_asked_for_over_a_concurrent_change(
+        self,
+        client: AsyncClient,
+        admin_auth_header,
+        seed,
+        test_db_session,
+        monkeypatch,
+        start,
+        concurrent,
+        requested,
+    ):
+        from app.modules.catalog.datasets.api import router_retention
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id, column=start[0], days=start[1], rows=[]
+        )
+        real_lock = router_retention.lock_dataset_rows_for_write
+
+        async def lock_after_a_concurrent_save(db, target, **kwargs):
+            await _commit_elsewhere(
+                _SET_RETENTION,
+                {"id": dataset.id, "column": concurrent[0], "days": concurrent[1]},
+            )
+            return await real_lock(db, target, **kwargs)
+
+        monkeypatch.setattr(
+            router_retention,
+            "lock_dataset_rows_for_write",
+            lock_after_a_concurrent_save,
+        )
+        body = {
+            "retention": (
+                {"column": requested[0], "days": requested[1]} if requested else None
+            )
+        }
+
+        resp = await client.put(
+            f"/datasets/{dataset.id}/retention/", json=body, headers=admin_auth_header
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["retention"] == body["retention"]
+        assert await _stored_setting(test_db_session, dataset.id) == (
+            requested or (None, None)
+        )
+
+
 class TestScheduling:
     def test_the_job_runs_hourly_on_the_ingest_queue(self):
         periodic = task_app.periodic_registry.periodic_tasks[
