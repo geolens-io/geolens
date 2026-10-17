@@ -108,8 +108,8 @@ flowchart LR
 Each dataset records where it came from: an uploaded file, a database table, a service, a STAC
 item or a drawing in the browser. Imported datasets also record when they were last refreshed, and
 with an update cadence GeoLens marks them fresh, due or overdue. For services and
-STAC sources, GeoLens also checks that the source still answers and flags upstream schema changes
-before they reach your maps. If a service disappears, the imported copy keeps working.
+STAC sources, GeoLens also checks that the source still answers, and for services it flags upstream
+schema changes before they reach your maps. If a service disappears, the imported copy keeps working.
 
 ## Build and share maps
 
