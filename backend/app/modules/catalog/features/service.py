@@ -778,6 +778,32 @@ async def _geom_column_is_measured(session: AsyncSession, table_name: str) -> bo
     return typmod_type is not None and typmod_type.strip().upper().endswith("M")
 
 
+async def has_user_insert_trigger(session: AsyncSession, table_name: str) -> bool:
+    """True when an enabled user trigger fires on INSERT into the table.
+
+    Covers the table's partitions and inheritance children too. Such a trigger
+    may reach past the transaction, which a rolled-back insert cannot undo.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    schema = tenant_data_schema(current_tenant_var.get())
+    result = await session.execute(
+        text(
+            "WITH RECURSIVE reach(oid) AS ("
+            "SELECT to_regclass(format('%I.%I', "
+            "CAST(:schema AS text), CAST(:t AS text)))::oid "
+            "UNION SELECT i.inhrelid FROM pg_inherits i "
+            "JOIN reach r ON i.inhparent = r.oid) "
+            "SELECT EXISTS (SELECT 1 FROM pg_trigger tg "
+            "JOIN reach r ON tg.tgrelid = r.oid "
+            "WHERE NOT tg.tgisinternal AND tg.tgenabled <> 'D' "
+            "AND (tg.tgtype::int & 4) <> 0)"
+        ).bindparams(schema=schema, t=table_name)
+    )
+    return bool(result.scalar_one())
+
+
 async def effective_geometry_type(session: AsyncSession, dataset) -> str:
     """Geometry type for feature-write validation and insert SQL.
 

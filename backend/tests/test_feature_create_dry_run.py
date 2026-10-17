@@ -401,6 +401,132 @@ async def test_a_dry_run_is_refused_by_a_deferred_constraint(
     assert (await _stored_state(test_db_session, dataset_id, table_name))["rows"] == 1
 
 
+_TRIGGER_REFUSAL = (
+    "A dry run is not available for this dataset: its table has an INSERT "
+    "trigger, whose effects a dry run cannot undo."
+)
+
+
+@pytest.fixture
+async def insert_trigger(test_db_session, point_layer):
+    """Build a trigger that counts rows into a side table and a sequence.
+
+    The sequence stands in for an effect a rollback cannot undo. Returns a
+    function taking the trigger's table and the extra DDL that shapes it.
+    """
+    _, table_name = point_layer
+    side, seq, fn = f"{table_name}_side", f"{table_name}_seq", f"{table_name}_fn"
+    made: list[str] = []
+
+    async def build(target: str, timing: str = "INSERT", after: str = "") -> None:
+        await test_db_session.execute(text(f"CREATE TABLE data.{side} (n int)"))
+        await test_db_session.execute(text(f"CREATE SEQUENCE data.{seq}"))
+        await test_db_session.execute(
+            text(
+                f"CREATE FUNCTION data.{fn}() RETURNS trigger LANGUAGE plpgsql AS $$ "
+                f"BEGIN INSERT INTO data.{side} VALUES (nextval('data.{seq}')); "
+                "RETURN NEW; END $$"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"CREATE TRIGGER {table_name}_trg BEFORE {timing} ON data.{target} "
+                f"FOR EACH ROW EXECUTE FUNCTION data.{fn}()"
+            )
+        )
+        if after:
+            await test_db_session.execute(text(after))
+        await test_db_session.commit()
+        made.append(target)
+
+    yield build
+    for target in made:
+        if target != table_name:
+            await test_db_session.execute(text(f"DROP TABLE data.{target}"))
+    await test_db_session.execute(
+        text(f"DROP TRIGGER IF EXISTS {table_name}_trg ON data.{table_name}")
+    )
+    await test_db_session.execute(text(f"DROP FUNCTION IF EXISTS data.{fn}()"))
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{side}"))
+    await test_db_session.execute(text(f"DROP SEQUENCE IF EXISTS data.{seq}"))
+    await test_db_session.commit()
+
+
+async def _trigger_effects(session, table_name: str) -> tuple:
+    side = await session.scalar(text(f"SELECT count(*) FROM data.{table_name}_side"))
+    advanced = await session.scalar(
+        text(f"SELECT is_called FROM data.{table_name}_seq")
+    )
+    return side, advanced
+
+
+@pytest.mark.parametrize("as_collection", [False, True], ids=["feature", "collection"])
+async def test_a_dry_run_is_refused_on_a_table_with_an_insert_trigger(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    insert_trigger,
+    as_collection,
+):
+    dataset_id, table_name = point_layer
+    await insert_trigger(table_name)
+    feature = _feature(POINT_A, name="a")
+    body = _collection(_feature(POINT_B), feature) if as_collection else feature
+
+    resp = await client.post(_dry(dataset_id), json=body, headers=admin_auth_header)
+
+    assert (resp.status_code, resp.json()["detail"]) == (409, _TRIGGER_REFUSAL)
+    assert await _trigger_effects(test_db_session, table_name) == (0, False)
+
+
+async def test_an_insert_trigger_on_an_inheritance_child_refuses_a_dry_run(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    insert_trigger,
+):
+    dataset_id, table_name = point_layer
+    child = f"{table_name}_child"
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{child} () INHERITS (data.{table_name})")
+    )
+    await insert_trigger(child)
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header
+    )
+
+    assert (resp.status_code, resp.json()["detail"]) == (409, _TRIGGER_REFUSAL)
+
+
+@pytest.mark.parametrize("kind", ["disabled", "update-only"])
+async def test_a_trigger_that_does_not_fire_on_insert_leaves_the_dry_run_alone(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    point_layer,
+    insert_trigger,
+    kind,
+):
+    dataset_id, table_name = point_layer
+    if kind == "disabled":
+        await insert_trigger(
+            table_name,
+            after=f"ALTER TABLE data.{table_name} DISABLE TRIGGER {table_name}_trg",
+        )
+    else:
+        await insert_trigger(table_name, timing="UPDATE")
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A), headers=admin_auth_header
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert await _trigger_effects(test_db_session, table_name) == (0, False)
+
+
 async def test_a_real_create_after_a_dry_run_stores_its_feature(
     client: AsyncClient, admin_auth_header: dict, test_db_session, dated_layer
 ):

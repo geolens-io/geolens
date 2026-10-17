@@ -96,6 +96,7 @@ from app.modules.catalog.features.service import (
     get_feature_by_id,
     get_features,
     get_features_geojson_z,
+    has_user_insert_trigger,
     insert_feature,
     insert_features,
     lock_catalog_rows_for_write,
@@ -1094,10 +1095,16 @@ async def dry_run_create_feature(
     every check that create runs, the database's own casts and constraints
     included, so a body it would refuse is refused here with the same status
     and body. A deferred constraint is checked here too: a create that breaks
-    one fails at commit with a 500, and this answers 400. Nothing is written. A body that passes gets 200 with the
-    feature as it would be stored, or a FeatureCollection of them in request
-    order, with no `id`, `table_id` or `tile_cache_version`. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
+    one fails at commit with a 500, and this answers 400. Nothing is written.
+    A body that passes gets 200 with the feature as it would be stored, or a
+    FeatureCollection of them in request order, with no `id`, `table_id` or
+    `tile_cache_version`.
+
+    A dataset whose table, or any of its partitions or inheritance children,
+    has an enabled user trigger that fires on INSERT is refused with 409,
+    since the trigger could have effects outside the transaction. A dry run
+    can consume sequence values, including those of a column default, so
+    stored ids can have gaps.
     """
     return await _create(db, dataset_id, body, user, None, None, True)
 
@@ -1122,6 +1129,12 @@ async def _create(
     await check_dataset_write_access(db, dataset, dataset_id, user)
     await require_dataset_editing_enabled(db, dataset_id)
     _require_feature_table(dataset)
+    if dry_run and await has_user_insert_trigger(db, dataset.table_name):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A dry run is not available for this dataset: its table "
+            "has an INSERT trigger, whose effects a dry run cannot undo.",
+        )
 
     if isinstance(body, FeatureCollectionCreate):
         if idempotency_key is not None:

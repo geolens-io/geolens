@@ -167,11 +167,16 @@ def sync_detailed(
     every check that create runs, the database's own casts and constraints
     included, so a body it would refuse is refused here with the same status
     and body. A deferred constraint is checked here too: a create that breaks
-    one fails at commit with a 500, and this answers 400. Nothing is written. A body that passes gets
-    200 with the
-    feature as it would be stored, or a FeatureCollection of them in request
-    order, with no `id`, `table_id` or `tile_cache_version`. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
+    one fails at commit with a 500, and this answers 400. Nothing is written.
+    A body that passes gets 200 with the feature as it would be stored, or a
+    FeatureCollection of them in request order, with no `id`, `table_id` or
+    `tile_cache_version`.
+
+    A dataset whose table, or any of its partitions or inheritance children,
+    has an enabled user trigger that fires on INSERT is refused with 409,
+    since the trigger could have effects outside the transaction. A dry run
+    can consume sequence values, including those of a column default, so
+    stored ids can have gaps.
 
     Args:
         dataset_id (UUID):
@@ -216,11 +221,16 @@ def sync(
     every check that create runs, the database's own casts and constraints
     included, so a body it would refuse is refused here with the same status
     and body. A deferred constraint is checked here too: a create that breaks
-    one fails at commit with a 500, and this answers 400. Nothing is written. A body that passes gets
-    200 with the
-    feature as it would be stored, or a FeatureCollection of them in request
-    order, with no `id`, `table_id` or `tile_cache_version`. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
+    one fails at commit with a 500, and this answers 400. Nothing is written.
+    A body that passes gets 200 with the feature as it would be stored, or a
+    FeatureCollection of them in request order, with no `id`, `table_id` or
+    `tile_cache_version`.
+
+    A dataset whose table, or any of its partitions or inheritance children,
+    has an enabled user trigger that fires on INSERT is refused with 409,
+    since the trigger could have effects outside the transaction. A dry run
+    can consume sequence values, including those of a column default, so
+    stored ids can have gaps.
 
     Args:
         dataset_id (UUID):
@@ -259,11 +269,16 @@ async def asyncio_detailed(
     every check that create runs, the database's own casts and constraints
     included, so a body it would refuse is refused here with the same status
     and body. A deferred constraint is checked here too: a create that breaks
-    one fails at commit with a 500, and this answers 400. Nothing is written. A body that passes gets
-    200 with the
-    feature as it would be stored, or a FeatureCollection of them in request
-    order, with no `id`, `table_id` or `tile_cache_version`. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
+    one fails at commit with a 500, and this answers 400. Nothing is written.
+    A body that passes gets 200 with the feature as it would be stored, or a
+    FeatureCollection of them in request order, with no `id`, `table_id` or
+    `tile_cache_version`.
+
+    A dataset whose table, or any of its partitions or inheritance children,
+    has an enabled user trigger that fires on INSERT is refused with 409,
+    since the trigger could have effects outside the transaction. A dry run
+    can consume sequence values, including those of a column default, so
+    stored ids can have gaps.
 
     Args:
         dataset_id (UUID):
@@ -306,11 +321,16 @@ async def asyncio(
     every check that create runs, the database's own casts and constraints
     included, so a body it would refuse is refused here with the same status
     and body. A deferred constraint is checked here too: a create that breaks
-    one fails at commit with a 500, and this answers 400. Nothing is written. A body that passes gets
-    200 with the
-    feature as it would be stored, or a FeatureCollection of them in request
-    order, with no `id`, `table_id` or `tile_cache_version`. A dry run may use
-    up feature id sequence values, so stored ids can have gaps.
+    one fails at commit with a 500, and this answers 400. Nothing is written.
+    A body that passes gets 200 with the feature as it would be stored, or a
+    FeatureCollection of them in request order, with no `id`, `table_id` or
+    `tile_cache_version`.
+
+    A dataset whose table, or any of its partitions or inheritance children,
+    has an enabled user trigger that fires on INSERT is refused with 409,
+    since the trigger could have effects outside the transaction. A dry run
+    can consume sequence values, including those of a column default, so
+    stored ids can have gaps.
 
     Args:
         dataset_id (UUID):
