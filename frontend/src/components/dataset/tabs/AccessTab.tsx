@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
 import { useDistributions } from '@/components/dataset/hooks/use-records';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCanSetPublicVisibility } from '@/hooks/use-settings';
 import { listKeywords } from '@/api/records';
 import type { DatasetResponse, DatasetVisibility } from '@/types/api';
@@ -269,6 +270,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
   // non-admins at non-public; the server enforces it with a 403, this only
   // disables the affordance.
   const canSetPublic = useCanSetPublicVisibility();
+  const canCreateKeys = usePermissions().can('edit_metadata');
   const isLegacyVisibility = !SELECTABLE_VISIBILITIES.includes(
     dataset.visibility as (typeof SELECTABLE_VISIBILITIES)[number],
   );
@@ -424,12 +426,12 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
       )}
 
       {/* Anyone who may list and revoke the keys sees them; creating one also
-          needs editing rights and a geometry column, which every feature write
-          requires. */}
+          needs the edit_metadata capability and a geometry column, which every
+          feature write requires. */}
       {canManageKeys && featureTable && (
         <DatasetWriteKeys
           datasetId={dataset.id}
-          canCreate={canEdit && dataset.geometry_type !== null}
+          canCreate={canCreateKeys && dataset.geometry_type !== null}
         />
       )}
 
