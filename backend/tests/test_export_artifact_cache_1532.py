@@ -5175,15 +5175,13 @@ async def test_a_changed_rebuild_after_the_ttl_answers_a_bare_range_whole(
     assert reverted.headers["etag"] == probe.headers["etag"]
 
 
-async def test_only_earlier_identical_bytes_let_a_rebuild_slice(
+async def test_url_held_only_these_bytes_refuses_any_other_bytes(
     test_db_session, monkeypatch
 ):
-    """``url_held_only_these_bytes`` needs a predecessor and no rival, at any age.
+    """``url_held_only_these_bytes`` needs one artifact and no rival, at any age.
 
-    A rebuild's own key is not a predecessor, and neither is a same-digest
-    artifact published after the request began (a concurrent cold build). Other
-    bytes anywhere under the URL, even in an older version segment, refuse it,
-    and so does a listing that fails.
+    An empty URL proves nothing. Other bytes anywhere under the URL, even in an
+    older version segment, refuse it, and so does a listing that fails.
     """
     from app.processing.export import artifact_cache as cache
 
@@ -5201,18 +5199,11 @@ async def test_only_earlier_identical_bytes_let_a_rebuild_slice(
         bbox=None,
         where=None,
     )
-    own = await _seed_aged_artifact(storage, dataset.id, selection, digest, payload, 0)
-    started = time.time() - 30
 
     async def _held() -> bool:
-        return await cache.url_held_only_these_bytes(
-            dataset.id, selection, digest, own_key=own, before=started
-        )
+        return await cache.url_held_only_these_bytes(dataset.id, selection, digest)
 
-    assert not await _held(), "a rebuild's own artifact is not a predecessor"
-
-    await _seed_aged_artifact(storage, dataset.id, selection, digest, payload, 10)
-    assert not await _held(), "published after the request began: not earlier"
+    assert not await _held(), "a URL with no artifact proves nothing"
 
     await _seed_aged_artifact(storage, dataset.id, selection, digest, payload, 120)
     assert await _held()
@@ -5370,3 +5361,63 @@ async def test_a_head_never_describes_an_artifact_past_the_sweep_horizon(
         "run the sweep, nothing else bounds how old that description can be"
     )
     assert revalidated.status_code == 200
+
+
+async def test_a_sibling_that_appeared_during_the_build_is_not_a_predecessor(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """Predecessors come from the listing taken before the build, not from clocks.
+
+    An object store stamps LastModified on its own clock, S3 and Azure to the
+    second, so a sibling published while this request converted can carry a
+    time earlier than the request's start. Nothing was cached when the request
+    began, so its bare Range must still be answered whole.
+    """
+    from app.processing.export import artifact_cache as cache
+    from app.processing.export import router as export_router
+
+    dataset = await _dataset(test_db_session, "Sibling During Build")
+    url = _url(dataset.id)
+    selection = cache.selection_key(
+        dataset_id=dataset.id,
+        table_name=dataset.table_name,
+        dataset_title=dataset.record.title,
+        tile_cache_version=dataset.tile_cache_version,
+        format_key="geojson",
+        target_crs=None,
+        bbox=None,
+        where=None,
+    )
+    real_conversion = export_router.export_dataset
+
+    async def _sibling_lands_mid_build(*args, **kwargs):
+        await _seed_aged_artifact(
+            get_storage(),
+            dataset.id,
+            selection,
+            hashlib.sha256(conversions.body).hexdigest(),
+            conversions.body,
+            120,
+        )
+        return await real_conversion(*args, **kwargs)
+
+    monkeypatch.setattr(export_router, "export_dataset", _sibling_lands_mid_build)
+
+    cache._ttl_seconds = lambda: 0  # the backdated sibling is no incumbent
+    try:
+        resp = await client.get(
+            url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 1
+    assert resp.status_code == 200, (
+        f"a bare Range answered {resp.status_code} on a URL that held nothing "
+        f"when the request began; the sibling only looked older"
+    )
+    assert "content-range" not in resp.headers

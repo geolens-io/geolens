@@ -167,22 +167,15 @@ async def url_answered_other_bytes_recently(
 
 
 async def url_held_only_these_bytes(
-    dataset_id: uuid.UUID,
-    selection: str,
-    digest: str,
-    *,
-    own_key: str | None,
-    before: float,
+    dataset_id: uuid.UUID, selection: str, digest: str
 ) -> bool:
-    """Was this a rebuild of bytes the URL already served, and only those?
+    """Does every artifact this URL still stores carry ``digest``, with one present?
 
-    True when every artifact of this URL still stored, at any age up to the
-    sweep horizon, carries ``digest``, and one other than ``own_key`` (any,
-    when None) was published before ``before``. A client holding offsets from
-    any of them then holds offsets into these exact bytes. Fails CLOSED on a
-    listing error.
+    At any age up to the sweep horizon, so a client holding offsets from any
+    of them holds offsets into these exact bytes. Fails CLOSED on a listing
+    error.
     """
-    earlier = False
+    found = False
     try:
         async for page in get_storage().iter_object_pages(
             _url_prefix(dataset_id, selection)
@@ -193,11 +186,10 @@ async def url_held_only_these_bytes(
                     continue
                 if parsed[2] != digest:
                     return False
-                published = _published_at(obj.last_modified.timestamp(), parsed[0])
-                earlier = earlier or (obj.key != own_key and published < before)
+                found = True
     except Exception:  # broad: unknown history proves nothing; whole is safe
         return False
-    return earlier
+    return found
 
 
 async def settled_artifact(
@@ -215,9 +207,7 @@ async def settled_artifact(
     )
     if artifact is None or artifact.contested:
         return None
-    if not await url_held_only_these_bytes(
-        dataset_id, selection, artifact.digest, own_key=None, before=float("inf")
-    ):
+    if not await url_held_only_these_bytes(dataset_id, selection, artifact.digest):
         return None
     return artifact
 
@@ -282,6 +272,7 @@ async def lookup(
     filename: str,
     media_type: str,
     any_age: bool = False,
+    seen_digests: set[str] | None = None,
 ) -> ExportArtifact | None:
     """Newest usable artifact for this selection, or None.
 
@@ -289,8 +280,9 @@ async def lookup(
     ``any_age``, so nothing the sweep would reclaim is described), not
     future-stamped, and intact (size verified via one ``size()`` call, so an
     in-place-truncated ``put`` is a miss rather than a served truncation).
-    ``contested`` reports >1 distinct digest among siblings. Every failure
-    here is a miss.
+    ``contested`` reports >1 distinct digest among siblings, which are also
+    added to ``seen_digests``, so a caller that goes on to build knows what
+    this selection held before it began. Every failure here is a miss.
     """
     now = time.time()
     cutoff = now - (_SWEEP_AGE_SECONDS if any_age else _ttl_seconds())
@@ -334,6 +326,8 @@ async def lookup(
     # A selection with two distinct artifacts serves no ranges until sweep
     # clears the older; If-Range requests are already safe.
     contested = len(siblings) > 1
+    if seen_digests is not None:
+        seen_digests.update(siblings)
 
     for built_at, size, digest, key in sorted(candidates, reverse=True):
         try:

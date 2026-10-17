@@ -443,11 +443,13 @@ async def export_dataset_endpoint(
     cached_filename, cached_media_type = export_descriptor(
         dataset.record.title, str(format)
     )
+    held_before_build: set[str] = set()
     artifact = await artifact_cache.lookup(
         dataset_id,
         selection,
         filename=cached_filename,
         media_type=cached_media_type,
+        seen_digests=held_before_build,
     )
 
     if artifact is not None:
@@ -810,20 +812,19 @@ async def export_dataset_endpoint(
     try:
         if stored is not None:
             # This request BUILT the artifact (or lost the publish race), so
-            # a bare Range is sliced only when the rebuild reproduced the
-            # bytes this URL already served and nothing else: a TTL rollover
-            # of unchanged data. Otherwise whole, the safe half of RFC 9110
-            # 14.2, except a byte-0 Range (a cold GDAL open's first request)
-            # while this URL answered no other bytes recently.
+            # a bare Range is sliced only when the selection held these bytes
+            # before the build began and the URL holds nothing else: a TTL
+            # rollover of unchanged data. Otherwise whole, the safe half of
+            # RFC 9110 14.2, except a byte-0 Range (a cold GDAL open's first
+            # request) while this URL answered no other bytes recently.
             may_serve_range = False
             leading_slice_ok = False
             if not stored.contested and _bare_satisfiable_range(request, stored.size):
-                may_serve_range = await artifact_cache.url_held_only_these_bytes(
-                    dataset_id,
-                    selection,
-                    stored.digest,
-                    own_key=stored.key,
-                    before=snapshot_at,
+                may_serve_range = (
+                    stored.digest in held_before_build
+                    and await artifact_cache.url_held_only_these_bytes(
+                        dataset_id, selection, stored.digest
+                    )
                 )
                 if not may_serve_range and _leading_bare_range(request, stored.size):
                     leading_slice_ok = (
