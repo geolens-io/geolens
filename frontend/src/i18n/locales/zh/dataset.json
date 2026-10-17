@@ -114,8 +114,7 @@
       "type": "类型未知"
     },
     "tableReadout": "PostGIS 表",
-    "catalogStatus": "目录：{{status}}",
-    "accessStatus": "访问权限：{{visibility}}",
+    "catalogStatus": "目录：{{status}} · {{visibility}}",
     "titleFieldLabel": "数据集标题"
   },
   "breadcrumbs": {

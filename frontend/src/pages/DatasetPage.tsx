@@ -79,7 +79,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { recordTypeCapabilities } from '@/lib/record-types';
-import { ingestionStatusColors, visibilityColors } from '@/lib/status-colors';
+import { visibilityColors } from '@/lib/status-colors';
 import type { DatasetResponse } from '@/types/api';
 import { downloadCog } from '@/api/datasets';
 
@@ -489,15 +489,13 @@ export function DatasetPage() {
         {origin && <OriginBadge origin={origin} />}
         <FreshnessChip state={dataset.source_freshness} />
         <HealthChip state={dataset.source_health} />
-        {/* fix(#430 V-07): "Catalog: <status>" always shown (was hidden when
-            published), paired with "Access: <visibility>" below, so the two
-            orthogonal states never read as contradictory. */}
-        <Badge variant="outline" className={cn('text-xs', ingestionStatusColors[dataset.record_status] ?? '')}>
-          {t('header.catalogStatus', { status: getRecordStatusLabel(t, dataset.record_status), defaultValue: 'Catalog: {{status}}' })}
-        </Badge>
         <Badge variant="outline" className={cn('text-xs', visibilityColors[dataset.visibility] ?? '')}>
           {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
-          {t('header.accessStatus', { visibility: getVisibilityLabel(t, dataset.visibility), defaultValue: 'Access: {{visibility}}' })}
+          {t('header.catalogStatus', {
+            status: getRecordStatusLabel(t, dataset.record_status),
+            visibility: getVisibilityLabel(t, dataset.visibility),
+            defaultValue: 'Catalog: {{status}} · {{visibility}}',
+          })}
         </Badge>
       </div>
       {showTableReadout && (

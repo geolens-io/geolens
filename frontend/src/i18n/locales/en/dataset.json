@@ -114,8 +114,7 @@
       "type": "Unknown type"
     },
     "tableReadout": "PostGIS table",
-    "catalogStatus": "Catalog: {{status}}",
-    "accessStatus": "Access: {{visibility}}",
+    "catalogStatus": "Catalog: {{status}} · {{visibility}}",
     "titleFieldLabel": "Dataset title"
   },
   "breadcrumbs": {

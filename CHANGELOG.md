@@ -9,6 +9,9 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- The dataset page header shows catalog status and visibility in one badge,
+  such as "Catalog: Published · Private", so a published dataset that only
+  some people can see no longer reads as public.
 - The documented `CSP_SCRIPT_SRC_EXTRA` value for Cloudflare Web Analytics is
   the host, `https://static.cloudflareinsights.com`. The 1.25.0 notes gave the
   file URL `https://static.cloudflareinsights.com/beacon.min.js`, but

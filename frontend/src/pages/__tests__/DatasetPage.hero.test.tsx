@@ -489,25 +489,28 @@ describe('DatasetPage header status badge', () => {
     setUser(null);
   });
 
-  // fix(#430 V-07): "Private" badge alone next to the "Unpublish" action read as a
-  // contradiction (no visible cue explaining why "Unpublish" was offered).
-  // Catalog publish-state and access visibility are orthogonal — both axes
-  // are now always labeled explicitly ("Catalog: <status>" / "Access:
-  // <visibility>") so a published-but-private dataset reads unambiguously.
-  it('shows an explicit "Catalog: Published" badge alongside "Access: Private" for a published-but-private dataset', () => {
+  // Catalog status and visibility are separate axes; one badge states both so a
+  // published but private dataset can't be read as public.
+  it('states a published private dataset is private in the catalog badge', () => {
     setup({ record_status: 'published', visibility: 'private' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    expect(screen.getByText('Catalog: Published')).toBeInTheDocument();
-    expect(screen.getByText('Access: Private')).toBeInTheDocument();
+    expect(screen.getByText('Catalog: Published · Private')).toBeInTheDocument();
+    expect(screen.queryByText('Catalog: Published')).not.toBeInTheDocument();
   });
 
-  it('shows an explicit "Catalog: Draft" badge for a draft dataset', () => {
+  it('states a published public dataset is public in the catalog badge', () => {
+    setup({ record_status: 'published', visibility: 'public' });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    expect(screen.getByText('Catalog: Published · Public')).toBeInTheDocument();
+  });
+
+  it('shows draft status with its visibility', () => {
     setup({ record_status: 'draft', visibility: 'private' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    expect(screen.getByText('Catalog: Draft')).toBeInTheDocument();
-    expect(screen.getByText('Access: Private')).toBeInTheDocument();
+    expect(screen.getByText('Catalog: Draft · Private')).toBeInTheDocument();
   });
 
   it('wires detail freshness and health fields into header chips', () => {

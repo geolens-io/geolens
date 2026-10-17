@@ -114,8 +114,7 @@
       "type": "Type inconnu"
     },
     "tableReadout": "Table PostGIS",
-    "catalogStatus": "Catalogue : {{status}}",
-    "accessStatus": "Accès : {{visibility}}",
+    "catalogStatus": "Catalogue : {{status}} · {{visibility}}",
     "titleFieldLabel": "Titre du jeu de données"
   },
   "breadcrumbs": {
