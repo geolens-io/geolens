@@ -402,7 +402,7 @@ function dedupe(entries: string[]): string[] {
  *  - MapLibre's own "MapLibre" self-credit does not reach the image. It is a
  *    control default rather than a source, so no structured list contains it,
  *    and it was DECIDED on #1541 review that it should stay out rather than be
- *    hardcoded back in: MapLibre GL JS is -Clause, which requires its
+ *    hardcoded back in: MapLibre GL JS is BSD-3-Clause, which requires its
  *    notice in source and binary distributions, not in rendered output, so no
  *    licence obligation turns on its presence in an exported PNG. Putting it
  *    back would mean reintroducing the hardcoded vendor string this module

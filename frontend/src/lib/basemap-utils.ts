@@ -506,7 +506,7 @@ export const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
   heatmap: ['heatmap-opacity'],
 };
 
-// (quick-260516-9g9 followup): write absolute master-opacity values,
+// Write absolute master-opacity values,
 // composed with prominence stamps applied earlier in the same call.
 //
 // Previous design read `existingPaint[key]` and multiplied — but when
@@ -598,7 +598,7 @@ function applyBasemapLayerConfig(
     if (config.label_mode === 'subtle') Object.assign(prominenceStamps, subtle);
   }
 
-  // Path R (quick-260516-9g9): master-opacity applied LAST so it composes on
+  // Master-opacity is applied LAST so it composes on
   // top of per-sublayer prominence stamps. applyMasterOpacity writes absolute
   // values (stamp * master, or master if no stamp) — the previous multiplicative
   // approach compounded on re-entry. config.opacity is optional on

@@ -581,8 +581,7 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
         values: { message: value.message },
       };
     }
-    // POST /services/arcgis/signin/'s own
-    // refusal taxonomy (plan 2026-09-01-service-auth-PLAN.md section 3.2).
+    // POST /services/arcgis/signin/'s own refusal taxonomy.
     // arcgis_signin_rejected deliberately collapses "wrong password" and
     // "account locked" into one message. Telling the caller which of the
     // two happened would let a GeoLens user use this form as an oracle for

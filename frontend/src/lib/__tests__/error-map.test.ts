@@ -292,8 +292,7 @@ describe('API error localization boundary', () => {
     );
   });
 
-  // Lane A2 (service-auth wave): POST /services/arcgis/signin/'s refusal
-  // taxonomy (plan 2026-09-01-service-auth-PLAN.md section 3.2).
+  // POST /services/arcgis/signin/'s refusal taxonomy.
   it('maps the ArcGIS sign-in refusal taxonomy to distinct static keys', () => {
     expect(
       classifyApiError(

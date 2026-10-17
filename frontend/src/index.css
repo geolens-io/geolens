@@ -587,9 +587,9 @@ html [data-sonner-toaster][data-sonner-theme] {
   line-height: 14px;
 }
 
-/* ── BuilderMap NavigationControl offset (-FOLLOWUP) ───
- * In `BuilderMap.tsx` the NavigationControl is anchored `top-left` (post-W8
- * in commit 391459bb) and the `MapCoordReadout` pill sits at
+/* ── BuilderMap NavigationControl offset ───
+ * In `BuilderMap.tsx` the NavigationControl is anchored `top-left` and the
+ * `MapCoordReadout` pill sits at
  * `top-2 right-14` with showScale on. At the 800px viewport boundary the
  * map column compresses to ~316px wide and the pill's ~237px width stretches
  * leftward enough to invade the zoom-control's top-left zone, producing a
