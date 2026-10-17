@@ -162,7 +162,7 @@ GeoLens 可以回答关于数据集的问题，根据自然语言请求编辑地
 
 ## 安装
 
-需要 Docker Engine 24+ 和 Docker Compose v2。全新安装会运行六个容器，占用约 1.3 GB 内存，支持 linux/amd64 或 linux/arm64。
+需要 Git、Docker Engine 24+ 和 Docker Compose v2。全新安装会运行六个容器，占用约 1.3 GB 内存，支持 linux/amd64 或 linux/arm64。
 
 ```sh
 curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
