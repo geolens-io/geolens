@@ -119,9 +119,11 @@ def sync_detailed(
     The key has scope ``dataset_write`` and acts as the caller, so the
     caller's own access to the dataset still applies to every request it
     makes. It authenticates the dataset's feature routes and OGC API
-    Features items, and is treated as an invalid key everywhere else. It must
-    expire within 365 days. Requires write access to the dataset and a
-    signed-in session; the raw key is returned only in this response.
+    Features items, and is treated as an invalid key everywhere else. Its
+    feature writes go through even when the instance has dataset editing
+    switched off. It must expire within 365 days. Requires write access to the
+    dataset and a signed-in session; the raw key is returned only in this
+    response.
 
     Args:
         dataset_id (UUID):
@@ -160,9 +162,11 @@ def sync(
     The key has scope ``dataset_write`` and acts as the caller, so the
     caller's own access to the dataset still applies to every request it
     makes. It authenticates the dataset's feature routes and OGC API
-    Features items, and is treated as an invalid key everywhere else. It must
-    expire within 365 days. Requires write access to the dataset and a
-    signed-in session; the raw key is returned only in this response.
+    Features items, and is treated as an invalid key everywhere else. Its
+    feature writes go through even when the instance has dataset editing
+    switched off. It must expire within 365 days. Requires write access to the
+    dataset and a signed-in session; the raw key is returned only in this
+    response.
 
     Args:
         dataset_id (UUID):
@@ -196,9 +200,11 @@ async def asyncio_detailed(
     The key has scope ``dataset_write`` and acts as the caller, so the
     caller's own access to the dataset still applies to every request it
     makes. It authenticates the dataset's feature routes and OGC API
-    Features items, and is treated as an invalid key everywhere else. It must
-    expire within 365 days. Requires write access to the dataset and a
-    signed-in session; the raw key is returned only in this response.
+    Features items, and is treated as an invalid key everywhere else. Its
+    feature writes go through even when the instance has dataset editing
+    switched off. It must expire within 365 days. Requires write access to the
+    dataset and a signed-in session; the raw key is returned only in this
+    response.
 
     Args:
         dataset_id (UUID):
@@ -235,9 +241,11 @@ async def asyncio(
     The key has scope ``dataset_write`` and acts as the caller, so the
     caller's own access to the dataset still applies to every request it
     makes. It authenticates the dataset's feature routes and OGC API
-    Features items, and is treated as an invalid key everywhere else. It must
-    expire within 365 days. Requires write access to the dataset and a
-    signed-in session; the raw key is returned only in this response.
+    Features items, and is treated as an invalid key everywhere else. Its
+    feature writes go through even when the instance has dataset editing
+    switched off. It must expire within 365 days. Requires write access to the
+    dataset and a signed-in session; the raw key is returned only in this
+    response.
 
     Args:
         dataset_id (UUID):

@@ -1,16 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
-import { createDatasetApiKey, listDatasetApiKeys } from '@/api/datasets';
-import { revokeMyApiKey } from '@/api/auth';
+import { createDatasetApiKey, listDatasetApiKeys, revokeDatasetApiKey } from '@/api/datasets';
+import { useAuthStore } from '@/stores/auth-store';
 import { DatasetWriteKeys } from '../DatasetWriteKeys';
-import type { ApiKeyCreateResponse, MyApiKeyResponse } from '@/types/api';
+import type { ApiKeyCreateResponse, DatasetApiKeyResponse, UserResponse } from '@/types/api';
 
 vi.mock('@/api/datasets', () => ({
   listDatasetApiKeys: vi.fn(),
   createDatasetApiKey: vi.fn(),
-}));
-
-vi.mock('@/api/auth', () => ({
-  revokeMyApiKey: vi.fn(),
+  revokeDatasetApiKey: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
@@ -19,11 +16,11 @@ vi.mock('sonner', () => ({
 
 const mockList = vi.mocked(listDatasetApiKeys);
 const mockCreate = vi.mocked(createDatasetApiKey);
-const mockRevoke = vi.mocked(revokeMyApiKey);
+const mockRevoke = vi.mocked(revokeDatasetApiKey);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function makeKey(overrides: Partial<MyApiKeyResponse> = {}): MyApiKeyResponse {
+function makeKey(overrides: Partial<DatasetApiKeyResponse> = {}): DatasetApiKeyResponse {
   return {
     id: 'key-1',
     name: 'Survey webhook',
@@ -34,6 +31,8 @@ function makeKey(overrides: Partial<MyApiKeyResponse> = {}): MyApiKeyResponse {
     dataset_id: 'ds-1',
     created_at: '2026-10-01T00:00:00Z',
     last_used_at: null,
+    user_id: 'me',
+    username: 'owner',
     ...overrides,
   };
 }
@@ -43,6 +42,7 @@ describe('DatasetWriteKeys', () => {
     mockList.mockReset();
     mockCreate.mockReset();
     mockRevoke.mockReset();
+    useAuthStore.setState({ user: { id: 'me' } as UserResponse });
   });
 
   it('lists this dataset’s keys and marks an expired one', async () => {
@@ -104,6 +104,19 @@ describe('DatasetWriteKeys', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke Survey webhook' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke' }));
-    await waitFor(() => expect(mockRevoke).toHaveBeenCalledWith('key-1'));
+    await waitFor(() => expect(mockRevoke).toHaveBeenCalledWith('ds-1', 'key-1'));
+  });
+
+  it('names the creator of a key someone else made', async () => {
+    mockList.mockResolvedValue([
+      makeKey(),
+      makeKey({ id: 'key-2', name: 'Admin import', user_id: 'admin-id', username: 'admin' }),
+    ]);
+    render(<DatasetWriteKeys datasetId="ds-1" />);
+
+    const theirs = (await screen.findByText('Admin import')).closest('li') as HTMLElement;
+    expect(within(theirs).getByText(/Created by admin/)).toBeInTheDocument();
+    const mine = screen.getByText('Survey webhook').closest('li') as HTMLElement;
+    expect(within(mine).queryByText(/Created by/)).not.toBeInTheDocument();
   });
 });

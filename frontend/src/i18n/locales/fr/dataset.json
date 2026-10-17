@@ -1237,14 +1237,13 @@
   },
   "writeKeys": {
     "title": "Clés d'écriture",
-    "description": "Une clé d'écriture peut lire et écrire les entités de ce jeu de données, et rien d'autre, pour un webhook ou un script qui le modifie. Envoyez-la dans l'en-tête X-Api-Key. Elle agit en votre nom : elle ne peut plus écrire si vous perdez vos droits de modification ici.",
+    "description": "Une clé d'écriture peut lire et écrire les entités de ce jeu de données, et rien d'autre, pour un webhook ou un script qui le modifie. Elle fonctionne même lorsque la modification des jeux de données est désactivée sur le site. Envoyez-la dans l'en-tête X-Api-Key. Elle agit au nom de la personne qui l'a créée : elle ne peut plus écrire si cette personne perd ses droits de modification ici.",
     "createKey": "Créer une clé d'écriture",
     "expiresIn": "Expire dans",
     "expiry30": "30 jours",
     "expiry90": "90 jours",
     "expiry365": "1 an",
-    "expires": "Expire le {{date}}",
-    "expired": "Expirée",
+    "createdBy": "Créée par {{name}}",
     "noKeys": "Aucune clé d'écriture pour ce jeu de données.",
     "loadError": "Impossible de charger les clés d'écriture de ce jeu de données.",
     "revokeKey": "Révoquer {{name}}"

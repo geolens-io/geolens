@@ -22,6 +22,7 @@ from app.core.identity import Identity
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.permissions import get_user_roles
 from app.platform.extensions import get_identity_extension, get_permission_extension
+from app.platform.request_credential import ApiKeyCredential, record_api_key
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(
@@ -298,6 +299,11 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     fix(#1845): that read-only justification is now enforced, not just
     documented — ``_supplied_api_key`` drops a query-string key on anything
     but a read.
+
+    A ``dataset_write`` key off its own dataset's feature routes resolves to
+    None, like an invalid key: a valid bearer token on the same request then
+    authenticates it as the token's user. A key that resolves is recorded on
+    ``db`` for the request's guards and audit events.
     """
     api_key = _supplied_api_key(request)
     if not api_key:
@@ -380,6 +386,14 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This API key is read-only",
         )
+    record_api_key(
+        db,
+        ApiKeyCredential(
+            id=api_key_obj.id,
+            scope=api_key_obj.scope,
+            dataset_id=api_key_obj.dataset_id,
+        ),
+    )
     return user
 
 

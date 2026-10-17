@@ -386,6 +386,7 @@
     "scope": "Alcance",
     "scopeFull": "Acceso completo",
     "scopeReadOnly": "Solo lectura",
+    "scopeDatasetWrite": "Un conjunto de datos",
     "expiry": "Caduca",
     "expiryOptions": {
       "never": "Nunca caduca",

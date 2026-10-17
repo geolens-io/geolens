@@ -386,6 +386,7 @@
     "scope": "Portée",
     "scopeFull": "Accès complet",
     "scopeReadOnly": "Lecture seule",
+    "scopeDatasetWrite": "Un jeu de données",
     "expiry": "Expiration",
     "expiryOptions": {
       "never": "N'expire jamais",

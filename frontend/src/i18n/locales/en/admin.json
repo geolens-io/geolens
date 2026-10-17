@@ -405,6 +405,7 @@
     "scope": "Scope",
     "scopeFull": "Full access",
     "scopeReadOnly": "Read only",
+    "scopeDatasetWrite": "One dataset",
     "expiry": "Expires",
     "expiryOptions": {
       "never": "Never expires",

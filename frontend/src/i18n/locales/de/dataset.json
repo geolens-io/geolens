@@ -1237,14 +1237,13 @@
   },
   "writeKeys": {
     "title": "Schreibschlüssel",
-    "description": "Ein Schreibschlüssel kann die Features dieses Datensatzes lesen und schreiben und sonst nichts, etwa für einen Webhook oder ein Skript, das ihn bearbeitet. Senden Sie ihn im Header X-Api-Key. Er handelt in Ihrem Namen und kann nicht mehr schreiben, wenn Sie hier Ihre Bearbeitungsrechte verlieren.",
+    "description": "Ein Schreibschlüssel kann die Features dieses Datensatzes lesen und schreiben und sonst nichts, etwa für einen Webhook oder ein Skript, das ihn bearbeitet. Er funktioniert auch, wenn die Bearbeitung von Datensätzen für die Website ausgeschaltet ist. Senden Sie ihn im Header X-Api-Key. Er handelt im Namen der Person, die ihn erstellt hat, und kann nicht mehr schreiben, wenn diese Person hier ihre Bearbeitungsrechte verliert.",
     "createKey": "Schreibschlüssel erstellen",
     "expiresIn": "Gültig für",
     "expiry30": "30 Tage",
     "expiry90": "90 Tage",
     "expiry365": "1 Jahr",
-    "expires": "Läuft am {{date}} ab",
-    "expired": "Abgelaufen",
+    "createdBy": "Erstellt von {{name}}",
     "noKeys": "Keine Schreibschlüssel für diesen Datensatz.",
     "loadError": "Die Schreibschlüssel dieses Datensatzes konnten nicht geladen werden.",
     "revokeKey": "{{name}} widerrufen"

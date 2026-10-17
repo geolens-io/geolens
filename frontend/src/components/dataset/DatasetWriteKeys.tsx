@@ -29,10 +29,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { isApiKeyExpired } from '@/lib/api-key-expiry';
 import { formatDate } from '@/lib/format';
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { semanticBadgeColors } from '@/lib/status-colors';
-import type { ApiKeyCreateResponse, MyApiKeyResponse } from '@/types/api';
+import { useAuthStore } from '@/stores/auth-store';
+import type { ApiKeyCreateResponse, DatasetApiKeyResponse } from '@/types/api';
 
 type ExpiryDays = '30' | '90' | '365';
 
@@ -49,6 +51,7 @@ function expiryFromNow(days: ExpiryDays): string {
 export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
   const { t } = useTranslation('dataset');
   const expiryLabelId = useId();
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const { data: keys, isLoading, isError } = useDatasetApiKeys(datasetId);
   const createKey = useCreateDatasetApiKey(datasetId);
   const revokeKey = useRevokeDatasetApiKey(datasetId);
@@ -57,8 +60,8 @@ export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<ExpiryDays>('90');
   const [revealKey, setRevealKey] = useState<ApiKeyCreateResponse | null>(null);
-  const [revokingKey, setRevokingKey] = useState<MyApiKeyResponse | null>(null);
-  const [now] = useState(() => Date.now());
+  const [revokingKey, setRevokingKey] = useState<DatasetApiKeyResponse | null>(null);
+  const [now] = useState(() => new Date());
 
   function resetForm() {
     setShowForm(false);
@@ -118,23 +121,26 @@ export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
               // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional: user just clicked "create" to open this form
               autoFocus
             />
-            <span id={expiryLabelId} className="text-xs text-muted-foreground">
-              {t('writeKeys.expiresIn')}
-            </span>
-            <Select
-              value={expiry}
-              onValueChange={(v) => setExpiry(v as ExpiryDays)}
-              disabled={createKey.isPending}
-            >
-              <SelectTrigger className="h-8 w-auto min-w-[110px] text-sm" aria-labelledby={expiryLabelId}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30">{t('writeKeys.expiry30')}</SelectItem>
-                <SelectItem value="90">{t('writeKeys.expiry90')}</SelectItem>
-                <SelectItem value="365">{t('writeKeys.expiry365')}</SelectItem>
-              </SelectContent>
-            </Select>
+            {/* One unit, so a narrow screen wraps the pair rather than between them. */}
+            <div className="flex items-center gap-2">
+              <span id={expiryLabelId} className="text-xs text-muted-foreground">
+                {t('writeKeys.expiresIn')}
+              </span>
+              <Select
+                value={expiry}
+                onValueChange={(v) => setExpiry(v as ExpiryDays)}
+                disabled={createKey.isPending}
+              >
+                <SelectTrigger className="h-8 w-auto min-w-[110px] text-sm" aria-labelledby={expiryLabelId}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30">{t('writeKeys.expiry30')}</SelectItem>
+                  <SelectItem value="90">{t('writeKeys.expiry90')}</SelectItem>
+                  <SelectItem value="365">{t('writeKeys.expiry365')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button type="submit" size="sm" disabled={createKey.isPending || !name.trim()}>
               {createKey.isPending && <Loader2 className="size-4 animate-spin" />}
               {createKey.isPending ? t('admin:apiKeys.creating') : t('common:create')}
@@ -156,7 +162,7 @@ export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
         {keys && keys.length > 0 && (
           <ul className="space-y-2">
             {keys.map((key) => {
-              const expired = !!key.expires_at && new Date(key.expires_at).getTime() <= now;
+              const expired = isApiKeyExpired(key.expires_at, now);
               return (
                 <li
                   key={key.id}
@@ -170,17 +176,20 @@ export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
                       )}
                       {expired ? (
                         <Badge className={`px-1.5 ${semanticBadgeColors.destructive}`}>
-                          {t('writeKeys.expired')}
+                          {t('admin:apiKeys.expired')}
                         </Badge>
                       ) : (
                         key.expires_at && (
                           <span className="text-xs text-muted-foreground">
-                            {t('writeKeys.expires', { date: formatDate(key.expires_at) })}
+                            {t('admin:apiKeys.expiresOn', { date: formatDate(key.expires_at) })}
                           </span>
                         )
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground">
+                      {key.user_id !== currentUserId && (
+                        <>{t('writeKeys.createdBy', { name: key.username })} · </>
+                      )}
                       {t('admin:apiKeys.created', { date: formatDate(key.created_at) })} · {t('admin:apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}
                     </div>
                   </div>

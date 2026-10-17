@@ -2,6 +2,7 @@
 
 import importlib.util
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -28,9 +29,9 @@ _SPEC.loader.exec_module(migration)
 
 _INSERT_KEY = text(
     "INSERT INTO catalog.api_keys "
-    "(user_id, key_hash, name, is_active, scope, dataset_id, key_epoch) "
-    "SELECT :uid, :hash, 'migration fixture', :active, :scope, :dataset, u.key_epoch "
-    "FROM catalog.users u WHERE u.id = :uid"
+    "(user_id, key_hash, name, is_active, scope, dataset_id, key_epoch, expires_at) "
+    "SELECT :uid, :hash, 'migration fixture', :active, :scope, :dataset, "
+    "u.key_epoch, :expires FROM catalog.users u WHERE u.id = :uid"
 )
 
 
@@ -93,6 +94,7 @@ def _key(admin_id, dataset_id, *, active: bool, scope="dataset_write") -> dict:
         "active": active,
         "scope": scope,
         "dataset": str(dataset_id) if scope == "dataset_write" else None,
+        "expires": None,
     }
 
 
@@ -130,17 +132,36 @@ async def test_downgrade_refuses_while_an_active_dataset_key_exists(fixture_rows
 
 async def test_downgrade_then_upgrade_round_trips(fixture_rows):
     admin_id, dataset_id, _ = fixture_rows
-    inactive = _key(admin_id, dataset_id, active=False)
+    never_expiring = _key(admin_id, dataset_id, active=False)
+    expiring_later = _key(admin_id, dataset_id, active=False) | {
+        "expires": datetime.now(timezone.utc) + timedelta(days=30)
+    }
+    expired = _key(admin_id, dataset_id, active=False) | {
+        "expires": datetime(2026, 1, 1, tzinfo=timezone.utc)
+    }
 
     def round_trip(conn):
         migration.downgrade()
         assert "dataset_id" not in _columns(conn)
         assert "chk_api_keys_dataset_scope" not in _constraints(conn)
-        scope = conn.execute(
-            text("SELECT scope FROM catalog.api_keys WHERE key_hash = :hash"),
-            {"hash": inactive["hash"]},
-        ).scalar_one()
-        assert scope == "read_only"
+        rows = {
+            row.key_hash: (row.scope, row.expired, row.expires_at)
+            for row in conn.execute(
+                text(
+                    "SELECT key_hash, scope, expires_at <= now() AS expired, "
+                    "expires_at FROM catalog.api_keys WHERE key_hash = ANY(:hashes)"
+                ),
+                {
+                    "hashes": [
+                        k["hash"] for k in (never_expiring, expiring_later, expired)
+                    ]
+                },
+            )
+        }
+        # Relabelled rows can't authenticate even if someone reactivates one.
+        for key in (never_expiring, expiring_later, expired):
+            assert rows[key["hash"]][:2] == ("read_only", True)
+        assert rows[expired["hash"]][2] == expired["expires"]
 
         migration.upgrade()
         assert "dataset_id" in _columns(conn)
@@ -149,4 +170,4 @@ async def test_downgrade_then_upgrade_round_trips(fixture_rows):
             "chk_api_keys_dataset_scope",
         }
 
-    _run(round_trip, keys=[inactive])
+    _run(round_trip, keys=[never_expiring, expiring_later, expired])

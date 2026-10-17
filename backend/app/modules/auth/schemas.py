@@ -341,6 +341,18 @@ class ApiKeyListResponse(BaseModel):
     total: int
 
 
+class DatasetApiKeyListItem(ApiKeyListItem):
+    user_id: uuid.UUID = Field(
+        description="The user who minted the key; it acts as them"
+    )
+    username: str = Field(description="That user's username")
+
+
+class DatasetApiKeyListResponse(BaseModel):
+    items: list[DatasetApiKeyListItem]
+    total: int
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=256)
     new_password: str = Field(

@@ -5182,6 +5182,128 @@
         "title": "DatasetApiKeyCreateRequest",
         "type": "object"
       },
+      "DatasetApiKeyListItem": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Non-secret key identifier; null for keys created before fingerprint support",
+            "title": "Fingerprint"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expiry timestamp; null means the key does not expire",
+            "title": "Expires At"
+          },
+          "scope": {
+            "description": "Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)",
+            "title": "Scope",
+            "type": "string"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dataset a 'dataset_write' key is bound to; null for other scopes",
+            "title": "Dataset Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "user_id": {
+            "description": "The user who minted the key; it acts as them",
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          },
+          "username": {
+            "description": "That user's username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "fingerprint",
+          "is_active",
+          "scope",
+          "created_at",
+          "last_used_at",
+          "user_id",
+          "username"
+        ],
+        "title": "DatasetApiKeyListItem",
+        "type": "object"
+      },
+      "DatasetApiKeyListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetApiKeyListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "DatasetApiKeyListResponse",
+        "type": "object"
+      },
       "DatasetChatRequest": {
         "description": "Dataset-scoped chat: no map, no client-supplied layer state.\n\nThe server resolves ALL dataset context (table name, columns, samples)\nauthoritatively from the DB \u2014 the client only names the dataset.",
         "properties": {
@@ -35433,7 +35555,7 @@
     },
     "/datasets/{dataset_id}/api-keys": {
       "get": {
-        "description": "List the caller's active keys bound to this dataset, newest first.\n\nRequires write access to the dataset. Revoke a key with\n``DELETE /auth/api-keys/{key_id}``.",
+        "description": "List the active keys bound to this dataset, newest first.\n\nRequires write access to the dataset. The dataset's owner and admins see\nevery key bound to it, anyone else only their own. Expired keys stay\nlisted until revoked.",
         "operationId": "list_dataset_api_keys_datasets__dataset_id__api_keys_get",
         "parameters": [
           {
@@ -35475,7 +35597,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiKeyListResponse"
+                  "$ref": "#/components/schemas/DatasetApiKeyListResponse"
                 }
               }
             },
@@ -35598,7 +35720,7 @@
         ]
       },
       "post": {
-        "description": "Create a key that reads and writes this dataset's features only.\n\nThe key has scope ``dataset_write`` and acts as the caller, so the\ncaller's own access to the dataset still applies to every request it\nmakes. It authenticates the dataset's feature routes and OGC API\nFeatures items, and is treated as an invalid key everywhere else. It must\nexpire within 365 days. Requires write access to the dataset and a\nsigned-in session; the raw key is returned only in this response.",
+        "description": "Create a key that reads and writes this dataset's features only.\n\nThe key has scope ``dataset_write`` and acts as the caller, so the\ncaller's own access to the dataset still applies to every request it\nmakes. It authenticates the dataset's feature routes and OGC API\nFeatures items, and is treated as an invalid key everywhere else. Its\nfeature writes go through even when the instance has dataset editing\nswitched off. It must expire within 365 days. Requires write access to the\ndataset and a signed-in session; the raw key is returned only in this\nresponse.",
         "operationId": "create_dataset_api_key_datasets__dataset_id__api_keys_post",
         "parameters": [
           {
@@ -35739,6 +35861,153 @@
           }
         ],
         "summary": "Create Dataset Api Key",
+        "tags": [
+          "Datasets"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/api-keys/{key_id}": {
+      "delete": {
+        "description": "Revoke a key bound to this dataset.\n\nThe key's creator may revoke it while they can see the dataset, even\nafter losing write access to it; anyone with write access may revoke any\nkey bound to it. Answers 404 when no active key with this id is bound to\nthe dataset.",
+        "operationId": "revoke_dataset_api_key_datasets__dataset_id__api_keys__key_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Revoke Dataset Api Key",
         "tags": [
           "Datasets"
         ]

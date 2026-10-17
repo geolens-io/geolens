@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { createDatasetApiKey, listDatasetApiKeys } from '@/api/datasets';
-import { revokeMyApiKey } from '@/api/auth';
+import { createDatasetApiKey, listDatasetApiKeys, revokeDatasetApiKey } from '@/api/datasets';
 import { queryKeys } from '@/lib/query-keys';
 import i18n from '@/i18n/i18n';
 
@@ -28,7 +27,7 @@ export function useCreateDatasetApiKey(datasetId: string) {
 export function useRevokeDatasetApiKey(datasetId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (keyId: string) => revokeMyApiKey(keyId),
+    mutationFn: (keyId: string) => revokeDatasetApiKey(datasetId, keyId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.apiKeys.dataset(datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.apiKeys.mine });

@@ -132,4 +132,10 @@ describe('ApiKeySection expiry', () => {
 
     expect(container.querySelector('span.rounded-full')).toHaveAttribute('title', 'apiKeys.expired');
   });
+
+  it('badges a key bound to one dataset', () => {
+    listing([makeKey({ scope: 'dataset_write', dataset_id: 'ds-1' })]);
+    render(<ApiKeySection userId="u1" />);
+    expect(screen.getByText('apiKeys.scopeDatasetWrite')).toBeInTheDocument();
+  });
 });

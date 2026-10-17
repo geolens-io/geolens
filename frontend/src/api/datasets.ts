@@ -34,7 +34,7 @@ import type {
   DatasetRelationship,
   DatasetRelationshipListResponse,
   ApiKeyCreateResponse,
-  MyApiKeyResponse,
+  DatasetApiKeyResponse,
 } from '@/types/api';
 
 export async function createDataset(data: CreateDatasetRequest): Promise<DatasetResponse> {
@@ -592,9 +592,9 @@ export async function commitFanOut(
   }
 }
 
-/** The caller's active write keys bound to this dataset. */
-export async function listDatasetApiKeys(datasetId: string): Promise<MyApiKeyResponse[]> {
-  const data = await apiFetch<{ items: MyApiKeyResponse[]; total: number }>(
+/** Active write keys bound to this dataset: every one for its owner or an admin. */
+export async function listDatasetApiKeys(datasetId: string): Promise<DatasetApiKeyResponse[]> {
+  const data = await apiFetch<{ items: DatasetApiKeyResponse[]; total: number }>(
     `/datasets/${encodeURIComponent(datasetId)}/api-keys?limit=200`,
   );
   return data.items;
@@ -608,4 +608,11 @@ export async function createDatasetApiKey(
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+export async function revokeDatasetApiKey(datasetId: string, keyId: string): Promise<void> {
+  await apiFetch(
+    `/datasets/${encodeURIComponent(datasetId)}/api-keys/${encodeURIComponent(keyId)}`,
+    { method: 'DELETE' },
+  );
 }

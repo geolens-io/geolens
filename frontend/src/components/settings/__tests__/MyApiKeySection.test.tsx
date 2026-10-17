@@ -232,6 +232,17 @@ describe('#875: API key scope', () => {
     expect(screen.getByText('admin:apiKeys.scopeReadOnly')).toBeInTheDocument();
   });
 
+  it('badges a dataset_write key in the list', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ scope: 'dataset_write', dataset_id: 'ds-1' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText('admin:apiKeys.scopeDatasetWrite')).toBeInTheDocument();
+  });
+
   it('does not badge a full key', () => {
     vi.mocked(useMyApiKeys).mockReturnValue({
       data: [makeKey({ scope: 'full' })],

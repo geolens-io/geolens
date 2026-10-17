@@ -8,7 +8,7 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
-from ...models.api_key_list_response import ApiKeyListResponse
+from ...models.dataset_api_key_list_response import DatasetApiKeyListResponse
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -42,9 +42,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ApiKeyListResponse | ProblemDetail | None:
+) -> DatasetApiKeyListResponse | ProblemDetail | None:
     if response.status_code == 200:
-        response_200 = ApiKeyListResponse.from_dict(response.json())
+        response_200 = DatasetApiKeyListResponse.from_dict(response.json())
 
         return response_200
 
@@ -101,7 +101,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ApiKeyListResponse | ProblemDetail]:
+) -> Response[DatasetApiKeyListResponse | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -116,13 +116,14 @@ def sync_detailed(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
-) -> Response[ApiKeyListResponse | ProblemDetail]:
+) -> Response[DatasetApiKeyListResponse | ProblemDetail]:
     """List Dataset Api Keys
 
-     List the caller's active keys bound to this dataset, newest first.
+     List the active keys bound to this dataset, newest first.
 
-    Requires write access to the dataset. Revoke a key with
-    ``DELETE /auth/api-keys/{key_id}``.
+    Requires write access to the dataset. The dataset's owner and admins see
+    every key bound to it, anyone else only their own. Expired keys stay
+    listed until revoked.
 
     Args:
         dataset_id (UUID):
@@ -134,7 +135,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiKeyListResponse | ProblemDetail]
+        Response[DatasetApiKeyListResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -156,13 +157,14 @@ def sync(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
-) -> ApiKeyListResponse | ProblemDetail | None:
+) -> DatasetApiKeyListResponse | ProblemDetail | None:
     """List Dataset Api Keys
 
-     List the caller's active keys bound to this dataset, newest first.
+     List the active keys bound to this dataset, newest first.
 
-    Requires write access to the dataset. Revoke a key with
-    ``DELETE /auth/api-keys/{key_id}``.
+    Requires write access to the dataset. The dataset's owner and admins see
+    every key bound to it, anyone else only their own. Expired keys stay
+    listed until revoked.
 
     Args:
         dataset_id (UUID):
@@ -174,7 +176,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiKeyListResponse | ProblemDetail
+        DatasetApiKeyListResponse | ProblemDetail
     """
 
     return sync_detailed(
@@ -191,13 +193,14 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
-) -> Response[ApiKeyListResponse | ProblemDetail]:
+) -> Response[DatasetApiKeyListResponse | ProblemDetail]:
     """List Dataset Api Keys
 
-     List the caller's active keys bound to this dataset, newest first.
+     List the active keys bound to this dataset, newest first.
 
-    Requires write access to the dataset. Revoke a key with
-    ``DELETE /auth/api-keys/{key_id}``.
+    Requires write access to the dataset. The dataset's owner and admins see
+    every key bound to it, anyone else only their own. Expired keys stay
+    listed until revoked.
 
     Args:
         dataset_id (UUID):
@@ -209,7 +212,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ApiKeyListResponse | ProblemDetail]
+        Response[DatasetApiKeyListResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -229,13 +232,14 @@ async def asyncio(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 50,
-) -> ApiKeyListResponse | ProblemDetail | None:
+) -> DatasetApiKeyListResponse | ProblemDetail | None:
     """List Dataset Api Keys
 
-     List the caller's active keys bound to this dataset, newest first.
+     List the active keys bound to this dataset, newest first.
 
-    Requires write access to the dataset. Revoke a key with
-    ``DELETE /auth/api-keys/{key_id}``.
+    Requires write access to the dataset. The dataset's owner and admins see
+    every key bound to it, anyone else only their own. Expired keys stay
+    listed until revoked.
 
     Args:
         dataset_id (UUID):
@@ -247,7 +251,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ApiKeyListResponse | ProblemDetail
+        DatasetApiKeyListResponse | ProblemDetail
     """
 
     return (

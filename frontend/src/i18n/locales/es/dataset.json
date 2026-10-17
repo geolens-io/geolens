@@ -1237,14 +1237,13 @@
   },
   "writeKeys": {
     "title": "Claves de escritura",
-    "description": "Una clave de escritura puede leer y escribir las entidades de este conjunto de datos y nada más, para un webhook o un script que lo edite. Envíela en la cabecera X-Api-Key. Actúa en su nombre, así que deja de escribir si pierde los permisos de edición aquí.",
+    "description": "Una clave de escritura puede leer y escribir las entidades de este conjunto de datos y nada más, para un webhook o un script que lo edite. Funciona aunque la edición de conjuntos de datos esté desactivada en el sitio. Envíela en la cabecera X-Api-Key. Actúa en nombre de quien la creó, así que deja de escribir si esa persona pierde los permisos de edición aquí.",
     "createKey": "Crear clave de escritura",
     "expiresIn": "Caduca en",
     "expiry30": "30 días",
     "expiry90": "90 días",
     "expiry365": "1 año",
-    "expires": "Caduca el {{date}}",
-    "expired": "Caducada",
+    "createdBy": "Creada por {{name}}",
     "noKeys": "Este conjunto de datos no tiene claves de escritura.",
     "loadError": "No se pudieron cargar las claves de escritura de este conjunto de datos.",
     "revokeKey": "Revocar {{name}}"

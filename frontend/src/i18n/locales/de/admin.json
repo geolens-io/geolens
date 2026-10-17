@@ -386,6 +386,7 @@
     "scope": "Berechtigung",
     "scopeFull": "Voller Zugriff",
     "scopeReadOnly": "Nur Lesen",
+    "scopeDatasetWrite": "Ein Datensatz",
     "expiry": "Läuft ab",
     "expiryOptions": {
       "never": "Läuft nie ab",

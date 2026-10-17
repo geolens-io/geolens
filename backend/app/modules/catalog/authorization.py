@@ -42,6 +42,7 @@ from app.modules.catalog.write_recheck import (
     recheck_dataset_write_access,
 )
 from app.platform.catalog_locks import lock_catalog_rows
+from app.platform.request_credential import api_key_credential
 from app.platform.extensions import (
     DefaultPermissionExtension,
     RecordAudienceQuery,
@@ -546,15 +547,27 @@ async def lock_dataset_rows_for_write(
     await recheck_dataset_write_access(db, dataset)
 
 
-async def require_dataset_editing_enabled(db: AsyncSession) -> None:
+async def require_dataset_editing_enabled(
+    db: AsyncSession, dataset_id: uuid.UUID | None = None
+) -> None:
     """Enforce the `enable_dataset_editing` admin flag. Raises 403 when off.
 
-    fix(#458): the flag gated only the UI (StructureTab), so an owner/admin
-    could still edit features and run column DDL through the API with editing
-    switched off. Enforce it on those write paths server-side. Metadata edits are
-    deliberately *not* gated — the UI keeps only structure/feature editing behind
-    this toggle, and the backend mirrors that boundary.
+    The flag gates feature edits and column DDL through the API as well as the
+    UI; metadata edits stay ungated, matching the UI.
+
+    A request authenticated by a ``dataset_write`` key bound to ``dataset_id``
+    skips the flag for that dataset's feature writes: minting the key is how an
+    editor opts a webhook in while the instance keeps editing off.
     """
+    credential = api_key_credential(db)
+    if (
+        dataset_id is not None
+        and credential is not None
+        and credential.scope == "dataset_write"
+        and credential.dataset_id == dataset_id
+    ):
+        return
+
     # Local import mirrors the other persistent_config call sites (e.g.
     # service_metadata's REQUIRE_METADATA_FOR_PUBLISH) and avoids any import cycle.
     from app.core.persistent_config import ENABLE_DATASET_EDITING

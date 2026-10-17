@@ -466,6 +466,296 @@ async def test_deleting_the_dataset_deletes_its_keys(
     assert remaining == 0
 
 
+async def _editing_off(monkeypatch) -> None:
+    import app.core.persistent_config as pc
+
+    class _AlwaysOff:
+        async def get(self, _db):
+            return False
+
+    monkeypatch.setattr(pc, "ENABLE_DATASET_EDITING", _AlwaysOff())
+
+
+async def test_a_dataset_key_writes_while_site_wide_editing_is_off(
+    client: AsyncClient, owner, datasets, monkeypatch
+):
+    headers, _ = owner
+    bound = datasets[0]
+    dataset_key = (await _mint(client, headers, bound.id))["key"]
+    full = await client.post("/auth/api-keys/", json={"name": "Full"}, headers=headers)
+    assert full.status_code == 201, full.text
+    await _editing_off(monkeypatch)
+
+    body = {"geometry": POINT, "properties": {"name": "webhook"}}
+    url = f"/datasets/{bound.id}/features/"
+    resp = await client.post(url, json=body, headers={"X-Api-Key": dataset_key})
+    assert resp.status_code == 201, resp.text
+    gid = resp.json()["id"]
+    resp = await client.patch(
+        f"/datasets/{bound.id}/features/{gid}",
+        json={"properties": {"name": "edited"}},
+        headers={"X-Api-Key": dataset_key},
+    )
+    assert resp.status_code == 200, resp.text
+
+    for caller in ({"X-Api-Key": full.json()["key"]}, headers):
+        resp = await client.post(url, json=body, headers=caller)
+        assert resp.status_code == 403, resp.text
+        assert "disabled by the administrator" in resp.json()["detail"]
+
+
+async def test_writes_through_a_key_are_attributed_to_it(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    from sqlalchemy import select
+
+    from app.modules.audit.models import AuditLog
+
+    headers, _ = owner
+    bound = datasets[0]
+    data = await _mint(client, headers, bound.id)
+    body = {"geometry": POINT, "properties": {"name": "x"}}
+    url = f"/datasets/{bound.id}/features/"
+    by_key = await client.post(url, json=body, headers={"X-Api-Key": data["key"]})
+    by_session = await client.post(url, json=body, headers=headers)
+    assert (by_key.status_code, by_session.status_code) == (201, 201)
+
+    await test_db_session.commit()
+    rows = (
+        (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "feature.insert",
+                    AuditLog.resource_id == bound.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_gid = {row.details["gid"]: row.details for row in rows}
+    assert by_gid[by_key.json()["id"]]["api_key_id"] == data["id"]
+    assert "api_key_id" not in by_gid[by_session.json()["id"]]
+
+
+def _collection(*names: str) -> dict:
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "geometry": POINT, "properties": {"name": n}}
+            for n in names
+        ],
+    }
+
+
+async def test_a_dataset_key_bulk_inserts_with_editing_off_and_is_attributed(
+    client: AsyncClient, owner, datasets, test_db_session, monkeypatch
+):
+    from sqlalchemy import select
+
+    from app.modules.audit.models import AuditLog
+
+    headers, _ = owner
+    bound = datasets[0]
+    data = await _mint(client, headers, bound.id)
+    await _editing_off(monkeypatch)
+
+    resp = await client.post(
+        f"/datasets/{bound.id}/features/",
+        json=_collection("a", "b"),
+        headers={"X-Api-Key": data["key"]},
+    )
+    assert resp.status_code == 201, resp.text
+    assert len(resp.json()["features"]) == 2
+
+    await test_db_session.commit()
+    row = (
+        await test_db_session.execute(
+            select(AuditLog).where(
+                AuditLog.action == "feature.bulk_insert",
+                AuditLog.resource_id == bound.id,
+            )
+        )
+    ).scalar_one()
+    assert row.details["api_key_id"] == data["id"]
+    assert row.details["count"] == 2
+
+    # A session caller is still held to the switch on the same path.
+    resp = await client.post(
+        f"/datasets/{bound.id}/features/", json=_collection("c"), headers=headers
+    )
+    assert resp.status_code == 403, resp.text
+
+
+async def test_a_bulk_insert_into_another_dataset_is_refused(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound, other = datasets
+    raw_key = (await _mint(client, headers, bound.id))["key"]
+    await _assert_refused_like_an_invalid_key(
+        client,
+        "POST",
+        f"/datasets/{other.id}/features/",
+        raw_key,
+        json=_collection("x"),
+    )
+
+
+async def test_the_owner_sees_and_revokes_every_key_on_the_dataset(
+    client: AsyncClient, owner, datasets, admin_auth_header
+):
+    headers, owner_id = owner
+    bound = datasets[0]
+    own = await _mint(client, headers, bound.id)
+    admins = await _mint(client, admin_auth_header, bound.id)
+
+    listed = (
+        await client.get(f"/datasets/{bound.id}/api-keys", headers=headers)
+    ).json()
+    creators = {item["id"]: item for item in listed["items"]}
+    assert set(creators) == {own["id"], admins["id"]}
+    assert creators[own["id"]]["user_id"] == str(owner_id)
+    assert creators[admins["id"]]["username"] == settings.geolens_admin_username
+
+    resp = await client.delete(
+        f"/datasets/{bound.id}/api-keys/{admins['id']}", headers=headers
+    )
+    assert resp.status_code == 204, resp.text
+    await _assert_refused_like_an_invalid_key(
+        client, "GET", f"/collections/{bound.id}/items", admins["key"]
+    )
+    resp = await client.delete(
+        f"/datasets/{bound.id}/api-keys/{admins['id']}", headers=headers
+    )
+    assert resp.status_code == 404, resp.text
+
+
+async def test_who_may_revoke_through_the_dataset(
+    client: AsyncClient, owner, datasets, admin_auth_header, test_db_session
+):
+    headers, _ = owner
+    bound, other = datasets
+    data = await _mint(client, headers, bound.id)
+    peer_headers, _ = await create_user(client, admin_auth_header, "editor")
+    admin_id = await get_user_id(test_db_session, "admin")
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.records SET created_by = :admin, visibility = 'public' "
+            "WHERE id = :id"
+        ),
+        {"admin": admin_id, "id": bound.record_id},
+    )
+    await test_db_session.commit()
+
+    # Someone who neither made the key nor may write the dataset cannot.
+    url = f"/datasets/{bound.id}/api-keys/{data['id']}"
+    resp = await client.delete(url, headers=peer_headers)
+    assert resp.status_code == 403, resp.text
+    # A key is revoked only through the dataset it is bound to.
+    resp = await client.delete(
+        f"/datasets/{other.id}/api-keys/{data['id']}", headers=headers
+    )
+    assert resp.status_code == 404, resp.text
+    # Its creator still can after losing write access to the dataset.
+    resp = await client.delete(url, headers=headers)
+    assert resp.status_code == 204, resp.text
+
+
+async def test_a_refused_dataset_key_falls_back_to_a_bearer_like_an_invalid_key(
+    client: AsyncClient, owner, datasets, admin_auth_header
+):
+    headers, _ = owner
+    raw_key = (await _mint(client, headers, datasets[0].id))["key"]
+    admin = (await client.get("/auth/me/", headers=admin_auth_header)).json()["id"]
+    for key in (raw_key, "not-a-real-key"):
+        resp = await client.get(
+            "/auth/me/", headers={**admin_auth_header, "X-Api-Key": key}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["id"] == admin
+
+
+async def test_the_query_lane_reads_but_never_writes(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id))["key"]
+    resp = await client.get(f"/collections/{bound.id}/items?api_key={raw_key}")
+    assert resp.status_code == 200, resp.text
+    resp = await client.post(
+        f"/datasets/{bound.id}/features/?api_key={raw_key}",
+        json={"geometry": POINT, "properties": {}},
+    )
+    assert resp.status_code == 401, resp.text
+
+
+async def test_other_feature_routes_of_another_dataset_are_refused(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound, other = datasets
+    raw_key = (await _mint(client, headers, bound.id))["key"]
+    write = {"json": {"geometry": POINT, "properties": {}}}
+    for method, url, kwargs in (
+        ("GET", f"/datasets/{other.id}/features.geojson", {}),
+        ("PUT", f"/datasets/{other.id}/features/1", write),
+        ("PATCH", f"/datasets/{other.id}/features/1", {"json": {"properties": {}}}),
+    ):
+        await _assert_refused_like_an_invalid_key(
+            client, method, url, raw_key, **kwargs
+        )
+
+
+@pytest.mark.parametrize(
+    "status_sql",
+    [
+        pytest.param("status = 'suspended', is_active = false", id="suspended"),
+        pytest.param("status = 'deactivated', is_active = false", id="deactivated"),
+    ],
+)
+async def test_the_key_stops_when_its_user_is_not_active(
+    client: AsyncClient, owner, datasets, test_db_session, status_sql
+):
+    headers, owner_id = owner
+    bound = datasets[0]
+    raw_key = (await _mint(client, headers, bound.id))["key"]
+    await test_db_session.execute(
+        text(f"UPDATE catalog.users SET {status_sql} WHERE id = :id"),
+        {"id": owner_id},
+    )
+    await test_db_session.commit()
+    await _assert_refused_like_an_invalid_key(
+        client, "GET", f"/collections/{bound.id}/items", raw_key
+    )
+
+
+async def test_minting_is_rate_limited(client: AsyncClient, owner, datasets):
+    from app.platform.ratelimit import limiter
+
+    headers, _ = owner
+    bound = datasets[0]
+    body = {"name": "Burst", "expires_at": _in_days(30)}
+    original = limiter.enabled
+    limiter.enabled = True
+    limiter._storage.reset()
+    try:
+        codes = [
+            (
+                await client.post(
+                    f"/datasets/{bound.id}/api-keys", json=body, headers=headers
+                )
+            ).status_code
+            for _ in range(31)
+        ]
+    finally:
+        limiter.enabled = original
+        limiter._storage.reset()
+    assert codes[:30] == [201] * 30
+    assert codes[30] == 429
+
+
 def _mounted_route_pairs() -> set[tuple[str, str]]:
     from fastapi.routing import APIRoute, iter_route_contexts
 

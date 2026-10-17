@@ -36,17 +36,25 @@ and releases use semantic versioning.
   column type.
 - Dataset write keys: an API key bound to one dataset that can read and write
   that dataset's features and nothing else, so a webhook that edits a dataset
-  no longer needs a key with its owner's full access. Its editors mint, list
-  and revoke them on the dataset's Access tab, or through
-  `POST /datasets/{dataset_id}/api-keys` and
-  `GET /datasets/{dataset_id}/api-keys`; revoke with
-  `DELETE /auth/api-keys/{key_id}`. A dataset write key must expire within
-  365 days and acts as the user who minted it, so it stops writing when that
-  user loses edit rights on the dataset. Off that dataset's feature routes it
-  is answered exactly as an invalid key. API key listings, including
-  `/auth/api-keys/` and `/admin/api-keys/`, gain `dataset_id`, and `scope`
-  can now read `dataset_write`. Migration 0084 adds `api_keys.dataset_id`;
-  its downgrade refuses while an active dataset write key exists.
+  no longer needs a key with its owner's full access. The key's feature writes
+  go through even when the "Enable Dataset Editing" setting is off for the
+  site; editing in the UI, full-access keys and signed-in callers still follow
+  that setting. Editors mint, list and revoke these keys on the dataset's
+  Access tab, or through `POST /datasets/{dataset_id}/api-keys`,
+  `GET /datasets/{dataset_id}/api-keys` and
+  `DELETE /datasets/{dataset_id}/api-keys/{key_id}`. The dataset's owner and
+  admins see and can revoke every key bound to it; a key's creator can always
+  revoke their own. A dataset write key must expire within 365 days and acts
+  as the user who minted it, so it stops writing when that user loses edit
+  rights on the dataset. Off that dataset's feature routes it is answered
+  exactly as an invalid key. It can send a FeatureCollection to the create
+  route like any other caller. Feature insert, bulk insert, update, replace
+  and delete audit events made with any API key now record `api_key_id`. API
+  key listings, including `/auth/api-keys/` and `/admin/api-keys/`, gain
+  `dataset_id`, `scope` can now read `dataset_write`, and the key lists in
+  Settings and on the admin user page mark these keys "One dataset". Migration 0084 adds
+  `api_keys.dataset_id`; its downgrade refuses while an active dataset write
+  key exists.
 
 ### Fixed
 

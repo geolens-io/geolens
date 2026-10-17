@@ -1,10 +1,10 @@
-"""Mint and list API keys bound to one dataset."""
+"""Mint, list and revoke API keys bound to one dataset."""
 
 from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,13 +19,17 @@ from app.modules.auth.dependencies import (
 from app.modules.auth.models import ApiKey
 from app.modules.auth.schemas import (
     ApiKeyCreateResponse,
-    ApiKeyListItem,
-    ApiKeyListResponse,
     DatasetApiKeyCreateRequest,
+    DatasetApiKeyListItem,
+    DatasetApiKeyListResponse,
 )
 from app.modules.auth.service import create_api_key_for_user
-from app.modules.catalog.authorization import check_dataset_write_access
+from app.modules.catalog.authorization import (
+    check_dataset_access,
+    check_dataset_write_access,
+)
 from app.modules.catalog.datasets.domain.service import get_dataset
+from app.platform.ratelimit import limiter
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
@@ -33,13 +37,12 @@ router = APIRouter(
 )
 
 
-async def _writable_dataset(db: AsyncSession, dataset_id: uuid.UUID, user: Identity):
+async def _found_dataset(db: AsyncSession, dataset_id: uuid.UUID):
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_write_access(db, dataset, dataset_id, user)
     return dataset
 
 
@@ -48,6 +51,7 @@ async def _writable_dataset(db: AsyncSession, dataset_id: uuid.UUID, user: Ident
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("30/minute")
 async def create_dataset_api_key(
     dataset_id: uuid.UUID,
     body: DatasetApiKeyCreateRequest,
@@ -60,11 +64,14 @@ async def create_dataset_api_key(
     The key has scope ``dataset_write`` and acts as the caller, so the
     caller's own access to the dataset still applies to every request it
     makes. It authenticates the dataset's feature routes and OGC API
-    Features items, and is treated as an invalid key everywhere else. It must
-    expire within 365 days. Requires write access to the dataset and a
-    signed-in session; the raw key is returned only in this response.
+    Features items, and is treated as an invalid key everywhere else. Its
+    feature writes go through even when the instance has dataset editing
+    switched off. It must expire within 365 days. Requires write access to the
+    dataset and a signed-in session; the raw key is returned only in this
+    response.
     """
-    dataset = await _writable_dataset(db, dataset_id, user)
+    dataset = await _found_dataset(db, dataset_id)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
     if not capabilities(dataset.record.record_type).feature_table:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -110,25 +117,28 @@ async def create_dataset_api_key(
     )
 
 
-@router.get("/{dataset_id}/api-keys", response_model=ApiKeyListResponse)
+@router.get("/{dataset_id}/api-keys", response_model=DatasetApiKeyListResponse)
 async def list_dataset_api_keys(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> ApiKeyListResponse:
-    """List the caller's active keys bound to this dataset, newest first.
+) -> DatasetApiKeyListResponse:
+    """List the active keys bound to this dataset, newest first.
 
-    Requires write access to the dataset. Revoke a key with
-    ``DELETE /auth/api-keys/{key_id}``.
+    Requires write access to the dataset. The dataset's owner and admins see
+    every key bound to it, anyone else only their own. Expired keys stay
+    listed until revoked.
     """
-    await _writable_dataset(db, dataset_id, user)
+    dataset = await _found_dataset(db, dataset_id)
+    roles = await check_dataset_write_access(db, dataset, dataset_id, user)
     base_stmt = select(ApiKey).where(
-        ApiKey.user_id == user.id,
         ApiKey.dataset_id == dataset_id,
         ApiKey.is_active == True,  # noqa: E712
     )
+    if dataset.record.created_by != user.id and "admin" not in roles:
+        base_stmt = base_stmt.where(ApiKey.user_id == user.id)
     total = (
         await db.execute(select(func.count()).select_from(base_stmt.subquery()))
     ).scalar_one()
@@ -143,9 +153,9 @@ async def list_dataset_api_keys(
         .scalars()
         .all()
     )
-    return ApiKeyListResponse(
+    return DatasetApiKeyListResponse(
         items=[
-            ApiKeyListItem(
+            DatasetApiKeyListItem(
                 id=k.id,
                 name=k.name,
                 fingerprint=k.fingerprint,
@@ -155,8 +165,68 @@ async def list_dataset_api_keys(
                 dataset_id=k.dataset_id,
                 created_at=k.created_at,
                 last_used_at=k.last_used_at,
+                user_id=k.user_id,
+                username=k.user.username,
             )
             for k in keys
         ],
         total=total,
     )
+
+
+@router.delete(
+    "/{dataset_id}/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def revoke_dataset_api_key(
+    dataset_id: uuid.UUID,
+    key_id: uuid.UUID,
+    request: Request,
+    user: Identity = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Revoke a key bound to this dataset.
+
+    The key's creator may revoke it while they can see the dataset, even
+    after losing write access to it; anyone with write access may revoke any
+    key bound to it. Answers 404 when no active key with this id is bound to
+    the dataset.
+    """
+    dataset = await _found_dataset(db, dataset_id)
+    api_key = (
+        await db.execute(
+            select(ApiKey).where(
+                ApiKey.id == key_id,
+                ApiKey.dataset_id == dataset_id,
+                ApiKey.is_active == True,  # noqa: E712
+            )
+        )
+    ).scalar_one_or_none()
+    if api_key is not None and api_key.user_id == user.id:
+        await check_dataset_access(db, dataset, dataset_id, user)
+    else:
+        await check_dataset_write_access(db, dataset, dataset_id, user)
+    if api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
+        )
+    api_key.is_active = False
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="api_key.revoke",
+            resource_type="api_key",
+            resource_id=api_key.id,
+            details={
+                "name": api_key.name,
+                "fingerprint": api_key.fingerprint,
+                "dataset_id": str(dataset_id),
+                "key_user_id": str(api_key.user_id),
+            },
+            ip_address=get_client_ip(request),
+        ),
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

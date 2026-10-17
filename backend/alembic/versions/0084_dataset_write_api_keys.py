@@ -88,12 +88,16 @@ def downgrade() -> None:
             "WHERE scope = 'dataset_write';"
         )
     # An inactive key cannot authenticate, so the narrowest older scope keeps
-    # the row for the audit trail without granting anything.
+    # the row for the audit trail without granting anything. Its expiry is
+    # pulled to now as well, so reactivating the row by hand can't revive it
+    # with read access.
     op.drop_constraint(
         "chk_api_keys_dataset_scope", "api_keys", schema="catalog", type_="check"
     )
     op.execute(
-        "UPDATE catalog.api_keys SET scope = 'read_only' WHERE scope = 'dataset_write'"
+        "UPDATE catalog.api_keys SET scope = 'read_only', "
+        "expires_at = LEAST(COALESCE(expires_at, now()), now()) "
+        "WHERE scope = 'dataset_write'"
     )
     op.drop_constraint(
         "chk_api_keys_scope", "api_keys", schema="catalog", type_="check"

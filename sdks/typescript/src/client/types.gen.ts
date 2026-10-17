@@ -3127,6 +3127,82 @@ export type DatasetApiKeyCreateRequest = {
 };
 
 /**
+ * DatasetApiKeyListItem
+ */
+export type DatasetApiKeyListItem = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Fingerprint
+     *
+     * Non-secret key identifier; null for keys created before fingerprint support
+     */
+    fingerprint: string | null;
+    /**
+     * Is Active
+     */
+    is_active: boolean;
+    /**
+     * Expires At
+     *
+     * Expiry timestamp; null means the key does not expire
+     */
+    expires_at?: string | null;
+    /**
+     * Scope
+     *
+     * Privilege scope: 'full', 'read_only', or 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else)
+     */
+    scope: string;
+    /**
+     * Dataset Id
+     *
+     * The dataset a 'dataset_write' key is bound to; null for other scopes
+     */
+    dataset_id?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Used At
+     */
+    last_used_at: string | null;
+    /**
+     * User Id
+     *
+     * The user who minted the key; it acts as them
+     */
+    user_id: string;
+    /**
+     * Username
+     *
+     * That user's username
+     */
+    username: string;
+};
+
+/**
+ * DatasetApiKeyListResponse
+ */
+export type DatasetApiKeyListResponse = {
+    /**
+     * Items
+     */
+    items: Array<DatasetApiKeyListItem>;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
  * DatasetChatRequest
  *
  * Dataset-scoped chat: no map, no client-supplied layer state.
@@ -18385,7 +18461,7 @@ export type ListDatasetApiKeysDatasetsDatasetIdApiKeysGetResponses = {
     /**
      * Successful Response
      */
-    200: ApiKeyListResponse;
+    200: DatasetApiKeyListResponse;
 };
 
 export type ListDatasetApiKeysDatasetsDatasetIdApiKeysGetResponse = ListDatasetApiKeysDatasetsDatasetIdApiKeysGetResponses[keyof ListDatasetApiKeysDatasetsDatasetIdApiKeysGetResponses];
@@ -18451,6 +18527,72 @@ export type CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses = {
 };
 
 export type CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponse = CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses[keyof CreateDatasetApiKeyDatasetsDatasetIdApiKeysPostResponses];
+
+export type RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+        /**
+         * Key Id
+         */
+        key_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/api-keys/{key_id}';
+};
+
+export type RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteError = RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteErrors[keyof RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteErrors];
+
+export type RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteResponse = RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteResponses[keyof RevokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDeleteResponses];
 
 export type ListAttributesEndpointDatasetsDatasetIdAttributesGetData = {
     body?: never;

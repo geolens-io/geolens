@@ -1237,14 +1237,13 @@
   },
   "writeKeys": {
     "title": "Write keys",
-    "description": "A write key can read and write this dataset's features and nothing else, for a webhook or script that edits it. Send it in the X-Api-Key header. It acts as you, so it stops writing if you lose edit rights here.",
+    "description": "A write key can read and write this dataset's features and nothing else, for a webhook or script that edits it. It works even when dataset editing is switched off for the site. Send it in the X-Api-Key header. It acts as the person who created it, so it stops writing if they lose edit rights here.",
     "createKey": "Create write key",
     "expiresIn": "Expires in",
     "expiry30": "30 days",
     "expiry90": "90 days",
     "expiry365": "1 year",
-    "expires": "Expires {{date}}",
-    "expired": "Expired",
+    "createdBy": "Created by {{name}}",
     "noKeys": "No write keys for this dataset.",
     "loadError": "Couldn't load this dataset's write keys.",
     "revokeKey": "Revoke {{name}}"

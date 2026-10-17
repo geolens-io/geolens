@@ -183,6 +183,11 @@ export function MyApiKeySection() {
                       {t('admin:apiKeys.scopeReadOnly')}
                     </Badge>
                   )}
+                  {key.scope === 'dataset_write' && (
+                    <Badge variant="secondary" className="px-1.5">
+                      {t('admin:apiKeys.scopeDatasetWrite')}
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {t('admin:apiKeys.created', { date: formatDate(key.created_at) })} · {t('admin:apiKeys.lastUsed')} {formatLastUsedRelativeTime(key.last_used_at, t)}

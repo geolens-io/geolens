@@ -405,6 +405,7 @@
     "scope": "范围",
     "scopeFull": "完全访问",
     "scopeReadOnly": "只读",
+    "scopeDatasetWrite": "单个数据集",
     "expiry": "有效期",
     "expiryOptions": {
       "never": "永不过期",

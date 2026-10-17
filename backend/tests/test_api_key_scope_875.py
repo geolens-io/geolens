@@ -579,6 +579,7 @@ _BENIGN_WRITING_GET_ROUTES: dict[str, str] = {
     "/layers/{dataset_id}/columns/{column_name}/references": (
         "owner-gated read, no write"
     ),
+    "/datasets/{dataset_id}/api-keys": "owner-gated read, no write",
     # Reads that commit an AUDIT row for having been read. The commit records
     # the read; it does not change the resource, and refusing them would refuse
     # the reads this feature exists to serve.
