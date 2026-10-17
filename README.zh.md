@@ -27,14 +27,14 @@
 </div>
 
 <p align="center">
-  <a href="https://demo.getgeolens.com/maps/146eddc1-30af-4c8e-aa6f-a6569e663823">
+  <a href="https://demo.getgeolens.com/maps">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-manhattan-3d-hero-dark.jpg">
       <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens 地图构建器：曼哈顿的建筑按实测屋顶高度挤出，并按建造年代着色，旁边是地铁网络、图层列表和图例" width="100%">
     </picture>
   </a>
   <br>
-  <sub>曼哈顿的建筑按实测屋顶高度挤出，按建造年代着色，并叠加地铁网络。<a href="https://demo.getgeolens.com/maps/146eddc1-30af-4c8e-aa6f-a6569e663823">在演示中打开这张地图</a>。</sub>
+  <sub>曼哈顿的建筑按实测屋顶高度挤出，按建造年代着色，并叠加地铁网络。<a href="https://demo.getgeolens.com/maps">浏览演示中的地图</a>。</sub>
 </p>
 
 空间数据往往同时散落在许多地方：文件共享、PostGIS 数据库、ArcGIS 和 WFS 服务、STAC 目录。GeoLens 把它们汇集到一个可搜索的目录中，并记录每个数据集的来源，以及数据源是否仍然保持最新。团队在浏览器中基于这个目录构建和共享地图，QGIS、脚本和 AI 代理则通过 OGC API 和 STAC 读取同样的数据。GeoLens 用 Docker Compose 运行在您自己的服务器上，不发送遥测数据，采用 Apache 2.0 许可。
