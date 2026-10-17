@@ -616,12 +616,13 @@ class Api:
         )
         r.raise_for_status()
         job = r.json()["job_id"]
-        preview = self.client.post(
+        self.client.post(
             f"{self.base}/api/datasets/{dataset_id}/reupload/{job}/preview",
             headers=self.h,
-        )
-        preview.raise_for_status()
-        self.reupload_commit(dataset_id, job, preview.json().get("review_fingerprint"))
+        ).raise_for_status()
+        # No fingerprint: a replacement the server wants reviewed (an empty feed,
+        # a destructive schema change) is held instead of published.
+        self.reupload_commit(dataset_id, job)
         self.poll(job)
 
     def reupload_commit(
@@ -631,7 +632,8 @@ class Api:
         both stage into the same job and swap through the same door.
 
         The server holds a run that has review reasons unless the commit echoes
-        the preview's fingerprint; the seed's own diff print is its review."""
+        the preview's fingerprint. Only convert_to_service sends one, after it
+        prints the schema diff."""
         body = {"review_fingerprint": review_fingerprint} if review_fingerprint else {}
         self.client.post(
             f"{self.base}/api/datasets/{dataset_id}/reupload/{job_id}/commit",

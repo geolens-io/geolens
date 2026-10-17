@@ -1,4 +1,4 @@
-"""The showcase seeder accepts the review reasons of the re-binds it runs."""
+"""The seeder accepts review reasons only for the service conversions it prints."""
 
 from __future__ import annotations
 
@@ -49,17 +49,10 @@ def _api(preview: dict):
     return api
 
 
-@pytest.mark.parametrize(
-    ("preview", "expected"),
-    [
-        ({"review_fingerprint": "fp-1"}, {"review_fingerprint": "fp-1"}),
-        ({}, {}),
-    ],
-)
-def test_reupload_geojson_echoes_the_preview_fingerprint(preview, expected):
-    api = _api(preview)
+def test_reupload_geojson_leaves_reviewable_replacements_held():
+    api = _api({"review_fingerprint": "fp-1"})
     api.reupload_geojson("ds-1", "a.geojson", b"{}")
-    assert api.client.commit_bodies == [expected]
+    assert api.client.commit_bodies == [{}]
 
 
 @pytest.mark.parametrize(
