@@ -199,6 +199,24 @@ describe('RetentionCard', () => {
     beforeAll(() => { process.env.TZ = 'America/Los_Angeles'; });
     afterAll(() => { process.env.TZ = originalTz; });
 
+    it('shows a timestamp column\'s cutoff with its time in UTC', async () => {
+      const user = userEvent.setup();
+      vi.mocked(setDatasetRetention).mockResolvedValue({
+        retention: { column: 'seen_at', days: 7 },
+        rows_past_cutoff: 2,
+        cutoff: '2026-10-10T12:00:00Z',
+      });
+      render(<RetentionCard dataset={feed()} canEdit />);
+
+      const days = screen.getByLabelText('Days to keep');
+      await user.clear(days);
+      await user.type(days, '7');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      const dialog = await screen.findByRole('alertdialog');
+      expect(dialog).toHaveTextContent('2 rows are older than Oct 10, 2026, 12:00 PM UTC.');
+    });
+
     it('shows a date column\'s cutoff as its own day', async () => {
       const user = userEvent.setup();
       expect(new Date('2026-09-17T00:00:00Z').getDate()).toBe(16);

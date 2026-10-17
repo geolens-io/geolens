@@ -595,6 +595,34 @@ class TestRun:
         assert seeded < after_first < after_second
         assert await _names(test_db_session, dataset) == set()
 
+    async def test_a_pruning_run_is_not_credited_to_the_last_editor(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session
+    ):
+        from app.modules.catalog.sources.provenance import SYSTEM_ACTOR_LABEL
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[{"name": "old", "seen_at": NOW - timedelta(days=90)}],
+        )
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.records SET updated_by = :user WHERE id = "
+                "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+            ),
+            {"user": admin_id, "id": dataset.id},
+        )
+        await test_db_session.commit()
+
+        assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
+
+        detail = await client.get(f"/datasets/{dataset.id}", headers=admin_auth_header)
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["updated_by"] is None
+        assert detail.json()["last_edited_by_display"] == SYSTEM_ACTOR_LABEL
+
     async def test_pruning_the_last_geometry_clears_the_extent(
         self, seed, test_db_session
     ):
@@ -1405,6 +1433,48 @@ class TestSetting:
             f"{before.isoformat()}T00:00:00Z",
             f"{after.isoformat()}T00:00:00Z",
         }
+
+    async def test_a_save_and_a_clear_stamp_the_record_and_a_dry_run_does_not(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, rows=[])
+
+        async def stamp():
+            test_db_session.expire_all()
+            return tuple(
+                (
+                    await test_db_session.execute(
+                        select(Record.updated_at, Record.updated_by)
+                        .join(Dataset, Dataset.record_id == Record.id)
+                        .where(Dataset.id == dataset.id)
+                    )
+                ).one()
+            )
+
+        seeded = await stamp()
+        assert seeded[1] is None
+        body = {"retention": {"column": "seen_at", "days": 30}}
+
+        preview = await self._put(
+            client, dataset.id, body, admin_auth_header, dry_run=True
+        )
+        assert preview.status_code == 200, preview.text
+        assert await stamp() == seeded
+
+        saved = await self._put(client, dataset.id, body, admin_auth_header)
+        assert saved.status_code == 200, saved.text
+        after_save = await stamp()
+        assert after_save[0] > seeded[0]
+        assert after_save[1] == admin_id
+
+        cleared = await self._put(
+            client, dataset.id, {"retention": None}, admin_auth_header
+        )
+        assert cleared.status_code == 200, cleared.text
+        after_clear = await stamp()
+        assert after_clear[0] > after_save[0]
+        assert after_clear[1] == admin_id
 
     async def test_the_owner_saves_and_clears_retention(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session

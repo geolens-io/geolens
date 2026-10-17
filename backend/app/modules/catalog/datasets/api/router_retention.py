@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
@@ -103,6 +103,11 @@ async def set_dataset_retention(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
             )
+        # Stamped as other dataset setting edits are; the trigger supplies a
+        # monotonic time, and setting updated_at forces the UPDATE for the same
+        # actor, as record subresource writes do.
+        dataset.record.updated_at = func.now()
+        dataset.record.updated_by = user.id
         await audit_emit(
             db,
             AuditEvent(

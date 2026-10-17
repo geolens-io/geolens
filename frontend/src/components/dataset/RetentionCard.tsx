@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { formatMutationError } from '@/lib/error-map';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatDateTimeUtc } from '@/lib/format';
 
 const MAX_DAYS = 3650;
 // The record types the API gives a feature table; it also requires geometry.
@@ -82,11 +82,12 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
   const columnPickable = pickable.some((option) => option.name === column);
   const canSave = columnPickable && days !== null && !mutation.isPending;
 
-  // A date column's cutoff is UTC midnight of its date; formatted as a
-  // local instant it would name the day before west of UTC.
+  // A date column's cutoff is UTC midnight of its date, which as a local
+  // instant names the day before west of UTC; a timestamp's needs its time.
   function formatCutoff({ retention, cutoff }: PendingConfirm): string {
     const type = temporalColumns.find((option) => option.name === retention.column)?.type;
-    return formatDate(type?.toLowerCase() === 'date' && cutoff ? cutoff.slice(0, 10) : cutoff);
+    if (type?.toLowerCase() === 'date') return formatDate(cutoff ? cutoff.slice(0, 10) : cutoff);
+    return formatDateTimeUtc(cutoff);
   }
 
   async function save(retention: DatasetRetention | null) {
