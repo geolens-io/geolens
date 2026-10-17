@@ -248,8 +248,23 @@ async def test_a_denying_permission_extension_hides_the_lookup_detail(
     assert answers["missing"][1]["detail"] == "Dataset not found", answers
 
 
-async def test_a_valid_embed_token_gets_the_lookup_answer_despite_a_dead_bearer(
-    client: AsyncClient, admin_auth_header: dict, test_db_session
+_DEAD_CREDENTIALS = {
+    "bearer": {"headers": {"Authorization": "Bearer not-a-real-token"}},
+    "key_header": {"headers": {"X-Api-Key": "gl_not-a-real-key"}},
+    "key_query": {"params": {"api_key": "gl_not-a-real-key"}},
+}
+
+
+def _with(extra: dict, *, headers: dict | None = None, params: dict | None = None):
+    return {
+        "headers": {**(headers or {}), **extra.get("headers", {})},
+        "params": {**(params or {}), **extra.get("params", {})},
+    }
+
+
+@pytest.mark.parametrize("credential", sorted(_DEAD_CREDENTIALS))
+async def test_a_valid_embed_token_gets_the_lookup_answer_despite_a_dead_credential(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, credential: str
 ) -> None:
     """The embed capability authorizes on its own, as on the success path."""
     from tests.test_embed_tokens import _create_map_with_layer
@@ -270,11 +285,48 @@ async def test_a_valid_embed_token_gets_the_lookup_answer_despite_a_dead_bearer(
     embed = {"X-Embed-Token": minted.json()["raw_token"]}
 
     alone = await client.get(_tile_url(vector.id), headers=embed)
-    with_dead_bearer = await client.get(
-        _tile_url(vector.id),
-        headers={**embed, "Authorization": "Bearer not-a-real-token"},
+    with_dead = await client.get(
+        _tile_url(vector.id), **_with(_DEAD_CREDENTIALS[credential], headers=embed)
     )
 
     assert alone.status_code == 404, alone.text
     assert alone.json()["detail"] == "Not a raster dataset", alone.text
-    assert _answer(with_dead_bearer) == _answer(alone), with_dead_bearer.text
+    assert _answer(with_dead) == _answer(alone), with_dead.text
+
+
+@pytest.fixture
+async def bare_rasters(test_db_session):
+    """A public, published raster and a private one, both without an image."""
+    owner = await get_user_id(test_db_session, settings.geolens_admin_username)
+    public = await create_raster_dataset(test_db_session, created_by=owner)
+    private = await create_raster_dataset(
+        test_db_session, created_by=owner, visibility="private"
+    )
+    return public, private
+
+
+@pytest.mark.parametrize("credential", [None, *sorted(_DEAD_CREDENTIALS)])
+async def test_a_valid_signature_gets_the_lookup_answer(
+    client: AsyncClient, bare_rasters, credential: str | None
+) -> None:
+    """A signed template authorizes on its own, as on the success path."""
+    for raster in bare_rasters:
+        signed = _signed(raster.id, publication_version=raster.publication_version)
+        extra = _DEAD_CREDENTIALS[credential] if credential else {}
+
+        resp = await client.get(_tile_url(raster.id), **_with(extra, params=signed))
+
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["detail"] == "No raster asset", resp.text
+
+
+async def test_a_forged_signature_on_a_bare_private_raster_is_still_refused(
+    client: AsyncClient, bare_rasters
+) -> None:
+    _, private = bare_rasters
+    forged = {**_signed(private.id), "sig": "0" * 64}
+
+    resp = await client.get(_tile_url(private.id), params=forged)
+
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"] == "Invalid or expired signature", resp.text

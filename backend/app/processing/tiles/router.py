@@ -55,6 +55,7 @@ from app.platform.extensions import (
     RecordAudienceQuery,
     get_billing_extensions,
     get_data_serving_extension,
+    get_permission_extension,
     get_processing_port,
 )
 from app.platform.service_endpoints import MAX_QUERY_FIELDS
@@ -923,21 +924,29 @@ async def _refuse_unseen_raster_lookup(
     """Refuse a failed raster lookup as ``_resolve_raster_access`` refuses access.
 
     A caller who could not read the dataset gets the answer a missing id gets,
-    so "Not a raster dataset" and "No raster asset" reach only an embed token
-    covering the id or a caller with read access. An embed token covering the
-    id gets ``exc`` whatever other credential the request carries, as it is
-    served on the success path. Returns when ``exc`` may stand for the
-    caller's own identity.
+    so "Not a raster dataset" and "No raster asset" reach only a capability
+    for the id or a caller with read access. The checks run in the success
+    path's order: an embed token or a signature valid for the live row gets
+    ``exc`` whatever other credential the request carries. Returns when
+    ``exc`` may stand for the caller's own identity.
     """
     embed_token = request.headers.get("X-Embed-Token")
     if embed_token:
         if not await validate_embed_token_access(embed_token, dataset_id, db, request):
             capability_declined(request, user, _raster_embed_token_refused())
         raise exc
-    if user is None:
-        _refuse_unseen_tile(request)
     port = get_processing_port()
     dataset = await port.get_dataset(db, dataset_id)
+    if dataset is not None and _tile_signature_authorizes(
+        request, dataset_id, dataset.publication_version
+    ):
+        raise exc
+    if user is None:
+        if dataset is None or not await get_permission_extension().can_access_dataset(
+            db, dataset, dataset_id, None, user_roles=set()
+        ):
+            _refuse_unseen_tile(request)
+        return
     if dataset is None:
         return
     # The permission extension is asked about a public dataset too: what the
