@@ -1,6 +1,6 @@
 """Add catalog.api_keys.scope for least-privilege machine credentials.
 
-fix(#875): an API key impersonated its owner completely, so any credential
+An API key impersonated its owner completely, so any credential
 embedded in an application could also mutate or delete everything its owner
 could. ``scope`` splits that: a ``read_only`` key authenticates GET/HEAD/
 OPTIONS and is refused on anything else at the resolution chokepoint.
@@ -57,10 +57,10 @@ def downgrade() -> None:
     # first, users before api_keys: the order key creation takes them in, and
     # the order 0029's downgrade takes next in this same transaction.
     op.execute("LOCK TABLE catalog.users, catalog.api_keys IN ACCESS EXCLUSIVE MODE")
-    # fix(#875 codex r1): counts only ACTIVE restricted keys, so the
+    # Counts only ACTIVE restricted keys, so the
     # remediation the message advertises actually clears the block. Counting
-    # every row made deactivation a no-op and left rollback impossible short
-    # of deleting the credentials, which the message never asked for.
+    # every row would make deactivation a no-op and leave rollback impossible
+    # short of deleting the credentials, which the message never asks for.
     # An inactive key cannot authenticate at all, so widening its scope back
     # to 'full' grants nothing.
     restricted = bind.execute(

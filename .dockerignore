@@ -51,7 +51,7 @@
 **/htmlcov/
 
 backend/.venv/
-# fix(#1136 review): .python-version pins host/CI interpreters only. Inside
+# .python-version pins host/CI interpreters only. Inside
 # the image build, uv must use the base image's system python — a 3.13 pin
 # on a 3.14 builder makes uv fetch a managed interpreter OUTSIDE /app, and
 # the runtime stage copies only /app, leaving .venv/bin/python dangling.

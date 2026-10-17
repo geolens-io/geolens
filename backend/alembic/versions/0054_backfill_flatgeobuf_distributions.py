@@ -1,6 +1,6 @@
 """Backfill FlatGeobuf download distributions for existing spatial datasets.
 
-fix(#1681 codex review): _DISTRIBUTION_TEMPLATES now generates a FlatGeobuf
+_DISTRIBUTION_TEMPLATES generates a FlatGeobuf
 download distribution at dataset creation (records/service.py), but those rows
 are materialized — existing spatial datasets created before this deploy would
 never advertise the fgb download in DCAT feeds until an unrelated geometry-mode
@@ -16,9 +16,9 @@ auto-generated fgb download rows.
 Non-spatial datasets are excluded (geometry_type IS NULL) — FlatGeobuf
 requires geometry, matching generate_distributions' spatial-only filter.
 
-fix(#1681 codex review round 2): the NOT EXISTS guard reads only
+The NOT EXISTS guard reads only
 auto_generated rows, matching generate_distributions' own existence probe
-(fix(#1370) there) — a user-authored download/fgb row must not suppress the
+— a user-authored download/fgb row must not suppress the
 platform's own export row; the intended end state is both rows coexisting.
 Narrowing the guard reopens the case that broad check was incidentally
 absorbing: a user's row at the exact guessable URL this INSERT targets

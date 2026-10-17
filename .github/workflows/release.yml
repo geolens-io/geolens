@@ -23,7 +23,7 @@ permissions:
 jobs:
   release:
     name: Create GitHub Release
-    # Only for a SUCCESSFUL smoke of a vX.Y.Z tag. fix(#1778): the job-level
+    # Only for a SUCCESSFUL smoke of a vX.Y.Z tag. The job-level
     # startsWith(head_branch, 'v') gate is necessary but not sufficient — a
     # workflow_dispatch smoke run also has head_branch set to the dispatched
     # ref's name, so `--ref v1.18.0` matches this check exactly like a real
@@ -37,7 +37,7 @@ jobs:
     env:
       TAG: ${{ github.event.workflow_run.head_branch }}
     steps:
-      # fix(#1778): the job-level startsWith(head_branch, 'v') gate also
+      # The job-level startsWith(head_branch, 'v') gate also
       # matches ordinary branch names like `video-fix` smoked via
       # workflow_dispatch, and it matches a workflow_dispatch smoke of a real
       # tag ref too — head_branch carries the dispatched ref's name either
@@ -85,32 +85,29 @@ jobs:
 
           # Extract section from CHANGELOG.md for this version.
           #
-          # fix(#715): strip any prerelease suffix first. A prerelease tag has no
-          # CHANGELOG section of its own and never will — bump_version.py's
+          # Strip any prerelease suffix first. A prerelease tag has no
+          # CHANGELOG section of its own — bump_version.py's
           # SEMVER_RE only accepts plain X.Y.Z, so `make bump` cannot create a
           # `## [1.5.0-rc.1]` header, and check_version_coherence.py only ever
-          # validates the canonical version. Without this, every RC published the
+          # validates the canonical version. Without this, every RC would publish the
           # git-log fallback below, whose filter drops every docs(/chore( subject.
           # An RC's notes are the notes for the release it is a candidate for.
           VERSION="${TAG#v}"
           CHANGELOG_VERSION="${VERSION%%-*}"
           NOTES=$(awk "/^## \[${CHANGELOG_VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
 
-          # fix(#715 review): strip whitespace before the emptiness test. `$(...)`
+          # Strip whitespace before the emptiness test. `$(...)`
           # removes trailing newlines but keeps spaces and tabs, so a section
-          # containing only whitespace made `[ -z ]` false and published
-          # effectively blank release notes — passing neither the fallback nor
+          # containing only whitespace would make `[ -z ]` false and publish
+          # effectively blank release notes, bypassing both the fallback and
           # the version-coherence gate, which rejects exactly that input.
           if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
             # Fallback: generate from git log
             NOTES=$(git log --format="- %s" "${PREV}..${TAG}" --no-merges | grep -v "^- docs(" | grep -v "^- chore(" | head -30)
-            # fix(#1530): say so. Three times now the fallback has fired when it
-            # should not have — every prerelease tag (#715), a whitespace-only
-            # section (#715 review), and a CHANGELOG edit that deleted the
-            # `## [1.13.1]` header outright (#1518). Each was fixed by making
-            # the matching smarter; three occurrences say the problem is that
-            # the fallback is INDISTINGUISHABLE from success once the notes are
-            # published. It still must not block a release, so it warns rather
+            # Say so: the fallback is INDISTINGUISHABLE from success once the
+            # notes are published, and it can fire unexpectedly (a prerelease
+            # tag, a whitespace-only section, a deleted CHANGELOG header). It
+            # still must not block a release, so it warns rather
             # than failing, and drops a marker in the body so the state is
             # visible to readers and not only to whoever opens the workflow log.
             echo "::warning title=Release notes fell back to git log::No '## [${CHANGELOG_VERSION}]' section found in CHANGELOG.md. Published notes are auto-generated commit subjects, not curated, and the filter drops every docs()/chore() subject and caps at 30 entries."
@@ -328,7 +325,7 @@ jobs:
             # A re-run of this workflow must not leave a second draft. The API's
             # `subject` filter is a CONTAINS match, so compare exactly rather
             # than trusting that a match is THE match.
-            # fix(#1697 codex r2 P1): a JSON error body (401/429/5xx) makes
+            # A JSON error body (401/429/5xx) makes
             # `.results[]?` empty and a blind jq would print a clean 0 —
             # require a 2xx AND an actual results array before trusting the
             # count. Anything else becomes the non-numeric "unreadable",
@@ -349,8 +346,7 @@ jobs:
             # missing newsletter is the failure this whole target exists to
             # prevent — but it must never fall through to a SCHEDULED one: a
             # duplicate draft is cheap and visible, a duplicate send reaches
-            # subscribers twice. LOOKUP_OK gates the auto-send below
-            # (fix(#1697 codex P1)).
+            # subscribers twice. LOOKUP_OK gates the auto-send below.
             case "${EXISTING}" in
               ''|*[!0-9]*) LOOKUP_OK=0 ;;
               *) LOOKUP_OK=1 ;;
@@ -412,7 +408,7 @@ jobs:
                     # Release run). Reconcile instead: if this subject now has
                     # anything other than exactly one copy, demote OUR email
                     # back to a draft — a duplicate draft is cheap, a
-                    # duplicate send is not (fix(#1697 codex r2 P1)).
+                    # duplicate send is not.
                     OUR_ID=$(jq -r '.id // empty' newsletter-response.json 2>/dev/null || true)
                     RECHECK_CODE=$(curl -sS --max-time 30 -o newsletter-recheck.json -w '%{http_code}' \
                       -G "https://api.buttondown.com/v1/emails" \
@@ -424,7 +420,7 @@ jobs:
                     # schedule, every other run demotes its own copy. Two
                     # racing runs applying the same rule converge on exactly
                     # one scheduled email instead of both demoting themselves
-                    # to zero (fix(#1697 codex r3 P2)).
+                    # to zero.
                     RECHECK_IDS="unreadable"
                     case "$RECHECK_CODE" in
                       2*)
@@ -446,7 +442,7 @@ jobs:
                       # its own included — a staggered run can create, recheck
                       # alone, and exit before a second run's copy appears, so
                       # a winner that only trusts losers to demote themselves
-                      # can leave two sends standing (fix(#1697 codex r4 P1)).
+                      # can leave two sends standing.
                       # PATCHes are idempotent, so two observers demoting the
                       # same losers is harmless.
                       DEMOTE_FAILED=0
@@ -517,7 +513,7 @@ jobs:
                   # survivable — but adding `shell: bash` anywhere above turns
                   # on `pipefail` and the step would then die here, before the
                   # warning, the summary line and `failed=1`. Not a dependency
-                  # to leave implicit (#1673 codex P2).
+                  # to leave implicit.
                   DETAIL=$(jq -r '.detail // .error // empty' newsletter-response.json 2>/dev/null | head -c 200 || true)
                   echo "::warning title=Newsletter draft failed::Could not draft the Buttondown release-notes email for ${TAG} (HTTP ${CODE}). ${DETAIL} The release itself published fine; draft it by hand per the release runbook."
                   summary "newsletter: FAILED for ${TAG} (HTTP ${CODE})"

@@ -1,6 +1,6 @@
 """Allow the ``archived_original`` key on catalog.dataset_assets.
 
-fix(#1290 review). ADR-002 Decision 7 keeps the uploaded raster when the COG
+ADR-002 Decision 7 keeps the uploaded raster when the COG
 conversion was lossy, under ``originals/<dataset_id>/``. Those objects
 accumulate permanently and were counted by nothing: per-user storage usage sums
 ``dataset_assets`` rows with ``key='data'``, so an owner could exhaust

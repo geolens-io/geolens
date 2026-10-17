@@ -41,27 +41,27 @@ groups:
             the last 5 minutes.
 
       - alert: GeoLensApiInteractiveLatencyP95
-        # fix(#658): replaces the all-handler p95 alert (#466), which fired
+        # This replaces an all-handler p95 alert, which fired
         # during plain map browsing — tile requests are the legitimate slow
         # tail, so they get their own rule below.
         #
-        # fix(#1517): bulk reads are excluded for exactly the same reason, and
-        # get GeoLensApiBulkLatencyMean below. This rule fired three times on
-        # the demo, every time from geolens-examples CI pulling collections at
-        # ?limit=2000 (~10MB responses), never from the demo being slow.
+        # Bulk reads are excluded for exactly the same reason, and
+        # get GeoLensApiBulkLatencyMean below. Pulling collections at
+        # ?limit=2000 (~10MB responses), e.g. from geolens-examples CI, would
+        # otherwise trip this rule without the server being slow.
         #
         # The bulk selector below must stay byte-identical to the one in
         # GeoLensApiBulkLatencyMean — a handler that drifts out of one and not
         # into the other is either double-alerted or unmonitored. Pinned by
         # backend/tests/test_alert_rules.py, which also checks the selector
         # against the app's real route table: `.*/export` and `/collections/.*/items`
-        # (the shapes first proposed on #1517) miss the trailing-slash twins
+        # (the obvious shapes) miss the trailing-slash twins
         # that FastAPI registers alongside these routes, and a miss reads
         # identically to a hit in a diff.
         #
-        # fix(#1521 review): only bulk READS leave this rule. A path is not a
+        # Only bulk READS leave this rule. A path is not a
         # request — /datasets/{dataset_id}/features[/] answers GET and POST off
-        # one template, so a handler-only exclusion would have dropped feature
+        # one template, so a handler-only exclusion would drop feature
         # CREATION out of interactive monitoring and pooled its duration into a
         # 5s bulk bound built for 10MB downloads. Hence the union below rather
         # than one selector: everything that is neither a tile nor a bulk path,
@@ -75,8 +75,8 @@ groups:
         # so a HEAD on /collections/{id}/items runs the identical query and
         # serialization and only drops the body on the wire.
         #
-        # fix(#1513): the export HEAD is the exception that condition
-        # anticipated, and the third union arm below is where it landed. It is
+        # The export HEAD is the exception to that condition,
+        # and the third union arm below is where it landed. It is
         # NOT free — it runs every check that decides the status, so a parquet
         # HEAD costs a live-column introspection plus a bounded COUNT, roughly
         # half a second on a 5M-row table. It is judged here anyway, because
@@ -131,7 +131,7 @@ groups:
             GeoLensApiBulkLatencyMean.
 
       - alert: GeoLensApiBulkLatencyMean
-        # fix(#1517): the other half of the split. Bulk reads return whatever
+        # The other half of the split. Bulk reads return whatever
         # the caller asked for — ?limit=2000 on a feature collection is roughly
         # 10MB — so over a second is the correct cost of the payload, the same
         # way a slow tile is.
@@ -158,7 +158,7 @@ groups:
         # window, which is the false page this issue is about; at their volume
         # they cannot move the interactive p95 either.
         #
-        # fix(#1521 review): `method=~"GET|HEAD"` keeps this to bulk READS. The
+        # `method=~"GET|HEAD"` keeps this to bulk READS. The
         # complement of the same alternation appears in the interactive rule
         # above, so POST /datasets/{dataset_id}/features stays on the 1s
         # interactive bound rather than being pooled here against 5s. See that
@@ -200,10 +200,7 @@ groups:
             size.
 
       - alert: GeoLensApiTileLatencyMean
-        # fix(#658): tile p95 was unreadable from the handler-labeled histogram
-        # (it clipped at 1s), so alert on the exact mean from _sum/_count
-        # instead. fix(#1517) raised the top finite bucket to 10, so the clip is
-        # no longer the reason — the mean stays because it is the more honest
+        # Alert on the exact mean from _sum/_count: it is the more honest
         # reading for a family this bursty, and the bound below is calibrated
         # against it.
         # Active map browsing keeps the mean well under 1s even while p95 sits
@@ -239,12 +236,12 @@ groups:
             Threshold is tunable.
 
       - alert: GeoLensJobFailures
-        # fix(#1778): `sum by (queue)`, not a bare increase(). The job counters
+        # `sum by (queue)`, not a bare increase(). The job counters
         # are incremented at the terminal transition inside the worker process
         # that performed it, so with several worker replicas each exports its
         # own series for the same queue. A bare increase() is evaluated per
         # series, so six failures split three-and-three across two replicas
-        # never crossed a threshold of five and the alert stayed silent while
+        # would never cross a threshold of five and the alert would stay silent while
         # the queue was visibly failing. Summing by queue is the number an
         # operator actually means, and it is exact as long as every replica is
         # scraped -- see the worker job in prometheus.yml, which discovers them

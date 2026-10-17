@@ -1,6 +1,6 @@
 """Backfill GeoParquet download distributions for existing spatial datasets.
 
-fix(#462 follow-up): _DISTRIBUTION_TEMPLATES now generates a GeoParquet download
+_DISTRIBUTION_TEMPLATES generates a GeoParquet download
 distribution at dataset creation (records/service.py), but those rows are
 materialized — existing spatial datasets created before this deploy would never
 advertise the parquet download in DCAT feeds. This backfills one row per spatial

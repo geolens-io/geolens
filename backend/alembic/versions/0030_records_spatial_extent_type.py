@@ -1,6 +1,6 @@
 """Widen catalog.records.spatial_extent to generic geometry + a type CHECK.
 
-fix(#892): ``records.spatial_extent`` was ``geometry(Polygon, 4326)``. RFC 7946
+``records.spatial_extent`` was ``geometry(Polygon, 4326)``. RFC 7946
 §5.2 and STAC express an antimeridian-crossing extent as a bbox with
 west > east, and a single planar 4326 ring cannot encode that -- so a dataset
 that genuinely straddles the seam could only register a globe-spanning

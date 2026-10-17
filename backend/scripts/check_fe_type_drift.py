@@ -290,18 +290,17 @@ class DriftReport:
         self.skipped: list[str] = []
 
     def should_fail(self) -> bool:
-        """fix(#1778): a maintained model this checker could not compare at
+        """A maintained model this checker could not compare at
         all (absent from openapi.json or from the FE mirror) is exactly the
         case the KNOWN_DRIFT allowlist cannot cover — silently skipping it
-        let a renamed/removed maintained model pass with zero output.
+        would let a renamed/removed maintained model pass with zero output.
 
         A KNOWN_DRIFT entry that has become
         fully resolved (the FE mirror caught up — check_drift() computes
-        this into ``resolved_known_drift``) used to only print a
-        ``[RESOLVED]`` notice; nothing made the gate itself fail, and
-        the only repo invocation of this checker is
-        ``test_drift_checker_passes()``, so that notice was just
-        captured pytest output nobody had to act on. A resolved entry
+        this into ``resolved_known_drift``) fails the gate too. A
+        ``[RESOLVED]`` notice alone would be captured pytest output nobody
+        has to act on: the only repo invocation of this checker is
+        ``test_drift_checker_passes()``. A resolved entry
         left in KNOWN_DRIFT is a standing license to regress — the
         allowlist should shrink back down as the FE mirror catches up,
         not accumulate stale entries forever. Failing the gate forces
@@ -340,12 +339,12 @@ def check_drift(
 
         missing = sorted(be_props - fe_props)
 
-        # fix(#1778): compute "known drift now resolved" BEFORE the
-        # early-continue below. A model with ZERO current drift used to
-        # skip this block entirely, so a KNOWN_DRIFT entry for a model the
-        # FE mirror had fully caught up on was invisible to this reporter
-        # forever — the allowlist entry just sat there as a standing
-        # license to regress with no signal telling anyone to remove it.
+        # Compute "known drift now resolved" BEFORE the
+        # early-continue below. A model with ZERO current drift would skip
+        # this block entirely, leaving a KNOWN_DRIFT entry for a model the
+        # FE mirror has fully caught up on invisible to this reporter
+        # forever — a standing license to regress with no signal telling
+        # anyone to remove it.
         known = KNOWN_DRIFT.get(name, [])
         resolved = [p for p in known if p and p not in missing]
         if resolved:
@@ -373,7 +372,7 @@ def check_drift(
 
 def _print_report(report: DriftReport, verbose: bool = False) -> None:
     if report.skipped:
-        # fix(#1778): printed unconditionally (not just under --verbose) —
+        # Printed unconditionally (not just under --verbose) —
         # this now fails the build (DriftReport.should_fail()), so a
         # skipped, uncomparable maintained model must be visible without
         # needing to know to pass a flag; the pytest wrapper does not.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# fix(#1798): every other test in this suite pins get_env_value's
+# Every other test in this suite pins get_env_value's
 # (scripts/lib/common.sh) behavior against a WRITTEN-DOWN understanding of
 # Docker Compose's `.env` grammar. This one instead asks Compose itself,
 # for a corpus covering the .env cases reviewers found (BOM, a
@@ -135,7 +135,7 @@ YML
   return "$_cfl_rc"
 }
 
-# fix(#1899): whole-file loadability, env_file_first_refused_line against
+# Whole-file loadability, env_file_first_refused_line against
 # Compose. Both must agree, and when Compose names the line of a key error
 # ours must name the same line.
 _assert_file_like_compose() {
@@ -174,7 +174,7 @@ _assert_file_like_compose() {
   ok "$_afl_desc (both refuse: ours [$_afl_ours])"
 }
 
-# fix(#1886): a top-level ${KEY} resolves from the process environment first,
+# A top-level ${KEY} resolves from the process environment first,
 # so this compares effective_env_value_into against the oracle (get_env_value
 # keeps its file-only contract and is not what preflight-env.sh reads).
 _assert_effective_matches_compose() {
@@ -317,7 +317,7 @@ _assert_errors_like_compose() {
   _aelc_key="$1"
   _aelc_file="$2"
   _aelc_desc="$3"
-  # fix(#1886): optional resolver, default get_env_value's own path.
+  # Optional resolver, default get_env_value's own path.
   _aelc_resolve="${4:-_our_value}"
 
   if "$_aelc_resolve" "$_aelc_key" "$_aelc_file" >/dev/null 2>&1; then
@@ -535,7 +535,7 @@ _assert_matches_compose USES_PLAIN "$PREC_ENV"   "env unset + file key set (from
 
 _assert_matches_compose USES_UNSET_COLON_DASH "$PREC_ENV"   "env unset + file key also unset + \${X:-default}: the default applies"
 
-# fix(#1886): the key ITSELF, not a reference to it, resolves the same way
+# The key ITSELF, not a reference to it, resolves the same way
 # for a plain ${TARGETVAR}; this is the read preflight-env.sh now performs.
 export TARGETVAR=fromenv
 _assert_effective_matches_compose TARGETVAR "$PREC_ENV"   "env set (fromenv) + the same key in the file (fromfile): effective_env_value_into takes the environment, like Compose"
@@ -547,7 +547,7 @@ unset TARGETVAR
 
 _assert_effective_matches_compose TARGETVAR "$PREC_ENV"   "env unset + the key in the file: effective_env_value_into falls back to the file line"
 
-# fix(#1886): Compose loads the whole file before the override applies, so
+# Compose loads the whole file before the override applies, so
 # a line it refuses fails even with the key exported; a bare line does not.
 REFUSED_ENV="$WORK/.env.refused"
 printf 'TARGETVAR=${NO_SUCH_VAR:?boom}\n' > "$REFUSED_ENV"
@@ -563,7 +563,7 @@ _assert_effective_matches_compose TARGETVAR "$BARE_ENV"   "env set (fromenv) + a
 unset TARGETVAR
 
 # ============================================================================
-# fix(#1899): whole-file loadability, each shape judged by Compose and by ours.
+# Whole-file loadability, each shape judged by Compose and by ours.
 # ============================================================================
 FILE_DIR="$WORK/files"
 mkdir -p "$FILE_DIR"
@@ -610,7 +610,7 @@ _assert_file_like_compose "$FILE_DIR/unclosed-ref" "an unclosed \${ reference"
 printf 'CONTROL=ok\nFOO="a\nb c\n"\nBAR # after\n' > "$FILE_DIR/continuation"
 _assert_file_like_compose "$FILE_DIR/continuation" "a spaced continuation line is exempt and the key error after it is the one named"
 
-# fix(#1899): a key outside the shell-identifier charset is a record
+# A key outside the shell-identifier charset is a record
 # too, so its value is interpolated where Compose interpolates it.
 printf 'CONTROL=ok\nODD-KEY=${MISSING:?boom}\n' > "$FILE_DIR/odd-hyphen"
 _assert_file_like_compose "$FILE_DIR/odd-hyphen" "a hyphenated key whose value Compose refuses"
@@ -624,7 +624,7 @@ _assert_file_like_compose "$FILE_DIR/odd-colon" "a colon-terminated key whose va
 printf 'CONTROL=ok\n1ODD=${MISSING:?boom}\n' > "$FILE_DIR/odd-digit"
 _assert_file_like_compose "$FILE_DIR/odd-digit" "a digit-leading key whose value Compose refuses"
 
-# fix(#1909): an empty key and a key holding a tab are records too.
+# An empty key and a key holding a tab are records too.
 printf 'CONTROL=ok\n=${MISSING:?boom}\n' > "$FILE_DIR/empty-key"
 _assert_file_like_compose "$FILE_DIR/empty-key" "an empty key whose value Compose refuses"
 
@@ -1388,18 +1388,17 @@ printf 'USES=a\\\\b\n' > "$ESCAPE_UNQUOTED_BS_ENV"
 _assert_matches_compose USES "$ESCAPE_UNQUOTED_BS_ENV" \
   "an unquoted value gets no backslash processing at all"
 
-# fix(#1778, P1 class) at scripts/restore.sh:41: a FORWARD
-# reference — a key whose OWN value interpolates ${OTHER}, where OTHER is
+# A FORWARD reference — a key whose OWN value interpolates ${OTHER}, where OTHER is
 # defined LATER in the same file — must resolve OTHER as if it did not
 # exist in the file at all (an earlier line can never see a later one),
 # falling back to the environment or the interpolation's own default.
-# This is the single-call core of the bug: _env_resolve_name's "process
-# environment wins" check used to test the LIVE shell variable table,
-# which a glancing read makes it easy to conflate with "this name has no
+# This is the single-call core of the restore.sh forward-reference bug:
+# _env_resolve_name's "process environment wins" check must not test the LIVE
+# shell variable table, which is easy to conflate with "this name has no
 # definition visible yet" -- they are different questions, and this
 # corpus pins the FILE-only half of that distinction directly (the
-# sequential-env_value_into half that actually triggered the reported bug
-# is covered by scripts/tests/test-restore-env-sourcing-safety.sh's own
+# sequential-env_value_into half is covered by
+# scripts/tests/test-restore-env-sourcing-safety.sh's own
 # CASE 10, which needs to control call order and cannot live here).
 FWDREF_ENV="$WORK/.env.fwdref"
 cat > "$FWDREF_ENV" <<'EOF'

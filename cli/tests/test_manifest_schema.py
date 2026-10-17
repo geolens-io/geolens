@@ -129,7 +129,7 @@ def test_version_and_enum_errors_are_stable() -> None:
 
 
 def test_publication_intent_is_an_open_set() -> None:
-    """fix(#1201): the intent set belongs to the server's workflow extension.
+    """The intent set belongs to the server's workflow extension.
 
     Values come from its ``status_order()``, so a deployment may define its
     own and the CLI cannot know that set — an unrecognized word has to reach
@@ -173,7 +173,7 @@ def test_manifest_v1_dataset_batch_is_bounded() -> None:
         ("vector", "./rasters/tile.tif"),
         ("raster_cog", "./data/roads.geojson"),
         ("raster_cog", "./rasters/mosaic.vrt"),
-        # fix(#1683): the tier-1 formats added to the vector allowlist are
+        # The tier-1 formats added to the vector allowlist are
         # still vector-only — asserting the mismatch keeps the manifest
         # door symmetric with the pre-existing formats above.
         ("raster_cog", "./data/trails.fgb"),
@@ -200,7 +200,7 @@ def test_manifest_source_type_requires_matching_extension(
     ],
 )
 def test_manifest_accepts_tier1_vector_extensions(uri: str) -> None:
-    """fix(#1683): the manifest door now accepts the same four tier-1
+    """The manifest door now accepts the same four tier-1
     vector formats the upload/reupload doors accepted as of #1682
     (FlatGeobuf, KML, KMZ, and a zipped File Geodatabase — the last one
     already matched `.zip`)."""
@@ -434,7 +434,7 @@ def test_manifest_modules_do_not_import_backend_app() -> None:
     assert offenders == []
 
 
-# fix(#1472 review): the backend rejects `<`/`>` in metadata.attribution
+# The backend rejects `<`/`>` in metadata.attribution
 # (ManifestMetadata in backend/app/processing/ingest/manifest_schemas.py) because
 # the value is rendered in MapLibre's attribution control, an HTML context. This
 # packaged schema is a hand-maintained mirror, so without the same restriction

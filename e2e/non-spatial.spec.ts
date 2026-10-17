@@ -58,7 +58,7 @@ test.describe.serial('Non-spatial CSV', () => {
       page.getByRole('heading', { name: 'Import Data' }),
     ).toBeVisible();
 
-    // fix(#432): files staged during the upload-config boot fetch are queued
+    // Files staged during the upload-config boot fetch are queued
     // and flushed once the config settles, so a single set must stage the row
     // — no reload-retry. This test failing here means the queue regressed.
     const fileInput = page.locator('input[type="file"]');

@@ -117,9 +117,10 @@ const SOMETHING_ELSE_GEOJSON = JSON.stringify({
 test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
   test.setTimeout(120_000);
 
-  // fix(#1778): Scenario A ("happy path: default-selects previous source_layer")
-  // used to assert on two `.catch(() => {})`-swallowed expects against
-  // selectors ('[data-testid="bulk-review-list"]', '[data-testid="layer-select-table"]')
+  // Scenario A ("happy path: default-selects previous source_layer")
+  // is deliberately absent: it asserted on two `.catch(() => {})`-swallowed
+  // expects against selectors ('[data-testid="bulk-review-list"]',
+  // '[data-testid="layer-select-table"]')
   // that exist only in this file's own vitest mocks, never in app source — the
   // test could only fail if /import had no file input at all. The behavior it
   // was named for (multi-layer fan-out commit, per-layer results) is covered
@@ -140,10 +141,11 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (resp.ok()) {
-        // fix(#1778): DatasetListResponse's field is `datasets`, not `results`
-        // (backend/openapi.json has no `results` key on this schema) — the
-        // old read always produced an empty array here, so datasetId always
-        // came from the DOM-scrape fallback below regardless of dataset type.
+        // DatasetListResponse's field is `datasets`, not `results`
+        // (backend/openapi.json has no `results` key on this schema) — reading
+        // `results` would always give an empty array here, so datasetId would
+        // always come from the DOM-scrape fallback below regardless of
+        // dataset type.
         const body = await resp.json() as { datasets?: Array<{ id: string; record_type?: string }> };
         const all = body.datasets ?? [];
         // Pick the first dataset, preferring vector datasets
@@ -166,8 +168,8 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
       }
     }
 
-    // fix(#1778): this used to be a test.skip(true, ...) — with the `results`
-    // → `datasets` fix above, the CI catalog is always seeded
+    // No test.skip(true, ...) here — with the `datasets` read above, the CI
+    // catalog is always seeded
     // (e2e/auth.setup.ts's seedDataset, plus the demo seed script's own
     // vector datasets), so a missing datasetId is a real failure, not a
     // legitimate empty-catalog outcome.
@@ -179,10 +181,10 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
 
     // Open "More" menu and click "Re-Upload"
     const moreBtn = page.getByRole('button', { name: /more|actions/i }).first();
-    // fix(#1778): the Re-Upload affordance disappearing is exactly the
+    // The Re-Upload affordance disappearing is exactly the
     // regression e2e/dataset-detail.spec.ts exists to catch —
-    // skipping here instead of failing let that regression turn this test
-    // green-as-skipped.
+    // skipping here instead of failing would let that regression turn this
+    // test green-as-skipped.
     await expect(moreBtn).toBeVisible({ timeout: 5_000 });
     await moreBtn.click();
     const reuploadMenuItem = page.getByRole('menuitem', { name: /re-?upload/i }).first();
@@ -207,11 +209,11 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
     );
     await expect(layerSelectOrPreview.first()).toBeVisible({ timeout: 30_000 });
 
-    // fix(#1778): FIXTURE_PATH (multi-layer-gpkg.gpkg) is a known multi-layer
+    // FIXTURE_PATH (multi-layer-gpkg.gpkg) is a known multi-layer
     // file, so the layer-select step is not an optional branch — it is
     // exactly the silent-data-swap symptom this test exists to catch. Asserting
     // it unconditionally means a regression that skips straight to preview
-    // (the old "acceptable, not a failure" branch) now fails this test.
+    // fails this test.
     await expect(page.getByTestId('reupload-file-layer-select')).toBeVisible({ timeout: 5_000 });
 
     // Multi-layer path: verify both layer rows are present

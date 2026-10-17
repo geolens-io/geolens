@@ -1,6 +1,6 @@
 """Drop the unused datasets.quality_score_numeric column.
 
-fix(#1231): quality_score_numeric was written nowhere, read nowhere, and
+``quality_score_numeric`` was written nowhere, read nowhere, and
 absent from openapi.json — a scalar that would only ever be a derived
 roll-up of quality_detail (JSONB, written at ingest in tasks_common.py).
 Persisting a derived value separately is a second source of truth that

@@ -1,6 +1,6 @@
 """Add the session revocation horizon to catalog.users.
 
-fix(#1455): logout revoked the refresh rows one statement's snapshot could see
+Logout revoked the refresh rows one statement's snapshot could see
 and bumped ``token_version``. Neither can express "everything issued up to
 now", so a refresh row inserted by a path that does not take the owner-row lock
 -- a login racing the logout -- can commit after that snapshot, survive the

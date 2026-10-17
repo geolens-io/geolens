@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 import { assertWorktreeMatchesStack } from './playwright.worktree-guard';
 
-// fix(#1480): every config must call this, not just playwright.config.ts —
+// Every config must call this, not just playwright.config.ts —
 // this one is selected with `-c` by `npm run e2e:smoke:builder-hardening`.
 assertWorktreeMatchesStack();
 
@@ -46,9 +46,8 @@ export default defineConfig({
       },
       dependencies: ['setup'],
     },
-    // fix(#1778): this config set no colorScheme, so the whole suite ran
-    // light-mode only (the same gap #1782 closed for playwright.config.ts).
-    // One dark chromium project closes it here too, without tripling
+    // This config sets no colorScheme, so the other projects run
+    // light-mode only. One dark chromium project covers dark mode, without tripling
     // wall-clock by adding a dark pass to firefox-hardening and
     // webkit-hardening as well -- those exist for cross-browser rendering
     // parity, not theme parity.

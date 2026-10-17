@@ -28,10 +28,10 @@ repos:
           bash -c '
           for f in "$@"; do
             if grep -qE "follow_redirects\s*=\s*True" "$f"; then
-              # fix(#430 BA-26): scope to the construction site. A raw httpx.AsyncClient(
+              # Scope to the construction site. A raw httpx.AsyncClient(
               # call with follow_redirects=True is the danger; callers using
-              # make_safe_client() never write httpx.AsyncClient( at all. The old
-              # file-wide "make_safe_client|security.py" substring let a mere
+              # make_safe_client() never write httpx.AsyncClient( at all. A
+              # file-wide "make_safe_client|security.py" substring would let a mere
               # docstring/comment mention grant a pass. The two legit raw-construction
               # sites are handled by exclude: below.
               if grep -qE "httpx\.AsyncClient\(" "$f"; then
@@ -70,10 +70,10 @@ repos:
         entry: >-
           bash -c '
           for f in "$@"; do
-            # fix(#430 BA-07): match ANY router var. The old alternation stac_|ogc_|layers_
-            # was each followed by "\." but the real vars are stac_router,
-            # ogc_features_router, layers_router, features_router, ... so only
-            # "@router." ever matched, letting features/router.py and
+            # Match ANY router var: the real vars are stac_router,
+            # ogc_features_router, layers_router, features_router, ..., so an
+            # alternation of stac_|ogc_|layers_ followed by "\." would only
+            # match "@router." and let features/router.py and
             # layers/router.py escape the hook entirely.
             if grep -qE "^@[A-Za-z_]*router\.(get|post|patch|delete|put)" "$f" \
               && grep -qE "get_dataset\(" "$f" \

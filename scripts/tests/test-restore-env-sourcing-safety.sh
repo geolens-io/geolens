@@ -1,7 +1,6 @@
 #!/bin/sh
 # Regression test for scripts/restore.sh and scripts/check-env.sh reading
-# `.env` with get_env_value (an awk parser) instead of shell-sourcing it
-# (fix(#1778)).
+# `.env` with get_env_value (an awk parser) instead of shell-sourcing it.
 #
 # Docker Compose's own `.env` parser and `sh` disagree about the same file:
 # install.sh writes values verbatim (an operator-typed admin password can
@@ -77,7 +76,7 @@ if [ "$1" = "compose" ]; then
   case "$1" in
     stop|start) exit 0 ;;
     exec)
-      # fix(#1778) test support: opt-in argv logging so
+      # Test support: opt-in argv logging so
       # a test can prove which POSTGRES_USER/POSTGRES_DB restore.sh
       # actually invoked psql with, without restore.sh itself changing.
       [ -n "${DOCKER_EXEC_LOG:-}" ] && printf '%s\n' "$*" >> "${DOCKER_EXEC_LOG}"
@@ -145,12 +144,12 @@ else
 fi
 
 # ============================================================================
-# CASE 3 — fix(#1778 review, P2): get_env_value's raw awk extraction used to
-# return a Compose-quoted value WITH its quote characters still attached — a
-# legal, common .env line like COMPOSE_FILE="docker-compose.prod.yml" (or
-# POSTGRES_USER="geolens") came back as the 25-character string
-# `"docker-compose.prod.yml"`, quotes and all, silently breaking any caller
-# that put it in a path or SQL identifier. Compose itself strips exactly one
+# CASE 3: get_env_value must not return a Compose-quoted value WITH its quote
+# characters still attached — a legal, common .env line like
+# COMPOSE_FILE="docker-compose.prod.yml" (or POSTGRES_USER="geolens") would come
+# back as the 25-character string `"docker-compose.prod.yml"`, quotes and all,
+# silently breaking any caller that put it in a path or SQL identifier.
+# Compose itself strips exactly one
 # matching pair of quotes and, inside double quotes, unescapes \" and \\.
 # Drive get_env_value directly (not through restore.sh/check-env.sh, which
 # only exercise a handful of keys) against every shape Compose's env-file
@@ -518,20 +517,18 @@ else
   bad "a BOM-prefixed single-line .env did not return the value (got: $BOM_OUT)"
 fi
 
-# fix(#1798): the FIRST fix here built the BOM inside
-# awk via `sprintf("%c%c%c", 239, 187, 191)` — correct under the awk
-# builds checked locally (BWK awk on macOS, mawk in the postgres:18
-# image), but wrong on gawk under a UTF-8 locale: gawk's `%c` there
-# encodes each numeric argument as the UTF-8 bytes for that CODE POINT,
-# not the raw byte, so the 3-`%c` BOM never equalled the file's real
-# 3-byte BOM and this exact case went red on CI (gawk, LANG=...UTF-8).
+# Building the BOM inside awk via `sprintf("%c%c%c", 239, 187, 191)` is
+# correct under BWK awk on macOS and mawk in the postgres:18 image, but wrong
+# on gawk under a UTF-8 locale: gawk's `%c` there encodes each numeric
+# argument as the UTF-8 bytes for that CODE POINT, not the raw byte, so the
+# 3-`%c` BOM never equals the file's real 3-byte BOM (gawk, LANG=...UTF-8).
 # C.UTF-8 is used rather than en_US.UTF-8 because it needs no locale
 # generation and is present by default on this repo's CI runner and on
-# every awk (gawk, mawk, BWK) tested by hand — confirmed the ORIGINAL
-# sprintf-based approach fails under it on gawk, same as en_US.UTF-8.
-# Re-runs the same case under it so a future regression to a
-# locale-dependent construct fails here again, on whatever awk this
-# runner actually has, instead of only surfacing on CI.
+# every awk (gawk, mawk, BWK) tested by hand, and the sprintf-based approach
+# fails under it on gawk the same as under en_US.UTF-8.
+# Re-runs the same case under it so a regression to a locale-dependent
+# construct fails here, on whatever awk this runner actually has, instead of
+# only surfacing on CI.
 BOM_UTF8_OUT="$(LANG=C.UTF-8 LC_ALL=C.UTF-8 sh "$BOM_DRIVER" 2>&1)"
 
 if [ "$BOM_UTF8_OUT" = "FOUND:[geolens]" ]; then
@@ -685,8 +682,8 @@ else
 fi
 
 # ============================================================================
-# CASE 10 — fix(#1778, P1) at scripts/restore.sh:41:
-# _env_resolve_name's "process environment wins" check now consults an
+# CASE 10 — restore.sh's real call sequence:
+# _env_resolve_name's "process environment wins" check consults an
 # immutable snapshot taken the moment common.sh is sourced, not the live
 # shell variable table. Without this, a SECOND env_value_into call (for a
 # DIFFERENT key) that happens to assign a value into the SAME name a
@@ -785,8 +782,8 @@ else
 fi
 
 # ============================================================================
-# CASE 11 — fix(#1778, P2) at scripts/lib/common.sh:176-195
-# (dash branch): a NAME is identified per PHYSICAL line of `export -p`'s
+# CASE 11 — the dash branch of the environment snapshot in
+# scripts/lib/common.sh: a NAME is identified per PHYSICAL line of `export -p`'s
 # output. An inherited value containing a real embedded newline
 # immediately followed by text that itself looks like "export X=" gets
 # misread as a second, phantom declaration of X. Two distinct failures

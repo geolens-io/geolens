@@ -1,6 +1,6 @@
 """Let PostgreSQL enforce one terminal audit entry per embedding backfill run.
 
-fix(#1550 review): three actors can close a backfill's audit trail — the
+Three actors can close a backfill's audit trail — the
 worker, the status poll and the stale sweeper — and more than one can be right
 about the same run. The first attempt at idempotency was a read-before-write
 existence check, which is a check-then-insert: two actors both read "no

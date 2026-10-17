@@ -1,6 +1,6 @@
 """Index the origin_ref keys the duplicate-source guards query.
 
-perf(#1324). Follow-up to #1286 / PR #1320, which re-keyed the
+Follows the re-keying of the
 service-preview and STAC-import duplicate-source guards from the
 `origin_uri` string onto the structured `origin_ref` identity —
 `origin_ref->>'url'` / `origin_ref->>'layer_id'` for services
@@ -27,8 +27,8 @@ self-maintaining: a new service kind that starts writing `url` is covered
 without a migration, where a `source_format` list would need one.
 
 Why hash, not btree, for EVERY one of these three (closing the class, not
-patching per-column — round 2 caught it on `source_url`, round 4 caught the
-same hazard on the two `origin_ref` columns): all three call sites compare
+patching per-column, since `source_url` and the two `origin_ref` columns share
+the same hazard): all three call sites compare
 with pure equality only — `origin_ref->>'url' == base_url` /
 `origin_ref->>'asset_href'` `.in_(hrefs)` / `source_url == enriched_url` /
 `source_url.in_(hrefs)` (postgres decomposes an `IN` list into an OR of `=`

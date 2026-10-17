@@ -33,7 +33,7 @@ concurrency:
   # scheduled run — every nightly for a week was cancelled this way, which is
   # how the e2e suite silently rotted (v1.6.0 audit N2 family).
   #
-  # fix(#1000), checked rather than changed: this shape is already safe for the
+  # This shape is already safe for the
   # merge queue. Each queue entry runs on its own `gh-readonly-queue/main/pr-N-<sha>`
   # ref, so `github.ref` alone puts every entry in a distinct group — two
   # batches in flight cannot cancel each other, and a queue run and the PR run
@@ -79,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          # fix(#1094): the default depth-1 clone grafts the checked-out commit
+          # The default depth-1 clone grafts the checked-out commit
           # as a shallow boundary, and git then reports it as having NO parents:
           # `git rev-parse HEAD^1` dies with "ambiguous argument". Depth 2 is the
           # minimum that materialises the merge ref's two parents, which is all
@@ -106,7 +106,7 @@ jobs:
           else
             echo "No passing merge-queue run for ${GITHUB_SHA}; running the full matrix."
           fi
-      # fix(#1094): resolve the PR diff base ourselves. paths-filter's no-token
+      # Resolve the PR diff base ourselves. paths-filter's no-token
       # path diffs `pull_request.base.sha .. merge-commit`, and base.sha is
       # frozen at PR-open time while GitHub recomputes the merge ref every time
       # main moves. So the diff grew to include everything that landed since:
@@ -142,13 +142,13 @@ jobs:
         # after the queue already passed them.
         if: github.event_name != 'merge_group' && github.event_name != 'push'
         with:
-          # fix(#546): empty token switches paths-filter to git-diff detection,
+          # Empty token switches paths-filter to git-diff detection,
           # removing the GitHub API call whose transient 503s failed this
-          # required check hard. fix(#1094) supplies the base that detection
+          # required check hard. The diffbase step supplies the base that detection
           # diffs from; without it the action falls back to the stale
           # pull_request.base.sha.
           token: ''
-          # fix(#1094): empty on push and merge_group, where the action's own
+          # Empty on push and merge_group, where the action's own
           # defaults (before-SHA / merge_group.base_sha) are already right.
           # The action logs "'base' input parameter is ignored when action is
           # triggered by pull request event" — that warning is wrong on this
@@ -186,7 +186,7 @@ jobs:
               # Decides which test files each Backend Tests shard runs; a PR
               # touching only it must exercise the sharded run.
               - 'scripts/ci_backend_shards.py'
-              # fix(#1277 review): test_sdks_round_trip.py asserts the generated
+              # test_sdks_round_trip.py asserts the generated
               # SDK carries no unguarded optional-body emission, which is what
               # this script produces during `make sdks`. A PR editing only the
               # script would otherwise skip Backend Tests and never run the
@@ -198,7 +198,7 @@ jobs:
               # The SDK's hand-maintained modules (auth.py, cog_download.py) are
               # tested only in test_sdks_round_trip.py and change without backend/**.
               - 'sdks/python/geolens/*.py'
-              # fix(#1607): test_seed_showcase_pins_1607.py imports this seeder
+              # test_seed_showcase_pins_1607.py imports this seeder
               # and walks its AST to prove every builder routes its map-exists
               # check through _keep_existing_map, so the maps geolens-examples
               # links by UUID survive --force. A seeder-only PR that skipped
@@ -210,9 +210,8 @@ jobs:
               # nginx/CSP/Dockerfile regressions). Specific files only — NOT
               # frontend/src/** — so ordinary frontend PRs stay backend-skipped.
               - 'frontend/nginx.conf'
-              # fix(#1088): 'frontend/Dockerfile' was here and matched nothing —
-              # INF-10 deleted that file and test_phase_272_dockerfile.py keeps
-              # it deleted. A dead glob is silent in both directions.
+              # frontend/Dockerfile no longer exists (test_phase_272_dockerfile.py
+              # keeps it deleted), and a dead glob is silent in both directions.
               - 'frontend/Dockerfile.dev'
               - 'frontend/docker-entrypoint.sh'
               - 'frontend/index.html'
@@ -236,7 +235,7 @@ jobs:
               # fixed-failure-code to translation-key table); a
               # frontend-only edit here must still run Backend Tests.
               - 'frontend/src/lib/failure-reason.ts'
-              # fix(#1778): test_settings_key_drift.py reads these by
+              # test_settings_key_drift.py reads these by
               # literal path (the settings-key subset guard: frontend_keys
               # is a subset of backend registry keys) and
               # test_iso_option_drift.py reads iso-constants.ts (the ISO
@@ -248,7 +247,7 @@ jobs:
               # reads this spec by literal path to pin the S08 test block; the
               # 'e2e' filter alone does not trigger Backend Tests.
               - 'e2e/sec-audit.spec.ts'
-              # fix(#1088): repo-root scripts that backend tests read by literal
+              # repo-root scripts that backend tests read by literal
               # path. #1027 changed backup-entrypoint.sh and its own regression
               # test (test_backup_staging_tar_skew.py) never ran — the backup
               # filter covered the script, but nothing pulled in the backend
@@ -259,35 +258,35 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/init-db.sh'
               - 'scripts/lib/configure-runtime-db-role.sh'
-              # fix(#1798 review round 11 audit, P1): read by literal path in
+              # Read by literal path in
               # test_audit_1798_runbook_shell_sourcing.py, which asserts this
               # wrapper exists, is executable, and calls get_env_value.
               - 'scripts/env-value.sh'
               # test_compose_db_healthcheck.py reads its db healthcheck.
               - 'scripts/tests/ci-restore-db.compose.yml'
-              # fix(#1517): test_alert_rules.py reads both of these by literal
+              # test_alert_rules.py reads both of these by literal
               # path — it checks the alert rules' handler selectors against the
               # app's real route table, and that every rule has a promtool case.
               # Without this, an alerts-only PR skips the only gate that would
               # catch a selector matching nothing.
               - 'infra/monitoring/alerts.yml'
               - 'infra/monitoring/alerts.test.yml'
-              # fix(#1778): test_alert_rules.py reads this one by literal path
+              # test_alert_rules.py reads this one by literal path
               # too -- it checks that the worker scrape job discovers every
               # replica, because the job counters live in the process that did
               # the work and an unscraped replica is invisible.
               - 'infra/monitoring/prometheus.yml'
-              # fix(#1778 codex r8): and the dashboard, for the other half of
+              # The dashboard too, for the other half of
               # that -- once discovery finds every replica, a panel reading a
               # per-replica job series without an aggregator draws one partial
               # line per replica.
               - 'infra/monitoring/grafana-dashboard.json'
-              # fix(#561): a change to this workflow can alter HOW Backend Tests
+              # A change to this workflow can alter HOW Backend Tests
               # runs (e.g. the -n4 parallelization / coverage core), so the suite
               # must run on PRs that touch it — otherwise CI-config changes ship
               # unvalidated by the very tests they configure.
               - '.github/workflows/ci.yml'
-              # fix(#1609): test_release_dispatch_targets_1609.py reads
+              # test_release_dispatch_targets_1609.py reads
               # release.yml by literal path and asserts both downstream
               # dispatches (the site and geolens-examples) stay wired and
               # independent. Without this, a release.yml-only PR skips the
@@ -302,7 +301,7 @@ jobs:
               # CodeQL.
               - '.github/workflows/codeql.yml'
               - '.github/codeql/**'
-              # fix(#1925): test_unscoped_finding_markers.py reads this config
+              # test_unscoped_finding_markers.py reads this config
               # and asserts the marker hook still runs the detector, so a
               # config-only PR must run the suite that notices a hook drifting.
               - '.pre-commit-config.yaml'
@@ -320,7 +319,7 @@ jobs:
               - 'frontend/**'
               - 'backend/openapi.json'
               - 'scripts/flatten_openapi_defs.py'
-              # fix(#636): template-parity.test.ts asserts the in-app problem
+              # template-parity.test.ts asserts the in-app problem
               # reporter's prefill against this Issue Form — a template-only PR
               # must still run the frontend tests or drift lands silently.
               - '.github/ISSUE_TEMPLATE/bug_report.yml'
@@ -338,11 +337,11 @@ jobs:
               # PR #745: the Playwright toolchain lives in the ROOT manifests.
               - 'package.json'
               - 'package-lock.json'
-              # fix(#825): same rationale as the backend filter's #561 entry —
+              # Same rationale as the backend filter's workflow entry:
               # a change to this workflow alters HOW the e2e-smoke PR gate
               # runs, so the gate must run on PRs that touch it.
               - '.github/workflows/ci.yml'
-              # fix(#862 review): the smoke job copies .env.example and boots
+              # The smoke job copies .env.example and boots
               # the compose stack, so its remaining build/boot inputs must
               # trigger the gate: the root api/worker Dockerfile and the
               # .dockerignore that trims its context, the db image context
@@ -362,7 +361,7 @@ jobs:
             mcp:
               - 'mcp/**'
               - 'sdks/python/**'
-              # fix(#827, #866 review): the live tier tests backend BEHAVIOR,
+              # The live tier tests backend BEHAVIOR,
               # not just schema — a runtime regression in the handlers the
               # five tools read (or in the auth/config paths the tier relies
               # on) can ship with a byte-identical openapi.json, so the whole
@@ -375,15 +374,15 @@ jobs:
               - '.env.example'
               - 'db/**'
               - 'scripts/init-db.sh'
-              # fix(#866 review r4): the job invokes the root `make mcp-test`
+              # The job invokes the root `make mcp-test`
               # and `make mcp-live-test` recipes, so a Makefile-only change
               # must run it.
               - 'Makefile'
-              # Same rationale as the backend filter's #561 entry — a change
+              # Same rationale as the backend filter's workflow entry: a change
               # to this workflow alters HOW the mcp job runs (incl. the live
               # tier's boot recipe), so the job must run on PRs that touch it.
               - '.github/workflows/ci.yml'
-            # fix(#709): a PR that only touches the SDKs' own toolchain
+            # A PR that only touches the SDKs' own toolchain
             # (generator, package.json, tsconfig) ran neither drift gate,
             # so generator breakage merged green and reddened main on push.
             sdks:
@@ -414,7 +413,7 @@ jobs:
               - 'scripts/restore.sh'
               - 'scripts/check-env.sh'
               - 'scripts/lib/common.sh'
-              # fix(#1882): preflight now reads .env through common.sh's
+              # Preflight now reads .env through common.sh's
               # get_env_value, so both it and its test belong on this filter.
               - 'scripts/preflight-env.sh'
               - 'scripts/tests/test-preflight-env.sh'
@@ -435,7 +434,7 @@ jobs:
               - 'backend/app/core/config_ai.py'
               - '.env.example'
               - 'UPGRADING.md'
-              # fix(#950): the drift gate resolves scripts/ paths referenced by
+              # The drift gate resolves scripts/ paths referenced by
               # these docs, so an edit to any of them (or a script deletion)
               # must re-run it, not just land unchecked until the push on main.
               - '.env.test.example'
@@ -456,7 +455,7 @@ jobs:
               - 'scripts/restore.sh'
               - 'scripts/lib/configure-runtime-db-role.sh'
               - 'scripts/tests/test-backup-restore-roundtrip.sh'
-              # test(#826): the bundled-mode leg restores through the REAL
+              # The bundled-mode leg restores through the REAL
               # restore.sh against this db-only compose stack.
               - 'scripts/tests/ci-restore-db.compose.yml'
               - 'db/**'
@@ -468,7 +467,7 @@ jobs:
               # The round-trip proof itself is ~220 inline lines of THIS
               # workflow — a ci.yml-only edit to those steps must run them.
               - '.github/workflows/ci.yml'
-            # fix(#1521 review): the promtool suite. Separate from `backend`
+            # The promtool suite. Separate from `backend`
             # because it needs no Python at all and should not run on every
             # backend PR; the alerts files are in BOTH filters on purpose, since
             # backend/tests/test_alert_rules.py reads them too.
@@ -553,13 +552,13 @@ jobs:
           SKIP: ruff-check,ruff-format,gitleaks
         run: pre-commit run --all-files --show-diff-on-failure
 
-      # fix(#474): this scans backend detail= assignments as well as the
+      # This scans backend detail= assignments as well as the
       # frontend classifier, so it must run for backend-only PRs too.
       - name: Localized API error boundary
         run: node frontend/scripts/check-api-error-boundary.mjs
 
       - name: Install gitleaks
-        # fix(#1859): retries a transient download failure instead of letting
+        # Retries a transient download failure instead of letting
         # it evict the whole merge-queue entry on a required job.
         run: |
           GL=8.30.1
@@ -601,7 +600,7 @@ jobs:
         run: sh scripts/tests/test-install-main-wrapper.sh
 
       # Both upgrade suites shipped without CI wiring; the order test now also
-      # covers the PG-major refusal (chore(#704)), so it has to actually run.
+      # covers the PG-major refusal, so it has to actually run.
       - name: Upgrade order + PG-major guard regression test
         run: sh scripts/tests/test-upgrade-order.sh
 
@@ -620,10 +619,9 @@ jobs:
       - name: preflight-env.sh .env parsing regression test
         run: sh scripts/tests/test-preflight-env.sh
 
-      # fix(#1798 review round 13, P2, review 5103870781): get_env_value's
-      # .env interpolation/decoding checked against REAL `docker compose`
-      # (not just our own understanding of its grammar) for the full corpus
-      # of rounds 6-12 findings. `docker compose config` needs no daemon,
+      # get_env_value's .env interpolation/decoding is checked against REAL
+      # `docker compose` (not just our own understanding of its grammar).
+      # `docker compose config` needs no daemon,
       # image pull, or network — ubuntu-26.04 ships docker compose.
       - name: get_env_value vs real Docker Compose oracle test
         run: sh scripts/tests/test-env-file-compose-oracle.sh
@@ -651,7 +649,7 @@ jobs:
   # Dockerfile) and exercises backup → restore for BOTH DB modes:
   #   BUNDLED: backup image runs pg_dump + SigV4 S3 upload inside the image;
   #            the dump is then restored by the REAL scripts/restore.sh
-  #            (test(#826)) into a db-only compose stack
+  #            into a db-only compose stack
   #            (scripts/tests/ci-restore-db.compose.yml); restored row counts
   #            must match exactly and geolens_reader must SELECT restored data.
   #   MANAGED: provider-snapshot DB (seeded directly) + object-storage archive
@@ -810,7 +808,7 @@ jobs:
 
       - name: BUNDLED MODE — boot backup image (SigV4 S3 upload via image) → REAL scripts/restore.sh → row-count + reader assert
         env:
-          # test(#826): everything scripts/restore.sh needs, env-parameterized
+          # Everything scripts/restore.sh needs, env-parameterized
           # (the CI checkout ships no .env): the db-only compose stack whose
           # `db` service is the restore target, and the target credentials/
           # database. COMPOSE_PROJECT_NAME is pinned so this step's compose
@@ -873,10 +871,10 @@ jobs:
           [ -n "$DUMP_FILE" ] || { echo "FAIL: backup image produced no dump file"; exit 1; }
           [ -s "$DUMP_FILE" ] || { echo "FAIL: backup image dump file is empty"; exit 1; }
 
-          # test(#826): restore through the REAL scripts/restore.sh — no inline
-          # replica of its flags. The old copy here had already drifted (it
-          # validated with `pg_restore --list`, which passes a truncated -Fc
-          # dump, while the script uses the stricter `-f /dev/null`, #710).
+          # Restore through the REAL scripts/restore.sh — no inline
+          # replica of its flags, which would drift (`pg_restore --list` passes
+          # a truncated -Fc dump, while the script uses the stricter
+          # `-f /dev/null`).
           # Bring up the db-only compose stack the script will exec into; its
           # image is the shipped db/Dockerfile build (restore.sh's fail-closed
           # pre-restore DDL needs postgis/pg_trgm/unaccent/vector installed).
@@ -1059,7 +1057,7 @@ jobs:
 
       - name: Install TypeScript SDK dependencies (locked)
         working-directory: sdks/typescript
-        # fix(#1816): same npm-ci-stall settings as License Check
+        # Same npm-ci-stall settings as License Check
         # (frontend)'s Install step, applied here for consistency —
         # any job restoring the npm cache and then fetching from the
         # registry can hit the same registry stall.
@@ -1075,7 +1073,7 @@ jobs:
   # ---------- version coherence ----------
   # REL-04: assert every version site agrees (backend/cli/sdks×2/root+frontend
   # package.json/openapi.json info.version/main.py fallback constant/the 5
-  # lockfiles that embed the package's own version, fix(#877)). Blocks a
+  # lockfiles that embed the package's own version). Blocks a
   # release where one site silently drifted from the rest. Pure stdlib (tomllib
   # + json + re); no DB, no Docker, runs on every push/PR.
   version-coherence:
@@ -1097,7 +1095,7 @@ jobs:
       # The CHANGELOG half of that gate only helps if it asks the same question
       # release.yml asks. This asserts the two extractions agree case for case,
       # including the empty-section and prerelease-tag paths that both fall back
-      # to a filtered git log (fix(#715)).
+      # to a filtered git log.
       - name: Check the CHANGELOG gate tracks release.yml
         run: python scripts/tests/test-changelog-gate.py
 
@@ -1106,7 +1104,7 @@ jobs:
       # unenforced entirely: a release could ship with `[Unreleased]` still
       # comparing from the previous tag and no link for the new version
       # (v1.17.0, #1714). Pins the gate's link assertions and bump_version.py's
-      # mechanical write of both lines (fix(#1716)).
+      # mechanical write of both lines.
       - name: Check the CHANGELOG compare links
         run: python scripts/tests/test-changelog-links.py
 
@@ -1165,10 +1163,10 @@ jobs:
         run: npm run check:readme-assets
 
   # ---------- monitoring ----------
-  # fix(#1521 review): infra/monitoring/alerts.test.yml replays every alert rule
-  # against synthetic series, and until this job existed nothing ran it. A
+  # infra/monitoring/alerts.test.yml replays every alert rule
+  # against synthetic series, and only this job runs it. A
   # PromQL expression that no longer parses, or an expected-alert case that
-  # stopped holding, would have shipped green — the backend suite only reads
+  # stopped holding, would ship green — the backend suite only reads
   # those files as text. promtool is the only thing that can evaluate a rule.
   monitoring-rules:
     name: Monitoring Rules
@@ -1214,7 +1212,7 @@ jobs:
           docker run --rm -v "$PWD/infra/monitoring:/w:ro" \
             --entrypoint promtool "$PROMETHEUS_IMAGE" test rules /w/alerts.test.yml
 
-      # fix(#1778): the scrape config was never validated by anything. It grew
+      # Nothing else validates the scrape config. It has
       # a dns_sd_configs block so the worker job discovers every replica, and a
       # typo there is a config Prometheus refuses at startup — which an
       # operator finds out about instead of CI.
@@ -1258,10 +1256,9 @@ jobs:
         # apt steps, so this also gets a bound.
         timeout-minutes: 10
         run: |
-          # fix(#1859): the base-image pull inside `docker build` hit a
+          # The base-image pull inside `docker build` can hit a
           # transient Docker Hub token-fetch reset ("failed to fetch oauth
-          # token: ... connection reset by peer") in merge-group run
-          # 33966364665 and again on #1858's Backend Tests, evicting an
+          # token: ... connection reset by peer"), which would evict an
           # otherwise-clean queue entry. Retry the whole build, since that is
           # where the pull happens.
           for attempt in 1 2 3 4 5; do
@@ -1410,7 +1407,7 @@ jobs:
           # must be ≥ 32 chars to satisfy the Settings validator.
           sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
           sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=mcp-live-secret-key-padding-32chars-min|' .env
-          # fix(#866 review r4): BOTH admin values must land in .env before
+          # BOTH admin values must land in .env before
           # compose up — .env.example ships GEOLENS_ADMIN_USERNAME= blank,
           # compose interpolates it with no default, and the boot guard
           # FATALs on an empty username. (The e2e jobs solve this by
@@ -1486,10 +1483,9 @@ jobs:
         # apt steps, so this also gets a bound.
         timeout-minutes: 10
         run: |
-          # fix(#1859): the base-image pull inside `docker build` hit a
+          # The base-image pull inside `docker build` can hit a
           # transient Docker Hub token-fetch reset ("failed to fetch oauth
-          # token: ... connection reset by peer") in merge-group run
-          # 33966364665 and again on #1858's Backend Tests, evicting an
+          # token: ... connection reset by peer"), which would evict an
           # otherwise-clean queue entry. Retry the whole build, since that is
           # where the pull happens.
           for attempt in 1 2 3 4 5; do
@@ -1706,7 +1702,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # fix(#1633): the gpkg byte-determinism gate
+      # The gpkg byte-determinism gate
       # (test_export_artifact_cache_1532.py::test_every_export_format_is_byte_deterministic)
       # flaked once in a merge-group run and passed 10/10 locally right after —
       # a rare, environment- or time-dependent nondeterminism the issue asks
@@ -1883,7 +1879,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        # fix(#1816): same npm-ci-stall settings as License Check
+        # Same npm-ci-stall settings as License Check
         # (frontend)'s Install step, applied here for consistency —
         # any job restoring the npm cache and then fetching from the
         # registry can hit the same registry stall.
@@ -1908,13 +1904,12 @@ jobs:
       - name: ESLint
         run: npm run lint
 
-      # fix(#836): the four sec lint pins existed in package.json but nothing ran
+      # The four sec lint pins in package.json need a step to run
       # them. The *-regression scripts strip inline eslint-disable comments and
       # assert the security rule still FIRES on its fixture (exit != 0); the
       # *-no-false-positive scripts assert the sanitized fixture stays clean.
       # Without this step, an eslint-config change that silently drops
-      # SEC-S14 (token-in-localStorage ban) or SEC-FU-03 (react/no-danger)
-      # would land unnoticed.
+      # the token-in-localStorage ban or react/no-danger would land unnoticed.
       - name: ESLint security-rule regression pins
         run: |
           npm run lint:sec-s14-regression
@@ -1953,7 +1948,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        # fix(#1816): same npm-ci-stall settings as License Check
+        # Same npm-ci-stall settings as License Check
         # (frontend)'s Install step, applied here for consistency —
         # any job restoring the npm cache and then fetching from the
         # registry can hit the same registry stall.
@@ -1983,8 +1978,7 @@ jobs:
     runs-on: ubuntu-26.04
     if: always()  # run even if other jobs fail
     timeout-minutes: 5
-    # fix(#1816 round 2): job-scoped, not step-scoped. Codex round 1 on #1818
-    # caught that a step-level env: on "Install frontend dependencies" only
+    # job-scoped, not step-scoped: a step-level env: on "Install frontend dependencies" only
     # covers `npm ci` — the next step's two `npx --yes license-checker`
     # calls fetch that package over the network too (it's in neither
     # package.json nor package-lock.json, unlike `npx playwright` elsewhere
@@ -2009,8 +2003,7 @@ jobs:
 
       - name: Install frontend dependencies (locked)
         working-directory: frontend
-        # fix(#1816): three PR runs on 2026-09-03 (License Check job,
-        # runs 33814256132, 33817442567 x2) printed nothing for five
+        # PR runs of the License Check job have printed nothing for five
         # minutes after the npm cache restored, then hit the job's
         # timeout-minutes cap with the run marked "cancelled" rather
         # than failed. npm's own defaults (`npm config list -l`:
@@ -2093,19 +2086,18 @@ jobs:
   # or cancelled fails it; skipped and success pass. Branch protection should
   # require THIS single context instead of the individual skippable jobs.
   #
-  # fix(#1000): "skipped counts as pass" is right for a path-filtered PR and
+  # "skipped counts as pass" is right for a path-filtered PR and
   # would be a hole in the merge queue, where a skip means "never ran against
-  # this candidate merge". It is not fixed HERE — the rule stays as it is —
-  # because the honest fix is upstream: every job in this list now actually
+  # this candidate merge". The rule stays as it is
+  # because every job in this list actually
   # RUNS on merge_group, so there is nothing to mis-credit. If you add a job to
   # this aggregator, give it a merge_group clause too, or you have quietly
   # reopened the hole.
   #
-  # fix(#1096): accessibility and stac-validate USED TO be listed here as
-  # deliberately off merge_group. That reasoning held only while the queue was
-  # off. With it on, "still runs when the batch lands on main" meant they could
-  # not block the commit that broke them, and neither was in this list, so a
-  # failure gated nothing anywhere and just painted main red with no owner.
+  # Accessibility and stac-validate run on merge_group and are listed here:
+  # a job that only runs once the batch lands on main cannot block the commit
+  # that broke it, so a failure would gate nothing and just paint main red
+  # with no owner.
   # Both now run on merge_group and appear below.
   #
   # Still deliberately off merge_group: runtime-extension-image-probe (builds
@@ -2129,10 +2121,10 @@ jobs:
       - frontend-lint
       - frontend-test
       - security-scan
-      # fix(#1521 review): the promtool suite gates nothing unless it is here —
+      # The promtool suite gates nothing unless it is here:
       # branch protection only sees CI OK.
       - monitoring-rules
-      # fix(#824): always-run jobs must feed the aggregator too — before this,
+      # Always-run jobs must feed the aggregator too: otherwise
       # a failure in version-coherence or docs-contract could not block a
       # merge (branch protection only sees CI OK). changes and pre-commit are
       # included so the aggregator is complete on its own: a failed `changes`
@@ -2145,7 +2137,7 @@ jobs:
       - version-coherence
       - docs-contract
       - readme-assets
-      # fix(#825): PR-only browser gate; skipped (non-stack PRs, push, cron)
+      # PR-only browser gate; skipped (non-stack PRs, push, cron)
       # counts as pass below, failed blocks the merge.
       - e2e-smoke
       # Skipped on PRs (both stay off pull_request), which the step below
@@ -2263,7 +2255,7 @@ jobs:
     # A clean run includes fixture ingestion, 150+ checks, retries, and cleanup.
     # Keep enough headroom for the whole suite to finish on a shared runner.
     timeout-minutes: 30
-    # fix(#896): failing spec names travel to nightly-e2e-report as a job
+    # Failing spec names travel to nightly-e2e-report as a job
     # output (readable from `needs` even when this job fails), so the
     # tracking issue can name specs instead of only "e2e-test: failure".
     outputs:
@@ -2298,7 +2290,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        # fix(#1816): same npm-ci-stall settings as License Check
+        # Same npm-ci-stall settings as License Check
         # (frontend)'s Install step, applied here for consistency —
         # any job restoring the npm cache and then fetching from the
         # registry can hit the same registry stall.
@@ -2393,22 +2385,19 @@ jobs:
       - name: Run E2E tests
         run: npx playwright test
 
-      # fix(#524 B-036): the builder-hardening suite previously ran in NO CI
-      # trigger (this job runs only the default config), so a red hardening
-      # gate on main was invisible. Chromium projects only: the runner
+      # The default config does not cover the builder-hardening suite, so
+      # it needs its own step. Chromium projects only: the runner
       # installs chromium alone, and the firefox/webkit projects are a local
       # reviewer concern. --reporter=line keeps it from clobbering the main
       # suite's playwright-report/ artifact.
       #
-      # fix(#1778): chromium-hardening-dark (light-mode gap closed for this
-      # config) was defined but never selected here, so it never actually
-      # ran in CI. Both chromium projects in one invocation; still no
+      # Both chromium projects (light and dark) run in one invocation; still no
       # firefox/webkit install needed since both are chromium under the
       # hood, just a different colorScheme.
       - name: Run builder-hardening E2E suite (chromium, light + dark)
         run: npx playwright test -c playwright.builder-hardening.config.ts --project=chromium-hardening --project=chromium-hardening-dark --reporter=line
 
-      # fix(#896): extract the failing spec names from the json reporter
+      # Extract the failing spec names from the json reporter
       # output (playwright.config.ts) so the nightly report can say WHICH
       # specs are red and how many attempts each burned — the six-day
       # dataset-chat rot was invisible behind a bare "e2e-test: failure".
@@ -2457,9 +2446,9 @@ jobs:
         run: docker compose down
 
   # ---------- E2E smoke (PR gate) ----------
-  # fix(#825): the browser suites used to run nightly ONLY, so a PR that broke
-  # a core user flow merged green and the breakage surfaced days later — and
-  # compounded when the nightly itself was silently cancelled (see the
+  # A nightly-only browser suite lets a PR that breaks
+  # a core user flow merge green, and the breakage surfaces days later (the
+  # nightly was once silently cancelled; see the
   # concurrency comment at the top of this file). This job runs the small
   # `e2e:smoke:core` script (root package.json; ~1 min of specs against the
   # composed stack) on PRs whose changes can affect it, per the `e2e` path
@@ -2469,7 +2458,7 @@ jobs:
   e2e-smoke:
     name: E2E Smoke (core)
     needs: changes
-    # fix(#1000): unconditional on merge_group — no path filter, because there
+    # Unconditional on merge_group — no path filter, because there
     # is no reliable one there (see the `changes` job) and because the queue is
     # the last gate before main. It is also the one job in `ci-ok` whose whole
     # purpose is catching what a COMBINATION breaks: two PRs can each leave the
@@ -2512,7 +2501,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        # fix(#1816): same npm-ci-stall settings as License Check
+        # Same npm-ci-stall settings as License Check
         # (frontend)'s Install step, applied here for consistency —
         # any job restoring the npm cache and then fetching from the
         # registry can hit the same registry stall.
@@ -2632,7 +2621,7 @@ jobs:
         run: docker compose down
 
   # ---------- nightly live AI evals ----------
-  # fix(#548): the assertion-based NL→SQL evals (backend/tests/evals/, added in
+  # The assertion-based NL→SQL evals (backend/tests/evals/, added in
   # #537/#538) call the REAL Anthropic API and execute the generated SQL through
   # the production sandbox. They cost provider tokens, so they run ONLY on
   # schedule/workflow_dispatch — never on push/PR (fork PRs receive no secrets
@@ -2676,10 +2665,9 @@ jobs:
         # apt steps, so this also gets a bound.
         timeout-minutes: 10
         run: |
-          # fix(#1859): the base-image pull inside `docker build` hit a
+          # The base-image pull inside `docker build` can hit a
           # transient Docker Hub token-fetch reset ("failed to fetch oauth
-          # token: ... connection reset by peer") in merge-group run
-          # 33966364665 and again on #1858's Backend Tests, evicting an
+          # token: ... connection reset by peer"), which would evict an
           # otherwise-clean queue entry. Retry the whole build, since that is
           # where the pull happens.
           for attempt in 1 2 3 4 5; do
@@ -2833,7 +2821,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        # fix(#1816): same npm-ci-stall settings as License Check
+        # Same npm-ci-stall settings as License Check
         # (frontend)'s Install step, applied here for consistency —
         # any job restoring the npm cache and then fetching from the
         # registry can hit the same registry stall.
@@ -2916,11 +2904,10 @@ jobs:
             sleep 10
           done
 
-      # fix(#1817): 2026-09-03 runs 33790017112 and 33815788642 both hit this
-      # job's 15-minute cap with the log frozen at "Running 68 tests using 1
-      # worker" — GitHub then marks every step "cancelled", which the two
-      # upload steps below (correctly) skip via !cancelled(), so the ejected
-      # #1798 queue run left no report to look at. playwright.config.ts's CI
+      # A run that hits this job's 15-minute cap with the log frozen at
+      # "Running 68 tests using 1 worker" gets every step marked "cancelled",
+      # which the two upload steps below (correctly) skip via !cancelled(), so
+      # the ejected queue run would leave no report to look at. playwright.config.ts's CI
       # reporter set ([github, html, json]) writes only at the end, so
       # nothing streams to the log while a run is in progress; --reporter
       # here is scoped to this invocation only (CLI --reporter replaces,
@@ -3083,7 +3070,7 @@ jobs:
         run: docker compose down
 
   # ---------- nightly red-run tracking issue ----------
-  # fix(#825): a red nightly was only visible in the Actions tab, and the cron
+  # A red nightly was only visible in the Actions tab, and the cron
   # was once silently cancelled for a week (see the concurrency comment at the
   # top of this file) — the two gaps compounded. On scheduled runs this job
   # files the failure where it cannot be missed: it comments on the open
@@ -3110,7 +3097,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           E2E_RESULT: ${{ needs.e2e-test.result }}
           A11Y_RESULT: ${{ needs.accessibility.result }}
-          # fix(#896): spec-level detail from the json reporter, so a
+          # spec-level detail from the json reporter, so a
           # deterministic spec break reads differently from a flake without
           # anyone downloading traces.
           FAILED_SPECS: ${{ needs.e2e-test.outputs.failed_specs }}

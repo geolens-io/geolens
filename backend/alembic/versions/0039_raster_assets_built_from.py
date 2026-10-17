@@ -1,9 +1,9 @@
 """Record what a VRT was actually built from.
 
-fix(#1290 review). VRT member staleness was decided by comparing timestamps —
-the member's ``ingested_at`` against the parent's ``last_regenerated_at`` — and
-three rounds of fixing that comparison each left a residual window, because the
-question is not a time question.
+VRT member staleness cannot be decided by comparing timestamps
+(the member's ``ingested_at`` against the parent's ``last_regenerated_at``),
+because the comparison always leaves a residual window: the question is not a
+time question.
 
 The decisive case: a replacement assigns ``ingested_at`` inside its transaction
 and commits later. A regenerate whose snapshot falls between those two instants

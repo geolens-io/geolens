@@ -16,12 +16,13 @@ release whose headline change landed as `chore(db): upgrade ... PostgreSQL 18`
 would publish notes that never mention it. Nothing else in CI reads CHANGELOG.md.
 
 Also asserts the reference-style link block at the bottom of CHANGELOG.md
-agrees with the canonical version (fix(#1716)): a `[<version>]:` compare link
+agrees with the canonical version: a `[<version>]:` compare link
 must exist for the canonical version, and `[Unreleased]:` must compare from
-`v<version>...HEAD`, not an older tag. Both edits used to be manual and
+`v<version>...HEAD`, not an older tag. Both edits are mechanical in
+bump_version.py but were once manual and
 unenforced, so a release could ship with an unlinked heading while
 `[Unreleased]` kept claiming every change in the release that just shipped
-(seen on v1.17.0, #1714). scripts/bump_version.py now writes both lines
+(seen on v1.17.0, #1714). scripts/bump_version.py writes both lines
 mechanically; this is the backstop.
 
 Sites checked:
@@ -46,7 +47,7 @@ Sites checked:
   - sdks/typescript/package-lock.json       .version + packages."".version
 
 The lockfiles are checked because every one of them lagged a release at least
-once while `make bump` rewrote only the manifests (fix(#877)). Each site is read
+once while `make bump` rewrote only the manifests. Each site is read
 structurally — the package's OWN entry, not "the version string appears in the
 file" — since any dependency could coincidentally sit at the same version.
 
@@ -93,7 +94,7 @@ _COMPARE_LINK_RE = re.compile(
     rf"v(?P<from>\d+\.\d+\.\d+)\.\.\.(?P<to>v\d+\.\d+\.\d+|HEAD)$"
 )
 
-# Lockfiles that embed the package's own version (fix(#877)). A uv.lock records
+# Lockfiles that embed the package's own version. A uv.lock records
 # it for every LOCAL package it resolves — the project itself plus any editable
 # path dependency in this repo (mcp/ depends on sdks/python) — so both of mcp's
 # entries move on a bump. bump_version.py stamps this same set.
@@ -410,7 +411,7 @@ def main() -> int:
     # Canonical = backend distribution version (what the app derives at runtime).
     canonical = sites[f"{_rel(BACKEND_PYPROJECT)} ([project].version)"]
 
-    # fix(#1019): print every site BEFORE any check can return. Both CHANGELOG
+    # Print every site BEFORE any check can return. Both CHANGELOG
     # failure paths used to sit above this listing, so a `make version-check`
     # that failed on the CHANGELOG never said whether the lockfiles and
     # manifests had stamped — which is the whole reason you run it mid-bump.
@@ -463,7 +464,7 @@ def main() -> int:
             f"  [ok] {_rel(CHANGELOG)}: '## [{canonical}]' section present ({lines} lines)."
         )
 
-    # fix(#1716): the reference-style compare links at the bottom of the file
+    # The reference-style compare links at the bottom of the file
     # are not part of the `## [version]` section check above, and nothing else
     # in CI reads them — a release can land with a correct header and section
     # while `[Unreleased]` still compares from the previous tag and the new

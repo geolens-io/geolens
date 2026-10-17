@@ -10,8 +10,7 @@ lacks it, so DCAT distributions match what a fresh ingest produces. Mirrors
 0054_backfill_flatgeobuf_distributions.py, the precedent for adding a
 format to this materialized list.
 
-The NOT EXISTS guard reads only auto_generated rows (0054's codex-review
-fix, applied here from the start): a user-authored download/pmtiles
+The NOT EXISTS guard reads only auto_generated rows (as in 0054): a user-authored download/pmtiles
 distribution must not suppress the platform's own export row -- both are
 meant to coexist, matching generate_distributions' own existence probe. The
 INSERT carries ON CONFLICT DO NOTHING for the same reason 0054 needs it: a

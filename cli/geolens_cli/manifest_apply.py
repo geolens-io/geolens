@@ -32,10 +32,10 @@ APPLY_ENDPOINT = "/ingest/manifest/apply"
 _COUNT_KEYS = ("create", "update", "skip", "blocked", "error")
 
 # ---------------------------------------------------------------------------
-# fix(#1778 review round 18): batch-aware apply timeout
+# Batch-aware apply timeout
 # ---------------------------------------------------------------------------
 #
-# The FIXED 600s long-request bound (round 5, EXTENDED_REQUEST_TIMEOUT_SECONDS)
+# The FIXED 600s long-request bound (EXTENDED_REQUEST_TIMEOUT_SECONDS)
 # can expire during a legitimately still-succeeding apply. ManifestApplyRequest
 # allows up to 100 datasets (backend/app/processing/ingest/manifest_schemas.py,
 # `datasets: list[ManifestDataset] = Field(min_length=1, max_length=100)`), and
@@ -50,7 +50,7 @@ _COUNT_KEYS = ("create", "update", "skip", "blocked", "error")
 # entry eventually succeeds — the bound must scale with how many entries THIS
 # request is asking the server to resolve, not stay fixed.
 #
-# fix(#1778 review round 21): that 60s figure is httpx's INACTIVITY (read)
+# That 60s figure is httpx's INACTIVITY (read)
 # timeout on the download's streaming loop -- the time allowed between
 # individual chunks arriving, reset on every chunk -- not a total download
 # deadline. A large source served slowly but steadily (never idle long enough
@@ -64,8 +64,8 @@ _COUNT_KEYS = ("create", "update", "skip", "blocked", "error")
 
 #: Mirrors the backend's own per-source HTTP download INACTIVITY (read)
 #: timeout (see the module docstring above) — the dominant synchronous cost
-#: per manifest entry, and only a HEURISTIC lower bound, not a deadline (round
-#: 21: a steadily-but-slowly-served large source can legitimately exceed this
+#: per manifest entry, and only a HEURISTIC lower bound, not a deadline (a
+#: steadily-but-slowly-served large source can legitimately exceed this
 #: many times over while still actively succeeding). NOT OGRINFO_TIMEOUT_
 #: SECONDS (300s): that bounds a DIFFERENT synchronous path, the ingest/
 #: reupload PREVIEW probe, already covered by
@@ -81,12 +81,12 @@ MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS: float = 60.0
 #: (there isn't one for this overhead); a round, conservative estimate.
 MANIFEST_ENTRY_PROCESSING_MARGIN_SECONDS: float = 10.0
 
-#: The base budget for a small manifest (a handful of entries) — reuses round
-#: 5's original fixed bound so the common case (few entries, or entries that
-#: return fast) is unaffected by this change.
+#: The base budget for a small manifest (a handful of entries) — reuses the
+#: fixed long-request bound so the common case (few entries, or entries that
+#: return fast) is unaffected by the per-entry scaling.
 MANIFEST_APPLY_BASE_TIMEOUT_SECONDS: float = EXTENDED_REQUEST_TIMEOUT_SECONDS
 
-#: fix(#1778 review round 19): the post-timeout dry-run status check
+#: The post-timeout dry-run status check
 #: (``attempt_apply_timeout_status_check``) does not need the
 #: entry-scaled budget above at all -- ``dry_run`` short-circuits
 #: BEFORE any download/queue work (see
@@ -94,8 +94,8 @@ MANIFEST_APPLY_BASE_TIMEOUT_SECONDS: float = EXTENDED_REQUEST_TIMEOUT_SECONDS
 #: own cost does not grow with entry count. A short, FIXED bound keeps
 #: a stuck/overloaded server from making the status check itself hang
 #: for as long as a maximum-sized ORIGINAL apply could legitimately
-#: need (round 20: up to 7600s for a full 100-entry manifest, no
-#: longer capped at an hour) -- this cheaper follow-up never should.
+#: need (up to 7600s for a full 100-entry manifest) -- this cheaper
+#: follow-up never should.
 MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS: float = 30.0
 
 
@@ -118,19 +118,17 @@ def compute_manifest_apply_timeout(entry_count: int) -> float:
     worst case this formula ever has to produce, at
     ``MANIFEST_APPLY_BASE_TIMEOUT_SECONDS + 100 * 70 == 7600.0``.
 
-    fix(#1778 review round 20): round 18 additionally clamped this to
-    ``MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS`` (3600s) — an ad hoc
-    number smaller than the formula's own maximum (7600s), so the
-    clamp started truncating the budget at ~43 entries, well inside
-    the API's permitted 100. A valid, maximum-sized manifest of slow
-    sources could still time out with earlier entries already queued.
-    Removed: nothing downstream re-clamps the value this function
+    No ceiling smaller than the formula's own maximum (7600s) is applied:
+    it would truncate the budget well inside the API's permitted 100
+    entries, and a valid, maximum-sized manifest of slow sources could
+    still time out with earlier entries already queued.
+    Nothing downstream re-clamps the value this function
     returns (``long_request_timeout()`` assigns it straight to the
     httpx client's ``.timeout``; httpx does not impose its own ceiling
     on that assignment), so the bound this function computes is the
     bound the request actually gets.
 
-    fix(#1778 review round 21): ``MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_
+    ``MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_
     SECONDS`` (60s) is the backend's per-chunk INACTIVITY timeout on
     the download's streaming loop, not a total download deadline — a
     large source served slowly but steadily can legitimately take far
@@ -184,7 +182,7 @@ def resolve_apply_timeout(raw: float | None) -> float | None | Any:
     ``GEOLENS_MANIFEST_APPLY_TIMEOUT`` value into
     ``post_manifest_apply()``'s ``timeout=`` kwarg shape.
 
-    fix(#1778 review round 21): ``raw`` is whatever ``typer``/``click``
+    ``raw`` is whatever ``typer``/``click``
     resolved from CLI flag vs. env var vs. "neither given" -- click's
     own ``envvar=`` precedence on the Option already implements "flag
     wins over env" and rejects a non-numeric value from EITHER source
@@ -208,7 +206,7 @@ def resolve_apply_timeout(raw: float | None) -> float | None | Any:
     """
     if raw is None:
         return _UNSET
-    # fix(#1778 review round 24): click/typer's float coercion happily
+    # click/typer's float coercion happily
     # parses "nan", "inf"/"-inf", and overflowing literals like "1e309"
     # (which rounds to inf) into real float values -- the `raw < 0`
     # check below lets nan through outright (every comparison against
@@ -282,8 +280,8 @@ class ManifestApplyRequestError(Exception):
 
 class _Unset:
     """Sentinel distinguishing "no timeout override given" (compute the
-    heuristic formula) from an explicit ``None`` (fix(#1778 review
-    round 21): --timeout 0 -- no client-side read timeout at all). A
+    heuristic formula) from an explicit ``None`` (--timeout 0 -- no
+    client-side read timeout at all). A
     bare ``None`` default cannot carry that distinction since ``None``
     IS one of the two meaningful values here."""
 
@@ -299,12 +297,12 @@ class ManifestApplyTimeout(Exception):
     ever arrived, unlike ``ManifestApplyRequestError`` (a response DID
     arrive and it was itself an error).
 
-    fix(#1778 review round 18): carries ``entry_count``/``budget`` so
+    Carries ``entry_count``/``budget`` so
     the caller (``report_apply_timeout``) can build an informative
     message without recomputing them, and so a test can assert on the
     values without re-deriving the formula.
 
-    fix(#1778 review round 21): ``budget`` may be ``None`` -- an
+    ``budget`` may be ``None`` -- an
     operator explicitly asked for no client-side read timeout
     (``--timeout 0``) and a CONNECT-phase (or write/pool) timeout still
     fired; the message below says so instead of formatting ``None`` as
@@ -376,22 +374,22 @@ def post_manifest_apply(
 ) -> dict[str, Any]:
     """POST a validated manifest through the SDK-owned HTTP client.
 
-    fix(#1778 review round 5): the backend validates and applies the
+    The backend validates and applies the
     manifest (create/update/skip/error per dataset) before responding,
     which can outlast AppState.sdk()'s plain 30s bound for a manifest
     with many datasets. Wrapped in ``long_request_timeout()``.
 
-    fix(#1778 review round 18): the timeout is now BATCH-AWARE
-    (``compute_manifest_apply_timeout``) rather than the fixed round-5
-    bound — see that function's docstring and the module-level comment
-    above ``MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS`` for why a large
-    manifest of slow sources can legitimately need more than 600s. A
-    timeout now raises ``ManifestApplyTimeout`` (not a raw
-    ``typer.Exit``) so the caller can report the round-18 part (b)/(c)
-    guidance instead of a bare "Request timed out" — see
+    The timeout is BATCH-AWARE
+    (``compute_manifest_apply_timeout``) rather than the fixed
+    long-request bound — see that function's docstring and the module-level
+    comment above ``MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS`` for why a
+    large manifest of slow sources can legitimately need more than 600s. A
+    timeout raises ``ManifestApplyTimeout`` (not a raw
+    ``typer.Exit``) so the caller can report the batch-size and
+    server-keeps-applying guidance instead of a bare "Request timed out" — see
     ``report_apply_timeout``.
 
-    fix(#1778 review round 19): ``timeout``, when given, OVERRIDES the
+    ``timeout``, when given, OVERRIDES the
     batch-aware budget instead of computing it from ``payload``'s own
     entry count. Used by ``attempt_apply_timeout_status_check``'s
     post-timeout dry-run follow-up, which needs the short FIXED
@@ -400,8 +398,7 @@ def post_manifest_apply(
     work, so its cost does not scale with entry count the way the real
     apply's does.
 
-    fix(#1778 review round 21): ``timeout`` is now three-state, not
-    two -- the computed heuristic is only ever a LOWER BOUND (see
+    ``timeout`` is three-state -- the computed heuristic is only ever a LOWER BOUND (see
     ``compute_manifest_apply_timeout``'s docstring), so an operator
     override must be able to ask for something the formula itself
     cannot express: no timeout at all.
@@ -457,7 +454,7 @@ def post_manifest_apply(
 def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
     """Human-readable explanation for a batch-aware apply timeout.
 
-    fix(#1778, #1814): the CLI giving up does not stop the server, which
+    The CLI giving up does not stop the server, which
     reserves each entry before fetching, so a re-apply attaches or skips.
     """
     budget_phrase = (
@@ -493,7 +490,7 @@ def attempt_apply_timeout_status_check(
     just timed out and is exactly the "which entries did the server reach"
     answer.
 
-    fix(#1814): an entry still being staged holds a reservation and classifies
+    An entry still being staged holds a reservation and classifies
     ``skip_in_flight``, so absence from the answer means the server had not
     reached that entry.
 
@@ -531,7 +528,7 @@ def report_apply_timeout(
     exc: ManifestApplyTimeout,
     output: Any,
 ) -> dict[str, Any] | None:
-    """Human-mode convenience: prints the round-18/19 timeout
+    """Human-mode convenience: prints the timeout
     explanation, attempts the dry-run status follow-up
     (``attempt_apply_timeout_status_check``), and prints a warning if
     it could not be completed. Returns the status report (or ``None``).

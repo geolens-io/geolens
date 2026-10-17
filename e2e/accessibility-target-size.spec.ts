@@ -16,7 +16,7 @@ function formatViolations(violations: any[]): string {
 }
 
 /**
- * fix(#1778): the gating suite's `wcagTags` (accessibility.spec.ts) omits
+ * The gating suite's `wcagTags` (accessibility.spec.ts) omits
  * `wcag22aa`, the only tag that reaches axe-core's `target-size` rule, so
  * the map builder's 22px row controls (StackRow.tsx, FolderGroupRow.tsx,
  * BasemapGroupRow.tsx, UnifiedStackPanel.tsx, EmptyStackState.tsx,

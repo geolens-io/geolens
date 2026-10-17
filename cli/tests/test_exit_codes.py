@@ -178,7 +178,7 @@ class TestRemainingStubsExitWithUsage:
     """
 
     def test_export_stac_stub_exits_2(self, runner, tmp_xdg_home) -> None:
-        # fix(#1105): tmp_xdg_home, because without it this reads the
+        # tmp_xdg_home, because without it this reads the
         # developer's real config. It passes in CI, where there is none, and on
         # a machine with a logged-in instance it reaches the host keychain and
         # blocks on the OS access prompt — hanging the whole `make cli-test`
@@ -325,12 +325,11 @@ class TestInteractiveLoginIsBounded:
 
 
 class TestLoginEvictsOtherCredentialType:
-    """fix(#1778): AppState.sdk() prefers a stored bearer token over an API
-    key. `login --api-key` used to store the key WITHOUT clearing a stale
-    bearer/refresh token left over from an earlier interactive login, so
-    every command kept using the stale JWT (and failed once it expired)
-    with no indication the fresh API key was ever ignored. `logout` was
-    the only way to clear the loser. login must evict the other stored
+    """AppState.sdk() prefers a stored bearer token over an API
+    key. `login --api-key` that stored the key WITHOUT clearing a stale
+    bearer/refresh token left over from an earlier interactive login would
+    leave every command using the stale JWT (and failing once it expired)
+    with no indication the fresh API key was ever ignored. login must evict the other stored
     credential type before storing the new one."""
 
     def test_api_key_login_evicts_a_stale_bearer_token(
@@ -1197,14 +1196,13 @@ class TestInteractiveLoginRefreshTokenIsTransactional:
 
 
 class TestRefreshTokenSharesAccessTokenBackend:
-    """replace_credentials() persisted the
-    refresh token with the CALLER's original no_keyring, not
-    store_no_keyring (the backend actually chosen for the access token
-    a few lines above it). When the target keyring read was unknown,
-    forces the access token into credentials.toml -- but the
+    """replace_credentials() must persist the
+    refresh token with the backend actually chosen for the access token,
+    not the CALLER's original no_keyring. When the target keyring read was
+    unknown, the access token is forced into credentials.toml -- but the
     keyring itself may still be perfectly willing to accept the refresh
     token on its own account, so with the original no_keyring=False the
-    two tokens landed in DIFFERENT backends. try_refresh() detects the
+    two tokens would land in DIFFERENT backends. try_refresh() detects the
     backend from the refresh token's own location
     (_detect_credential_backend) and rewrites BOTH rotated tokens back
     to whatever it finds there -- so a rotation would move the refresh
@@ -1214,9 +1212,8 @@ class TestRefreshTokenSharesAccessTokenBackend:
     again and never converges. Both tokens must always land in the SAME
     backend.
 
-    fix(#1778): an earlier fix keyed the refresh
-    token's backend off ``store_no_keyring`` — the PRE-store intent
-    computed from snapshot readability alone. That diverges from
+    Keying the refresh token's backend off ``store_no_keyring`` — the
+    PRE-store intent computed from snapshot readability alone — diverges from
     ``backend``, the store call's ACTUAL outcome, whenever
     ``keyring.get_password`` succeeds at snapshot time (so
     ``store_no_keyring`` stays False) but ``keyring.set_password`` then
@@ -1224,11 +1221,11 @@ class TestRefreshTokenSharesAccessTokenBackend:
     contention, a quota. ``store_bearer_token``/``store_api_key``
     already catch that and fall back to the file, returning
     ``backend == "file"``, while ``store_no_keyring`` stays False; the
-    refresh write then tried the keyring first, and if THAT account's
-    ``set_password`` happened to succeed, the two tokens split again —
-    the exact bug this fix closes, reopened through a
-    store-time failure this class's original tests never exercised
-    (they only fail ``get_password``). The refresh write now keys off
+    refresh write would then try the keyring first, and if THAT account's
+    ``set_password`` happened to succeed, the two tokens would split
+    again, through a store-time failure rather than a snapshot-read
+    failure (the tests above only fail ``get_password``). The refresh
+    write therefore keys off
     ``backend != "keyring"`` — the real outcome, not the pre-store
     intent."""
 
@@ -1407,19 +1404,18 @@ class TestRefreshTokenSharesAccessTokenBackend:
 class TestUnreadableKeyringDuringCleanup:
     """An unreadable keyring during the
     existence check (locked, backend down, ...) is not "no such
-    entry". treated it as such, which left a stale credential
+    entry". Treating it as such would leave a stale credential
     untouched in a keyring that store_bearer_token/store_api_key had
     themselves just fallen back away from (they also catch
     KeyringError and write to credentials.toml instead) — once the
-    keyring became readable again, the untouched stale value won under
+    keyring became readable again, the untouched stale value would win under
     AppState.sdk()'s bearer-first precedence.
 
-    fix(#1778): the earlier propagation was
-    unconditional, which broke `login --no-keyring` and any headless
-    install with no working keyring at all -- keep_backend is "file"
-    in both cases, and the cleanup loop still tried (and failed) to
-    read the keyring regardless, defeating the automatic file
-    fallback. An unreadable keyring during cleanup is now fatal ONLY
+    Propagating unconditionally would break `login --no-keyring` and any
+    headless install with no working keyring at all -- keep_backend is
+    "file" in both cases, and the cleanup loop would still try (and fail)
+    to read the keyring regardless, defeating the automatic file
+    fallback. An unreadable keyring during cleanup is fatal ONLY
     when keep_backend == "keyring" (the keyring is demonstrably
     reachable right now -- the new credential just landed there, so a
     read failure for a DIFFERENT account is a real problem); when the
@@ -1427,19 +1423,18 @@ class TestUnreadableKeyringDuringCleanup:
     store itself already fell back), an unreadable keyring is
     tolerated the same as "no such entry".
 
-    fix(#1778): the "real problem" framing only
+    The "real problem" framing only
     holds when the account was READABLE at snapshot time and then
     became unreadable mid-transaction -- a genuine, worth-surfacing
-    hiccup. _delete_stale_credentials now also skips an account whose
+    hiccup. _delete_stale_credentials also skips an account whose
     SNAPSHOT (taken before any mutation) already came back _UNKNOWN,
     regardless of keep_backend: an account we never had visibility
     into cannot safely be deleted (see
     TestSnapshotUnknownIsNeverDeletedByCleanup), and the active_kind
     marker already makes a stale entry in another backend harmless
-    either way. test_a_keyring_that_cannot_be_read_at_cleanup below now
+    either way. test_a_keyring_that_cannot_be_read_at_cleanup below
     lets the snapshot read succeed and only breaks the LATER cleanup
-    read, so it keeps exercising the original case instead of the
-    now-tolerated one."""
+    read, so it exercises the fatal case instead of the tolerated one."""
 
     def test_a_keyring_that_cannot_be_read_at_cleanup_restores_the_snapshot_and_exits_nonzero(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

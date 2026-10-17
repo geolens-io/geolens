@@ -36,10 +36,9 @@ constraint stays enterprise-only (``e002``), so community deployments still
 cannot create SAML providers (also guarded by ``is_enterprise()`` in the
 service layer). The columns simply sit ``NULL`` for OSS OAuth/OIDC providers.
 
-fix(#435): ``env.py``'s ``include_object`` no longer excludes these four columns.
-It did until this migration existed, because autogenerate saw four phantom
-``add_column`` ops on every OSS database. Now that OSS creates them for real, the
-exclusion only blinded ``alembic check`` to genuine drift on core-owned columns.
+``env.py``'s ``include_object`` does not exclude these four columns: OSS
+creates them for real, and an exclusion would only blind ``alembic
+check`` to genuine drift on core-owned columns.
 
 Revision ID: 0008_oauth_saml_columns
 Revises:     0007_tenant_data_schemas

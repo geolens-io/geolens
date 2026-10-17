@@ -100,10 +100,10 @@ for name, text in CASES.items():
         bad(f"extraction differs ({name}): awk={from_awk!r} gate={from_gate!r}")
 
     # The gate must reject exactly the inputs that send release.yml to its
-    # git-log fallback. fix(#715 review): `$(...)` strips trailing newlines but
-    # KEEPS spaces and tabs, so a bare `[ -z "$NOTES" ]` was false for a
-    # whitespace-only section and published blank notes — a verdict the gate
-    # did not share. release.yml now strips whitespace before the test, which
+    # git-log fallback. `$(...)` strips trailing newlines but
+    # KEEPS spaces and tabs, so a bare `[ -z "$NOTES" ]` would be false for a
+    # whitespace-only section and publish blank notes — a verdict the gate
+    # would not share. release.yml strips whitespace before the test, which
     # is what makes .strip() the right model here rather than a convenient one.
     awk_falls_back = from_awk.strip() == ""
     gate_rejects = section is None or not section.strip()
@@ -184,13 +184,12 @@ else:
     # The published body has to carry it too — a warning only reaches whoever
     # opens the workflow log; the marker reaches whoever reads the release.
     #
-    # EXECUTE the branch rather than grepping it. fix(#1534 review): the first
-    # version of this case asserted `"NOTES=" in branch and "commit subjects"
-    # in branch`, and both are true with the marker assignment deleted — the
-    # original `NOTES=$(git log ...)` line supplies the first and the ::warning
-    # text supplies the second. It reported the notes as marked while a release
-    # reader saw nothing. Running the branch and reading what it actually
-    # produces cannot pass that way.
+    # EXECUTE the branch rather than grepping it. Asserting `"NOTES=" in branch
+    # and "commit subjects" in branch` passes with the marker assignment
+    # deleted — the original `NOTES=$(git log ...)` line supplies the first and
+    # the ::warning text supplies the second — so it would report the notes as
+    # marked while a release reader saw nothing. Running the branch and reading
+    # what it actually produces cannot pass that way.
     _if = branch[branch.index("if [ -z"):] if "if [ -z" in branch else ""
     _fallback_block = release_text[release_text.index("if [ -z"):]
     _fallback_block = _fallback_block[: re.search(

@@ -90,8 +90,8 @@ def _ordered_for_snapshot(node: Any, *, preserve_keys: bool = False) -> Any:
     """Recursively sort dict keys, except each schema's ``properties`` map.
 
     Mirror of ``ordered_for_snapshot`` in backend/scripts/dump_openapi.py
-    (duplicated because this script runs standalone via --no-project);
-    fix(#1257) — property order drives SDK constructor argument order.
+    (duplicated because this script runs standalone via --no-project).
+    Property order drives SDK constructor argument order.
     """
     if isinstance(node, dict):
         keys = node if preserve_keys else sorted(node)

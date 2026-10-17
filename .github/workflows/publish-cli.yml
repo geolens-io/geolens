@@ -69,9 +69,9 @@ jobs:
         with:
           python-version: "3.14"
 
-      # fix(#1778): every publishing run must come from a tag ref, and this is
+      # Every publishing run must come from a tag ref, and this is
       # a hard failure rather than a skipped check, same as publish-mcp.yml's
-      # #1623 guard: a manual dispatch defaults to the branch selected in the
+      # guard: a manual dispatch defaults to the branch selected in the
       # Actions UI, and the repo sits at the last released version between
       # bumps, so a branch run would happily publish that branch's current
       # pyproject version as metadata for an already-released PyPI artifact.

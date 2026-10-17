@@ -29,8 +29,8 @@ import typer
 
 from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap, long_request_timeout
 
-#: fix(#685 review): there is no defensible fixed wait, so the default is not
-#: one. publish's 120s, then 600s, then an hour were each a guess about how
+#: There is no defensible fixed wait, so the default is not
+#: one. A fixed bound (publish's 120s, 600s, an hour) is a guess about how
 #: long the work takes, and the queue makes that unanswerable. #703 ranks
 #: analysis below uploads, and the server states the consequence outright in
 #: no_live_procrastinate_job() (backend/app/platform/jobs/router.py): a job
@@ -47,7 +47,7 @@ POLL_FOREVER: float = float("inf")
 
 
 def require_finite(value: Optional[float], flag: str) -> Optional[float]:
-    """Reject NaN/Infinity before they reach the wire (fix(#685 review)).
+    """Reject NaN/Infinity before they reach the wire.
 
     Click parses ``nan``, ``inf`` and overflowing literals like ``1e309`` into
     real float values, and JSON has no way to spell any of them: the encoder
@@ -91,7 +91,7 @@ def parse_join_fields(raw: Optional[str]) -> Optional[list[str]]:
 def _require_join_dataset(operation: str, join_dataset_id: Optional[str]) -> None:
     """Reject a spatial_join with no join layer before it reaches the wire.
 
-    fix(#1105): the one server rule this module copies, and deliberately so.
+    This is the one server rule this module copies, deliberately.
     The operation list stays uncopied (see the module docstring), but this
     condition is about a flag the CLI owns the name of: without it the request
     comes back 422 and ``unwrap`` reports it as a generic failure (exit 1),
@@ -167,7 +167,7 @@ def build_materialize_request(
 def run_preview(client: Any, dataset_id: str, request: Any) -> Any:
     """POST the preview and return the parsed AnalysisPreviewResponse.
 
-    fix(#1778 review round 11): the backend can run up to three
+    The backend can run up to three
     sequential sandbox queries before responding — a bbox-scoped source
     count, the capped geometry query, and an uncapped match count, each
     with its own 10s statement timeout (see the
@@ -193,7 +193,7 @@ def run_preview(client: Any, dataset_id: str, request: Any) -> Any:
 def run_materialize(client: Any, dataset_id: str, request: Any) -> Any:
     """POST the materialize request and return the parsed job response.
 
-    fix(#1778 review round 5): this expects 200 back, not a fire-and-
+    This expects 200 back, not a fire-and-
     forget 202 — the backend does the submit-time validation/setup work
     synchronously before responding, which can outlast AppState.sdk()'s
     plain 30s bound for a large or complex request. Wrapped in
@@ -218,8 +218,7 @@ def job_snapshot(client: Any, job_id: str) -> tuple[Optional[str], Optional[str]
 
     ``resolve_dataset_id`` collapses "the job failed", "the poll ran out" and
     "the job endpoint would not answer" into one ``None``, and those deserve
-    different sentences even though all three mean "no dataset" (fix(#685
-    review)).
+    different sentences even though all three mean "no dataset".
 
     The dataset id rides along because the job can finish between the poll's
     last look and this one: the status response carries the id, and discarding

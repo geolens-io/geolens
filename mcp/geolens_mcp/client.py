@@ -286,7 +286,7 @@ class GeoLensReadOnlyAPI:
         return self._request("GET", path, params=params or {})
 
     def _post(self, path: str, json: dict[str, Any]) -> Any:
-        # feat(#565): the package's first write-shaped transport method. It
+        # The package's first write-shaped transport method. It
         # exists for POST routes that are reads semantically (the sandbox
         # query endpoint); the server stays read-only in effect because the
         # backend executes these inside a READ ONLY transaction.
@@ -359,7 +359,7 @@ class GeoLensReadOnlyAPI:
         return self._get(f"/maps/{_id_segment(map_id)}")
 
     def query(self, sql: str, restrict_tables: list[str], row_limit: int = 100) -> Any:
-        # feat(#565): raw read-only SQL through the backend sandbox. The
+        # Raw read-only SQL through the backend sandbox. The
         # trailing slash is the canonical registration of this route.
         return self._post(
             "/query/",

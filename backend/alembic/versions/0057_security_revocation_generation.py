@@ -1,6 +1,6 @@
 """Cluster-global revocation generation for cross-worker cache invalidation.
 
-fix(#1778 codex r3/r4). ``RedisCacheProvider``'s in-memory fallback and its
+``RedisCacheProvider``'s in-memory fallback and its
 authoritative-replay queue are PROCESS-local, and production runs several
 Uvicorn workers. During a Redis outage worker A could revoke an embed token and
 queue the denial in A alone, while worker B held a positive for the same token;
@@ -12,14 +12,14 @@ advances it, every positive validation-cache entry is stamped with the
 generation it was minted under, and a validator whose stamp is behind refuses
 the entry and re-reads the database.
 
-A single-row TABLE, not a sequence (fix(#1778 codex r4)). The first draft used a
-sequence because ``nextval`` takes no row lock, but ``nextval`` is also
-non-transactional, and that is fatal here rather than convenient: the advance
-became visible to every other worker the instant it ran, while the ``is_active``
-flip it stood for stayed invisible until the revoking transaction committed. A
-validator landing in that window read the NEW generation, read the token row as
-still active, and cached a positive stamped with the new generation, which then
-survived the commit. Ordering the publish after the commit only narrows the
+A single-row TABLE, not a sequence. A sequence takes no row lock via
+``nextval``, but ``nextval`` is also non-transactional, and that is fatal here
+rather than convenient: the advance becomes visible to every other worker the
+instant it runs, while the ``is_active`` flip it stands for stays invisible
+until the revoking transaction commits. A validator landing in that window
+reads the NEW generation, reads the token row as still active, and caches a
+positive stamped with the new generation, which then survives the commit.
+Ordering the publish after the commit only narrows the
 window; making the counter transactional removes it, because the generation and
 the ``is_active`` flip become visible in the same instant, to everyone.
 
@@ -76,8 +76,8 @@ def upgrade() -> None:
     # Seed the row here rather than lazily: a reader that finds no row cannot
     # tell "never revoked" from "counter missing", and the safe answer to the
     # second is to refuse every cached positive.
-    # fix(#1778 codex r6 P2): a random 62-bit value, not a wall-clock second.
-    # The clock seed adopted in r5 could collide with itself -- deleting the
+    # A random 62-bit value, not a wall-clock second.
+    # A clock seed could collide with itself -- deleting the
     # row and re-seeding within the same wall-clock second reproduces the
     # exact same value, and under sustained revocation traffic the counter's
     # integer value can outrun the epoch-seconds count outright, landing a

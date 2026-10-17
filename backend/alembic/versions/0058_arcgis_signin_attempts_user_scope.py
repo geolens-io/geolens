@@ -1,6 +1,6 @@
 """Carry the per-caller ArcGIS sign-in budget on the cluster-global ledger.
 
-fix(#1775). ``POST /api/services/arcgis/signin/`` now reserves a counted
+``POST /api/services/arcgis/signin/`` now reserves a counted
 attempt in its own short transaction BEFORE the credential POST and writes the
 audit row afterwards, so that a request cancelled mid-POST is already counted:
 ArcGIS may have counted that password, and GeoLens must not be the side that

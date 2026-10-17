@@ -1,6 +1,6 @@
 """Relabel auto-generated vector-tile distributions from OGC:WMTS to XYZ.
 
-fix(#1463): the generated "Vector Tiles" row advertised ``protocol='OGC:WMTS'``
+The generated "Vector Tiles" row advertised ``protocol='OGC:WMTS'``
 against ``/tiles/data.{table}/{z}/{x}/{y}.pbf`` — a plain XYZ template with no
 capabilities document and no TileMatrixSet negotiation. A client that believed
 the label failed against a healthy instance, which reads as a broken deployment
@@ -68,7 +68,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # fix(#1463, codex round 1): data-only relabel, intentionally not reversed.
+    # Data-only relabel, intentionally not reversed.
     # See the module docstring — the reverse statement cannot tell a row this
     # migration rewrote from one an operator had already corrected, and no
     # revision needs the WMTS label back.

@@ -130,7 +130,7 @@ async function runAudit(
   const failures: string[] = [];
   const start = Date.now();
 
-  // fix(#1778): colorScheme is folded into the per-run evidence paths so a
+  // The colorScheme is folded into the per-run evidence paths so a
   // dark-mode pass does not silently overwrite the light-mode screenshot/log
   // for the same record type and viewport (see the colorScheme loop below).
   const slug = `${recordType}-${viewportName}-${colorScheme}`;
@@ -390,8 +390,8 @@ async function runAudit(
 }
 
 test.describe('Record Detail UX Audit', () => {
-  // fix(#1778): every axe scan in runAudit() runs in both color schemes,
-  // mirroring #1782's fix for e2e/accessibility.spec.ts. playwright.config.ts
+  // Every axe scan in runAudit() runs in both color schemes,
+  // mirroring e2e/accessibility.spec.ts. playwright.config.ts
   // sets no colorScheme, so Playwright defaults to light and the
   // ThemeProvider's "system" default (main.tsx) resolves off that media
   // query -- the dark palette was structurally unreachable to this suite's

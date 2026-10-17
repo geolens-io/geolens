@@ -1119,7 +1119,7 @@ class TestReplaceRasterDataset:
 
 
 class TestReplaceSendsTheOriginItSaw:
-    """fix(#1768): the origin gate above is a client-side precheck. The commit
+    """The origin gate above is a client-side precheck. The commit
     carries the origin that gate read, so the server can refuse if the dataset
     was rebound during the upload/preview/confirm window."""
 

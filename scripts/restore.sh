@@ -7,34 +7,33 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
 
-# fix(#1778): read only the four values this script needs from .env with
+# Read only the four values this script needs from .env with
 # get_env_value's awk parser, not by shell-sourcing the file. Compose's own
 # `.env` parser and `sh` disagree about the same file: install.sh writes
 # values verbatim (an operator-typed admin password can legally contain a
 # space), and `.` executes the rest of such a line as a command. Under
 # `set -e` that is a 127 exit before this disaster-recovery entry point has
 # validated anything; a value containing backticks or $(...) is executed
-# with the operator's privileges. Sourcing also pulled in every OTHER secret
+# with the operator's privileges. Sourcing would also pull in every OTHER secret
 # in the file as a side effect, when only these four are ever read below.
 #
-# fix(#1778 review round 6, P2): assign to each target ONLY when
+# Assign to each target ONLY when
 # get_env_value reports the key is actually present in .env (exit 0) — a
 # setting Compose supports supplying purely through the process environment
 # (`POSTGRES_DB=production scripts/restore.sh ...`, deliberately omitted
-# from .env) used to be overwritten with an empty string the instant the
-# key was simply absent, since get_env_value's old "" exit-0 result for
-# "missing" was indistinguishable from "present but empty". The `if` guard
-# is exempt from `set -e`, and assigning the real target only inside it
-# (never on the failure path) is what actually preserves the inherited
-# value.
+# from .env) must not be overwritten with an empty string just because the
+# key is absent; get_env_value returns 1 for "missing", distinct from
+# "present but empty". The `if` guard is exempt from `set -e`, and
+# assigning the real target only inside it (never on the failure path) is
+# what preserves the inherited value.
 #
-# fix(#1798 review round 15, P2, review 5104520795): assigns straight into
+# Assign straight into
 # each target via env_value_into instead of `_v="$(get_env_value ...)"` —
 # plain command substitution strips a trailing newline regardless of
 # anything get_env_value itself preserves (a decoded POSTGRES_DB with a
 # trailing \n escape would lose that trailing byte at THIS assignment,
 # one layer outside get_env_value's own control, even though
-# get_env_value's own return value is correct since round 13).
+# get_env_value's own return value is correct).
 if [ -f "$PROJECT_ROOT/.env" ]; then
     env_value_into COMPOSE_FILE COMPOSE_FILE "$PROJECT_ROOT/.env" || true
     env_value_into POSTGRES_USER POSTGRES_USER "$PROJECT_ROOT/.env" || true
@@ -42,13 +41,13 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
     env_value_into GEOLENS_RUNTIME_DB_ROLE GEOLENS_RUNTIME_DB_ROLE "$PROJECT_ROOT/.env" || true
 fi
 
-# fix(#1798 review round 16, P2, review 5104847831): calls the shared
+# Call the shared
 # compose() wrapper (scripts/lib/common.sh) instead of this script's own
 # local COMPOSE=(...) array -- that array already built an absolute -f
 # path, but nothing told Compose the project directory explicitly for its
 # OWN .env-driven controls (COMPOSE_PROJECT_NAME, COMPOSE_PROFILES); see
-# common.sh's own doc comment on compose() for the full reasoning and what
-# was verified against the oracle. PROJECT_ROOT (set above, before
+# common.sh's own doc comment on compose() for the full reasoning.
+# PROJECT_ROOT (set above, before
 # common.sh was sourced) is what the wrapper uses.
 
 # Argument validation
@@ -65,8 +64,8 @@ if [ ! -f "$BACKUP_FILE" ]; then
 fi
 
 # Validate backup integrity before restore
-# chore(#704): read stdin by OMITTING the filename — the literal "-" alias was
-# never documented for pg_restore and PG 18 rejects it as a filename.
+# Read stdin by OMITTING the filename — the literal "-" alias is
+# not documented for pg_restore and PG 18 rejects it as a filename.
 #
 # `-f /dev/null`, NOT `--list`: the -Fc table of contents sits at the front of
 # the archive, so `--list` reports a truncated dump as valid (measured: a
@@ -98,24 +97,24 @@ POSTGRES_DB="${POSTGRES_DB:-geolens}"
 # these). dump name is <db>_<YYYYmmdd_HHMMSS>.dump.
 _dump_dir="$(cd "$(dirname "$BACKUP_FILE")" && pwd)"
 _dump_base="$(basename "$BACKUP_FILE")"
-# Anchored at the END of the name. The old leftmost `grep -oE ... | head -n1`
-# matched inside $POSTGRES_DB whenever the database name carried its own
+# Anchored at the END of the name. A leftmost `grep -oE ... | head -n1`
+# would match inside $POSTGRES_DB whenever the database name carried its own
 # 8-digit_6-digit run, silently sending every sibling lookup down the
 # unpaired-fallback path.
 #
-# fix(#1778 round 19, P2 class): was `printf '%s' "$_dump_base" | sed -nE
+# The match is bash `=~`, not `printf '%s' "$_dump_base" | sed -nE
 # '...p'`. `_dump_base` is `basename "$BACKUP_FILE"`, and the dump side of
 # that name is `${POSTGRES_DB}_<timestamp>.dump` — a POSTGRES_DB carrying an
 # embedded newline puts one inside `_dump_base` intact (basename does not
 # reject or strip it, and `$(...)` only strips a TRAILING newline, never an
-# internal one). sed then reads `_dump_base` as multiple lines and, with
-# `-n '...p'`, can print more than one match, so `$_ts` stops being a single
-# timestamp. The paired-artifact lookups just below (`${_dump_dir}/globals-
-# ${_ts}.sql`, and further down `${_dump_dir}/staging-${_ts}.tar.gz`) then
+# internal one). sed would read `_dump_base` as multiple lines and, with
+# `-n '...p'`, could print more than one match, so `$_ts` would stop being a
+# single timestamp. The paired-artifact lookups just below (`${_dump_dir}/globals-
+# ${_ts}.sql`, and further down `${_dump_dir}/staging-${_ts}.tar.gz`) would then
 # look for a path that does not exist and silently fall back to "unpaired"
-# — the same failure mode this comment already describes for the
-# grep-inside-POSTGRES_DB case, reached a different way. `[[ str =~ regex ]]`
-# matches the whole string in one shot, so an embedded newline can only make
+# — the same failure mode as the grep-inside-POSTGRES_DB case, reached a
+# different way. `[[ str =~ regex ]]` matches the whole string in one
+# shot, so an embedded newline can only make
 # the anchored pattern fail to match at all (same as any other name this
 # script cannot parse), never yield a second match.
 if [[ "$_dump_base" =~ ^.*_([0-9]{8}_[0-9]{6})(\..*)?$ ]]; then
@@ -124,7 +123,7 @@ else
     _ts=""
 fi
 
-# fix(#995): roles are cluster objects and travel in globals-<ts>.sql, never in
+# Roles are cluster objects and travel in globals-<ts>.sql, never in
 # the dump. Report BEFORE the destructive --clean rather than after: replaying
 # globals is a pre-restore step, and on a fresh cluster a restore that runs
 # without it lands every object owned by the restoring user with no tenant
@@ -189,7 +188,7 @@ compose stop api worker 2>/dev/null || true
 # and partly repopulated, and their boot-time migrations would run against it.
 RESTORE_SUCCEEDED=0
 _cleanup() {
-    # fix(#1778 round 20, P1 class): `trap` holds only ONE handler per
+    # `trap` holds only ONE handler per
     # signal — this trap (set below) REPLACES common.sh's own EXIT trap
     # (which would otherwise clean up its env-snapshot directory, see
     # scripts/lib/common.sh's own comment near the top of that file), so
@@ -266,7 +265,7 @@ if [ -n "${GEOLENS_RUNTIME_DB_ROLE:-}" ]; then
     echo "${GEOLENS_RUNTIME_DB_ROLE} least-privilege attributes verified."
 fi
 
-# fix(#1778): the mandatory reconciliation step (RUNBOOK.md: "start runtime
+# The mandatory reconciliation step (RUNBOOK.md: "start runtime
 # services only after that command succeeds") has now run and every grant it
 # makes has been verified — restarting api/worker on exit is safe from here.
 RESTORE_SUCCEEDED=1
@@ -348,6 +347,6 @@ fi
 #   pg_wal fills the filesystem and the database stops accepting writes.
 #   Monitor archiver health before enabling this. See RUNBOOK.md section 3.
 #
-# chore(#704): docs pinned to the bundled major — move with db/Dockerfile.
+# Docs pinned to the bundled major; move with db/Dockerfile.
 # See: https://www.postgresql.org/docs/18/continuous-archiving.html
 # ==============================================================================

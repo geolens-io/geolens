@@ -267,10 +267,10 @@ test.describe.serial('Map Builder', () => {
     }
   });
 
-  // fix(#392): the Add-Dataset dialog no longer exposes a "Basemap" radio or
-  // in-dialog "in use"/"swap" controls — basemap swapping moved to the
+  // The Add-Dataset dialog exposes no "Basemap" radio or
+  // in-dialog "in use"/"swap" controls — basemap swapping lives in the
   // #stack-row-basemap-group row / BasemapGroupEditorScene. This
-  // test now asserts only the shipped All/Vector/Raster tab set.
+  // test asserts only the shipped All/Vector/Raster tab set.
   test('Add Dataset dialog exposes responsive v1 tabs', async ({ page }) => {
     for (const viewport of [
       { width: 1440, height: 900, label: 'desktop' },
@@ -357,9 +357,9 @@ test.describe.serial('Map Builder', () => {
     const rowDuplicateRes = await rowDuplicateResponse;
     expect([200, 201]).toContain(rowDuplicateRes.status());
 
-    // fix(#1810): read the new layer straight off the write's own response
+    // Read the new layer straight off the write's own response
     // body instead of re-fetching the map right after — a fresh GET here
-    // raced the layer-add commit under host load and intermittently saw a
+    // would race the layer-add commit under host load and could see a
     // pre-write (sometimes empty) snapshot. The response IS the commit's
     // confirmation, so build the "after" state from it plus the known
     // "before" state rather than a racy re-read.
@@ -391,7 +391,7 @@ test.describe.serial('Map Builder', () => {
     const modalDuplicateRes = await modalDuplicateResponse;
     expect([200, 201]).toContain(modalDuplicateRes.status());
 
-    // fix(#1810): same principle as the row-duplicate assertion above —
+    // Same principle as the row-duplicate assertion above —
     // read the created layer from the write's response, not a fresh GET.
     const modalDuplicate = await modalDuplicateRes.json() as MapLayerListItem;
     const afterModalLayers = [...afterRowLayers, modalDuplicate];
@@ -404,11 +404,10 @@ test.describe.serial('Map Builder', () => {
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
-  // fix(#392): basemap swapping moved OUT of the Add Dataset modal (Phase
-  // 1035) into the #stack-row-basemap-group row / BasemapGroupEditorScene
-  // flyout — re-pointed here (mirrors the already-green "switches basemap
-  // without losing overlay layers" test) while preserving the original
-  // intent: swap -> save -> assert PUT persists basemap_style -> reload ->
+  // Basemap swapping lives in the #stack-row-basemap-group row /
+  // BasemapGroupEditorScene flyout, not the Add Dataset modal (mirrors the
+  // "switches basemap without losing overlay layers" test): swap -> save
+  // -> assert PUT persists basemap_style -> reload ->
   // overlays intact.
   test('swaps basemap via the basemap-group editor and persists after save', async ({ page }) => {
     const token = getAuthToken();

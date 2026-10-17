@@ -1,6 +1,6 @@
 """Stamp each stored embedding with the configuration that produced it.
 
-fix(#1546): ``catalog.record_embeddings`` recorded ``model_name`` and nothing
+``catalog.record_embeddings`` recorded ``model_name`` and nothing
 else about how the vector was made. The vector space is a function of the
 model, the declared dimensions AND the endpoint that served the model, so one
 model behind two endpoints is two spaces under one label. Semantic search

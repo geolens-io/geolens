@@ -125,10 +125,8 @@ test.describe('Refresh-door credential prompt on service_token_required', () => 
     await expect(page.locator('body')).not.toContainText(RAW_SERVICE_TOKEN_MESSAGE);
   });
 
-  // feat(#1746 B4): the WFS/OGC API Features credential prompt is the
-  // four-way `ServiceCredentialBlock` select (none/bearer/basic/header), in
-  // place of the bearer-only field this door offered before B2b (#1770,
-  // merged to main before this spec).
+  // The WFS/OGC API Features credential prompt is the
+  // four-way `ServiceCredentialBlock` select (none/bearer/basic/header).
   test('WFS origin: a Basic-auth retry sends the structured auth object, not the deprecated token field', async ({
     page,
   }) => {

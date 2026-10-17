@@ -1,6 +1,6 @@
 """Add catalog.records.derived_from for analysis provenance.
 
-feat(#765): a materialized analysis output had no durable link to the dataset
+A materialized analysis output had no durable link to the dataset
 it came from -- ``source_dataset_id`` lived only in ``ingest_jobs.user_metadata``,
 which is purgeable. This column carries ``{dataset_id, operation, params,
 created_at}`` written at materialize time.

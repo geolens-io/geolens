@@ -1,6 +1,6 @@
 """API-key hardening: optional expiry and owner key_epoch snapshot.
 
-fix(#821): API keys had no expiry and no staleness check, so a key lived
+API keys had no expiry and no staleness check, so a key lived
 forever unless manually revoked and a security event on the owner (role
 change, password change) left previously minted keys working.
 
@@ -33,7 +33,7 @@ down_revision: Union[str, None] = "0028_oauth_email_verified_backfill"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# fix(#1016): the state the downgrade would silently discard.
+# The state the downgrade would silently discard.
 #
 # ``users.key_epoch > 1`` is the right coarse test for revocation state:
 # ``api_keys.key_epoch`` is a mint-time snapshot of the owner's value, so if no

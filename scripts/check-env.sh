@@ -7,7 +7,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
 
-# fix(#1778): read only the values this check needs from .env with
+# Read only the values this check needs from .env with
 # get_env_value's awk parser, not by shell-sourcing the file — see
 # restore.sh for why: Compose's `.env` parser accepts values (a space, a
 # backtick, `$(...)`) that `sh` does not, and shell-sourcing them under

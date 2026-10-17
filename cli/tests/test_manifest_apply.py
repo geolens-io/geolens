@@ -249,11 +249,9 @@ class TestComputeManifestApplyTimeout:
     def test_the_formula_stays_linear_past_where_the_old_ceiling_used_to_bite(
         self,
     ) -> None:
-        """fix(#1778): the earlier 3600s ceiling started
-        truncating at entry 43 (600 + 43*70 == 3610, already past
-        3600). Pinned at the 43/44 boundary to prove there is no
-        plateau there any more -- each additional entry still adds
-        exactly one per-entry allowance (70s)."""
+        """Pinned at the 43/44 boundary (600 + 43*70 == 3610, already past
+        a 3600s ceiling) to prove there is no plateau there -- each
+        additional entry still adds exactly one per-entry allowance (70s)."""
         from geolens_cli.manifest_apply import compute_manifest_apply_timeout
 
         assert compute_manifest_apply_timeout(43) == 3610.0
@@ -327,7 +325,7 @@ class TestResolveApplyTimeout:
 
 
 class TestManifestApplyTimeoutReporting:
-    """fix(#1814): the timeout report must be accurate about what a re-apply
+    """The timeout report must be accurate about what a re-apply
     does. The server keeps applying after the CLI gives up, and reserves each
     entry before downloading, so a re-apply attaches rather than queueing twice."""
 
@@ -372,9 +370,9 @@ class TestManifestApplyTimeoutReporting:
     def test_timeout_message_explains_what_a_re_apply_does_not_blanket_safety(
         self,
     ) -> None:
-        """fix(#1814): the message must say a re-run attaches to an entry still
+        """The message must say a re-run attaches to an entry still
         being staged, give actionable advice (dry-run first), and make no
-        blanket idempotency claim, which is the earlier overclaim."""
+        blanket idempotency claim."""
         from geolens_cli.manifest_apply import (
             ManifestApplyTimeout,
             build_apply_timeout_message,
@@ -1035,7 +1033,7 @@ def test_apply_command_reports_timeout_with_truthful_guidance_and_status_check(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """fix(#1814): end to end, the `apply` command prints the guidance and
+    """End to end, the `apply` command prints the guidance and
     renders the dry-run follow-up's status, and that guidance says a re-run
     attaches to an entry still being staged."""
     status_response = _apply_response(

@@ -13,8 +13,8 @@ every failure point the helper's own docstring claims to tolerate:
 - _discard_unpaired_refresh_token() -- keyring deletes AND the file
   read/write, all raising.
 - _delete_keyring_refresh_entries() -- its keyring half, which
-  fix(#1807) factored out for try_refresh()'s backend-fallback path
-  and which carries the same contract.
+  try_refresh()'s backend-fallback path uses on its own and which
+  carries the same contract.
 - _restore_credentials() -- keyring deletes/sets AND the file
   read/write, all raising.
 - delete_credentials()'s own keyring loop -- all four accounts raising
@@ -114,7 +114,7 @@ class TestDeleteCredentialsKeyringLoopNeverRaises:
 
 
 class TestDeleteKeyringRefreshEntriesNeverRaises:
-    """fix(#1807): the keyring half of _discard_unpaired_refresh_token(),
+    """The keyring half of _discard_unpaired_refresh_token(),
     factored out because try_refresh() needs exactly that half on its
     own when a rotation falls back to the file (the file side there
     holds the copy that must survive). It inherits the same

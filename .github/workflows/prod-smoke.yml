@@ -19,7 +19,7 @@ name: Prod Compose Smoke
 on:
   push:
     tags:
-      # Semver release tags only (fix #829): bare "v*" also matched 4-digit GSD
+      # Semver release tags only: bare "v*" also matched 4-digit GSD
       # milestone tags (v1055, v1044, …), firing a full image-pull + E2E smoke
       # on non-release tags. The second pattern keeps prerelease tags
       # (v1.5.0-rc.1) in the release chain — release.yml is gated on this
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 40
     steps:
-      # Backstop for the tag globs above (fix #829): a glob still admits
+      # Backstop for the tag globs above: a glob still admits
       # non-semver suffixes like v1.2.3- or v1.2.3-foo_bar, whose images
       # publish.yml never pushes — the pull step below would retry for ~20 min
       # and fail. Fail fast instead, using the exact regex from release.yml's
@@ -61,7 +61,7 @@ jobs:
       # junk tag is correct and cheap: release.yml fires only on this
       # workflow's SUCCESS, so nothing downstream advances.
       #
-      # fix(#1778): gate on ref_type, not event_name. A workflow_dispatch run
+      # Gate on ref_type, not event_name. A workflow_dispatch run
       # from a tag ref (`gh workflow run prod-smoke.yml --ref vX.Y.Z`) must be
       # held to the same semver check as a tag push, or a re-smoke of a junk
       # tag would skip straight past this and into the pull-retry loop below.
@@ -87,7 +87,7 @@ jobs:
           # the script body, where it would be evaluated as shell.
           INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          # fix(#1778): bind the smoked artifact to the ref, not the event.
+          # Bind the smoked artifact to the ref, not the event.
           # On ANY run from a tag ref — a tag push, or a workflow_dispatch
           # re-run from that tag — github.ref_name IS the tag (vX.Y.Z), so
           # ignore INPUT_VERSION and smoke that tag's own images. A dispatch
@@ -194,14 +194,14 @@ jobs:
           echo "frontend -> /api/health never returned 200"; exit 1
 
       - name: Assert the template boot counts rate limits per worker
-        # fix(#2041): the template .env leaves REDIS_URL empty while the prod
+        # The template .env leaves REDIS_URL empty while the prod
         # compose runs two API workers, so each worker logs this notice once at
         # startup. A silent boot means that default or the notice changed.
         env:
           # Free-text on a branch dispatch: pass via env, reference as "$VAR".
           SMOKED_VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          # fix(#2041 codex r3): images before 1.19.0 predate the notice, and a
+          # Images before 1.19.0 predate the notice, and a
           # branch dispatch may smoke one; the boot itself already passed above.
           if [ "${SMOKED_VERSION}" != "latest" ] && [ "$(printf '%s\n' 1.19.0 "${SMOKED_VERSION}" | sort -V | head -n1)" != "1.19.0" ]; then
             echo "image tag ${SMOKED_VERSION} predates the rate_limit_storage_not_configured notice (1.19.0); skipping this assertion"

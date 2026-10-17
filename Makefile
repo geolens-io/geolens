@@ -102,10 +102,10 @@ env-test:
 # in normal test runs; costs real provider tokens. Needs the dev DB up and
 # ANTHROPIC_API_KEY (or the configured provider's key) in the environment.
 #
-# fix(#1481): the `if [ -f ... ]` guard below is load-bearing. Do NOT make this
+# The `if [ -f ... ]` guard below is load-bearing. Do NOT make this
 # target depend on env-test, and do not source the file unconditionally.
 # .env.test.example ships POSTGRES_PASSWORD=geolens, while `make dev-init`
-# generates a RANDOM one into .env (SEC-010). Sourcing the template under
+# generates a RANDOM one into .env. Sourcing the template under
 # `set -a` exports the public default over the real password, and the evals can
 # no longer authenticate against the dev DB. With no .env.test present,
 # Settings loads .env directly and the credentials match.
@@ -242,7 +242,7 @@ _sdks_generate:
 	# PEP 561 marker — generator with --meta none doesn't emit it; touch so
 	# typecheckers consume the inline annotations on consumers' machines.
 	touch sdks/python/geolens/py.typed
-	# fix(#1277 review): openapi-python-client assigns the UNSET sentinel to
+	# openapi-python-client assigns the UNSET sentinel to
 	# `json` for an optional request body, so calling such an endpoint the
 	# documented way (omit the body) raises TypeError inside httpx before
 	# anything is sent. Guarded here, in the pipeline, because a fix applied to
@@ -253,7 +253,7 @@ _sdks_generate:
 	# Widen `client` to AuthenticatedClient | Client for operations whose
 	# security allows anonymous access; see the script's docstring.
 	uv run --no-project python scripts/fix_sdk_anonymous_client.py
-	# fix(#441): run the generator from the LOCAL lockfile-pinned install, not a
+	# Run the generator from the LOCAL lockfile-pinned install, not a
 	# fresh `npx @hey-api/openapi-ts@…` resolve. openapi-ts declares an
 	# open-ended `typescript >=5.5.3 || >=6.0.0` peer, so a cold npx resolve
 	# pulls typescript 7 (published 2026-07-08), whose changed compiler API
@@ -386,7 +386,7 @@ catalog-domain-discipline: ## Verify no external imports of catalog/datasets/dom
 # cli + sdks×2 + root/frontend package.json + openapi.json info.version + the
 # metadata fallback constant in main.py + the 5 lockfiles that embed the
 # package's own version — backend/mcp uv.lock and root/frontend/sdks-ts
-# package-lock.json, fix(#877)). The write side of the version contract;
+# package-lock.json). The write side of the version contract;
 # `make version-check` is the read/verify side.
 bump: ## Rewrite all version sites to VERSION=X.Y.Z (single source of truth)
 ifndef VERSION

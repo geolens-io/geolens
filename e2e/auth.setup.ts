@@ -70,7 +70,7 @@ setup('authenticate as admin', async ({ page }) => {
   expect(token, 'sign-in response should carry an access token').toBeTruthy();
   fs.writeFileSync(tokenFileFor(authFile), JSON.stringify({ token }), { mode: 0o600 });
 
-  // fix(#547): host-backend stacks (uvicorn on the host + docker Postgres)
+  // Host-backend stacks (uvicorn on the host + docker Postgres)
   // cannot run the real ingest that seedDataset needs, so E2E_SKIP_SEED=1
   // stops here — auth state is saved, no shared fixture is created, and
   // catalog.teardown already no-ops when the manifest is absent.

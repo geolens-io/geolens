@@ -601,18 +601,17 @@ def fetch_dataset_status(
 ) -> Any:
     """Read the generated dataset detail model used by ``geolens status``.
 
-    fix(#1778): ``instance`` is optional so existing callers are
+    ``instance`` is optional so existing callers are
     unaffected — pass it to refresh-retry once on 401 instead of
-    hard-failing on an access token that expired since login (D-13;
-    previously only ``whoami`` spent the stored refresh token).
+    hard-failing on an access token that expired since login.
 
-    fix(#1778 review round 3): ``credential_kind`` (from the
+    ``credential_kind`` (from the
     ``GeolensClient`` returned by ``AppState.sdk()`` / ``make_client()``)
     is required alongside ``instance`` to enable the retry — it gates
     the refresh attempt to a bearer-token client. See
     ``_sdk_helpers.call_sdk_with_reauth``.
 
-    fix(#1778 review round 26): ``credential_provenance`` is forwarded
+    ``credential_provenance`` is forwarded
     the same way — see ``call_sdk_with_reauth``'s own docstring for why
     "bearer" alone is not enough to justify spending a stored refresh
     token.

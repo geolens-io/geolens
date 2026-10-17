@@ -1,8 +1,8 @@
 """Allow 'parquet' (and other accepted upload suffixes) in chk_datasets_source_format.
 
-fix(#541 review): GeoParquet ingest derives ``source_format = 'parquet'`` from
-the upload suffix (tasks_vector.py), but ``chk_datasets_source_format`` did not
-include it, so every parquet upload would have failed with a check-constraint
+GeoParquet ingest derives ``source_format = 'parquet'`` from
+the upload suffix (tasks_vector.py), but ``chk_datasets_source_format`` must
+include it, or every parquet upload fails with a check-constraint
 violation at dataset creation — the last step of the ingest pipeline.
 
 While extending the list, also add ``json``, ``xlsx``, and ``xls``: all three

@@ -1,6 +1,6 @@
 """Give the map thumbnail its own timestamp, separate from the map's.
 
-fix(#1005): ``catalog.maps.updated_at`` was doing double duty as the thumbnail
+``catalog.maps.updated_at`` was doing double duty as the thumbnail
 cache version. ``MapCard``/``MapCardGrid`` pass it to ``useMapThumbnail`` as the
 ``?v=`` version and part of the query key, so a re-captured thumbnail only shows
 after an edit because ``updated_at`` moved. But the same upload endpoints serve

@@ -1,6 +1,6 @@
 """Stage a VRT generation's intended member set on the generation row.
 
-fix(#1327). ``add_vrt_source``/``remove_vrt_source`` committed their
+``add_vrt_source``/``remove_vrt_source`` committed their
 ``vrt_source_links`` mutation in the same transaction that flipped the asset to
 ``'regenerating'`` — before the regeneration that would make the served artifact
 match. The two steps were separate, non-compensable transactions, so a worker

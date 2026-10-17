@@ -1,6 +1,6 @@
 """Record a relation GeoLens released a claim on while it was still standing.
 
-fix(#1456 review round 1). 0045 stamped the freed relation's identity onto the
+0045 stamped the freed relation's identity onto the
 tombstone, which covers every delete that RELEASES a name. It does not cover
 the case #1456's window 1 is actually about: a detach that leaves the
 operator's table standing writes no tombstone at all, so the oid and the prior

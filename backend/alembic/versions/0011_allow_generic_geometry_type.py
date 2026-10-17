@@ -1,7 +1,7 @@
 """Allow 'GEOMETRY' in chk_datasets_geometry_type.
 
-fix(#430 codex r5, P1): create_empty_dataset stores geometry_type='GEOMETRY'
-(fix #430 BA-32 — the created table's column is generic geometry(Geometry,
+create_empty_dataset stores geometry_type='GEOMETRY'
+(the created table's column is generic geometry(Geometry,
 4326), and storing 'POINT' made feature validation reject the Polygon/
 LineString inserts the column accepts), but the constraint allow-list only
 permitted concrete subtypes, so every empty-dataset create failed at flush.

@@ -370,7 +370,7 @@ test.describe('Builder residual-risk hardening', () => {
   test('public share, embed, and read-only map viewers work while unauthenticated editing stays protected', async ({ browser, request, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', 'permission/share variants are covered in the primary browser project');
 
-    // fix(#1778): browser.newContext() does not inherit the project's
+    // browser.newContext() does not inherit the project's
     // `use.colorScheme` -- that option only applies to the default
     // context/page fixtures Playwright builds for a test, not one created
     // manually here for an unauthenticated storageState. Read the active

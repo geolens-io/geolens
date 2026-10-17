@@ -16,10 +16,10 @@ function formatViolations(violations: any[]): string {
 }
 
 /**
- * fix(#1778): playwright.config.ts pins `locale: 'en-US'` for every project,
+ * playwright.config.ts pins `locale: 'en-US'` for every project,
  * so es/fr/de bundles never render under the gating axe suite in
- * accessibility.spec.ts — only the dark-mode half of that finding (#1782)
- * has been closed so far. A full 4-locale x N-route x 2-color-scheme sweep
+ * accessibility.spec.ts (which does cover both color schemes). A full
+ * 4-locale x N-route x 2-color-scheme sweep
  * folded into the gating suite would multiply its wall-clock well past the
  * "stays under 2 minutes" budget, so this mirrors the wcag22aa precedent
  * (#1790, accessibility-target-size.spec.ts): a separate, non-gating scan

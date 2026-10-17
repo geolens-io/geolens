@@ -1,6 +1,6 @@
 """Backfill email_verified for GitHub-provisioned OAuth users.
 
-fix(#623): the JIT provisioning path built ``User(...)`` without
+The JIT provisioning path built ``User(...)`` without
 ``email_verified``, so every OAuth-provisioned account persisted the model
 default (false) even though the claim guaranteed verification — 27 of 27 SSO
 users on the public demo.

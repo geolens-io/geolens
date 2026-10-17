@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression test for the CHANGELOG compare-link block (fix(#1716)).
+"""Regression test for the CHANGELOG compare-link block.
 
 `make bump` used to rewrite every version site except the reference-style
 compare links at the bottom of CHANGELOG.md, and `check_version_coherence.py`
@@ -19,17 +19,16 @@ compared from the previous tag and the new version had no link at all
     lines mechanically, deriving the previous version the same structural
     way so the two agree by construction. It repairs whichever half is
     missing or wrong rather than skipping entirely once `[Unreleased]`
-    already points at the target version - a first pass returned early in
-    that case and left a partial hand-edit unrepaired (review finding on
-    #1765).
+    already points at the target version, so a partial hand-edit does not
+    stay unrepaired.
 
-Two more review rounds on #1765 added:
+Also:
 
   - `_changelog_links()` in both scripts now resolves a duplicate reference
     label (compared case-insensitively, matching CommonMark) to the FIRST
-    definition rather than whichever `dict()` happened to keep last, and a
+    definition rather than whichever `dict()` happens to keep last, and a
     dedicated check fails outright when a duplicate exists at all - a stale
-    first `[Unreleased]:` followed by a correct duplicate used to pass
+    first `[Unreleased]:` followed by a correct duplicate would otherwise pass
     silently while the rendered CHANGELOG still used the stale one.
     bump_version.py refuses to bump a CHANGELOG with a duplicate label for
     the same reason.

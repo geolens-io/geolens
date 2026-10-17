@@ -1,10 +1,10 @@
 /**
- * fix(#1778 review round 3): createGeolensClient() must ALSO reconfigure
- * the generated module's shared singleton, exactly as it did before the
- * scoped-client fix in this PR. Existing consumers that call
+ * createGeolensClient() must ALSO reconfigure
+ * the generated module's shared singleton, in addition to returning a
+ * scoped client. Existing consumers that call
  * createGeolensClient() once and then call generated endpoints WITHOUT
  * passing `{ client: sdk.client }` rely on the singleton fallback
- * (`options?.client ?? client`, sdk.gen.ts) — losing that fallback broke
+ * (`options?.client ?? client`, sdk.gen.ts) — losing that fallback would break
  * every implicit call, hitting whatever baseUrl (or none) the singleton
  * last had.
  *

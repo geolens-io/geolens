@@ -1,6 +1,6 @@
 """Add catalog.dataset_refresh_runs.
 
-feat(#1219) / ADR-002 Decision 4. One durable row per refresh attempt,
+ADR-002 Decision 4. One durable row per refresh attempt,
 created at dispatch and finalized by the worker, so a refresh that never
 committed still leaves a trace. Terminal ``ingest_jobs`` rows are purged after
 ``ingest_jobs_retention_days``, which is why the jobs table cannot be the
@@ -166,7 +166,7 @@ def upgrade() -> None:
         postgresql_where=sa.text("triggered_by IS NOT NULL"),
     )
 
-    # fix(#1274 review): the admission index can only referee runs that HAVE
+    # The admission index can only referee runs that HAVE
     # rows. Reupload tasks queued or claimed by pre-migration code have none,
     # so without a backfill the index would see their dataset as idle and
     # admit a concurrent post-deploy refresh while the old durable task can

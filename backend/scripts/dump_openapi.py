@@ -29,7 +29,7 @@ def _load_spec() -> dict:
 def ordered_for_snapshot(node, *, preserve_keys: bool = False):
     """Recursively sort dict keys, except each schema's ``properties`` map.
 
-    fix(#1257): property insertion order is Pydantic field declaration order,
+    Property insertion order is Pydantic field declaration order,
     and openapi-python-client derives generated constructor argument order
     from it — alphabetizing it silently reorders positional arguments for SDK
     consumers whenever an optional field is added. Everything else stays

@@ -7,7 +7,7 @@
 #   - workflow_dispatch → same gate; run from a tag ref, which any non-dry run
 #     now enforces: `gh workflow run publish-mcp.yml --ref vX.Y.Z`
 #
-# Recovering a half-finished release (fix(#1623)): PyPI refuses a re-upload of a
+# Recovering a half-finished release: PyPI refuses a re-upload of a
 # version it already has, so once `uv publish` succeeds there is no way back
 # through the PyPI half — `force_publish` overrides the pre-flight gate but
 # `uv publish` still fails on the duplicate. If the registry half is what broke,
@@ -84,7 +84,7 @@ jobs:
           python-version: "3.14"
 
       # Every publishing run must come from a tag ref, and this is a hard failure
-      # rather than a skipped check (fix(#1623)): a manual dispatch defaults to the
+      # rather than a skipped check: a manual dispatch defaults to the
       # branch selected in the Actions UI, and the repo sits at the last released
       # version between bumps, so a branch run would happily publish that branch's
       # current server.json as metadata for an already-released PyPI artifact.
@@ -177,8 +177,8 @@ jobs:
       # `registry_only=true` (see the header) — the PyPI half cannot be replayed.
       #
       # The binary is pinned by release tag AND by the sha256 the release's own
-      # checksums.txt published for that asset, rather than tracking `latest`
-      # (fix(#1623)): this step runs in a job holding `id-token: write`, so a
+      # checksums.txt published for that asset, rather than tracking `latest`:
+      # this step runs in a job holding `id-token: write`, so a
       # swapped or compromised publisher build could mint OIDC tokens for this
       # workflow's identity. A moved `latest` also silently changes what an
       # old-tag re-run executes. Upgrading is a reviewed edit: bump the version,

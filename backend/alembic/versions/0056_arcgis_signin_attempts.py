@@ -1,6 +1,6 @@
 """Cluster-global ledger for ArcGIS sign-in attempt counting.
 
-fix(#1758 codex r4). The sign-in endpoint limits attempts per target ArcGIS
+The sign-in endpoint limits attempts per target ArcGIS
 account, because an Esri lockout belongs to the account rather than to the
 GeoLens caller spending it. That count was read from ``catalog.audit_logs``,
 which carries a ``tenant_isolation_audit_logs`` policy, so in ``multi_tenant``

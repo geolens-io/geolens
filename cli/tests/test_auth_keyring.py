@@ -185,7 +185,7 @@ class TestTryRefreshBackendRouting:
     def test_a_bearer_write_failure_during_rotation_keeps_both_tokens_together(
         self, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#1778): the sibling of the replace_credentials() backend-split
+        """The sibling of the replace_credentials() backend-split
         bug, in try_refresh()'s own rotation path. The original credential
         lives in the keyring (so
         _detect_credential_backend says no_keyring=False going in),

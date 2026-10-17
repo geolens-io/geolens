@@ -66,7 +66,7 @@ def upload_file(client: Any, dataset_id: UUID, path: Path) -> Any:
     file streams from disk. OCCLI-06: the client comes from
     ``client.get_httpx_client()``, never a direct ``httpx`` construction.
 
-    fix(#1778 review round 5): the backend saves and validates the
+    The backend saves and validates the
     replacement before responding, so a large file posted through
     AppState.sdk()'s plain 30s-bound client could time out. Wrapped in
     ``long_request_timeout()`` — the same extended, restored bound
@@ -169,7 +169,7 @@ def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
 def captured_origin_kind(dataset: Any) -> Optional[str]:
     """The origin kind to assert at commit, or None to assert nothing.
 
-    fix(#1768): normalizes what the generated model can hand back — a kind,
+    Normalizes what the generated model can hand back — a kind,
     ``None``, or the SDK's ``UNSET`` sentinel for a reader the server redacts
     the field from — down to "a kind this CLI recognizes, or nothing". A kind
     the server added after this build is deliberately dropped rather than
@@ -230,7 +230,7 @@ def build_commit_request(
     ``review_fingerprint`` is the preview's, sent only after a person
     confirmed that preview; it acknowledges the reasons the preview listed.
 
-    fix(#1768): ``expected_origin_kind`` is the origin ``origin_refusal_message``
+    ``expected_origin_kind`` is the origin ``origin_refusal_message``
     above read and allowed, sent back so the commit door can refuse if it is no
     longer the dataset's origin. Everything between that read and this request
     — the upload, the preview, the confirmation prompt — is a window in which a
@@ -383,7 +383,7 @@ _REFUSAL_MESSAGES: dict[str, str] = {
         "This dataset's data comes from a remote service origin, not an "
         "upload. Run `geolens refresh <dataset-id>` to update it instead."
     ),
-    # fix(#1768): the commit door found a different origin than the one the
+    # The commit door found a different origin than the one the
     # Stage 0 read allowed. Nothing was queued and nothing was severed; the
     # user has to look at the dataset again before deciding, which is why this
     # does not suggest re-running the same command.

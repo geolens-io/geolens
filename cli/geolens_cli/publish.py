@@ -22,7 +22,7 @@ dataset URL is constructed via a follow-up ``GET /jobs/{job_id}`` poll
 that resolves ``job_id`` to ``dataset_id``. With ``--no-wait``, the URL
 falls back to a job-search form ``<instance>/datasets?job_id=<id>``.
 
-Open Question 4 (--tags wiring) — RESOLVED, fix(#569): ``CommitRequest``
+Open Question 4 (--tags wiring) — RESOLVED: ``CommitRequest``
 still has no ``tags`` field, so ``--tags`` and ``--collection`` are
 applied AFTER the commit resolves a dataset id (see
 ``apply_publish_extras``): tags become record keywords, and the
@@ -89,10 +89,10 @@ _DUPLICATE_DETAIL_NEEDLE = "already processed"
 _DEFAULT_POLL_INTERVAL_SECONDS: float = 1.0
 _DEFAULT_POLL_TIMEOUT_SECONDS: float = 120.0
 
-#: fix(#1778, codex round 5): bound for the ONE-SHOT follow-up read a
+#: Bound for the ONE-SHOT follow-up read a
 #: caller makes after a "timeout" or "poll_failed" PollOutcome, to check
-#: for a dataset_id that resolved a moment too late (fix(#685 review)) or
-#: a status that has since gone terminal (fix(#1778) round 4). The SDK
+#: for a dataset_id that resolved a moment too late or
+#: a status that has since gone terminal. The SDK
 #: client's generated transport defaults to timeout=None — unbounded — so
 #: without this, a stalled connection on that read would hang the command
 #: forever instead of reporting the outcome it already has. A few seconds
@@ -100,9 +100,9 @@ _DEFAULT_POLL_TIMEOUT_SECONDS: float = 120.0
 #: waiting long for.
 _SNAPSHOT_REQUEST_TIMEOUT_SECONDS: float = 5.0
 
-#: fix(#1778): job statuses that mean "this job will never produce a
-#: dataset_id through this endpoint". Previously only "failed" was terminal
-#: here, so --wait polled a cancelled job for the full timeout. "cancelled"
+#: Job statuses that mean "this job will never produce a
+#: dataset_id through this endpoint" (so --wait does not poll a cancelled job
+#: for the full timeout). "cancelled"
 #: matches refresh.wait_for_refresh's terminal set ({"failed", "cancelled"});
 #: "fanned_out" is added too because the parent of a multi-layer commit is
 #: marked fanned_out and never gets its own dataset_id (commit_fan_out,
@@ -160,7 +160,7 @@ def upload_file(client: Any, path: Path) -> Any:
     from geolens.api.datasets import upload_file_ingest_upload_post
     from geolens.types import Response
 
-    # fix(#1778, review round 5): a large geospatial file upload can
+    # A large geospatial file upload can
     # easily outlast AppState.sdk()'s 30s default — long_request_timeout()
     # raises the bound for the transfer itself and restores it
     # afterward, so a later request on this same client (preview/
@@ -225,10 +225,10 @@ def construct_dataset_url(
         which the GeoLens record list can filter on. The user can also
         re-resolve manually via ``GET /jobs/<job_id>`` later.
 
-    fix(#588): the stored instance is always ``/api``-suffixed
+    The stored instance is always ``/api``-suffixed
     (``normalize_instance_url`` canonicalizes it that way for credential
-    lookup), so this printed a JSON API endpoint instead of the browser
-    page. Drop that one trailing PATH segment — parsed, not string-
+    lookup), so using it as-is would print a JSON API endpoint instead of
+    the browser page. Drop that one trailing PATH segment — parsed, not string-
     trimmed, so a host literally named ``api`` is untouched.
     """
     base = _web_origin(instance)
@@ -260,15 +260,15 @@ def _web_origin(instance: str) -> str:
 class PollOutcome:
     """Result of a ``resolve_dataset_id`` poll.
 
-    fix(#1778, codex round 3): the old ``Optional[str]`` return collapsed a
+    A bare ``Optional[str]`` return would collapse a
     real 120s timeout, a terminal job status, a transient poll failure and
-    an expired token into the same bare ``None`` — a caller could only
+    an expired token into the same ``None`` — a caller could only
     guess which one happened by making a SECOND, independent request
     (``analysis.job_snapshot``) and trusting ITS status, which can legally
     disagree with what actually stopped the original poll (a transient 500
-    followed by a lucky ``pending`` re-read read as "still running after
-    120s", which was never true). This return type carries the real reason
-    instead, so callers never have to guess.
+    followed by a lucky ``pending`` re-read would read as "still running
+    after 120s", which was never true). This return type carries the real
+    reason instead, so callers never have to guess.
 
     ``dataset_id`` is set only on success, in which case every other field
     is None. Otherwise ``stopped_because`` explains why there is no
@@ -284,11 +284,11 @@ class PollOutcome:
       non-200/401/403 status, or a response body that could not be parsed)
       — ``detail`` names the failure (an HTTP status or error text), and
       ``http_status`` carries the numeric status when the failure was a
-      real HTTP response (fix(#1778, codex round 7): a caller must be able
+      real HTTP response (a caller must be able
       to tell a 5xx from a 404 to select the CLI's own EXIT_SERVER vs
       EXIT_GENERIC per the matrix in ``_sdk_helpers.unwrap()`` — collapsing
-      every poll_failed into EXIT_GENERIC hid a server outage from scripts
-      that check the exit code). ``None`` when there was no real response
+      every poll_failed into EXIT_GENERIC would hide a server outage from
+      scripts that check the exit code). ``None`` when there was no real response
       to classify (an invalid job id, or a 200 with an unparseable body).
     """
 
@@ -300,7 +300,7 @@ class PollOutcome:
 
 
 def poll_failed_exit_code(http_status: Optional[int]) -> int:
-    """Exit code for a "poll_failed" PollOutcome (fix(#1778, codex round 7)).
+    """Exit code for a "poll_failed" PollOutcome.
 
     Mirrors the status-to-exit-code matrix ``_sdk_helpers.unwrap()`` already
     uses for every other SDK response in this CLI: 5xx maps to EXIT_SERVER,
@@ -331,7 +331,7 @@ def resolve_dataset_id(
     guess: ``stopped_because`` says which one happened, from THIS poll, not
     a possibly-contradictory follow-up read.
 
-    fix(#1778 review round 7): a single poll REQUEST timing out (the 5s
+    A single poll REQUEST timing out (the 5s
     per-request bound) is retried — logged at debug and slept past —
     rather than aborting the whole operation immediately; a busy DB
     pool making one ``GET /jobs/{job_id}`` slow doesn't mean the
@@ -363,17 +363,17 @@ def resolve_dataset_id(
     last_status: Optional[str] = None
     transport = client.get_httpx_client()
     original_timeout = transport.timeout
-    # fix(#1778, #1787): AppState.sdk() bounds every request to a default
-    # 30s now, but a caller-supplied `timeout` (or analysis materialize's
+    # AppState.sdk() bounds every request to a default
+    # 30s, but a caller-supplied `timeout` (or analysis materialize's
     # POLL_FOREVER) can be far longer than that — bind each INDIVIDUAL
     # poll request to the same short bound already used for the one-shot
     # follow-up read of this identical endpoint
     # (_SNAPSHOT_REQUEST_TIMEOUT_SECONDS), so a single stalled connection
-    # can't outlive the whole --wait the way it previously could (the
+    # can't outlive the whole --wait (the
     # deadline below is only checked BETWEEN polls). Restored
     # unconditionally: publish()'s Stage 5 (--tags/--collection) and
     # materialize's own follow-up read both reuse this same client
-    # afterward (fix(#1778, codex round 6) regression shape).
+    # afterward.
     transport.timeout = min(timeout, _SNAPSHOT_REQUEST_TIMEOUT_SECONDS)
     try:
         deadline = monotonic() + timeout
@@ -382,15 +382,14 @@ def resolve_dataset_id(
             # post-commit polling maps to EXIT_NETWORK (4) per D-32 rather than a
             # raw httpx traceback + exit 1.
             #
-            # fix(#1778 review round 7, shared via round 8's poll_until):
-            # a per-request timeout (the 5s snapshot bound above) is
+            # A per-request timeout (the 5s snapshot bound above) is
             # routine under load — a busy DB pool can make one
             # GET /jobs/{job_id} slow without the overall operation
             # being unhealthy. poll_until() retries it (logged at
             # debug, slept past) as long as THIS loop's own deadline
             # (not call_sdk's) hasn't passed yet. A genuine network
             # failure (connection refused/reset) still exits
-            # immediately via call_sdk, unchanged from before.
+            # immediately via call_sdk.
             try:
                 resp = poll_until(
                     lambda: call_sdk(
@@ -420,7 +419,7 @@ def resolve_dataset_id(
                 # than spend the whole deadline retrying a status the caller
                 # should decide how to handle. http_status is carried so the
                 # caller can select EXIT_SERVER for a 5xx rather than the
-                # generic exit code (fix(#1778, codex round 7)).
+                # generic exit code.
                 return PollOutcome(
                     status=last_status,
                     stopped_because="poll_failed",
@@ -440,15 +439,15 @@ def resolve_dataset_id(
             # Terminal success: dataset_id materialized.
             if dataset_id:
                 return PollOutcome(dataset_id=str(dataset_id), status=status)
-            # fix(#1778): "cancelled" and "fanned_out" were missing from the
-            # terminal set, so --wait kept polling until timeout instead of
-            # stopping as soon as the job's fate was known.
+            # "cancelled" and "fanned_out" are in the terminal set, so --wait
+            # stops as soon as the job's fate is known instead of polling
+            # until timeout.
             if status in _TERMINAL_NO_DATASET_STATUSES:
                 return PollOutcome(status=status, stopped_because="terminal")
-            # fix(#1778 review round 16): capped to the time actually
+            # Capped to the time actually
             # remaining, matching wait_for_refresh's own outer sleep and
-            # poll_until's fixed inner one -- a bare sleep(interval) here
-            # was harmless for correctness (the `while monotonic() <
+            # poll_until's inner one -- a bare sleep(interval) would be
+            # harmless for correctness (the `while monotonic() <
             # deadline:` guard at the top already stops a late fetch),
             # but could oversleep well past the deadline before this
             # loop noticed, for no reason once `interval` exceeds the
@@ -493,7 +492,7 @@ def handle_commit_already_processed(job_id: str, output: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Post-commit extras — --tags / --collection wiring (fix(#569))
+# Post-commit extras — --tags / --collection wiring
 # ---------------------------------------------------------------------------
 
 
@@ -515,7 +514,7 @@ def _resolve_record_id(client: Any, dataset_id: str) -> UUID | str:
     """Fetch the dataset's parent catalog record id.
 
     The keyword API is record-scoped and ``Dataset.id != Dataset.record_id``
-    — fix(#588): posting the dataset id returns 404 "Record not found" on
+    — posting the dataset id returns 404 "Record not found" on
     every tagged publish. Returns a UUID, or a failure description string.
     """
     from geolens.api.datasets import (
@@ -615,7 +614,7 @@ def _apply_collection(client: Any, dataset_id: str, collection_ref: str) -> list
 def _guard(label: str, run: Any) -> list[str]:
     """Run one post-commit extra, converting ANY raise into a failure line.
 
-    fix(#588): ``call_sdk`` maps httpx timeouts/network errors to
+    ``call_sdk`` maps httpx timeouts/network errors to
     ``typer.Exit(EXIT_NETWORK)``. Propagating that from here would abort
     the command before the dataset URL and job id are printed — losing the
     recovery info for a dataset that WAS created. Every failure becomes

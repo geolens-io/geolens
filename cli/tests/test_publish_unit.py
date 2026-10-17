@@ -288,7 +288,7 @@ class TestUploadFile:
     def test_upload_raises_the_timeout_then_restores_it(
         self, tmp_path: Path
     ) -> None:
-        """fix(#1778): AppState.sdk() now bounds every request to
+        """AppState.sdk() bounds every request to
         _sdk_helpers.DEFAULT_HTTP_TIMEOUT_SECONDS (30s), too short for a
         large geospatial file on an ordinary connection. upload_file()
         must raise the bound for the POST itself and put the original
@@ -774,7 +774,7 @@ class TestPublishStage2PreviewIsBounded:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778) — `publish --wait` must not report success (exit 0,
+# `publish --wait` must not report success (exit 0,
 # "Published: ...") for a job that failed, was cancelled, timed out, or
 # could not be read back because the token expired mid-poll. Mirrors
 # analysis materialize --wait's job_snapshot fallback.
@@ -873,9 +873,8 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#1778): cancelled was previously not terminal, so --wait
-        polled a cancelled job for the full 120s timeout and then reported
-        success."""
+        """Cancelled is terminal: --wait must not poll a cancelled job
+        for the full 120s timeout and then report success."""
         from geolens_cli.main import app
 
         _seed_login("https://x.example.com", mock_keyring)
@@ -1974,7 +1973,7 @@ class TestResolveDatasetIdRetriesOnPerRequestTimeout:
 
 
 class TestResolveDatasetIdBoundsEachRequest:
-    """fix(#1778, #1787): resolve_dataset_id's own poll requests inherited
+    """resolve_dataset_id's own poll requests must not inherit
     the client's default timeout=None (unbounded) — the deadline computed
     from `timeout` is only checked BETWEEN polls, so a single stalled
     connection could hang --wait forever regardless of how short the
@@ -2035,7 +2034,7 @@ class TestResolveDatasetIdBoundsEachRequest:
 
 
 # ---------------------------------------------------------------------------
-# fix(#569) — --tags / --collection wiring
+# --tags / --collection wiring
 # ---------------------------------------------------------------------------
 
 
@@ -2051,7 +2050,7 @@ class TestSplitTags:
 
 
 class TestResolveRecordId:
-    """fix(#588): keywords are RECORD-scoped; Dataset.id != Dataset.record_id."""
+    """Keywords are RECORD-scoped; Dataset.id != Dataset.record_id."""
 
     def test_returns_record_id_not_dataset_id(self, monkeypatch) -> None:
         import geolens_cli.publish as publish
@@ -2184,7 +2183,7 @@ class TestApplyPublishExtras:
 
 
 class TestApplyPublishExtrasNeverRaises:
-    """fix(#588): a transport error after commit must not swallow the URL."""
+    """A transport error after commit must not swallow the URL."""
 
     def test_typer_exit_from_tags_becomes_a_failure_line(self, monkeypatch) -> None:
         import typer
@@ -2278,7 +2277,7 @@ class TestPublishExtrasCli:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix(#588): the dataset exists — never exit without the recovery info."""
+        """The dataset exists — never exit without the recovery info."""
         import typer
 
         import geolens_cli.publish as publish

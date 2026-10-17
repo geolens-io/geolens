@@ -25,7 +25,7 @@ probe_writable_dir() {
 
 mkdir -p "${STAGING_DIR}" "${APP_HOME}" "${UV_CACHE_DIR}"
 
-# fix(#1240, #651): prometheus_client multiprocess mode, api service only (see
+# prometheus_client multiprocess mode, api service only (see
 # #651: the worker's own /metrics endpoint stays single-process). Created
 # here, alongside the other runtime-writable dirs, so the chown/chmod block
 # below covers it too -- this container starts as root and drops to appuser
@@ -135,7 +135,7 @@ case "${GEOLENS_API_RUN_MIGRATIONS:-true}" in
         ;;
 esac
 
-# fix(#1240, #651): clear stale prometheus_client multiprocess mmap files
+# Clear stale prometheus_client multiprocess mmap files
 # before any worker starts (the directory itself was created and chowned
 # above). A leftover .db file from a previous container generation (e.g. a
 # different UVICORN_WORKERS topology) would otherwise pollute this

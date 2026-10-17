@@ -1,6 +1,6 @@
 """Add source-origin and refresh-state columns to catalog.datasets.
 
-feat(#1218) / ADR-002 Decision 3. Seven nullable columns, two CHECK
+ADR-002 Decision 3. Seven nullable columns, two CHECK
 constraints, and one partial index, plus a best-effort per-origin backfill.
 
 NULL is the only stored spelling of "never determined": the CHECK sets
@@ -62,7 +62,7 @@ _UPLOAD_FORMATS = (
 # wrong pointer is worse than none, since NULL at least reads as "unknown".
 # A dropped table yields NULL here, which correctly leaves origin_uri NULL.
 #
-# Unambiguous-or-NULL (fix #1218 review, P1). Table names are unique per
+# Unambiguous-or-NULL. Table names are unique per
 # tenant but NOT across tenants (uq_datasets_table_name_tenant is partial on
 # tenant_id), so in a multi-tenant install two tenants can both own a
 # `parcels` table. An unconstrained LIMIT 1 would hand one tenant's dataset a
@@ -176,7 +176,7 @@ def _quoted(values: Sequence[str]) -> str:
 def _url_is_safe(expr: str) -> str:
     """SQL predicate mirroring ``has_url_credentials`` for one URL column.
 
-    fix(#1218 review r5): a legacy service URL can carry ``user:pass@`` or a
+    A legacy service URL can carry ``user:pass@`` or a
     ``?token=`` parameter. Those predate the submission-time gate
     (``_validate_service_url`` in ``modules/catalog/sources/schemas.py:91``,
     which refuses both on ``ProbeRequest`` and ``ServicePreviewRequest``), so a
@@ -190,12 +190,12 @@ def _url_is_safe(expr: str) -> str:
     code here follows ``alembic/env.py``, which already imports
     ``app.core.config`` and ``app.core.db``.
 
-    fix(#1218 review r7): this predicate is a PRE-FILTER, not the authority.
+    This predicate is a PRE-FILTER, not the authority.
     ``purge_credential_bearing_pointers`` runs the real ``has_url_credentials``
     over everything the backfill populated and clears any offender it finds,
-    so completeness of the arms below is no longer a correctness requirement.
-    That restructure exists because three review rounds each reported one
-    spelling of the same class (``?token=``, ``?%74oken=``, ``?+token+=``):
+    so completeness of the arms below is not a correctness requirement.
+    Enumerating spellings of the same class (``?token=``, ``?%74oken=``,
+    ``?+token+=``) in SQL is the wrong shape:
     a regex mirror has to be re-proven complete every time ``parse_qsl`` grows
     a normalization, and nothing fails loudly when it stops being complete.
 
@@ -237,7 +237,7 @@ def _url_is_safe(expr: str) -> str:
 # layer by typename/collection inside the request rather than by a path
 # suffix, so their whole URL is the base.
 #
-# fix(#1218 review r3): a WFS/OGC row's layer identity is its typename or
+# A WFS/OGC row's layer identity is its typename or
 # collection id, which lives on the ingest job rather than on the dataset.
 # It is recovered from ``catalog.ingest_jobs.source_layer`` because the
 # retention sweep in platform/jobs/router.py deliberately EXEMPTS each
@@ -253,7 +253,7 @@ def _url_is_safe(expr: str) -> str:
 # with no layer_id and needs its layer identified once before a first
 # refresh; an honest gap beats invented data.
 #
-# THE INVARIANT (fix #1218 review r4): `origin_ref.url` is the service BASE for
+# THE INVARIANT: `origin_ref.url` is the service BASE for
 # every service_type, `layer_id` is the service-native layer identifier, and
 # the url NEVER embeds the layer.
 #
@@ -355,24 +355,23 @@ _STAC_BACKFILL = f"""
 # claiming that name (the NOT EXISTS below). Ambiguity on either side leaves
 # the row NULL.
 #
-# The two guards are NOT redundant and neither can be simplified away
-# (fix #1218 review rounds 1 and 2):
+# The two guards are NOT redundant and neither can be simplified away:
 #
-#   - Two physical relations, one claimant: the round-1 finding. The catalog
+#   - Two physical relations, one claimant. The catalog
 #     side sees nothing wrong; only the physical count catches it.
-#   - One physical relation, two claimants: the round-2 finding. Two tenants
+#   - One physical relation, two claimants. Two tenants
 #     both registered `parcels` and one tenant's table was later dropped, so
 #     the physical count is a clean 1 and BOTH catalog rows would otherwise
 #     bind to the surviving tenant's schema. One of them is an orphan holding
 #     a pointer into another tenant's data.
 #
-# fix(#1218 review r8): the claimant half counts datasets of ANY origin, not
+# The claimant half counts datasets of ANY origin, not
 # only the ones this backfill targets. Uploads, service imports and created
 # datasets own physical tables with tenant-local names too, so tenant A's
 # dropped registered `roads` beside tenant B's surviving UPLOADED `roads` is
-# one physical relation with a claimant the narrow filter could not see —
-# and B's schema would be stamped onto A's orphan. The outer population is
-# unchanged; only the NOT EXISTS widened.
+# one physical relation with a claimant a narrow filter could not see —
+# and B's schema would be stamped onto A's orphan. Only the NOT EXISTS is
+# widened; the outer population is the backfill's targets.
 #
 # The `IS NOT NULL` predicate also skips a catalog row whose physical table is
 # gone entirely, rather than building a pointer from a NULL schema.
@@ -487,7 +486,7 @@ _URL_REF_KEYS = ("url", "asset_href", "item_href")
 def _is_unsafe(detector, url: str) -> bool:
     """Run the credential detector, treating a raise as unsafe.
 
-    fix(#1218 review r8): ``has_url_credentials`` already converts the
+    ``has_url_credentials`` already converts the
     ``ValueError`` it expects (a malformed authority) into ``True`` internally,
     but this is a migration operating on arbitrary legacy strings, and an
     unanticipated raise here would abort the whole upgrade rather than skip one
@@ -504,10 +503,9 @@ def _is_unsafe(detector, url: str) -> bool:
 def purge_credential_bearing_pointers(bind) -> int:
     """Re-check every backfilled pointer with the REAL credential rule.
 
-    fix(#1218 review r7): this is the authority, and the SQL predicate is a
-    pre-filter in front of it. Three review rounds each reported one spelling
-    of a single class (``?token=``, then ``?%74oken=``, then ``?+token+=``),
-    which is the signal that enumerating spellings in SQL is the wrong shape:
+    This is the authority, and the SQL predicate is a
+    pre-filter in front of it. Enumerating spellings of a single class
+    (``?token=``, ``?%74oken=``, ``?+token+=``) in SQL is the wrong shape:
     a regex mirror of ``has_url_credentials`` has to be re-proven complete
     every time ``parse_qsl`` grows a normalization, and nothing fails loudly
     when it stops being complete.

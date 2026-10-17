@@ -365,9 +365,9 @@ function buildWherePredicate(
     allowedColumns.set(column.name.toLowerCase(), column.name);
   }
 
-  // fix(#1778): the threshold used to come from the FIRST feature's numeric
-  // value, returned on the spot. The seeded runtime fixture inserts
-  // value=10,20,30 in that order, so the clause was always `value >= 10` —
+  // The threshold must not come from the FIRST feature's numeric
+  // value. The seeded runtime fixture inserts value=10,20,30 in that order,
+  // so the clause would always be `value >= 10` —
   // every seeded row satisfies it, so a `where` param silently dropped
   // (wrong column, inverted operator, ignored entirely) produced the same
   // full result set as a correctly-applied filter. Scan every feature for
@@ -1056,10 +1056,10 @@ test.describe('Runtime export integrity', () => {
       `bbox=${bboxParam}`,
     ]);
 
-    // fix(#1778): neither assertion below required a non-empty result, so a
+    // Neither assertion below would require a non-empty result on its own, so a
     // regression that made the bbox filter match nothing (inverted operator,
-    // wrong column, an SRID mismatch) passed this test — the `for` loop
-    // simply never ran. `toBeGreaterThan(0)` now holds unconditionally: the
+    // wrong column, an SRID mismatch) would pass — the `for` loop
+    // would simply never run. `toBeGreaterThan(0)` holds unconditionally: the
     // bbox above is built to contain the observed feature.
     expect(filtered.features.length).toBeGreaterThan(0);
     expect(filtered.features.length).toBeLessThanOrEqual(baseline.features.length);
@@ -1101,8 +1101,8 @@ test.describe('Runtime export integrity', () => {
       `where=${encodeURIComponent(predicateValue.clause)}`,
     ]);
 
-    // fix(#1778): same empty-result gap as the bbox test above.
-    // buildWherePredicate's threshold is now the column's MAXIMUM observed
+    // Same empty-result guard as the bbox test above.
+    // buildWherePredicate's threshold is the column's MAXIMUM observed
     // value (see its comment), so the row that produced that maximum always
     // satisfies `>=` — the result is never empty.
     expect(filtered.features.length).toBeGreaterThan(0);

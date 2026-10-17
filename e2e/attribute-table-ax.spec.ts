@@ -3,7 +3,7 @@ import { getAuthToken } from './helpers/catalog';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
-// fix(#820): with the Chrome CDP Accessibility domain enabled (a real screen
+// With the Chrome CDP Accessibility domain enabled (a real screen
 // reader, or any AX-attached automation), clicking the Data tab on a vector
 // dataset locked React in an infinite synchronous re-render loop — the
 // measureElement dynamic-measurement ref in AttributeTable fed back

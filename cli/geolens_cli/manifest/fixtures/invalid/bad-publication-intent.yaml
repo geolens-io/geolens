@@ -8,7 +8,7 @@ datasets:
       - type: vector
         uri: ./data/roads.geojson
     publication:
-      # fix(#1201): `intent` is an open set (the server's workflow extension
+      # `intent` is an open set (the server's workflow extension
       # owns it), so an unrecognized word is no longer a CLI-side error. An
       # empty intent still is — it can never name a status.
       intent: ""

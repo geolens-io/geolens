@@ -67,7 +67,7 @@ test.describe('builder analysis tools', () => {
     await page.getByRole('button', { name: 'Analysis', exact: true }).click();
     await expect(page.getByTestId('analysis-panel')).toBeVisible();
 
-    // fix(#1253): preview is clipped to the current viewport, so fit the map
+    // Preview is clipped to the current viewport, so fit the map
     // to the seeded New York layer after the panel opens and finalizes layout.
     await page.getByRole('button', { name: `Layer options for ${seed.title}` }).click();
     await page.getByTestId('kebab-zoom-to-layer').click();
@@ -79,15 +79,14 @@ test.describe('builder analysis tools', () => {
       timeout: 15_000,
     });
 
-    // fix(#894): hold the browser's view of the job at "running" until the
+    // Hold the browser's view of the job at "running" until the
     // builder is gone. This spec exists for #682 — a job that OUTLIVES the
     // builder must still report — but a materialize job here finishes in ~80 ms
     // and useJobStatus fetches immediately on mount, so in practice the toast
-    // was raised while the builder was still up. The old spec then did
-    // page.goto('/'), a hard reload, which destroyed that toast and rehydrated
-    // the store with job: null, leaving nothing to re-poll; whether it passed
-    // was a coin flip on how fast the UI steps ran (1 failed / 2 flaky on
-    // 07-29, 2 failed on 07-30, ~1-in-4 locally). Waiting for completion before
+    // is raised while the builder is still up. A hard reload (page.goto('/'))
+    // would destroy that toast and rehydrate the store with job: null,
+    // leaving nothing to re-poll, and whether the spec passed would be a coin
+    // flip on how fast the UI steps ran. Waiting for completion before
     // navigating would be stable but vacuous: it would only prove a Sonner
     // toast survives client-side navigation, and would still pass if the
     // watcher stopped tracking on unmount. Masking the poll makes "mid-job"
@@ -187,8 +186,8 @@ test.describe('builder analysis tools', () => {
   }
 
   /**
-   * fix(#945): materializing is the ONLY way a user validates dissolve — it has
-   * no preview by design (#779) — and the pipeline behind it is never wired
+   * Materializing is the ONLY way a user validates dissolve — it has
+   * no preview by design (#779) — and the pipeline behind it is not wired
    * together anywhere else: the `col:` sentinel, the collision guard, and
    * `enable_hashagg=off` are each unit-tested in isolation and never end to end.
    */
@@ -240,8 +239,8 @@ test.describe('builder analysis tools', () => {
   });
 
   /**
-   * fix(#945): the pointer path that regressed twice, in #726 and again in
-   * #729. The draw-guard unit test covers the flag; nothing covered a real
+   * The pointer path that regressed twice, in #726 and again in
+   * #729. The draw-guard unit test covers the flag; this covers a real
    * drawn geometry reaching the clip operation. Preview rather than
    * materialize: the mask travels in the request either way, and preview
    * leaves no dataset to clean up.

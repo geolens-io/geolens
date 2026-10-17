@@ -81,9 +81,9 @@ class TestTrailingSlashOverrideFindsStoredCredential:
 
 
 class TestSdkHasADefaultHttpTimeout:
-    """fix(#1778): AppState.sdk() built its client with the SDK's default
-    timeout=None (unbounded) — every command hung forever against a host
-    that black-holes packets instead of exiting EXIT_NETWORK, and
+    """AppState.sdk() must not build its client with the SDK's default
+    timeout=None (unbounded) — every command would hang forever against a
+    host that black-holes packets instead of exiting EXIT_NETWORK, and
     _sdk_helpers.call_sdk's httpx.TimeoutException branch could never
     fire. No login/keyring state is needed: AppState.sdk() constructs an
     anonymous client whenever no bearer token or API key is stored."""
@@ -156,18 +156,13 @@ class TestActiveCredentialKindMarkerPrecedence:
         readable again, the marker -- not the old bearer-first
         precedence -- decides.
 
-        This test briefly needed an explicit
-        --no-keyring flag here, because replace_credentials() had
-        started refusing outright whenever it could not read the
-        account it was about to overwrite -- a PLAIN login's automatic
-        file fallback was gone for that case.
-
-        fix(#1778): the earlier refusal broke the
-        documented automatic fallback for a real headless install, so
-        it forces the keyring-free file path instead of aborting (see
-        TestSnapshotUnknownForcesFileBackend in test_exit_codes.py).
-        This test is back to a PLAIN login -- no --no-keyring needed --
-        exercising the actual regression path: an ordinary login that
+        This is a PLAIN login -- no --no-keyring needed. Refusing
+        outright whenever replace_credentials() cannot read the account it
+        is about to overwrite would break the documented automatic fallback
+        for a real headless install, so it forces the keyring-free file
+        path instead of aborting (see TestSnapshotUnknownForcesFileBackend
+        in test_exit_codes.py). The test exercises the actual regression
+        path: an ordinary login that
         cannot read the keyring falls back to the file on its own.
         _delete_stale_credentials' cleanup read of the bearer account
         still hits the broken keyring, and is still tolerated (not

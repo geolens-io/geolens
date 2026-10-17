@@ -11,10 +11,10 @@ export default defineConfig({
   fullyParallel: false,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  // fix(#896): the json reporter feeds the nightly failure report, which
+  // The json reporter feeds the nightly failure report, which
   // names the failing SPECS in the tracking issue instead of only saying
-  // "e2e-test: failure" — a deterministic six-day-old spec break and a
-  // one-off flake used to be indistinguishable without downloading traces.
+  // "e2e-test: failure" — a deterministic spec break and a
+  // one-off flake are otherwise indistinguishable without downloading traces.
   reporter: process.env.CI
     ? [
         ['github'],

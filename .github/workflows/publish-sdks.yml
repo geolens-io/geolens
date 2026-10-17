@@ -80,9 +80,9 @@ jobs:
         with:
           python-version: "3.14"
 
-      # fix(#1778): every publishing run must come from a tag ref, and this is
+      # Every publishing run must come from a tag ref, and this is
       # a hard failure rather than a skipped check, same as publish-mcp.yml's
-      # #1623 guard: a manual dispatch defaults to the branch selected in the
+      # guard: a manual dispatch defaults to the branch selected in the
       # Actions UI, and the repo sits at the last released version between
       # bumps, so a branch run would happily publish that branch's current
       # pyproject version as metadata for an already-released PyPI artifact.
@@ -178,7 +178,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
-          # fix(#819): Node 24 ships npm 11.x — OIDC Trusted Publishing requires npm >= 11.5.1.
+          # Node 24 ships npm 11.x; OIDC Trusted Publishing requires npm >= 11.5.1.
           # Node 22 (npm 10.x) cannot authenticate; there is no NODE_AUTH_TOKEN
           # fallback on the publish step, so the npm version IS the auth path.
           node-version: 24
@@ -186,9 +186,9 @@ jobs:
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
 
-      # fix(#1778): every publishing run must come from a tag ref, and this is
+      # Every publishing run must come from a tag ref, and this is
       # a hard failure rather than a skipped check, same as publish-mcp.yml's
-      # #1623 guard: a manual dispatch defaults to the branch selected in the
+      # guard: a manual dispatch defaults to the branch selected in the
       # Actions UI, and the repo sits at the last released version between
       # bumps, so a branch run would happily publish that branch's current
       # package.json version as metadata for an already-released npm

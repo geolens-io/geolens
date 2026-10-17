@@ -92,10 +92,10 @@ jobs:
             # unreleased candidate (same spirit as #325 gating release.yml's
             # isPrerelease). Fresh `:latest` pulls must track the last GA.
             type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
-          # fix(#932): --label overrides Dockerfile LABEL, and metadata-action's
-          # defaults derive title from the REPO name — without the explicit
-          # title below, all four published images reported title=geolens and
-          # the per-stage Dockerfile titles were discarded. The Dockerfile
+          # --label overrides Dockerfile LABEL, and metadata-action's
+          # defaults derive title from the REPO name, so the explicit
+          # title below keeps each published image from reporting title=geolens
+          # and discarding the per-stage Dockerfile titles. The Dockerfile
           # LABEL blocks stay: they are the only metadata source on non-publish
           # build paths (local docker build, compose).
           labels: |
@@ -165,7 +165,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # fix(#441): stamp the exact commit into the image so /api/health can
+          # Stamp the exact commit into the image so /api/health can
           # report it (`build` field). Only the pushed image needs it; the
           # scan-only builds above stay cache-stable without it.
           build-args: |

@@ -1,6 +1,6 @@
 """Let PostgreSQL enforce "at most one embedding backfill in flight".
 
-fix(#1542 review P1): the admin backfill endpoint refuses a second run while
+The admin backfill endpoint refuses a second run while
 one is in flight, because two concurrent force runs mean two ``DELETE FROM
 catalog.record_embeddings``. That refusal was a SELECT followed by an INSERT,
 which is a TOCTOU on exactly the guard that exists to prevent the destructive

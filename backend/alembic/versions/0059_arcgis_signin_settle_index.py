@@ -1,6 +1,6 @@
 """Let PostgreSQL enforce one settled audit row per ArcGIS sign-in attempt.
 
-fix(#1889): one settled row per ``attempt_id`` is a schema invariant, as in
+One settled row per ``attempt_id`` is a schema invariant, as in
 0051, not a read-then-write in the finaliser.
 
 The predicate pins ``action = 'arcgis_signin'`` and a present ``attempt_id``,

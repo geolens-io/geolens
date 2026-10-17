@@ -112,13 +112,13 @@ def spec_bbox_to_tiles(
 ):
     """Yield (z, x, y) tuples for an RFC 7946 §5.2 bbox, which may cross ±180.
 
-    fix(#934): a two-ring antimeridian extent read naively via ST_XMin/ST_XMax
+    A two-ring antimeridian extent read naively via ST_XMin/ST_XMax
     is -180..180, so a narrow Pacific dataset seeded the whole world at every
     zoom. Read the extent through ``extent_to_bbox`` (west > east for a
     crossing extent) and seed each lobe as its own longitude range.
     """
     if west > east:
-        # fix(#934): at low zooms both lobes can resolve to the same
+        # At low zooms both lobes can resolve to the same
         # tile column (z0 is a single tile for either lobe), so deduplicate —
         # otherwise the same cache key is seeded twice concurrently and the
         # dry-run/summary counts over-report.
@@ -417,7 +417,7 @@ async def main() -> None:
 
         cache_ttl = row["tile_cache_ttl"] or settings.tile_cache_ttl
 
-        # fix(#934): read the extent in spec form (west > east when it crosses
+        # Read the extent in spec form (west > east when it crosses
         # the antimeridian) so a Pacific dataset seeds its two lobes instead
         # of the whole world.
         from geoalchemy2.elements import WKBElement

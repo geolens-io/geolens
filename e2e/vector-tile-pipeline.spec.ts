@@ -1,5 +1,5 @@
 /**
- * feat(#846): vector-tile pipeline regression spec.
+ * Vector-tile pipeline regression spec.
  *
  * Why this exists: nothing else in the suite asserts that MVT tiles are ever
  * actually requested. Every other map spec checks DOM/canvas presence, which a
@@ -21,7 +21,7 @@ let datasetId: string;
 let tableName: string;
 
 /**
- * fix(#1624): match ONLY this dataset's own tiles.
+ * Match ONLY this dataset's own tiles.
  *
  * A bare `.pbf` test is worthless here: on the default OpenFreeMap basemap,
  * 27 of the 35 `.pbf` responses on this page are third party (19 glyph ranges
@@ -81,12 +81,12 @@ test.describe('Vector tile pipeline', () => {
       else if (url.includes('.pbf')) thirdPartyPbf.push(url);
     });
 
-    // fix(#1624): track in-flight dataset tile requests directly, rather than
-    // `networkidle`. Load states are sticky per document: once the page had
+    // Track in-flight dataset tile requests directly, rather than
+    // `networkidle`. Load states are sticky per document: once the page has
     // already reached networkidle during the pre-dataset gap, a later
-    // `waitForLoadState('networkidle')` resolved immediately without opening a
+    // `waitForLoadState('networkidle')` resolves immediately without opening a
     // new quiet window, so sibling tiles in the same batch could still be in
-    // flight and a later 4xx/5xx was missed. These listeners are registered
+    // flight and a later 4xx/5xx would be missed. These listeners are registered
     // before navigation for the same reason as the response wait below: a
     // request that starts during `goto` or before the canvas check must still
     // be counted.
@@ -100,7 +100,7 @@ test.describe('Vector tile pipeline', () => {
       if (isDatasetTile(r.url())) inFlightDatasetTiles--;
     });
 
-    // fix(#1624): register this wait before navigation. The `page.on('response')`
+    // Register this wait before navigation. The `page.on('response')`
     // collector above sees every tile regardless of timing, but a
     // `waitForResponse` registered after `goto` cannot match a response that
     // already arrived during navigation or before the canvas check completes —
@@ -115,20 +115,20 @@ test.describe('Vector tile pipeline', () => {
     // extent are requested without needing an explicit zoom-to-layer.
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
 
-    // fix(#1624): wait for the dataset's own first tile instead of `networkidle`.
-    // A trace on the dev stack showed basemap tiles finish, then a ~580ms
+    // Wait for the dataset's own first tile instead of `networkidle`.
+    // Basemap tiles finish, then a ~580ms
     // client-side gap (map load event, transformRequest install, dataset source
-    // add) before the six signed dataset tile requests fire — well inside
-    // networkidle's 500ms quiet window under host load. That let the assertion
-    // below run before the dataset source was even added, reporting "no tiles
-    // requested" with a perfectly healthy pipeline. A timeout here falls
+    // add) precedes the signed dataset tile requests — well inside
+    // networkidle's 500ms quiet window under host load. `networkidle` would let
+    // the assertion below run before the dataset source was even added,
+    // reporting "no tiles requested" with a perfectly healthy pipeline. A timeout here falls
     // through to the length assertion, which still reports the real #8186
     // signature.
     await firstDatasetTile.catch(() => undefined);
 
-    // fix(#1624): fold the zero-in-flight check into the same predicate as the
+    // Fold the zero-in-flight check into the same predicate as the
     // debounce, rechecked on every poll tick. Sampling them separately (wait
-    // for zero, then only watch `mvt.length`) left a gap: if a second batch
+    // for zero, then only watch `mvt.length`) leaves a gap: if a second batch
     // starts after in-flight was observed at zero and a response takes longer
     // than the 500ms poll interval, `mvt.length` would look unchanged while a
     // request was still outstanding, and a later 4xx/5xx from it would be

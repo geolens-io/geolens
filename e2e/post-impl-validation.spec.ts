@@ -4,7 +4,7 @@
  */
 import { test, expect } from './helpers/session';
 
-// fix(#441): read the same env var as playwright.config.ts so absolute URLs track baseURL
+// Read the same env var as playwright.config.ts so absolute URLs track baseURL
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const ADMIN_USER = process.env.GEOLENS_ADMIN_USERNAME ?? 'admin';
 const ADMIN_PASS = process.env.GEOLENS_ADMIN_PASSWORD ?? 'admin';
@@ -50,8 +50,9 @@ test.describe.serial('Post-impl validation', () => {
 
   test('2. Search page renders without crash', async ({ page }) => {
     await page.goto(`${BASE}/`);
-    // fix(#1778): a bare .catch(() => {}) swallowed the rejection this expect()
-    // exists to raise, so a rendered error boundary passed the test silently.
+    // No bare .catch(() => {}) here: it would swallow the rejection this
+    // expect() exists to raise, and a rendered error boundary would pass
+    // silently.
     // Page should not show error boundary
     await expect(page.locator('text=Something went wrong')).not.toBeVisible({ timeout: 5000 });
     // Should have some content
@@ -61,7 +62,7 @@ test.describe.serial('Post-impl validation', () => {
   test('3. Maps page loads and renders', async ({ page }) => {
     await page.goto(`${BASE}/maps`);
     await page.waitForLoadState('networkidle');
-    // fix(#1778): same swallow as test 2 above — the error-boundary check
+    // Same rule as test 2 above — no swallowing, or the error-boundary check
     // could never fail.
     //
     // fix(review #1792): `toHaveText` normalizes and compares the WHOLE
@@ -152,9 +153,9 @@ test.describe.serial('Post-impl validation', () => {
     await viewerPage.goto(`${BASE}/m/${shareData.token}`);
     await viewerPage.waitForLoadState('networkidle');
 
-    // fix(#1778): dropped the swallowing .catch() so a rendered error boundary
-    // fails this test, and asserted on hasCanvas instead of computing it and
-    // never reading it — a blank viewer used to pass on the URL check alone.
+    // No swallowing .catch(), so a rendered error boundary fails this test,
+    // and the assertion reads hasCanvas — a blank viewer must not pass on the
+    // URL check alone.
     // Should not show "Something went wrong" error boundary
     await expect(viewerPage.locator('text=Something went wrong')).not.toBeVisible({ timeout: 10000 });
 
@@ -265,14 +266,12 @@ test.describe.serial('Post-impl validation', () => {
   });
 
   test('12. Admin settings page loads without crash', async ({ page }) => {
-    // fix(#1778): dropped the manual localStorage-set-then-reload dance —
+    // No manual localStorage-set-then-reload dance —
     // the chromium project's storageState already authenticates every test
-    // in this file (see playwright.config.ts), so the extra reload was pure
-    // redundancy. It also raced the SPA's own client-side
-    // /admin/settings -> /admin/settings/general redirect: with the
-    // swallowed .catch() this always reported success either way, so the
-    // race was invisible; asserting for real surfaced it as a flake
-    // (occasionally landing back on /login). A single goto with the
+    // in this file (see playwright.config.ts), so an extra reload is pure
+    // redundancy. It would also race the SPA's own client-side
+    // /admin/settings -> /admin/settings/general redirect, occasionally
+    // landing back on /login. A single goto with the
     // project's own auth avoids the race outright.
     await page.goto(`${BASE}/admin/settings`);
     await page.waitForLoadState('networkidle');

@@ -20,7 +20,7 @@ from typing import Any, Callable, Iterator, Mapping, TypeVar
 
 import typer
 
-# fix(#1778 review round 8): stdlib logging, not structlog. structlog's
+# Stdlib logging, not structlog. structlog's
 # unconfigured default is a PrintLogger that writes EVERY call straight to
 # stdout regardless of level — this package configures no structlog
 # handler anywhere, so a log.debug() here would corrupt any --json
@@ -41,7 +41,7 @@ EXIT_NETWORK = 4
 EXIT_SERVER = 5
 EXIT_BLOCKED = 6
 
-#: fix(#1778): the SDK builds its httpx client with timeout=None (no limit
+#: The SDK builds its httpx client with timeout=None (no limit
 #: at all, not httpx's 5s default — see main.py's AppState.sdk()), so
 #: without a default here every command (login, whoami, status, publish,
 #: apply, export stac, analysis preview, default refresh) hangs forever
@@ -53,7 +53,7 @@ EXIT_BLOCKED = 6
 #: that the backend processes synchronously before responding.
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 30.0
 
-#: fix(#1778 review round 5, extended round 6): AppState.sdk()'s 30s
+#: AppState.sdk()'s 30s
 #: default is too short for a request the BACKEND documents as
 #: long-running before it responds. The largest backend-declared
 #: deadline this package's call sites hit is
@@ -96,32 +96,27 @@ def poll_until(
     """Call ``fetch()``, retrying on ``httpx.TimeoutException`` until it
     succeeds or ``deadline`` (a ``monotonic()`` timestamp) is reached.
 
-    fix(#1778 review round 8): every ``--wait`` poll loop in this
+    Every ``--wait`` poll loop in this
     package (``publish.resolve_dataset_id``, ``refresh.wait_for_refresh``)
-    now retries a per-request timeout through this ONE helper instead of
-    each open-coding its own try/except — ``wait_for_refresh`` still
-    called plain ``call_sdk()`` (no ``reraise_timeout``), so one slow
-    status GET made ``geolens refresh --wait`` exit ``EXIT_NETWORK``
-    immediately even with the operation's own deadline nowhere near
-    reached. ``fetch`` is expected to be something like
+    retries a per-request timeout through this ONE helper instead of
+    each open-coding its own try/except; a plain ``call_sdk()`` (no
+    ``reraise_timeout``) would make one slow status GET exit
+    ``EXIT_NETWORK`` immediately even with the operation's own deadline
+    nowhere near reached. ``fetch`` is expected to be something like
     ``lambda: call_sdk(fn, reraise_timeout=True, ...)`` — ``poll_until``
     itself only handles the retry-vs-give-up decision, not the SDK call.
 
-    fix(#1778 review round 16): round 8's loop checked the deadline only
-    AFTER a timeout, then slept the FULL ``interval`` regardless of how
-    much time actually remained, and looped straight back into
-    ``fetch()`` with no recheck at all — only the NEXT timeout would
-    have caught a deadline that had already passed. Two bugs from that
-    one gap: a request that timed out less than ``interval`` before the
-    deadline overslept past it and then fired another request anyway,
-    so a SUCCESS on that request was accepted after the caller's own
-    advertised deadline; and a stall straddling the deadline paid for a
-    full extra per-request timeout it never needed to. Every iteration
-    now computes ``remaining`` and checks it BEFORE calling ``fetch()``
-    — not just after a timeout — and any sleep is capped to
-    ``min(interval, remaining)`` rather than the bare interval.
+    Checking the deadline only AFTER a timeout, and then sleeping the FULL
+    ``interval`` regardless of how much time remains, would let a request
+    that timed out less than ``interval`` before the deadline oversleep
+    past it and fire another request anyway, so a SUCCESS on that request
+    would be accepted after the caller's own advertised deadline; and a
+    stall straddling the deadline would pay for a full extra per-request
+    timeout it never needed to. Every iteration therefore computes
+    ``remaining`` and checks it BEFORE calling ``fetch()``, and any sleep
+    is capped to ``min(interval, remaining)`` rather than the bare interval.
 
-    Four timing invariants this loop now guarantees, each pinned in
+    Four timing invariants this loop guarantees, each pinned in
     ``tests/test_poll_retry_usage.py::TestPollUntilDeadlineDiscipline``:
 
     (a) No ``fetch()`` call ever starts after ``deadline`` — every
@@ -140,7 +135,7 @@ def poll_until(
         ``analysis.POLL_FOREVER`` both already use) never raises
         ``PollDeadlineExceeded`` — ``remaining`` is always positive —
         and always sleeps the FULL ``interval`` between timeouts
-        (``min(interval, inf) == interval``), matching the pre-round-16
+        (``min(interval, inf) == interval``), matching plain
         unbounded behavior exactly.
     (d) A ``fetch()`` that succeeds returns its result immediately, with
         no post-hoc deadline check — including one that straddles the
@@ -151,8 +146,7 @@ def poll_until(
 
     Raises ``PollDeadlineExceeded`` once ``deadline`` is reached without
     a successful call; the caller decides what that means (e.g.
-    ``resolve_dataset_id`` exits ``EXIT_NETWORK`` naming the deadline,
-    matching round 7's behavior).
+    ``resolve_dataset_id`` exits ``EXIT_NETWORK`` naming the deadline).
     """
     import httpx  # lazy — only for exception types
 
@@ -178,7 +172,7 @@ def long_request_timeout(
     ``timeout`` (default EXTENDED_REQUEST_TIMEOUT_SECONDS), restoring
     the original afterward.
 
-    fix(#1778 review round 18): ``timeout`` is an override for a caller
+    ``timeout`` is an override for a caller
     whose own bound isn't the fixed 600s -- manifest_apply.py's
     batch-aware budget (``compute_manifest_apply_timeout``) needs a
     LARGER bound for a many-entry manifest than the fixed default, and
@@ -186,7 +180,7 @@ def long_request_timeout(
     keeps relying on the unchanged default, so this is additive, not a
     behavior change for them.
 
-    fix(#1778 review round 21): ``timeout=None`` means NO client-side
+    ``timeout=None`` means NO client-side
     READ timeout at all -- an explicit operator opt-out (manifest
     apply's ``--timeout 0``) for "wait for the server, however long it
     takes to respond." Unlike a bare float (applied uniformly to every
@@ -198,20 +192,18 @@ def long_request_timeout(
     asking to wait longer for a slow response is not asking to wait
     forever for a server that never answers the connection at all.
 
-    fix(#1778 review round 5): every CLI request that carries a file
-    body must go through this — previously each call site open-coded
-    its own save/override/restore (or, in replace.py's and
-    manifest_apply.py's case, never raised the bound at all and just
-    ate whatever AppState.sdk()'s 30s default left it with).
+    Every CLI request that carries a file
+    body must go through this, rather than each call site open-coding
+    its own save/override/restore (or never raising the bound at all and
+    getting whatever AppState.sdk()'s 30s default leaves it with).
 
-    fix(#1778 review round 6): the class is bigger than "carries a
-    file body" — round 5's structural gate keyed on ``files=`` and
-    still missed the ingest/reupload preview requests (main.py), which
-    have no multipart body but wait on the backend's synchronous
+    The class is bigger than "carries a
+    file body": the ingest/reupload preview requests (main.py) have no
+    multipart body but wait on the backend's synchronous
     ogrinfo probe (up to 300s, OGRINFO_TIMEOUT_SECONDS). The real
     classification is "every request the backend documents as
     long-running before it responds" — carrying a file is one way a
-    request earns that, not the definition. This module now also keeps
+    request earns that, not the definition. This module also keeps
     ``LONG_RUNNING_SDK_FUNCTIONS`` (below), naming every generated SDK
     function known to be long-running by that definition;
     ``tests/test_long_request_timeout_usage.py`` structurally asserts
@@ -242,7 +234,7 @@ def long_request_timeout(
         httpx_client.timeout = original_timeout
 
 
-#: fix(#1778 review round 6): every generated SDK function this package
+#: Every generated SDK function this package
 #: calls that the BACKEND documents as long-running before it responds —
 #: not just the ones with a multipart body. Keyed by a short display
 #: name; each value is the (module, attribute) pair
@@ -256,14 +248,13 @@ def long_request_timeout(
 #:   ingest/router.py, backend/app/modules/catalog/datasets/api/
 #:   router_reupload.py), bounded by
 #:   ``OGRINFO_TIMEOUT_SECONDS = 300`` (backend/app/processing/ingest/
-#:   ogr.py) — confirmed the source of the round-6 finding (main.py's
-#:   publish/replace Stage 2 previews carry no file body, so round 5's
-#:   ``files=``-keyed gate missed them).
+#:   ogr.py) — main.py's
+#:   publish/replace Stage 2 previews carry no file body, so a
+#:   ``files=``-keyed gate would miss them.
 #: - ``analysis_materialize``: expects a synchronous 200 back (submit-
-#:   time validation/setup work), not a fire-and-forget 202 — already
-#:   covered since round 5, kept here so the registry is the single
-#:   list this test enumerates from.
-#: - ``analysis_preview`` (fix(#1778 review round 11)): the backend's
+#:   time validation/setup work), not a fire-and-forget 202 — kept
+#:   here so the registry is the single list this test enumerates from.
+#: - ``analysis_preview``: the backend's
 #:   ``run_analysis_preview`` (backend/app/modules/catalog/datasets/
 #:   domain/service_analysis.py) can run up to three SEQUENTIAL
 #:   sandbox queries before responding — a bbox-scoped source count
@@ -353,17 +344,16 @@ def make_client(
 ) -> Any:
     """Construct a GeolensClient bound to DEFAULT_HTTP_TIMEOUT_SECONDS.
 
-    fix(#1778 review round 2): every construction of the SDK's generated
+    Every construction of the SDK's generated
     client in this package must go through here — AppState.sdk(), the
     interactive login flow, auth.try_refresh(), and
-    call_sdk_with_reauth's retry client had each been given the timeout
-    bound (or missed it, in login's case) independently, so a new call
-    site could ship unbounded with nothing to catch it.
+    call_sdk_with_reauth's retry client — so a new call
+    site cannot ship unbounded.
     tests/test_client_construction.py greps the package for the
     construction call and asserts the only occurrence is inside this
     function's body.
 
-    fix(#1778 review round 3): the returned object also carries
+    The returned object also carries
     ``.credential_kind`` — one of "bearer", "api_key", "anonymous" — so a
     caller that refresh-retries on 401 (call_sdk_with_reauth) can tell
     whether the request that got a 401 even HAS a refreshable bearer
@@ -377,14 +367,13 @@ def make_client(
     ripple through all of them for a fix that only two call sites
     (whoami, status) need.
 
-    fix(#1778 review round 26): ``.credential_kind`` alone conflates a
+    ``.credential_kind`` alone conflates a
     bearer token GEOLENS_TOKEN supplied with one loaded from a STORED
-    login -- both pass ``bearer_token=`` here and both got tagged plain
-    "bearer". ``call_sdk_with_reauth`` used only ``credential_kind`` to
-    decide whether a 401 was worth refresh-retrying, so it happily spent
-    a STORED refresh token to rescue a request authenticated by an env
-    var override, silently continuing the command as whatever principal
-    that stored session belonged to -- not the one the operator actually
+    login -- both pass ``bearer_token=`` here and both are tagged plain
+    "bearer". Deciding from ``credential_kind`` alone, ``call_sdk_with_reauth``
+    would spend a STORED refresh token to rescue a request authenticated by
+    an env var override, silently continuing the command as whatever
+    principal that stored session belongs to -- not the one the operator
     asked for via GEOLENS_TOKEN. ``provenance`` records WHERE the value
     passed as ``bearer_token``/``api_key`` came from -- ``AppState.sdk()``
     is the only caller that sets it meaningfully ("env", "stored-bearer",
@@ -394,7 +383,7 @@ def make_client(
     is itself already the result of a refresh, so it defaults to
     ``credential_kind`` when omitted -- a neutral value that never
     equals "env" and so can never accidentally suppress or misdirect
-    the round-26 checks below.
+    the checks below.
     """
     from geolens import GeolensClient  # lazy: keep `geolens --help` snappy
 
@@ -471,7 +460,7 @@ def call_sdk(
 ) -> Any:
     """Run a sync_detailed call, mapping httpx exceptions to exit codes.
 
-    fix(#1778 review round 7): ``reraise_timeout=True`` re-raises the
+    ``reraise_timeout=True`` re-raises the
     plain ``httpx.TimeoutException`` to the caller instead of mapping it
     to ``typer.Exit(EXIT_NETWORK)``, for a poll loop that wants to treat
     one slow request as retryable rather than immediately fatal, as long
@@ -482,7 +471,7 @@ def call_sdk(
     a plain hard-exit keeps that behavior regardless of
     ``reraise_timeout``.
 
-    fix(#1778 review round 18): ``on_timeout``, when given, is called
+    ``on_timeout``, when given, is called
     (no arguments) to produce a CUSTOM exception raised instead of the
     raw ``httpx.TimeoutException`` — for a caller (manifest_apply.py)
     that must not import ``httpx`` itself (OCCLI-06 — every HTTP
@@ -494,7 +483,7 @@ def call_sdk(
     already decided how it wants to handle a timeout and does not also
     want the raw httpx one.
 
-    fix(#1778 review round 22): ``on_timeout`` now fires ONLY for
+    ``on_timeout`` fires ONLY for
     ``httpx.ReadTimeout`` — the request was fully sent and this side
     was waiting on the response, so the server MAY have already
     accepted the work (manifest_apply.py's "the server keeps applying,

@@ -162,7 +162,7 @@ export async function seedDataset(titlePrefix = 'E2E Seed Dataset'): Promise<See
 }
 
 /**
- * fix(#451): ingest the single-band Float32 GeoTIFF fixture as a real DEM
+ * Ingest the single-band Float32 GeoTIFF fixture as a real DEM
  * dataset (`is_dem_candidate` in processing/raster/cog.py flags single-band
  * float rasters). Powers the two-switch DEM editor spec. Pair with
  * `deleteDataset()` in `afterAll`.

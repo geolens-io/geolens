@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from './helpers/session';
 
-// fix(#1204): the sortable column headers are tabbable buttons sitting between
+// The sortable column headers are tabbable buttons sitting between
 // the filter bar and the row toggles, so the first row control is a bounded
 // number of Tabs away from "Clear" rather than exactly one. Tab until the
 // target gains focus; the final assertion still fails loudly if it never does.
@@ -200,9 +200,9 @@ test.describe('Admin Panel', () => {
     await expect(page.getByText('Map Plugins')).toBeVisible();
   });
 
-  // test(#828): the AI and appearance settings pages were never visited by the
-  // admin e2e — their gating (edition, capability, env-key notice) was pinned
-  // only by unit tests.
+  // The AI and appearance settings pages are visited here — their gating
+  // (edition, capability, env-key notice) is otherwise pinned only by unit
+  // tests.
   test('settings: ai page loads with provider config and env-key notice', async ({ page }) => {
     await page.goto('/admin/settings/ai');
 
@@ -240,9 +240,9 @@ test.describe('Admin Panel', () => {
   test('settings: appearance URL never renders the appearance tab on community', async ({ page }) => {
     await page.goto('/admin/settings/appearance');
 
-    // fix(#871): AdminSettingsPage's edition gate owns this URL now, so a
-    // community stack lands on /general (it used to be dragged to /map by a
-    // static legacy redirect that outranked `admin/settings/:tab`). The
+    // AdminSettingsPage's edition gate owns this URL, so a
+    // community stack lands on /general (not /map, which a static legacy
+    // redirect outranking `admin/settings/:tab` would produce). The
     // enterprise direction — same URL renders the branding tab — is pinned at
     // the unit level in AdminSettingsPage.test.tsx, since the stack under
     // test only ever has one edition.

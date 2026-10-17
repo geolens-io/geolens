@@ -1,10 +1,10 @@
-# test(#826): db-only compose stack for the CI backup round-trip
+# db-only compose stack for the CI backup round-trip
 # (.github/workflows/ci.yml, backup-roundtrip job, BUNDLED MODE step).
 #
 # scripts/restore.sh restores via `docker compose exec -T db ...`, so proving
 # the REAL script — instead of an inline replica of its flags that silently
-# drifts (the replica had already regressed to `pg_restore --list` while the
-# script uses the stricter `-f /dev/null`) — needs a compose project whose
+# drifts (e.g. `pg_restore --list` where the script uses the stricter
+# `-f /dev/null`) — needs a compose project whose
 # `db` service is the restore target. Built from db/Dockerfile (the shipped
 # image) because restore.sh's fail-closed pre-restore DDL creates the postgis /
 # pg_trgm / unaccent / vector extensions and must find them installed.

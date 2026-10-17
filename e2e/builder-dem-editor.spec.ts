@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from './helpers/sessi
 import { deleteDataset, seedDemDataset, getAuthToken } from './helpers/catalog';
 
 /**
- * fix(#451): E2E coverage for the composable two-switch DEM editor.
+ * E2E coverage for the composable two-switch DEM editor.
  *
  * Seeds a real single-band Float32 GeoTIFF (ingested as a DEM), builds a map
  * around it, and drives the builder UI through the states the composable model

@@ -1035,10 +1035,9 @@ class TestDatasetStatus:
 
 
 class TestDatasetStatusRefreshRetry:
-    """fix(#1778): `geolens status` now spends a stored refresh token on a
-    401 instead of hard-failing — previously only `whoami` did this,
-    so a status check with an expired access token failed even though
-    login had stored a refresh token that could have renewed it."""
+    """`geolens status` spends a stored refresh token on a
+    401 instead of hard-failing, even when the access token has expired
+    and login stored a refresh token that can renew it."""
 
     def test_expired_token_is_refreshed_and_the_retry_succeeds(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

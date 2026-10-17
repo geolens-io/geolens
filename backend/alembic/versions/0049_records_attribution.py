@@ -1,6 +1,6 @@
 """Add the display-credit column to catalog.records.
 
-feat(#1472): ``ManifestMetadata.attribution`` was validated at manifest apply
+``ManifestMetadata.attribution`` was validated at manifest apply
 and written to ``ingest_jobs.user_metadata['manifest_attribution']``, where it
 stopped. No record column carried it, so the credit line an operator supplied
 to satisfy a source's terms (swisstopo swissALTI3D, NOAA ETOPO) was never shown

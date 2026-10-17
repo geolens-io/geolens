@@ -9,7 +9,7 @@
 # boot under QEMU emulation), while this copy keeps a 90s budget for the
 # upgrade path where images and volumes already exist locally.
 #
-# fix(#1778): this file has ONE side
+# This file has ONE side
 # effect on source — see the snapshot block below `fail()`'s definition,
 # which needs `fail` to exist before it runs and so cannot sit this early
 # in the file. Everything else here still only defines functions.
@@ -118,22 +118,22 @@ need_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required but was not found"
 }
 
-# fix(#1778): the original capture
-# was `env -0 | xargs -0 sh -c '...' ... 2>/dev/null || true` -- an
-# EXTERNAL, GNU-flavored `env -0` that is not guaranteed everywhere these
-# scripts run (measured, not assumed: some `/usr/bin/env` builds do not
-# accept `-0` at all -- see the man page differences across BSD-derived
-# envs). The stderr redirect plus `|| true` swallowed that failure
-# completely: an EMPTY snapshot directory is indistinguishable, from
-# every call site's point of view, from "this operator genuinely has
-# nothing exported" -- every inherited setting is then silently treated
-# as absent. With POSTGRES_USER=production exported and .env holding
-# POSTGRES_DB=${POSTGRES_USER:-fallback}, restore.sh would resolve
-# "fallback" and could run `pg_restore --clean` against the wrong
-# database -- exactly the class of bug this snapshot exists to close, reopened by its
-# own capture mechanism's failure mode.
+# The snapshot of inherited variables must not silently come up empty. A
+# capture built on `env -0 | xargs -0 sh -c '...' ... 2>/dev/null || true`
+# depends on an EXTERNAL, GNU-flavored `env -0` that is not guaranteed
+# everywhere these scripts run (measured, not assumed: some `/usr/bin/env`
+# builds do not accept `-0` at all -- see the man page differences across
+# BSD-derived envs), and the stderr redirect plus `|| true` would swallow that
+# failure completely: an EMPTY snapshot directory is indistinguishable, from
+# every call site's point of view, from "this operator genuinely has nothing
+# exported" -- every inherited setting is then silently treated as absent.
+# With POSTGRES_USER=production exported and .env holding
+# POSTGRES_DB=${POSTGRES_USER:-fallback}, restore.sh would resolve "fallback"
+# and could run `pg_restore --clean` against the wrong database -- exactly the
+# class of bug this snapshot exists to close, reopened by its own capture
+# mechanism's failure mode.
 #
-# Fixed two ways:
+# So the capture is built two ways:
 #
 #   1. No external tool AT ALL for the snapshot, not even a NUL-safe one.
 #      Where bash is actually running this file ($BASH_VERSION set --
@@ -145,7 +145,7 @@ need_command() {
 #      expansion) reads each one straight out of the shell's own
 #      variable table -- no serialization step exists for a naive parser
 #      to misread, so an inherited value's embedded newline is not even
-#      a question here (unlike the earlier approach, which had to reason
+#      a question here (unlike a serialized dump, which would have to reason
 #      about it at all).
 #
 #      This file is genuinely dash-compatible too, not just
@@ -171,14 +171,12 @@ need_command() {
 #      followed by something that itself looks like `export SOMENAME=`
 #      could be misread as a second, phantom name -- a deliberately
 #      narrow, low-severity edge (a fabricated NAME entry, not a
-#      security-relevant misresolution of a real one) accepted the same
-#      way the earlier approach accepted awk's RS='\0' portability gap,
-#      rather than
+#      security-relevant misresolution of a real one) accepted rather than
 #      building a full shell-quoting-grammar parser for a case this
 #      unlikely.
 #
 #   2. Fails closed. No `|| true`, no `2>/dev/null`, on the capture
-#      itself: `mktemp -d` or a write failing now calls `fail` (defined
+#      itself: `mktemp -d` or a write failing calls `fail` (defined
 #      just above) with a clear message instead of silently continuing
 #      with an empty directory. A positive control right after capture
 #      asserts a name every process is guaranteed to have -- PATH --
@@ -653,7 +651,7 @@ _env_parse_assignment_line() {
       ;;
   esac
 
-  # fix(#1899): Compose's key grammar: letters, digits and `_.-[]`, ended by
+  # Compose's key grammar: letters, digits and `_.-[]`, ended by
   # `=` or `:`; whitespace ends the scan too and the parse phase judges it.
   _epa_first="${_epa_s%"${_epa_s#?}"}"
   case "$_epa_first" in
@@ -808,7 +806,7 @@ _env_select_record() {
         ;;
     esac
     [ -n "$_esr_rec" ] || continue
-    # fix(#1899): a key may hold `[` or `]`, which glob under an unquoted
+    # A key may hold `[` or `]`, which glob under an unquoted
     # expansion, so the "TYPE START END KEY" record is split by expansion.
     _esr_rtype="${_esr_rec%% *}"
     _esr_rest="${_esr_rec#* }"
@@ -1616,7 +1614,7 @@ get_env_value() {
   # blind to `export`/bare-key/CRLF/whitespace-around-`=` lines (see
   # _env_tokenize's own doc comment for the full list, each verified against
   # the oracle).
-  # fix(#1899): BEFORE ($3, default 0) keeps only records that start before
+  # BEFORE ($3, default 0) keeps only records that start before
   # that line, as _env_select_record does; RECORDS ($4) is _env_tokenize's
   # stream for FILE when the caller already holds it, so FILE is read once.
   _gev_records="${4:-}"
@@ -1806,7 +1804,7 @@ env_file_refuses_key() {
   esac
 }
 
-# fix(#1886): assigns into $1 what a plain ${KEY} interpolates to under
+# Assigns into $1 what a plain ${KEY} interpolates to under
 # Compose (the export when set, even to "", else FILE's last KEY= line);
 # rc 1 when neither has KEY, rc 2 when FILE's line is one Compose refuses.
 effective_env_value_into() {
@@ -1834,14 +1832,14 @@ effective_env_value_into() {
   [ "$_eevi_in_file" -eq 1 ]
 }
 
-# fix(#1899): prints "LINE KEY REASON" for the first line of FILE that Compose
+# Prints "LINE KEY REASON" for the first line of FILE that Compose
 # refuses to load (whitespace-in-key, unexpected-character, unterminated-quote
 # or unresolvable) with rc 0; rc 1 and no output when every line loads.
 env_file_first_refused_line() {
   _efrl_file="$1"
   [ -f "$_efrl_file" ] || return 1
 
-  # fix(#1909): an empty key (`export` prefix or not) and a key holding a tab
+  # An empty key (`export` prefix or not) and a key holding a tab
   # load under Compose but fit no record, so the file is judged from a copy naming
   # each such key with `-` (no `${}` can reference it) and a hit is renamed from FILE.
   _efrl_copy="${_ENV_SNAPSHOT_DIR:?}/env-file-copy.$$"
@@ -2035,13 +2033,12 @@ iso_to_epoch() {
 # as converging ONLY while they sit inside their own declared start_period
 # (e.g. the backup service allows 10m for its first pg_dump of a large DB,
 # far beyond this 90s budget) — there Docker has not judged them yet, and
-# neither should we. test(#826): that claim is now VERIFIED per service, not
+# neither should we. That claim is VERIFIED per service, not
 # assumed. The full tolerance Docker grants is start_period PLUS one
 # in-flight probe's timeout (grace is judged by probe START time, so a probe
 # launched just inside start_period may run `timeout` past the boundary)
 # PLUS retries consecutive failing probes, each taking up to interval +
-# timeout (a service stays `starting` through that whole streak — Codex P2
-# on #867). A service
+# timeout (a service stays `starting` through that whole streak). A service
 # whose container age (now - .State.StartedAt — NOT the wait budget, which
 # overstates the age of a restart-policy container that restarted mid-wait
 # with a freshly reset health clock) exceeds that entire
@@ -2102,22 +2099,22 @@ wait_for_healthy() {
   broken=$(printf '%s\n' "$remaining" | grep -v '(health: starting)' || true)
   if [ -z "$broken" ]; then
     budget=$((attempts * sleep_s))
-    # test(#826): verify each straggler really is inside its healthcheck's
+    # Verify each straggler really is inside its healthcheck's
     # DECLARED tolerance before letting it pass. `(health: starting)` only
     # means Docker has not ruled yet — a service with a broken healthcheck can
-    # sit there long after its grace ran out. Codex P2 (#867): start_period
+    # sit there long after its grace ran out. start_period
     # alone is NOT the boundary — after it ends, Docker still tolerates
     # `retries` consecutive failing probes (each taking up to interval +
     # timeout) before flipping to (unhealthy), and the service honestly
     # reports `starting` for that whole streak. Plus one in-flight probe's
-    # timeout (Codex P2): moby grace-ignores a probe by its START
+    # timeout: moby grace-ignores a probe by its START
     # time, so one launched just inside start_period can run up to `timeout`
     # beyond the grace boundary before the counted retry cycles even begin.
     # So the full allowance is start_period + timeout + retries x (interval +
     # timeout); zero config values mean the daemon defaults (interval/timeout
     # 30s, retries 3).
     #
-    # Codex P2 (#867): compare that allowance against the container's
+    # Compare that allowance against the container's
     # ACTUAL age (now - .State.StartedAt), not the spent budget. A
     # restart-policy service that crashed and restarted mid-wait is seconds
     # old with a freshly reset health clock — legitimately inside its
@@ -2125,7 +2122,7 @@ wait_for_healthy() {
     # started before its life did. Unparseable StartedAt fails open, same as
     # unreadable healthcheck config.
     #
-    # Codex P2 (#867): the `remaining` table is a SNAPSHOT — a probe
+    # The `remaining` table is a SNAPSHOT — a probe
     # can complete between that `compose ps` and this inspect and flip the
     # container out of `starting`. Read the LIVE .State.Health.Status in the
     # same inspect and apply the tolerance math only while it still says

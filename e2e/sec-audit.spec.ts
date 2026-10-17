@@ -2,10 +2,10 @@
 //
 // Run: npx playwright test e2e/sec-audit.spec.ts --project=chromium
 //
-// fix(#1778): S01/S02/S03/S05/S08/S09 used to read hand-provisioned env vars
-// (SEC_AUDIT_PRIVATE_DATASET_ID etc.) that nothing in CI ever set, so those
-// tests skipped on every run and the file reported green while covering 8
-// of 19 cases. beforeAll below seeds the same fixtures in-spec instead, the
+// S01/S02/S03/S05/S08/S09 need fixtures that nothing in CI would provision
+// by hand (SEC_AUDIT_PRIVATE_DATASET_ID etc.), and skipping on a missing
+// fixture would let the file report green while covering only 8
+// of 19 cases. beforeAll below seeds the fixtures in-spec instead, the
 // way e2e/auth.setup.ts seeds a shared dataset and e2e/auth.spec.ts creates
 // its throwaway e2e-logout-probe user.
 //
@@ -278,10 +278,10 @@ test('S02 IDOR — editor B cannot DELETE another user\'s private dataset', asyn
 test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset', async ({ request }) => {
   const datasetId = privateDatasetId;
   const tokenB = editorBToken;
-  // fix(#1778): BulkDeleteRequest's schema is `{ datasets: [{ dataset_id,
+  // BulkDeleteRequest's schema is `{ datasets: [{ dataset_id,
   // confirm_title }] }` (backend/openapi.json), not `{ dataset_ids: [...] }`
-  // — the old payload always 422'd before authorization was ever reached,
-  // which the permanent skip guard hid. bulk_delete_datasets_endpoint
+  // — the latter would 422 before authorization was ever reached.
+  // bulk_delete_datasets_endpoint
   // (router.py) isolates per-item failures rather than rejecting the whole
   // batch, so a denied item surfaces as HTTP 200 with a per-item
   // status: 'error', never a top-level 401/403/404.
@@ -356,7 +356,7 @@ test('S03 IDOR — editor B cannot DROP a column on another user\'s private data
 // ─────────────────────────────────────────────────────────────────────────────
 // S04 — SSRF redirect bypass on external source connectors
 //
-// fix(#1778): removed rather than left permanently skipped. This test needs
+// Not present rather than left permanently skipped. A test here would need
 // a live external URL that 302-redirects to 169.254.169.254; CI has no such
 // endpoint and standing one up is a real infrastructure dependency, not a
 // fixture this spec can seed. The redirect-revalidation behavior itself is
@@ -534,10 +534,9 @@ test('S08 — embed frame-policy endpoint reflects the actual embed-token state'
 test('S09 — dataset export -where rejects UNION / subqueries', async ({ request }) => {
   const datasetId = publicDatasetId;
   const malicious = `gid > 0 UNION SELECT 1, 2, 3`;
-  // fix(#1778): the export route is /datasets/{id}/export?format=csv, not
-  // /datasets/{id}/export.csv (backend/openapi.json has no such path) — the
-  // old URL always 404'd before the -where parser ever ran, which the
-  // permanent skip guard hid.
+  // The export route is /datasets/{id}/export?format=csv, not
+  // /datasets/{id}/export.csv (backend/openapi.json has no such path), which
+  // would 404 before the -where parser ever ran.
 
   // Positive control: the identical anonymous request, with no `where` at
   // all, against the same public/published dataset. publicDatasetId is
@@ -698,9 +697,9 @@ test('hygiene — CORS does not grant credentials to an untrusted origin', async
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S11 — /search/datasets/ has semantic-search rate limiting wired (smoke)', async ({ request }) => {
-  // fix(#1778): the skip guard used to fire on exactly the outcome this test
-  // exists to catch, so it could never go red. The per-route decorator has
-  // shipped (search/router.py's search_datasets_endpoint carries
+  // A skip guard on exactly the outcome this test exists to catch would
+  // keep it from ever going red, so there is none. The per-route decorator
+  // is in place (search/router.py's search_datasets_endpoint carries
   // @limiter.limit(_semantic_search_rate_limit)) -- gate on it.
   //
   // Pinning the actual discriminating behavior (is a 429 really from the

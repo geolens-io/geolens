@@ -1,6 +1,6 @@
 """At most one primary distribution per record.
 
-fix(#1383). ``record_distributions.is_primary`` is read as "THE primary
+``record_distributions.is_primary`` is read as "THE primary
 distribution" — it is emitted per distribution in the OGC Record's
 ``properties.distributions`` (``search/service_records.py``), which is what the
 dataset detail response and the STAC item's source record carry. Nothing kept

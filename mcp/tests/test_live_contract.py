@@ -390,7 +390,7 @@ def test_get_map_contract(live):
 
 
 def test_query_contract(live):
-    """feat(#565): the tool's promised workflow, end to end — schema for the
+    """The tool's promised workflow, end to end — schema for the
     table name, then a scoped SELECT, then the columns/rows shape."""
     schema = server.get_dataset_schema(live.dataset_id)
     table = schema["table_name"]

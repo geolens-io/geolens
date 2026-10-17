@@ -43,7 +43,7 @@ async function createCollectionDataset(): Promise<{ datasetId: string; title: st
   const token = getAuthToken();
   const authHeaders = { Authorization: `Bearer ${token}` };
   const title = `E2E Collection Dataset ${Date.now()}`;
-  // fix(#1018): register the confirm title before the upload can create
+  // Register the confirm title before the upload can create
   // anything. afterAll needs BOTH halves of the handle, so resolving the id
   // later is no use if the title was never recorded.
   createdDatasetTitle = title;
@@ -77,7 +77,7 @@ async function createCollectionDataset(): Promise<{ datasetId: string; title: st
   const preview = await previewRes.json() as { layer_name?: string; geometry_type?: string | null };
   expect(preview.geometry_type).toBeTruthy();
 
-  // fix(#1018 review): before the commit is sent, not after. If the request
+  // Before the commit is sent, not after. If the request
   // reaches the API but its response is lost, `await fetch` rejects while the
   // backend has already queued the ingest — and a handle recorded after that
   // line would never exist for the dataset that then appears.
@@ -103,7 +103,7 @@ test.describe.serial('Collections', () => {
   test.afterAll(async () => {
     const token = getAuthToken();
 
-    // fix(#1018 review): the backend sets dataset_id in the same atomic update
+    // The backend sets dataset_id in the same atomic update
     // that flips the job to 'complete' (_finalize_ingest), so there is no
     // earlier moment to claim the id. If the 45-second poll gives up one
     // second before the ingest lands — or anything after it throws — the
@@ -114,7 +114,7 @@ test.describe.serial('Collections', () => {
     // A single lookup here would usually still see 'running', since the reason
     // we are in this branch is that the job outlived its polling window. Wait
     // for the id — but the budget is set by Playwright, not by patience.
-    // fix(#1018 review): `timeout: 60_000` in playwright.config.ts applies to
+    // `timeout: 60_000` in playwright.config.ts applies to
     // this hook on its own, so a 30x2s loop would burn 58 seconds in sleeps
     // and the hook could time out BEFORE the bulk-delete it exists to send.
     // Bound by wall clock at 20s, leaving the rest of the hook's minute for
@@ -241,7 +241,7 @@ test.describe.serial('Collections', () => {
 
     // createdDatasetId / createdDatasetTitle are registered inside the helper,
     // as early as each value exists, so afterAll can clean up a run that dies
-    // before this line (fix(#1018)).
+    // before this line.
     const dataset = await createCollectionDataset();
 
     await page.getByPlaceholder('Search datasets by name...').fill(dataset.title);

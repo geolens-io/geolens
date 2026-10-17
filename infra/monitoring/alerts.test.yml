@@ -1,4 +1,4 @@
-# promtool unit tests for alerts.yml — fix(#1517).
+# promtool unit tests for alerts.yml.
 #
 # Run from the repo root (same pinned tag as RUNBOOK.md §4):
 #
@@ -491,8 +491,8 @@ tests:
         exp_alerts: []
 
   # --------------------------------------------------------------------------
-  # 4e. ...but the export HEAD is not that kind of HEAD. fix(#1513) gave the
-  #     export route an EXPLICIT HEAD handler that stops before the ogr2ogr
+  # 4e. ...but the export HEAD is not that kind of HEAD. The
+  #     export route has an EXPLICIT HEAD handler that stops before the ogr2ogr
   #     conversion, so it answers from metadata alone. Unlike 4d's cloned
   #     standards route it does not run the read it describes, which is exactly
   #     the condition the interactive rule's comment names for moving a handler
@@ -657,13 +657,13 @@ tests:
               description:
                 "15 jobs failed in the 'ingest' queue in the last 15 minutes."
 
-  # fix(#1778): the regression the aggregation closes. Two worker replicas each
+  # The regression the aggregation guards against. Two worker replicas each
   # export their own geolens_jobs_failed_total for the same queue, because the
   # counter is incremented in the process that performed the terminal
   # transition. Each replica is at 3 over the window, under the threshold of 5;
-  # summed by queue the queue is at 6 and the alert fires. Under the bare
-  # increase() this rule used to carry, PromQL evaluated each series on its own
-  # and nothing fired while the queue was visibly failing.
+  # summed by queue the queue is at 6 and the alert fires. Under a bare
+  # increase(), PromQL would evaluate each series on its own
+  # and nothing would fire while the queue was visibly failing.
   - interval: 1m
     name: "job failures split across worker replicas"
     input_series:
@@ -673,8 +673,8 @@ tests:
         values: "0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 3 3 3 3 3 4"
     promql_expr_test:
       # The half that makes the case a case: each replica on its own is at 3,
-      # under the threshold of 5. Before the aggregation this is exactly what
-      # PromQL compared, one series at a time, and nothing fired.
+      # under the threshold of 5. Without the aggregation this is exactly what
+      # PromQL compares, one series at a time, and nothing fires.
       - expr: increase(geolens_jobs_failed_total{instance="worker-1:8001"}[15m])
         eval_time: 18m
         exp_samples:

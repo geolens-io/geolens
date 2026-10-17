@@ -30,9 +30,9 @@ from keyring.errors import KeyringError
 
 from . import config as _config
 
-# fix(#1778 review round 24): structlog's UNCONFIGURED default is a
+# structlog's UNCONFIGURED default is a
 # PrintLogger that writes every log.*() call straight to stdout,
-# regardless of level -- every log.warning() below used to land there,
+# regardless of level -- every log.warning() below would land there,
 # silently corrupting the one JSON document a --json command promises
 # on stdout the moment one fired on a path that still ends in success
 # (e.g. a keyring fallback during `login`, or the best-effort cleanup
@@ -78,27 +78,25 @@ def _keyring_account_refresh_fingerprint(instance: str) -> str:
 
 
 def _fingerprint_bearer(bearer_token: str) -> str:
-    """A short, non-reversible pairing tag for a bearer token -- fix
-    (#1778 round 31). Never the token itself, never logged: proves a
+    """A short, non-reversible pairing tag for a bearer token. Never the
+    token itself, never logged: proves a
     stored refresh token actually belongs to the bearer it would
     rotate, not just that both happen to be present in storage. sha256
     truncated to 16 hex chars is plenty for this -- it only ever needs
     to be compared against itself, never guessed."""
-    # codeql[py/weak-sensitive-data-hashing] fix(#1778 round 32): comparison tag over a high-entropy bearer, not password storage; the digest is truncated, never reversible to the token, and never used to authenticate
+    # codeql[py/weak-sensitive-data-hashing] comparison tag over a high-entropy bearer, not password storage; the digest is truncated, never reversible to the token, and never used to authenticate
     return hashlib.sha256(bearer_token.encode()).hexdigest()[:16]
 
 
-# fix(#1778 round 32): the credential SET for an instance, defined
+# The credential SET for an instance, defined
 # ONCE as a tuple of (name, keyring-account-fn, file-field-name)
-# triples. Round 31 added the refresh_fingerprint as a fourth member
-# of this set, but delete_credentials()/_delete_stale_credentials()
-# were updated by hand while _CredentialSnapshot/_restore_credentials
-# were not -- a login rollback silently dropped it, leaving a restored
-# bearer+refresh pair without the fingerprint that proves they belong
-# together. Every operation that must treat the whole set uniformly
-# (snapshot, restore, logout, stale-credential cleanup) now iterates
-# THIS tuple instead of hand-listing its own subset, so a fifth member
-# added here later cannot be forgotten in one of them the same way --
+# triples. The refresh_fingerprint is the fourth member of this set;
+# hand-listing members per operation risks a login rollback silently
+# dropping one, leaving a restored bearer+refresh pair without the
+# fingerprint that proves they belong together. Every operation that must
+# treat the whole set uniformly (snapshot, restore, logout, stale-credential
+# cleanup) iterates THIS tuple instead of hand-listing its own subset, so a
+# fifth member added here later cannot be forgotten in one of them --
 # enforced by test_credential_set_structural.py.
 _CREDENTIAL_SET = (
     ("bearer", _keyring_account_token, "bearer_token"),
@@ -112,14 +110,13 @@ class CredentialsFileCorrupt(Exception):
     """Raised by ``_read_credentials_file()`` when credentials.toml
     exists but is not valid TOML.
 
-    fix(#1778 review round 22): the file previously degraded a parse
-    failure straight to ``{}`` -- indistinguishable from "no file at
-    all." A writer building on that empty dict (e.g. the active_kind
+    Degrading a parse failure straight to ``{}`` would be indistinguishable
+    from "no file at all." A writer building on that empty dict (e.g. the active_kind
     marker write after a keyring-backed login) would then overwrite
     the ACTUAL corrupt file with a fresh one holding only the CURRENT
     instance's data, silently destroying every OTHER instance's
     file-backed credentials that happened to be sitting in the
-    unparseable file. Every write path must now be able to tell "empty"
+    unparseable file. Every write path must be able to tell "empty"
     apart from "corrupt" and refuse to touch the file in the latter
     case; every read-with-fallback path (load_bearer_token and
     friends, the snapshot/restore machinery, try_refresh's backend
@@ -139,10 +136,10 @@ def _read_credentials_file() -> dict:
     path = _config.credentials_path()
     if not path.is_file():
         return {}
-    # fix(#1778 round 30): a PermissionError (or any other OSError) on
-    # the read() itself used to propagate straight past every caller
+    # A PermissionError (or any other OSError) on
+    # the read() itself would propagate straight past every caller
     # here uncaught -- unlike a TOMLDecodeError, which every caller
-    # already handles via CredentialsFileCorrupt. There is no
+    # handles via CredentialsFileCorrupt. There is no
     # meaningful difference between "can't parse this file" and "can't
     # even read this file" from any caller's point of view: both mean
     # the file cannot be trusted, and both must be reported the same
@@ -167,7 +164,7 @@ def _write_credentials_file(data: dict) -> None:
 
 
 def _set_credential_field(instance: str, field: str, value: str) -> None:
-    # fix(#1778 review round 22): _read_credentials_file() propagates
+    # _read_credentials_file() propagates
     # CredentialsFileCorrupt uncaught here too -- this is the SAME
     # read-modify-write shape as _clear_credential_section, used both
     # for the primary credential's file FALLBACK (store_bearer_token/
@@ -186,7 +183,7 @@ def _set_credential_field(instance: str, field: str, value: str) -> None:
 
 
 def _clear_credential_section(instance: str) -> None:
-    # fix(#1778 review round 22): _read_credentials_file() propagates
+    # _read_credentials_file() propagates
     # CredentialsFileCorrupt uncaught here, deliberately -- logout's
     # whole job is a read-modify-write of this file (drop this
     # instance's section, rewrite the rest), and there is no safe
@@ -243,7 +240,7 @@ def store_refresh_token(
 ) -> str:
     """Store the refresh token. Returns 'keyring' or 'file'.
 
-    fix(#1778 round 31): ``bearer_token``, when given, pairs this
+    ``bearer_token``, when given, pairs this
     refresh token with the bearer it can rotate -- a fingerprint
     (never the bearer itself) is written alongside it, in the SAME
     backend, so try_refresh() can later prove the refresh token it is
@@ -284,7 +281,7 @@ def _read_credentials_section_tolerant(instance: str) -> dict:
     ``{}`` if the file is missing, has no section for this instance,
     OR is corrupt.
 
-    fix(#1778 review round 22): every READ-with-fallback caller below
+    Every READ-with-fallback caller below
     (the ``load_*`` functions, ``_detect_credential_backend``) needs to
     treat a corrupt file as "nothing usable here, fall back to the
     other backend" rather than raise -- unlike a WRITE path, a read
@@ -313,7 +310,7 @@ class KeyringCredentialUnreadable(Exception):
     found nothing (a confirmed-absent credential, returned as
     ``None``, same as always).
 
-    fix(#1778 review round 27): ``load_bearer_token()``/``load_api_key()``
+    ``load_bearer_token()``/``load_api_key()``
     (below) swallow exactly this exception to preserve their existing
     tolerant contract for every caller that does not need to tell the
     two apart -- see their own docstrings.
@@ -329,13 +326,12 @@ def load_bearer_token_strict(instance: str) -> Optional[BearerToken]:
     """Like ``load_bearer_token()``, but raises ``KeyringCredentialUnreadable``
     instead of swallowing a keyring read failure to ``None``.
 
-    fix(#1778 review round 27): AppState.sdk() needs to tell "the
+    AppState.sdk() needs to tell "the
     marked-active bearer account is unreadable right now" apart from
     "there is genuinely no bearer credential" -- conflating the two
-    (the OLD, and still current, behavior of load_bearer_token() itself)
-    let it silently fall through to a competing, possibly-stale api_key
-    credential the round-14/23/25 _UNKNOWN cleanup gate deliberately
-    left in place. GEOLENS_TOKEN and a file-backed value both
+    (what load_bearer_token() itself does) would let it silently fall
+    through to a competing, possibly-stale api_key credential the
+    _UNKNOWN cleanup gate deliberately left in place. GEOLENS_TOKEN and a file-backed value both
     short-circuit before ever touching the keyring here, exactly as
     load_bearer_token() does -- only the keyring leg can raise.
     """
@@ -371,8 +367,8 @@ def load_api_key_strict(instance: str) -> Optional[ApiKey]:
 def load_bearer_token(instance: str) -> Optional[BearerToken]:
     """Return the active bearer token per the D-35 precedence.
 
-    Tolerant: a keyring read failure degrades to "not found," same as
-    every call site here relied on before round 27. AppState.sdk()'s
+    Tolerant: a keyring read failure degrades to "not found," for callers that
+    do not need to tell the two apart. AppState.sdk()'s
     marker-authoritative branch uses ``load_bearer_token_strict()``
     instead, specifically to NOT tolerate this.
     """
@@ -392,15 +388,14 @@ def load_api_key(instance: str) -> Optional[ApiKey]:
 
 
 def load_refresh_token_strict(instance: str) -> Optional[str]:
-    """Three-state STRICT refresh-token read (fix(#1778 round 32)):
+    """Three-state STRICT refresh-token read:
     returns the stored value, ``None`` if genuinely absent, or raises
     ``KeyringCredentialUnreadable("refresh", ...)`` if the keyring
     account itself could not be read. The pairing check in
     try_refresh() must be able to tell "no refresh token here" apart
     from "can't tell right now" -- a transient/account-specific
-    KeyringError collapsing to ``None`` looked identical to a
-    confirmed absence, and there was nothing to discard or warn about
-    either way.
+    KeyringError collapsing to ``None`` would look identical to a
+    confirmed absence.
     """
     data = _read_credentials_section_tolerant(instance)
     refresh = data.get("refresh_token")
@@ -416,22 +411,22 @@ def _load_stored_bearer_value(instance: str) -> Optional[str]:
     """Like ``load_bearer_token_strict()``, but NEVER consults
     GEOLENS_TOKEN.
 
-    fix(#1778 round 31): try_refresh() must compare a refresh token's
+    try_refresh() must compare a refresh token's
     pairing fingerprint against the STORED bearer specifically -- the
     one it can actually rotate -- not whatever env override might
     (even transiently) be set. ``call_sdk_with_reauth`` already gates
-    try_refresh() on ``credential_provenance == "stored-bearer"``
-    (round 26), so this should never actually diverge from
+    try_refresh() on ``credential_provenance == "stored-bearer"``,
+    so this should never actually diverge from
     ``load_bearer_token()`` in practice; kept separate anyway so the
     pairing check can never be fooled by that precedence rule even in
     principle.
 
-    fix(#1778 round 32): now STRICT -- raises
+    STRICT -- raises
     ``KeyringCredentialUnreadable("bearer", ...)`` on a keyring read
     failure instead of collapsing it to ``None``. A transient or
-    account-specific KeyringError here used to look identical to "no
-    bearer stored," which made a POSSIBLY VALID pairing look stale and
-    triggered the destructive discard-and-warn path in try_refresh()
+    account-specific KeyringError here would otherwise look identical to "no
+    bearer stored," which would make a POSSIBLY VALID pairing look stale and
+    trigger the destructive discard-and-warn path in try_refresh()
     for a refresh token that may have been perfectly fine.
     """
     data = _read_credentials_section_tolerant(instance)
@@ -446,9 +441,9 @@ def _load_stored_bearer_value(instance: str) -> Optional[str]:
 
 def _load_refresh_fingerprint(instance: str) -> Optional[str]:
     """The pairing fingerprint stored alongside the refresh token, or
-    ``None`` if there isn't one (a legacy profile predating round 31).
+    ``None`` if there isn't one (a legacy profile with no pairing).
 
-    fix(#1778 round 32): now STRICT -- raises
+    STRICT -- raises
     ``KeyringCredentialUnreadable("refresh_fingerprint", ...)`` on a
     keyring read failure rather than treating it as "no fingerprint,"
     for the same reason as ``_load_stored_bearer_value()`` above.
@@ -471,7 +466,7 @@ def _rewrite_refresh_fingerprint(
     """Rewrite ONLY the pairing fingerprint to match ``bearer_token``,
     without touching the refresh token value itself.
 
-    fix(#1778 round 31): used by try_refresh() when a rotation renews
+    Used by try_refresh() when a rotation renews
     the access token but the server does NOT issue a new refresh
     token -- the existing (unrotated) refresh token still needs its
     fingerprint updated to the NEW bearer, or the next refresh attempt
@@ -479,16 +474,16 @@ def _rewrite_refresh_fingerprint(
     just performed and discard a perfectly good, still-valid refresh
     token as if it were stale.
 
-    fix(#1807 round 2): still the right call whenever the bearer stayed
+    The right call whenever the bearer stayed
     in the backend it was already in, which is every rotation but the
-    fallback one. Rewriting the unchanged refresh SECRET there (what
-    round 1 did unconditionally) asks a second account for a write
-    nothing needs, and a keyring that accepts the bearer and
-    fingerprint accounts while refusing the refresh one -- with no
-    usable file fallback behind it -- then loses a rotation this helper
-    would have completed: try_refresh() reports failure with the new
-    bearer already stored against the OLD fingerprint, and the next
-    attempt discards a still-valid refresh token as unpaired. Only the
+    fallback one. Rewriting the unchanged refresh SECRET there would ask
+    a second account for a write nothing needs, and a keyring that
+    accepts the bearer and fingerprint accounts while refusing the
+    refresh one -- with no usable file fallback behind it -- would then
+    lose a rotation this helper completes: try_refresh() would report
+    failure with the new bearer already stored against the OLD
+    fingerprint, and the next attempt would discard a still-valid
+    refresh token as unpaired. Only the
     backend-MOVED case needs the whole pair rewritten; see
     try_refresh().
     """
@@ -512,7 +507,7 @@ def _delete_keyring_refresh_entries(instance: str) -> None:
     swallows KeyringError/OSError, and
     tests/test_best_effort_helpers_never_raise.py for the gate.
 
-    fix(#1807): try_refresh() also needs exactly this half on its own,
+    try_refresh() also needs exactly this half on its own,
     with the file side deliberately untouched -- when a rotation falls
     back from the keyring to credentials.toml, the pair is REWRITTEN to
     the file and only the superseded keyring copy has to go. Deleting
@@ -527,7 +522,7 @@ def _delete_keyring_refresh_entries(instance: str) -> None:
 
 def _discard_unpaired_refresh_token(instance: str) -> None:
     """Best-effort delete of the refresh token AND its fingerprint from
-    BOTH backends -- fix(#1778 round 31, fixed round 32).
+    BOTH backends.
 
     Called from try_refresh() when a stored refresh token cannot be
     PROVEN to belong to the currently stored bearer (no fingerprint at
@@ -537,13 +532,12 @@ def _discard_unpaired_refresh_token(instance: str) -> None:
     here must not turn that into a crash (mirrors ``delete_credentials()``'s
     own best-effort, idempotent design).
 
-    fix(#1778 round 32): the docstring already claimed "never raises,"
-    but the file WRITE at the end was unguarded -- an unwritable
-    credentials.toml (read-only, full) raised straight out of this
-    function and past try_refresh(), which has no rollback net the way
-    replace_credentials() does. whoami/status died with a storage
-    traceback instead of the normal auth error this function exists to
-    produce cleanly. Every step now explicitly catches KeyringError
+    The file WRITE at the end must be guarded too -- an unwritable
+    credentials.toml (read-only, full) would otherwise raise straight out
+    of this function and past try_refresh(), which has no rollback net the
+    way replace_credentials() does, and whoami/status would die with a
+    storage traceback instead of the normal auth error this function
+    exists to produce cleanly. Every step explicitly catches KeyringError
     (covers PasswordDeleteError and the rest of that family) and
     OSError, logs once, and continues -- see
     tests/test_best_effort_helpers_never_raise.py.
@@ -576,13 +570,13 @@ def _discard_unpaired_refresh_token(instance: str) -> None:
         log.warning("stale_refresh_token_file_cleanup_failed", error=str(exc))
 
 
-#: fix(#1778 review round 10): the field name for the "active credential
+#: The field name for the "active credential
 #: kind" marker in credentials.toml — see load_active_credential_kind().
 _ACTIVE_KIND_FIELD = "active_kind"
 
 
 def _read_active_kind_marker(instance: str) -> Optional[str]:
-    """STRICT marker reader (fix(#1778 round 30)): returns
+    """STRICT marker reader: returns
     ``"bearer"``/``"api_key"`` for a present, valid marker; ``None``
     when the field is genuinely absent (no file, or the field itself
     is missing) on an otherwise-readable file; raises
@@ -590,16 +584,15 @@ def _read_active_kind_marker(instance: str) -> Optional[str]:
     cannot be read/parsed OR the field holds a value that is neither
     ``"bearer"`` nor ``"api_key"``.
 
-    Round 22-27's ``load_active_credential_kind()`` (below) collapsed
+    ``load_active_credential_kind()`` (below) collapses
     ALL three of those failure shapes -- a corrupt file, a permission
     error, and a garbage value -- to the exact same ``None`` a
-    genuinely-never-set marker returns. Round 27 fixed AppState.sdk()
-    to treat a PRESENT marker as authoritative, but that fix only ever
-    fires when the marker can be READ; if the file becomes unreadable
-    after a kind switch, this function's old two-state contract made
-    that failure indistinguishable from "no marker was ever written,"
-    and resolution silently fell back to legacy bearer-first
-    precedence -- exactly the stale credential a kind switch's marker
+    genuinely-never-set marker returns. AppState.sdk() treats a PRESENT
+    marker as authoritative, but that only works when the marker can be
+    READ; if the file becomes unreadable after a kind switch, a two-state
+    contract would make that failure indistinguishable from "no marker
+    was ever written," and resolution would silently fall back to legacy
+    bearer-first precedence -- exactly the stale credential a kind switch's marker
     exists to shadow. ``resolve_active_credential()`` below is the one
     caller that needs this distinction; every OTHER existing caller
     keeps using the tolerant ``load_active_credential_kind()`` and is
@@ -608,11 +601,11 @@ def _read_active_kind_marker(instance: str) -> Optional[str]:
     try:
         data = _read_credentials_file().get(instance, {})
     except CredentialsFileCorrupt as exc:
-        # fix(#1778 round 30): fold the path into the detail string --
+        # Fold the path into the detail string --
         # KeyringCredentialUnreadable has no path attribute of its own
         # (a keyring account read failure has no meaningful path), but
         # a corrupt-FILE failure specifically is much more actionable
-        # named, matching round 23's whoami/status message.
+        # named, matching the whoami/status message.
         raise KeyringCredentialUnreadable(
             "marker", f"{exc.path} is corrupt: {exc.detail}"
         ) from exc
@@ -631,14 +624,12 @@ def load_active_credential_kind(instance: str) -> Optional[str]:
     most recently stored for ``instance`` — or ``None`` if never set OR
     unreadable right now.
 
-    fix(#1778 review round 10): a stale competing credential surviving
+    A stale competing credential surviving
     in EITHER backend (keyring or credentials.toml) after a swap could
-    always outrank the one that was actually just stored, because
+    outrank the one that was actually just stored, because
     ``load_bearer_token``/``load_api_key`` are independent reads and
-    ``AppState.sdk()``'s precedence unconditionally preferred bearer —
-    rounds 5 through 9 chased that by making cleanup of the OTHER
-    backend more and more careful, but cleanup can only ever be
-    best-effort (keyring and credentials.toml are separate backends
+    bearer wins by default — and cleanup of the OTHER backend can only
+    ever be best-effort (keyring and credentials.toml are separate backends
     with no shared transaction). This marker is written unconditionally
     by ``replace_credentials()`` in the SAME file section regardless of
     which backend the secret itself landed in, so it survives even a
@@ -647,9 +638,9 @@ def load_active_credential_kind(instance: str) -> Optional[str]:
     failing to evict a competing entry no longer matters for
     correctness, only for tidiness.
 
-    fix(#1778 round 30): TOLERANT wrapper around the strict
-    ``_read_active_kind_marker()`` above -- unchanged in name and
-    contract for every EXISTING caller (``try_refresh()``'s own
+    TOLERANT wrapper around the strict
+    ``_read_active_kind_marker()`` above, for every caller that
+    does not need the strict distinction (``try_refresh()``'s own
     "does the marker already say bearer" write-skip check is a
     narrower question than credential SELECTION and deliberately
     keeps this tolerant behavior). ``resolve_active_credential()``
@@ -679,11 +670,12 @@ class CredentialAmbiguous(Exception):
     """Raised by ``resolve_active_credential()`` when there is no
     active_kind marker to consult AND more than one credential kind is
     genuinely present (both reads succeeded and both found a real
-    value) -- round 30. Guessing here (the old bearer-first legacy
-    precedence, unconditional) risks silently authenticating as the
+    value). Guessing here (an unconditional bearer-first legacy
+    precedence) risks silently authenticating as the
     WRONG principal: an API-key login can leave a stale bearer behind
-    in the keyring (round 14's best-effort, not correctness-bearing,
-    cleanup), and there is no safe default once more than one real
+    in the keyring (the cleanup is best-effort, not
+    correctness-bearing), and there is no safe default once more than
+    one real
     credential exists with nothing recording which is current."""
 
     def __init__(self, instance: str) -> None:
@@ -706,12 +698,11 @@ class ResolvedCredential:
 
 def resolve_active_credential(instance: str) -> ResolvedCredential:
     """THE single precedence implementation for "which credential is
-    active for ``instance``" (D-35). Consolidates round 10's marker
-    precedence, round 23/25/27's marker-authoritative fixes, and round
-    30's ambiguity/unreadable handling into one place, closing the
-    state matrix rather than patching another individual cell.
+    active for ``instance``". Marker precedence, the
+    marker-authoritative rules, and the ambiguity/unreadable handling
+    live in one place, covering the whole state matrix.
 
-    Enumerated call sites (fix(#1778 round 30) -- every consumer of a
+    Enumerated call sites (every consumer of a
     credential-selection decision routes through THIS function; call
     sites that consume its OUTPUT, or that ask a narrower question
     than "which credential is active," are listed for completeness
@@ -736,8 +727,7 @@ def resolve_active_credential(instance: str) -> ResolvedCredential:
       must not block a token rotation that already succeeded.
     - ``login``/``logout`` (auth.py) do not resolve an active
       credential at all -- ``login`` WRITES one (``replace_
-      credentials()``, whose own corrupt-file handling is round 28's
-      separate, already-closed matter), ``logout`` DELETES all three
+      credentials()``, which handles a corrupt file itself), ``logout`` DELETES all three
       backends unconditionally regardless of which is active.
 
     Raises:
@@ -768,14 +758,14 @@ def resolve_active_credential(instance: str) -> ResolvedCredential:
             return ResolvedCredential("bearer", bearer.value, "stored-bearer")
         raise ActiveCredentialMissing(instance, "bearer")
 
-    # fix(#1778 round 30): no marker at all -- the legacy bearer-over-
-    # api_key precedence (pre-round-10) applies, but ONLY when at most
+    # No marker at all -- the legacy bearer-over-
+    # api_key precedence applies, but ONLY when at most
     # one kind is genuinely present. Uses the TOLERANT readers, not
     # the strict ones: with no marker, there is no authoritative
     # signal to be strict ABOUT, so a transiently-unreadable keyring
-    # account here degrades exactly as round 27 already established
-    # and pinned (no marker + one kind unreadable + the other kind
-    # readable -> fall back to the readable one, unchanged).
+    # account here degrades gracefully (no marker + one kind
+    # unreadable + the other kind readable -> fall back to the
+    # readable one).
     bearer = load_bearer_token(instance)
     api_key = load_api_key(instance)
     if bearer and api_key:
@@ -791,7 +781,7 @@ def ensure_credentials_file_readable() -> None:
     """Raise ``CredentialsFileCorrupt`` if credentials.toml exists but
     is not valid TOML; a no-op otherwise (missing file, or valid TOML).
 
-    fix(#1778 review round 22): every credential LOOKUP in this module
+    Every credential LOOKUP in this module
     (``load_bearer_token`` and friends, ``load_active_credential_kind``)
     deliberately tolerates a corrupt file by treating it as "nothing
     usable here" and falling back to keyring, so most commands never
@@ -809,10 +799,9 @@ def ensure_credentials_file_readable() -> None:
 # ---------- Delete ----------
 
 def delete_credentials(instance: str) -> None:
-    """Remove every member of the credential set (fix(#1778 round 32):
-    _CREDENTIAL_SET -- bearer, refresh, api_key, and the refresh
-    token's pairing fingerprint) from the keyring, AND the
-    credentials.toml section.
+    """Remove every member of the credential set (_CREDENTIAL_SET:
+    bearer, refresh, api_key, and the refresh token's pairing
+    fingerprint) from the keyring, AND the credentials.toml section.
 
     Missing entries are silently ignored — logout is idempotent.
     """
@@ -833,11 +822,11 @@ _FIELD_BY_KIND = {"bearer": "bearer_token", "api_key": "api_key"}
 
 class _Unknown:
     """Sentinel: the snapshot could not read this keyring account at all
-    (fix(#1778 review round 9)) — distinct from ``None`` ("confirmed
-    absent"). Swallowing a read failure to ``None`` recorded an EXISTING
+    — distinct from ``None`` ("confirmed
+    absent"). Swallowing a read failure to ``None`` would record an EXISTING
     credential as absent; if cleanup later failed and the keyring
     happened to be readable again by the time ``_restore_credentials``
-    ran, that ``None`` made it call ``delete_password()`` on an account
+    ran, that ``None`` would make it call ``delete_password()`` on an account
     that actually held a real, pre-existing credential the whole time —
     the snapshot just couldn't see it for a moment. Restore must never
     delete on this sentinel, only on a confirmed absence.
@@ -863,14 +852,12 @@ class _CredentialSnapshot:
     (confirmed absent), or ``_UNKNOWN`` (the read itself failed — see
     ``_Unknown``).
 
-    fix(#1778 round 32): ``keyring_refresh_fingerprint`` closes the gap
-    that let round 31's rollback silently drop the pairing fingerprint
-    -- ``bearer``/``api_key``/``refresh`` were already covered, but
-    nothing snapshotted or restored the fourth member of
-    ``_CREDENTIAL_SET``, so a login that failed after storing a new
-    refresh token restored the OLD bearer+refresh pair without their
-    matching fingerprint, and the next 401 discarded the restored
-    (perfectly valid) refresh token as unpaired.
+    ``keyring_refresh_fingerprint`` is the fourth member of
+    ``_CREDENTIAL_SET``; without snapshotting and restoring it, a login
+    that failed after storing a new refresh token would restore the OLD
+    bearer+refresh pair without their matching fingerprint, and the next
+    401 would discard the restored (perfectly valid) refresh token as
+    unpaired.
     """
 
     keyring_bearer: _KeyringValue
@@ -887,7 +874,7 @@ def _snapshot_credentials(instance: str) -> _CredentialSnapshot:
         except KeyringError:
             return _UNKNOWN
 
-    # fix(#1778 round 32): iterates _CREDENTIAL_SET (the single
+    # Iterates _CREDENTIAL_SET (the single
     # definition of the four-member set) rather than hand-listing each
     # account -- see test_credential_set_structural.py.
     bearer, api_key, refresh, fingerprint = (
@@ -898,7 +885,7 @@ def _snapshot_credentials(instance: str) -> _CredentialSnapshot:
         keyring_api_key=api_key,
         keyring_refresh=refresh,
         keyring_refresh_fingerprint=fingerprint,
-        # fix(#1778 review round 22): tolerant on a corrupt file --
+        # Tolerant on a corrupt file --
         # snapshotting "nothing" is safe even though it is not
         # literally accurate, because every WRITE path that could act
         # on this snapshot (_restore_credentials' own file section
@@ -918,9 +905,8 @@ def _restore_credentials(instance: str, snapshot: _CredentialSnapshot) -> None:
     further to fall back to here, so each write is independently
     swallowed-and-logged rather than raised.
     """
-    # fix(#1778 round 32): iterates _CREDENTIAL_SET, including the
-    # fingerprint (round 31 left it out of both the snapshot dataclass
-    # and this restore loop -- see _CredentialSnapshot's own docstring).
+    # Iterates _CREDENTIAL_SET, including the
+    # fingerprint (see _CredentialSnapshot's own docstring).
     values_by_name = {
         "bearer": snapshot.keyring_bearer,
         "api_key": snapshot.keyring_api_key,
@@ -930,7 +916,7 @@ def _restore_credentials(instance: str, snapshot: _CredentialSnapshot) -> None:
     for name, account_fn, _field in _CREDENTIAL_SET:
         value = values_by_name[name]
         if value is _UNKNOWN:
-            # fix(#1778 review round 9): never learned whether this
+            # Never learned whether this
             # account held a credential — see _Unknown. Neither
             # deleting nor overwriting it is safe; leave it alone.
             continue
@@ -968,29 +954,23 @@ def _delete_stale_credentials(
     Two related cleanups happen in one pass:
 
     - every OTHER credential kind (the competing types) is deleted from
-      BOTH backends, same as before;
+      BOTH backends;
     - ``keep`` itself is ALSO deleted from whichever backend it was NOT
-      just stored to (fix(#1778 review round 5)). ``store_bearer_token``/
-      ``store_api_key`` only ever write ONE backend per call (keyring, or
-      the file on fallback/``no_keyring``); a stale same-kind value left
-      in the OTHER backend from an earlier login was never cleaned up,
-      and ``load_bearer_token``/``load_api_key`` prefer the file over
-      keyring — so a stale file value kept winning over a freshly-stored
-      keyring value even though login reported the new one stored.
+      just stored to. ``store_bearer_token``/``store_api_key`` only ever
+      write ONE backend per call (keyring, or the file on
+      fallback/``no_keyring``); a stale same-kind value left in the OTHER
+      backend from an earlier login would otherwise win, because
+      ``load_bearer_token``/``load_api_key`` prefer the file over keyring.
 
-    fix(#1778 review round 7): the keyring half used to swallow EVERY
-    delete failure with a blanket ``except Exception: pass``, matching
-    ``delete_credentials()``'s best-effort semantics. But
-    ``keyring.errors.PasswordDeleteError`` is raised for BOTH "no such
-    entry" (expected and fine — this cleanup is idempotent by design)
-    AND a genuine backend refusal (a locked keychain, permission
-    denied, ...), with no reliable way to tell the two apart from the
-    exception alone. Swallowing both meant a real refusal was silently
-    ignored: ``replace_credentials()`` reported success while the old
-    credential stayed live in the OTHER backend, and
-    ``load_bearer_token``/``load_api_key`` kept resolving it — a stale
-    BEARER token in particular keeps outranking a freshly-stored API
-    key under the stored-credential precedence.
+    The keyring half must not swallow every delete failure with a blanket
+    ``except Exception: pass``. ``keyring.errors.PasswordDeleteError`` is
+    raised for BOTH "no such entry" (expected and fine — this cleanup is
+    idempotent by design) AND a genuine backend refusal (a locked
+    keychain, permission denied, ...), with no reliable way to tell the
+    two apart from the exception alone. Swallowing both would let
+    ``replace_credentials()`` report success while the old credential
+    stayed live in the OTHER backend, where a stale BEARER token in
+    particular keeps outranking a freshly-stored API key.
 
     Checking existence FIRST (rather than pattern-matching the
     exception) resolves the ambiguity: an already-absent entry is
@@ -1001,73 +981,62 @@ def _delete_stale_credentials(
     that needs to know, so it can restore the pre-swap snapshot instead
     of leaving either backend in a half-cleaned state.
 
-    fix(#1778 review round 8): an UNREADABLE keyring (locked, backend
-    down, ...) during the existence check is NOT "no such entry" —
-    round 7's fix skipped it as if it were, but that meant a stale
-    credential we genuinely could not see was left untouched. That
-    matters specifically because ``store_bearer_token``/
-    ``store_api_key`` themselves fall back to the credentials.toml file
-    on a ``KeyringError`` — so a keyring that is locked at STORE time
-    (the new credential lands in the file) can still hold an untouched
-    OLD credential from an earlier, working login. Once the keyring
-    becomes readable again, ``load_bearer_token``'s keyring-as-last-
-    resort lookup returns that stale value, and it outranks the
-    freshly-stored (file-backed) one under ``AppState.sdk()``'s
-    bearer-first precedence. An unreadable backend during cleanup is
-    therefore treated as a failed swap: it propagates, so
-    ``replace_credentials`` restores its snapshot and ``login`` reports
-    the failure instead of the false success.
+    An UNREADABLE keyring (locked, backend down, ...) during the
+    existence check is NOT "no such entry": skipping it would leave a
+    stale credential we genuinely could not see untouched. That matters
+    specifically because ``store_bearer_token``/``store_api_key``
+    themselves fall back to the credentials.toml file on a
+    ``KeyringError`` — so a keyring that is locked at STORE time (the new
+    credential lands in the file) can still hold an untouched OLD
+    credential from an earlier, working login. Once the keyring becomes
+    readable again, ``load_bearer_token``'s keyring-as-last-resort lookup
+    returns that stale value, and it outranks the freshly-stored
+    (file-backed) one under ``AppState.sdk()``'s bearer-first precedence.
+    An unreadable backend during cleanup is therefore treated as a failed
+    swap: it propagates, so ``replace_credentials`` restores its snapshot
+    and ``login`` reports the failure instead of a false success.
 
-    fix(#1778 review round 9): round 8's propagation was UNCONDITIONAL,
-    which broke ``login --no-keyring`` and any headless install with no
-    working keyring at all — ``keep_backend`` is ``"file"`` in both
-    cases (``store_bearer_token``/``store_api_key`` never touch keyring
-    when ``no_keyring=True``, or fall back to the file the moment
-    keyring raises), and the cleanup loop below still tried to read
-    keyring for every account regardless, so it hit the exact same
-    unavailable backend and failed the whole login — defeating the
-    automatic file fallback the store side already has. The keyring
-    read failure is now fatal ONLY when ``keep_backend == "keyring"``:
-    that is the one case where the keyring is DEMONSTRABLY reachable
-    right now (the new credential just landed there), so a read
-    failure for a different account is a real, worth-surfacing
-    problem, not an unavailable backend. When ``keep_backend`` is
-    ``"file"`` — by explicit ``--no-keyring`` or because the store
-    already fell back — an unreadable keyring is tolerated the same as
-    "no such entry": there is nothing here that can safely be told
-    apart from a keyring that simply doesn't exist on this box.
+    That propagation is fatal ONLY when ``keep_backend == "keyring"``:
+    ``login --no-keyring`` and a headless install with no working keyring
+    have ``keep_backend == "file"`` (``store_bearer_token``/
+    ``store_api_key`` never touch keyring when ``no_keyring=True``, or
+    fall back to the file the moment keyring raises), and failing there
+    would defeat the automatic file fallback the store side already has.
+    ``"keyring"`` is the one case where the keyring is DEMONSTRABLY
+    reachable right now (the new credential just landed there), so a read
+    failure for a different account is a real, worth-surfacing problem,
+    not an unavailable backend. When ``keep_backend`` is ``"file"`` an
+    unreadable keyring is tolerated the same as "no such entry": there is
+    nothing here that can safely be told apart from a keyring that simply
+    doesn't exist on this box.
 
-    fix(#1778 review round 14): ``snapshot`` (the pre-swap read this
-    same ``replace_credentials()`` call already took) gates every
-    keyring delete below — an account whose snapshot came back
-    ``_UNKNOWN`` is skipped entirely, never handed to
-    ``keyring.delete_password``, even if the keyring has since become
-    readable again. Without that gate: the snapshot recorded
-    ``_UNKNOWN`` for an account precisely because it could not be read
-    at snapshot time; if the keyring becomes readable again later in
-    THIS SAME call (a transient hiccup) and this cleanup then deletes
-    that account, and a LATER step in the transaction (another
-    account's cleanup, the refresh-token write) then fails,
-    ``_restore_credentials`` cannot put it back either — it applies the
-    identical ``_UNKNOWN`` skip, for the identical reason (see its own
-    docstring). The failed login would then irreversibly remove a
-    credential nothing in this call ever actually read. Skipping the
-    delete costs nothing: the round-10 marker already makes a stale
-    entry in another backend harmless (readers consult the marker
-    before any bearer-first/file-first precedence), so this cleanup
-    was only ever tidiness, never correctness-bearing.
+    ``snapshot`` (the pre-swap read this same ``replace_credentials()``
+    call already took) gates every keyring delete below — an account
+    whose snapshot came back ``_UNKNOWN`` is skipped entirely, never
+    handed to ``keyring.delete_password``, even if the keyring has since
+    become readable again. Without that gate: the snapshot recorded
+    ``_UNKNOWN`` for an account precisely because it could not be read at
+    snapshot time; if the keyring becomes readable again later in THIS
+    SAME call (a transient hiccup) and this cleanup then deleted that
+    account, and a LATER step in the transaction (another account's
+    cleanup, the refresh-token write) then failed, ``_restore_credentials``
+    could not put it back either — it applies the identical ``_UNKNOWN``
+    skip, for the identical reason (see its own docstring). The failed
+    login would then irreversibly remove a credential nothing in this call
+    ever actually read. Skipping the delete costs nothing: the active_kind
+    marker already makes a stale entry in another backend harmless
+    (readers consult the marker before any bearer-first/file-first
+    precedence), so this cleanup is only tidiness, never
+    correctness-bearing.
     """
-    # fix(#1778 round 32): iterates _CREDENTIAL_SET (the single
+    # Iterates _CREDENTIAL_SET (the single
     # definition of the four-member set: bearer, api_key, refresh,
-    # refresh_fingerprint) instead of the round-31 approach of a
-    # snapshot-gated loop over three members PLUS a separate,
-    # differently-behaved best-effort block bolted on for the fourth --
-    # see test_credential_set_structural.py. The fingerprint now gets
-    # the SAME treatment as "refresh" (skipped on _UNKNOWN, propagated
-    # when keep_backend == "keyring"), which is correct: an orphaned
-    # fingerprint is inert on its own, but treating its cleanup
-    # DIFFERENTLY from the refresh token it travels with is exactly
-    # the kind of per-member special-casing this round closes.
+    # refresh_fingerprint) rather than special-casing any member -- see
+    # test_credential_set_structural.py. The fingerprint gets the SAME
+    # treatment as "refresh" (skipped on _UNKNOWN, propagated when
+    # keep_backend == "keyring"): an orphaned fingerprint is inert on its
+    # own, but treating its cleanup DIFFERENTLY from the refresh token it
+    # travels with is exactly the per-member special-casing to avoid.
     snapshot_by_name = {
         "bearer": snapshot.keyring_bearer,
         "api_key": snapshot.keyring_api_key,
@@ -1098,7 +1067,7 @@ def _delete_stale_credentials(
         if exists:
             keyring.delete_password(SERVICE, account)
 
-    # fix(#1778 review round 22): unlike _set_credential_field's and
+    # Unlike _set_credential_field's and
     # _clear_credential_section's writes, only the READ here is
     # best-effort tidiness -- a PRE-EXISTING corrupt file is not
     # something THIS login broke, so that alone must not fail it (log
@@ -1108,8 +1077,8 @@ def _delete_stale_credentials(
     # filesystem that just went read-only, say) propagates and
     # triggers _restore_credentials() -- see
     # TestCleanupFileRewriteFailureIsRollbackProtected. This is
-    # DIFFERENT from _discard_unpaired_refresh_token() (fix(#1778
-    # round 32)), which runs from try_refresh() with no such rollback
+    # DIFFERENT from _discard_unpaired_refresh_token(), which runs
+    # from try_refresh() with no such rollback
     # net and must never let a write failure escape at all -- the same
     # exception type means something different depending on which
     # transaction (if any) is listening for it.
@@ -1152,14 +1121,13 @@ def replace_credentials(
 ) -> str:
     """Atomically swap the active credential for ``instance`` to ``kind``.
 
-    fix(#1778 review round 13): ``refresh_token``, when given, is
+    ``refresh_token``, when given, is
     persisted inside this SAME rollback-protected transaction rather
     than by a separate ``store_refresh_token()`` call after this
-    function returns. The interactive login flow used to do the
-    latter -- by the time it ran, ``replace_credentials`` had already
-    committed the new access token AND deleted the prior refresh
-    credential as part of its own cleanup. If that separate call then
-    failed (keyring rejects, file fallback read-only), login reported
+    function returns. By the time a separate call ran, ``replace_credentials``
+    would already have committed the new access token AND deleted the
+    prior refresh credential as part of its own cleanup; if that call then
+    failed (keyring rejects, file fallback read-only), login would report
     failure with a half-replaced session: a new access token with no
     refresh token at all, and nothing left to roll back to. Folding it
     in here means a refresh-token write failure rolls back the ENTIRE
@@ -1171,12 +1139,11 @@ def replace_credentials(
     refresh entry as part of clearing stale state, so writing the new
     one first would just have cleanup delete it again.
 
-    fix(#1778 review round 4): ``login`` used to call ``delete_credentials()``
-    BEFORE storing the replacement, so a storage failure (keyring falling
-    back to a read-only or full XDG path, a permissions error, ...) left
-    the user logged out — the working credential was already gone — with
-    login reporting failure too. This stores the new credential FIRST;
-    only once that succeeds is anything else touched.
+    The new credential is stored FIRST, before anything else is touched
+    (deleting the old one first would leave the user logged out, with the
+    working credential already gone, if the storage write then failed --
+    a keyring falling back to a read-only or full XDG path, a permissions
+    error, ...).
 
     If the store itself raises, nothing here has touched storage yet
     (the snapshot read is read-only) — the exception propagates and the
@@ -1187,55 +1154,44 @@ def replace_credentials(
     so the net effect is still "nothing changed" rather than a mix of
     old and new credentials.
 
-    fix(#1778 review round 5): the cleanup step deletes both the
+    The cleanup step deletes both the
     competing credential kinds AND ``kind``'s own value from whichever
     backend it did NOT just land in — see ``_delete_stale_credentials``.
     Without that second part, a bearer token stored in credentials.toml
-    by an earlier ``--no-keyring`` login survived a later plain
+    by an earlier ``--no-keyring`` login would survive a later plain
     ``login`` that stored the replacement in the keyring, and
-    ``load_bearer_token``'s file-over-keyring precedence kept resolving
-    the stale one.
+    ``load_bearer_token``'s file-over-keyring precedence would keep
+    resolving the stale one.
 
-    fix(#1778 review round 10): rounds 5-9 tried to make that cleanup
-    step correctness-bearing (deleting the stale competing entry
-    reliably enough that it could never be read back), but cleanup can
-    only ever be best-effort — keyring and credentials.toml are
+    That cleanup cannot be correctness-bearing: it can only ever be
+    best-effort — keyring and credentials.toml are
     separate backends with no shared transaction, and an API-key login
     that fell back to the file while the keyring was temporarily
-    unavailable had NOTHING it could safely do about a stale bearer
-    token sitting in that unreachable keyring. This now also writes an
+    unavailable has NOTHING it can safely do about a stale bearer
+    token sitting in that unreachable keyring. So this also writes an
     explicit "active credential kind" marker (see
     ``load_active_credential_kind``) into the SAME file section the
     snapshot/restore machinery already covers, unconditionally —
     regardless of which backend ``value`` itself landed in. Readers
     consult that marker first, so a stale competing entry surviving in
-    the other backend can no longer outrank the credential that was
-    just stored; ``_delete_stale_credentials`` below is now tidiness,
+    the other backend cannot outrank the credential that was
+    just stored; ``_delete_stale_credentials`` below is tidiness,
     not the thing correctness depends on.
 
-    fix(#1778 review round 28): rounds 22-25 each tried to characterize
-    exactly when a corrupt credentials.toml was "safe" to tolerate
-    during login -- same kind unchanged (round 22), or the competing
-    kind's OWN state confirmed absent (round 25's
-    ``competing_confirmed_absent``, computed from the keyring alone).
-    Round 27 found the second characterization already wrong: a
-    corrupt FILE can itself be the thing holding a competing bearer
-    value, invisible to a keyring-only check, so "confirmed absent"
-    was sometimes lying. The file is BOTH the credential store and the
-    marker store; while it cannot be parsed, neither the competing
-    credential's state nor the marker itself can be established, which
-    is exactly the information every one of those carve-outs needed to
-    reason about. Closing the class instead of adding a third
-    exception: a corrupt file now refuses EVERY login up front, before
-    any secret is stored, unconditionally -- regardless of ``kind``,
-    keyring state, or what was active before. ``whoami``/``status``/
-    every other read-only command stay tolerant exactly as round 23
-    left them (a corrupt file only surfaces there when the file was
-    genuinely the last thing to try -- see ``AppState.sdk()``);
-    ``logout`` still refuses (round 22, unrelated to this function);
-    ``try_refresh()``'s own marker write stays non-fatal (round 19,
-    also unrelated -- a different function, refreshing an ALREADY
-    -trusted session rather than deciding what to trust next).
+    A corrupt credentials.toml refuses EVERY login up front, before any
+    secret is stored, unconditionally -- regardless of ``kind``, keyring
+    state, or what was active before. The file is BOTH the credential
+    store and the marker store; while it cannot be parsed, neither the
+    competing credential's state nor the marker itself can be
+    established (a corrupt FILE can itself be holding a competing bearer
+    value, invisible to a keyring-only check), so any carve-out that
+    tolerated it would rest on information that cannot be known.
+    ``whoami``/``status``/every other read-only command stay tolerant (a
+    corrupt file only surfaces there when the file was genuinely the last
+    thing to try -- see ``AppState.sdk()``); ``logout`` also refuses;
+    ``try_refresh()``'s own marker write stays non-fatal -- a different
+    function, refreshing an ALREADY-trusted session rather than deciding
+    what to trust next.
 
     ``kind`` is ``"bearer"`` or ``"api_key"``. Returns ``'keyring'`` or
     ``'file'`` (where the new credential landed).
@@ -1243,49 +1199,43 @@ def replace_credentials(
     if kind not in ("bearer", "api_key"):
         raise ValueError(f"unknown credential kind: {kind!r}")
 
-    # fix(#1778 review round 28): see the docstring above -- refuse
+    # See the docstring above -- refuse
     # before anything else runs, read-only or not. The snapshot below
     # is itself read-only and harmless against a corrupt file, but
-    # there is no longer any reason to take it, or read the active
+    # there is no reason to take it, or read the active
     # kind, or store anything, when the file cannot be trusted.
     ensure_credentials_file_readable()
 
     snapshot = _snapshot_credentials(instance)
 
-    # fix(#1778 review round 12): _UNKNOWN used to be checked ONLY on the
-    # rollback path, after the mutating store_bearer_token/store_api_key
-    # call below had already run. That call is unconditionally attempted
-    # against the SAME keyring account the snapshot just tried (and
-    # failed) to read — get_password raising is no guarantee set_password
-    # will too, so a snapshot read failure for the account about to be
-    # overwritten does not mean the write will safely fall back to the
-    # file; it can just as well succeed, silently destroying the one
-    # value _restore_credentials would have needed to recover it.
+    # An _UNKNOWN snapshot read for the account about to be overwritten
+    # cannot be left to the rollback path alone. The mutating
+    # store_bearer_token/store_api_key call below is unconditionally
+    # attempted against the SAME keyring account the snapshot just tried
+    # (and failed) to read — get_password raising is no guarantee
+    # set_password will too, so the write may just as well succeed,
+    # silently destroying the one value _restore_credentials would have
+    # needed to recover it.
     #
-    # fix(#1778 review round 13): round 12 closed that window by ABORTING
-    # outright, which broke the documented automatic credentials.toml
-    # fallback (round 8/9) — an ordinary ``login --token``/``--api-key``
-    # on a headless box with no usable keyring now refused unless the
+    # Aborting outright would break the documented automatic
+    # credentials.toml fallback: an ordinary ``login --token``/``--api-key``
+    # on a headless box with no usable keyring would refuse unless the
     # caller already knew to pass --no-keyring, even when the file
-    # backend was perfectly writable. Reconciling rounds 9-12: an
-    # unreadable snapshot for the account about to be overwritten no
-    # longer aborts the login. It instead forces the SAME keyring-free
+    # backend is perfectly writable. So an unreadable snapshot for the
+    # account about to be overwritten instead forces the SAME keyring-free
     # path --no-keyring already takes for this one store call —
     # store_bearer_token/store_api_key skip keyring.set_password
-    # entirely and write straight to the file — so there is no
-    # unpredictable set_password outcome left to protect against; round
-    # 12's actual danger (a write landing in an account whose read had
-    # just failed) cannot happen when the write never touches that
-    # account. The round-10 marker below still records the new kind
-    # unconditionally, so the file credential outranks any stale keyring
-    # entry that later becomes readable again. Keyring cleanup for the
-    # OTHER account kinds stays best-effort exactly as round 9 already
-    # made it (an unreadable keyring is tolerated whenever
-    # keep_backend == "file", which this forces here). The only way this
-    # call still fails is the file backend itself being unwritable —
-    # store_bearer_token/store_api_key then raise directly, before
-    # anything has been mutated (see this function's own top-level
-    # docstring), propagating exactly like any other store failure.
+    # entirely and write straight to the file — so a write can never land
+    # in an account whose read just failed. The active_kind marker below
+    # still records the new kind unconditionally, so the file credential
+    # outranks any stale keyring entry that later becomes readable again.
+    # Keyring cleanup for the OTHER account kinds stays best-effort (an
+    # unreadable keyring is tolerated whenever keep_backend == "file",
+    # which this forces here). The only way this call still fails is the
+    # file backend itself being unwritable — store_bearer_token/
+    # store_api_key then raise directly, before anything has been mutated
+    # (see this function's own top-level docstring), propagating exactly
+    # like any other store failure.
     target_is_unknown = False
     if not no_keyring:
         target = snapshot.keyring_bearer if kind == "bearer" else snapshot.keyring_api_key
@@ -1300,7 +1250,7 @@ def replace_credentials(
             backend = store_api_key(instance, value, no_keyring=store_no_keyring)
     except Exception as exc:
         if target_is_unknown:
-            # fix(#1778 review round 13): the keyring was unreadable AND
+            # The keyring was unreadable AND
             # the forced file write above also failed (e.g. a read-only
             # or full XDG config dir) -- there is genuinely no backend
             # this credential could land in. Re-raised as KeyringError
@@ -1314,29 +1264,25 @@ def replace_credentials(
             ) from exc
         raise
 
-    # fix(#1778 review round 11): the marker write must be INSIDE the
+    # The marker write must be INSIDE the
     # rollback-protected block, not before it. It lives in the file
     # section the snapshot above already captured, so a restore
     # correctly reverts it too, along with everything else — but only
     # if a failure writing it (a read-only or full filesystem, same as
     # any other credentials.toml write) actually triggers that restore.
-    # Written outside the try, a failure here propagated straight past
+    # Written outside the try, a failure here would propagate straight past
     # _restore_credentials: for a same-kind login the OLD keyring
     # secret was already overwritten by store_bearer_token/
-    # store_api_key above, so there was nothing left to fall back to;
-    # for a kind switch, the marker write failing left the OLD kind's
+    # store_api_key above, so there would be nothing left to fall back to;
+    # for a kind switch, the marker write failing would leave the OLD kind's
     # marker in place pointing at a value that had also already
-    # changed backends. Either way login reported failure with the
+    # changed backends. Either way login would report failure with the
     # credential store left in a state nothing had rolled back.
     #
-    # fix(#1778 review round 28): rounds 22-25 special-cased a
-    # ``CredentialsFileCorrupt`` failure HERE as tolerable (sometimes
-    # non-fatal, sometimes conditionally fatal via ``mandatory_marker``)
-    # -- moot now that the file is refused unconditionally, up front,
-    # before this point is ever reached (see this function's own
-    # docstring). Any failure writing the marker -- corrupt file or
-    # otherwise -- is now an ORDINARY marker-write failure: it rolls
-    # back the whole swap and fails the login, exactly like any other
+    # A corrupt credentials.toml never reaches this point (it is refused
+    # unconditionally, up front -- see this function's own docstring), so
+    # any failure writing the marker is an ORDINARY marker-write failure: it
+    # rolls back the whole swap and fails the login, exactly like any other
     # write in this transaction.
     try:
         _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
@@ -1344,10 +1290,10 @@ def replace_credentials(
             instance, keep=kind, keep_backend=backend, snapshot=snapshot
         )
         if refresh_token:
-            # fix(#1778 review round 14): must match the backend the
+            # Must match the backend the
             # access token actually landed in, not the caller's
             # original no_keyring. When the target keyring read was
-            # unknown, round 13 forces the access token into
+            # unknown, the access token is forced into
             # credentials.toml but the keyring itself may still be
             # perfectly willing to accept the refresh token -- if it
             # were stored there with the original no_keyring=False, the
@@ -1360,10 +1306,9 @@ def replace_credentials(
             # under its file-over-keyring precedence -- every subsequent
             # 401 refreshes again, never converging.
             #
-            # fix(#1778 review round 15): round 14 keyed this off
-            # store_no_keyring -- the PRE-store INTENT computed from
-            # snapshot readability alone -- not off `backend`, the
-            # store call's ACTUAL outcome. The two diverge whenever
+            # Key this off `backend`, the store call's ACTUAL outcome, not
+            # store_no_keyring, the PRE-store INTENT computed from
+            # snapshot readability alone. The two diverge whenever
             # keyring.get_password succeeded at snapshot time (so
             # store_no_keyring is False) but keyring.set_password then
             # fails at store time (a locked keychain needing a write
@@ -1373,13 +1318,10 @@ def replace_credentials(
             # store_no_keyring stays False. With store_no_keyring the
             # refresh write would still try the keyring first; if THAT
             # account's set_password happens to succeed, the two
-            # tokens split again -- the exact bug this round closes,
-            # reopened through a store-time failure instead of a
-            # snapshot-read failure. `backend != "keyring"` reflects
+            # tokens split again. `backend != "keyring"` reflects
             # what actually happened, not what was intended going in;
             # --no-keyring and an unknown target snapshot still force
-            # backend == "file" either way, so those cases are
-            # unchanged.
+            # backend == "file" either way.
             store_refresh_token(
                 instance,
                 refresh_token,
@@ -1403,7 +1345,7 @@ def _detect_credential_backend(instance: str) -> bool:
     same file-before-keyring precedence — if the file has a refresh token,
     the credential lives in the file backend.
 
-    fix(#1778 review round 22): tolerant on a corrupt file, same as
+    Tolerant on a corrupt file, same as
     load_refresh_token_strict() itself -- this runs as try_refresh()'s very
     first step, before the refresh HTTP call. Assuming "not file-backed"
     (False) is the safe default: it means try_refresh() proceeds
@@ -1417,89 +1359,82 @@ def _detect_credential_backend(instance: str) -> bool:
 def try_refresh(instance: str) -> Optional[str]:
     """Attempt a single refresh; return new access token or None on failure.
 
-    Per CONTEXT D-13, this is called once on a 401. If it fails, the caller
+    This is called once on a 401. If it fails, the caller
     prints "Session expired" and exits with EXIT_AUTH (3).
 
     BUG-013 fix: rotated tokens are written back to the SAME backend that
     held the original credential (file vs keyring) so that a file-backed
     credential is not shadowed by a newly keyring-written token.
 
-    fix(#1778 round 29): the optional-return contract ("None on failure,
-    never raise") covers the HTTP call and response parsing above, but
-    round 17-19 left the actual PERSISTENCE of a successful rotation
-    unguarded for two of its three sinks -- store_bearer_token()/
+    The optional-return contract ("None on failure,
+    never raise") covers the HTTP call, response parsing, and the
+    PERSISTENCE of a successful rotation. store_bearer_token()/
     store_refresh_token() propagate uncaught when both the keyring
     write AND the credentials.toml fallback fail (a locked keychain
-    plus a read-only XDG config dir, say). The only caller
+    plus a read-only XDG config dir, say), and the only caller
     (_sdk_helpers.call_sdk_with_reauth) does not catch storage
     exceptions, so a command already deep in its own request handling
-    died with an unrelated traceback -- after the server had ALREADY
+    would die with an unrelated traceback -- after the server had ALREADY
     rotated the refresh token server-side, which is the specific thing
     that makes this worse than an ordinary failed refresh: the OLD
     refresh token is now invalid too, and nothing local recorded the
-    new one. Every sink is now covered: bearer + refresh-token writes
-    below are wrapped in ONE block, emitting exactly one warning and
-    returning None on ANY failure there (never raising); the
-    active_kind marker write keeps round 19's own separate, already-
-    non-fatal handling unchanged -- a marker-only failure must NOT
+    new one. Bearer + refresh-token writes below are therefore wrapped
+    in ONE block, emitting exactly one warning and returning None on ANY
+    failure there (never raising); the active_kind marker write has its
+    own separate, non-fatal handling -- a marker-only failure must NOT
     discard a rotation whose actual credentials already landed safely.
 
-    fix(#1778 round 31): a stored refresh token existing at all used to
-    be treated as proof it belongs to the currently stored bearer --
-    but ``credential_provenance == "stored-bearer"`` (the gate
-    ``call_sdk_with_reauth`` already applies before ever calling this)
-    only proves BOTH values are stored, not that they are paired. An
-    upgraded profile where an earlier interactive login's refresh
+    A stored refresh token existing at all is not proof it belongs to the
+    currently stored bearer:
+    ``credential_provenance == "stored-bearer"`` (the gate
+    ``call_sdk_with_reauth`` applies before ever calling this)
+    only proves BOTH values are stored, not that they are paired. A
+    profile where an earlier interactive login's refresh
     token survived a LATER ``login --token``/``--api-key`` (which
-    never clears it -- see the write-path enumeration in this round's
-    PR section) let this function rotate the OLD session and retry as
-    a DIFFERENT principal instead of reporting the rejected token. The
-    refresh token is now spent ONLY when its stored pairing
-    fingerprint (see ``_fingerprint_bearer()``) matches the CURRENTLY
-    stored bearer; on any mismatch -- or a legacy profile with no
-    fingerprint at all -- it is treated as absent, discarded from
+    never clears it) would let this function rotate the OLD session and
+    retry as a DIFFERENT principal instead of reporting the rejected
+    token. The refresh token is therefore spent ONLY when its stored
+    pairing fingerprint (see ``_fingerprint_bearer()``) matches the
+    CURRENTLY stored bearer; on any mismatch -- or a legacy profile with
+    no fingerprint at all -- it is treated as absent, discarded from
     storage (``_discard_unpaired_refresh_token()``), and this returns
     ``None`` exactly as if there had never been a refresh token here.
 
-    fix(#1778 round 32): round 31's pairing check read the refresh
-    token, the bearer, and the fingerprint TOLERANTLY -- a transient
-    or account-specific KeyringError on any one of them collapsed to
-    ``None``, indistinguishable from a confirmed absence, and the
-    pairing check then judged a POSSIBLY VALID pairing "stale" and ran
-    the destructive discard on a refresh token that may have been
-    perfectly fine. All three reads are now STRICT (three-state:
-    present / confirmed absent / unreadable). Unreadable on ANY of
-    them aborts the whole pairing decision immediately -- no cleanup,
-    no refresh attempt, exactly one warning, ``None`` -- never
-    deleting on an unknown. Only a CONFIRMED absence or a CONFIRMED
-    mismatch reaches the destructive discard-and-warn path below.
+    The pairing check reads the refresh token, the bearer, and the
+    fingerprint STRICTLY (three-state: present / confirmed absent /
+    unreadable). A tolerant read would collapse a transient or
+    account-specific KeyringError to ``None``, indistinguishable from a
+    confirmed absence, and judge a POSSIBLY VALID pairing "stale" and run
+    the destructive discard on a refresh token that may be perfectly
+    fine. Unreadable on ANY of them aborts the whole pairing decision
+    immediately -- no cleanup, no refresh attempt, exactly one warning,
+    ``None`` -- never deleting on an unknown. Only a CONFIRMED absence or
+    a CONFIRMED mismatch reaches the destructive discard-and-warn path
+    below.
 
-    fix(#1807): round 31's "the server issued no new refresh token"
-    branch rewrote only the pairing FINGERPRINT into the bearer's
-    actual backend and left the retained refresh token itself wherever
-    it already was. A keyring bearer write that fell back to the file
-    therefore split the retained pair across backends, and the next
-    refresh's ``_detect_credential_backend()`` -- which decides by
-    looking for a refresh_token in the FILE -- answered "keyring,"
-    wrote the newly rotated bearer there, and had it shadowed by the
-    stale file bearer that outranks it. Commands refreshed on every
-    call instead of converging. A rotation whose bearer MOVED backends
-    now writes the refresh token and its fingerprint together through
+    When the server issues no new refresh token, a rotation whose bearer
+    MOVED backends (a keyring bearer write that fell back to the file)
+    writes the refresh token and its fingerprint together through
     ``store_refresh_token()`` into the backend the bearer actually
     landed in, and drops the superseded keyring copy once that write
-    has committed.
+    has committed. Rewriting only the fingerprint would split the
+    retained pair across backends: the next refresh's
+    ``_detect_credential_backend()`` -- which decides by looking for a
+    refresh_token in the FILE -- would answer "keyring," write the newly
+    rotated bearer there, and have it shadowed by the stale file bearer
+    that outranks it, so commands would refresh on every call instead of
+    converging.
 
-    fix(#1807 round 2): only when it moved. Rewriting the unchanged
-    refresh SECRET on every retained-token rotation (round 1) needs a
-    write to an account that had nothing to say, and a keyring that
-    accepts the bearer and fingerprint accounts while refusing the
-    refresh one -- with an unusable credentials.toml behind it -- lost
-    a rotation the fingerprint-only path completes: this returned
-    ``None`` with the new bearer already stored against the OLD
-    fingerprint, so the next attempt discarded a still-valid refresh
-    token as unpaired. An unchanged backend takes
-    ``_rewrite_refresh_fingerprint()`` again, which touches exactly the
-    one member that is actually stale.
+    Only when it moved: rewriting the unchanged refresh SECRET on every
+    retained-token rotation needs a write to an account that had nothing
+    to say, and a keyring that accepts the bearer and fingerprint
+    accounts while refusing the refresh one -- with an unusable
+    credentials.toml behind it -- would lose a rotation the
+    fingerprint-only path completes: this would return ``None`` with the
+    new bearer already stored against the OLD fingerprint, so the next
+    attempt would discard a still-valid refresh token as unpaired. An
+    unchanged backend takes ``_rewrite_refresh_fingerprint()``, which
+    touches exactly the one member that is actually stale.
     """
     try:
         refresh = load_refresh_token_strict(instance)
@@ -1508,7 +1443,7 @@ def try_refresh(instance: str) -> Optional[str]:
         stored_bearer = _load_stored_bearer_value(instance)
         fingerprint = _load_refresh_fingerprint(instance)
     except KeyringCredentialUnreadable as exc:
-        # fix(#1778 round 32): a read failure proves nothing -- the
+        # A read failure proves nothing -- the
         # pairing might still be perfectly valid. Never delete on an
         # unknown; just decline to refresh this time.
         log.warning(
@@ -1536,13 +1471,10 @@ def try_refresh(instance: str) -> Optional[str]:
     from ._sdk_helpers import make_client
 
     try:
-        # fix(#1778 review round 1): this used to build its own client
-        # with the SDK's default timeout=None (unbounded), so a stalled
-        # refresh endpoint hung the calling command forever instead of
-        # falling back to "refresh failed" within a bounded time.
-        # fix(#1778 review round 2): routed through make_client() (the
-        # single construction point for every GeolensClient in this
-        # package) rather than setting the bound here directly.
+        # Routed through make_client() (the single construction point for
+        # every GeolensClient in this package), which bounds the request
+        # timeout so a stalled refresh endpoint cannot hang the calling
+        # command forever instead of falling back to "refresh failed".
         sdk = make_client(instance)
         body = RefreshRequest(refresh_token=refresh)
         resp = refresh_auth_refresh_post.sync_detailed(client=sdk.client, body=body)
@@ -1555,29 +1487,27 @@ def try_refresh(instance: str) -> Optional[str]:
     if parsed is None or not getattr(parsed, "access_token", None):
         return None
     new_access = parsed.access_token
-    # fix(#1778 review round 17): the sibling of round 15's
-    # replace_credentials() fix, in this function's own rotation path.
     # store_bearer_token() can fall back to credentials.toml on its OWN
     # (a transient or account-specific keyring failure -- see its
     # `except KeyringError` -- even though `no_keyring` (detected from
     # where the OLD refresh token lived) said "keyring"). Using the
     # requested `no_keyring` instead of `backend` (the store call's
-    # ACTUAL outcome) for the refresh-token write below split the two
+    # ACTUAL outcome) for the refresh-token write below would split the two
     # rotated tokens across backends: the new access token in the file,
     # the new refresh token in the keyring. After that access token
     # expires, a LATER successful keyring bearer write is shadowed by
     # the still-there, now-expired file bearer under
     # load_bearer_token()'s file-over-keyring precedence, and commands
     # loop on refresh forever. `backend != "keyring"` reflects what
-    # actually happened, exactly as replace_credentials() now does.
-    # fix(#1778 round 29): both writes below can propagate -- see this
+    # actually happened, exactly as replace_credentials() does.
+    # Both writes below can propagate -- see this
     # function's own docstring. Wrapped together (not each in its own
     # try/except) because they are one logical step from the caller's
     # point of view: "persist the rotation," which either succeeds as
     # a whole or is reported as a whole. Never logs a token value.
     try:
         backend = store_bearer_token(instance, new_access, no_keyring=no_keyring)
-        # fix(#1807 round 2): did the bearer actually land in the backend
+        # Did the bearer actually land in the backend
         # this rotation asked for? Only the keyring -> file fallback is a
         # MOVE; `no_keyring` already means "the file, deliberately."
         backend_moved = not no_keyring and backend != "keyring"
@@ -1590,7 +1520,7 @@ def try_refresh(instance: str) -> Optional[str]:
                 no_keyring=(backend != "keyring"),
             )
         else:
-            # fix(#1778 round 31): the server renewed the access token
+            # The server renewed the access token
             # but did not issue a new refresh token -- the EXISTING
             # one is still valid and still gets used again, but its
             # pairing fingerprint was computed against the OLD bearer
@@ -1599,32 +1529,29 @@ def try_refresh(instance: str) -> Optional[str]:
             # against the rotation this call just performed, and
             # wrongly discard a perfectly good refresh token as stale.
             #
-            # fix(#1807): round 31 rewrote only the FINGERPRINT, which
-            # is enough while the bearer lands where `no_keyring` said
-            # it would, and wrong the moment store_bearer_token() falls
-            # back to the file on its own. That split the retained pair
-            # across backends -- fingerprint in the file, refresh token
-            # still in the keyring -- and the next refresh's
-            # _detect_credential_backend() (which looks for a
-            # refresh_token in the FILE) therefore answered "keyring"
-            # and wrote the new bearer there, where the stale
-            # file-backed bearer shadows it under load_bearer_token()'s
-            # file-over-keyring precedence: every subsequent command
-            # 401s, refreshes, and 401s again instead of converging.
-            # A MOVED bearer therefore takes the whole retained pair
-            # with it, through store_refresh_token(), exactly as the
-            # new-refresh-token branch above already does.
+            # Rewriting only the FINGERPRINT is enough while the bearer lands
+            # where `no_keyring` said it would, and wrong the moment
+            # store_bearer_token() falls back to the file on its own. That
+            # would split the retained pair across backends -- fingerprint in
+            # the file, refresh token still in the keyring -- and the next
+            # refresh's _detect_credential_backend() (which looks for a
+            # refresh_token in the FILE) would answer "keyring" and write the
+            # new bearer there, where the stale file-backed bearer shadows it
+            # under load_bearer_token()'s file-over-keyring precedence: every
+            # subsequent command would 401, refresh, and 401 again instead of
+            # converging. A MOVED bearer therefore takes the whole retained
+            # pair with it, through store_refresh_token(), exactly as the
+            # new-refresh-token branch above does.
             #
-            # fix(#1807 round 2): only when it moved. Round 1 rewrote
-            # the pair unconditionally, which asks a second keyring
-            # account for a write of a secret that did not change --
-            # and a keyring accepting the bearer and fingerprint
-            # accounts while refusing the refresh one, with no usable
-            # file fallback behind it, then turned a rotation this
-            # branch used to complete into a reported failure, with the
-            # new bearer already stored against the OLD fingerprint for
-            # the next attempt to discard as unpaired. Unchanged
-            # backend -> update the fingerprint member alone, in place.
+            # Only when it moved: rewriting the pair unconditionally asks a
+            # second keyring account for a write of a secret that did not
+            # change, and a keyring accepting the bearer and fingerprint
+            # accounts while refusing the refresh one, with no usable file
+            # fallback behind it, would turn a rotation that can complete into
+            # a reported failure, with the new bearer already stored against
+            # the OLD fingerprint for the next attempt to discard as unpaired.
+            # Unchanged backend -> update the fingerprint member alone, in
+            # place.
             if backend_moved:
                 store_refresh_token(
                     instance,
@@ -1646,7 +1573,7 @@ def try_refresh(instance: str) -> Optional[str]:
             ),
         )
         return None
-    # fix(#1807): the rotation above asked for the keyring and landed in
+    # The rotation above asked for the keyring and landed in
     # the file, so the refresh token now lives in BOTH backends -- the
     # copy just written, and the superseded keyring one it was moved
     # from. The file copy wins every read, so the leftover is not
@@ -1657,18 +1584,16 @@ def try_refresh(instance: str) -> Optional[str]:
     # that must survive.
     if backend_moved:
         _delete_keyring_refresh_entries(instance)
-    # fix(#1778 review round 19): the round-17 marker write below used
-    # to be unconditional AND fatal -- an unwritable credentials.toml
-    # (read-only or full XDG config dir) raised straight out of
-    # try_refresh() even though BOTH rotated tokens had already landed
-    # safely in the keyring a few lines up. That turned a successful
-    # rotation into a reported refresh FAILURE, which the caller (D-13)
-    # treats as "session expired" and exits EXIT_AUTH -- discarding a
-    # perfectly good new access token over a marker write that was
-    # only ever a tie-breaker for STALE competing credentials (round
-    # 10), not a requirement for using the one just rotated.
+    # The marker write below must be non-fatal: an unwritable
+    # credentials.toml (read-only or full XDG config dir) must not raise out
+    # of try_refresh() when BOTH rotated tokens already landed safely, since
+    # that would turn a successful rotation into a reported refresh FAILURE,
+    # which the caller treats as "session expired" and exits EXIT_AUTH
+    # -- discarding a perfectly good new access token over a marker write
+    # that is only a tie-breaker for STALE competing credentials, not a
+    # requirement for using the one just rotated.
     #
-    # Two changes, without reordering the rotation above:
+    # Two measures, without reordering the rotation above:
     # - skip the write entirely when the marker already reads "bearer"
     #   (try_refresh only ever rotates a bearer session, so the common
     #   case -- an ordinary refresh, not a kind switch -- has nothing

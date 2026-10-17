@@ -1,6 +1,6 @@
 """Give record_embeddings.embedding a fixed dimension so HNSW can exist.
 
-fix(#448 perf-audit): the baseline creates ``embedding`` as unbounded
+The baseline creates ``embedding`` as unbounded
 ``vector`` (atttypmod=-1) and skips the HNSW index with a NOTICE, expecting
 ``rebuild_embedding_column`` to type the column "on first AI-provider
 config". That hook only fires when the dimension CHANGES via the settings
@@ -114,7 +114,7 @@ def _ensure_hnsw_index_concurrently() -> None:
 
 
 def upgrade() -> None:
-    # fix(#449, codex P2): honor the deployment's configured dimension, not a
+    # Honor the deployment's configured dimension, not a
     # hardcoded 1536, and let explicit config beat stale stored rows. Mirror
     # runtime resolution (persistent_config.py): ENV_ONLY_CONFIG ignores DB
     # overrides. Compose passes EMBEDDING_DIMS through only when the operator

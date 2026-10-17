@@ -35,10 +35,9 @@ jobs:
           cache-dependency-glob: "backend/uv.lock"
       - name: Verify lockfile in sync
         run: uv lock --check
-      # fix(#889): mcp/ is the other project with its own uv.lock, and it had no
-      # full-lock gate at all — which is why it silently lagged two releases
-      # while the backend lock's drift eventually surfaced. `make version-check`
-      # (#877) asserts only the version FIELDS in both locks; this catches
+      # mcp/ is the other project with its own uv.lock and needs its own
+      # full-lock gate, or its lock can lag silently. `make version-check`
+      # asserts only the version FIELDS in both locks; this catches
       # dependency-tree drift.
       - name: Verify lockfile in sync — MCP server
         working-directory: mcp
@@ -51,10 +50,10 @@ jobs:
         run: uv run --with pip-licenses pip-licenses --fail-on="GPL-3.0-only;GPL-3.0;GPL-2.0;AGPL-3.0;SSPL-1.0;BSL-1.1"
 
       # Extend the BLOCKING license gate to the CLI + Python SDK (same allowlist).
-      # fix(#932): unlike the backend and MCP gates above, these two run against
+      # Unlike the backend and MCP gates above, these two run against
       # an UNLOCKED resolution — cli/ and sdks/python/ deliberately gitignore
-      # uv.lock (cli/.gitignore, sdks/python/.gitignore) and have never
-      # committed one, so each run audits whatever resolves that day. That is
+      # uv.lock (cli/.gitignore, sdks/python/.gitignore) and don't
+      # commit one, so each run audits whatever resolves that day. That is
       # acceptable for a copyleft block, but it is not a pinned-tree audit.
       - name: License gate — CLI (block strong/network copyleft)
         working-directory: cli
@@ -109,8 +108,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      # fix(#1983): node/python/nginx are Dockerfile FROM tags Dependabot
-      # bumps; deriving them here (not a second literal copy) is the single
+      # node/python/nginx are Dockerfile FROM tags Dependabot
+      # bumps; deriving them here (not a second literal copy) keeps a single
       # source of truth, so this matrix can't drift behind the Dockerfile.
       - name: Derive matrix from Dockerfile FROM tags
         id: matrix

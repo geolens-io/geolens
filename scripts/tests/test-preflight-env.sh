@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regression test for scripts/preflight-env.sh (fix(#1882), fix(#1886)).
+# Regression test for scripts/preflight-env.sh.
 #
 # `make dev` runs preflight before any Compose build, so a false failure here
 # blocks the stack on a well-formed .env. The encryption-key shape check added
@@ -198,7 +198,7 @@ else
 fi
 
 # ============================================================================
-# CASE 6 (fix(#1886)): an exported name overrides its .env line for Compose.
+# CASE 6: an exported name overrides its .env line for Compose.
 # ============================================================================
 run_preflight_env SECRET_ENCRYPTION_KEY "$HEX_VALUE" "SECRET_ENCRYPTION_KEY=$VALID_KEY"
 if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY" "$WORK/out.txt" && grep -q "environment" "$WORK/out.txt"; then
@@ -260,7 +260,7 @@ GEOLENS_ADMIN_USERNAME=admin
 GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
 
 # ============================================================================
-# CASE 7 (fix(#1886)): a line Compose refuses to load is refused, exported or not.
+# CASE 7: a line Compose refuses to load is refused, exported or not.
 # ============================================================================
 run_preflight_env SECRET_ENCRYPTION_KEY "$VALID_KEY" 'SECRET_ENCRYPTION_KEY=${NO_SUCH_VAR:?boom}'
 if [ "$STATUS" -ne 0 ] && grep -q "line 4 (SECRET_ENCRYPTION_KEY)" "$WORK/out.txt"; then
@@ -298,7 +298,7 @@ else
 fi
 
 # ============================================================================
-# CASE 8 (fix(#1899)): the whole file is checked as Compose loads it, by line.
+# CASE 8: the whole file is checked as Compose loads it, by line.
 # ============================================================================
 run_preflight 'UNRELATED=${MISSING:?boom}'
 if [ "$STATUS" -ne 0 ] && grep -q "line 4 (UNRELATED)" "$WORK/out.txt"; then
@@ -401,7 +401,7 @@ else
     bad "a digit-leading key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
-# fix(#1909): an empty key and a key holding a tab are records too.
+# An empty key and a key holding a tab are records too.
 run_preflight '=${MISSING:?boom}'
 if [ "$STATUS" -ne 0 ] && grep -q "line 4 (?)" "$WORK/out.txt"; then
     ok "an empty key with a value Compose refuses is refused"

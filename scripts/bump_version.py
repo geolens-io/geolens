@@ -29,11 +29,10 @@
                                            the bottom of the file: `[Unreleased]`
                                            is repointed to compare/vX.Y.Z...HEAD
                                            and a new `[X.Y.Z]:` link is inserted
-                                           comparing from the previous version,
-                                           fix(#1716))
+                                           comparing from the previous version)
 
-Every lockfile that embeds the package's own version is stamped too (fix(#877) —
-each of these had to be hand-stamped on past releases, and each was missed at
+Every lockfile that embeds the package's own version is stamped too
+(each of these had to be hand-stamped on past releases, and each was missed at
 least once):
 
   - backend/uv.lock                        (the `geolens-backend` entry)
@@ -88,7 +87,7 @@ DOCS_CONTRACT = REPO_ROOT / "docs-contract.json"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 CHANGELOG_REPO_URL = "https://github.com/geolens-io/geolens"
 
-# --- Lockfiles (fix(#877)) ---------------------------------------------------
+# --- Lockfiles ---------------------------------------------------
 # A uv.lock records the version of every LOCAL package it resolves: the project
 # itself, plus any editable path dependency inside this repo. mcp/ depends on
 # sdks/python, so its lock carries that package's version as well and both move
@@ -312,8 +311,7 @@ def _check_no_duplicate_changelog_labels(text: str, path: Path) -> None:
     case-insensitively, matching CommonMark) to the FIRST definition, so a
     stale duplicate later in the file renders invisibly while still leaving
     it ambiguous which line this script is meant to edit.
-    check_version_coherence.py fails the same way for the same reason
-    (fix(#1716)).
+    check_version_coherence.py fails the same way for the same reason.
     """
     first_seen: dict[str, int] = {}
     for label, _url, line in _changelog_link_lines(text):
@@ -335,7 +333,7 @@ def _validate_changelog_links(path: Path, version: str) -> None:
     `[Unreleased]:` line, or no `## [...]` section for `version` - aborts
     the whole `make bump` with nothing touched, instead of leaving every
     other site already bumped while only the CHANGELOG failed at the very
-    end (fix(#1716)).
+    end.
     """
     text = path.read_text()
     _check_no_duplicate_changelog_labels(text, path)
@@ -362,8 +360,8 @@ def _bump_changelog_links(path: Path, version: str) -> None:
     construction. Repairs whichever half is missing or wrong rather than
     bailing out as soon as `[Unreleased]` already points at `version`: a
     partial or hand-edited state - `[Unreleased]` repointed but the
-    `[X.Y.Z]:` link missing or stale - used to be left unrepaired
-    (fix(#1716)). A true no-op (both lines already correct) still
+    `[X.Y.Z]:` link missing or stale - would be left unrepaired.
+    A true no-op (both lines already correct) still
     writes nothing.
 
     Re-runs `_validate_changelog_links` so calling this directly (as the
@@ -418,7 +416,7 @@ def main(argv: list[str]) -> int:
     # Validate the CHANGELOG edit BEFORE touching any other version site, so
     # a CHANGELOG that can't be safely bumped aborts with nothing written
     # instead of leaving every other site already bumped while only the
-    # CHANGELOG failed, at the very end (fix(#1716)).
+    # CHANGELOG failed, at the very end.
     _validate_changelog_links(CHANGELOG, version)
 
     print(f"Bumping all version sites to {version}:")

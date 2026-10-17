@@ -1,8 +1,7 @@
 """Record the freed relation's identity and its prior owner on a tombstone.
 
-fix(#1456). ``catalog.retired_table_names`` recorded only the freed NAME. Two
-review findings on #1453 converge on the same gap: a tombstone cannot tell
-"the table I detached" from "a new table wearing its name", and it cannot say
+``catalog.retired_table_names`` recorded only the freed NAME, but a tombstone
+cannot tell "the table I detached" from "a new table wearing its name", and it cannot say
 who owned the dataset that freed it. Both answers have to be captured inside
 the delete transaction, because both sources die in it — the relation is
 dropped, and the ``catalog.records`` row carrying ``created_by`` is deleted.

@@ -1,9 +1,9 @@
 /**
- * fix(#1778): createGeolensClient() must return a client scoped to that
- * call. Before this fix, every call reconfigured one module-level
- * singleton, so a second concurrent caller (e.g. a per-request client in a
- * Node server) overwrote the first caller's credentials and base URL on
- * the object the first caller was still holding a reference to.
+ * createGeolensClient() must return a client scoped to that
+ * call. If every call reconfigured one module-level
+ * singleton, a second concurrent caller (e.g. a per-request client in a
+ * Node server) would overwrite the first caller's credentials and base URL on
+ * the object the first caller is still holding a reference to.
  *
  * Run: node --test test/auth_concurrent_clients.test.mjs
  */

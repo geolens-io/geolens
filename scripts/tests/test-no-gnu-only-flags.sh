@@ -1,5 +1,5 @@
 #!/bin/sh
-# fix(#1778): permanent lint gate against
+# Permanent lint gate against
 # reintroducing a GNU-only flag on a tool whose BSD-shipped build (macOS,
 # and other non-Linux operator hosts) diverges. One live
 # instance was found: `env -0` in scripts/lib/common.sh's environment-snapshot

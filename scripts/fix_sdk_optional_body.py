@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Guard the generated Python SDK's optional-request-body emission.
 
-fix(#1277 review). openapi-python-client emits this for an endpoint whose
+openapi-python-client emits this for an endpoint whose
 request body is optional::
 
     def _get_kwargs(..., body: Foo | None | Unset = UNSET) -> dict[str, Any]:

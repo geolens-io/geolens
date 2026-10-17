@@ -3,13 +3,12 @@ import { getAuthToken } from './helpers/catalog';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 
-// fix(#1446): logout is now a real server-side security event —
+// Logout is a real server-side security event —
 // revoke_all_tokens bumps token_version and revokes every refresh row for the
-// user. Running this flow as the shared admin therefore destroyed the saved
+// user. Running this flow as the shared admin would destroy the saved
 // storageState session that every parallel spec depends on, minutes into the
-// run (the pre-#1446 SPA never called /auth/logout/, which is what made a
-// shared session survivable). The flow gets its own throwaway user so the
-// revocation lands on nobody else.
+// run. The flow gets its own throwaway user so the revocation lands on nobody
+// else.
 const LOGOUT_USER = 'e2e-logout-probe';
 const LOGOUT_PASS = 'E2e-Logout-Probe-42';
 

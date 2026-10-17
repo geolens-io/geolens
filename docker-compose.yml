@@ -18,7 +18,7 @@ x-auth-env: &auth-env
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   GEOLENS_ADMIN_USERNAME: ${GEOLENS_ADMIN_USERNAME}
   GEOLENS_ADMIN_PASSWORD: ${GEOLENS_ADMIN_PASSWORD}
-  # fix(#1871): neither manifest uses env_file, so the setting reaches the app
+  # Neither manifest uses env_file, so the setting reaches the app
   # only by being listed here. Empty is the unset case (empty_str_to_none).
   SECRET_ENCRYPTION_KEY: "${SECRET_ENCRYPTION_KEY:-}"
   SECRET_ENCRYPTION_KEY_PREVIOUS: "${SECRET_ENCRYPTION_KEY_PREVIOUS:-}"
@@ -48,8 +48,7 @@ x-db-ssl-env: &db-ssl-env
   DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-3}"  # pool budget: .env.example, DB_MAX_OVERFLOW
   DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-30}"
   DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
-  # fix(#1778 codex r1): the per-request query deadline. Documented in
-  # .env.example but passed nowhere, so the knob was inert -- neither manifest
+  # The per-request query deadline. Neither manifest
   # uses env_file, so a variable reaches the app only by being listed here.
   # It belongs on this anchor rather than on the api service alone because the
   # setting is read from app.core.config, which the migrate and worker images
@@ -80,7 +79,7 @@ x-storage-env: &storage-env
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
-  # fix(#441): pass the SEC-005 posture flag through (kept in sync with
+  # Pass the posture flag through (kept in sync with
   # docker-compose.prod.yml). Empty (unset) falls back to LOG_JSON in Settings.
   ENVIRONMENT: "${ENVIRONMENT:-}"
 
@@ -210,7 +209,7 @@ services:
       # Host-port fallback (5434 from .env, 5432 bare).
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
-      # chore(#704): PG 18+ images take a single mount at /var/lib/postgresql
+      # PG 18+ images take a single mount at /var/lib/postgresql
       # (PGDATA lives at <major>/docker inside it); mounting the legacy
       # /var/lib/postgresql/data path makes the 18+ entrypoint refuse to boot.
       - pgdata:/var/lib/postgresql
@@ -224,7 +223,7 @@ services:
     # GAP-001: memory limit prevents the DB from consuming all host RAM under
     # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
     # for concurrent queries. Raise on hosts with > 8 GB RAM.
-    # fix(#448): env-overridable — mirrors docker-compose.prod.yml so the caps
+    # env-overridable — mirrors docker-compose.prod.yml so the caps
     # can be rebalanced on small hosts without editing the file.
     mem_limit: "${DB_MEM_LIMIT:-2g}"
     healthcheck:
@@ -311,7 +310,7 @@ services:
     restart: unless-stopped
     # GAP-001: 4 GB also accommodates pytest -n 4 with coverage instrumentation.
     # Lower via API_MEM_LIMIT on constrained hosts when not running the full suite.
-    # fix(#448): env-overridable — mirrors docker-compose.prod.yml.
+    # env-overridable — mirrors docker-compose.prod.yml.
     mem_limit: "${API_MEM_LIMIT:-4g}"
     # Hardening (security_opt + cap_drop + cap_add + read_only): see
     # x-hardened-base anchor at top of file. no-new-privileges:true blocks
@@ -354,7 +353,7 @@ services:
       - ./examples:/app/examples:ro
       - ./frontend:/app/frontend:ro
       - ./frontend/src/types/api.ts:/app/frontend/src/types/api.ts:ro
-      # fix(#1745): individual files/subdirs, never the whole ./scripts tree —
+      # Individual files/subdirs, never the whole ./scripts tree —
       # backend/scripts/ is baked into /app/scripts by the image build
       # (api-entrypoint.sh, worker-entrypoint.sh, dump_openapi.py live there),
       # and a whole-directory mount of the repo-root scripts/ at the same
@@ -389,7 +388,7 @@ services:
     # found" lines and uvicorn binds to its 127.0.0.1 default).
     # GAP-003: --proxy-headers tells uvicorn to populate request.client from
     # X-Forwarded-For / X-Real-IP headers set by the nginx reverse proxy.
-    # fix(#430 BA-01): the safety here rests on nginx OVERWRITING X-Forwarded-For with
+    # The safety here rests on nginx OVERWRITING X-Forwarded-For with
     # $remote_addr (frontend/nginx.conf) — NOT on the api port being private. The
     # header is injected at the internet-facing nginx edge, so a client CAN forge
     # it; because nginx now replaces (not appends) it, the leftmost value uvicorn
@@ -409,11 +408,11 @@ services:
       PYTHONPATH: /app
       GEOLENS_API_RUN_MIGRATIONS: "${GEOLENS_API_RUN_MIGRATIONS:-true}"
       UVICORN_WORKERS: "${UVICORN_WORKERS:-1}"
-      # fix(#2045): per-process sandbox slots when API replicas share a pooler.
+      # Per-process sandbox slots when API replicas share a pooler.
       SANDBOX_QUERY_SLOTS: "${SANDBOX_QUERY_SLOTS:-}"
       UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
-      # fix(#1240, #651): prometheus_client multiprocess mode, api service only
+      # prometheus_client multiprocess mode, api service only
       # (the worker's separate /metrics stays single-process — see #651). A
       # subdirectory of the api service's tmpfs /tmp mount, so it never
       # survives a container restart carrying stale per-pid files.
@@ -449,7 +448,7 @@ services:
       # Ingest tuning: GDAL_HTTP_TIMEOUT passed to ogr2ogr (SEED-02, raised
       # from the 120s hardcoded default that timed out 50% of AGO layers).
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
-      # fix(#434): retention for terminal ingest_jobs rows, purged by the API
+      # Retention for terminal ingest_jobs rows, purged by the API
       # lifespan sweeper (0 = keep history forever).
       INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
       # Job-queue schema: PROCRASTINATE_SCHEMA selects which Postgres schema
@@ -461,7 +460,7 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      # fix(#1778): liveness, not readiness -- see the HEALTHCHECK comment in
+      # Liveness, not readiness -- see the HEALTHCHECK comment in
       # Dockerfile. /health also probes the cache and the object store, both of
       # which the API is engineered to survive, and this probe gates
       # `frontend: depends_on: api: service_healthy`.
@@ -483,7 +482,7 @@ services:
     restart: unless-stopped
     # GAP-001: 4 GB covers the worker process + GDAL/OGR buffers during large
     # file ingestion (GeoTIFF COG conversion can be RAM-intensive).
-    # fix(#448): env-overridable — mirrors docker-compose.prod.yml.
+    # env-overridable — mirrors docker-compose.prod.yml.
     mem_limit: "${WORKER_MEM_LIMIT:-4g}"
     # Hardening: see x-hardened-base anchor at top of file (same profile as api).
     <<: *hardened-base
@@ -507,29 +506,29 @@ services:
       # /app/staging mount target on every service. See .env.example.
       UPLOAD_STAGING_DIR: "/app/staging"
       WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
-      # fix(#448): parallel job slots (2-3 on multi-core hosts; keep 1 on
+      # Parallel job slots (2-3 on multi-core hosts; keep 1 on
       # 2-vCPU boxes) and queue pinning for a dedicated raster worker.
       WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
-      # fix(#695): if you ever add a queue name here (e.g. a dedicated
+      # If you ever add a queue name here (e.g. a dedicated
       # "analysis" queue), workers must subscribe BEFORE the API defers to it.
       # A job deferred to a queue no worker listens on is NOT an error, and it
       # is never auto-failed either: its procrastinate row stays 'todo', and
       # both stale-sweep paths deliberately skip live 'todo' rows
-      # (no_live_procrastinate_job, backend/app/platform/jobs/router.py,
-      # fix(#724)) -- so it sits pending INDEFINITELY, silent, until a worker
+      # (no_live_procrastinate_job, backend/app/platform/jobs/router.py)
+      # -- so it sits pending INDEFINITELY, silent, until a worker
       # subscribes to the queue or the row is changed by hand. The
       # queue name lives in the task decorator (backend/app/processing/analysis/
       # tasks.py) and the subscription list is this var + worker_queues in
       # backend/app/core/config.py — and this default is duplicated in BOTH
       # compose files; changing one leaves prod and dev subscribing differently.
-      # fix(#1812): this fallback shadows the Settings default, so it must name
+      # This fallback shadows the Settings default, so it must name
       # every queue `worker_queues` in backend/app/core/config.py does, including
       # "ingest-auth-v2", kept as a consumer-only queue for this one release.
       WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster,download,ingest-auth-v2}"
       # Mirror the api service: ingest tuning + procrastinate schema reach
       # the worker container so operator overrides take effect.
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
-      # fix(#1710): the URL-import fetch clock runs in THIS container, so the
+      # The URL-import fetch clock runs in THIS container, so the
       # documented override only takes effect if it is forwarded here.
       URL_IMPORT_FETCH_MAX_SECONDS: "${URL_IMPORT_FETCH_MAX_SECONDS:-1800}"
       # The tileset worker checks the unpacked total and entry count again
@@ -574,13 +573,13 @@ services:
       - ALL
     # GAP-001: 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
     # concurrent tile rendering. Raise for very large raster catalogs.
-    # fix(#448): env-overridable — mirrors docker-compose.prod.yml.
+    # env-overridable — mirrors docker-compose.prod.yml.
     mem_limit: "${TITILER_MEM_LIMIT:-1g}"
     # Immutable root with /tmp tmpfs for GDAL VSI cache writes.
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
-    # fix(#579): derive GDAL's AWS endpoint settings from the app's S3 endpoint
+    # Derive GDAL's AWS endpoint settings from the app's S3 endpoint
     # settings before exec'ing uvicorn — /vsis3/ reads against a custom endpoint
     # (MinIO, R2) otherwise target the default AWS endpoint and fail. Compose has
     # no string functions, so a sh wrapper does the scheme/host split ($$ escapes
@@ -589,7 +588,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        # fix(#1191): the flags carry no credential material. They let the
+        # The flags carry no credential material. They let the
         # sidecar reject a partial dedicated-pair rollout before Uvicorn starts
         # without also exposing the unused shared writer credential.
         if [ "$${TITILER_S3_ACCESS_KEY_ID_SET:-}" != "$${TITILER_S3_SECRET_ACCESS_KEY_SET:-}" ]; then
@@ -612,11 +611,11 @@ services:
         [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
         exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1}
     environment:
-      # fix(#579): inputs for the AWS endpoint derivation in the command wrapper above.
+      # Inputs for the AWS endpoint derivation in the command wrapper above.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
       S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-}"
       S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
-      # fix(#1193): tile rendering is CPU-bound under the GIL, so one worker
+      # Tile rendering is CPU-bound under the GIL, so one worker
       # renders one tile at a time and concurrent cache misses queue behind it.
       # This is the first knob to reach for when raster feels slow. Default 1
       # keeps existing installs byte-identical.
@@ -628,7 +627,7 @@ services:
       # workers reaches OOMKill sooner, not later — budget roughly
       # N x (GDAL_CACHEMAX + ~250 MB) and watch RSS before trusting it.
       TITILER_WORKERS: "${TITILER_WORKERS:-1}"
-      # fix(#678): TiTiler RSS ratchets well past GDAL_CACHEMAX under
+      # TiTiler RSS ratchets well past GDAL_CACHEMAX under
       # concurrent tile reads — anonymous heap the allocator retains (0.3 ->
       # 1.8 GB over 20h on the demo). Capping glibc arenas slows that: an A/B
       # on the demo VM (2880 identical tile requests, 4 cores) grew +172 MB at
@@ -642,7 +641,7 @@ services:
       GDAL_CACHEMAX: "200"                              # GDAL block cache in MB (default 5 — raise for concurrent tile requests)
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"         # Skip directory listing on S3/HTTP — avoids slow LIST calls per tile
       CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"  # Only fetch these extensions via /vsicurl
-      # fix(#1192): VRTRawRasterBand is OFF. Titiler renders VRT mosaics
+      # VRTRawRasterBand is OFF. Titiler renders VRT mosaics
       # normally — only the raw-binary band subclass, which nothing in GeoLens
       # emits, is refused. ALLOWED_SOURCE below is the clamp that would apply if
       # the subclass were ever re-enabled, pinned to GDAL's narrowest value.
@@ -680,7 +679,7 @@ services:
       # image defaults to that year.
       GDAL_VRT_ENABLE_RAWRASTERBAND: "NO"
       GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "SIBLING_OR_CHILD_OF_VRT_PATH"
-      # fix(#1192): CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED restricts the
+      # CPL_VSIL_CURL_HEADER_FILE_KVP_ENABLED restricts the
       # /vsicurl/ header_file option and needs GDAL >= 3.13.2. NOT SET because
       # it is not available yet: the image installs rasterio from PyPI wheels,
       # so the rasterio wheel gates the GDAL version, not the titiler tag —
@@ -689,12 +688,12 @@ services:
       VSI_CACHE: "TRUE"                                  # Enable /vsicurl block caching for range-request reuse
       CPL_VSIL_CURL_CACHE_SIZE: "16777216"               # /vsicurl cache size in bytes (16 MB)
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"          # Merge adjacent HTTP range requests into fewer round-trips
-      # fix(#937): GDAL_HTTP_FOLLOWLOCATION was set here as a redirect clamp; it is
-      # not a GDAL config option and never blocked a redirect — do not re-add it.
+      # Do not set GDAL_HTTP_FOLLOWLOCATION as a redirect clamp: it is
+      # not a GDAL config option and never blocks a redirect.
       # No GDAL option disables redirect-following. TiTiler's real constraints are
       # the CPL_VSIL_CURL_ALLOWED_EXTENSIONS allow-list above and API-layer URL
       # validation; redirect exposure beyond those needs network-layer egress rules.
-      # fix(#1191): prefer TiTiler's read-only, rasters-prefix credential. The
+      # Prefer TiTiler's read-only, rasters-prefix credential. The
       # nested fallback preserves existing installs until operators provision
       # the dedicated principal, while only the selected credential enters the
       # sidecar environment (the shared write credential is not also exposed).
@@ -827,8 +826,8 @@ services:
       S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
     healthcheck:
-      # fix(#712): freshness, not liveness. The old pgrep probe stayed healthy
-      # while every pg_dump failed, because the sleep loop was alive. Healthy now
+      # Freshness, not liveness: a pgrep probe would stay healthy
+      # while every pg_dump failed, because the sleep loop is alive. Healthy
       # means: /backups/.last-success — touched by backup-entrypoint.sh only
       # after a fully successful cycle (dump + verify + S3 when enabled) — is
       # younger than BACKUP_MAX_AGE_MINUTES (default 1560 min = 26 h, the default
@@ -975,7 +974,8 @@ services:
     # 9.x line tip; cloud-dev profile only.
     image: valkey/valkey:9.1.2-alpine
     profiles: ["cloud-dev"]
-    # fix(#1746): cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a non-root user skips setpriv.
+    # cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a
+    # non-root user skips setpriv.
     user: "valkey"
     # D04 (docker-audit-20260604): drop caps + block privilege gain (opt-in dev cache).
     security_opt:

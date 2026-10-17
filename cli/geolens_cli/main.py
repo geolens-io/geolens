@@ -97,7 +97,7 @@ class AppState:
     def sdk(self):
         """Lazy-construct an authenticated SDK client for the active instance.
 
-        fix(#1778 round 30): credential SELECTION itself (GEOLENS_TOKEN
+        Credential SELECTION itself (GEOLENS_TOKEN
         vs the active_kind marker vs legacy bearer-first precedence,
         and everything that can go wrong reading any of those) is
         entirely delegated to ``auth.resolve_active_credential()`` --
@@ -114,7 +114,7 @@ class AppState:
             raise typer.BadParameter(
                 "No instance configured. Run `geolens login <url>` first or pass --instance.",
             )
-        # fix(#1778, #1787): make_client() binds every request to
+        # make_client() binds every request to
         # DEFAULT_HTTP_TIMEOUT_SECONDS — the SDK's generated transport
         # otherwise carries timeout=None (unbounded), so every command
         # would hang forever against a black-holed host instead of
@@ -124,14 +124,13 @@ class AppState:
         try:
             resolved = _auth.resolve_active_credential(instance)
         except _auth.KeyringCredentialUnreadable as exc:
-            # fix(#1778 round 30): covers a corrupt/unreadable
+            # Covers a corrupt/unreadable
             # credentials.toml (whether the marker itself or a named
             # kind's own value), a keyring read failure for a marked
             # kind, and an unrecognized marker value -- none of these
-            # are ever silently treated as "no marker" any more (round
-            # 30's own finding: that fallback is exactly what let a
-            # stale bearer resurface once the keyring became readable
-            # again while the file stayed corrupt). Mapped to
+            # are ever silently treated as "no marker" (that fallback
+            # would let a stale bearer resurface once the keyring became
+            # readable again while the file stayed corrupt). Mapped to
             # EXIT_NETWORK, matching every other "keyring/file
             # unavailable" case in this package.
             self.output.error(
@@ -143,10 +142,10 @@ class AppState:
             self.output.error("Authentication required. Run `geolens login` first.")
             raise typer.Exit(EXIT_AUTH) from exc
         except _auth.CredentialAmbiguous as exc:
-            # fix(#1778 round 30): no marker, and more than one
-            # credential kind genuinely exists -- guessing (the old
-            # unconditional bearer-first precedence) risked silently
-            # authenticating as the wrong principal. Nothing was ever
+            # No marker, and more than one
+            # credential kind genuinely exists -- guessing (an
+            # unconditional bearer-first precedence) risks silently
+            # authenticating as the wrong principal. Nothing is
             # stored or changed by reaching this; the operator just
             # needs to log in again to record which one is current.
             self.output.error(
@@ -383,7 +382,7 @@ def apply_manifest_command(
     slow-but-active source finishes within it. --timeout 0 waits for the
     server indefinitely instead of guessing.
     """
-    # fix(#1778 review round 21): the DEFAULT timeout is a heuristic
+    # The DEFAULT timeout is a heuristic
     # lower bound, not a guarantee -- MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_
     # SECONDS (60s per entry) is the backend's per-chunk INACTIVITY
     # timeout on a source download, not a total download deadline, so a
@@ -445,7 +444,7 @@ def apply_manifest_command(
             "first or use a remote URL (http(s)/s3)."
         )
 
-    # fix(#1778 review round 21): resolved BEFORE the network call so an
+    # Resolved BEFORE the network call so an
     # invalid --timeout/GEOLENS_MANIFEST_APPLY_TIMEOUT value (negative --
     # click's own float coercion already rejects non-numeric) is a usage
     # error, not something discovered mid-request.
@@ -464,7 +463,7 @@ def apply_manifest_command(
             sdk.client, payload, timeout=resolved_timeout
         )
     except _manifest_apply.ManifestApplyTimeout as exc:
-        # fix(#1778): a batch-aware POST timeout is not the failure shape
+        # A batch-aware POST timeout is not the failure shape
         # ManifestApplyRequestError is, because the server keeps applying. Both
         # branches do one dry-run follow-up, so --json emits one payload.
         if state.json_mode:
@@ -477,7 +476,7 @@ def apply_manifest_command(
                     "guidance": _manifest_apply.build_apply_timeout_message(exc),
                     "ok": False,
                     "path": str(path),
-                    # fix(#1778 review round 21): the effective timeout
+                    # The effective timeout
                     # ACTUALLY in effect when this fired -- the computed
                     # heuristic, or whatever --timeout/
                     # GEOLENS_MANIFEST_APPLY_TIMEOUT overrode it to.
@@ -612,17 +611,17 @@ def login(
         api_key = _read_secret_from_stdin()
 
     if api_key:
-        # fix(#1778): AppState.sdk() prefers a stored bearer token over an
+        # AppState.sdk() prefers a stored bearer token over an
         # API key (main.py's own D-35 precedence), so a stale JWT (or a
         # leftover GEOLENS_TOKEN env var) left over from an earlier login
-        # silently outranked the API key this call just stored — every
-        # command then used the old credential with no error. Evict the
+        # would silently outrank the API key this call just stored — every
+        # command would use the old credential with no error. Evict the
         # other credential types for this instance first so the one just
         # stored is the only one that can be resolved.
         #
-        # fix(#1778 review round 4): replace_credentials() stores the new
+        # replace_credentials() stores the new
         # credential BEFORE evicting the others — see its docstring
-        # (auth.py) for why deleting first left a user logged out on a
+        # (auth.py) for why deleting first would leave a user logged out on a
         # storage failure. Never call delete_credentials() directly from
         # login (tests/test_client_construction.py's sibling structural
         # gate — see test_login_atomic_swap.py — checks this file for it).
@@ -631,16 +630,16 @@ def login(
                 instance, "api_key", api_key, no_keyring=no_keyring
             )
         except KeyringError as exc:
-            # fix(#1778 review round 12): a keyring failure here (either
+            # A keyring failure here (either
             # replace_credentials' own pre-store abort, or a propagated
             # cleanup/read failure) maps to EXIT_NETWORK, not the generic
             # exit — the same "external dependency, not a usage error"
             # class every other keyring-unavailable path in this package
-            # already uses that code for.
+            # uses that code for.
             state.output.error(f"Could not store the API key: {exc}")
             raise typer.Exit(EXIT_NETWORK) from exc
         except _auth.CredentialsFileCorrupt as exc:
-            # fix(#1778 review round 28): replace_credentials() now
+            # replace_credentials()
             # refuses UNCONDITIONALLY on a corrupt file, before storing
             # anything -- named and phrased the same way whoami/status/
             # logout already report it, rather than the generic
@@ -666,7 +665,7 @@ def login(
             state.output.error(f"Could not store the bearer token: {exc}")
             raise typer.Exit(EXIT_NETWORK) from exc
         except _auth.CredentialsFileCorrupt as exc:
-            # fix(#1778 review round 28): see the api-key branch above.
+            # See the api-key branch above.
             state.output.error(
                 f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
                 "file, then try again."
@@ -685,22 +684,20 @@ def login(
 
     username = typer.prompt("Username")
     password = getpass.getpass("Password: ")
-    # fix(#1778 review round 2): this used to build its own GeolensClient
-    # directly with the SDK's default timeout=None (unbounded), so
-    # `geolens login` could still hang on a host that accepts a
-    # connection and then stalls, despite the bound added elsewhere in
-    # this PR. make_client() is the single construction point for every
-    # GeolensClient in this package (see _sdk_helpers.make_client).
+    # make_client() is the single construction point for every
+    # GeolensClient in this package (see _sdk_helpers.make_client); it
+    # bounds the request timeout, so `geolens login` cannot hang on a host
+    # that accepts a connection and then stalls.
     sdk = make_client(instance)
     body = BodyLoginAuthLoginPost(username=username, password=password)
     resp = call_sdk(login_auth_login_post.sync_detailed, client=sdk.client, body=body)
     token_response = unwrap(resp, expected=200)
     access_token = token_response.access_token
-    # fix(#1778 review round 13): the refresh token is passed straight
+    # The refresh token is passed straight
     # into replace_credentials()'s own rollback-protected transaction
     # instead of being stored by a separate call after this returns --
     # see replace_credentials()'s docstring (auth.py) for why persisting
-    # it afterward left a half-replaced session (new access token, no
+    # it afterward would leave a half-replaced session (new access token, no
     # refresh token, and nothing to roll back to) on a storage failure.
     refresh_token = getattr(token_response, "refresh_token", None)
     try:
@@ -715,7 +712,7 @@ def login(
         state.output.error(f"Could not store the bearer token: {exc}")
         raise typer.Exit(EXIT_NETWORK) from exc
     except _auth.CredentialsFileCorrupt as exc:
-        # fix(#1778 review round 28): see the --token/--api-key
+        # See the --token/--api-key
         # branches above -- same unconditional corrupt-file refusal.
         state.output.error(
             f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
@@ -740,7 +737,7 @@ def logout(ctx: typer.Context) -> None:
     try:
         _auth.delete_credentials(instance)
     except _auth.CredentialsFileCorrupt as exc:
-        # fix(#1778 review round 22): delete_credentials() already
+        # delete_credentials() has already
         # cleared the keyring-side entries above this point (unaffected
         # by the file) before its own file-section clear refused --
         # logout genuinely CANNOT complete the file half safely without
@@ -775,10 +772,9 @@ def whoami(ctx: typer.Context) -> None:
 
     from geolens.api.auth import me_auth_me_get
 
-    # D-13: refresh-retries once on 401 via the shared helper — see
-    # _sdk_helpers.call_sdk_with_reauth (fix(#1778): this used to be
-    # open-coded here only, so every other command hard-failed instead of
-    # spending a stored refresh token).
+    # Refresh-retries once on 401 via the shared helper — see
+    # _sdk_helpers.call_sdk_with_reauth, so every command spends a stored
+    # refresh token instead of hard-failing.
     sdk = state.sdk()
     resp = call_sdk_with_reauth(
         me_auth_me_get.sync_detailed,
@@ -825,7 +821,7 @@ def status(
         ) from exc
 
     sdk = state.sdk()
-    # fix(#1778): refresh-retry once on 401 (D-13) rather than hard-
+    # Refresh-retry once on 401 rather than hard-
     # failing a scripted `status` check on an access token that expired
     # since login.
     dataset = _refresh.fetch_dataset_status(
@@ -966,7 +962,7 @@ def publish(
     ``--wait`` (default), polls the job-status endpoint to resolve the
     dataset_id; ``--no-wait`` returns immediately with a job-search URL.
 
-    fix(#1778): with ``--wait``, a job that fails, is cancelled, or does not
+    With ``--wait``, a job that fails, is cancelled, or does not
     finish within the poll window exits non-zero and prints a failure line
     instead of "Published:"; ``--json`` carries the terminal status. A job
     that fanned out into one import per layer is a success (exit 0), not a
@@ -984,7 +980,7 @@ def publish(
         state.output.error("No instance configured. Run `geolens login <url>` first.")
         raise typer.Exit(EXIT_AUTH)
 
-    # fix(#569): --tags / --collection are wired post-commit, which needs the
+    # --tags / --collection are wired post-commit, which needs the
     # resolved dataset id — fail fast instead of silently dropping them.
     if (tags or collection) and not wait:
         state.output.error(
@@ -1023,11 +1019,10 @@ def publish(
         progress.update(t1, description=f"Uploaded (job_id={job_id})")
 
         # Stage 2: Preview.
-        # fix(#1778 review round 6): the backend runs run_ogrinfo_preview()
+        # The backend runs run_ogrinfo_preview()
         # here, bounded server-side by OGRINFO_TIMEOUT_SECONDS = 300s — a
         # large file's metadata probe can outlast AppState.sdk()'s plain
-        # 30s bound even though this request carries no file body itself
-        # (round 5's files=-keyed gate missed it for exactly that reason).
+        # 30s bound even though this request carries no file body itself.
         progress.add_task("Previewing...", total=None)
         with long_request_timeout(sdk.client):
             preview_resp = call_sdk(
@@ -1068,18 +1063,18 @@ def publish(
                 "timeout",
                 "poll_failed",
             ):
-                # fix(#1778, codex round 3): resolve_dataset_id now reports
+                # resolve_dataset_id reports
                 # WHY it stopped (outcome.stopped_because) instead of
-                # collapsing every reason into None, so the wording below no
-                # longer has to be guessed from a second, possibly-
+                # collapsing every reason into None, so the wording below does
+                # not have to be guessed from a second, possibly-
                 # contradictory read — a transient poll failure followed by a
-                # lucky pending/running re-read used to be reported as a
+                # lucky pending/running re-read would otherwise be reported as a
                 # false "still running after 120s" timeout. This extra read
                 # is skipped for "terminal" (a terminal status cannot later
                 # gain a dataset_id) and "token_expired" (retrying the same
                 # dead token is pointless).
                 #
-                # fix(#1778, codex round 5): sdk.client's generated transport
+                # sdk.client's generated transport
                 # defaults to timeout=None (unbounded), so a stalled
                 # connection on THIS read would hang the command forever
                 # instead of reporting the outcome the poll already reached.
@@ -1088,11 +1083,11 @@ def publish(
                 # than letting the network error abort the command outright
                 # — the original outcome is still worth reporting.
                 #
-                # fix(#1778, codex round 6): `client.with_timeout()` MUTATES
+                # `client.with_timeout()` MUTATES
                 # the already-constructed httpx transport in place before
                 # returning an "evolved" wrapper (sdks/python/geolens/
                 # client.py) — the evolved wrapper is a decoy; sdk.client's
-                # OWN transport keeps the 5s bound for the rest of the
+                # OWN transport would keep the 5s bound for the rest of the
                 # command's lifetime. Stage 5 (extras) reuses sdk.client, so
                 # that mutation silently capped every tags/collection
                 # request at 5s too. get_httpx_client() is the SDK's own
@@ -1118,8 +1113,8 @@ def publish(
                     dataset_id = late_dataset_id
             if dataset_id is None:
                 wait_outcome_known = True
-                # fix(#1778, codex round 4): the job can finish between
-                # resolve_dataset_id's last look and now (fix(#685 review)),
+                # The job can finish between
+                # resolve_dataset_id's last look and now,
                 # but it can just as well have reached a DEFINITIVE terminal
                 # status by then — failed, cancelled, or fanned out. That is
                 # real information the original poll didn't have and must
@@ -1157,17 +1152,16 @@ def publish(
                         f"dataset. Check GET /jobs/{job_id} or the datasets "
                         f"list for progress."
                     )
-                    # fix(#1778, codex round 9): a note appended only to
-                    # publish_message was cosmetic — extras_failures stayed
-                    # empty, so Stage 5 below never ran and the command
-                    # exited 0 even though --tags/--collection were
-                    # requested and never applied. --json showed
-                    # extras_failures: [] too, telling automation nothing
-                    # was skipped. Recording the omission as an extras
-                    # failure instead routes it through the existing
-                    # extras-failure path: non-zero exit, and present in
-                    # the --json payload, same as any other partial
-                    # publish failure.
+                    # A note appended only to
+                    # publish_message would be cosmetic — extras_failures
+                    # would stay empty, so Stage 5 below would never run and
+                    # the command would exit 0 even though --tags/--collection
+                    # were requested and never applied, and --json would
+                    # show extras_failures: [] too. Recording the omission
+                    # as an extras failure instead routes it through the
+                    # existing extras-failure path: non-zero exit, and
+                    # present in the --json payload, same as any other
+                    # partial publish failure.
                     if tags:
                         publish_extras_skipped.append(
                             "tags not applied: job fanned out into "
@@ -1193,10 +1187,10 @@ def publish(
                         f"status. Run `geolens login` first."
                     )
                 elif reason == "poll_failed":
-                    # fix(#1778, codex round 7): a poll_failed outcome
-                    # collapsed EVERY non-200 into the same generic exit
-                    # code, hiding a 5xx server outage from a script that
-                    # checks the exit code — match the same status matrix
+                    # A poll_failed outcome must not
+                    # collapse EVERY non-200 into the same generic exit
+                    # code, which would hide a 5xx server outage from a script
+                    # that checks the exit code — match the same status matrix
                     # unwrap() already uses elsewhere in this CLI.
                     publish_exit_code = _publish.poll_failed_exit_code(
                         outcome.http_status
@@ -1215,16 +1209,16 @@ def publish(
                 wait_outcome_known = True
                 publish_status = late_status or outcome.status
 
-        # Stage 5 — fix(#569): apply --tags / --collection now that the
+        # Stage 5 — apply --tags / --collection now that the
         # dataset id exists. Failures here are PARTIAL: the dataset was
         # created, so report honestly and exit non-zero below.
         #
-        # fix(#1778): when dataset_id is still None here, wait was True (a
+        # When dataset_id is still None here, wait was True (a
         # bare --no-wait with tags/collection already exits EXIT_USAGE above)
         # and publish_failure or publish_message is already set, explaining
         # why. Tags/collection were never attempted against a dataset that
         # does not exist (or does not exist as a single id, for fanned_out),
-        # so skip the API call — but fix(#1778, codex round 9):
+        # so skip the API call — but
         # publish_extras_skipped still carries one entry per requested
         # extra when fanned_out is the reason, so the omission still counts
         # as an extras failure below instead of silently exiting 0.
@@ -1484,7 +1478,7 @@ def replace(
             "Dataset id must be a UUID", param_hint="dataset_id"
         ) from exc
 
-    # fix(#1767 review): --json is a non-interactive scripting mode, so an
+    # --json is a non-interactive scripting mode, so an
     # interactive confirm prompt inside it is the wrong contract (Click's
     # confirm() writes part of the exchange to stdout regardless of
     # err=True, which corrupts the JSON payload). Refuse before any network
@@ -1510,7 +1504,7 @@ def replace(
             dataset_resp, expected=_replace.GET_DATASET_OK_STATUS
         )
 
-        # fix(#1768): captured HERE, at the same read the refusal below is
+        # Captured HERE, at the same read the refusal below is
         # decided from, and sent with the commit. The gate is a client-side
         # precheck and everything after it — upload, preview, confirm — is a
         # window the server has to referee.
@@ -1530,7 +1524,7 @@ def replace(
         preview_body = None if is_raster else _replace.build_preview_request(layer, srid)
 
         # Stage 1: Upload (multipart workaround).
-        # fix(#1739): route through call_sdk so a network failure during
+        # Route through call_sdk so a network failure during
         # upload maps to EXIT_NETWORK instead of a raw traceback.
         upload_resp = call_sdk(
             _replace.upload_file, client=sdk.client, dataset_id=dataset_uuid, path=file
@@ -1550,10 +1544,9 @@ def replace(
             }
         else:
             # Stage 2: Preview.
-            # fix(#1778 review round 6): same run_ogrinfo_preview() /
+            # Same run_ogrinfo_preview() /
             # OGRINFO_TIMEOUT_SECONDS = 300s story as publish's Stage 2
-            # above — this request carries no file body, so round 5's
-            # files=-keyed gate missed it too.
+            # above — this request carries no file body either.
             with long_request_timeout(sdk.client):
                 preview_resp = call_sdk(
                     _rpreview.sync_detailed,
@@ -1788,7 +1781,7 @@ def analysis_preview(
     valid GeoJSON document you can redirect straight into a file.
     """
     state: AppState = ctx.obj
-    # fix(#685 review): without this, state.sdk() raises BadParameter and the
+    # Without this, state.sdk() raises BadParameter and the
     # missing instance exits 2 (usage) while the sibling materialize command
     # exits 3 (auth) for the identical condition.
     if not state.active_instance():
@@ -1900,7 +1893,7 @@ def analysis_materialize(
     if not instance:
         state.output.error("No instance configured. Run `geolens login <url>` first.")
         raise typer.Exit(EXIT_AUTH)
-    # fix(#685 review): `timeout or POLL_FOREVER` read an explicit 0 as "no
+    # `timeout or POLL_FOREVER` would read an explicit 0 as "no
     # bound", the opposite of what it asks for. A zero or negative wait is a
     # usage error — --no-wait is the way to not wait.
     # `inf` and overflowing literals like 1e309 parse as a real float, so a
@@ -1939,7 +1932,7 @@ def analysis_materialize(
             state.output.success(f"Analysis job queued: {job_id}")
         return
 
-    # fix(#685 review): the deadline below is only checked BETWEEN polls, so a
+    # The deadline below is only checked BETWEEN polls, so a
     # request that stalls after connecting would outlive the bound the caller
     # asked for. The SDK builds its httpx client with timeout=None (no limit at
     # all, not httpx's 5s default), so give the polling client the same bound.
@@ -1960,15 +1953,15 @@ def analysis_materialize(
     late_status: Optional[str] = None
     if resolved is None:
         if outcome.stopped_because in ("timeout", "poll_failed"):
-            # fix(#1778, codex round 3): resolve_dataset_id now reports WHY
+            # resolve_dataset_id reports WHY
             # it stopped instead of collapsing every reason into None — see
-            # publish()'s equivalent comment above for the bug this fixes
+            # publish()'s equivalent comment above for why
             # (a transient poll failure followed by a lucky pending/running
-            # re-read used to be reported as a false timeout). This extra
+            # re-read would otherwise be reported as a false timeout). This extra
             # read is skipped for "terminal" and "token_expired" for the
             # same reasons as there.
             #
-            # fix(#1778, codex round 5): bind a short timeout for this
+            # Bind a short timeout for this
             # one-shot diagnostic read rather than reusing poll_client
             # as-is, which may be unbounded (the default --wait with no
             # --timeout) or bound to a long caller-supplied --timeout —
@@ -1977,7 +1970,7 @@ def analysis_materialize(
             # treat the read as unreadable rather than letting the network
             # error abort the command — see publish()'s equivalent comment.
             #
-            # fix(#1778, codex round 6): `client.with_timeout()` MUTATES
+            # `client.with_timeout()` MUTATES
             # the already-constructed httpx transport in place before
             # returning an "evolved" wrapper (sdks/python/geolens/
             # client.py) — the evolved wrapper is a decoy. Bind sdk.client
@@ -2003,12 +1996,12 @@ def analysis_materialize(
             finally:
                 snapshot_transport.timeout = original_timeout
             if late_dataset_id:
-                # The job finished between the poll's last look and this one
-                # (fix(#685 review)). Reporting a completed job as
+                # The job finished between the poll's last look and this one.
+                # Reporting a completed job as
                 # unfinished would be the worst answer of the bunch.
                 resolved = late_dataset_id
         if resolved is None:
-            # fix(#1778, codex round 4): the job can just as well have
+            # The job can just as well have
             # reached a DEFINITIVE terminal status by the time of the
             # follow-up read — failed, cancelled, or fanned out. That real
             # information must win over the stale timeout/poll_failed
@@ -2029,7 +2022,7 @@ def analysis_materialize(
                     f"record: GET /jobs/{job_id}."
                 )
             elif reason == "terminal" and effective_status == "cancelled":
-                # fix(#1778): reachable now that resolve_dataset_id treats
+                # Reachable because resolve_dataset_id treats
                 # cancelled as terminal — say so plainly instead of falling
                 # into the "still {status}" wording below, which would
                 # wrongly imply the job might still finish.
@@ -2061,10 +2054,10 @@ def analysis_materialize(
                     f"status. Run `geolens login` first."
                 )
             elif reason == "poll_failed":
-                # fix(#1778, codex round 7): a poll_failed outcome collapsed
-                # EVERY non-200 into the same generic exit code, hiding a
-                # 5xx server outage from a script that checks the exit code
-                # — match the same status matrix unwrap() already uses
+                # A poll_failed outcome must not collapse
+                # EVERY non-200 into the same generic exit code, which would
+                # hide a 5xx server outage from a script that checks the exit
+                # code — match the same status matrix unwrap() already uses
                 # elsewhere in this CLI.
                 materialize_exit_code = _publish.poll_failed_exit_code(
                     outcome.http_status
@@ -2076,7 +2069,7 @@ def analysis_materialize(
             else:
                 # Only reachable with an explicit --timeout: the default
                 # waits for a terminal state. Unfinished is not failed, and
-                # the wording says so (fix(#685 review)).
+                # the wording says so.
                 materialize_failure = (
                     f"Analysis job {job_id} was still {effective_status} "
                     f"after {int(timeout or 0)}s and has not finished. "

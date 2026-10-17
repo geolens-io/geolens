@@ -1,6 +1,6 @@
 """Convert stored raster_assets.crs_wkt from WKT1_GDAL to WKT2:2019.
 
-fix(#1376): ``RasterAsset.to_stac_properties()`` publishes ``crs_wkt``
+``RasterAsset.to_stac_properties()`` publishes ``crs_wkt``
 verbatim as the STAC Projection Extension's ``proj:wkt2``, but both writers
 of the column asked rasterio for its DEFAULT serialization, which is
 WKT1_GDAL (``PROJCS[...]``, not ``PROJCRS[...]``). Both now request

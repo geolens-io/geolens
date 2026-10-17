@@ -198,20 +198,18 @@ test.describe('Dataset AI chat', () => {
 
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
     // Two independent assertions on purpose: the preview row is React state,
-    // the camera fit is map state. The fix(#542) race kept the preview visible
+    // the camera fit is map state. The race kept the preview visible
     // while the overlay and fitBounds silently never applied. The race is
     // timing-dependent (it needs the style transiently unloaded at pickup, so
     // a fast local run may not reproduce it — the deterministic regression
     // test lives in use-ephemeral-layers.test.ts); what this spec pins down is
     // the full stash → pickup → overlay integration, which jsdom cannot.
-    // fix(#894): #674 renamed this badge's copy "Query result" → "Result" (the
-    // badge stopped being query-only once analysis previews reused it) and this
-    // assertion was never updated, so the spec has failed every nightly since.
-    // Scope to role="status": the preview surface renders the label twice — the
+    // The badge copy is "Result" (it is not query-only: analysis previews
+    // reuse it). Scope to role="status": the preview surface renders the label twice — the
     // sr-only live region plus an aria-hidden visible copy — so a bare getByText
     // matches two nodes and trips strict mode. The aria-hidden copy is out of
     // the accessibility tree, so the role lookup resolves to exactly one.
-    // fix(#1009): the surface under test is now the ephemeral stack row
+    // The surface under test is the ephemeral stack row
     // (EphemeralPreviewRow) rather than the corner badge — the assertion is
     // unchanged because the row carries the same live-region sentence.
     await expect(

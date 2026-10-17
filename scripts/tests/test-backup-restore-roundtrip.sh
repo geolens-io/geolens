@@ -131,7 +131,7 @@ OLD_SESSION_PID=""
 WORKDIR="$(mktemp -d)"
 DUMP_FILE="${WORKDIR}/roundtrip.dump"
 
-# fix(#1992): -X skips a host .psqlrc, matching every role-authenticated
+# -X skips a host .psqlrc, matching every role-authenticated
 # psql call below (already -X) so a `\set ON_ERROR_STOP off` there can't
 # mask a failed statement.
 psql_admin() { psql -X -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" "$@"; }
@@ -1525,7 +1525,7 @@ echo "PASS [MANAGED MODE]: provider-snapshot DB (records=${SNAP_RECORDS} dataset
 echo ""
 
 # ------------------------------------------------------------------------------
-# 4. fix(#995): REAL backup cycle — globals artifact, its mode, and its pairing
+# 4. REAL backup cycle — globals artifact, its mode, and its pairing
 # ------------------------------------------------------------------------------
 # The legs above mirror what backup-entrypoint.sh does. This one RUNS it
 # (`--run-backup`, BACKUP_DIR pointed at a temp dir), because the property being
@@ -1627,7 +1627,7 @@ grep -q "pg_dumpall --globals-only failed" "$FAIL_LOG" \
     || fail "a failed globals dump left its .tmp behind"
 echo "      failure path OK — cycle non-zero, .last-success untouched, no partial artifact."
 
-# fix(#995) review: publishing failures must fail the cycle too. backup_globals
+# Publishing failures must fail the cycle too. backup_globals
 # always runs inside a `$(...) || cycle_failed=1` command substitution, which
 # suspends `set -e` for its whole body, so an unchecked `mv` (read-only volume,
 # ENOSPC) would fall through and report a healthy cycle with no globals artifact
@@ -1662,7 +1662,7 @@ grep -q "could not publish" "$MV_LOG" \
     || fail "a failed publish left the globals .tmp behind"
 echo "      publish failure OK — an unpublished globals dump fails the cycle."
 
-# fix(#995) review: companions prune by PAIRING, not by their own count. The
+# Companions prune by PAIRING, not by their own count. The
 # failure path above is exactly how the counts diverge — a good dump with no
 # globals — so with count-based pruning a retention window of 1 keeps the
 # newest dump while the older globals, being the only one of its kind, survives
@@ -1692,7 +1692,7 @@ for g in "${CYCLE_BACKUPS}"/daily/globals-*.sql; do
 done
 echo "      pairing OK — every surviving globals dump still has the dump it pairs with."
 
-# fix(#995) review: a run of pg_dumpall failures must not walk the last
+# A run of pg_dumpall failures must not walk the last
 # complete set out of retention. Each failed cycle still writes a valid dump,
 # so at retention 1 those dumps would otherwise evict the only dump that has a
 # globals file, and the orphan sweep would then take the globals with it —
@@ -1714,7 +1714,7 @@ find "${CYCLE_BACKUPS}/daily" -maxdepth 1 -name "*_${COMPLETE_TS}.dump" -type f 
     || fail "three failed cycles at retention 1 evicted the last complete set's dump"
 echo "      protection OK — the newest complete set survived a run of globals failures."
 
-# fix(#995) review: retention orders by the timestamp EXTRACTED from the name,
+# Retention orders by the timestamp EXTRACTED from the name,
 # not by the whole path. The database name is the prefix, so a path sort ranks
 # it ahead of the timestamp: after a POSTGRES_DB rename to a lexically earlier
 # name, every fresh dump sorts as the oldest and is pruned while the obsolete
@@ -1737,7 +1737,7 @@ env BACKUP_RETENTION_DAILY=1 BACKUP_RETENTION_WEEKLY=1 \
     || fail "retention kept the older dump — pruning is not ordered by the embedded timestamp"
 echo "      ordering OK — retention follows the embedded timestamp, not the database-name prefix."
 
-# fix(#995) review: the Sunday branch is unreachable six days a week, so the
+# The Sunday branch is unreachable six days a week, so the
 # weekly globals copy would otherwise ship untested. Shadow `date` so only
 # `+%u` answers 7 and every other format delegates, which keeps the artifact
 # timestamps real.
@@ -1772,7 +1772,7 @@ find "${SUNDAY_BACKUPS}/weekly" -maxdepth 1 -name "*_${WEEKLY_TS}.dump" -type f 
     || fail "the weekly globals copy does not pair with a weekly dump"
 echo "      weekly copy OK — paired, mode ${WEEKLY_MODE}, no leftover .tmp."
 
-# fix(#995) review: a Sunday cycle that crosses midnight must not produce a
+# A Sunday cycle that crosses midnight must not produce a
 # weekly dump with no paired globals. This stub answers 7 for the FIRST weekday
 # question and 1 for every one after, which is exactly what a 23:59 schedule or
 # a slow staging archive looks like. The cycle has to decide once and stick to

@@ -32,11 +32,10 @@ failure, never silently collapse to "absent".
 
 24 (marker, keyring) combinations x 2 env states = 48 matrix rows.
 
-fix(#1807): plus one row the table's axes cannot express, at the
+Plus one row the table's axes cannot express, at the
 bottom of this file -- the BACKEND itself moving mid-rotation, when
 store_bearer_token() falls back from the keyring to credentials.toml
-and the retained refresh token has to follow it. See that section's
-own comment for the finding.
+and the retained refresh token has to follow it.
 """
 from __future__ import annotations
 
@@ -229,7 +228,7 @@ class TestCredentialResolutionMatrixEnvSet:
 
 
 # ---------------------------------------------------------------------------
-# fix(#1807): the backend-fallback row of the refresh pairing matrix.
+# The backend-fallback row of the refresh pairing matrix.
 #
 # Every row above holds the BACKEND fixed: a credential written to the
 # keyring stays in the keyring. store_bearer_token() can break that on
@@ -295,7 +294,7 @@ class _FakeAuthServer:
 
 
 class TestRefreshPairingBackendFallbackRow:
-    """fix(#1807): a keyring bearer write that falls back to the file
+    """A keyring bearer write that falls back to the file
     must take the RETAINED refresh token and its fingerprint with it,
     and the profile must then converge on the file backend instead of
     refreshing on every command."""

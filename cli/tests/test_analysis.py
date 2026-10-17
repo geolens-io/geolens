@@ -1,4 +1,4 @@
-"""feat(#685): `geolens analysis preview` / `materialize` with a mocked SDK.
+"""`geolens analysis preview` / `materialize` with a mocked SDK.
 
 Hand-maintained — NOT regenerated. Covers the request builders (which params
 are sent and which stay UNSET), the preview renderer and its truncation
@@ -135,7 +135,7 @@ class TestRequestBuilders:
         assert "join_fields" not in body
 
     def test_a_spatial_join_without_a_join_dataset_is_rejected(self) -> None:
-        """fix(#1105): the server answers this 422, which unwrap reports as a
+        """The server answers this 422, which unwrap reports as a
         generic failure naming a JSON field the user never typed."""
         from geolens_cli.analysis import (
             build_materialize_request,
@@ -262,7 +262,7 @@ class TestRunPreviewIsBounded:
 
 
 class TestOperationHelp:
-    """fix(#1105): `--operation` help named three operations while the server
+    """`--operation` help named three operations while the server
     took eight, so spatial_join and measure were invisible from the CLI.
 
     The list stays a literal rather than being derived from the generated enum,
@@ -327,7 +327,7 @@ class TestOperationHelp:
     def test_a_non_finite_distance_is_rejected_before_serialization(
         self, bad: float
     ) -> None:
-        """fix(#685 review): Click parses nan/inf/1e309 into real floats, and
+        """Click parses nan/inf/1e309 into real floats, and
         JSON cannot spell any of them — the failure would otherwise surface
         from inside the SDK's encoder."""
         from geolens_cli.analysis import build_preview_request
@@ -443,7 +443,7 @@ class TestAnalysisPreviewCli:
     def test_a_spatial_join_without_a_join_dataset_exits_2_naming_the_flag(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#1105): the flag exists now, so the miss is a usage error the
+        """The flag exists now, so the miss is a usage error the
         CLI can name rather than a 422 that exits 1."""
         from geolens_cli.main import app
 
@@ -500,7 +500,7 @@ class TestAnalysisPreviewCli:
     def test_no_instance_exits_with_the_auth_code(
         self, runner, tmp_xdg_home, mock_keyring
     ) -> None:
-        """fix(#685 review): materialize maps this to EXIT_AUTH; preview let
+        """Materialize maps this to EXIT_AUTH; preview let
         state.sdk() raise BadParameter and exited 2 for the same condition."""
         from geolens_cli.main import app
 
@@ -581,7 +581,7 @@ class TestAnalysisMaterializeCli:
     def test_a_spatial_join_reaches_the_materialize_endpoint(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#1105): spatial_join was undrivable from the CLI — there was no
+        """spatial_join was undrivable from the CLI — there was no
         flag to carry the join layer."""
         from geolens_cli.main import app
 
@@ -686,7 +686,7 @@ class TestAnalysisMaterializeCli:
     def test_a_failed_job_exits_non_zero_and_says_so(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#685 review): resolve_dataset_id reports a terminal status for
+        """resolve_dataset_id reports a terminal status for
         a FAILED job as well as a timeout — see PollOutcome
         (#1778). Exiting 0 there would tell a script the
         analysis succeeded."""
@@ -723,8 +723,8 @@ class TestAnalysisMaterializeCli:
     def test_a_cancelled_job_exits_non_zero_and_says_so(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#1778): resolve_dataset_id now treats cancelled as terminal
-        (it previously polled a cancelled job forever under POLL_FOREVER),
+        """resolve_dataset_id treats cancelled as terminal
+        (otherwise it would poll a cancelled job forever under POLL_FOREVER),
         so this status is reachable here. It must not fall into the
         "still {status}" wording, which would claim the job might still
         finish."""
@@ -761,7 +761,7 @@ class TestAnalysisMaterializeCli:
     def test_a_still_running_job_is_not_reported_as_failed(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#685 review): a materialize gets 300s of processing server-side
+        """A materialize gets 300s of processing server-side
         and queues below uploads, so outliving the poll is not the same as
         failing. Still exit non-zero (no dataset), but do not call it failed."""
         from geolens_cli import publish as _publish
@@ -803,7 +803,7 @@ class TestAnalysisMaterializeCli:
     def test_a_job_that_finishes_during_the_final_read_is_a_success(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#685 review): the job can finish between the poll's last look
+        """The job can finish between the poll's last look
         and the status re-read, and that response carries the dataset id.
         Reporting it as unfinished would be the worst of the three answers."""
         from geolens_cli import publish as _publish
@@ -849,7 +849,7 @@ class TestAnalysisMaterializeCli:
         not be reported as a timeout, even when a LATER, separate
         job_snapshot() read happens to succeed and report "pending" — that
         second read's status is discarded and used only to check for a
-        dataset_id (the fix(#685 review) case, preserved below). Claiming
+        dataset_id (the case preserved below). Claiming
         the job outlived the wait, or was "still pending", asserts something
         that was never established — the read failed, it did not run out."""
         from geolens_cli import publish as _publish
@@ -1010,7 +1010,7 @@ class TestAnalysisMaterializeCli:
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
         """A fanned-out job is a SUCCESS whose children each carry their own
-        dataset — see publish()'s equivalent branch (fix(#1778)). materialize
+        dataset — see publish()'s equivalent branch. materialize
         jobs are never fanned out by the current backend (fan-out is
         ingest-only), so this is defensive coverage, not a reachable
         production path today."""
@@ -1361,7 +1361,7 @@ class TestAnalysisMaterializeCli:
     def test_an_explicit_timeout_also_bounds_each_request(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#685 review): the poll deadline is only checked between
+        """The poll deadline is only checked between
         iterations, and the SDK builds its httpx client with no request
         timeout at all, so a stalled response would outlive --timeout."""
         from geolens_cli import publish as _publish
@@ -1407,7 +1407,7 @@ class TestAnalysisMaterializeCli:
     def test_a_non_finite_timeout_is_a_usage_error(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#685 review): --timeout inf parses fine and would turn an
+        """--timeout inf parses fine and would turn an
         explicitly bounded wait into an unbounded one."""
         from geolens_cli.main import app
 
@@ -1441,7 +1441,7 @@ class TestAnalysisMaterializeCli:
     def test_a_zero_timeout_is_a_usage_error_not_an_endless_wait(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(#685 review): `timeout or POLL_FOREVER` read an explicit 0 as
+        """`timeout or POLL_FOREVER` read an explicit 0 as
         "no bound", which is the opposite of what it asks for."""
         from geolens_cli.main import app
 
