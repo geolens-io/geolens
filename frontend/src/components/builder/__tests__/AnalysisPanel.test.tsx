@@ -3103,7 +3103,7 @@ describe('AnalysisPanel intersect (feat(#956))', () => {
   });
 
   it('names the previewed extent for a truncated, bbox-scoped intersect total (#727 codex round 3)', async () => {
-    // Threaded bbox into render_intersect_preview, so
+    // render_intersect_preview takes the bbox, so
     // intersect's match_count now rides the SAME bbox-filtered statement the
     // geometry preview runs — unlike select_by_location's, which is a
     // separate uncapped query the request's bbox never reaches. The toast

@@ -114,7 +114,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       }}
     >
       {/* Cell 1: Caret — visible and functional for basemap group.
-          w-6 (24×24 hit target) + -mx-1 extends the visual
+          h-6 w-6 (24×24 hit target) + -mx-1 extends the visual
           box 4px past each side of the 16px grid column without altering the grid template
           (sketch 002 A "A-strict"). ChevronRight Lucide icon at h-4 w-4 (16px visible glyph)
           replaces the Unicode ▸ text character. */}

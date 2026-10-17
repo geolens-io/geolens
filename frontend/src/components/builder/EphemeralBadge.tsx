@@ -11,9 +11,9 @@ import {
 // The builder's full stack panel now surfaces the preview as a row
 // (EphemeralPreviewRow), so this badge no longer renders there. It survives as
 // the surface for the two places that have NO layer stack to put a row in:
-// - the public viewer (ViewerChatPanel — the badge was added there precisely because
-//     the viewer's overlay had no legend entry, badge, or dismissal), and
-//   - the builder below 1100px, where the sidebar collapses to SidebarRail.
+// - the public viewer (ViewerChatPanel — the viewer's overlay has no legend entry,
+//     badge, or dismissal otherwise), and
+// - the builder below 1100px, where the sidebar collapses to SidebarRail.
 // One ephemeral object still gets exactly one surface; which surface depends on
 // whether a stack exists to host the row.
 interface EphemeralBadgeProps {

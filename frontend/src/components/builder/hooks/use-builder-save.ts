@@ -896,7 +896,7 @@ interface LayerDiffResult {
 type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 
 /** Bridge between the layer-mutation hooks and useBuilderSave's diff baseline.
- *  Added `add`; added the symmetric `remove`. */
+ *  `add` registers a layer in the baseline; `remove` is its inverse. */
 export interface SaveBaselineSync {
   add: (layer: MapLayerResponse) => void;
   remove: (layerIds: Iterable<string>) => void;

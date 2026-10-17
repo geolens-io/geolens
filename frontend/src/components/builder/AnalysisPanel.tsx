@@ -204,7 +204,7 @@ export function viewportPreviewBbox(
 
 interface AnalysisPanelProps {
   layers: MapLayerResponse[];
-  /** keys the remembered form and the rehydrated job to
+  /** Keys the remembered form and the rehydrated job to
    *  the map they belong to. */
   mapId?: string;
   /** The layer currently selected in the builder's stack. When it is
@@ -297,7 +297,7 @@ export function AnalysisPanel({
   // A stack selection that DISPLACES the remembered layer makes this
   // mount a different draft. The layer-coupled remembered fields (byField, any
   // run the form still owned) reset exactly as if the layer select had been
-  // edited — semantics — while the layer-agnostic ones
+  // edited, while the layer-agnostic ones
   // (operation, distance, drawn mask, typed name) still restore.
   const stackDisplacesSavedLayer =
     stackLayerId != null && !!savedForm && savedForm.layerId !== stackLayerId;
@@ -309,7 +309,7 @@ export function AnalysisPanel({
   // render, before the write-through effect below overwrites the slot with
   // the fallback form; cleared once, from the effect further down. The
   // tracked JOB, if any, deliberately survives: it runs server-side and
-  // Wants it visible.
+  // the user still needs to see its progress.
   const staleRestoreRef = useRef(
     (() => {
       if (prefill || !mapId) return false;
@@ -384,7 +384,7 @@ export function AnalysisPanel({
       : BY_FIELD_NONE,
   );
   const [byField, setByField] = useState(
-    // parity: a remembered group-by column belongs to the
+    // Same rule as the layer select: a remembered group-by column belongs to the
     // remembered layer — it must not carry to a stack-selected one.
     savedForm && !stackDisplacesSavedLayer ? savedForm.byField : BY_FIELD_NONE,
   );
@@ -456,7 +456,7 @@ export function AnalysisPanel({
   // arrives in the store later for this map is adopted here. Once per job id:
   // a job this instance itself started is owned by the seq-guarded mutation
   // callbacks, and re-adopting a run the user has since disowned (inputs
-  // changed mid-flight) would resurrect exactly the state clears.
+  // changed mid-flight) would resurrect exactly the state the superseded-input guard clears.
   const adoptedJobsRef = useRef(new Set<string>());
   // Adoption is only for an instance whose form still
   // matches the run. Once the user edits ANYTHING after a run starts, a job
@@ -661,7 +661,7 @@ export function AnalysisPanel({
   // access) never yields the terminal status the effect above keys on, so
   // without this the panel polls a dead id forever and keeps the old run's
   // name in the field, re-enabling Create with it once the watcher drops the
-  // global job. Transient errors keep polling, exactly as requires.
+  // global job. Transient errors keep polling, exactly as the polling contract requires.
   const jobGone =
     jobError instanceof ApiError && [401, 403, 404].includes(jobError.status);
   useEffect(() => {
@@ -967,7 +967,7 @@ export function AnalysisPanel({
     setJoinField(BY_FIELD_NONE);
   };
 
-  // Mount half: see staleRestoreRef above.
+  // Mount-time half: see staleRestoreRef above.
   useEffect(() => {
     if (!staleRestoreRef.current) return;
     staleRestoreRef.current = false;
@@ -976,7 +976,7 @@ export function AnalysisPanel({
     // panel itself drew belongs to the stale form and goes with it.
     if (previewSource === 'analysis-panel') onClearPreview?.();
   }, [onClearPreview, previewSource]);
-  // Mounted half: losing the selected source or mask
+  // Open-panel half: losing the selected source or mask
   // layer while the panel is open (deleted from the stack) is an input
   // change like any other — the overlay clears, a finished run's affordances
   // reset, and the selection falls back exactly as a fresh mount would.
@@ -1167,7 +1167,7 @@ export function AnalysisPanel({
     onSuccess: (result, { seq, bbox: requestBbox }) => {
       if (seq !== previewSeqRef.current) return;
       if (!result.feature_count || !result.bbox) {
-        // Parity: chat surfaces clear a stale overlay on an empty
+        // Chat surfaces clear a stale overlay on an empty
         // result; without this the previous preview kept describing a result
         // the toast says doesn't exist.
         onClearPreview?.();
@@ -1347,7 +1347,7 @@ export function AnalysisPanel({
       onAnalysisJobChange?.(result.job_id, title);
       return { ...result, title };
     },
-    // a response whose inputs were superseded must not
+    // A response whose inputs were superseded must not
     // resurrect the panel's run state. Global tracking (onAnalysisJobChange
     // above) is deliberately unguarded — the job IS running either way.
     onSuccess: (result, { seq }) => {

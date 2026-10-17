@@ -17,7 +17,7 @@ type RefBox<T> = { current: T };
 
 // One pending root-style idle-retry per map instance, so a newer
 // appearance application can cancel a stale one. Covers projection
-// and sky — both are root style state with the
+// and sky: both are root style state with the
 // same "needs a parsed style" precondition.
 const pendingRootStyleRetries = new WeakMap<MaplibreMap, () => void>();
 

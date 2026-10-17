@@ -2,7 +2,8 @@
  * EDITOR grep guard (phase-scoped).
  *
  * Asserts that the editor source files modified during
- * (RasterEditor.tsx dropped from the set in dead code, deleted)
+ * the paint-ownership work
+ * (RasterEditor.tsx is not in the set: it was dead code and is deleted)
  * contain ZERO direct `map.setPaintProperty` / `map.setLayoutProperty`
  * callsites. All paint/layout mutations from these files MUST route
  * through the v1026 owned-property contract:
