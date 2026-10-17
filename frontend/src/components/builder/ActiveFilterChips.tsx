@@ -23,11 +23,11 @@ interface FilterChip {
 /**
  * Produce a human-readable summary of a filter expression.
  *
- * builder-audit #338 DRY-01/FILT-01/FILT-02: renders from the single canonical filter
+ * Renders from the single canonical filter
  * parser (parseCanonicalFilter) shared with LayerFilterEditor, so numeric
- * (to-number-wrapped) filters now produce a chip (FILT-01) and the substring
+ * (to-number-wrapped) filters now produce a chip and the substring
  * "contains" shape is labelled correctly rather than mislabelled as `<value> in
- * (…)` (FILT-02). Opaque/advanced filters intentionally render no chip.
+ * (…)`. Opaque/advanced filters intentionally render no chip.
  */
 function summarizeFilter(filter: FilterSpecification): string | null {
   const parsed = parseCanonicalFilter(filter);
@@ -106,7 +106,7 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
     // `ml-12` (clears the zoom control) keeps both usable — the old always-open
     // chip stack rendered straight over them. max-h-[40vh] + overflow-y-auto
     // caps the expanded column so it cannot run down into the bottom-left
-    // LegendPlugin. WR-01: outer wrapper stays pointer-events-none for map-drag
+    // LegendPlugin. Outer wrapper stays pointer-events-none for map-drag
     // passthrough; the inner column restores pointer-events-auto for scroll.
     <div className="pointer-events-none ml-12">
       <div className="pointer-events-auto flex max-h-[40vh] flex-col items-start gap-1.5 overflow-y-auto">

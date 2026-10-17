@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@/test/test-utils';
 import { AdvancedJsonEditor } from '../AdvancedJsonEditor';
 
 /**
- * fix(#921): validation errors were rendered in a bare div, so pressing Apply
+ * Validation errors were rendered in a bare div, so pressing Apply
  * told a screen-reader user nothing, and the disclosure triggers never reported
  * their expanded state.
  */

@@ -1,5 +1,5 @@
 /**
- * Hand-curated suggested datasets (BSR-19).
+ * Hand-curated suggested datasets.
  *
  * Replace placeholder UUIDs with real catalog UUIDs per deployment.
  * IDs must be valid UUID v4 (8-4-4-4-12 hex). Cards whose IDs 404 are

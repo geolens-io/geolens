@@ -160,13 +160,13 @@ describe('basemap-state-controller', () => {
   });
 
   it('resets appearance by clearing local config and restoring label visibility', () => {
-    // fix(#654, codex round 2): labels persist outside basemap_config, so the
+    // Labels persist outside basemap_config, so the
     // reset patch must set showBasemapLabels too or hidden labels survive it.
     expect(resetBasemapAppearance()).toEqual({ basemapConfig: null, showBasemapLabels: true });
   });
 });
 
-// fix(#585): "Reset appearance" enable signal — semantic comparison against
+// "Reset appearance" enable signal — semantic comparison against
 // the default appearance, not a null check (stored configs are often
 // materialized all-defaults objects).
 describe('hasCustomBasemapAppearance', () => {
@@ -206,7 +206,7 @@ describe('hasCustomBasemapAppearance', () => {
     ).toBe(true);
   });
 
-  // codex P2 on #654: explicit default-valued optional metadata is clean —
+  // Explicit default-valued optional metadata is clean —
   // dragging the basemap back to bottom writes basemap_position: 'bottom'.
   it('explicit default position/projection values are NOT custom', () => {
     expect(
@@ -223,7 +223,7 @@ describe('hasCustomBasemapAppearance', () => {
     ).toBe(true);
   });
 
-  // fix(#654, codex round 2): reset restores label visibility, so hidden
+  // Reset restores label visibility, so hidden
   // labels ARE a resettable customization — the baseline is labels-on.
   it('hidden labels ARE custom (reset restores them)', () => {
     expect(hasCustomBasemapAppearance(null, false)).toBe(true);

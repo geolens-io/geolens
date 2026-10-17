@@ -43,7 +43,7 @@ export function FillEditor({
   currentHeightCol,
   t,
 }: BaseStyleEditorProps) {
-  // fix(#910): fill-color and fill-pattern are mutually exclusive (EDIT-05), so
+  // fill-color and fill-pattern are mutually exclusive, so
   // exactly one of the two controls is reachable at a time. The pattern picker
   // is also out in 3D-extrusion mode, where the extrusion companion reads
   // fill-color and a pattern click would reset the whole layer to the default.
@@ -53,7 +53,7 @@ export function FillEditor({
   // Any present value counts, not just a string: fill-pattern accepts MapLibre
   // expressions, and AdvancedJsonEditor lets one through. A gate that only saw
   // strings would leave the colour picker live on an expression-patterned layer,
-  // where editing it writes both keys back — the EDIT-05 breakage this closes.
+  // where editing it writes both keys back — the breakage this closes.
   const hasFillPattern = paint['fill-pattern'] != null;
   // An ACTIVE pattern always keeps its clearing control, whatever else is true of
   // the layer. Advanced JSON and the AI set_style action write paint through
@@ -62,7 +62,7 @@ export function FillEditor({
   // hiding the picker then strands it with the pattern winning on the map. Applying
   // a NEW pattern stays gated to plain solid polygons.
   const showPatternPicker = isPolygon && (hasFillPattern || (!isDataDriven && !currentHeightCol));
-  // fix(#910, codex P2): an expression-valued pattern is active but unrepresentable
+  // An expression-valued pattern is active but unrepresentable
   // as a swatch. Coercing it to undefined made None report aria-pressed while
   // MapLibre drew the expression, so it gets a sentinel: no swatch matches it, and
   // None correctly reads unpressed. Display-only — onChange never emits it.

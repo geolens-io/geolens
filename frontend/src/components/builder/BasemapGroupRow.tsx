@@ -1,4 +1,4 @@
-/* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
+/* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, Eye, EyeOff, MoreVertical, Repeat, RotateCcw } from 'lucide-react';
@@ -31,11 +31,11 @@ interface BasemapGroupRowProps {
   onToggleVisibility: (id: string) => void;
   onSwapBasemap: () => void;
   onResetAppearance: () => void;
-  /** fix(#585): true when basemap_config holds appearance customizations —
+  /** True when basemap_config holds appearance customizations —
    *  false disables "Reset appearance" (nothing to reset). Defaults to true so
    *  an unwired call site never blocks the action. */
   hasCustomAppearance?: boolean;
-  // Phase 1041: boundary signal — shows cursor-not-allowed when multi-selection is active (POL-11)
+  // Boundary signal — shows cursor-not-allowed when multi-selection is active
   isMultiSelectionActive?: boolean;
 }
 
@@ -59,7 +59,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   const { t } = useTranslation('builder');
   const kebabMenu = useKebabContextMenu();
 
-  // Phase 1051 IN-01: single source for the display name string. Used by
+  // Single source for the display name string. Used by
   // aria-label (visibility toggle), aria-label (kebab trigger), and the visible
   // row name in Cell 5 — three call sites that previously drifted independently.
   const rowName = t('basemapGroup.rowName', {
@@ -68,7 +68,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   });
 
   function handleRowClick(_e: React.MouseEvent) {
-    // Phase 1051 CR-02: cursor-not-allowed at line 78 + suppressed drag listeners
+    // Cursor-not-allowed at line 78 + suppressed drag listeners
     // at line 122 advertise the row as non-interactive during multi-selection.
     // Without this guard, the click still fires onSelectGroup, unmounting the
     // BulkActionBar mid-selection — a UX contract violation.
@@ -83,22 +83,22 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       aria-current={selected ? 'true' : undefined}
       tabIndex={0}
       className={cn(
-        // builder-audit #338 STACK-04: shared grid template + state classes.
+        // Shared grid template + state classes.
         'group/row grid', STACK_ROW_GRID, 'gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         rowStateClasses({ selected, isDragging }),
-        // Phase 1041 POL-11: cursor-not-allowed signals basemap boundary during multi-selection mode
+        // Cursor-not-allowed signals basemap boundary during multi-selection mode
         isMultiSelectionActive && 'cursor-not-allowed',
       )}
       onClick={handleRowClick}
       onContextMenu={(e) => {
-        // Phase 1051 CR-02: the basemap row is non-interactive during
+        // The basemap row is non-interactive during
         // multi-selection — the context menu honors the same boundary.
         if (isMultiSelectionActive) return;
         kebabMenu.onContextMenu(e);
       }}
       onKeyDown={(e) => {
-        // Phase 1051 CR-02: mirror handleRowClick — keyboard activation must
+        // Mirror handleRowClick — keyboard activation must
         // honor the multi-selection boundary, matching the visual signal.
         if (isMultiSelectionActive) return;
         if (kebabMenu.handleContextMenuKey(e)) return;
@@ -114,7 +114,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       }}
     >
       {/* Cell 1: Caret — visible and functional for basemap group.
-          UX-01 (Phase 1051 Plan 04): h-6 w-6 (24×24 hit target) + -mx-1 extends the visual
+          w-6 (24×24 hit target) + -mx-1 extends the visual
           box 4px past each side of the 16px grid column without altering the grid template
           (sketch 002 A "A-strict"). ChevronRight Lucide icon at h-4 w-4 (16px visible glyph)
           replaces the Unicode ▸ text character. */}
@@ -137,13 +137,13 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         <ChevronRight className={cn('h-4 w-4', !isExpanded && 'rtl-mirror')} aria-hidden="true" />
       </button>
 
-      {/* Cell 2: Grip — UX-03 (Phase 1051 Plan 06): basemap group IS user-draggable
+      {/* Cell 2: Grip: basemap group IS user-draggable
           for top/bottom reordering. AUD-04's "pinned-at-bottom" decision is reversed
           per sketch findings (3D maps need basemap rendered above data). When
           isMultiSelectionActive is true, the listeners are suppressed (drag +
           multi-select are mutually exclusive per UI-SPEC §"Cross-Plan Visual
-          Conflict Check"). builder-audit #338 STACK-04: shared DragGripButton.
-          Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch. */}
+          Conflict Check"). Shared DragGripButton.
+          Reveal the reorder grip on coarse-pointer/touch. */}
       <DragGripButton
         dragHandleProps={dragHandleProps}
         ariaLabel={t('basemapGroup.dragHandle', { defaultValue: 'Drag to reorder basemap' })}
@@ -153,9 +153,9 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       />
 
       {/* Cell 3: Eye visibility toggle.
-          builder-audit #338 STACK-06: the dead visibilityDisabled locked-eye branch was
+          The dead visibilityDisabled locked-eye branch was
           removed — no call site ever passed it (the basemap dock wires a real toggle).
-          SP-10: aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
+          Aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
       <button
         type="button"
         aria-label={t('stackRow.toggleVisibility', {
@@ -208,7 +208,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
             <button
               type="button"
               data-kebab-trigger=""
-              // Phase 1199 STACK-05: reveal the kebab on coarse-pointer/touch.
+              // Reveal the kebab on coarse-pointer/touch.
               data-touch-reveal=""
               aria-label={t('stackRow.kebabTrigger', {
                 defaultValue: 'Layer options for {{name}}',
@@ -227,12 +227,12 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            {/* fix(#585): kebab items carry icons, matching StackRow. */}
+            {/* Kebab items carry icons, matching StackRow. */}
             <DropdownMenuItem onSelect={() => onSwapBasemap()}>
               <Repeat className="h-3.5 w-3.5 me-2" aria-hidden="true" />
               {t('basemapGroup.swapBasemap', { defaultValue: 'Swap basemap' })}
             </DropdownMenuItem>
-            {/* fix(#585): disabled when there is nothing to reset; the reason
+            {/* Disabled when there is nothing to reset; the reason
                 is inline muted text (tooltips don't fire on disabled items). */}
             <DropdownMenuItem
               data-testid="basemap-reset-appearance"

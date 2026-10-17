@@ -1,5 +1,5 @@
 /**
- * STACK-04: When SUGGESTED_DATASETS is empty (no-suggestions state), the
+ * When SUGGESTED_DATASETS is empty (no-suggestions state), the
  * component must render exactly ONE browse control — the modal-opening
  * "Browse all datasets →" button (aria-label "Browse all datasets in the
  * Add Data modal"). The redundant "Browse catalog →" inner button must be
@@ -78,7 +78,7 @@ describe('EmptyStackState — no-suggestions state (STACK-04)', () => {
     expect(screen.queryByRole('list', { name: 'Suggested datasets' })).not.toBeInTheDocument();
   });
 
-  // fix(#780): the first-run copy must name controls that exist on this
+  // The first-run copy must name controls that exist on this
   // surface — the header's "Add data" button — not a starter list or an
   // Upload button that stock installs never render.
   it('points the fallback help copy at the Add data button, not an absent Upload button (#780)', () => {

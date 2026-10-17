@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { validatePropertyBlock } from '../AdvancedJsonEditor';
 
 /**
- * fix(#431 codex r2): mixed-geometry layers carry fill-*, line-*, and circle-*
+ * Mixed-geometry layers carry fill-*, line-*, and circle-*
  * keys in ONE paint dict (the adapter fans them out to family sublayers).
  * Validating the whole dict as a single fill layer rejected the line/circle
  * keys — the exact keys this editor is the styling path for. The 'mixed'

@@ -1,5 +1,5 @@
 /**
- * Phase 1041 — BulkActionBar component tests (POL-08)
+ * BulkActionBar component tests
  *
  * Covers: render condition, 5 action buttons, disable rules (canGroup/canUngroup),
  * confirmation state machine (Delete → confirm → fire), Cancel autoFocus,
@@ -106,7 +106,7 @@ function makeProps(overrides: {
 }
 
 // ---------------------------------------------------------------------------
-// BulkActionBar — render condition (POL-08)
+// BulkActionBar — render condition
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — render condition (POL-08)', () => {
@@ -157,7 +157,7 @@ describe('BulkActionBar — render condition (POL-08)', () => {
     const opacitySlider = screen.getByRole('slider', { name: /bulkActions.opacityAriaLabel|opacity/i });
     expect(opacitySlider).toBeInTheDocument();
 
-    // SP-01: Group / Ungroup / Delete now live behind a `…` overflow menu so
+    // Group / Ungroup / Delete now live behind a `…` overflow menu so
     // the entire bar fits the 340px sidebar. The trigger is rendered inline
     // and the items appear only after the menu is opened (Radix portal).
     const overflowTrigger = screen.getByTestId('bulk-action-overflow');
@@ -169,7 +169,7 @@ describe('BulkActionBar — render condition (POL-08)', () => {
     expect(screen.getByTestId('bulk-action-ungroup')).toBeInTheDocument();
     expect(screen.getByTestId('bulk-action-delete')).toBeInTheDocument();
 
-    // SP-01: the menu content carries data-bulk-action-menu so the parent
+    // The menu content carries data-bulk-action-menu so the parent
     // UnifiedStackPanel's outside-click handler can skip its selection-clear
     // when the click lands inside the portal-rendered menu (without this the
     // menuitem click would unmount BulkActionBar before its onSelect runs).
@@ -179,7 +179,7 @@ describe('BulkActionBar — render condition (POL-08)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// BulkActionBar — disable rules (POL-08)
+// BulkActionBar — disable rules
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — disable rules (POL-08)', () => {
@@ -197,7 +197,7 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
 
     // canGroup=false because layerInGroup has parent_group_id. The disabled
     // Group menuitem renders with aria-disabled="true" plus an inline reason
-    // hint (fix(#585)).
+    // hint.
     fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
     const groupItem = screen.getByTestId('bulk-action-group');
     expect(groupItem.getAttribute('aria-disabled')).toBe('true');
@@ -214,7 +214,7 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
       />
     );
 
-    // fix(#585): canGroup no longer requires vector_dataset — StackRow's
+    // canGroup no longer requires vector_dataset — StackRow's
     // "Add to group…" and drag-and-drop membership both accept raster rows,
     // so the bulk predicate matches (canJoinFolderGroup).
     fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
@@ -278,11 +278,11 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// BulkActionBar — confirmation state machine (POL-08, UI-SPEC §5)
+// BulkActionBar — confirmation state machine
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — confirmation state machine', () => {
-  // SP-01: confirmation is entered by opening the overflow menu (`…`) and
+  // Confirmation is entered by opening the overflow menu (`…`) and
   // selecting the Delete menuitem. Helper centralizes that two-step gesture.
   function openDeleteConfirm() {
     fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
@@ -363,7 +363,7 @@ describe('BulkActionBar — confirmation state machine', () => {
   });
 
   it('Test 15: Escape in confirmation cancels confirmation (does not propagate to parent)', () => {
-    // onClearSelection was removed from BulkActionBarProps (WR-03). This test
+    // onClearSelection was removed from BulkActionBarProps. This test
     // now verifies that Escape inside the confirmation dialog dismisses it
     // (handleContainerKeyDown catches Escape + stopPropagation) rather than
     // propagating to the parent panel's Escape handler.
@@ -386,7 +386,7 @@ describe('BulkActionBar — confirmation state machine', () => {
 });
 
 // ---------------------------------------------------------------------------
-// BulkActionBar — Phase 1042-02 polish fixes (POL-14)
+// BulkActionBar — polish fixes
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — Phase 1042-02 polish fixes (POL-14)', () => {
@@ -419,7 +419,7 @@ describe('BulkActionBar — Phase 1042-02 polish fixes (POL-14)', () => {
 
   it('Test C: Cancel button in delete-confirm state has ghost variant (ghost-specific classes)', () => {
     render(<BulkActionBar {...makeProps()} />);
-    // SP-01: confirmation is now entered through the overflow menu.
+    // Confirmation is now entered through the overflow menu.
     fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByTestId('bulk-action-delete'));
     // Find the Cancel button
@@ -444,7 +444,7 @@ describe('BulkActionBar — Phase 1042-02 polish fixes (POL-14)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// BulkActionBar — bulk handler invocations (POL-09 wiring)
+// BulkActionBar — bulk handler invocations (wiring)
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — bulk handler invocations (POL-09)', () => {
@@ -520,7 +520,7 @@ describe('BulkActionBar — bulk handler invocations (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// BulkActionBar — isDeleting prop (Phase 1047-04 PERF-03)
+// BulkActionBar — isDeleting prop
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — isDeleting prop (PERF-03)', () => {
@@ -565,7 +565,7 @@ describe('BulkActionBar — isDeleting prop (PERF-03)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// BulkActionBar — deletable count excludes group rows (fix #771)
+// BulkActionBar — deletable count excludes group rows
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — deletable count excludes group rows (fix #771)', () => {
@@ -605,7 +605,7 @@ describe('BulkActionBar — deletable count excludes group rows (fix #771)', () 
     expect(deleteItem).toHaveAttribute('aria-disabled', 'true');
     // The inline hint states why (disabled menu items show no tooltip).
     expect(deleteItem.textContent).toContain('Group rows are deleted from their row menu');
-    // fix(#833): the item's aria-label overrides its subtree as the accessible
+    // The item's aria-label overrides its subtree as the accessible
     // name, so the hint must ALSO be exposed as the accessible description.
     const hintId = deleteItem.getAttribute('aria-describedby');
     expect(hintId).toBeTruthy();

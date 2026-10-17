@@ -4,10 +4,10 @@ import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
 import { formatNumber } from '@/lib/format';
 
 /**
- * builder-audit #338 DUP-04: the single brightness/contrast/saturation/hue appearance
+ * The single brightness/contrast/saturation/hue appearance
  * slider surface, previously implemented twice with subtly different step values and
  * formatting. RasterLayerControls (the LayerEditorPanel path) is the only consumer
- * since fix(#915) deleted the unreachable RenderModeSwitch raster editor.
+ * since the unreachable RenderModeSwitch raster editor was deleted.
  *
  * Fallbacks are read from the adapter's RASTER_PAINT_DEFAULTS (single source of truth)
  * so the editor display and the rendered default cannot diverge.

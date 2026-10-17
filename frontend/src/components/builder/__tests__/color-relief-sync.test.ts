@@ -6,7 +6,7 @@ import { buildElevationExpression } from '../color-relief-sync';
 // buildElevationExpression
 // ---------------------------------------------------------------------------
 describe('buildElevationExpression', () => {
-  // fix(#455): 3 header tokens + 3 no-data guard pairs + 7 ramp pairs.
+  // 3 header tokens + 3 no-data guard pairs + 7 ramp pairs.
   const HEADER = 3;
   const GUARD_PAIRS = 3;
   const RAMP_START = HEADER + GUARD_PAIRS * 2;
@@ -23,7 +23,7 @@ describe('buildElevationExpression', () => {
     expect(expr.length).toBe(HEADER + (GUARD_PAIRS + 7) * 2);
   });
 
-  // fix(#455): no-data pixels read as the -10000 m encoding floor and used to
+  // no-data pixels read as the -10000 m encoding floor and used to
   // clamp to the first ramp color, painting a solid fringe beyond the DEM
   // footprint. The ramp must hold fully transparent through the guard band.
   it('holds transparent from the encoding floor to below the lowest land', () => {
@@ -72,7 +72,7 @@ describe('buildElevationExpression', () => {
     expect(expr[expr.length - 2]).toBe(2000);
   });
 
-  // fix(#455): an elevMin inside the guard band (e.g. bathymetry) must skip
+  // An elevMin inside the guard band (e.g. bathymetry) must skip
   // the guard rather than emit non-ascending interpolate stops.
   it('skips the guard when elevMin dips into the guard band', () => {
     const expr = buildElevationExpression('Viridis', -600, 4000);
@@ -81,7 +81,7 @@ describe('buildElevationExpression', () => {
   });
 
   it('falls back to a valid expression for an unknown ramp name', () => {
-    // getRampColors falls back to YlOrRd for unknown names (Threat T-1140-05)
+    // getRampColors falls back to YlOrRd for unknown names (Threat)
     const expr = buildElevationExpression('NotARealRamp');
     expect(expr[0]).toBe('interpolate');
     expect(expr.length).toBe(HEADER + (GUARD_PAIRS + 7) * 2);

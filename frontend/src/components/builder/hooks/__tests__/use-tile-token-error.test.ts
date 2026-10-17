@@ -1,5 +1,5 @@
 /**
- * GAP-004: BuilderMap ignores tile-token batch failures.
+ * BuilderMap ignores tile-token batch failures.
  * useTileTokenError must:
  *  1. Fire a deduped toast.error when the batch query errors.
  *  2. NOT fire a second toast while still in the error state (dedupe).

@@ -10,7 +10,7 @@ import {
 import { MAP_COLORS } from '@/lib/map-colors';
 import { addDescribedLayer, writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import { labelLayerId, withLabelCompanion } from '../label-layer-utils';
-// builder-audit #338 DRY-06: arrow render-mode defaults come from the single builder-defaults
+// Arrow render-mode defaults come from the single builder-defaults
 // source of truth (shared with renderAs + backend mirror) instead of bare 14/80 literals.
 import { DEFAULT_ARROW_SIZE, DEFAULT_ARROW_SPACING, DEFAULT_LINE_PAINT } from './builder-defaults';
 
@@ -23,7 +23,7 @@ export const LINE_OWNED_LAYOUT_PROPERTIES = [
   'line-join',
 ] as const;
 
-// Exported for the mixed adapter's line-family sublayer (ADAPT-03 reuse).
+// Exported for the mixed adapter's line-family sublayer (reuse).
 export const LINE_OWNED_PAINT_PROPERTIES = [
   'line-color',
   'line-width',

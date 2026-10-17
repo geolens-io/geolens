@@ -84,7 +84,7 @@ function writeGenericLayout(
 }
 
 /**
- * fix(#910/#918, codex P2): the EDIT-05 paint exclusions, factored out because
+ * The paint exclusions, factored out because
  * they have to hold on EVERY write path, not just the style-editor funnel.
  *
  * Two incompatible pairs, and MapLibre picks the winner for us in both cases:
@@ -99,7 +99,7 @@ function writeGenericLayout(
  * the caller to stash.
  */
 /**
- * fix(#910, codex P2): is this fill key ACTIVELY set, as opposed to merely present?
+ * Is this fill key ACTIVELY set, as opposed to merely present?
  *
  * An imported, API-authored or Advanced-JSON layer can carry `fill-pattern: null`, which
  * MapLibre reads as "no pattern" — and a presence test read it as a collision, so an
@@ -120,7 +120,7 @@ export function resolveFillExclusions(
   paint: Record<string, unknown>;
   strandedFillColor: string | undefined;
 } {
-  // P1-07: a data-driven SOLID color (categorical, or graduated with the color
+  // A data-driven SOLID color (categorical, or graduated with the color
   // target) is incompatible with a line-gradient.
   const isDataDrivenColor =
     !!config &&
@@ -131,7 +131,7 @@ export function resolveFillExclusions(
     const { 'line-gradient': _droppedGradient, ...rest } = effectivePaint;
     effectivePaint = rest;
   }
-  // fix(#910/#918, codex P2): which key wins is decided by PROVENANCE, read off the
+  // Which key wins is decided by PROVENANCE, read off the
   // diff against the layer's previous paint — the key the write just TOUCHED is the one
   // the user asked for, so the other goes. Deriving it here rather than having each
   // caller declare its intent is what makes the rule hold on paths nobody enumerated:
@@ -147,7 +147,7 @@ export function resolveFillExclusions(
   // read it as "nothing introduced" and deleted the new colour. An absent key compares
   // unequal to any value, so this subsumes the added case rather than sitting beside it.
   //
-  // fix(#910, codex P2): STRUCTURALLY, not by reference. Advanced JSON applies
+  // STRUCTURALLY, not by reference. Advanced JSON applies
   // `JSON.parse` of the whole block, so an untouched expression comes back as a fresh
   // array — `!==` read a `fill-opacity` edit as a colour change and deleted the layer's
   // pattern. `deepEqual` is the same comparison the dirty check already uses on paint,
@@ -164,7 +164,7 @@ export function resolveFillExclusions(
     const { 'fill-pattern': _droppedPattern, ...rest } = effectivePaint;
     effectivePaint = rest;
   }
-  // fix(#910, codex P2): a SOLID colour only. `fillColorSaved` can hold nothing else,
+  // A SOLID colour only. `fillColorSaved` can hold nothing else,
   // so a solid colour is the only fill None can bring back — deleting an expression
   // here would be unrecoverable, and it is reachable without any data-driven config
   // (Advanced JSON writes an expression into `fill-color`, and then ANY later builder
@@ -181,7 +181,7 @@ export function resolveFillExclusions(
     effectivePaint = rest;
   } else if (hasActiveFill(effectivePaint, 'fill-pattern')
     && !hasActiveFill(effectivePaint, 'fill-color')) {
-    // fix(#910, codex P2): the displacement does not always arrive as a collision.
+    // The displacement does not always arrive as a collision.
     // Advanced JSON replacing paint wholesale, or an AI `set_style` with
     // `replace_paint`, hands over a pattern-only object that already dropped the
     // colour — nothing collides, so the previous colour was never recorded and None
@@ -195,7 +195,7 @@ export function resolveFillExclusions(
 }
 
 /**
- * fix(#910/#918, codex P2): the builder-stash half of the exclusions above.
+ * The builder-stash half of the exclusions above.
  *
  * `fillColorSaved` is what a later None click restores, so it has to track which
  * key won the fill. An expression takes ownership → the old stash is stale and
@@ -213,7 +213,7 @@ export function stashExcludedFillColor(
   flags: { paint: Record<string, unknown>; strandedFillColor: string | undefined },
 ): StyleConfig | null {
   let next = config;
-  // fix(#910, codex P2): the stash is stale the moment a pattern stops owning the fill,
+  // The stash is stale the moment a pattern stops owning the fill,
   // whatever took over — a ramp, or a solid colour written straight to paint. Keyed off
   // the RESOLVED paint rather than the reason, because enumerating reasons is what let
   // a solid-colour win keep a stale stash: the next pattern write then found the slot
@@ -247,13 +247,12 @@ export function useLayerMapSync(
   // state without having `localLayers` in their dependency list. Without this
   // ref, every layer mutation would invalidate all callbacks, tearing down
   // React.memo() on StackRow and re-rendering every layer for every tweak
-  // (KISS-2 / PERF-N2).
   const layersRef = useRef(localLayers);
   useLayoutEffect(() => {
     layersRef.current = localLayers;
   }, [localLayers]);
 
-  // fix(#1778 codex round 3): map writes deferred to `idle` because the style
+  // Map writes deferred to `idle` because the style
   // was mid-swap, keyed by layer id and replayed in order. See applyLayerUpdate.
   const pendingMapWritesRef = useRef(
     new Map<string, { writes: ((target: MaplibreMap) => void)[]; listener: () => void }>(),
@@ -261,7 +260,7 @@ export function useLayerMapSync(
 
   // Shared state-mutation + live-map-update pipeline for layer edits.
   // Collapses the dup 30-line boilerplate from paint/opacity/layout/style
-  // handlers into one place (KISS-2). `updater` produces the new layer spec
+  // handlers into one place. `updater` produces the new layer spec
   // inside the functional setState; `applyFn` runs the imperative MapLibre
   // sync using the freshly-computed layer.
   const applyLayerUpdate = useCallback(
@@ -281,13 +280,13 @@ export function useLayerMapSync(
       const existing = layersRef.current.find((l) => l.id === layerId);
       if (!existing) return;
 
-      // BUG-019: apply the updater INSIDE the functional setState so that
+      // Apply the updater INSIDE the functional setState so that
       // multiple synchronous applyLayerUpdate calls compose against the latest
       // `prev` rather than clobbering each other off the stale `layersRef`
       // snapshot. The existence gate above (ref-based) still guards the
       // dirty-flag; the actual mutation moves inside prev.map() so React's
       // functional update queue accumulates correctly.
-      // fix(#910/#918, codex P2): EDIT-05 is enforced HERE, at the one boundary every
+      // Is enforced HERE, at the one boundary every
       // handler in this hook commits through, instead of inside each handler. The
       // handlers are an open set — the style-config funnel, paint-only writes, and
       // whatever is added next — and a rule inlined per handler is only ever as
@@ -403,7 +402,7 @@ export function useLayerMapSync(
       paint: Record<string, unknown>,
       opts?: { replace?: boolean; restore?: boolean },
     ) => {
-      // The EDIT-05 exclusions are applied by applyLayerUpdate, at the commit boundary
+      // The exclusions are applied by applyLayerUpdate, at the commit boundary
       // every write path shares. Only the `builder.lineGradient` intent stub is handled
       // here: dropping the gradient paint without it lets map-sync's
       // lineGradientNeededFor() put the gradient straight back.
@@ -414,7 +413,7 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => {
-          // fix(#461, codex P2): `replace` restores the config verbatim — used by
+          // `replace` restores the config verbatim — used by
           // Revert-to-saved, which must NOT keep the draft's style_config.builder.
           // The default branch below deliberately preserves that builder when the
           // incoming config omits one (so setting a data-driven color doesn't wipe

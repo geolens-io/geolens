@@ -24,7 +24,7 @@ export const CUSTOM_PAINT_PROPS = new Set([
 type GeometryFamily = 'point' | 'line' | 'polygon' | 'other';
 
 /**
- * builder-audit #338 ADAPT-02/DRY-05: single canonical geometry classifier.
+ * Single canonical geometry classifier.
  * getLayerType, renderAs.geometryFamily, layer-capabilities, and
  * color-ramps.getColorProperty all DERIVE from this one uppercase+substring scan
  * so a new geometry token or normalization rule is patched in exactly one place.
@@ -37,7 +37,7 @@ export function classifyGeometry(geometryType: string | null): GeometryFamily {
   return 'other';
 }
 
-/** fix(#430 codex r23): the generic sentinels a created/mixed dataset carries when
+/** The generic sentinels a created/mixed dataset carries when
  *  its geometry column holds (or may hold) multiple families. These route to the
  *  mixed adapter so every family renders; unknown exotic types keep the historic
  *  fill fallback. Mirrors the backend `_derive_created_geometry_type` contract. */
@@ -59,11 +59,11 @@ export function getLayerType(geometryType: string | null): 'circle' | 'line' | '
 type RasterBounds = [number, number, number, number];
 
 /**
- * builder-audit #338 ADAPT-01: single raster-bounds guard hoisted from the verbatim
+ * Single raster-bounds guard hoisted from the verbatim
  * copies in raster-adapter, hillshade-adapter, and map-sync. Returns the bounds
  * as a 4-tuple, or undefined when the input is not exactly four finite numbers.
  *
- * fix(#903): every result feeds a MapLibre source `bounds`, which accepts one
+ * Every result feeds a MapLibre source `bounds`, which accepts one
  * increasing box and nothing else — an antimeridian-crossing `west > east` pair
  * matches NO tile, so the layer renders blank rather than misplaced. There is
  * no way to express two boxes on one source, so the span form is the only
@@ -78,7 +78,7 @@ export function normalizeRasterBounds(bounds: number[] | null | undefined): Rast
 }
 
 /**
- * builder-audit #338 ADAPT-08/SPEC-10: extract a flat scalar fallback from a MapLibre
+ * Extract a flat scalar fallback from a MapLibre
  * expression using EXPLICIT per-op shape guards. Each op verifies the expression
  * has enough elements before reading a positional index, so a malformed or
  * newly-shaped expression (interpolate-hcl, single-stop step, multi-pair case,
@@ -151,11 +151,11 @@ const OPACITY_DEFAULTS: Record<string, number> = {
 /**
  * Per-feature opacity MULTIPLIED by the master slider, as one paint value.
  *
- * fix(#1625): this is now the path for layer types that have no `-layer-opacity`
+ * This is now the path for layer types that have no `-layer-opacity`
  * in maplibre-gl v6 (circle, and the cluster/mixed point sublayers). Fill and
  * line go through `applyMasterOpacity`, which keeps the two tiers apart.
  *
- * fix(#846): every call site feeds this straight into `setPaintProperty(id,
+ * Every call site feeds this straight into `setPaintProperty(id,
  * '<geom>-opacity', …)`, which maplibre-gl v6 types as
  * `DataDrivenPropertyValueSpecification<number>`. Declaring that contract here
  * instead of returning `unknown` fixes the call sites at their source, and
@@ -169,7 +169,7 @@ export function getExpressionSafeOpacity(
 ): DataDrivenPropertyValueSpecification<number> {
   const propOpacity = getFeatureOpacity(paint, geomType);
   if (typeof propOpacity === 'number') return propOpacity * masterOpacity;
-  // fix(#394) ST-03: multiply expression-valued opacity by the master
+  // Multiply expression-valued opacity by the master
   // slider — returning the expression untouched made the layer opacity
   // slider a silent no-op whenever *-opacity is a zoom/data expression.
   return (masterOpacity === 1
@@ -215,7 +215,7 @@ export function applyMasterOpacity(
   masterOpacity: number,
 ): void {
   if (geomType === 'circle') {
-    // fix(#1625) ceiling: only fill/line have a -layer-opacity in maplibre 6;
+    // Ceiling: only fill/line have a -layer-opacity in maplibre 6;
     // other types still multiply, so point layers still double-darken.
     map.setPaintProperty(layerId, 'circle-opacity', getExpressionSafeOpacity(paint, 'circle', masterOpacity));
     return;
@@ -252,9 +252,9 @@ export function filterPaintForLayerType(
   );
 }
 
-/** fix(#392): Style-Spec numeric bounds for paint properties, mirroring backend
+/** Style-Spec numeric bounds for paint properties, mirroring backend
  *  `_PAINT_BOUNDS` (backend/app/processing/ai/schemas.py) so AI-produced paint is
- *  clamped identically on both sides of the wire. (audit B-002/CH-01) */
+ *  clamped identically on both sides of the wire. */
 const PAINT_BOUNDS: Record<string, [number, number]> = {
   'fill-opacity': [0, 1],
   'line-opacity': [0, 1],
@@ -297,7 +297,7 @@ export function clampPaintBounds(paint: Record<string, unknown>): Record<string,
 }
 
 /**
- * fix(#846): the MapLibre style-property key unions, aliased off
+ * The MapLibre style-property key unions, aliased off
  * `@maplibre/maplibre-gl-style-spec` (a direct dependency) rather than off
  * `maplibre-gl`. maplibre-gl v6 made the style accessors generic over these keys
  * (`setPaintProperty<K extends keyof AllPaintProperties>(id, name: K, value:
@@ -309,7 +309,7 @@ export type PaintPropertyName = keyof AllPaintProperties;
 export type LayoutPropertyName = keyof AllLayoutProperties;
 
 /**
- * fix(#846): the ONE place v6's generic style setters are crossed with a value
+ * The ONE place v6's generic style setters are crossed with a value
  * the compiler cannot check, so the cast lives here instead of at ~20 call sites.
  *
  * Every write on these paths is driven off a layer's stored `paint`/`layout` JSON.
@@ -394,7 +394,7 @@ export function resolveAdapterType(
   if (styleConfig?.render_mode === 'cluster') {
     return 'cluster';
   }
-  // fix(#430 codex r23): generic sentinel datasets mix families — route to the
+  // Generic sentinel datasets mix families — route to the
   // mixed adapter (per-family filtered sublayers) instead of the fill fallback
   // that silently dropped point/line features.
   if (isGenericGeometryType(geometryType)) {
@@ -417,12 +417,12 @@ export function paintValueChanged(current: unknown, incoming: unknown): boolean 
 
 type VectorGeomType = 'fill' | 'line' | 'circle';
 
-// fix(#846): the ownership sets are curated `as const` tuples of real MapLibre
+// The ownership sets are curated `as const` tuples of real MapLibre
 // property names, so they can carry the real key union instead of `string[]`. That
 // keeps the `get*Property` reads below statically valid under v6's generics, and it
 // makes a typo'd or non-existent property name a compile error at the tuple — the
 // failure mode that hid `circle-stroke-blur` in CIRCLE_OWNED_PAINT_PROPERTIES until
-// #338 SPEC-06, because setPaintProperty's try/catch swallowed it silently.
+// because setPaintProperty's try/catch swallowed it silently.
 interface OwnedPaintSyncOptions {
   ownedProperties: readonly PaintPropertyName[];
   geomType?: VectorGeomType;
@@ -542,7 +542,7 @@ export function syncOwnedLayoutProperties(
   }
 }
 
-/** builder-audit #338 SPEC-08 / cross-cutting DRY-02: the single canonical frontend
+/** The single canonical frontend
  *  snake_case -> camelCase builder-key alias map. normalize-style-config imports
  *  this instead of maintaining a second copy (the two had diverged: this map was
  *  missing the folder_group_* keys, added below as a harmless consistency fix). */

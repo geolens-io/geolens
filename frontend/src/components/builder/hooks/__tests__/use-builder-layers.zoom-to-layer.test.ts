@@ -1,4 +1,4 @@
-// fix(#903): Zoom to Layer rejected any `west > east` bbox outright, so the
+// Zoom to Layer rejected any `west > east` bbox outright, so the
 // stack menu's action was a silent no-op for exactly the layers a user most
 // needs it for — an antimeridian-crossing extent is the RFC 7946 §5.2 spec
 // form, not a malformed pair.

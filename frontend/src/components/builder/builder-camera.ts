@@ -27,7 +27,7 @@ interface SavedCameraFields {
   pitch?: number | null;
 }
 
-// fix(#1854): 6 decimals of longitude is about 11 cm, finer than any home view
+// 6 decimals of longitude is about 11 cm, finer than any home view
 // needs and far coarser than the float noise a round trip through the map
 // transform introduces, so a resize or a reprojection cannot read as a pan.
 const CAMERA_DECIMALS = 6;

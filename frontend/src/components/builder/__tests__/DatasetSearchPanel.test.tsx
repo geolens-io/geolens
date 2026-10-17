@@ -9,7 +9,7 @@ vi.mock('@/api/search', async (importOriginal) => {
 });
 
 // ---------------------------------------------------------------------------
-// useQuery override state — used by Phase 1042-02 polish tests to simulate
+// useQuery override state — used by polish tests to simulate
 // isLoading / isFetching states without relying on real promise timing.
 // When null, the mock delegates to the real @tanstack/react-query useQuery.
 // ---------------------------------------------------------------------------
@@ -43,10 +43,10 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// builder-audit #338 SEARCH-01: the panel now gates its Import/Upload CTAs on
+// The panel now gates its Import/Upload CTAs on
 // `!!token && can('upload')`. Default to an upload-capable, signed-in session so
 // the existing suites (which assert on the CTAs) keep passing; the dedicated
-// SEARCH-01 describe flips these to cover the gated-off path.
+// describe block flips these to cover the gated-off path.
 let mockToken: string | null = 'test-token';
 let mockCanUpload = true;
 vi.mock('@/stores/auth-store', () => ({
@@ -276,7 +276,7 @@ describe('DatasetSearchPanel', () => {
     expect(within(row).queryByText('Vector')).not.toBeInTheDocument();
   });
 
-  // fix(#1778): featureMeta/DatasetMetadata read width/height/epsg off
+  // featureMeta/DatasetMetadata read width/height/epsg off
   // OGCRecordProperties, none of which the API ever returned under those
   // flat names -- the raster size/CRS rows were always blank. Now sourced
   // from proj:shape/proj:code, the shape the API actually serializes.
@@ -332,7 +332,7 @@ describe('DatasetSearchPanel', () => {
   });
 
   // =========================================================================
-  // BSR-17 / BSR-18: initialQuery, raster filter removal, three-state UX
+  // initialQuery, raster filter removal, three-state UX
   // =========================================================================
 
   it('Test 1: initialQuery pre-fills search input and fires query with q=foo', async () => {
@@ -408,7 +408,7 @@ describe('DatasetSearchPanel', () => {
     expect(uploadLink).toHaveAttribute('href', '/import');
   });
 
-  // builder-audit #338 SEARCH-01: Import/Upload CTAs are gated on `!!token && can('upload')`.
+  // Import/Upload CTAs are gated on `!!token && can('upload')`.
   describe('SEARCH-01: Import/Upload CTAs gated on upload capability', () => {
     afterEach(() => {
       mockCanUpload = true;
@@ -483,7 +483,7 @@ describe('DatasetSearchPanel', () => {
 });
 
 // ---------------------------------------------------------------------------
-// DatasetSearchPanel — Phase 1042-02 polish fixes (POL-15, AUD-10/12/13/15)
+// DatasetSearchPanel — polish fixes
 // ---------------------------------------------------------------------------
 
 describe('DatasetSearchPanel — Phase 1042-02 polish fixes', () => {
@@ -530,7 +530,7 @@ describe('DatasetSearchPanel — Phase 1042-02 polish fixes', () => {
     // Progress band — h-0.5 element with animate-pulse
     const progressBand = container.querySelector('.h-0\\.5.animate-pulse');
     expect(progressBand).not.toBeNull();
-    // ux(#776): the stale list stays fully interactive during a debounced
+    // The stale list stays fully interactive during a debounced
     // refetch — the band is the signal; the old pointer-events/opacity freeze
     // made visible rows unclickable on every keystroke pause.
     expect(container.querySelector('.pointer-events-none.opacity-50')).toBeNull();

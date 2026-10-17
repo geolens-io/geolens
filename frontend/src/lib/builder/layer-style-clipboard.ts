@@ -1,5 +1,5 @@
 /**
- * Phase 1201-01 (ENH-02 / ENH-03) — pure layer-style clipboard helpers.
+ * Pure layer-style clipboard helpers.
  *
  * Extract a geometry-compatible style snapshot from one layer and apply it to a
  * geometry-compatible target. These functions are PURE: no React, no MapLibre
@@ -25,7 +25,7 @@
  */
 
 import type { GeometryTypeName, MapLayerResponse, StyleConfig } from '@/types/api';
-// fix(#923): the EDIT-05 fill exclusions, imported rather than restated. Both are pure functions
+// The fill exclusions, imported rather than restated. Both are pure functions
 // that happen to live beside the style-editor funnel's hook; a second copy of the rule here is
 // exactly how the paste end and the editor end drift apart again.
 import {
@@ -100,8 +100,8 @@ export function isStyleCompatible(copied: CopiedStyle, target: MapLayerResponse)
  * Layer-identity fields on the target (id / dataset_id / display_name / …) are
  * left untouched.
  *
- * fix(#923): the merge is what makes a paste collide. A target-only `fill-pattern`
- * survives a copied `fill-color` and vice versa, and paint carrying both breaks EDIT-05:
+ * The merge is what makes a paste collide. A target-only `fill-pattern`
+ * survives a copied `fill-color` and vice versa, and paint carrying both breaks:
  * MapLibre gives the pattern precedence while the legend, the editor and the saved JSON
  * all report the colour. Preserving target-only keys is the whole point of the merge
  * (tile params, outline settings), so the fill family is resolved AFTER it, through the
@@ -123,7 +123,7 @@ export function applyCopiedStyleToLayer(
     ...deepClone(copied.paint),
   };
   const styleConfig = copied.style_config ? deepClone(copied.style_config) : null;
-  // fix(#1110 review): stash in the same breath as the resolution. A copied style
+  // Stash in the same breath as the resolution. A copied style
   // can carry BOTH an active pattern and a raw string colour (imported or
   // API-authored, no fillColorSaved); the resolution drops that colour here, so
   // this is the only place that still knows it. Deferring the stash to the write

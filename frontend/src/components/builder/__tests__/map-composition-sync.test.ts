@@ -73,7 +73,7 @@ function skyMap(initialSky?: Sky) {
 }
 
 // A map holding a real container element, so the space backdrop can be read
-// back the way the stylesheet selects it (feat(#1479)).
+// back the way the stylesheet selects it.
 function containerMap() {
   const container = document.createElement('div');
   container.className = 'maplibregl-map';
@@ -166,7 +166,7 @@ describe('map composition sync', () => {
       expect.anything(),
       basemapConfig.sublayer_overrides,
       'viewer-source-',
-      1, // builder-audit #338 CORR-01: master opacity (config.opacity undefined → 1)
+      1, // Master opacity (config.opacity undefined → 1)
     );
     expect(reorderDataLayersMock).toHaveBeenCalledWith(expect.anything(), layers, 'viewer-');
     expect(callOrder).toEqual([
@@ -509,7 +509,7 @@ describe('map composition sync', () => {
       expect.anything(),
       basemapConfig.sublayer_overrides,
       'viewer-source-',
-      1, // builder-audit #338 CORR-01: master opacity (config.opacity undefined → 1)
+      1, // Master opacity (config.opacity undefined → 1)
     );
     expect(applyBasemapConfigToMapMock).not.toHaveBeenCalled();
     expect(reorderBasemapLabelsMock).not.toHaveBeenCalled();

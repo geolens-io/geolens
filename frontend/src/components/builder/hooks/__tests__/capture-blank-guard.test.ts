@@ -1,4 +1,4 @@
-/** fix(#1502): a blank auto-captured thumbnail must be skipped, not uploaded.
+/** A blank auto-captured thumbnail must be skipped, not uploaded.
  *
  *  The capture pipeline is fail-open at every stage (source-wait deadline,
  *  idle timeout), so a slow first render can hand doCapture an unpainted
@@ -77,7 +77,7 @@ describe('maxChannelStddev', () => {
     expect(maxChannelStddev(data)).toBeGreaterThan(BLANK_CHANNEL_STDDEV * 10);
   });
 
-  /** fix(#1504 review round 3): red (255,0,0) and green (0,130,0) sit at the
+  /** Red (255,0,0) and green (0,130,0) sit at the
    *  SAME luminance (~76.3), so a luminance statistic reads a red/green
    *  categorical map as a solid fill. Per-channel stddev sees it plainly. */
   it('sees isoluminant hue variation a luminance statistic cannot', () => {
@@ -103,7 +103,7 @@ describe('isBlankPixelData', () => {
     expect(isBlankPixelData(noisy)).toBe(true);
   });
 
-  /** fix(#1504 review round 2): a lone point feature on the "No basemap"
+  /** A lone point feature on the "No basemap"
    *  uniform background sits UNDER the stddev threshold — the deviant-pixel
    *  rescue is the only thing that saves it. The first assertion pins the
    *  counterfactual: the stddev screen alone rejects this frame. */
@@ -113,7 +113,7 @@ describe('isBlankPixelData', () => {
     expect(isBlankPixelData(dot)).toBe(false); // rescued
   });
 
-  /** fix(#1504 review round 3): the sparse rescue must also be channel-space.
+  /** The sparse rescue must also be channel-space.
    *  A red dot on an isoluminant green ground deviates by ~0 in luminance but
    *  by 255 in the red channel. */
   it('rescues an isoluminant sparse dot — invisible to luminance entirely', () => {
@@ -173,7 +173,7 @@ describe('isEffectivelyBlank', () => {
 });
 
 describe('rearmAutoCapture', () => {
-  /** fix(#1504 review): the SF-07 LRU marks a map "attempted" at schedule
+  /** The LRU marks a map "attempted" at schedule
    *  time and survives unmount/remount, so a rejected blank frame must clear
    *  it — otherwise "retry on next open" only holds across hard reloads. */
   it('re-arms a map after a rejected frame so the next open retries', () => {

@@ -106,7 +106,7 @@ describe('folder group persistence helpers', () => {
     expect(persisted[1].style_config?.builder).toEqual({ outlineWidth: 2 });
   });
 
-  // fix(#833 codex round 6): a group created this session has children with
+  // A group created this session has children with
   // only parent_group_id — the post-save baseline must derive the marker the
   // save just wrote, or every later save re-diffs those children against a
   // marker-less baseline and emits a redundant style_config PATCH per child.
@@ -136,7 +136,7 @@ describe('folder group persistence helpers', () => {
   });
 });
 
-// fix(#767): group identity is persisted only on children, so a childless group
+// Group identity is persisted only on children, so a childless group
 // row cannot survive save+reload — it must be pruned the moment it empties.
 describe('pruneEmptyFolderGroups', () => {
   const groupRow = (id: string, name = 'Group') =>
@@ -186,7 +186,7 @@ describe('pruneEmptyFolderGroups', () => {
   });
 });
 
-// fix(#525 B-040): membership rule for intra-stack drag drops — childrenByGroup
+// Membership rule for intra-stack drag drops — childrenByGroup
 // renders by parent_group_id, not array position, so handleDragEnd must derive
 // the target membership from the drop target instead of doing a bare arrayMove.
 describe('resolveDropGroupMembership', () => {

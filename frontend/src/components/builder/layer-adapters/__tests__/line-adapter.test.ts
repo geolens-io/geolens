@@ -3,9 +3,9 @@ import { lineAdapter } from '../line-adapter';
 import type { AdapterLayerInput } from '../types';
 
 /**
- * Line adapter regression pins (1134-01 MAP-18).
+ * Line adapter regression pins.
  *
- * - BUG-01 pin: addLayers honors visible=false at add-time (BUG-01 PASS comment at audit line 47).
+ * - addLayers honors visible=false at add-time.
  * - syncPaint calls syncLayerFilter (via setFilter spy).
  * - syncVisibility uses syncSingleLayerVisibility helper.
  * - getLayerIds shape: [layerId, arrowLayerId] — includes arrow id for ALL modes
@@ -91,7 +91,7 @@ describe('line adapter — getLayerIds canonical shape (arrowLayerId guard PASS)
   });
 });
 
-// Phase 1136-02: LINE_OWNED_LAYOUT_PROPERTIES export + syncPaint layout reconciliation
+// LINE_OWNED_LAYOUT_PROPERTIES export + syncPaint layout reconciliation
 describe('line adapter — LINE_OWNED_LAYOUT_PROPERTIES export (Phase 1136-02 EDITOR-LINE-01)', () => {
   it('LINE_OWNED_LAYOUT_PROPERTIES is exported and equals [line-cap, line-join]', async () => {
     const { LINE_OWNED_LAYOUT_PROPERTIES } = await import('../line-adapter');
@@ -151,7 +151,7 @@ describe('line adapter — syncPaint reconciles line-cap and line-join via syncO
   });
 });
 
-// fix(#1625): the master slider rides on maplibre-gl v6's `line-layer-opacity`;
+// The master slider rides on maplibre-gl v6's `line-layer-opacity`;
 // the per-feature `line-opacity` is written unmultiplied.
 describe('line adapter — master opacity drives line-layer-opacity (#1625)', () => {
   function paintWrites(map: ReturnType<typeof createMockMap>, prop: string) {

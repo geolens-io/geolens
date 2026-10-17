@@ -181,7 +181,7 @@ export function SliderRow({ label, value, min, max, step, display, format, descr
       <Slider
         aria-label={label}
         aria-describedby={describedBy}
-        // fix(#788 item 3): announce the formatted value ("80%"), matching
+        // Announce the formatted value ("80%"), matching
         // RasterSliderRow and the DEM/basemap scenes — without it AT read the
         // raw number ("0.8") while the screen showed the formatted one.
         aria-valuetext={displayValue}

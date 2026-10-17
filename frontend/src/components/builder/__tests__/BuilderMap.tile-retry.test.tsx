@@ -4,7 +4,7 @@ import { getSourceIdForLayer } from '@/components/builder/map-sync';
 import type { MapLayerResponse } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 
-// GUARD-03 / BLDR-TILE-RACE coverage: the extracted re-sign helper must re-issue
+// BLDR-TILE-RACE coverage: the extracted re-sign helper must re-issue
 // setTiles exactly once for a recoverable vector 401/403 (vector source + present
 // token) and return false (no setTiles) for the non-recoverable cases (raster
 // source / missing token / non-vector source) so the caller falls through to the

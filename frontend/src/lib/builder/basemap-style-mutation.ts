@@ -1,5 +1,5 @@
 /**
- * Basemap sublayer override application helper (Phase 1059 BSE-01).
+ * Basemap sublayer override application helper.
  *
  * Exports `applySublayerOverrides(map, overrides, sourcePrefix?)` — a pure
  * function that imperatively applies per-sublayer style overrides to a live
@@ -24,7 +24,7 @@ import {
 } from '@/lib/basemap-utils';
 import { setDynamicPaintProperty } from '@/components/builder/layer-adapters/shared';
 
-// builder-audit #338 DUP-01: the opacity-key table is now imported from
+// The opacity-key table is now imported from
 // basemap-utils (single source of truth) rather than re-declared here. The
 // per-sublayer semantics (no prominence stamps to compose) live in
 // applyOverrideToLayer below, not in the table itself.
@@ -38,11 +38,11 @@ import { setDynamicPaintProperty } from '@/components/builder/layer-adapters/sha
  *   layers only (pass VIEWER_SOURCE_PREFIX in viewer contexts). When undefined, all
  *   classified basemap layers are targeted (appropriate for builder context).
  * @param masterOpacity - The whole-basemap master opacity (BasemapConfig.opacity, 0-1).
- *   builder-audit #338 CORR-01: a per-sublayer opacity override COMPOSES on top of master
+ *   A per-sublayer opacity override COMPOSES on top of master
  *   (override * master) so the documented "additive on top of the master opacity"
  *   contract holds and the master slider is never silently clobbered. Defaults to 1.
  *
- * Order of operations per D-07: this helper is called AFTER `applyBasemapConfigToMap`
+ * Order of operations: this helper is called AFTER `applyBasemapConfigToMap`
  * so sublayer-specific overrides sit on top of visibility-mode mutations. If a layer is
  * hidden by visibility mode the override still updates paint but the layer stays invisible.
  */
@@ -56,7 +56,7 @@ export function applySublayerOverrides(
 
   // Idle-retry: project_maplibre_idle_retry_pattern.md
   // Without this recovery, fresh-add scenarios (basemap style not yet loaded)
-  // silently drop all overrides on first paint — the SP-03 B-01-followup bug shape.
+  // silently drop all overrides on first paint.
   if (!map.isStyleLoaded()) {
     const retry = () => applySublayerOverrides(map, overrides, sourcePrefix, masterOpacity);
     map.once('idle', retry);
@@ -68,7 +68,7 @@ export function applySublayerOverrides(
 
   for (const [sublayerId, override] of Object.entries(overrides)) {
     const classifier = SUBLAYER_CLASSIFIERS[sublayerId];
-    if (!classifier) continue; // opaque key set; unknown ID = no-op per D-01
+    if (!classifier) continue; // opaque key set; unknown ID = no-op
 
     for (const layer of style.layers) {
       const styleLayer = layer as StyleLayer;
@@ -76,7 +76,7 @@ export function applySublayerOverrides(
 
       // sourcePrefix scoping: when a prefix is provided (viewer context), skip
       // layers that are NOT basemap-owned (their source is a data-layer source).
-      // builder-audit #338 DUP-02: classification is delegated to the shared
+      // Classification is delegated to the shared
       // isBasemapOwnedLayer predicate so the missing/non-string-source edge
       // cases are defined once.
       if (sourcePrefix && !isBasemapOwnedLayer(styleLayer, sourcePrefix)) {
@@ -118,7 +118,7 @@ function applyOverrideToLayer(
   }
 
   // ZOOM RANGE — applies to all classified layers regardless of type.
-  // WR-01: only call setLayerZoomRange when at least one zoom bound is explicitly set.
+  // Only call setLayerZoomRange when at least one zoom bound is explicitly set.
   // When only one side is set, default the other to 0 (min) or 22 (max) — matching the
   // UI's displayed default of 22 for max_zoom (BasemapSublayerEditorScene.tsx:198).
   // Using 24 here would silently extend layers two stops beyond what the UI shows.
@@ -130,7 +130,7 @@ function applyOverrideToLayer(
 
   // OPACITY — multiplexed across layer types per OPACITY_PAINT_KEYS_BY_TYPE.
   // Symbol layers get both text-opacity and icon-opacity set simultaneously.
-  // builder-audit #338 CORR-01: compose the per-sublayer override with the master
+  // Compose the per-sublayer override with the master
   // opacity (override * master) instead of writing the override absolutely.
   // applyBasemapConfigToMap wrote absolute master opacity onto these same keys
   // just before this call; writing override.opacity raw would clobber master,
@@ -149,7 +149,7 @@ function applyOverrideToLayer(
 function safeSetPaint(map: MaplibreMap, layerId: string, key: string, value: unknown): void {
   try {
     if (map.getLayer(layerId)) {
-      // fix(#846): the opacity keys come from OPACITY_PAINT_KEYS_BY_TYPE, looked up by
+      // The opacity keys come from OPACITY_PAINT_KEYS_BY_TYPE, looked up by
       // the basemap layer's runtime `type`, so the key is dynamic and the override
       // value is untyped API JSON — see setDynamicPaintProperty for the full rationale.
       setDynamicPaintProperty(map, layerId, key, value);

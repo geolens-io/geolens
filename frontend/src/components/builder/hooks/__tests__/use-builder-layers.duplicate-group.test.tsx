@@ -1,5 +1,5 @@
 /**
- * fix(#392): focused tests for handleDuplicateRendering. (audit B-004b/LM-02)
+ * Focused tests for handleDuplicateRendering.
  *
  * Duplicating a layer that lives inside a folder group must produce a copy
  * that stays inside that same group, positioned adjacent to the source —
@@ -39,7 +39,7 @@ function renderBuilderLayers(
   const mutate = vi.fn();
   const addLayerMutation = { mutate } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  // 6th positional param bridging into useBuilderSave's Save-diff baseline.
   const saveBaselineSync = vi.fn();
   const saveBaselineSyncRef = { current: { add: saveBaselineSync, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
 
@@ -59,7 +59,7 @@ function renderBuilderLayers(
 describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / LM-02)', () => {
   it('Test 2: duplicating a grouped layer keeps parent_group_id and splices adjacent to the source', () => {
     const before = makeMockLayer({ id: 'before', sort_order: 0 });
-    // fix(#392): 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
+    // 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
     const groupRow = { ...makeMockLayer({ id: 'group-1', sort_order: 1 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const source = {
       ...makeMockLayer({ id: 'src', sort_order: 2 }),
@@ -119,7 +119,7 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
     expect(dupIdx).toBe(srcIdx + 1);
   });
 
-  // fix(#392): a NON-grouped duplicate must also mark the map dirty.
+  // A NON-grouped duplicate must also mark the map dirty.
   // The splice in handleDuplicateRendering's onSuccess renumbers sort_order
   // for the FULL local array unconditionally (adjacent-insert, not append) —
   // this is a real, unpersisted diff regardless of grouping. Before the fix,
@@ -130,7 +130,7 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
   // the just-spliced adjacent placement with server order before Save —
   // reproducing the race the unit test's bare `vi.fn()` mutation mock can't
   // otherwise observe. This test fails on pre-fix code (hasUnsavedChanges
-  // would be false here). (audit CR-01)
+  // would be false here).
   it('Test 3b: duplicating a loose (ungrouped) layer marks hasUnsavedChanges true so the query-invalidation resync cannot revert the adjacent splice (CR-01)', () => {
     const source = makeMockLayer({ id: 'src', sort_order: 0 });
     const other = makeMockLayer({ id: 'other', sort_order: 1 });
@@ -167,7 +167,7 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
     expect(baselineEntry).toEqual({ id: 'dup-3', dataset_id: 'ds-1' });
   });
 
-  // fix(#392): handleDuplicateRendering must also register the pure
+  // handleDuplicateRendering must also register the pure
   // createdLayer into the Save-diff baseline (via saveBaselineSyncRef), not just
   // the refetch-resync baseline (savedLayerBaselineRef) — otherwise Save's
   // buildLayerDiff still sees the duplicate as unknown and PATCHes a second copy.
@@ -189,7 +189,7 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
     expect(saveBaselineSync).toHaveBeenCalledWith({ id: 'dup-4', dataset_id: 'ds-1' });
   });
 
-  // fix(#392): a layer moved out of a group locally, then
+  // A layer moved out of a group locally, then
   // duplicated BEFORE Save, must not carry the stale style_config.builder.
   // folderGroupId to the backend. buildDuplicateRenderingInput copies
   // style_config verbatim from the current in-memory layer, so if
@@ -197,14 +197,14 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
   // (leaving style_config.builder.folderGroupId intact), the duplicate would
   // be persisted with the stale pointer — and the next server resync would
   // silently re-group it via hydrateFolderGroupLayers, which reads
-  // style_config, not parent_group_id. This test fails on pre-fix code. (audit CR-01, second facet)
+  // style_config, not parent_group_id. This test fails on pre-fix code. (second facet)
   it('Test 5: duplicating a layer just moved out of a group does not resurrect the stale folderGroupId in the outgoing style_config', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const childLayer = {
       ...makeMockLayer({
         id: 'src',
         sort_order: 1,
-        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        // Partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
         style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
       }),
       parent_group_id: 'group-1',
@@ -226,14 +226,14 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
     expect(outgoingBuilder?.folderGroupId).toBeUndefined();
   });
 
-  // fix(#392): the multi-select
+  // The multi-select
   // "Ungroup" bulk action (handleBulkUngroup, use-bulk-layer-actions.ts) is a
   // separate code path from handleMoveLayerOutOfGroup/handleUngroup and was
   // NOT touched by the fix that landed for Test 5. It only cleared the
   // frontend-only parent_group_id, leaving style_config.builder.folderGroupId
   // intact — so a layer bulk-ungrouped then duplicated before Save still
   // carries the stale group pointer to the backend. This test fails on
-  // pre-fix code (outgoingBuilder?.folderGroupId would be 'group-1'). (audit CR-01, third facet)
+  // pre-fix code (outgoingBuilder?.folderGroupId would be 'group-1').
   it('Test 6: duplicating a layer just bulk-ungrouped does not resurrect the stale folderGroupId in the outgoing style_config', () => {
     // Only the child is supplied — mounting apiLayers with a persisted
     // style_config.builder.folderGroupId auto-synthesizes the "group-1"
@@ -246,7 +246,7 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
       ...makeMockLayer({
         id: 'src',
         sort_order: 1,
-        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        // Partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
         style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
       }),
       parent_group_id: 'group-1',

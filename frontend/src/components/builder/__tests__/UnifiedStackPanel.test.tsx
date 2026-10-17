@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from '@/test/test-utils';
 import { UnifiedStackPanel, CatalogDragGhost } from '../UnifiedStackPanel';
 import type { MapLayerResponse } from '@/types/api';
-// MAP-16: raw source import for the rAF source-text pin (project pattern from preserve-drawing-buffer.test.ts)
-// builder-audit #338 STACK-03: the rAF-deferred rename focus moved from FolderGroupRow
+// Raw source import for the rAF source-text pin (project pattern from preserve-drawing-buffer.test.ts)
+// The rAF-deferred rename focus moved from FolderGroupRow
 // into the shared useInlineRename hook; the source-text pin below targets the hook.
 import useInlineRenameSrc from '../useInlineRename.ts?raw';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
@@ -29,7 +29,7 @@ vi.mock('@/components/map/layer-icons', () => ({
   ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
     <span data-testid={`type-icon-${layerId}`} />
   ),
-  // fix(#452): StackRow's type icon is now the shared LayerTypeIcon.
+  // StackRow's type icon is now the shared LayerTypeIcon.
   LayerTypeIcon: ({ iconId }: { iconId: string }) => (
     <span data-testid={`type-icon-${iconId}`} />
   ),
@@ -40,7 +40,7 @@ vi.mock('@/components/map/layer-icons', () => ({
 
 // Mock BasemapGroupRow and FolderGroupRow to simple stubs for routing logic tests
 vi.mock('../EmptyStackState', () => ({
-  // AUD-02: export the constant so UnifiedStackPanel can import it from this mock
+  // Export the constant so UnifiedStackPanel can import it from this mock
   eyebrowClassName: 'block text-2xs font-semibold tracking-wide text-muted-foreground uppercase px-1',
   EmptyStackState: ({ onOpenAddData, onAddDataset }: {
     onOpenAddData: (query?: string) => void;
@@ -203,7 +203,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof UnifiedStac
     onCreateGroupWithLayer: vi.fn(),
     onMoveLayerOutOfGroup: vi.fn(),
     existingFolderGroups: [],
-    // Phase 1051 WR-02: bulk handlers are required props on UnifiedStackPanel.
+    // Bulk handlers are required props on UnifiedStackPanel.
     onBulkVisibility: vi.fn(),
     onBulkOpacity: vi.fn(),
     onBulkGroup: vi.fn(),
@@ -242,7 +242,7 @@ describe('UnifiedStackPanel', () => {
     ];
     render(<UnifiedStackPanel {...defaultProps({ layers })} />);
 
-    // Phase 1052: rows no longer have role="option"; query by id pattern.
+    // Rows no longer have role="option"; query by id pattern.
     const rows = Array.from(document.querySelectorAll<HTMLElement>('[id^="stack-row-"]'));
     expect(rows.length).toBeGreaterThanOrEqual(3);
     const ids = rows.map((r) => r.getAttribute('id'));
@@ -266,7 +266,7 @@ describe('UnifiedStackPanel', () => {
     const layers = [makeLayer({ id: 'l1' }), makeLayer({ id: 'l2' })];
     render(<UnifiedStackPanel {...defaultProps({ layers, onSelectLayer })} />);
 
-    // Verify component renders DndContext children (rows). Phase 1052: rows
+    // Verify component renders DndContext children (rows). Rows
     // no longer have role="option"; query by id pattern.
     expect(document.querySelectorAll('[id^="stack-row-"]')).toHaveLength(2);
 
@@ -487,7 +487,7 @@ describe('UnifiedStackPanel — settings cog button', () => {
     expect(onSettingsClick).toHaveBeenCalledOnce();
   });
 
-  // SP-15: BulkActionBar is hidden when the global Settings scene is active.
+  // BulkActionBar is hidden when the global Settings scene is active.
   describe('SP-15 — BulkActionBar gating on isSettingsOpen', () => {
     function selectedBulkProps(extra: Partial<React.ComponentProps<typeof UnifiedStackPanel>> = {}) {
       const layers = [makeLayer({ id: 'l1' }), makeLayer({ id: 'l2' })];
@@ -526,7 +526,7 @@ describe('UnifiedStackPanel — settings cog button', () => {
 });
 
 // =============================================================================
-// Phase 1040 catalog drop — Plan 04 cross-context drag contract
+// Catalog drop — cross-context drag contract
 // =============================================================================
 
 describe('Phase 1040 catalog drop — CatalogDragGhost', () => {
@@ -636,7 +636,7 @@ describe('Phase 1040 catalog drop — onAddDataset wiring', () => {
 });
 
 // =============================================================================
-// MAP-16 — rename-group rAF-deferred focus integration (Phase 1134 Plan 03)
+// Rename-group rAF-deferred focus integration
 //
 // The module-level vi.mock('../FolderGroupRow') stubs FolderGroupRow for routing
 // logic tests above. For this integration block we use vi.importActual to get
@@ -646,7 +646,7 @@ describe('Phase 1040 catalog drop — onAddDataset wiring', () => {
 
 describe('MAP-16 — rename-group rAF-deferred focus integration', () => {
   // Flush a queued requestAnimationFrame callback synchronously in jsdom.
-  // Mirrors the flushRaf helper in FolderGroupRow.test.tsx (BUG-03 describe).
+  // Mirrors the flushRaf helper in FolderGroupRow.test.tsx (describe).
   async function flushRaf() {
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve());
@@ -701,7 +701,7 @@ describe('MAP-16 — rename-group rAF-deferred focus integration', () => {
     const input = (await screen.findByRole('textbox', { name: /Group name/i })) as HTMLInputElement;
 
     // BEFORE rAF flush: input is mounted but focus has NOT been delivered yet.
-    // The rAF deferral is what the BUG-03 fix relies on — see FolderGroupRow.tsx:89-101.
+    // The rAF deferral is what the fix relies on — see FolderGroupRow.tsx:89-101.
     // (autoFocus on the element may land focus immediately in jsdom; the behavioral
     // assertion below covers post-flush state which is the production contract.)
 
@@ -716,11 +716,10 @@ describe('MAP-16 — rename-group rAF-deferred focus integration', () => {
 
   it('rename-group input: rAF wraps the focus call — autoFocus is NOT the sole mechanism (source-text pin)', () => {
     // Defense-in-depth source assertion: catches a regression where someone removes
-    // the requestAnimationFrame wrapper from the editing focus effect. builder-audit
-    // STACK-03 moved this into the shared useInlineRename hook, consumed by both
+    // the requestAnimationFrame wrapper from the editing focus effect. That logic now lives in the shared useInlineRename hook, consumed by both
     // FolderGroupRow and StackRow. The rAF deferral is load-bearing — without it,
     // Radix DropdownMenu's restoreFocus wins the focus race in real browsers and the
-    // rename input never receives focus. Cross-reference: v1011 BUG-03 commit 80bddc14.
+    // rename input never receives focus. Cross-reference: commit 80bddc14.
     //
     // Pattern: Vite ?raw import (see preserve-drawing-buffer.test.ts for precedent).
     const fileSrc = useInlineRenameSrc;

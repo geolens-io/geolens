@@ -1,4 +1,4 @@
-// fix(#1009): the ephemeral preview now has two surfaces — the builder's
+// The ephemeral preview now has two surfaces — the builder's
 // non-persisting stack row (EphemeralPreviewRow) and the badge that covers the
 // surfaces with no layer stack (public viewer, <1100px builder rail). The count
 // sentence is identical on both, so it lives here instead of being copy-pasted
@@ -14,14 +14,14 @@ export interface EphemeralCountInput {
   truncated?: boolean;
   /** Total feature count before truncation. */
   totalCount?: number;
-  /** fix(#727): totalCount was computed against the map's viewport, not the
+  /** totalCount was computed against the map's viewport, not the
    *  whole dataset — see the field of the same name on useEphemeralLayers'
    *  state, which this is threaded from. */
   viewportScoped?: boolean;
 }
 
 /**
- * feat(#1241): why the preview's "Save as dataset…" affordance is disabled.
+ * Why the preview's "Save as dataset…" affordance is disabled.
  * A closed union rather than a free string so the copy stays in the component
  * (and therefore in all five locales) instead of at each call site.
  */
@@ -29,30 +29,30 @@ export type PreviewSaveDisabledReason = 'truncated';
 
 /** What "Save as dataset…" does for the preview currently on screen. */
 type PreviewSaveMode =
-  /** feat(#675): hand off to the Analysis panel, which re-runs the operation
+  /** Hand off to the Analysis panel, which re-runs the operation
    *  server-side. */
   | 'analysis'
-  /** feat(#1241): snapshot the client's FeatureCollection through ingest. */
+  /* Snapshot the client's FeatureCollection through ingest. */
   | 'snapshot'
-  /** feat(#1241): offered but not actionable — see `previewSaveMode`. */
+  /* Offered but not actionable — see `previewSaveMode`. */
   | 'truncated'
   /** Nothing to offer. */
   | 'none';
 
 interface PreviewSaveInput {
-  /** feat(#675): set when an Analysis operation is behind this preview. */
+  /* Set when an Analysis operation is behind this preview. */
   analysis?: unknown;
   /** Whether the server capped the result. */
   truncated?: boolean;
   /** How many features the client actually holds. */
   featureCount: number;
-  /** fix(#793 review): the producer that stamped this preview, when it was not
+  /** The producer that stamped this preview, when it was not
    *  the chat (today only 'analysis-panel'). */
   source?: string;
 }
 
 /**
- * feat(#1241): decide what the preview surfaces offer for "Save as dataset…".
+ * Decide what the preview surfaces offer for "Save as dataset…".
  *
  * The truncation guard applies to the SNAPSHOT path only, and deliberately so:
  * a snapshot persists the client's copy, so saving a capped one would file
@@ -72,7 +72,7 @@ export function previewSaveMode(
 ): PreviewSaveMode {
   if (!result) return 'none';
   if (result.analysis) return 'analysis';
-  // feat(#1241 codex r2): only a preview the CHAT produced is snapshottable.
+  // Only a preview the CHAT produced is snapshottable.
   // A stamped source means another surface drew this overlay and owns its own
   // save (the Analysis panel's Create dataset, which materializes the whole
   // operation server-side); its preview is also bbox-scoped, so snapshotting
@@ -89,7 +89,7 @@ export function previewSaveMode(
 /**
  * The preview's "how many features?" sentence.
  *
- * fix(#1076): three cases, not two. A clip filters rows, so the server cannot
+ * Three cases, not two. A clip filters rows, so the server cannot
  * report a source total for it — the honest answer to "of how many?" is
  * unknown. Falling back to the plain count there presented a capped preview as
  * the complete result, which is #674's concern through a new door.
@@ -102,13 +102,13 @@ export function ephemeralCountLabel(
 ): string {
   if (!truncated) return t('ephemeralBadge.featureCount', { count: featureCount });
   if (totalCount != null) {
-    // fix(#727): a viewport-scoped total is honest about "of WHAT" — without
+    // A viewport-scoped total is honest about "of WHAT" — without
     // naming the extent, "180 of 22,324" reads exactly like the pre-fix
     // capped-in-ingest-order case this issue exists to stop looking like a
     // failed operation, even though the 180 now really is what's on screen
     // AT THE TIME OF THE REQUEST.
     //
-    // fix(#727 codex round 6): "previewed extent", not "in view" — this
+    // "previewed extent", not "in view" — this
     // badge mounts alongside useEphemeralLayers' fitBounds(), which re-fits
     // the map to the RESULT geometry's own bbox (a capped, ingest-ordered
     // sample can be a much smaller extent than the requested viewport), so
@@ -128,7 +128,7 @@ export function ephemeralCountLabel(
     }
     return t('ephemeralBadge.featureCountTruncated', {
       count: featureCount,
-      // fix(#788): both numbers passed raw — the locale strings group them via
+      // Both numbers passed raw — the locale strings group them via
       // {{count, number}}/{{total, number}} (one sentence, one grouping), and
       // count keeps driving plural selection.
       total: totalCount,
@@ -155,7 +155,7 @@ export function ephemeralStatusLabel(t: BuilderTranslator, input: EphemeralCount
 }
 
 /**
- * fix(#784): live regions only announce mutations made while the region is
+ * Live regions only announce mutations made while the region is
  * already in the accessibility tree — both preview surfaces mount WITH their
  * text, so role="status" on the wrapper alone would stay silent. Mount the
  * region empty and populate it a frame later so the preview success (and any

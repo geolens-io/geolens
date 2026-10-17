@@ -29,7 +29,7 @@ interface LayerFilterEditorProps {
   onFilterChange: (expression: FilterSpecification | null) => void;
   layerName?: string | null;
   /**
-   * EASY-18 (Phase 1138-03): rendered-feature count for this layer. When set
+   * Rendered-feature count for this layer. When set
    * to 0 AND `filter` is non-null, the empty-state hint + Clear-filter button
    * are shown. `null` / `undefined` (default) suppresses the hint regardless
    * of filter state.
@@ -45,7 +45,7 @@ interface OperatorDef {
   value: string;
 }
 
-// builder-audit #338 DRY-02: NUMERIC_COMPARISON_OPERATORS now imported from
+// NUMERIC_COMPARISON_OPERATORS now imported from
 // maplibre-filter-utils (the single canonical copy) instead of re-declared here.
 
 // Discriminated union returned by parseFilterExpression
@@ -96,7 +96,7 @@ const OPERATORS_BY_TYPE: Record<ColumnType, OperatorDef[]> = {
   ],
 };
 
-// fix(#527 B-054/F-06, codex P3): boolean operators whose value renders as the
+// Boolean operators whose value renders as the
 // true/false select — a free-text input would coerce anything but "true" to
 // false and silently save e.g. `active != false`.
 const BOOLEAN_VALUE_OPERATORS = new Set(['==', '!=']);
@@ -130,7 +130,7 @@ export function buildFilterExpression(
     // Reject non-numeric values for numeric columns
     const col = columnInfo.find((ci) => ci.name === c.field);
     const isNumeric = !!col && classifyColumnType(col.type) === 'number';
-    // fix(#394) FL-03: list operators validate PER ENTRY — the whole-string
+    // List operators validate PER ENTRY — the whole-string
     // NaN check below would reject every numeric list ("1,2" → Number NaN);
     // the condition stays valid while at least one entry is numeric, and the
     // emit branch drops the non-numeric entries.
@@ -158,14 +158,14 @@ export function buildFilterExpression(
       expressions.push(['has', cond.field]);
     } else if (cond.operator === 'in_list' || cond.operator === 'not_in_list') {
       const values = String(cond.value).split(',').map(v => v.trim()).filter(Boolean);
-      // fix(#394) FL-03: per-entry NaN guard for numeric columns — coerceValue
+      // Per-entry NaN guard for numeric columns — coerceValue
       // leaves non-numeric entries as strings, so "1,abc,3" silently emitted a
       // mixed-type literal. Drop the entries that don't coerce instead.
       const numericColumn = classifyColumnType(pgType) === 'number';
       const coerced = values
         .map(v => coerceValue(v, pgType))
         .filter(v => !numericColumn || typeof v === 'number');
-      // fix(#527 B-054/F-05): a list of only separators (",, ,") coerces to
+      // A list of only separators (",,,") coerces to
       // an empty literal — an always-false filter that silently hides every
       // feature. Drop the condition instead.
       if (coerced.length === 0) continue;
@@ -195,7 +195,7 @@ export function buildFilterExpression(
 }
 
 export function parseFilterExpression(expr: FilterSpecification | null): ParseResult {
-  // builder-audit #338 DRY-01/FILT-01/FILT-02: delegate all filter recognition to the
+  // Delegate all filter recognition to the
   // single canonical parser in maplibre-filter-utils so the structured editor and
   // ActiveFilterChips cannot drift again. We only re-attach editor-local row ids.
   const canonical = parseCanonicalFilter(expr);
@@ -256,7 +256,7 @@ export function LayerFilterEditor({
     return col ? classifyColumnType(col.type) : 'other';
   }
 
-  // Phase 20260526-builder-audit #338 BLD-20260526-11: cleanup debounce timer on unmount.
+  // Cleanup debounce timer on unmount.
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -264,7 +264,7 @@ export function LayerFilterEditor({
   }, []);
 
   function emitChange(updated: FilterCondition[], combo: 'all' | 'any' = combinator) {
-    // fix(#524 B-033): cancel any pending debounced value emit — a stale 200ms
+    // Cancel any pending debounced value emit — a stale 200ms
     // timer firing after this immediate emit would rebuild the filter from
     // captured (pre-change) conditions/combinator, silently overwrite the newer
     // filter, and set lastEmittedFilterRef to the stale value so the prop-sync
@@ -279,7 +279,7 @@ export function LayerFilterEditor({
     onFilterChange(newFilter);
   }
 
-  // Phase 20260526-builder-audit #338 BLD-20260526-11: debounced version for value input keystrokes.
+  // Debounced version for value input keystrokes.
   const debouncedEmit = useCallback(
     (updated: FilterCondition[], combo: 'all' | 'any') => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -340,7 +340,7 @@ export function LayerFilterEditor({
 
   function handleCombinatorChange(value: string) {
     const combo = value as 'all' | 'any';
-    // fix(#524 B-033): same stale-timer cancellation as emitChange — an All↔Any
+    // Same stale-timer cancellation as emitChange — an All↔Any
     // toggle within the debounce window must not be clobbered by the pending
     // value emit (which captured the previous combinator).
     if (debounceTimerRef.current) {
@@ -381,7 +381,7 @@ export function LayerFilterEditor({
       return;
     }
 
-    // builder-audit #338 P1-04: validate + normalize against the shared filter grammar
+    // Validate + normalize against the shared filter grammar
     // (mirrors backend validate_filter) so invalid arity / unsupported legacy
     // forms are rejected here instead of being saved and surfacing late as a
     // MapLibre setFilter error. Opaque-but-valid filters are preserved verbatim.
@@ -397,7 +397,7 @@ export function LayerFilterEditor({
       return;
     }
 
-    // EDIT-03: null / empty-array both clear the filter (validateRawFilter maps []
+    // Null / empty-array both clear the filter (validateRawFilter maps []
     // to null) so map.setFilter(id, []) can never be reached. Reset editor state.
     if (normalized === null) {
       lastEmittedFilterRef.current = null;
@@ -419,13 +419,13 @@ export function LayerFilterEditor({
     setRawError(null);
   }
 
-  // EASY-18: show empty-state hint when a filter is set but no features rendered.
+  // Show empty-state hint when a filter is set but no features rendered.
   const showEmptyState = filter != null && featureCount === 0;
 
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
-      {/* EASY-18: empty-state hint — shown when filter is active but 0 features rendered.
-          fix(#394) FL-02: the count is VIEWPORT-scoped (queryRenderedFeatures), so
+      {/* Empty-state hint — shown when filter is active but 0 features rendered.
+          The count is VIEWPORT-scoped (queryRenderedFeatures), so
           the copy says "in view" — matches may exist off-screen and "eliminated
           every feature" was a false alarm in that case. */}
       {showEmptyState && (

@@ -14,12 +14,12 @@ import { cn } from '@/lib/utils';
  *
  * Consumed by `RasterLayerControls`, the editor LayerEditorPanel mounts for
  * raster/vrt layers. (It previously also backed LayerStyleEditor/RasterEditor,
- * which fix(#915) deleted as unreachable.)
+ * which was deleted as unreachable.)
  *
  * Gate-split:
- *  - STRETCH:  visible for any numeric band_count >= 1 (single AND multi-band) — RASTER-STRETCH-03
- *  - COLORMAP: single-band only (band_count === 1) — RASTER-STRETCH-UI / v1031
- *  - HINT:     single-band only, when stretch != minmax AND colormap != gray — RASTER-STRETCH-UI-02
+ *  - STRETCH: visible for any numeric band_count >= 1 (single AND multi-band)
+ *  - COLORMAP: single-band only (band_count === 1)
+ *  - HINT: single-band only, when stretch != minmax AND colormap != gray
  *
  * `_colormap` / `_stretch` / `_pmin` / `_pmax` / `_sigma` are builder-private paint keys.
  * They mutate the tile URL via buildColormapTileUrl (layer-description.ts) and never reach
@@ -47,7 +47,7 @@ export function RasterStretchControls({
   isDem = false,
   t,
 }: RasterStretchControlsProps) {
-  // fix(#438): BLD-03 — the inputs used to reject any keystroke that crossed the
+  // The inputs used to reject any keystroke that crossed the
   // sibling bound mid-typing (e.g. clearing pmin to type a new value, or typing
   // a high pmax digit-by-digit), so the field appeared frozen. Now the user
   // types freely into a draft and the value is clamped once, on blur.
@@ -101,7 +101,7 @@ export function RasterStretchControls({
               <span className="w-28 shrink-0 text-xs text-muted-foreground">
                 {t('style.raster.colormapLabel', { defaultValue: 'Colormap' })}
               </span>
-              {/* builder-audit #338 DUP-03: these 8 colormap values are hand-mirrored against the
+              {/* These 8 colormap values are hand-mirrored against the
                   backend validator _ALLOWED_COLORMAPS (backend/app/processing/tiles/router.py:459-461),
                   which 422s anything not in that frozenset. There is no codegen guard — adding or
                   renaming a colormap on either side must be mirrored here (and vice-versa). */}
@@ -125,7 +125,7 @@ export function RasterStretchControls({
 
           {/* Stretch select row — minmax / percentile (p2–p98) / stddev (mean±2σ).
               percentile and stddev compute a stats-based rescale via the raster-proxy →
-              Titiler /cog/statistics. Visible for all band_count >= 1 (RASTER-STRETCH-03). */}
+              Titiler /cog/statistics. Visible for all band_count >= 1. */}
           <div className="flex items-center gap-2">
             <span className="w-28 shrink-0 text-xs text-muted-foreground">
               {t('style.raster.stretchLabel', { defaultValue: 'Stretch' })}
@@ -142,7 +142,7 @@ export function RasterStretchControls({
             </Select>
           </div>
 
-          {/* Percentile bounds (RASTER-STRETCH-UI-01) — pmin/pmax inputs */}
+          {/* Percentile bounds — pmin/pmax inputs */}
           {currentStretch === 'percentile' && (
             <div className="flex gap-2">
               <div className="flex-1 flex flex-col gap-1">
@@ -176,7 +176,7 @@ export function RasterStretchControls({
             </div>
           )}
 
-          {/* Sigma segmented control (RASTER-STRETCH-UI-01) — 1/2/3 */}
+          {/* Sigma segmented control — 1/2/3 */}
           {currentStretch === 'stddev' && (
             <div className="flex items-center gap-2">
               <Label className="w-28 shrink-0 text-xs text-muted-foreground">
@@ -203,7 +203,7 @@ export function RasterStretchControls({
             </div>
           )}
 
-          {/* Stretch↔colormap hint (RASTER-STRETCH-UI-02) — single-band only,
+          {/* Stretch↔colormap hint — single-band only,
               shown when stretch is not minmax AND colormap is not gray */}
           {isSingleBand && currentStretch !== 'minmax' && currentColormap !== 'gray' && (
             <p role="note" className="text-mini leading-snug text-muted-foreground">

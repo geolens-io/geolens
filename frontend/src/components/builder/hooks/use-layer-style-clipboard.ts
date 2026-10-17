@@ -16,7 +16,7 @@ type StyleConfigChangeHandler = (
   paint: Record<string, unknown>,
 ) => void;
 
-// STATE-02: per-row style clipboard (copy / paste) cluster, relocated verbatim
+// Per-row style clipboard (copy / paste) cluster, relocated verbatim
 // out of the useBuilderLayers god-hook. PURE RELOCATION — handler bodies are
 // unchanged. The hook OWNS the session clipboard ref + geometry-class mirror and
 // exposes copiedStyleRef so the bulk apply-style handler can read the same
@@ -32,14 +32,14 @@ export function useLayerStyleClipboard({
 }: UseLayerStyleClipboardParams) {
   const { t } = useTranslation('builder');
 
-  // ENH-02/ENH-03 (Phase 1201-01): session-local style clipboard. The ref holds
+  // Session-local style clipboard. The ref holds
   // the last-copied geometry-compatible style snapshot; the state mirror exposes
   // its geometry class so the kebab "Paste style" item can enable/disable per-row
   // without invalidating the stable copy/paste callbacks on every copy.
   const copiedStyleRef = useRef<CopiedStyle | null>(null);
   const [copiedStyleGeometryClass, setCopiedStyleGeometryClass] = useState<GeometryStyleClass | null>(null);
 
-  // ENH-02 (Phase 1201-01): copy a layer's geometry-compatible style into the
+  // Copy a layer's geometry-compatible style into the
   // session clipboard. Pure extraction via the clipboard helper; the geometry
   // class is mirrored into state so the UI can enable "Paste style" per-row.
   const handleCopyStyle = useCallback((layerId: string) => {
@@ -51,7 +51,7 @@ export function useLayerStyleClipboard({
     toast.success(t('toasts.styleCopied'));
   }, [layersRef, t]);
 
-  // ENH-02 (Phase 1201-01): paste the clipboard style onto a geometry-compatible
+  // Paste the clipboard style onto a geometry-compatible
   // target. Routes through handleStyleConfigChange — the SAME atomic
   // single-setLocalLayers write path used for every style mutation — so paint +
   // style_config land in ONE render (never field-by-field, per the

@@ -165,7 +165,7 @@ function defaultProps(
 }
 
 describe('DEMEditorScene', () => {
-  // fix(HT-01): hillshade overlay and 3D terrain are independent switches, not
+  // Hillshade overlay and 3D terrain are independent switches, not
   // an exclusive radio. Both can be active on one DEM at once.
   it('renders independent Hillshade shading and Use as 3D terrain switches', () => {
     render(<DEMEditorScene {...defaultProps()} />);
@@ -175,7 +175,7 @@ describe('DEMEditorScene', () => {
     expect(screen.getByRole('switch', { name: 'Use as 3D terrain' })).toBeInTheDocument();
   });
 
-  // fix(HT-01): the overlay switch reflects render_mode; the terrain switch
+  // The overlay switch reflects render_mode; the terrain switch
   // reflects isTerrainBound — independently.
   it('overlay switch reflects render_mode and terrain switch reflects isTerrainBound', () => {
     // No render_mode → overlay on; not bound → terrain off
@@ -208,7 +208,7 @@ describe('DEMEditorScene', () => {
     expect(screen.getByRole('switch', { name: 'Use as 3D terrain' })).toBeChecked();
   });
 
-  // fix(HT-02): toggling the overlay writes ONLY render_mode — it never
+  // Toggling the overlay writes ONLY render_mode — it never
   // binds/unbinds terrain, so an overlay round trip can't drop the mesh.
   it('toggling the hillshade overlay off writes render_mode=terrain without touching terrain binding', () => {
     const onStyleConfigChange = vi.fn();
@@ -232,7 +232,7 @@ describe('DEMEditorScene', () => {
     expect(onTerrainUnbind).not.toHaveBeenCalled();
   });
 
-  // fix(HT-02): the terrain switch binds/unbinds ONLY terrain — it never
+  // The terrain switch binds/unbinds ONLY terrain — it never
   // rewrites render_mode, so the overlay survives a terrain round trip.
   it('the terrain switch binds and unbinds terrain without touching render_mode', () => {
     const onTerrainBind = vi.fn();
@@ -413,7 +413,7 @@ describe('DEMEditorScene', () => {
     );
   });
 
-  // builder-audit #338 CONSIST-01: the accent swatch default must match the adapter's
+  // The accent swatch default must match the adapter's
   // HILLSHADE_PAINT_DEFAULTS (black #000000) — the value buildHillshadePaint renders —
   // not the prior divergent brown literal that lied about the rendered default.
   it('shows the adapter hillshade defaults (black accent) on an untouched DEM', () => {
@@ -521,7 +521,7 @@ describe('DEMEditorScene', () => {
     expect(deleteBtn).toBeInTheDocument();
   });
 
-  // fix(#833): the inline confirm owns focus (autofocused Cancel) —
+  // The inline confirm owns focus (autofocused Cancel) —
   // cancelling must hand focus back to the Delete-layer trigger instead of
   // dropping it on <body>. (Confirm removes the whole scene, so there is no
   // surviving trigger on that path.)
@@ -535,11 +535,10 @@ describe('DEMEditorScene', () => {
     await waitFor(() => expect(deleteBtn).toHaveFocus());
   });
 
-  // --- CONTOUR LINES section: REMOVED in v1032 (CONTOUR-02 cut) ---
+  // --- CONTOUR LINES section: REMOVED ---
   // maplibre-contour@0.1.0 is incompatible with maplibre-gl 5.x: its dem1-contour://
   // custom-protocol tile URLs are not routed by the v5 source loader → resolved as
-  // relative HTTP → malformed Request → 28 errors/enable (see
-  // .planning/audits/CONTOUR-WORKER-v1032.md). The control, contour-sync.ts, and the dep
+  // relative HTTP → malformed Request → 28 errors/enable. The control, contour-sync.ts, and the dep
   // were removed. The assertions below are the permanent regression pins that the contour
   // section never renders in any DEM render mode.
 
@@ -561,7 +560,7 @@ describe('DEMEditorScene', () => {
           })}
         />,
       );
-      // Contour cut in v1032: section must NOT appear in the DOM
+      // Contour removed: section must NOT appear in the DOM
       expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
     });
 
@@ -573,13 +572,13 @@ describe('DEMEditorScene', () => {
           })}
         />,
       );
-      // Contour cut in v1032: section must NOT appear in the DOM
+      // Contour removed: section must NOT appear in the DOM
       expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
     });
 
   });
 
-  // --- HYPSOMETRIC TINT section tests (EDITOR-DEM-05) ---
+  // --- HYPSOMETRIC TINT section tests ---
 
   describe('HYPSOMETRIC TINT section', () => {
     it('section is present in legacy image mode after hillshade fallback', () => {
@@ -767,7 +766,7 @@ describe('DEMEditorScene', () => {
       expect(screen.getByTestId('color-ramp-picker')).toHaveAttribute('data-reversed', 'true');
     });
 
-    // builder-audit #338 MAINT-01: the 0–4000 m, meters-only limitation is surfaced in-product
+    // The 0–4000 m, meters-only limitation is surfaced in-product
     // alongside the ramp picker (only when the tint is enabled).
     it('surfaces the 0–4000 m meters-only limitation note when the tint is enabled', () => {
       const { rerender } = render(
@@ -794,7 +793,7 @@ describe('DEMEditorScene', () => {
     });
   });
 
-  // fix(HT-01/02): the Matterhorn hybrid state — hillshade overlay ON and 3D
+  // The Matterhorn hybrid state — hillshade overlay ON and 3D
   // terrain bound on the SAME DEM — is representable truthfully, and a terrain
   // off→on round trip neither touches the overlay nor loses information.
   describe('hybrid hillshade + terrain state (Matterhorn regression)', () => {
@@ -843,7 +842,7 @@ describe('DEMEditorScene', () => {
     });
   });
 
-  // fix(HT-05): the old "source conflict" advisory note is gone — the hillshade
+  // The old "source conflict" advisory note is gone — the hillshade
   // overlay and 3D mesh coexist on one DEM, so there is nothing to warn about.
   it('never renders a terrain-bound source-conflict advisory note', () => {
     render(
@@ -858,7 +857,7 @@ describe('DEMEditorScene', () => {
     expect(screen.queryByText(/also powers the map's 3D terrain/i)).not.toBeInTheDocument();
   });
 
-  // fix(HT-02): toggling the overlay off preserves unrelated style_config keys.
+  // Toggling the overlay off preserves unrelated style_config keys.
   it('toggling the overlay off preserves other style_config keys', () => {
     const onStyleConfigChange = vi.fn();
     const layer = makeDEMLayer({

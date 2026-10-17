@@ -1,5 +1,5 @@
 /**
- * Phase 1045 SP-04 — selection-utils tests
+ * Selection-utils tests
  *
  * Pure-function unit tests for `computeNextSelection`. No React, no DOM.
  */
@@ -101,7 +101,7 @@ describe('computeNextSelection — shift click (range-select)', () => {
   });
 });
 
-// fix(#771): selectableRowIds must mirror the RENDERED row set — children of
+// selectableRowIds must mirror the RENDERED row set — children of
 // collapsed groups and rows hidden by the layer search are not selectable, so
 // a shift-click range can never act on rows the user cannot see.
 describe('computeSelectableRowIds', () => {

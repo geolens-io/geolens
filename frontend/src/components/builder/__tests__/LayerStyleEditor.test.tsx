@@ -114,7 +114,7 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     expect(screen.getByText('Reflects this layer before save')).toBeInTheDocument();
   });
 
-  // fix(#461): the banner action ("Revert") restores the
+  // The banner action ("Revert") restores the
   // server baseline; the section-header action ("Reset") clears to library
   // defaults. They are now distinct handlers, so assert each separately.
   it('banner Revert restores the saved baseline paint/layout/opacity (not defaults)', async () => {
@@ -149,10 +149,10 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     expect(screen.getByText('Pending style preview')).toBeInTheDocument();
 
     // Restores the exact saved paint (not FILL_DEFAULTS), saved layout, saved opacity.
-    // fix(#461, codex P2): passes { replace: true } so the saved config is restored
+    // Passes { replace: true } so the saved config is restored
     // verbatim — the builder-merge must not strand a discarded builder-only edit.
-    // fix(#910, codex P2): and `restore: true`, which opts the commit boundary out of
-    // the EDIT-05 normalization. A baseline that holds both fill keys (reachable via
+    // And `restore: true`, which opts the commit boundary out of
+    // the normalization. A baseline that holds both fill keys (reachable via
     // Advanced JSON) would otherwise come back normalized, and since the dirty check
     // diffs against that same baseline the layer could never return to clean.
     await user.click(screen.getByRole('button', { name: 'Revert' }));
@@ -188,7 +188,7 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     expect(onStyleConfigChange).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Reset style' }));
-    // fix(#910, codex P2): `replace` so Reset cannot leave the pattern colour stash
+    // `replace` so Reset cannot leave the pattern colour stash
     // behind — the funnel's null-config branch would otherwise preserve the builder
     // block wholesale. With no other builder fields the config is still null.
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
@@ -215,7 +215,7 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     await user.click(screen.getByRole('button', { name: 'Keep style' }));
     expect(onStyleConfigChange).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Reset style' })).toBeNull();
-    // fix(#833): the confirm owned focus (autofocused Cancel) — dismissing it
+    // The confirm owned focus (autofocused Cancel) — dismissing it
     // hands focus back to the Reset trigger instead of dropping to <body>.
     expect(screen.getByRole('button', { name: 'Reset' })).toHaveFocus();
   });
@@ -367,7 +367,7 @@ describe('LayerStyleEditor - B-010 Advanced JSON strips builder-private keys', (
     expect(textarea.value).not.toContain('_height_column');
   });
 
-  // fix(#770): Apply replaces the block wholesale while the textarea shows the
+  // Apply replaces the block wholesale while the textarea shows the
   // stripped copy — the onApply wrappers must re-merge the `_`-prefixed private
   // keys, or an edit-free open→Apply of the Layout block resets the layer's
   // zoom range (layout _minzoom/_maxzoom is the zoom sliders' only storage).
@@ -714,8 +714,8 @@ describe('LayerStyleEditor - line paint controls', () => {
       />,
     );
 
-    // Phase 256 introduces first-class gradient authoring on line layers
-    // (replaces the Phase 247 deferral where gradients were JSON-only).
+    // Introduces first-class gradient authoring on line layers
+    // (replaces the deferral where gradients were JSON-only).
     expect(screen.getByRole('button', { name: 'Gradient' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Solid color' })).toBeInTheDocument();
   });
@@ -1040,7 +1040,7 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
       />,
     );
 
-    // POLISH-01: the redundant dropdown was removed; LayerStyleEditor no longer
+    // The redundant dropdown was removed; LayerStyleEditor no longer
     // renders a "Render as" section heading for point layers.
     expect(screen.queryByText('Render as')).not.toBeInTheDocument();
   });
@@ -1118,7 +1118,7 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
     );
 
     // Symbol rendering is separate from label_config-backed feature labels.
-    // POLISH-01: the render-as dropdown is removed; "Symbol appearance" section heading is
+    // The render-as dropdown is removed; "Symbol appearance" section heading is
     // the canonical signal that the symbol editor is rendered.
     expect(screen.getByText('Symbol appearance')).toBeInTheDocument();
     expect(screen.getByLabelText('Icon')).toHaveValue('marker');
@@ -1174,7 +1174,7 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
     }), { 'circle-color': '#ff0000', 'circle-radius': 5 });
   });
 
-  // ux(#839): counts are opt-out via clusterShowCounts, independent of Labels.
+  // Counts are opt-out via clusterShowCounts, independent of Labels.
   it('toggles cluster count labels off and hides the count controls', () => {
     const onStyleConfigChange = vi.fn();
     const clusterLayer = (builder: Record<string, unknown>) => makeLayer({
@@ -1263,7 +1263,7 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
       />,
     );
 
-    // POLISH-01: render-as dropdown removed; weight column is now the first (and only) combobox
+    // Render-as dropdown removed; weight column is now the first (and only) combobox
     const [weightSelect] = screen.getAllByRole('combobox');
     await user.click(weightSelect);
     await user.click(screen.getByRole('option', { name: 'count' }));
@@ -1426,7 +1426,7 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// PB-02 / PERF-04: Master opacity slider debounce (100ms)
+// Master opacity slider debounce (100ms)
 // ---------------------------------------------------------------------------
 describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
   beforeEach(() => {
@@ -1520,7 +1520,7 @@ describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// EDIT-02: Always-visible vector Reset button in appearance section header
+// Always-visible vector Reset button in appearance section header
 // ---------------------------------------------------------------------------
 describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance section', () => {
   it('Reset button is present in the appearance section even when the layer is NOT dirty (no savedLayer)', () => {
@@ -1564,7 +1564,7 @@ describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance sectio
     // Reset now confirms first — apply via the inline confirm's "Reset style".
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     await user.click(screen.getByRole('button', { name: 'Reset style' }));
-    // fix(#910, codex P2): `replace` so Reset cannot leave the pattern colour stash
+    // `replace` so Reset cannot leave the pattern colour stash
     // behind — the funnel's null-config branch would otherwise preserve the builder
     // block wholesale. With no other builder fields the config is still null.
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
@@ -1576,10 +1576,10 @@ describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance sectio
 });
 
 // ---------------------------------------------------------------------------
-// EDIT-05: fill-color / fill-pattern mutual exclusion via handleFillPatternChange
+// Fill-color / fill-pattern mutual exclusion via handleFillPatternChange
 // ---------------------------------------------------------------------------
 describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusion', () => {
-  // fix(#910): the handler now stashes the solid color in style_config.builder,
+  // The handler now stashes the solid color in style_config.builder,
   // so it emits through onStyleConfigChange (config, paint) rather than
   // onPaintChange. The both-keys-never invariant is asserted on that paint.
   function lastStyleConfigCall(fn: ReturnType<typeof vi.fn>) {
@@ -1645,7 +1645,7 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(typeof paint['fill-color']).toBe('string');
   });
 
-  // fix(#910): the acceptance case that fails if either alias table is missed —
+  // The acceptance case that fails if either alias table is missed —
   // the stash arrives from style_config (i.e. the save-and-reload path), not
   // from this session's paint.
   it('restores a stashed fillColorSaved on None and clears the stash', () => {
@@ -1670,7 +1670,7 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(paint['fill-color']).toBe('#ff0000');
     expect('fill-pattern' in paint).toBe(false);
     expect(config?.builder?.fillColorSaved).toBeUndefined();
-    // fix(#910, codex P2): with fillColorSaved the only builder field, the emitted
+    // With fillColorSaved the only builder field, the emitted
     // config collapses to null — and a null config means "keep the existing builder"
     // in handleStyleConfigChange, which would resurrect the stash. `replace` is what
     // makes the clear stick; the funnel side is pinned in use-layer-map-sync.test.ts.
@@ -1678,9 +1678,9 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(opts?.replace).toBe(true);
   });
 
-  // fix(#910, codex P2): pattern-to-pattern finds no fill-color to stash, so the
+  // Pattern-to-pattern finds no fill-color to stash, so the
   // handler must carry the existing stash forward instead of dropping it.
-  // fix(#910, codex P2): Reset must drop the stash. A layer with other builder
+  // Reset must drop the stash. A layer with other builder
   // fields keeps them, so the config is not null and `replace` is what makes the
   // removal stick through the funnel.
   it('drops the stash on Reset while keeping the rest of the builder', async () => {
@@ -1709,7 +1709,7 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(opts?.replace).toBe(true);
   });
 
-  // fix(#910, codex P1): Reset destroys the classification and the render mode. An
+  // Reset destroys the classification and the render mode. An
   // earlier attempt at the stash clear rebuilt the config from the WHOLE style_config,
   // which `replace` then persisted verbatim — mode, column and render_mode survived a
   // Reset. The reset config is builder-only for exactly that reason.
@@ -1750,7 +1750,7 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(config?.builder?.fillColorSaved).toBeUndefined();
   });
 
-  // fix(#910, codex P2): the delete is what destroyed classifications. It must never
+  // The delete is what destroyed classifications. It must never
   // touch an expression — only a solid colour is stashable, and only a solid colour
   // is safe to remove. Reachable without a classification: Advanced JSON can write an
   // expression into fill-color with no style_config mode, and the picker is live there.
@@ -1779,7 +1779,7 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(config?.builder?.fillColorSaved).toBeUndefined();
   });
 
-  // fix(#910, codex P2): the stash is declared `string` but arrives from an open
+  // The stash is declared `string` but arrives from an open
   // `style_config`, so an API-authored layer can hold junk. Restoring that on None
   // would paint a colour MapLibre rejects.
   it('falls back to the default colour when the stash is not a usable colour', () => {
@@ -1805,7 +1805,7 @@ describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusio
     expect(typeof paint['fill-color']).toBe('string');
   });
 
-  // fix(#910, codex P2): None only removes the pattern when an expression is already
+  // None only removes the pattern when an expression is already
   // painting the fill — no solid colour is installed over it, because deleting an
   // expression is unrecoverable. Whether the CLASSIFICATION survives is decided at the
   // commit boundary off the resolved paint, not here: see the reconciliation tests in
@@ -1894,7 +1894,7 @@ describe('LayerStyleEditor — POLISH-01 single render-as control', () => {
   });
 });
 
-// fix(#916 review): symbol mode keeps circle paint on the layer and the switch
+// Symbol mode keeps circle paint on the layer and the switch
 // back to Point restores style_config.savedCirclePaint — so an Advanced JSON
 // paint edit must update that saved copy too, or it is silently discarded.
 describe('LayerStyleEditor - symbol-mode advanced paint edits', () => {

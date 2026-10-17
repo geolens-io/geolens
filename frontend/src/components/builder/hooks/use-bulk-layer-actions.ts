@@ -31,7 +31,7 @@ import {
 import { randomId } from '@/lib/random-id';
 
 /**
- * Bulk apply-style under the EDIT-05 fill exclusions, since bulk apply reaches neither
+ * Bulk apply-style under the fill exclusions, since bulk apply reaches neither
  * `handleStyleConfigChange` nor `handlePasteStyle`. It also stashes the displaced colour
  * and drops a classification the resolved paint no longer backs.
  */
@@ -58,7 +58,7 @@ function applyStyleExcludingFillCollisions(
   };
 }
 
-// STATE-02: bulk-operation handlers (apply-style / visibility / opacity / group /
+// Bulk-operation handlers (apply-style / visibility / opacity / group /
 // ungroup / delete), relocated verbatim out of the useBuilderLayers god-hook.
 // PURE RELOCATION — handler bodies are unchanged; shared state (layersRef +
 // setters + clipboard ref) is threaded in as params. Visibility, opacity, group,
@@ -76,7 +76,7 @@ interface UseBulkLayerActionsParams {
   localTerrainConfig: MapTerrainConfig | null;
   setLocalTerrainConfig: React.Dispatch<React.SetStateAction<MapTerrainConfig | null>>;
   savedLayerBaselineRef: React.MutableRefObject<MapLayerResponse[]>;
-  /** fix(#1778): the save-diff baseline bridge; its `remove` half is called
+  /** The save-diff baseline bridge; its `remove` half is called
    *  alongside the savedLayerBaselineRef prune below. */
   saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>;
   copiedStyleRef: React.RefObject<CopiedStyle | null>;
@@ -151,7 +151,7 @@ export function useBulkLayerActions({
   const { t } = useTranslation('builder');
   const queryClient = useQueryClient();
 
-  // Phase 1047-04 (PERF-03): tracks in-flight bulk-delete to gate BulkActionBar spinner
+  // Tracks in-flight bulk-delete to gate BulkActionBar spinner
   const [isDeleting, setIsDeleting] = useState(false);
   // fix(v1.6.0 audit A5): batch size captured synchronously in handleBulkDelete
   // BEFORE the optimistic removal commits. Once that removal lands, the bar's
@@ -159,7 +159,7 @@ export function useBulkLayerActions({
   // this count instead ("Deleting 0 layers…" regression).
   const [deletingCount, setDeletingCount] = useState(0);
 
-  // ENH-03 (Phase 1201-01): apply one source style to every OTHER compatible
+  // Apply one source style to every OTHER compatible
   // selected layer in a SINGLE setLocalLayers pass (no per-field clobber).
   // Source = the copied style if present, else the lowest-sort_order selected
   // layer. Incompatible-geometry targets are skipped and surfaced via a count
@@ -253,14 +253,14 @@ export function useBulkLayerActions({
     }
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef]);
 
-  // fix(#392): returns true only when a group was actually created, so the
+  // Returns true only when a group was actually created, so the
   // caller (MapBuilderPage) can clear the multi-selection ONLY on success — a
-  // no-op must never silently eat the user's selection. (audit B-004d/LM-04)
+  // no-op must never silently eat the user's selection.
   const handleBulkGroup = useCallback((selectedIds: Set<string>): boolean => {
     const current = layersRef.current;
     const selectedLayers = current.filter((l) => selectedIds.has(l.id));
     // Defense-in-depth: all selected must be loose layers (not already
-    // grouped, not group rows themselves). fix(#585): the extra
+    // grouped, not group rows themselves). The extra
     // vector_dataset requirement disagreed with StackRow's "Add to group…"
     // and drag-and-drop membership, both of which accept raster/DEM rows.
     const groupableLayers = selectedLayers.filter((l) =>
@@ -268,12 +268,12 @@ export function useBulkLayerActions({
       (l as GroupedLayer).layer_type !== 'group:folder',
     );
 
-    // fix(#392): surface WHY the group action no-op'd instead
-    // of returning silently while the caller clears the selection anyway. (audit B-004d/LM-04)
+    // Surface WHY the group action no-op'd instead
+    // of returning silently while the caller clears the selection anyway.
     if (groupableLayers.length !== selectedLayers.length) {
-      // fix(#392): pick the message that matches the actual reason — a group
+      // Pick the message that matches the actual reason — a group
       // row in the selection is the most distinct mistake, otherwise
-      // "already grouped". (audit WR-01)
+      // "already grouped".
       const hasGroupRow = selectedLayers.some(
         (l) => (l as GroupedLayer).layer_type === 'group:folder',
       );
@@ -308,7 +308,7 @@ export function useBulkLayerActions({
     };
 
     setLocalLayers((prev) => {
-      // fix(#525 B-040): compact the selected block adjacent to the group row.
+      // Compact the selected block adjacent to the group row.
       // Stamping parent_group_id in place stranded any non-selected layer that
       // sat between selected ones below the group — stack order and map draw
       // order diverged for it, persistently (not self-healed by save+reload).
@@ -346,11 +346,11 @@ export function useBulkLayerActions({
         .map((l) => {
           const gl = l as GroupedLayer;
           if (gl.parent_group_id && selectedIds.has(gl.parent_group_id)) {
-            // fix(#392): clear the persisted folderGroupId alongside the
+            // Clear the persisted folderGroupId alongside the
             // frontend-only parent_group_id — mirrors handleUngroup /
             // handleMoveLayerOutOfGroup (use-folder-group-layers.ts), otherwise a
             // child duplicated before Save carries the stale group pointer and
-            // gets silently re-grouped on the next server resync. (audit CR-01)
+            // gets silently re-grouped on the next server resync.
             return {
               ...gl,
               parent_group_id: null,
@@ -379,7 +379,7 @@ export function useBulkLayerActions({
       return true;
     });
     if (idsToDelete.length === 0) {
-      // fix(#771): a selection of only group rows used to no-op silently — the
+      // A selection of only group rows used to no-op silently — the
       // bar promised "Delete N layers", nothing happened, no toast, selection
       // preserved. Say why nothing was deletable.
       toast.info(t('toasts.bulkDeleteOnlyGroupRows'));
@@ -390,8 +390,8 @@ export function useBulkLayerActions({
     setExpandedLayerId((prev) => (prev && selectedIds.has(prev) ? null : prev));
 
     // Optimistic update — remove only layers actually sent to the backend (idsToDelete),
-    // not the full selectedIds which may include frontend-only group folder rows (WR-04).
-    // fix(#767): deleting every child of a folder group also prunes the now-empty
+    // not the full selectedIds which may include frontend-only group folder rows.
+    // Deleting every child of a folder group also prunes the now-empty
     // group row — it has no persisted carrier and would vanish on save+reload anyway.
     const idsToDeleteSet = new Set(idsToDelete);
     setLocalLayers((prev) =>
@@ -399,10 +399,10 @@ export function useBulkLayerActions({
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
-    // Phase 999.17 Fix 2 (D-05/A2): if the batch removes the last DEM layer
+    // If the batch removes the last DEM layer
     // backing active 3D terrain, auto-clear terrain_config + non-blocking toast.
     // Keyed on dataset identity so unrelated DEM/vector deletes leave it intact.
-    // HI-01 (999.17 gap-closure): snapshot the prior terrain_config so any
+    // Snapshot the prior terrain_config so any
     // failure/rollback branch below can restore it. Without this, a failed bulk
     // delete leaves the DEM layer restored but 3D terrain silently disabled.
     const previousTerrainConfig = localTerrainConfig;
@@ -418,14 +418,14 @@ export function useBulkLayerActions({
       toast.success(t('toasts.terrainDisabledSourceRemoved'));
     }
 
-    // WR-01 (Phase 1050-rev): imperatively clean per-layer companions for
+    // Imperatively clean per-layer companions for
     // every id in the batch so visual artifacts vanish in lockstep with the
     // optimistic state update. removeStaleSourcesAndLayers cannot derive
-    // these ids under the SF-04 dedupe contract — the stripped source id
+    // these ids under the dedupe contract — the stripped source id
     // produces `data-${dataset_table_name}`, not the real per-layer id.
     removePerLayerCompanions(mapInstanceRef.current, idsToDelete);
 
-    // Phase 1047-04 (PERF-03): one batched call replaces N sequential DELETEs
+    // One batched call replaces N sequential DELETEs
     // fix(v1.6.0 audit A5): capture the batch size for the bar's deleting label
     // BEFORE isDeleting flips — the optimistic removal above already emptied
     // the selection-derived count the bar would otherwise render.
@@ -436,13 +436,13 @@ export function useBulkLayerActions({
 
       if (result.failed.length === 0) {
         // Full success — sync baseline immediately so the subsequent invalidateQueries
-        // refetch is not blocked by a stale savedLayerBaselineRef (CR-01).
-        // fix(#767): prune emptied group rows here too so the baseline cannot
+        // refetch is not blocked by a stale savedLayerBaselineRef.
+        // Prune emptied group rows here too so the baseline cannot
         // retain a group row localLayers no longer renders.
         savedLayerBaselineRef.current = pruneEmptyFolderGroups(
           savedLayerBaselineRef.current.filter((l) => !idsToDeleteSet.has(l.id)),
         );
-        // fix(#1778): the save-diff baseline needs the same prune. It only
+        // The save-diff baseline needs the same prune. It only
         // refreshes while the map is clean, so a bulk delete on an already-dirty
         // map otherwise left these ids in it and the next save's diff.removed
         // named rows the server had already dropped.
@@ -460,7 +460,7 @@ export function useBulkLayerActions({
         setLocalLayers((current) =>
           restoreFailedLayers(current, previousLayers, idsToDeleteSet),
         );
-        // HI-01: nothing was actually deleted, so restore terrain_config too.
+        // Nothing was actually deleted, so restore terrain_config too.
         if (clearedTerrainOnBulk) {
           setLocalTerrainConfig(previousTerrainConfig);
         }
@@ -469,7 +469,7 @@ export function useBulkLayerActions({
       }
 
       // Partial failure: keep deleted layers removed, restore failed layers.
-      // fix(#805): survivors return at their previous relative positions, not
+      // Survivors return at their previous relative positions, not
       // interleaved between two numbering schemes.
       // fix(v1.6.0 audit B6): recompute from CURRENT state instead of writing a
       // stale previousLayers-derived array — a concurrent edit that landed
@@ -480,7 +480,7 @@ export function useBulkLayerActions({
       // child is returning.
       const deletedIds = new Set(result.deleted);
       const failedIds = new Set(result.failed.map((f) => f.id));
-      // fix(#1778 codex round 1): the confirmed-deleted rows leave local state
+      // The confirmed-deleted rows leave local state
       // here just as they do on the full-success path, so BOTH baselines need
       // the same prune. Without it the next Save re-emitted them in
       // diff.removed, tripped the stale-conflict recovery and its warning, and
@@ -498,7 +498,7 @@ export function useBulkLayerActions({
           failedIds,
         ),
       );
-      // HI-01: the optimistic terrain clear assumed the WHOLE batch was deleted.
+      // The optimistic terrain clear assumed the WHOLE batch was deleted.
       // Re-evaluate against the layers that ACTUALLY remain after restoring the
       // failed ones; if terrain is still backed (its source DEM was among the
       // failures), restore terrain_config so it is not silently disabled.
@@ -508,7 +508,7 @@ export function useBulkLayerActions({
           setLocalTerrainConfig(previousTerrainConfig);
         }
       }
-      // Partial state differs from server — prevent silent refetch wipe (CR-01)
+      // Partial state differs from server — prevent silent refetch wipe
       setHasUnsavedChanges(true);
       toast.error(
         t('bulkActions.deletePartialFailure', {

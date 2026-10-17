@@ -20,7 +20,7 @@ export interface SettingsEditorSceneProps {
   isTerrainActive: boolean;
   /** Name of the bound DEM layer (for the "Bound to:" hint) */
   boundLayerName?: string;
-  /** fix(HT-04): open the bound DEM layer's editor from Settings so the
+  /** Open the bound DEM layer's editor from Settings so the
    *  terrain source is always reachable (its controls live in the DEM editor).
    *  Undefined when no bound layer resolves. */
   onOpenBoundLayer?: () => void;
@@ -156,7 +156,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
                 {t('settings.boundTo', { defaultValue: 'Bound to: {{name}}', name: boundLayerName })}
               </p>
             )}
-            {/* fix(HT-04): the terrain controls live in the bound DEM's editor;
+            {/* The terrain controls live in the bound DEM's editor;
                 link there so the source stays reachable from Settings. */}
             {onOpenBoundLayer && (
               <Button
@@ -218,7 +218,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             </p>
           ) : (
             <>
-              {/* UX-04: clarify that this section controls AVAILABILITY (vs live interaction on the map). */}
+              {/* Clarify that this section controls AVAILABILITY (vs live interaction on the map). */}
               <p className="px-4 pt-2 pb-1 text-mini text-muted-foreground">
                 {t('settings.pluginsAvailabilityNote', {
                   defaultValue: 'Controls whether each plugin appears on the map.',
@@ -228,7 +228,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
                 {plugins.map((plugin) => {
                   const isEnabled = activePluginIds.has(plugin.id);
                   const pluginLabel = t(plugin.labelKey, { defaultValue: plugin.id });
-                  // UX-04: state-specific aria labels — "Enable {name}" / "Disable {name}" —
+                  // State-specific aria labels — "Enable {name}" / "Disable {name}" —
                   // replace the older "{action} {name} plugin" composite key.
                   const switchAriaLabel = isEnabled
                     ? t('settings.disablePlugin', { defaultValue: 'Disable {{name}}', name: pluginLabel })

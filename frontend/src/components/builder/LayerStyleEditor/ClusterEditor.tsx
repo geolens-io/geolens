@@ -35,7 +35,7 @@ export function ClusterEditor({
   const clusterColor = builderConfig.clusterColor
     ?? (typeof paint['circle-color'] === 'string' ? paint['circle-color'] as string : CIRCLE_DEFAULTS['circle-color']);
   const clusterTextColor = builderConfig.clusterTextColor ?? MAP_COLORS.cluster.text;
-  // ux(#839): absent = true so existing maps keep their counts.
+  // Absent = true so existing maps keep their counts.
   const showCounts = builderConfig.clusterShowCounts !== false;
 
   const ramp: ClusterColorStop[] = Array.isArray(builderConfig.clusterColorRamp)
@@ -88,7 +88,7 @@ export function ClusterEditor({
         onChange={(val) => onBuilderChange({ clusterMaxZoom: val })}
       />
 
-      {/* ux(#839): counts are a separate opt-out from the Labels tab — the
+      {/* Counts are a separate opt-out from the Labels tab — the
           count layer is emitted by cluster mode itself, not label_config. */}
       <div className="flex items-center justify-between">
         <Label htmlFor="cluster-show-counts" className="text-sm font-normal">

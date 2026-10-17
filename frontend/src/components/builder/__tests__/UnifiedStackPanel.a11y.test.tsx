@@ -1,11 +1,11 @@
 /**
- * Phase 1044-02 — Accessibility contract tests for UnifiedStackPanel (POL-23)
+ * Accessibility contract tests for UnifiedStackPanel
  *
  * Test surface: panel aria-label, data-row-id presence, Shift+Arrow keyboard
  * extension, Escape-clear, outside-mousedown-clear, and basemap boundary
  * aria-current non-pollution.
  *
- * Phase 1052: dropped the listbox/option ARIA pattern. The container is now a
+ * Dropped the listbox/option ARIA pattern. The container is now a
  * labelled scroll region (no role); rows convey selection via `aria-current` +
  * `data-selected` rather than `aria-selected`. The change resolves axe
  * `aria-required-children` and `nested-interactive` violations on the
@@ -54,7 +54,7 @@ vi.mock('@/components/map/layer-icons', () => ({
   ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
     <span data-testid={`type-icon-${layerId}`} />
   ),
-  // fix(#452): StackRow's type icon is now the shared LayerTypeIcon.
+  // StackRow's type icon is now the shared LayerTypeIcon.
   LayerTypeIcon: ({ iconId }: { iconId: string }) => (
     <span data-testid={`type-icon-${iconId}`} />
   ),
@@ -284,11 +284,11 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof UnifiedStac
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1044-02 — Stack panel ARIA contract (POL-23, updated Phase 1052)
+// Stack panel ARIA contract (updated)
 // ---------------------------------------------------------------------------
 
 function findStackPanel(): HTMLElement {
-  // Phase 1052: panel is a labelled scroll region (no role). Locate it by
+  // Panel is a labelled scroll region (no role). Locate it by
   // its accessible name only — match the role="" / no-role contract.
   const candidate = document.querySelector<HTMLElement>('[aria-label="Map layers"]');
   if (!candidate) throw new Error('stack panel with aria-label="Map layers" not found');
@@ -300,7 +300,7 @@ describe('Phase 1044-02 — Stack panel ARIA contract (POL-23)', () => {
     render(<UnifiedStackPanel {...defaultProps()} />);
 
     // The i18n mock resolves "unifiedStack.listboxLabel" → "Map layers".
-    // Phase 1052: container is no longer role="listbox"; assert aria-label
+    // Container is no longer role="listbox"; assert aria-label
     // is present on a discoverable element so SR users can find the region.
     const panel = findStackPanel();
     expect(panel).toBeInTheDocument();
@@ -446,7 +446,7 @@ describe('Phase 1044-02 — Stack panel ARIA contract (POL-23)', () => {
     expect(basemapRow).not.toHaveAttribute('aria-current');
     expect(basemapRow).not.toHaveAttribute('data-selected');
 
-    // Overlay rows in selectedIds carry aria-current="true" (Phase 1052
+    // Overlay rows in selectedIds carry aria-current="true" (
     // replacement for aria-selected after dropping role="option").
     const rowA = document.getElementById('stack-row-a');
     expect(rowA).toHaveAttribute('aria-current', 'true');

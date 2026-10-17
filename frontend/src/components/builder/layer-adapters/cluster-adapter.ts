@@ -4,7 +4,7 @@ import { LABEL_FONT_STACK, labelLayerId, withLabelCompanion } from '../label-lay
 import { writeDescribedLayer, writeDescribedVisibility } from '../layer-writer';
 import type { AdapterLayerInput, LayerAdapter, LayerDrawing } from './types';
 import { getBuilderStyleConfig, getExpressionSafeOpacity, sourceLayerSpec } from './shared';
-// builder-audit #338 ADAPT-03: the unclustered point mirrors the standalone circle adapter —
+// The unclustered point mirrors the standalone circle adapter —
 // reuse its exact owned-property set and default paint instead of duplicating them.
 import { CIRCLE_OWNED_PAINT_PROPERTIES, resolveCirclePaint } from './circle-adapter';
 
@@ -48,7 +48,7 @@ function combineFilter(base: FilterSpecification, filter: FilterSpecification | 
 }
 
 function clusterFilter(_input: AdapterLayerInput): FilterSpecification {
-  // fix(#394) FL-01/B-020: never AND the layer's data filter into the cluster
+  // Never AND the layer's data filter into the cluster
   // bubble/count layers — cluster features only carry point_count/cluster_id,
   // so any feature-property predicate fails for every cluster and blanks the
   // whole low-zoom map. Ceiling: cluster counts include filtered-out points
@@ -67,7 +67,7 @@ function numericBuilderValue(value: unknown, fallback: number, min: number, max:
     : fallback;
 }
 
-// #347 (BLDR-02): the cluster circle-color ramp as MapLibre reads it. With a 2+ stop ramp
+// #347: the cluster circle-color ramp as MapLibre reads it. With a 2+ stop ramp
 // (sorted ascending by point_count) the lowest stop is the base color and each later stop
 // starts at its count. Step inputs must be strictly ascending and > 0, so duplicate or
 // out-of-order thresholds are dropped. Null when fewer than two usable stops remain.
@@ -135,7 +135,7 @@ function unclusteredPointPaint(input: AdapterLayerInput) {
   return resolveCirclePaint(input.paint);
 }
 
-// builder-audit #338 ADAPT-04: the cluster-circle paint, cluster-count layout, and
+// The cluster-circle paint, cluster-count layout, and
 // cluster-count paint are built ONCE here and consumed by both the add-time and
 // sync-time paths, so the step bucket thresholds (100/750) and stroke/text styling
 // can no longer drift between first render and a subsequent sync.
@@ -154,7 +154,7 @@ function clusterCirclePaint(input: AdapterLayerInput): Record<string, unknown> {
   };
 }
 
-// ux(#839): the count label is optional — absent flag means visible, so every
+// The count label is optional — absent flag means visible, so every
 // existing map keeps its counts. Off = size/color-only clusters.
 function clusterCountsEnabled(input: AdapterLayerInput): boolean {
   return getBuilderStyleConfig(input).clusterShowCounts !== false;

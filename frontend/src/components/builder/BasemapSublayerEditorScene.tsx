@@ -16,19 +16,17 @@ import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
 import { InlineDeleteConfirm } from '@/components/builder/row-chrome';
 import { formatNumber } from '@/lib/format';
 
-// Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip REMAINS REMOVED.
-// Disposition unchanged per Phase 1059 CONTEXT.md D-18 — do not resurrect.
+// DETAIL LEVEL pill strip REMAINS REMOVED.
+// Do not resurrect it.
 // The activeDetailLevel/isCustomized/onDetailLevelChange props were always
 // passed hardcoded defaults from MapBuilderPage; no consumer ever implemented
 // sublayer detail-level style mutation.
 //
-// Phase 1059 BSE-01 (Path B FIX): STROKE + CASING + ZOOM sections RESTORED with
-// a working persistence path through MapBasemapConfig.sublayer_overrides jsonb
-// (zero-migration backward compat). Replaces the v1011.1 EMRG-FN-01 REMOVE
-// disposition (commits 3629ec04 + 3e48d331). Backend schema: SublayerOverride
-// Pydantic model at backend/app/modules/catalog/maps/schemas.py (Plan 1059-01).
+// STROKE + CASING + ZOOM sections persist through MapBasemapConfig.sublayer_overrides jsonb
+// (zero-migration backward compat). Backend schema: SublayerOverride
+// Pydantic model at backend/app/modules/catalog/maps/schemas.py.
 // MapLibre style mutation: frontend/src/lib/builder/basemap-style-mutation.ts
-// applySublayerOverrides (Plan 1059-02). All 6 new callback props are optional
+// applySublayerOverrides. All 6 callback props are optional
 // for back-compat with callers that haven't wired through yet.
 
 interface BasemapSublayerEditorSceneProps {
@@ -38,7 +36,7 @@ interface BasemapSublayerEditorSceneProps {
   opacity: number;
   onOpacityChange: (opacity: number) => void;
   onResetSublayer: () => void;
-  // Phase 1059 BSE-01 new live props — restore EMRG-FN-01-removed surface:
+  // Live props for the STROKE, CASING and ZOOM sections:
   strokeColor?: string;          // hex #RRGGBB or undefined (= use default)
   strokeWidth?: number;          // 0..20
   casingColor?: string;
@@ -79,7 +77,7 @@ export function BasemapSublayerEditorScene({
   const { t } = useTranslation('builder');
   const [resetOpen, setResetOpen] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
-  // fix(#833): the inline confirm owns focus (autofocused Cancel), so both
+  // The inline confirm owns focus (autofocused Cancel), so both
   // exits must hand focus back to the reappearing "Reset to default" button
   // instead of <body> — the focus return StackRow's delete confirm does.
   // rAF: the button remounts on the state flip, so it does not exist yet at
@@ -108,7 +106,7 @@ export function BasemapSublayerEditorScene({
     maximumFractionDigits: 1,
   })}px`;
 
-  // builder-audit #338 MAINT-02: STROKE/CASING only mutate line sublayers in
+  // STROKE/CASING only mutate line sublayers in
   // applyOverrideToLayer (stroke_color/width require layerType==='line';
   // casing requires a 'casing' line sibling). Roads and boundaries are line
   // layers; labels (symbol) and buildings (fill-extrusion) are not, so the
@@ -120,7 +118,7 @@ export function BasemapSublayerEditorScene({
 
   return (
     <>
-      {/* 1. STROKE section — Phase 1059 BSE-01 restored (MAINT-02: roads/boundaries only) */}
+      {/* 1. STROKE section — restored (roads/boundaries only) */}
       {supportsStrokeAndCasing && (
       <section className="border-b">
         <div className="px-4 py-2">
@@ -155,7 +153,7 @@ export function BasemapSublayerEditorScene({
       </section>
       )}
 
-      {/* 2. CASING section — Phase 1059 BSE-01 restored (MAINT-02: roads/boundaries only) */}
+      {/* 2. CASING section — restored (roads/boundaries only) */}
       {supportsStrokeAndCasing && (
       <section className="border-b">
         <div className="px-4 py-2">
@@ -190,7 +188,7 @@ export function BasemapSublayerEditorScene({
       </section>
       )}
 
-      {/* 3. ZOOM RANGE section — Phase 1059 BSE-01 restored */}
+      {/* 3. ZOOM RANGE section — restored */}
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -317,7 +315,7 @@ export function BasemapSublayerEditorScene({
                 {t('basemapSublayer.resetAction', { defaultValue: 'Reset to default' })}
               </Button>
             ) : (
-              // ux(#777): shared builder-wide inline confirm — safe action left,
+              // Shared builder-wide inline confirm — safe action left,
               // destructive right, cancel autofocused.
               <InlineDeleteConfirm
                 confirmId="confirm-reset-title"

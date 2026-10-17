@@ -84,7 +84,7 @@ describe('terrain-legend helper', () => {
       ).toBeNull();
     });
 
-    // 999.17 MD-01: dangling terrain_config (legacy maps whose source layer was
+    // Dangling terrain_config (legacy maps whose source layer was
     // deleted) → no backing DEM layer present → NO phantom synthetic entry.
     it('returns null when enabled with a source but NO backing DEM layer exists (dangling config)', () => {
       expect(
@@ -126,7 +126,7 @@ describe('terrain-legend helper', () => {
       ).toBeNull();
     });
 
-    // codex(#451): the renderers apply no mesh for a saved-hidden bound DEM, so
+    // The renderers apply no mesh for a saved-hidden bound DEM, so
     // no phantom terrain legend entry may show for it.
     it('returns null when the only backing DEM is saved hidden', () => {
       expect(

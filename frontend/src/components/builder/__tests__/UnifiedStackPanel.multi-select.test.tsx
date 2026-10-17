@@ -1,9 +1,9 @@
 /**
- * Phase 1041 — Multi-selection tests for UnifiedStackPanel (POL-06, POL-07, POL-10, POL-11)
+ * Multi-selection tests for UnifiedStackPanel
  *
  * Test surface: selection model, visual state, clearing rules, basemap boundary, Shift+Arrow.
  *
- * Worker-safety: no file-level vi.mock('@dnd-kit/core', ...). Per POL-20, that pattern causes
+ * Worker-safety: no file-level vi.mock('@dnd-kit/core', ...). Per, that pattern causes
  * worker exits. All dnd-kit hooks run from their real implementations wrapped in a DndContext
  * via the test-utils wrapper (which is already DndContext-free — UnifiedStackPanel renders its
  * own internal DndContext). We stub only the specific modules that would reach the network.
@@ -42,7 +42,7 @@ vi.mock('@/components/map/layer-icons', () => ({
   ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
     <span data-testid={`type-icon-${layerId}`} />
   ),
-  // fix(#452): StackRow's type icon is now the shared LayerTypeIcon.
+  // StackRow's type icon is now the shared LayerTypeIcon.
   LayerTypeIcon: ({ iconId }: { iconId: string }) => (
     <span data-testid={`type-icon-${iconId}`} />
   ),
@@ -259,7 +259,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof UnifiedStac
     onCreateGroupWithLayer: vi.fn(),
     onMoveLayerOutOfGroup: vi.fn(),
     existingFolderGroups: [],
-    // Phase 1041 multi-selection props
+    // Multi-selection props
     selectedIds: new Set<string>(),
     isMultiSelectionActive: false,
     selectableRowIds: ['a', 'b', 'c', 'r1', 'g1'],
@@ -277,7 +277,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof UnifiedStac
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1041 — selection model (POL-06)
+// Selection model
 // ---------------------------------------------------------------------------
 
 describe('Phase 1041 — selection model (POL-06)', () => {
@@ -332,7 +332,7 @@ describe('Phase 1041 — selection model (POL-06)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 1041 — visual state (POL-07)
+// Visual state
 // ---------------------------------------------------------------------------
 
 describe('Phase 1041 — visual state (POL-07)', () => {
@@ -369,7 +369,7 @@ describe('Phase 1041 — visual state (POL-07)', () => {
   });
 
   it('Test 7: aria-current on row reflects isMultiSelected=true even when selected=false', () => {
-    // Phase 1052: replaced aria-selected with aria-current after dropping
+    // Replaced aria-selected with aria-current after dropping
     // role="option" from rows (axe nested-interactive). The mock used in
     // this test mirrors the production wiring: aria-current="true" when
     // isMultiSelected, undefined otherwise.
@@ -399,7 +399,7 @@ describe('Phase 1041 — visual state (POL-07)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 1041 — clearing rules (POL-10)
+// Clearing rules
 // ---------------------------------------------------------------------------
 
 describe('Phase 1041 — clearing rules (POL-10)', () => {
@@ -414,7 +414,7 @@ describe('Phase 1041 — clearing rules (POL-10)', () => {
       />
     );
 
-    // Phase 1042 carry-over: keydown listener is scoped to stackPanelRef (listbox), not document.
+    // Keydown listener is scoped to stackPanelRef (listbox), not document.
     const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.keyDown(listbox, { key: 'Escape' });
     expect(onClearSelection).toHaveBeenCalledOnce();
@@ -463,7 +463,7 @@ describe('Phase 1041 — clearing rules (POL-10)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 1041 — basemap boundary (POL-11)
+// Basemap boundary
 // ---------------------------------------------------------------------------
 
 describe('Phase 1041 — basemap boundary (POL-11)', () => {
@@ -528,7 +528,7 @@ describe('Phase 1041 — basemap boundary (POL-11)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 1041 — Shift+Arrow keyboard extension (POL-06)
+// Shift+Arrow keyboard extension
 // ---------------------------------------------------------------------------
 
 describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
@@ -550,7 +550,7 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     const rowA = document.getElementById('stack-row-a')!;
     act(() => { rowA.focus(); });
 
-    // Phase 1042 carry-over: keydown listener is scoped to listbox (stackPanelRef), not document.
+    // Keydown listener is scoped to listbox (stackPanelRef), not document.
     const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.keyDown(listbox, { key: 'ArrowDown', shiftKey: true });
 
@@ -577,7 +577,7 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     const rowA = document.getElementById('stack-row-a')!;
     act(() => { rowA.focus(); });
 
-    // Phase 1042 carry-over: keydown listener is scoped to listbox (stackPanelRef).
+    // Keydown listener is scoped to listbox (stackPanelRef).
     const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.keyDown(listbox, { key: 'ArrowUp', shiftKey: true });
 
@@ -603,7 +603,7 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     const rowA = document.getElementById('stack-row-a')!;
     act(() => { rowA.focus(); });
 
-    // Plain arrow — no Shift. Phase 1042 carry-over: scoped to listbox.
+    // Plain arrow — no Shift. Scoped to listbox.
     const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.keyDown(listbox, { key: 'ArrowDown', shiftKey: false });
 

@@ -42,7 +42,7 @@ class StreamModelError extends Error {
 }
 
 /**
- * builder-audit #338 COMPLEX-01: discriminated classification of a chat-send failure.
+ * Discriminated classification of a chat-send failure.
  *
  * Pure decision function lifted out of handleSend's catch block so the
  * branch order (aborted → partial → service banner → inline → retry) lives in
@@ -67,7 +67,7 @@ function classifyChatError(
   if (err instanceof ApiError && (err.status === 403 || err.status === 503)) {
     return { kind: 'banner', bannerKind: err.status === 403 ? 'forbidden' : 'unavailable' };
   }
-  // fix(#526 B-047): 429 = daily AI token budget / rate limit — retrying is a
+  // 429 = daily AI token budget / rate limit — retrying is a
   // guaranteed second 429 (and previously surfaced as the generic "something
   // went wrong" after a wasted duplicate POST). Show the real message inline.
   if (err instanceof ApiError && (err.status === 401 || err.status === 429 || err.status === 500 || err.status === 502)) {
@@ -80,7 +80,7 @@ function classifyChatError(
 
 /** Remove chat history entries that reference a removed layer. */
 function cleanStaleLayerRefs(mapId: string, removedLayerId: string) {
-  // fix(#1536): route the read through the helper. The property access itself
+  // Route the read through the helper. The property access itself
   // raises SecurityError under an opaque origin, and this sat one line ABOVE
   // the try below, so the throw escaped into acceptAll's dispatch loop
   // (chat-action-staging.ts) and killed the rest of the staged batch.
@@ -88,7 +88,7 @@ function cleanStaleLayerRefs(mapId: string, removedLayerId: string) {
   // Only the read moves. The writes on this key stay raw on purpose:
   // writeSessionStorage drops the stored value when a write fails and serves an
   // in-memory mirror instead, which is right for the auth markers it was built
-  // for and wrong here. A quota failure on chat history (ux(#723), the live
+  // for and wrong here. A quota failure on chat history (the live
   // failure mode for this key) must leave the persisted conversation in place
   // for the next reload to find, and the mirror does not survive a reload.
   const stored = readSessionStorage(`geolens-chat-${mapId}`);
@@ -147,9 +147,9 @@ function getActionClearPaint(action: Pick<ChatAction, 'clear_paint'>): string[] 
     : [];
 }
 
-// fix(#392): allowlist of the 9 known ChatAction wire types. getChatActions drops
+// Allowlist of the 9 known ChatAction wire types. getChatActions drops
 // any item whose `type` is not in this set (rather than letting an unrecognized
-// type string reach handleChatAction's switch), and logs the drop in dev. (audit CH-08)
+// type string reach handleChatAction's switch), and logs the drop in dev.
 const KNOWN_CHAT_ACTION_TYPES: ReadonlySet<ChatAction['type']> = new Set([
   'set_filter',
   'set_style',
@@ -180,11 +180,11 @@ function buildChatActionPaint(
 ): Record<string, unknown> {
   const paint = getActionPaint(action);
   const clearKeys = getActionClearPaint(action);
-  // fix(#392): a replace_paint:true with no effective paint keys and no
+  // A replace_paint:true with no effective paint keys and no
   // clear_paint must never wipe existing styling — preserve current paint.
   // Defense-in-depth: handleChatAction's set_style case already gates on
   // hasPaintMutation before reaching here, but this guard holds even if
-  // buildChatActionPaint is ever called directly with such an action. (audit B-005/CH-09)
+  // buildChatActionPaint is ever called directly with such an action.
   if (action.replace_paint && (!paint || Object.keys(paint).length === 0) && clearKeys.length === 0) {
     return { ...(currentPaint ?? {}) };
   }
@@ -202,11 +202,11 @@ function buildChatActionPaint(
   return nextPaint;
 }
 
-// fix(#392): a standalone `replace_paint:true` is no longer treated as a
+// A standalone `replace_paint:true` is no longer treated as a
 // mutation on its own — an empty (or empty-after-validation) replace with no
 // clear_paint is a no-op, not a wipe. Callers must evaluate this against the
 // VALIDATED action (post validateChatPaint) so a replace reduced to empty by
-// geometry/bounds validation is also caught. (audit B-005/CH-09)
+// geometry/bounds validation is also caught.
 function hasPaintMutation(action: ChatAction): boolean {
   const paint = getActionPaint(action);
   return Boolean(
@@ -216,16 +216,16 @@ function hasPaintMutation(action: ChatAction): boolean {
 }
 
 /**
- * fix(#392): bridge validator for AI-produced set_style / set_data_driven_style
+ * Bridge validator for AI-produced set_style / set_data_driven_style
  * paint before it reaches MapLibre or the save payload. Drops paint properties
  * invalid for the layer's geometry type and clamps numeric properties to their
  * Style-Spec bounds — mirroring backend `validate_paint_with_feedback`
  * (backend/app/processing/ai/schemas.py). Render-mode aware: when `renderMode`
  * is 'heatmap' the geometry-type filter is skipped so heatmap-* properties
  * (valid regardless of the layer's point/line/polygon geometry_type) are kept
- * instead of dropped as invalid-for-circle/line/fill. (audit B-002/CH-01)
+ * instead of dropped as invalid-for-circle/line/fill.
  */
-// fix(#392): builder custom fill-outline keys the backend allowlist accepts
+// Builder custom fill-outline keys the backend allowlist accepts
 // (schemas.py `_VALID_PAINT_PROPS['fill']`). filterPaintForLayerType drops ALL
 // CUSTOM_PAINT_PROPS, so without re-adding these an AI outline-only set_style on a
 // polygon would validate to {}, hasPaintMutation returns false, and the turn silently
@@ -245,7 +245,7 @@ function validateChatPaint(
     for (const key of CHAT_PRESERVED_FILL_OUTLINE_KEYS) {
       if (rawPaint[key] != null) filtered[key] = rawPaint[key];
     }
-    // fix(#394) CH-01: preserve fill-extrusion-* on the fill branch — the
+    // Preserve fill-extrusion-* on the fill branch — the
     // extrusion COMPANION layer consumes them from layer.paint, and the
     // backend keeps them for polygons (_VALID_PAINT_PROPS fill ∪
     // fill-extrusion). Dropping them made an extrusion-only set_style a
@@ -260,7 +260,7 @@ function validateChatPaint(
   return clampPaintBounds(filtered);
 }
 
-// fix(#394) CH-02 (codex round 2): hex (3/4/6/8 digits), real CSS named
+// Hex (3/4/6/8 digits), real CSS named
 // colors, or numeric-arg functional forms only — the first-pass shape regex
 // let "notacolor"/"rgb(foo)" through to MapLibre paint validation, which is
 // exactly what this sanitizer exists to prevent. Byte-parity mirror of
@@ -296,9 +296,9 @@ function isCssColorish(value: unknown): value is string {
     || CSS_NAMED_COLORS.has(candidate.toLowerCase());
 }
 
-// fix(#392): clamp bounds for AI-produced set_label numeric fields, matching
+// Clamp bounds for AI-produced set_label numeric fields, matching
 // the sliders' own bounds in LabelEditor.tsx (fontSize 8-24px, haloWidth 0-4px)
-// so an AI label config can't push text off-scale before it reaches the map. (audit B-002/CH-01)
+// so an AI label config can't push text off-scale before it reaches the map.
 const LABEL_FONT_SIZE_BOUNDS: [number, number] = [8, 24];
 const LABEL_HALO_WIDTH_BOUNDS: [number, number] = [0, 4];
 
@@ -347,18 +347,18 @@ interface ChatPanelProps {
       truncated?: boolean;
       totalCount?: number;
       analysis?: EphemeralAnalysisHandoff;
-      /** feat(#1241): the prompt this result answers, so the builder can
+      /** The prompt this result answers, so the builder can
        *  suggest a title when the preview is saved as a dataset. */
       prompt?: string;
     },
   ) => void;
-  /** fix(#676): clears the single-slot ephemeral overlay when a turn's winning
+  /** Clears the single-slot ephemeral overlay when a turn's winning
    *  result carries no geometry — otherwise a stale overlay from an earlier
    *  turn keeps describing a result the chat has moved past. */
   onClearPreview?: () => void;
   /** Use side-by-side layout: messages left, compose right. */
   horizontal?: boolean;
-  /** Phase 1135 AI-05: optional viewport context — zoom, bounds, selected layer name.
+  /** Optional viewport context — zoom, bounds, selected layer name.
    *  Passed to getSmartSuggestions to produce viewport-aware suggestion chips.
    *  Only affects the empty-state chip list; undefined → unchanged geometry-only behavior. */
   viewport?: ViewportContext;
@@ -396,7 +396,7 @@ export function ChatPanel({
   const [streamingText, setStreamingText] = useState('');
   const [toolProgress, setToolProgress] = useState<string | null>(null);
   const [timeoutMessage, setTimeoutMessage] = useState<string | null>(null);
-  // Phase 1135 AI-03: service-level error banner for 403 (permission revoked) and 503 (AI down).
+  // Service-level error banner for 403 (permission revoked) and 503 (AI down).
   // Distinct from the inline per-message error bubble used for 401 + network errors.
   const [errorBanner, setErrorBanner] = useState<{ kind: 'forbidden' | 'unavailable'; retryMessage: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -408,14 +408,14 @@ export function ChatPanel({
   // Keep a ref to the latest layers so snapshots capture fresh state
   const layersRef = useRef(layers);
   layersRef.current = layers;
-  // Phase 20260526-builder-audit #338 BLD-20260526-04: single-level undo for chat-initiated map mutations.
-  // builder-audit #338 DEAD-01: messageIndex dropped — it was only ever read as `!== undefined`
+  // Single-level undo for chat-initiated map mutations.
+  // messageIndex dropped — it was only ever read as `!== undefined`
   // (vacuously true); the real ordering gate is messages.indexOf(msg) === length - 1.
   const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; supportsUndo: boolean } | null>(null);
 
   // Persist chat history to sessionStorage.
   //
-  // ux(#723): strip action geojson first. A show_query_result action from
+  // Strip action geojson first. A show_query_result action from
   // query_data or run_analysis carries its whole FeatureCollection — up to the
   // 500-feature preview cap — and 50 of those overflow the ~5 MB sessionStorage
   // quota easily. The write then throws QuotaExceededError, which this catch
@@ -461,11 +461,11 @@ export function ChatPanel({
   }, [isLoading, t]);
 
   /**
-   * Build the chip text for a staging action per UI-SPEC Surface 1 chip-text-format table.
+   * Build the chip text for a staging action.
    * Returns `{ text, fullText }` where `text` is truncated to 60 chars and
    * `fullText` is the complete string for the `title` attribute.
    *
-   * Phase 1135 AI-09 — Shape B: additive only, no BuilderActionSource widening.
+   * Shape B: additive only, no BuilderActionSource widening.
    */
   function buildChipText(
     action: ChatAction,
@@ -505,7 +505,7 @@ export function ChatPanel({
     if (err instanceof ApiError) {
       if (err.status === 401) return t('chat.errorSessionExpired');
       if (err.status === 403) return t('chat.errorForbidden');
-      // fix(#526 B-047): surface the over-budget/rate-limit reason instead of
+      // Surface the over-budget/rate-limit reason instead of
       // the generic fallback.
       if (err.status === 429) return t('chat.errorRateLimited');
       if (err.status === 502 || err.status === 503) return t('chat.errorAiUnavailable');
@@ -519,7 +519,7 @@ export function ChatPanel({
   function dispatchQueryResult(action: ChatAction, prompt = '') {
     const geojson = action.geojson;
     if (!geojson) {
-      // fix(#676): the turn's winning result has no geometry (empty analysis,
+      // The turn's winning result has no geometry (empty analysis,
       // attribute-only query) — clear the single-slot overlay instead of
       // leaving the previous turn's features and badge on the map.
       onClearPreview?.();
@@ -532,24 +532,24 @@ export function ChatPanel({
       geojson.type === 'FeatureCollection' &&
       Array.isArray(action.bbox) &&
       action.bbox.length === 4 &&
-      // fix(#527 B-054/C-06): Number.isFinite — NaN passes typeof and every
+      // Number.isFinite — NaN passes typeof and every
       // range comparison below, then throws in fitBounds.
       action.bbox.every((n: unknown) => Number.isFinite(n))
     ) {
       const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
-      // Phase 20260526-builder-audit #338 BLD-20260526-11: reject bbox values outside WGS84 bounds.
+      // Reject bbox values outside WGS84 bounds.
       if (minX < -180 || minY < -90 || maxX > 180 || maxY > 90) return;
-      // fix(#527 B-054/C-06): inverted bounds also throw in fitBounds.
+      // Inverted bounds also throw in fitBounds.
       if (minX > maxX || minY > maxY) return;
-      // fix(#674 audit): forward the truncation pair so the preview surface can
+      // Forward the truncation pair so the preview surface can
       // say "500 of 10,651 features". Both query_data and run_analysis emit
       // them only when the server-side cap actually bit.
-      // fix(#1009): that surface is the ephemeral stack row in this (builder)
+      // That surface is the ephemeral stack row in this (builder)
       // path — EphemeralPreviewRow, via UnifiedStackPanel's `preview` prop.
       // The badge still consumes the same pair in the viewer and in the
       // builder's <1100px rail layout.
       //
-      // fix(#1076): the flag no longer waits for the total. A clip filters
+      // The flag no longer waits for the total. A clip filters
       // rows, so the server reports no source total for it, and requiring one
       // dropped the disclosure entirely — a capped clip preview then read as
       // complete. The total rides along when there is one; the surface picks
@@ -560,16 +560,16 @@ export function ChatPanel({
       // still omits `truncated` whenever the total is absent, so this branch is
       // correct and simply not yet reachable for a clip.
       //
-      // feat(#1241 codex r1): the pair no longer comes from `truncated` alone.
+      // The pair no longer comes from `truncated` alone.
       // That flag is the SQL row cap; the overlay is clipped to its own render
       // budget after it, so a 300-row answer can arrive as 50 features with
       // truncated=false. chatOverlayCompleteness compares what we hold against
       // row_count and calls that clipped too — see its docstring.
       const preview = geojson;
       const truncation = chatOverlayCompleteness(action, overlayFeatureCount(preview));
-      // feat(#675): a run_analysis action carries its reconstruction params so
+      // A run_analysis action carries its reconstruction params so
       // the preview surface can offer "Save as dataset" (prefilled Analysis
-      // panel) — fix(#1009): the stack row in this path, the badge in the rail.
+      // panel) — the stack row in this path, the badge in the rail.
       const analysis: EphemeralAnalysisHandoff | undefined =
         (action.operation === 'buffer' || action.operation === 'centroid') && action.layer_id
           ? {
@@ -580,7 +580,7 @@ export function ChatPanel({
                 : {}),
             }
           : undefined;
-      // feat(#1241): the prompt rides along so a plain chat preview — one with
+      // The prompt rides along so a plain chat preview — one with
       // no `analysis` behind it, which #675 could not offer anything for — can
       // be saved as a dataset with its question already suggested as the title.
       onQueryResult?.(
@@ -595,18 +595,18 @@ export function ChatPanel({
     }
   }
 
-  // Phase 20260526-builder-audit #338 BLD-20260526-04: restore layers from the last snapshot.
+  // Restore layers from the last snapshot.
   const handleUndo = useCallback(() => {
     const snapshot = lastSnapshotRef.current;
     if (!snapshot?.supportsUndo) return;
     const snapshotIds = new Set(snapshot.layers.map((l) => l.id));
     const currentIds = new Set(layersRef.current.map((l) => l.id));
 
-    // Phase 20260526-builder-audit #338 BLD-20260526-04: remove layers that were added after the snapshot.
+    // Remove layers that were added after the snapshot.
     for (const id of currentIds) {
       if (!snapshotIds.has(id)) onRemove(id);
     }
-    // Phase 20260526-builder-audit #338 BLD-20260526-04: re-add layers that were removed after the snapshot.
+    // Re-add layers that were removed after the snapshot.
     for (const layer of snapshot.layers) {
       if (!currentIds.has(layer.id)) {
         onAddDataset(layer.dataset_id);
@@ -627,16 +627,16 @@ export function ChatPanel({
 
   /**
    * Dispatches a single ChatAction and returns whether it produced a real layer
-   * mutation. fix(#392): "Applied N changes" must count effect, not intent —
+   * mutation. "Applied N changes" must count effect, not intent —
    * a no-op set_style or a rejected set_filter returns false so applyActions
-   * never records it in pendingActions (the array the render counts). (audit B-009/CH-07)
+   * never records it in pendingActions (the array the render counts).
    */
   function handleChatAction(action: ChatAction): boolean {
     const layerId = getActionLayerId(action);
     switch (action.type) {
       case 'set_filter':
         if (layerId) {
-          // builder-audit #338 P1-13: validate AI-produced filters through the shared
+          // Validate AI-produced filters through the shared
           // filter contract (validateRawFilter mirrors backend filter_grammar)
           // BEFORE applying. null/undefined/[] clear the filter; a malformed array
           // is REJECTED (not applied) rather than handed to MapLibre where it would
@@ -659,14 +659,14 @@ export function ChatPanel({
         if (layerId) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
           if (layer) {
-            // fix(#392): validate/clamp before checking for a mutation — an
+            // validate/clamp before checking for a mutation — an
             // action whose paint is reduced to empty by validation must not
             // apply, and must not be treated as a mutation via a bare
-            // replace_paint:true either. (audit B-002/CH-01, B-005/CH-09)
-            // fix(#392): pass the layer's own render_mode through, same as
+            // replace_paint:true either.
+            // Pass the layer's own render_mode through, same as
             // set_data_driven_style below — set_style is the only AI tool that can tune
             // heatmap-radius/heatmap-opacity/heatmap-intensity, and without render-mode
-            // awareness those keys are silently stripped by geometry-type filtering. (audit WR-01)
+            // awareness those keys are silently stripped by geometry-type filtering.
             const validatedPaint = validateChatPaint(getActionPaint(action), layer, layer.style_config?.render_mode);
             const validatedAction: ChatAction = { ...action, paint: validatedPaint };
             if (hasPaintMutation(validatedAction)) {
@@ -680,28 +680,28 @@ export function ChatPanel({
         const rawPaint = getActionPaint(action);
         if (layerId && rawPaint) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
-          // fix(#394) CH-03: require the target layer — when it isn't found
+          // Require the target layer — when it isn't found
           // client-side the RAW paint used to be applied unvalidated AND the
           // turn still reported "applied". Mirrors set_style's layer gate.
           if (!layer) return false;
           const styleConfig = isRecord(action.style_config) ? (action.style_config as StyleConfig) : null;
-          // fix(#392): render-mode aware — heatmap data-driven paint keeps its heatmap-*
+          // Render-mode aware — heatmap data-driven paint keeps its heatmap-*
           // properties instead of being dropped as invalid-for-circle. Fall back to the
           // layer's own render_mode when the action omits it (style_config.render_mode is
           // optional), so a data-driven heatmap update on a heatmap layer keeps its
-          // heatmap-* paint instead of validating to a no-op. (audit B-002/CH-01)
+          // heatmap-* paint instead of validating to a no-op.
           const effectiveRenderMode = styleConfig?.render_mode ?? layer.style_config?.render_mode;
           const validatedPaint = validateChatPaint(rawPaint, layer, effectiveRenderMode);
           const validatedAction: ChatAction = { ...action, paint: validatedPaint };
           const nextPaint = buildChatActionPaint(layer.paint, validatedAction);
-          // fix(#392): carry the fallback render_mode into the persisted style_config too —
+          // Carry the fallback render_mode into the persisted style_config too —
           // onStyleConfigChange REPLACES style_config, so a heatmap layer whose action
           // omitted render_mode would otherwise lose heatmap mode and (adapter resolution
           // prefers geometry) revert to a circle on save/reload.
           const nextConfig = styleConfig && effectiveRenderMode && !styleConfig.render_mode
             ? ({ ...styleConfig, render_mode: effectiveRenderMode } as StyleConfig)
             : styleConfig;
-          // fix(#394) CH-03: mutation gate (match set_style) — a paint that
+          // Mutation gate (match set_style) — a paint that
           // validated to empty with no style_config change is a no-op, not an
           // "applied" change.
           if (!hasPaintMutation(validatedAction) && !nextConfig) return false;
@@ -714,7 +714,7 @@ export function ChatPanel({
         if (layerId) {
           if (isRecord(action.label_config)) {
             const lc = action.label_config;
-            // fix(#394) CH-02: validate the column against the layer schema —
+            // Validate the column against the layer schema —
             // a hallucinated column produced a label layer whose text-field
             // renders empty everywhere. Backend chat_actions mirrors this and
             // feeds the model an error, so this is the client-side backstop.
@@ -727,7 +727,7 @@ export function ChatPanel({
             ) {
               return false;
             }
-            // fix(#394) CH-02: drop an unparseable textColor (objects, junk
+            // Drop an unparseable textColor (objects, junk
             // strings) instead of handing it to map.setPaintProperty — the
             // adapter then falls back to its default label color.
             const safeConfig = { ...lc };
@@ -751,13 +751,13 @@ export function ChatPanel({
         // Unreachable in practice: applyActions dispatches the turn's winning
         // query result itself (and never routes one here), and staging only
         // ever accepts destructive actions. Kept for exhaustiveness — with no
-        // turn prompt to hand it, feat(#1241)'s title suggestion falls back.
+        // turn prompt to hand it, 's title suggestion falls back.
         dispatchQueryResult(action);
         return false;
       case 'add_layer': {
         const datasetId = getActionDatasetId(action);
         if (datasetId) onAddDataset(datasetId);
-        // B-012: a layer-list mutation makes this turn non-replay-safe. The undo
+        // A layer-list mutation makes this turn non-replay-safe. The undo
         // snapshot keys restores on the OLD layer.id, but re-adding via
         // onAddDataset mints a NEW id, so paint/filter/label restores would
         // no-op. Suppress undo for the turn (matches the "undo only for
@@ -770,7 +770,7 @@ export function ChatPanel({
         if (layerId) {
           onRemove(layerId);
           cleanStaleLayerRefs(mapId, layerId);
-          // B-012: see add_layer above — re-adding a removed layer on undo mints
+          // See add_layer above — re-adding a removed layer on undo mints
           // a new id, so the keyed restores no-op. Suppress undo for the turn.
           if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
           return true;
@@ -789,25 +789,25 @@ export function ChatPanel({
     }
   }
 
-  // Phase 1135 AI-01 / AI-09: staging buffer for destructive actions (add_layer / remove_layer).
+  // Staging buffer for destructive actions (add_layer / remove_layer).
   // `staging.push(action)` defers the action until the user accepts or rejects it.
   // NOTE: accepts route through `handleChatAction` only for the map mutation itself.
-  // cleanStaleLayerRefs is called inside handleChatAction's remove_layer case (CR-02 fix).
+  // cleanStaleLayerRefs is called inside handleChatAction's remove_layer case.
   // The undo snapshot is captured in handleSend before push() — acceptAll/acceptOne do NOT
   // retake a snapshot; the pre-streaming snapshot serves as the undo target for the whole turn.
   // BuilderActionSource is NOT widened — Shape B invariant preserved.
   const staging = useChatActionStaging((action) => handleChatAction(action));
 
   /**
-   * builder-audit #338 DUP-01 / COMPLEX-01: single owner of the snapshot + destructive-
+   * Single owner of the snapshot + destructive-
    * routing + undo-downgrade loop, shared by both the streaming and non-streaming
-   * fallback paths (which had drifted — the root cause of STALE-01).
+   * fallback paths (which had drifted).
    *
    * Appends each handled action to `pendingActions` (for the message bubble), routes
    * destructive add/remove into the staging buffer, dispatches everything else
    * through handleChatAction, and maintains the per-turn undo snapshot.
    *
-   * builder-audit #338 STALE-01: the snapshot is (re)captured at most once per turn —
+   * The snapshot is (re)captured at most once per turn —
    * only when no snapshot yet exists for the turn AND there is at least one
    * undo-relevant mutating action. handleSend resets lastSnapshotRef to null at the
    * start of every turn, so a query-only turn leaves it null and the undo affordance
@@ -824,7 +824,7 @@ export function ChatPanel({
         supportsUndo: mutatingActions.every(isUndoSafeAction),
       };
     }
-    // feat(#534): the inline card renders the LAST show_query_result, so the
+    // The inline card renders the LAST show_query_result, so the
     // flyover must dispatch for that same winning action only — an earlier
     // spatial result may have been superseded by a sanity-check retry, and a
     // per-action dispatch would leave the map describing a different result
@@ -840,21 +840,21 @@ export function ChatPanel({
         pendingActions.push(action);
         continue;
       }
-      // Phase 1135 AI-01: destructive actions (add_layer / remove_layer) go into the
+      // Destructive actions (add_layer / remove_layer) go into the
       // staging buffer — they do NOT dispatch immediately. The user must accept them.
       if (isDestructiveAction(action)) {
         staging.push(action);
         // Record in pendingActions so the message's actions[] captures the intent.
         pendingActions.push(action);
-        // fix(#394) CH-11: do NOT downgrade undo here — a merely-STAGED action
+        // Do NOT downgrade undo here — a merely-STAGED action
         // hasn't touched the map, so a mixed turn's style edits stay undoable
         // and a rejected staging leaves undo intact. The downgrade happens in
         // handleChatAction's add_layer/remove_layer cases, which is exactly
         // the staging-ACCEPT dispatch path.
         continue;
       }
-      // fix(#392): "Applied N changes" counts effect, not intent — only record the
-      // action in pendingActions when handleChatAction reports a real mutation. (audit CH-07)
+      // "Applied N changes" counts effect, not intent — only record the
+      // action in pendingActions when handleChatAction reports a real mutation.
       const applied = handleChatAction(action);
       if (applied) {
         pendingActions.push(action);
@@ -885,7 +885,7 @@ export function ChatPanel({
   }, []);
 
   /**
-   * builder-audit #338 COMPLEX-01: the streaming consumer, extracted from handleSend.
+   * The streaming consumer, extracted from handleSend.
    * Owns the SSE for-await loop only — token/tool progress, action application
    * (delegated to the shared applyActions), the success `done` message, and the
    * StreamModelError sentinel. Partial streamed text is exposed via the mutable
@@ -917,7 +917,7 @@ export function ChatPanel({
           break;
         case 'done': {
           const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || streamState.text;
-          // Phase 1135 AI-03: clear any existing error banner on successful response.
+          // Clear any existing error banner on successful response.
           setErrorBanner(null);
           setMessages((prev) => [
             ...prev,
@@ -951,7 +951,7 @@ export function ChatPanel({
   }
 
   /**
-   * builder-audit #338 COMPLEX-01: non-streaming retry path, extracted from handleSend.
+   * Non-streaming retry path, extracted from handleSend.
    * Only reached when streaming failed before applying any actions (classifyChatError
    * → 'retry'), so re-issuing the call cannot double an already-applied LLM turn.
    */
@@ -968,7 +968,7 @@ export function ChatPanel({
       if (signal.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
       const responseActions = getChatActions(response.actions);
       applyActions(responseActions, pendingActions, userMsg);
-      // Phase 1135 AI-03: clear any existing error banner on non-streaming success.
+      // Clear any existing error banner on non-streaming success.
       setErrorBanner(null);
       setMessages((prev) => [
         ...prev,
@@ -976,7 +976,7 @@ export function ChatPanel({
           id: randomId(),
           role: 'assistant',
           content: response.explanation,
-          // fix(#392): attach the filtered pendingActions (what actually applied), not the
+          // Attach the filtered pendingActions (what actually applied), not the
           // raw responseActions, so a rejected/empty fallback action can't render
           // "Applied N changes"/Undo — mirrors the streaming `done` path.
           actions: pendingActions.length > 0 ? pendingActions : undefined,
@@ -990,7 +990,7 @@ export function ChatPanel({
         ]);
         return;
       }
-      // Phase 1135 AI-03: mirror streaming error classification — 403/503 → sticky banner.
+      // Mirror streaming error classification — 403/503 → sticky banner.
       if (fallbackErr instanceof ApiError && (fallbackErr.status === 403 || fallbackErr.status === 503)) {
         setErrorBanner({
           kind: fallbackErr.status === 403 ? 'forbidden' : 'unavailable',
@@ -1012,7 +1012,7 @@ export function ChatPanel({
 
   async function handleSend() {
     if (!input.trim() || isLoading || inflightRef.current) return;
-    // Phase 1135 AI-01: auto-reject any unflushed staging when the user sends a new message.
+    // Auto-reject any unflushed staging when the user sends a new message.
     if (staging.pendingActions.length > 0) staging.rejectAll();
     inflightRef.current = true;
     const userMsg = input.trim();
@@ -1025,7 +1025,7 @@ export function ChatPanel({
     setIsLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    // builder-audit #338 STALE-01: clear the undo snapshot at the START of every turn so a
+    // Clear the undo snapshot at the START of every turn so a
     // stale snapshot from a previous turn can never outlive it. A query-only turn (or
     // any turn with no undo-relevant mutating actions) leaves this null, so the Undo
     // affordance never appears under an answer that reverts an earlier, unrelated edit.
@@ -1105,7 +1105,7 @@ export function ChatPanel({
     <div ref={containerRef} className={cn("flex h-full", horizontal ? "flex-row" : "flex-col")}>
       {/* Message list */}
       <div className={cn("flex-1 overflow-y-auto px-3 py-2 space-y-2", horizontal && "border-e")} role="log" aria-live="polite">
-        {/* Phase 1135 AI-03: sticky service-level error banner (403 = forbidden, 503 = unavailable).
+        {/* Sticky service-level error banner (403 = forbidden, 503 = unavailable).
             Rendered before the message list so it stays at the top of the scroll area.
             Uses role="alert" aria-live="assertive" distinct from the message log's role="log". */}
         {errorBanner !== null && (
@@ -1182,7 +1182,7 @@ export function ChatPanel({
                     });
                   }}
                 >
-                  {/* fix(#832): label shows the plain layer name; payload keeps mention markup */}
+                  {/* Label shows the plain layer name; payload keeps mention markup */}
                   {suggestion.label}
                 </button>
               ))}
@@ -1222,9 +1222,9 @@ export function ChatPanel({
                 )}
               >
                 <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                {/* Phase 1135 AI-08: inline data-analysis card for show_query_result rows */}
+                {/* Inline data-analysis card for show_query_result rows */}
                 {(() => {
-                  // feat(#534): render the LAST query result — the sanity-check
+                  // Render the LAST query result — the sanity-check
                   // retry instruction means an earlier action in the same
                   // response may be a superseded (empty/implausible) result.
                   const queryResults = msg.actions?.filter((a) => a.type === 'show_query_result');
@@ -1284,7 +1284,7 @@ export function ChatPanel({
                       </div>
                       <p className="mt-1 mb-1 px-2 text-xs text-muted-foreground">
                         {t('chat.queryResult.rowCount', { count: queryResultAction.row_count ?? rows.length })}
-                        {/* builder-audit #338 DEAD-01: surface the wire `truncated` flag so the card
+                        {/* Surface the wire `truncated` flag so the card
                             cannot show a capped table as if it were the complete result set. */}
                         {queryResultAction.truncated && (
                           <span className="ms-1 text-muted-foreground">
@@ -1295,11 +1295,11 @@ export function ChatPanel({
                     </div>
                   );
                 })()}
-                {/* builder-audit #338 Applied-N nit: a pure query-result turn mutates nothing, so it
+                {/* Applied-N nit: a pure query-result turn mutates nothing, so it
                     must not render "Applied N changes". Count only non-query actions.
-                    fix(#392): add_layer/remove_layer are staged, not yet applied, until
+                    add_layer/remove_layer are staged, not yet applied, until
                     the user accepts them in the tray — exclude them too so "Applied N changes"
-                    doesn't double-count intent alongside the staging tray's own pending count. (audit WR-02) */}
+                    doesn't double-count intent alongside the staging tray's own pending count. */}
                 {(() => {
                   const appliedActions = msg.actions?.filter(
                     (a) => a.type !== 'show_query_result' && !isDestructiveAction(a),
@@ -1310,8 +1310,8 @@ export function ChatPanel({
                     <p className="text-xs text-muted-foreground">
                       {t('chat.appliedChanges', { count: appliedActions.length })}
                     </p>
-                    {/* Phase 20260526-builder-audit #338 BLD-20260526-04: undo only for replay-safe style/filter edits. */}
-                    {/* Phase 1135 AI-01: undo button is suppressed while staging tray is visible (mutual exclusion). */}
+                    {/* Undo only for replay-safe style/filter edits. */}
+                    {/* Undo button is suppressed while staging tray is visible (mutual exclusion). */}
                     {lastSnapshotRef.current?.supportsUndo &&
                       messages.indexOf(msg) === messages.length - 1 &&
                       msg.role === 'assistant' &&
@@ -1360,7 +1360,7 @@ export function ChatPanel({
             </div>
           </div>
         )}
-        {/* Phase 1135 AI-01 / AI-09: staging tray — renders between last message and compose area. */}
+        {/* Staging tray — renders between last message and compose area. */}
         {staging.pendingActions.length > 0 && (
           <div
             role="region"

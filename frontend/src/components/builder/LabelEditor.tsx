@@ -33,7 +33,7 @@ const PLACEMENT_OPTIONS = [
   { value: 'line-center', labelKey: 'labels.placementLineCenter' },
 ] as const;
 
-// builder-audit #338 LABEL-02: every anchor option carries an i18n labelKey so the
+// Every anchor option carries an i18n labelKey so the
 // four corner anchors translate instead of rendering hardcoded English.
 const ANCHOR_OPTIONS = [
   { value: 'center', labelKey: 'labels.anchorCenter' },
@@ -58,7 +58,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
     return PLACEMENT_OPTIONS.filter(p => p.value === 'point');
   }, [geometryType]);
 
-  // Phase 20260526-builder-audit #338 BLD-20260526-11: sync from prop so the ref survives unmount/remount cycles.
+  // Sync from prop so the ref survives unmount/remount cycles.
   const lastConfigRef = useRef<LabelConfig | null>(labelConfig);
   if (labelConfig) lastConfigRef.current = labelConfig;
 
@@ -73,7 +73,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
         // (empty column = non-functional config). That made the Switch appear
         // dead from the user's perspective. Bail out early instead so the Switch
         // stays off until columns are available — caller can show a toast or
-        // disabled state if needed (LB-DEBUG: Phase 261 audit).
+        // disabled state if needed (LB-DEBUG: audit).
         if (!firstColumn) {
           return;
         }
@@ -96,7 +96,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
   const placement = labelConfig?.placement ?? (isLine ? 'line' : 'point');
   const isPointPlacement = placement === 'point';
 
-  // fix(#438): BLD-02 — resolve the same implicit default the renderer applies
+  // Resolve the same implicit default the renderer applies
   // for point labels, so the sliders show what the map draws (0/-1.5, not 0/0)
   // and dragging one axis preserves the other instead of discarding it.
   const isPointGeometry = (geometryType ?? '').toUpperCase().includes('POINT');

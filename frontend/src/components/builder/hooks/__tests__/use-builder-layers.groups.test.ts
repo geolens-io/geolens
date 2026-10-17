@@ -1,7 +1,7 @@
 /**
  * use-builder-layers.groups.test.ts
  *
- * Phase 1035 — Tests for groupMeta state, handleToggleGroupExpand,
+ * Tests for groupMeta state, handleToggleGroupExpand,
  * handleDEMTerrainBind, and folder-group handler mutations in useBuilderLayers.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -27,7 +27,7 @@ function renderBuilderLayers(
 ) {
   const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  // 6th positional param bridging into useBuilderSave's Save-diff baseline.
   const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   return renderHook(() =>
@@ -45,10 +45,10 @@ function renderBuilderLayers(
 describe('useBuilderLayers — group_meta / groupMeta', () => {
 
   // Test 1: toggle expands
-  // Per CR-02 (commit 116fe289), the BASEMAP group's toggle-expand is a
+  // Per (commit 116fe289), the BASEMAP group's toggle-expand is a
   // UI-only affordance and does NOT mark the map as dirty — it has no
   // persisted carrier, so a false "unsaved" badge on expand/collapse was
-  // misleading. fix(#833): FOLDER groups do persist collapse state (the
+  // misleading. FOLDER groups do persist collapse state (the
   // folderGroupExpanded marker), so their toggle DOES dirty — see the
   // folder-group test below.
   it('handleToggleGroupExpand toggles groupMeta.basemap.expanded between true/false (UI-only; does NOT mark unsaved)', () => {
@@ -79,7 +79,7 @@ describe('useBuilderLayers — group_meta / groupMeta', () => {
     expect(result.current.groupMeta['g1']).toEqual({ expanded: true });
   });
 
-  // fix(#833): folder-group collapse state is persisted on children, so a
+  // Folder-group collapse state is persisted on children, so a
   // collapse-only change must dirty the save — it used to reach the backend
   // only when another edit rode along in the same save.
   it('handleToggleGroupExpand on a FOLDER group marks the map unsaved', () => {
@@ -271,19 +271,19 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  // fix(#392): handleUngroup must clear the PERSISTED
+  // handleUngroup must clear the PERSISTED
   // style_config.builder.folderGroupId on the child, not just the
   // frontend-only parent_group_id — otherwise re-duplicating the child
   // before Save copies the stale group pointer to the backend and the next
   // server resync silently re-groups it (hydrateFolderGroupLayers reads
-  // style_config, not parent_group_id). (audit CR-01)
+  // style_config, not parent_group_id).
   it('handleUngroup clears style_config.builder.folderGroupId on promoted children (CR-01)', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const childLayer = {
       ...makeMockLayer({
         id: 'child-1',
         sort_order: 1,
-        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        // Partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
         style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
       }),
       parent_group_id: 'group-1',
@@ -318,7 +318,7 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  // Test 9b (builder-audit #338 B-007): handleDeleteGroup tears down child companion
+  // Test 9b: handleDeleteGroup tears down child companion
   // MapLibre layers so they don't linger as ghost visuals until the next sync.
   it('handleDeleteGroup removes child companion MapLibre layers (B-007)', () => {
     const removed: string[] = [];
@@ -360,7 +360,7 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  // fix(#767): a group whose last child leaves has no persisted carrier — it
+  // A group whose last child leaves has no persisted carrier — it
   // rendered, accepted drops, and dirtied the map, then silently vanished
   // (with any rename) on save+reload. The row is pruned the moment it empties.
   it('handleMoveLayerOutOfGroup prunes the group row when its last child moves out (fix #767)', () => {
@@ -392,7 +392,7 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.localLayers.map((l) => l.id)).toContain('child-b');
   });
 
-  // fix(#767): the drag-out path — MapBuilderPage's handleDragEnd dispatches a
+  // The drag-out path — MapBuilderPage's handleDragEnd dispatches a
   // reorder_layers action with the child's membership cleared; handleReorder
   // must prune the group row the drag emptied.
   it('handleReorder prunes a group row emptied by a drag-out (fix #767)', () => {
@@ -413,7 +413,7 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.localLayers.map((l) => l.id)).toEqual(['loose-1', 'child-1']);
   });
 
-  // fix(#767): the single-delete path — removing a group's only child prunes
+  // The single-delete path — removing a group's only child prunes
   // the group row in the same optimistic write.
   it('handleRemove of the last group child prunes the group row (fix #767)', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
@@ -428,14 +428,14 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.localLayers.map((l) => l.id)).toEqual(['loose-1']);
   });
 
-  // fix(#392): handleMoveLayerOutOfGroup must clear the PERSISTED
-  // style_config.builder.folderGroupId too — same rationale as Test 8b above. (audit CR-01)
+  // handleMoveLayerOutOfGroup must clear the PERSISTED
+  // style_config.builder.folderGroupId too — same rationale as Test 8b above.
   it('handleMoveLayerOutOfGroup clears style_config.builder.folderGroupId from the target layer (CR-01)', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const childLayer = {
       ...makeMockLayer({
         id: 'child-1',
-        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        // Partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
         style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
       }),
       parent_group_id: 'group-1',

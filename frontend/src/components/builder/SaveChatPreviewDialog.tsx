@@ -1,4 +1,4 @@
-// feat(#1241): "Save as dataset…" for a plain chat query preview.
+// "Save as dataset…" for a plain chat query preview.
 //
 // The preview's whole FeatureCollection is already on the client (it is what
 // the map overlay draws), so persisting it needs no new endpoint: wrap it in a
@@ -34,7 +34,7 @@ const MAX_SUGGESTED_TITLE = 80;
 const GEOJSON_EXT = '.geojson';
 
 /**
- * feat(#1241 codex r5): the byte budget for the name the file is UPLOADED
+ * The byte budget for the name the file is UPLOADED
  * under. Graphemes are the wrong unit for a filesystem: 80 emoji plus the
  * extension is 328 bytes, and local staging writes
  * `<job-uuid>_<basename>` into a directory entry Linux caps at 255 bytes, so a
@@ -90,7 +90,7 @@ export function chatPreviewUploadName(fileName: string): string {
 }
 
 /**
- * feat(#1241 codex r3/r4): what became of a job whose commit we already sent.
+ * What became of a job whose commit we already sent.
  *
  * The backend refuses a repeat commit with 400 for EVERY non-pending status,
  * and those statuses do not mean the same thing. A commit that queued the
@@ -131,7 +131,7 @@ export function SaveChatPreviewDialog({
 }: SaveChatPreviewDialogProps) {
   const { t } = useTranslation('builder');
   const [isCommitting, setIsCommitting] = useState(false);
-  // feat(#1241 codex r2): the staged job survives a failed attempt, so a retry
+  // The staged job survives a failed attempt, so a retry
   // resumes the chain instead of restarting it. Re-uploading would leave the
   // first job staged with nothing pointing at it, and worse: if a commit was
   // accepted and only its response was lost, a fresh job would queue a second
@@ -172,7 +172,7 @@ export function SaveChatPreviewDialog({
       try {
         await commitImport(staged.jobId, metadata);
       } catch (err) {
-        // feat(#1241 codex r3): a commit whose response was lost still queued
+        // A commit whose response was lost still queued
         // the import, and the backend then refuses the repeat with 400 "Job
         // already processed" — forever, so the dialog could never close over a
         // dataset the server already had. Only ever on a RE-commit: a 400 on
@@ -185,7 +185,7 @@ export function SaveChatPreviewDialog({
         // the worker picked the job up — the redundant task finds the row
         // claimed and no-ops. One dataset either way.
         if (!isRecommit || !(err instanceof ApiError) || err.status !== 400) throw err;
-        // feat(#1241 codex r4): but that 400 covers every non-pending status,
+        // But that 400 covers every non-pending status,
         // including the job a failed dispatch marked `failed` (503 on the
         // first attempt, staged file already deleted). Ask what actually
         // happened rather than reading success into the refusal.

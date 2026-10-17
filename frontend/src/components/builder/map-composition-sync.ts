@@ -15,13 +15,13 @@ import {
 
 type RefBox<T> = { current: T };
 
-// feat(#845): one pending root-style idle-retry per map instance, so a newer
+// One pending root-style idle-retry per map instance, so a newer
 // appearance application can cancel a stale one (Codex P2 on #848). Covers
-// projection and, since feat(#1473), sky — both are root style state with the
+// projection and, since, sky — both are root style state with the
 // same "needs a parsed style" precondition.
 const pendingRootStyleRetries = new WeakMap<MaplibreMap, () => void>();
 
-// feat(#1473): atmosphere for globe maps, so the sphere reads as a planet
+// Atmosphere for globe maps, so the sphere reads as a planet
 // instead of a flat disc. `atmosphere-blend` is the only sky property a globe
 // actually shows: MapLibre draws the limb halo in a separate atmosphere pass
 // scaled by this value, while the sky pass that consumes sky-color /
@@ -41,7 +41,7 @@ const GLOBE_SKY: SkySpecification = {
   'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0],
 };
 
-// fix(#1474 Codex P2 round 1): a remote basemap style may ship its own `sky`
+// A remote basemap style may ship its own `sky`
 // block, and sanitizeMaplibreStyle() passes root properties through untouched.
 // So the atmosphere is layered OVER whatever sky the style brought rather than
 // replacing it, and mercator restores that sky instead of clearing it.
@@ -54,7 +54,7 @@ const GLOBE_SKY: SkySpecification = {
 type SkyState = { applied: SkySpecification | undefined; base: SkySpecification | undefined };
 const skyStates = new WeakMap<MaplibreMap, SkyState>();
 
-// fix(#1474 Codex P2 round 2): handing back a `base` that never mentioned
+// Handing back a `base` that never mentioned
 // atmosphere-blend does not remove ours. setSky's diff walks only the keys of
 // the spec you pass, so every key would compare equal and the write would be
 // dropped with our override still in the live style. Naming the property
@@ -82,7 +82,7 @@ function applySky(map: MaplibreMap, isGlobe: boolean) {
   skyStates.set(map, { applied: map.getSky?.(), base });
 }
 
-// feat(#1479): the void behind the sphere, which no sky value can reach — the
+// The void behind the sphere, which no sky value can reach — the
 // atmosphere pass returns alpha 0 for rays that miss the planet, the canvas
 // clears transparent, and the style's `background` layer is drawn per tile so
 // it stays clipped to the sphere. What shows through the miss is the page
@@ -107,7 +107,7 @@ function applySpaceBackdrop(map: MaplibreMap, isGlobe: boolean) {
 /**
  * Whether `map` is currently showing the globe space backdrop.
  *
- * fix(#1479 Codex P2 round 1): image captures have to paint the same void the
+ * Image captures have to paint the same void the
  * screen does, and this is the one predicate that answers "is space showing
  * right now" — asking the container what it was marked with, rather than
  * re-deriving globeness from projection state, is what keeps a capture from
@@ -149,12 +149,12 @@ export function applyMapBasemapAppearance({
   reorderDataLayerIds,
 }: ApplyMapBasemapAppearanceOptions) {
   const sourcePrefix = sourcePrefixFor(idPrefix);
-  // builder-audit #338 CORR-01: pass master opacity so per-sublayer opacity overrides
+  // Pass master opacity so per-sublayer opacity overrides
   // COMPOSE with it (override * master) rather than clobbering the master-opacity
   // paint applyBasemapConfigToMap just wrote.
   const masterOpacity = basemapConfig?.opacity ?? 1;
 
-  // feat(#845): projection is root style state persisted on
+  // Projection is root style state persisted on
   // basemap_config.projection — apply it with the rest of the basemap
   // appearance so viewer/shared surfaces honor the saved value, not just the
   // builder. setProjection only needs the style PARSED (maplibre's
@@ -171,7 +171,7 @@ export function applyMapBasemapAppearance({
     pendingRootStyleRetries.delete(map);
   }
   const projection = basemapConfig?.projection ?? 'mercator';
-  // feat(#1479): the backdrop is DOM state, not style state, so it does not
+  // The backdrop is DOM state, not style state, so it does not
   // share setProjection's parsed-style precondition and is applied outside the
   // retry below. Inside it, a throw from either maplibre call would strand the
   // backdrop out of step with the projection until `style.load` — permanently
@@ -181,7 +181,7 @@ export function applyMapBasemapAppearance({
     pendingRootStyleRetries.delete(map);
     try {
       map.setProjection?.({ type: projection });
-      // feat(#1473): sky shares setProjection's parsed-style precondition, so
+      // Sky shares setProjection's parsed-style precondition, so
       // it rides the same retry and survives style/basemap reloads.
       applySky(map, projection === 'globe');
     } catch {

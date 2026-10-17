@@ -107,7 +107,7 @@ describe('renderAs view model', () => {
 
     expect(RENDERER_CAPABILITIES.length).toBeGreaterThan(0);
     expect(capabilities.map((entry) => entry.id)).toEqual(['line', 'arrow']);
-    // builder-audit #338 ADAPT-07: RendererCapability is trimmed to {id,label,source,
+    // RendererCapability is trimmed to {id,label,source,
     // requiresClusterSource}; assert the surviving consumed fields only (no inert
     // backend/companionLayers/viewerSupport/styleJsonSupport/writableFields metadata).
     expect(arrow).toMatchObject({ id: 'arrow', label: 'Arrow', source: 'vector-line' });
@@ -378,7 +378,7 @@ describe('renderAs view model', () => {
   });
 });
 
-// fix(#430 codex): a user-chosen heightColumn is destructible extrusion state —
+// A user-chosen heightColumn is destructible extrusion state —
 // diverging from the auto-pick default must trigger the render-as confirm.
 describe('hasCustomizedRenderAsStyle — extrusion heightColumn', () => {
   const columns = [
@@ -418,7 +418,7 @@ describe('hasCustomizedRenderAsStyle — extrusion heightColumn', () => {
   });
 });
 
-// fix(#430 codex r3): symbol-only settings (iconOffset, category mapping) are
+// Symbol-only settings (iconOffset, category mapping) are
 // destructible too — leaving symbol mode drops style_config.symbol wholesale.
 describe('hasCustomizedRenderAsStyle — symbol-only settings', () => {
   const symbolLayer = (symbol: Record<string, unknown>) => layer({

@@ -10,10 +10,10 @@
  * 2. Expanding reveals the chip label + layer name.
  * 3. Layout: outer wrapper pointer-events-none + ml-12 (clears the zoom
  *    control); inner scroll container pointer-events-auto + max-h-[40vh] +
- *    overflow-y-auto (WR-01).
+ *    overflow-y-auto.
  * 4. Zero chips renders null.
  * 5. Per-chip X and Clear all call onClearFilter correctly.
- * 6. The filter summarizer (FILT-01 / FILT-02) is unchanged.
+ * 6. The filter summarizer is unchanged.
  * 7. Source-text negative-control keeps the max-h-[40vh] + overflow-y-auto cap.
  *
  * Uses Vite ?raw import for the source-text test — same pattern as
@@ -176,7 +176,7 @@ describe('ActiveFilterChips — collapsible summary pill', () => {
 });
 
 // ===========================================================================
-// builder-audit #338 FILT-01 / FILT-02 — chip summarizer / canonical-parser
+// Chip summarizer / canonical-parser
 // ===========================================================================
 
 describe('ActiveFilterChips — filter summary (FILT-01 / FILT-02)', () => {
@@ -188,7 +188,7 @@ describe('ActiveFilterChips — filter summary (FILT-01 / FILT-02)', () => {
     return utils;
   }
 
-  // FILT-01: every numeric-column comparison the editor builds is wrapped in the
+  // Every numeric-column comparison the editor builds is wrapped in the
   // nullable-safe ["to-number", ["get", f], fallback] accessor. The chip
   // summarizer previously could not unwrap that and dropped the chip entirely.
   it('FILT-01: renders a chip for a to-number-wrapped numeric comparison (bare)', () => {
@@ -206,7 +206,7 @@ describe('ActiveFilterChips — filter summary (FILT-01 / FILT-02)', () => {
     expect(screen.getByText('pop <= 100')).toBeInTheDocument();
   });
 
-  // FILT-02: ["in", value, ["get", f]] is a substring/contains filter. It must be
+  // ["in", value, ["get", f]] is a substring/contains filter. It must be
   // labelled `<field> contains "<value>"`, NOT `<value> in (…)`.
   it('FILT-02: labels a substring/contains filter as `<field> contains "<value>"`', () => {
     const filter = ['in', 'Main', ['get', 'name']] as unknown as FilterSpecification;

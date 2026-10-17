@@ -89,14 +89,14 @@ describe('useBuilderLayout', () => {
       unmount();
 
       // Two MQL listeners should be removed (rail + editorHidden)
-      expect(removeListeners.length).toBe(3); // fix(#438): +mobileMql (UX-06)
+      expect(removeListeners.length).toBe(3); // +mobileMql
       expect(removeListeners.every(([event]) => event === 'change')).toBe(true);
     });
   });
 
   describe('breakpoint constants', () => {
     it('uses 1100 and 800 as locked breakpoints', () => {
-      // These values are locked from UI-SPEC §"Responsive breakpoints"
+      // These values are locked
       // We test the boundary: at exactly 1099, isRail should be true
       Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1099 });
       vi.stubGlobal('matchMedia', makeMatchMedia(1099));

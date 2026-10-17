@@ -171,7 +171,7 @@ describe('HeatmapStyleControls', () => {
     });
   });
 
-  // fix(#788 item 3): SliderRow omitted aria-valuetext, so AT read the raw
+  // SliderRow omitted aria-valuetext, so AT read the raw
   // number ("0.8") while the screen showed the formatted value ("80%").
   it('exposes the formatted value to AT via aria-valuetext on each slider', () => {
     render(<HeatmapStyleControls layer={baseLayer} onPaintChange={vi.fn()} />);

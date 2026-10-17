@@ -82,7 +82,7 @@ const KNOWN_MAPLIBRE_OPERATORS = new Set<string>([
   'coalesce', 'concat', 'literal', 'at', 'length', 'get', 'has', 'in', 'feature-state',
   'geometry-type',
   // 'id' here is the MapLibre ["id"] data accessor (returns feature id) — NOT
-  // related to the optional stop.id field added in Phase 258 POLISH-06.
+  // related to the optional stop.id field.
   'id',
   'properties', 'to-string', 'to-number', 'to-boolean', 'typeof',
   'rgb', 'rgba', 'to-color', 'to-rgba',
@@ -135,7 +135,7 @@ export function lineGradientExpressionToStops(
   if (!Array.isArray(expr)) return null;
   if (expr[0] !== 'interpolate') return null;
   const interp = expr[1];
-  // Phase 20260526-builder-audit #338 BLD-20260526-11: accept ['linear', ...trailing] from third-party serializers that pad
+  // Accept ['linear', ...trailing] from third-party serializers that pad
   // with extra args. By MapLibre spec the linear arg list is empty, but only
   // operator identity actually matters for gradient parsing.
   if (!Array.isArray(interp) || interp[0] !== 'linear') return null;
@@ -143,7 +143,7 @@ export function lineGradientExpressionToStops(
   if (!Array.isArray(input) || input[0] !== 'line-progress' || input.length !== 1) return null;
   const tail = expr.slice(3);
   if (tail.length === 0 || tail.length % 2 !== 0) return null;
-  // builder-audit #338 DRY-04: keep-all stop semantics over the shared pair walker.
+  // Keep-all stop semantics over the shared pair walker.
   const stops: Array<{ position: number; color: string }> = [];
   for (const { first: position, second: color } of walkExpressionPairs(expr, 3)) {
     if (typeof position !== 'number' || !Number.isFinite(position)) return null;
@@ -181,7 +181,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
 
   // Preserve any non-canonical (custom) line-gradient expression so that a
   // Solid -> Gradient round-trip restores it instead of silently overwriting
-  // with the canonical 2-stop default. Phase 256 review — WR-03.
+  // with the canonical 2-stop default.
   const savedGradientExprRef = useRef<unknown>(null);
 
   // Local state for in-progress position edits so we can show validation
@@ -223,7 +223,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   const isCustomExpression = paintExpr != null && parsedFromPaint == null;
 
   function commitStops(nextStops: WorkingStop[]) {
-    // fix(#1778, round1 #1795 P2): refuse a commit that makes stop
+    // Refuse a commit that makes stop
     // ordering WORSE, not any commit that leaves some violation in place.
     // A blanket "any non-ascending pair refuses" rule blocked incremental
     // repair of a legacy list saved by the old repeated-Add bug (e.g.
@@ -239,7 +239,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     // surfaces the duplicatePosition warning below.
     const previousViolations = liveStops ? countOrderViolations(liveStops) : 0;
     if (countOrderViolations(nextStops) > previousViolations) return;
-    // fix(round5 #1795 P2): the total-count check above is not enough on
+    // The total-count check above is not enough on
     // its own — it lets a position edit SWAP one violation for a different
     // one at the same count (e.g. [0, 0.5, 0.5, 1] -> [0, 0.5, 0.4, 1]: the
     // duplicate at (1,2) becomes a descending pair at (1,2) instead, count
@@ -256,12 +256,12 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     // Compose the next paint snapshot once and pass it to both callbacks so the
     // upstream save sees a single consistent state. Without `nextPaint`,
     // `onBuilderChange` would resolve `paint` from a stale closure and shadow
-    // the gradient committed by `onPaintProp`. (UAT regression — Phase 256.)
+    // the gradient committed by `onPaintProp`.
     //
     // Clear pendingPositionEdits because the entry indices are about to be
     // invalidated by the structural change (add/remove/sort/etc). Pending
     // edits are keyed by array index and would otherwise leak across
-    // index shifts (Phase 256 review — WR-02).
+    // index shifts.
     setPendingPositionEdits({});
     const expr = stopsToLineGradientExpression(nextStops);
     const nextPaint = { ...paint, 'line-gradient': expr };
@@ -272,7 +272,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   function activateGradient() {
     setMode('gradient');
     // Restore a previously-preserved non-canonical (custom) expression if the
-    // user toggled away from it via Solid. Phase 256 review — WR-03.
+    // user toggled away from it via Solid.
     const savedExpr = savedGradientExprRef.current;
     if (savedExpr != null && lineGradientExpressionToStops(savedExpr) == null) {
       savedGradientExprRef.current = null;
@@ -293,7 +293,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   function activateSolid() {
     setMode('solid');
     // Preserve any non-canonical expression so a re-toggle to Gradient can
-    // restore it. Phase 256 review — WR-03.
+    // restore it.
     if (paintExpr != null && parsedFromPaint == null) {
       savedGradientExprRef.current = paintExpr;
     }
@@ -305,7 +305,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     // Atomicity: route the entire transition through one onBuilderChange call
     // with the fully-composed nextPaint. Drop the redundant onPaintProp('line-color', ...)
     // so we don't fire a separate intermediate state update — same pattern as
-    // commitStops (Phase 256 review — WR-04, mirrors the UAT regression fix).
+    // commitStops.
     // The first onPaintProp('line-gradient', undefined) is kept so the MapLibre
     // adapter sees the explicit removal signal.
     onPaintProp('line-gradient', undefined);
@@ -314,7 +314,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
 
   function addStop() {
     if (!liveStops || liveStops.length < 2) return;
-    // fix(#1778): bisect the WIDEST gap, not always the last pair. Bisecting
+    // Bisect the WIDEST gap, not always the last pair. Bisecting
     // the last pair repeatedly (0.5, 0.75, 0.88, ...) converges on the final
     // stop's position — the 7th click used to duplicate it outright, and
     // every click after that kept doing so.
@@ -366,14 +366,14 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
       return;
     }
     // commitStops() resets pendingPositionEdits to {} so this index's
-    // entry is dropped along with any other stale entries (Phase 20260526-builder-audit #338 BLD-20260526-11).
+    // entry is dropped along with any other stale entries.
     const next = liveStops.map((s, i) => (i === index ? { ...s, position: raw } : s));
     commitStops(next);
   }
 
   function openAdvanced() {
     const expr = paint['line-gradient'] ?? null;
-    // Empty paint -> empty textarea (don't show literal "null"). Phase 256 review — IN-02.
+    // Empty paint -> empty textarea (don't show literal "null")..
     setAdvancedText(expr == null ? '' : JSON.stringify(expr, null, 2));
     setAdvancedError(null);
     setAdvancedOpen(true);
@@ -394,7 +394,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     // Compose nextPaint once and pass it to onBuilderChange so the upstream save
     // sees a single consistent state. Without nextPaint, onBuilderChange would
     // resolve `paint` from a stale closure and shadow the gradient committed by
-    // onPaintProp — same Phase 20260526-builder-audit #338 BLD-20260526-11 race that commitStops/activateSolid avoid.
+    // onPaintProp — same race that commitStops/activateSolid avoid.
     const nextPaint = { ...paint, 'line-gradient': result.value };
     onPaintProp('line-gradient', result.value);
     // If canonical, hydrate builder.lineGradient.stops; else clear builder.lineGradient
@@ -402,7 +402,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     const parsedStops = lineGradientExpressionToStops(result.value);
     if (parsedStops != null) {
       onBuilderChange({ lineGradient: { stops: parsedStops } }, nextPaint);
-      // IN-03: switch the controls into gradient view so the freshly-applied
+      // Switch the controls into gradient view so the freshly-applied
       // canonical stops are immediately visible. Without this, applyAdvanced
       // from solid mode commits the paint but leaves the toggle on Solid until
       // a parent remount re-derives initialMode.
@@ -479,7 +479,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
               displayedPos >= 0 && displayedPos <= 1 && Number.isFinite(displayedPos);
             // Use displayedPos (factors in pending edits) instead of committed position so the
             // monotonic warning surfaces immediately while typing instead of lagging by one
-            // commit cycle. Phase 256 review — IN-03.
+            // commit cycle.
             const prevDisplayedPos =
               idx === 0
                 ? -Infinity

@@ -1,4 +1,4 @@
-/* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
+/* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
 import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, Eye, EyeOff, FolderMinus, MoreVertical, Pencil, Plus, Trash2 } from 'lucide-react';
@@ -36,7 +36,7 @@ interface FolderGroupRowProps {
   onAddLayer: (id: string) => void;
   onUngroup: (id: string) => void;
   onDeleteGroup: (id: string) => void;
-  // Phase 1041: multi-selection props (POL-06, POL-07)
+  // Multi-selection props
   isMultiSelected?: boolean;
   isMultiSelectionActive?: boolean;
   onCmdClick?: (id: string) => void;
@@ -69,9 +69,9 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const kebabMenu = useKebabContextMenu();
 
-  // builder-audit #338 STACK-03: shared inline-rename state machine (was duplicated
-  // verbatim with StackRow, including the BUG-03 focus-race gating). Empty input
-  // is a silent revert per UI-SPEC — onCommit ignores a null name.
+  // Shared inline-rename state machine (was duplicated
+  // verbatim with StackRow, including the focus-race gating). Empty input
+  // is a silent revert: onCommit ignores a null name.
   const {
     editing,
     setEditing,
@@ -97,7 +97,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
     setConfirmingDelete(false);
   }, [groupId, setEditing]);
 
-  // Phase 1041: modifier-aware click handler (POL-06)
+  // Modifier-aware click handler
   function handleRowClick(e: React.MouseEvent) {
     if (e.metaKey || e.ctrlKey) {
       e.preventDefault();
@@ -137,7 +137,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           e.preventDefault();
           onCmdClick?.(groupId); // Space = Cmd-click (toggles multi-selection)
         }
-        // fix(#788): Escape with the delete confirm pending dismisses the
+        // Escape with the delete confirm pending dismisses the
         // confirm (consumed) instead of falling through to ancestor Escape
         // handlers. The confirm handles its own Escape when focus is inside it;
         // this covers focus resting on the row.
@@ -148,14 +148,14 @@ export const FolderGroupRow = memo(function FolderGroupRow({
         }
       }}
     >
-      {/* Row grid — builder-audit #338 STACK-04: shared grid template + state classes. */}
+      {/* Row grid: shared grid template + state classes. */}
       <div
         className={cn(
           'group/row grid', STACK_ROW_GRID, 'gap-2 items-center py-2 px-2 cursor-pointer select-none',
           rowStateClasses({ selected: selected || isMultiSelected, isDragging }),
         )}
       >
-        {/* Cell 1: Caret column — Checkbox during multi-selection mode; caret button otherwise (Phase 1041) */}
+        {/* Cell 1: Caret column — Checkbox during multi-selection mode; caret button otherwise */}
         {isMultiSelectionActive ? (
           <Checkbox
             className="h-3.5 w-3.5"
@@ -167,7 +167,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             onPointerDown={(e) => e.stopPropagation()}
           />
         ) : (
-          // UX-01 (Phase 1051 Plan 04): h-6 w-6 (24×24 hit target) + -mx-1 extends the
+          // w-6 (24×24 hit target) + -mx-1 extends the
           // visual box 4px past each side of the 16px grid column without altering the grid
           // template (sketch 002 A "A-strict"). ChevronRight Lucide icon at h-4 w-4 (16px
           // visible glyph) replaces the Unicode ▸ text character.
@@ -191,7 +191,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           </button>
         )}
 
-        {/* Cell 2: Grip handle (builder-audit #338 STACK-04: shared DragGripButton). */}
+        {/* Cell 2: Grip handle (shared DragGripButton). */}
         <DragGripButton
           dragHandleProps={dragHandleProps}
           ariaLabel={t('stackRow.dragHandle', {
@@ -200,7 +200,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           })}
         />
 
-        {/* Cell 3: Eye visibility toggle. builder-audit #338 (aria-pressed nit):
+        {/* Cell 3: Eye visibility toggle.
             aria-pressed reflects the visible state so AT announces it as a toggle,
             matching StackRow and BasemapGroupRow. */}
         <button
@@ -224,7 +224,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
         </button>
 
         {/* Cell 4: Type icon — folder group.
-            fix(#438): DS-05 — was an inline OKLCH amber with no dark variant;
+            Was an inline OKLCH amber with no dark variant;
             now the theme-aware --type-folder token pair. */}
         <span
           className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-xs font-medium bg-type-folder-bg text-type-folder"
@@ -268,7 +268,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
               <button
                 type="button"
                 data-kebab-trigger=""
-                // Phase 1199 STACK-05: reveal the kebab on coarse-pointer/touch.
+                // Reveal the kebab on coarse-pointer/touch.
                 data-touch-reveal=""
                 aria-label={t('stackRow.kebabGroupTrigger', {
                   defaultValue: 'Group options for {{name}}',
@@ -301,7 +301,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
                   startRename();
                 }}
               >
-                {/* fix(#585): kebab items carry icons, matching StackRow. */}
+                {/* Kebab items carry icons, matching StackRow. */}
                 <Pencil className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabRenameGroup', { defaultValue: 'Rename group' })}
               </DropdownMenuItem>
@@ -326,7 +326,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
         </div>
       </div>
 
-      {/* fix(#585): shared inline confirm — sibling of grid row, NOT inside DropdownMenuContent */}
+      {/* Shared inline confirm — sibling of grid row, NOT inside DropdownMenuContent */}
       {confirmingDelete && (
         <InlineDeleteConfirm
           confirmId={`confirm-delete-${groupId}`}
@@ -339,7 +339,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           }}
           onCancel={() => {
             setConfirmingDelete(false);
-            // fix(#788): the confirm owned focus (autofocused Cancel button), so
+            // The confirm owned focus (autofocused Cancel button), so
             // dismissing it must hand focus back to the row instead of <body>.
             document.getElementById(`stack-row-${groupId}`)?.focus();
           }}

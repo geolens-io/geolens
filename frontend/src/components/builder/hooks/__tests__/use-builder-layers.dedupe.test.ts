@@ -1,5 +1,5 @@
 /**
- * Phase 1050 SF-04: deduped MapLibre source contract for use-builder-layers.
+ * Deduped MapLibre source contract for use-builder-layers.
  *
  * - swapLayerOnMap must route through `getSourceIdForLayer` so it reads/writes
  *   the deduped `source-data-${dataset_table_name}` source for non-cluster
@@ -45,7 +45,7 @@ function createMockMap(initial?: { sources?: string[]; layers?: string[] }) {
 function renderBuilder(mapData: MapResponse, mapRef: React.RefObject<MaplibreMap | null>) {
   const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  // 6th positional param bridging into useBuilderSave's Save-diff baseline.
   const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
   return renderHook(() =>
     useBuilderLayers(mapData, mapRef, 'map-1', addLayerMutation, removeLayerMutation, saveBaselineSyncRef),
@@ -105,7 +105,7 @@ describe('use-builder-layers Phase 1050 SF-04 dedupe contract', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  // WR-01 (Phase 1050-rev): removeStaleSourcesAndLayers cannot derive
+  // removeStaleSourcesAndLayers cannot derive
   // companion ids under the dedupe contract — the stripped sourceId yields
   // `data-${dataset_table_name}` instead of the real layer id. Verify both
   // non-AI removal paths (handleRemove single, handleBulkDelete batched)

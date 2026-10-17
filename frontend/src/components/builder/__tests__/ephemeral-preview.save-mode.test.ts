@@ -1,4 +1,4 @@
-// feat(#1241): which save a preview earns. The two guards this encodes —
+// Which save a preview earns. The two guards this encodes —
 // truncation and the upload capability — are the reason the snapshot path
 // exists at all, so they are pinned here rather than only through the UI.
 import { previewSaveMode } from '../ephemeral-preview';
@@ -47,7 +47,7 @@ describe('previewSaveMode', () => {
     expect(previewSaveMode({ featureCount: 0 }, true)).toBe('none');
   });
 
-  // feat(#1241 codex r2): an Analysis-panel preview carries `source` but no
+  // An Analysis-panel preview carries `source` but no
   // `analysis` (that field marks a CHAT run_analysis handoff), so a mode
   // decided on `analysis` alone classified it as a chat snapshot and offered
   // the ingest dialog beside the panel's own Create dataset. Its preview is

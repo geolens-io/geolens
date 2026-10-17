@@ -34,7 +34,7 @@ vi.mock('@/hooks/use-edition', () => ({
 }));
 
 vi.mock('@/api/maps', async (importOriginal) => {
-  // fix(#1831 review): keep the real `nonPublicDatasetsFromError` — it's the
+  // Keep the real `nonPublicDatasetsFromError` — it's the
   // shared predicate SharePanel uses to detect the blocked-publish refusal;
   // only `checkMapVisibility` needs stubbing here.
   const actual = await importOriginal<typeof import('@/api/maps')>();
@@ -52,7 +52,7 @@ vi.mock('@/hooks/use-maps', () => ({
   useUpdateShareToken: vi.fn(),
 }));
 
-// fix(#1548 review r3): SharePanel now reads the deployment's configured
+// SharePanel now reads the deployment's configured
 // public origin for every URL it hands out. Default the mock to the current
 // origin so tests written before that change emit byte-identical URLs; the
 // tests that care drive a DIFFERENT hostname, which is the whole point.
@@ -138,7 +138,7 @@ function setup({
   publishMapFn?: (...args: any[]) => any;
   /** The deployment's configured PUBLIC_APP_URL. null = unconfigured. */
   publicAppUrl?: string | null;
-  /** feat(#1691): useCanSetPublicVisibility() — false when the instance
+  /** useCanSetPublicVisibility — false when the instance
    *  restricts public visibility to admins and the user is not one. */
   canSetPublic?: boolean;
   /** Return an active embed token even when the share link is created at
@@ -362,12 +362,12 @@ describe('ShareDialog edition gates', () => {
 /*  #1515: embed iframe sandbox attribute                              */
 /* ------------------------------------------------------------------ */
 //
-// Supersedes the M-70 contract this block used to pin. `allow-scripts` alone
+// Supersedes the contract this block used to pin. `allow-scripts` alone
 // gives the frame an opaque origin, and the emitted snippet could not boot:
 // measured end to end, the viewer rendered "Map not found" for a valid share
 // token because every /api/ call was cross-origin with `Origin: null`.
 //
-// The sandbox-escape M-70 feared needs the frame to be same-origin with its
+// The sandbox-escape feared needs the frame to be same-origin with its
 // EMBEDDER, which a third-party embed never is. See the generateEmbedCode
 // docstring.
 //
@@ -480,7 +480,7 @@ describe('SHARE-04: buildEmbedSrc shared URL builder', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  SHARE-02 / SHARE-06: chip-based allowed-origins input             */
+/* Chip-based allowed-origins input */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -617,7 +617,7 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
   });
 
   /**
-   * fix(#1548 review P2): both compose files ship PUBLIC_APP_URL defaulted to
+   * Both compose files ship PUBLIC_APP_URL defaulted to
    * localhost, so a self-hoster reached at a real hostname is refused here on a
    * stock install. The refusal exists to replace a silently-empty embed with an
    * actionable message, so routing it to the generic "update failed" toast — the
@@ -701,7 +701,7 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  fix(#1831): the visibility PUT's 400 refusal (map holds non-public  */
+/* The visibility PUT's 400 refusal (map holds non-public */
 /*  dataset layers) used to vanish — the dataset names were read off    */
 /*  the already-translated `err.message` (a fallback string, not JSON)  */
 /*  and JSON.parse'd there, instead of off the raw `err.body` the       */
@@ -736,7 +736,7 @@ describe('#1831 publish blocked by non-public datasets', () => {
       expect(screen.getByTestId('share-publish-blocked-error')).toBeInTheDocument();
     });
     expect(screen.getByTestId('share-publish-blocked-error')).toHaveTextContent('Large Lakes');
-    // fix(#1831 review P2): role="alert" so it's announced the way the toast
+    // role="alert" so it's announced the way the toast
     // it replaces would have been.
     expect(screen.getByRole('alert')).toBe(screen.getByTestId('share-publish-blocked-error'));
 
@@ -782,7 +782,7 @@ describe('#1831 publish blocked by non-public datasets', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  SHARE-04: Expiration preset Select + Pitfall #6 regression pins    */
+/* Expiration preset Select + regression pins */
 /* ------------------------------------------------------------------ */
 
 // Radix Select requires pointer capture / scroll polyfills in JSDOM.
@@ -794,7 +794,7 @@ Element.prototype.scrollIntoView = () => undefined;
 
 /**
  * Open the Link Settings disclosure and return the user-event instance.
- * Reusable helper for SHARE-04 tests (parallel to openChipBlock above).
+ * Reusable helper for tests (parallel to openChipBlock above).
  */
 async function openLinkSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: /link settings/i }));
@@ -936,7 +936,7 @@ describe('SHARE-04 expiration presets', () => {
   });
 
   /**
-   * Pitfall #6 regression pin (rawShareToken survival).
+   * regression pin (rawShareToken survival).
    *
    * Contract: selecting a preset fires updateShareToken but does NOT touch
    * rawShareToken or embedTokenRaw state. The "Copy Link" button is gated on
@@ -967,7 +967,7 @@ describe('SHARE-04 expiration presets', () => {
   });
 
   /**
-   * Pitfall #6 mirror (embedTokenRaw survival).
+   * mirror (embedTokenRaw survival).
    *
    * Both rawShareToken and embedTokenRaw are independent of expiration mutations.
    * The embed code textarea is gated on embedTokenRaw being non-null.
@@ -1002,7 +1002,7 @@ describe('SHARE-04 expiration presets', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  SHARE-03: embed-preview iframe pane                               */
+/* Embed-preview iframe pane */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -1051,7 +1051,7 @@ describe('SHARE-03 embed-preview iframe', () => {
     });
   });
 
-  // fix(#1515): the preview and the copied snippet must carry the SAME sandbox.
+  // The preview and the copied snippet must carry the SAME sandbox.
   // While they differed the preview was a preview of a different page, and it
   // showed "Map not found" for a token that was perfectly valid.
   it('test_iframe_sandbox_matches_the_emitted_snippet: preview sandbox === generateEmbedCode sandbox', async () => {
@@ -1116,11 +1116,11 @@ describe('SHARE-03 embed-preview iframe', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  Pitfall #7: inflightEmbedCreate race guard                        */
+/* inflightEmbedCreate race guard */
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
-/*  SHARE-08: Copy Link emits /card URL; embed + Open unchanged        */
+/* Copy Link emits /card URL; embed + Open unchanged */
 /* ------------------------------------------------------------------ */
 
 describe('SHARE-08 Copy Link emits /card URL', () => {
@@ -1166,7 +1166,7 @@ describe('SHARE-08 Copy Link emits /card URL', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  SHARE-10: 2-weight typography system (font-semibold + font-medium) */
+/* 2-weight typography system (font-semibold + font-medium) */
 /* ------------------------------------------------------------------ */
 
 describe('SHARE-10 font-weight hierarchy', () => {
@@ -1306,7 +1306,7 @@ describe('P2-01 explicit create-embed-token for public-only embeds', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  fix(#778): confirm visibility changes that cross the public        */
+/* Confirm visibility changes that cross the public */
 /*  boundary before mutating                                           */
 /* ------------------------------------------------------------------ */
 
@@ -1395,7 +1395,7 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
-  // feat(#1691): the restrict_public_visibility instance setting caps
+  // The restrict_public_visibility instance setting caps
   // non-admins at non-public. The server enforces it with a 403; the panel
   // disables the choice and swaps its description for the admin-only note.
   it('disables the Public choice when the instance restricts public to admins', () => {
@@ -1880,7 +1880,7 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
   });
 
   /**
-   * fix(#1548 review r5): the snippet and the preview deliberately DIVERGE on
+   * The snippet and the preview deliberately DIVERGE on
    * origin, and asserting them together is the clearest statement of the rule.
    * Same map, same token, same moment — the snippet names the host the customer
    * will open, the preview names the host this browser just reached.
@@ -1903,7 +1903,7 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
 
   it('copies a share link on the configured origin', async () => {
     // userEvent.setup() installs its own clipboard stub, so the spy has to be
-    // planted AFTER it — the existing SHARE-08 test does the same.
+    // planted AFTER it — the existing test does the same.
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
@@ -1922,7 +1922,7 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
   });
 
   /**
-   * fix(#1548 review r4): the regression guard.
+   * The regression guard.
    *
    * Both compose files inject `${PUBLIC_APP_URL:-http://localhost:8080}`, so
    * the DEFAULT install reports a non-null, perfectly good-looking localhost
@@ -2013,7 +2013,7 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
   });
 
   /**
-   * fix(#1548 review r6): you genuinely cannot preview a domain-locked embed
+   * You genuinely cannot preview a domain-locked embed
    * from a host the lock does not permit — that is the feature working. Saying
    * so beats rendering a map with no layers in it and letting the operator
    * conclude the embed is broken.
@@ -2112,7 +2112,7 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
   });
 
   /**
-   * fix(#1548 review r5): the split-horizon deployment.
+   * The split-horizon deployment.
    *
    * A public hostname routed externally and unreachable from the internal admin
    * network is a normal setup, not a misconfiguration. The copied link must
@@ -2155,7 +2155,7 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
     });
 
     /**
-     * fix(#1548 review r7): a domain-locked preview has no answer here at all.
+     * A domain-locked preview has no answer here at all.
      * Its API calls must carry the configured origin, and `frame-ancestors`
      * then judges THIS dialog as the parent against that same origin — which
      * the admin's hostname is not. The browser blocks the frame before a single

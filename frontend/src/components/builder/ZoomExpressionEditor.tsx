@@ -34,7 +34,7 @@ interface ZoomExpressionEditorProps {
 const MAX_STOPS = 6;
 const DEFAULT_ZOOM_GAP = 4;
 
-// builder-audit #338 DRY-03: isFiniteNumber imported from zoom-expressions (single copy).
+// isFiniteNumber imported from zoom-expressions (single copy).
 
 function formatDisplayValue(value: number, format?: NumericFormat): string {
   if (format === 'percent') {
@@ -86,7 +86,7 @@ export function ZoomExpressionEditor({
   onChange,
 }: ZoomExpressionEditorProps) {
   const { t } = useTranslation('builder');
-  // fix(#922): the sync effect below re-seeds `draft` whenever `parsed` changes
+  // The sync effect below re-seeds `draft` whenever `parsed` changes
   // identity, and invalid drafts are never emitted — so a re-hydration that
   // replaces the paint array with an equal one (save, render-mode switch, style
   // paste) silently reverted a half-typed stop. Key the memo on the SERIALIZED
@@ -138,7 +138,7 @@ export function ZoomExpressionEditor({
   }
 
   function updateStop(index: number, patch: Partial<{ zoom: number; value: number }>) {
-    // fix(#526 B-043): clamp manually-typed stop values to the property's
+    // Clamp manually-typed stop values to the property's
     // range — the <Input min/max> attributes are advisory only, and
     // validateZoomExpressionDraft checks finiteness/zoom order but never the
     // value range, so out-of-spec paint (circle-radius 0, negative
@@ -275,7 +275,7 @@ export function ZoomExpressionEditor({
                 step={step}
                 value={numericInputValue(draft.baseValue)}
                 onChange={(event) => {
-                  // fix(#526 B-043): same manual-typing clamp as updateStop.
+                  // Same manual-typing clamp as updateStop.
                   const raw = event.currentTarget.valueAsNumber;
                   emitDraft({
                     ...draft,

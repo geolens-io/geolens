@@ -1,9 +1,9 @@
 /**
- * Phase 999.17 Fix 2 (D-05 + Plan-Check Advisory A2) — terrain delete-teardown.
+ * Terrain delete-teardown.
  *
  * When the DEM layer that backs active 3D terrain is deleted, terrain_config is
  * left dangling (it points at a dataset that no longer has a backing DEM layer).
- * D-05: auto-clear terrain_config + surface a NON-BLOCKING toast on that delete.
+ * Auto-clear terrain_config + surface a NON-BLOCKING toast on that delete.
  *
  * Advisory A2 (critical): the teardown MUST key on DATASET IDENTITY, not "a DEM
  * layer was deleted." Only clear terrain_config (and toast) when the deleted
@@ -93,7 +93,7 @@ function renderBuilderLayers(mapData: MapResponse, opts?: { removeFails?: boolea
   } as unknown as Parameters<typeof useBuilderLayers>[3];
   // Default removeLayerMutation: synchronously invoke onSuccess (success path).
   // When removeFails is set, synchronously invoke onError (rollback path) — used
-  // by the HI-01 failure-rollback tests.
+  // by the failure-rollback tests.
   const removeLayerMutation = {
     mutate: vi.fn((_vars, mutOpts) => {
       if (opts?.removeFails) { mutOpts?.onError?.(new Error('delete failed')); }
@@ -102,7 +102,7 @@ function renderBuilderLayers(mapData: MapResponse, opts?: { removeFails?: boolea
     mutateAsync: vi.fn(),
   } as unknown as Parameters<typeof useBuilderLayers>[4];
 
-  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  // 6th positional param bridging into useBuilderSave's Save-diff baseline.
   const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
   return renderHook(() =>
     useBuilderLayers(mapData, makeMapRef(), MAP_ID, addLayerMutation, removeLayerMutation, saveBaselineSyncRef),
@@ -114,7 +114,7 @@ async function waitForInit() {
 }
 
 // ---------------------------------------------------------------------------
-// handleRemove (single-layer delete) — D-05 + A2
+// handleRemove (single-layer delete) — + A2
 // ---------------------------------------------------------------------------
 describe('useBuilderLayers — terrain teardown on handleRemove (D-05/A2)', () => {
   it('clears terrain_config + non-blocking toast when the terrain-source DEM is deleted', async () => {
@@ -205,7 +205,7 @@ describe('useBuilderLayers — terrain teardown on handleRemove (D-05/A2)', () =
     expect(result.current.localTerrainConfig?.source_dataset_id).toBe('dem-ds-a');
   });
 
-  // HI-01 (999.17 gap-closure): when the optimistic terrain clear is followed by a
+  // When the optimistic terrain clear is followed by a
   // FAILED delete, both localLayers AND terrain_config must be restored — a failed
   // delete must not leave the DEM restored but terrain silently disabled.
   it('HI-01: restores localLayers AND terrain_config when the delete mutation fails', async () => {
@@ -232,7 +232,7 @@ describe('useBuilderLayers — terrain teardown on handleRemove (D-05/A2)', () =
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkDelete — D-05 + A2
+// handleBulkDelete — + A2
 // ---------------------------------------------------------------------------
 describe('useBuilderLayers — terrain teardown on handleBulkDelete (D-05/A2)', () => {
   it('clears terrain_config + toast when the terrain-source DEM is in the bulk-delete set', async () => {
@@ -296,7 +296,7 @@ describe('useBuilderLayers — terrain teardown on handleBulkDelete (D-05/A2)', 
     expect(result.current.localTerrainConfig?.source_dataset_id).toBe('dem-ds-a');
   });
 
-  // HI-01: FULL bulk-delete failure — nothing was actually deleted, so both
+  // FULL bulk-delete failure — nothing was actually deleted, so both
   // localLayers and terrain_config must be restored to their prior state.
   it('HI-01: restores localLayers AND terrain_config on a FULL bulk-delete failure', async () => {
     bulkDeleteSpy.mockResolvedValue({
@@ -318,7 +318,7 @@ describe('useBuilderLayers — terrain teardown on handleBulkDelete (D-05/A2)', 
     expect(result.current.localTerrainConfig?.source_dataset_id).toBe('dem-ds-a');
   });
 
-  // HI-01: PARTIAL failure where the terrain-source DEM is among the FAILURES —
+  // PARTIAL failure where the terrain-source DEM is among the FAILURES —
   // it is restored to the stack, so terrain is still backed and terrain_config
   // must be restored rather than left silently disabled.
   it('HI-01: restores terrain_config when the terrain-source DEM is among the partial failures', async () => {

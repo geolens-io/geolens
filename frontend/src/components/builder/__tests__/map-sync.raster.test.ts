@@ -396,7 +396,7 @@ describe('syncLayersToMap', () => {
 
     syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
-    // Phase 1050 SF-04: non-cluster vector layers share a deduped source
+    // Non-cluster vector layers share a deduped source
     // keyed by dataset_table_name (`test_table` from the factory).
     expect(map.addSource).toHaveBeenCalledWith(
       'source-data-test_table',
@@ -607,7 +607,7 @@ describe('syncLayersToMap', () => {
 
     syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
-    // fix(#1625): per-feature fill-opacity = 0.3 (builder default), the master
+    // Per-feature fill-opacity = 0.3 (builder default), the master
     // rides on fill-layer-opacity; the outline carries it as line-layer-opacity.
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2', 'fill-opacity', 0.3);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2', 'fill-layer-opacity', 1);
@@ -623,7 +623,7 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
 
-    // Simulate existing source and label layer. Phase 1050 SF-04: non-cluster
+    // Simulate existing source and label layer. Non-cluster
     // vector layers share a deduped source keyed by dataset_table_name (here
     // `test_table` from the `makeLayer` factory), so the source id is
     // `source-data-test_table` (not the legacy per-layer `source-lf1`).
@@ -670,10 +670,10 @@ describe('syncLayersToMap', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // EDITOR-DEM-05: syncColorReliefLayer wiring
+  // syncColorReliefLayer wiring
   // ---------------------------------------------------------------------------
 
-  // Regression test for WR-01: color-relief companion layer is removed when its
+  // Regression test: color-relief companion layer is removed when its
   // DEM layer is deleted from the layers list.
   it('WR-01 regression: color-relief companion layer is removed when DEM source becomes stale', () => {
     // Simulate a prior state where source-dem-wr01 and layer-dem-wr01-colorrelief are on the map.
@@ -770,7 +770,7 @@ describe('syncLayersToMap', () => {
 });
 
 // ---------------------------------------------------------------------------
-// POLISH-02: isHillshadeTerrainBound predicate + syncRasterLayer skip guard
+// isHillshadeTerrainBound predicate + syncRasterLayer skip guard
 // ---------------------------------------------------------------------------
 
 describe('POLISH-02 isHillshadeTerrainBound predicate', () => {
@@ -849,7 +849,7 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     managedSourcesRef = { current: new Set() };
   });
 
-  // fix(HT-05): a terrain-bound hillshade DEM always paints its visible overlay
+  // A terrain-bound hillshade DEM always paints its visible overlay
   // on its own per-layer source (`source-dem-layer-1`) alongside the 3D mesh.
   // The old tile-size-mismatch skip guard was dead code (same-dataset binding
   // means the sizes always match) and has been removed.
@@ -908,7 +908,7 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 
-  // fix(HT-07): raster/hillshade layers now reapply their saved custom zoom
+  // raster/hillshade layers now reapply their saved custom zoom
   // range on (re)sync — previously only vector paths called syncLayerZoomRange,
   // so a saved _minzoom/_maxzoom silently stopped applying after reload.
   it('applies the saved custom zoom range to the hillshade layer', () => {
@@ -922,7 +922,7 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     expect(map.setLayerZoomRange as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('layer-dem-layer-1', 8, 15);
   });
 
-  // codex(#451): a raster/DEM layer with NO saved custom range must NOT be
+  // A raster/DEM layer with NO saved custom range must NOT be
   // force-capped — leave maplibre's default (uncapped) so it doesn't blink off
   // at the max zoom stop.
   it('does not touch the zoom range when no custom _minzoom/_maxzoom is saved', () => {

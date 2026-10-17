@@ -1,5 +1,5 @@
 /**
- * Phase 1201-02 — Layer search/filter box tests for UnifiedStackPanel (ENH-07)
+ * Layer search/filter box tests for UnifiedStackPanel
  *
  * Tests that:
  * 1. The search input appears when the stack is non-empty.
@@ -44,7 +44,7 @@ vi.mock('@/components/map/layer-icons', () => ({
   ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
     <span data-testid={`type-icon-${layerId}`} />
   ),
-  // fix(#452): StackRow's type icon is now the shared LayerTypeIcon.
+  // StackRow's type icon is now the shared LayerTypeIcon.
   LayerTypeIcon: ({ iconId }: { iconId: string }) => (
     <span data-testid={`type-icon-${iconId}`} />
   ),
@@ -210,7 +210,7 @@ function defaultProps(
 }
 
 // ---------------------------------------------------------------------------
-// ENH-07: search/filter box tests
+// Search/filter box tests
 // ---------------------------------------------------------------------------
 
 describe('UnifiedStackPanel — ENH-07: layer search/filter', () => {

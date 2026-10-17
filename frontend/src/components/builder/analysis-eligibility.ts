@@ -1,12 +1,12 @@
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import type { MapLayerResponse } from '@/types/api';
 
-// ux(#720): analysis needs a VECTOR dataset. `!is_dem` alone let ordinary
+// Analysis needs a VECTOR dataset. `!is_dem` alone let ordinary
 // raster layers (COG orthophotos, Sentinel scenes) through — they carry a
 // dataset_id, so the panel offered them and auto-selected the first one, and
 // every Preview 422'd.
 //
-// Keyed on dataset_record_type, NOT layer_type (fix(#720 review)). layer_type
+// Keyed on dataset_record_type, NOT layer_type. layer_type
 // selects a RENDERER and the API validates it against nothing — MapLayerInput
 // accepts any supported value and add_layer persists it, defaulting to
 // 'vector_geolens'. So a raster dataset can carry the vector default, which is
@@ -20,7 +20,7 @@ import type { MapLayerResponse } from '@/types/api';
 // to work only because every raster dataset currently stores NULL there, an
 // incidental property of the ingest path rather than an invariant.
 //
-// ux(#772): extracted from AnalysisPanel.tsx so the stack-row kebab can gate
+// Extracted from AnalysisPanel.tsx so the stack-row kebab can gate
 // its "Analyze this layer" entry on the same predicate without statically
 // importing the lazy-loaded panel chunk.
 //

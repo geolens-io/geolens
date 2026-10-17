@@ -11,7 +11,7 @@ import type { MapLayerResponse, MapResponse } from '@/types/api';
 type MaplibreMap = import('maplibre-gl').Map;
 
 /**
- * fix(#913): a banner Revert restored the saved layer through the ordinary
+ * A banner Revert restored the saved layer through the ordinary
  * mutation handlers, all of which mark the map dirty — so the revert itself
  * re-dirtied the map and the header kept claiming unsaved work. The recheck
  * clears the flag only when the WHOLE map matches its saved state.

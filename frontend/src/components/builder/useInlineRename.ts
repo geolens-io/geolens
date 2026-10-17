@@ -8,10 +8,10 @@ import {
   type MouseEvent,
 } from 'react';
 
-// builder-audit #338 STACK-03: the inline-rename state machine was duplicated
+// The inline-rename state machine was duplicated
 // near-verbatim between StackRow and FolderGroupRow — including the subtle
 // blur-double-fire / committingRef / Radix onCloseAutoFocus focus-race logic
-// that already required a BUG-03 follow-up fix. This hook is the single source.
+// that already required a. This hook is the single source.
 
 interface UseInlineRenameOptions {
   /** Current display value — used as the initial edit value and the Escape revert target. */

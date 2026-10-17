@@ -1,5 +1,5 @@
 /**
- * Round-trip parity tests for `sublayer_overrides` (Phase 1059 BSE-01).
+ * Round-trip parity tests for `sublayer_overrides`.
  *
  * Verifies that:
  *   1. A MapBasemapConfig with sublayer_overrides survives JSON.parse(JSON.stringify())
@@ -9,7 +9,7 @@
  *   3. Edge cases: null values, partial overrides, multi-sublayer dicts, legacy payloads
  *      without the field, and unknown sublayer IDs are all handled gracefully.
  *
- * This test covers ROADMAP.md Phase 1059 Acceptance Criteria:
+ * This test covers these acceptance criteria:
  *   - AC3: cross-context round-trip parity (payload survives the save→load cycle)
  *   - AC4: zero-migration backward compat (legacy maps without sublayer_overrides render safely)
  *
@@ -200,7 +200,7 @@ describe('sublayer_overrides round-trip parity (Phase 1059 BSE-01)', () => {
 
   it('legacy payload without sublayer_overrides renders without crashing (ROADMAP AC4)', () => {
     const { map, setPaintProperty } = makeFakeMap(FAKE_STYLE_LAYERS);
-    // ROADMAP.md Phase 1059 Acceptance Criterion 4: legacy saved maps must render
+    // Acceptance criterion 4: legacy saved maps must render
     // safely without any sublayer_overrides field present.
     expect(() => applySublayerOverrides(map, undefined)).not.toThrow();
     expect(() => applySublayerOverrides(map, null)).not.toThrow();

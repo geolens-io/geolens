@@ -1,4 +1,4 @@
-// fix(#1009): the ephemeral analysis/chat preview renders as a non-persisting
+// The ephemeral analysis/chat preview renders as a non-persisting
 // row pinned at the top of the layer stack.
 //
 // The load-bearing tests here are the sortable-collection ones. A preview row
@@ -271,7 +271,7 @@ describe('#1009: the row carries everything the badge offered', () => {
     expect(screen.queryByTestId('ephemeral-preview-save')).not.toBeInTheDocument();
   });
 
-  // feat(#1241): a plain chat preview can now be snapshotted into a dataset,
+  // A plain chat preview can now be snapshotted into a dataset,
   // so "no analysis behind it" no longer means "no save" — but a capped one
   // still must not be saveable, and must say why rather than go quiet.
   it('offers the save on a plain chat preview', () => {

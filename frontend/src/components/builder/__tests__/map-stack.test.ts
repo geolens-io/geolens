@@ -116,7 +116,7 @@ describe('buildMapStack', () => {
     expect(entries.find((entry) => entry.id === 'data:trails')!.order).toBeGreaterThan(relief!.order);
   });
 
-  // fix(HT-01): a hillshade-mode DEM bound as the terrain source drives the 3D
+  // A hillshade-mode DEM bound as the terrain source drives the 3D
   // mesh too (the renderer never required render_mode:"terrain"). The stack
   // status must agree — reporting 'disabled' while the map rendered terrain was
   // the drift #345 set out to fix.
@@ -144,7 +144,7 @@ describe('buildMapStack', () => {
     expect(terrain?.metadata.terrain?.sourceStatus).toBe('active');
   });
 
-  // codex(#451): BuilderMap sets no mesh when the bound DEM is hidden, and
+  // BuilderMap sets no mesh when the bound DEM is hidden, and
   // Settings reports terrain inactive — the stack status must agree, not show
   // an active surface-terrain row.
   it('reports terrain disabled when the bound DEM is hidden', () => {
@@ -474,7 +474,7 @@ describe('computeDisambiguationLabels', () => {
   });
 });
 
-// fix(#430 V-17): audience-visibility mismatch detection.
+// Audience-visibility mismatch detection.
 describe('isLayerHiddenFromMapAudience', () => {
   it('never flags a private map — it has no audience beyond the owner/grantees', () => {
     expect(
@@ -506,7 +506,7 @@ describe('isLayerHiddenFromMapAudience', () => {
     ).toBe(false);
   });
 
-  // fix(#930): the backend now returns internal+published datasets to any
+  // The backend now returns internal+published datasets to any
   // signed-in caller, so an internal layer on an internal map really does
   // reach that map's whole audience. Flagging it stranded the badge and the
   // share dialog on a claim the server no longer makes.

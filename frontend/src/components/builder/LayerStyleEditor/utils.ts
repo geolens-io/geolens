@@ -2,7 +2,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig } from '@/types/api';
 
 // ---------------------------------------------------------------------------
-// SP-05 (Phase 1045): dirty-tracking helper
+// Dirty-tracking helper
 //
 // Exported for unit testing. Returns true iff the editor draft (`draft`)
 // diverges from its server-state baseline (`saved`) in any of:
@@ -12,7 +12,7 @@ import type { BuilderStyleConfig, MapLayerResponse, StyleConfig } from '@/types/
 //
 // Identity-equal references short-circuit to false. When `saved` is undefined,
 // returns false — the caller has no baseline to compare against, so the
-// "Pending style preview" banner stays hidden (smoke check 2026-05-15, M-04).
+// "Pending style preview" banner stays hidden (smoke check 2026-05-15).
 // ---------------------------------------------------------------------------
 export function hasUnsavedStyleChanges(
   draft: MapLayerResponse,
@@ -88,7 +88,7 @@ export function getPaintValue<T>(paint: Record<string, unknown>, key: string, fa
   return val !== undefined && val !== null ? (val as T) : fallback;
 }
 
-// builder-audit #338 TYPE-01: returns either a scalar number or a MapLibre expression
+// Returns either a scalar number or a MapLibre expression
 // array (data-driven / zoom expression) — never an arbitrary `unknown`. Typed as
 // `number | unknown[]` so callers (ZoomExpressionEditor `value`) get the
 // scalar-or-expression contract the name promises.

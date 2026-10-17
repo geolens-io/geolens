@@ -7,17 +7,17 @@ interface FillPatternPickerProps {
   onChange: (id: string | undefined) => void;
   t: (key: string, opts?: Record<string, unknown>) => string;
   /**
-   * fix(#910, codex P2): recovery-only mode — render just the None swatch. A
+   * Recovery-only mode — render just the None swatch. A
    * data-driven or extruded layer can arrive carrying a pattern (Advanced JSON, the
    * AI set_style action), and it must stay clearable; but applying one there is
-   * impossible by EDIT-05, and handleStyleConfigChange strips it straight back. A
+   * impossible, and handleStyleConfigChange strips it straight back. A
    * swatch that silently reverts is worse than no swatch, so only None is offered.
    */
   clearOnly?: boolean;
 }
 
 /**
- * fix(#910, codex P2): display-only stand-in for an expression-valued `fill-pattern`.
+ * Display-only stand-in for an expression-valued `fill-pattern`.
  * A pattern IS active, so None must not read as pressed, but no swatch can represent
  * an expression. Not a pattern id: never emitted by onChange, never reaches paint.
  */
@@ -55,7 +55,7 @@ export function FillPatternPicker({ value, onChange, t, clearOnly = false }: Fil
           aria-label={t('style.fillPatternNone')}
           aria-pressed={!value}
         >
-          {/* fix(#922): a childless button read as an empty square to sighted
+          {/* A childless button read as an empty square to sighted
               users. A solid block is what "no pattern" actually draws. */}
           <span className="h-5 w-5 rounded-sm bg-current" />
         </button>

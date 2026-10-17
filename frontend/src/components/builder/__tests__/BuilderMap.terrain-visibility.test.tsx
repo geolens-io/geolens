@@ -1,4 +1,4 @@
-// BLDR-02 regression pin: applyTerrainConfig honors the terrain DEM layer's
+// Regression pin: applyTerrainConfig honors the terrain DEM layer's
 // visibility toggle. When the DEM layer is hidden (visible===false),
 // map.setTerrain(null) must be called; when it is shown, terrain re-attaches
 // with { source: TERRAIN_SOURCE_ID }.
@@ -108,7 +108,7 @@ type FakeMap = {
 
 const mapState = vi.hoisted(() => {
   const handlers = new Map<string, Set<(payload?: unknown) => void>>();
-  // fix(#1128): the viewport the small-DEM coverage guard measures against.
+  // The viewport the small-DEM coverage guard measures against.
   // getBounds() used to be absent here, so the guard threw into its own
   // try/catch and no-oped. It defaults to the DEM fixture's own extent — full
   // coverage, no warning — so every test written while it was inert keeps the
@@ -317,7 +317,7 @@ describe('BuilderMap BLDR-02: terrain attach/detach on DEM layer visibility togg
     expect(lastCall[0]).toBeNull();
   });
 
-  // FIX-3-RESOLVER (D-06): the builder terrain DEM lookup must resolve by
+  // The builder terrain DEM lookup must resolve by
   // terrain_config.source_dataset_id + isTerrainCapableDemLayer ONLY — it must
   // NOT require style_config.render_mode === 'terrain'. This proves a DEM layer
   // in HILLSHADE mode still drives the 3D mesh (mesh + visible hillshade on one
@@ -366,7 +366,7 @@ describe('BuilderMap BLDR-02: terrain attach/detach on DEM layer visibility togg
     expect(lastCall[0]).toBeNull();
   });
 
-  // fix(#454): the intermittent flat-Matterhorn-on-load bug. After a basemap
+  // The intermittent flat-Matterhorn-on-load bug. After a basemap
   // style swap, terrain re-apply is deferred to ONE map.once('idle',
   // applyTerrainConfig). When that idle fired mid style-transition
   // (isStyleLoaded()===false), applyTerrainConfig no-oped silently and an
@@ -412,7 +412,7 @@ describe('BuilderMap BLDR-02: terrain attach/detach on DEM layer visibility togg
   });
 });
 
-// fix(#1128): the small-DEM coverage guard must measure the DEM LAYER's
+// The small-DEM coverage guard must measure the DEM LAYER's
 // `dataset_extent_bbox`, not the tile token's `bounds`. The token carries the
 // span form (extent_to_span_bbox, processing/tiles/router.py), which widens a
 // seam-crossing footprint to exactly [-180, s, 180, n] — byte-identical to a

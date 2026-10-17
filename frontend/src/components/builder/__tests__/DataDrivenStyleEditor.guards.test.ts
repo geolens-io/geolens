@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { styleConfigAlreadyMatches } from '../DataDrivenStyleEditor';
 import type { StyleConfig } from '@/types/api';
 
-// builder-audit #338 COMPLEXITY-01: the three styling effects' infinite-loop skip
+// The three styling effects' infinite-loop skip
 // guards now live in one helper. Each case below builds the config the matching
 // effect WOULD write, then asserts the guard reports a match (so the effect
 // skips the write) — and that a single diverging field breaks the match.
@@ -63,7 +63,7 @@ describe('styleConfigAlreadyMatches (COMPLEXITY-01 loop guards)', () => {
       expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a', 'c'] })).toBe(false);
     });
 
-    // fix(#461): clobber-on-open — the data has an EXTRA
+    // Clobber-on-open — the data has an EXTRA
     // distinct value the saved config never styled ('c'). Opening the editor
     // must NOT regenerate (which would clobber the authored 'a'/'b' colors) —
     // the still-present styled categories are a subset of the data values.
@@ -77,7 +77,7 @@ describe('styleConfigAlreadyMatches (COMPLEXITY-01 loop guards)', () => {
       expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a'] })).toBe(false);
     });
 
-    // fix(#461, codex P2): empty column must settle. With no distinct values the
+    // Empty column must settle. With no distinct values the
     // effect writes categories:[]; the guard must match that empty config or it
     // re-writes every render (loop). Empty data + non-empty saved config = drift.
     it('matches an empty saved config when the data has no distinct values (no loop)', () => {
