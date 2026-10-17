@@ -19,8 +19,9 @@ export function useExpiryClock(expiries: ReadonlyArray<string | null | undefined
 
   useEffect(() => {
     if (nextAt === null) return;
-    const delay = Math.min(nextAt - Date.now(), MAX_TIMEOUT_MS);
-    const id = setTimeout(() => setNow(new Date()), Math.max(delay, 0) + 1);
+    // The extra millisecond keeps the wake-up past the expiry instant.
+    const delay = Math.min(Math.max(nextAt - Date.now(), 0) + 1, MAX_TIMEOUT_MS);
+    const id = setTimeout(() => setNow(new Date()), delay);
     return () => clearTimeout(id);
   }, [nextAt, now]);
 
