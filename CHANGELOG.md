@@ -43,6 +43,9 @@ and releases use semantic versioning.
 - The dataset page no longer scrolls sideways on a phone-width screen. A long
   table name in the header and the URL in the "Connect with" code block now
   truncate, and their copy buttons stay visible.
+- A dataset made with Create Dataset accepts dates in feature writes. It
+  stored its column types in upper case (`DATE`), which the write path didn't
+  recognise, so `POST /datasets/{id}/features/` with a date value got a 400.
 - Closing the Create Dataset dialog with Escape, an outside click, the close
   button or the new Cancel button asks before throwing away what you entered.
   An empty form and a successful create still close straight away.

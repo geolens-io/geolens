@@ -103,3 +103,28 @@ async def test_created_timestamp_column_matches_add_column_path(
         await _drop(test_db_session, created_id)
         if layer_id is not None:
             await _drop(test_db_session, layer_id)
+
+
+async def test_created_date_column_accepts_a_date_value(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    created = await client.post(
+        "/datasets/create/",
+        json={"title": "Date write", "columns": [{"name": "seen_on", "type": "date"}]},
+        headers=admin_auth_header,
+    )
+    assert created.status_code == 201, created.text
+    created_id = created.json()["id"]
+    try:
+        feature = await client.post(
+            f"/datasets/{created_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [1, 2]},
+                "properties": {"seen_on": "2026-10-17"},
+            },
+            headers=admin_auth_header,
+        )
+        assert feature.status_code == 201, feature.text
+        assert feature.json()["properties"]["seen_on"] == "2026-10-17"
+    finally:
+        await _drop(test_db_session, created_id)
