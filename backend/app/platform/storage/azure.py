@@ -5,7 +5,7 @@ can await uploads/downloads without blocking the event loop. Uses the native
 Azure SDK, not a MinIO S3 gateway shim.
 
 Auth: connection_string, or account_url + credential (SAS token or account
-key). fix(#836): azure-identity credentials are not supported.
+key). ``azure-identity`` credentials are not supported.
 
 Key prefixes (tenants/{tenant_id}/) and VSI paths (vsis3/vsiaz) are built by
 titiler_url.resolve_open_path; this class stores keys verbatim.

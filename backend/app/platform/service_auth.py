@@ -19,7 +19,7 @@ import each other: ``modules/catalog`` for the probe/preview/re-upload/
 refresh doors, ``processing/ingest`` for the queue-time check, and
 ``platform/refresh`` for the dispatch decision. All of them may import here.
 
-Two entry points, split per plan D9. :func:`credential_or_422` judges the
+Two entry points. :func:`credential_or_422` judges the
 INPUTS and hands back the credential for a transport that composes its
 own header at the write site (the two probe adapters, two GDAL
 header-file writers) — the single-producer rule
@@ -111,7 +111,7 @@ def bearer_token_for_credential(credential: ServiceCredential | None) -> str | N
     ``""`` would send an anonymous request on behalf of someone who named
     a method. The request schema already refuses that shape, so this
     branch is unreachable over HTTP and exists for the in-process caller
-    of plan D2, which builds a :class:`ServiceCredential` directly.
+    that builds a :class:`ServiceCredential` directly.
     """
     if credential is None:
         return None
@@ -208,7 +208,7 @@ def credential_or_422(
     ``service_format`` is bound onto the returned credential rather than
     left to the caller to pass again, since it decides whether a header
     may be composed at all: ``build_credential_header`` reads it and
-    answers None outside ``HEADER_TRANSPORT_SERVICE_FORMATS``, plan D9's
+    answers None outside ``HEADER_TRANSPORT_SERVICE_FORMATS``, the
     ArcGIS invariant expressed as an allowlist.
     """
     if credential is None or credential.method == CredentialMethod.NONE:
@@ -230,7 +230,7 @@ def wire_credential(
 ) -> str | None:
     """The one string that crosses to the worker under the kwarg ``token``.
 
-    Plan D9. For the two header-auth formats that's a finished ASCII header
+    For the two header-auth formats that's a finished ASCII header
     line, composed here since the queue hop has no site to compose it
     later; for ArcGIS it's the bare token, percent-encoded into the query
     exactly as before. Validation happens first either way, so a
@@ -238,11 +238,11 @@ def wire_credential(
     single-use stash.
 
     ``service_format`` defaults to the one already on the credential,
-    which is what an in-process caller of plan D2 sets when constructing
+    which is what an in-process caller sets when constructing
     one directly.
 
     The ArcGIS branch is selected by
-    ``requires_header_token_policy``, NOT by "the builder answered None".
+    ``carries_credential_as_header_line``, NOT by "the builder answered None".
     ``build_credential_header`` composes an
     ``X-Esri-Authorization: Bearer`` header for ArcGIS (for GeoLens's own
     httpx requests — a different transport), so keying off it would have
@@ -252,12 +252,12 @@ def wire_credential(
     ArcGIS ingest/refresh/reupload at the origin after the single-use
     credential was already spent. This function asks whether the
     credential becomes a header LINE — that's what
-    ``requires_header_token_policy``/``HEADER_AUTH_SERVICE_FORMATS``
-    answer; asking the builder was a proxy for it that stopped being
+    ``carries_credential_as_header_line``
+    answers; asking the builder was a proxy for it that stopped being
     equivalent.
 
-    feat(#1764): the predicate widened to
-    ``carries_credential_as_header_line`` so a STAC refresh crosses as a
+    That predicate is wider than ``requires_header_token_policy`` by
+    exactly STAC, so a STAC refresh crosses as a
     line too; its worker recovers the credential with
     ``credential_from_header_line`` and composes at each write site.
     """

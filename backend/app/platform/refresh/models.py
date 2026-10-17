@@ -126,7 +126,7 @@ class DatasetRefreshRun(Base):
     # Dormant tenant_id. Not in migration 0018's stamping-trigger
     # set, so `create_pending_run` writes it explicitly from the parent
     # dataset's STORED value, not the ORM attribute — the trigger fills the
-    # DB column but leaves the ORM attribute None (#1218 finding).
+    # DB column but leaves the ORM attribute None.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )

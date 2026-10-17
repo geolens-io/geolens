@@ -69,7 +69,7 @@ class StorageProvider(Protocol):
     ) -> AsyncIterator[bytes]:
         """Stream a bounded window as ``get_range``, in chunks as ``get_stream``.
 
-        fix(#1540): implementations MUST issue ONE provider read for the
+        Implementations MUST issue ONE provider read for the
         whole window and chunk the response as it arrives — looping
         ``get_range`` per chunk turns one range request into one request per
         chunk, invisible to the per-request rate limiter.

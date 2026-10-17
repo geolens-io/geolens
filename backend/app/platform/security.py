@@ -198,7 +198,7 @@ async def _revalidate_redirect(response: httpx.Response) -> None:
     not per-hop, so this hook closes the gap. Raising SSRFError here aborts
     further redirect-following.
 
-    fix(#1746): also refuses a hop carrying a credential header to a
+    It also refuses a hop carrying a credential header to a
     different origin, checked first since it needs no DNS lookup and the
     Location may otherwise be a perfectly SSRF-valid public host.
     """
