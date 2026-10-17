@@ -27,14 +27,14 @@
 </div>
 
 <p align="center">
-  <a href="https://demo.getgeolens.com/maps/146eddc1-30af-4c8e-aa6f-a6569e663823">
+  <a href="https://demo.getgeolens.com/maps">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-manhattan-3d-hero-dark.jpg">
       <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="The GeoLens map builder showing Manhattan's buildings extruded to their surveyed roof heights and colored by construction era, with the subway network, the layer list and a legend" width="100%">
     </picture>
   </a>
   <br>
-  <sub>Manhattan's buildings at their surveyed roof heights, colored by construction era, with the subway network. <a href="https://demo.getgeolens.com/maps/146eddc1-30af-4c8e-aa6f-a6569e663823">Open this map in the demo</a>.</sub>
+  <sub>Manhattan's buildings at their surveyed roof heights, colored by construction era, with the subway network. <a href="https://demo.getgeolens.com/maps">Browse the demo's maps</a>.</sub>
 </p>
 
 Spatial data tends to live in many places at once: file shares, PostGIS databases, ArcGIS and
