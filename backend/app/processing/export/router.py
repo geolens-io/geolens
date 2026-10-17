@@ -22,6 +22,7 @@ from app.modules.auth.dependencies import get_optional_user
 from app.core.dependencies import get_db
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
+from app.platform.dataset_origin import geolens_owns_table
 from app.platform.extensions import get_processing_port
 from app.platform.http.ranges import (
     if_match_passes,
@@ -602,12 +603,18 @@ async def export_dataset_endpoint(
     dataset_columns = dataset.column_info
     dataset_has_geometry = dataset.geometry_type is not None
     dataset_extent = dataset.record.spatial_extent
+    # Every in-app write to a table GeoLens owns rolls tile_cache_version or
+    # the title, both in the selection key; a registered table can change in
+    # place by direct SQL, which only the TTL bounds.
+    bytes_follow_key = geolens_owns_table(
+        dataset.source_format, dataset.record.record_type, dataset.origin_ref
+    )
     del dataset
     await db.rollback()
 
     # A HEAD with nothing fresh still answers a real length and validator when
     # the stored artifact is the only bytes this URL holds; it never builds.
-    if request.method == "HEAD":
+    if request.method == "HEAD" and bytes_follow_key:
         settled = await artifact_cache.settled_artifact(
             dataset_id,
             selection,
@@ -813,15 +820,17 @@ async def export_dataset_endpoint(
         if stored is not None:
             # This request BUILT the artifact (or lost the publish race), so
             # a bare Range is sliced only when the selection held these bytes
-            # before the build began and the URL holds nothing else: a TTL
-            # rollover of unchanged data. Otherwise whole, the safe half of
-            # RFC 9110 14.2, except a byte-0 Range (a cold GDAL open's first
-            # request) while this URL answered no other bytes recently.
+            # before the build began, the URL holds nothing else and the key
+            # pins the bytes: a TTL rollover of unchanged data. Otherwise
+            # whole, the safe half of RFC 9110 14.2, except a byte-0 Range (a
+            # cold GDAL open's first request) while this URL answered no other
+            # bytes recently.
             may_serve_range = False
             leading_slice_ok = False
             if not stored.contested and _bare_satisfiable_range(request, stored.size):
                 may_serve_range = (
-                    stored.digest in held_before_build
+                    bytes_follow_key
+                    and stored.digest in held_before_build
                     and await artifact_cache.url_held_only_these_bytes(
                         dataset_id, selection, stored.digest
                     )

@@ -5421,3 +5421,98 @@ async def test_a_sibling_that_appeared_during_the_build_is_not_a_predecessor(
         f"when the request began; the sibling only looked older"
     )
     assert "content-range" not in resp.headers
+
+
+async def test_a_registered_table_resuming_an_unrecorded_version_is_answered_whole(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """A registered table can change by direct SQL without moving the key.
+
+    The cache holds A. The table changes to B and that build fails to publish,
+    so B goes out through the fallback and nothing records it. The table goes
+    back to A. A client resuming B must get the whole file: the rebuild matches
+    the only bytes the cache knows, but the key never saw B.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Registered Revert", source_format=None)
+    url = _url(dataset.id)
+    first = conversions.body
+
+    assert (await client.get(url, headers=admin_auth_header)).status_code == 200
+
+    async def _refuse(*args, **kwargs):
+        raise OSError("object store is full")
+
+    conversions.body = bytes(reversed(first))
+    cache._ttl_seconds = lambda: 0
+    try:
+        with monkeypatch.context() as m:
+            m.setattr(cache, "_put_with_reclaim", _refuse)
+            unrecorded = await client.get(url, headers=admin_auth_header)
+        assert unrecorded.content == conversions.body
+
+        conversions.body = first
+        resumed = await client.get(
+            url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 3
+    assert resumed.status_code == 200, (
+        f"a resume on a registered table answered {resumed.status_code}; the "
+        f"client may hold the unrecorded version, so a slice of A splices"
+    )
+    assert "content-range" not in resumed.headers
+
+
+@pytest.mark.parametrize(
+    "if_none_match",
+    ["{etag}", "W/{etag}", '"another-export", {etag}'],
+    ids=["strong", "weak", "list"],
+)
+async def test_a_head_on_a_registered_table_stays_size_less_after_the_ttl(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    if_none_match,
+):
+    """Direct SQL on a registered table moves no key, so a HEAD can't vouch for bytes.
+
+    After the rollover the table has changed in place. The HEAD keeps the
+    size-less answer, and a revalidation naming the stored artifact, in any
+    tag form, is not told it is current.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Registered Head", source_format=None)
+    url = _url(dataset.id)
+    probe = await client.get(url, headers=admin_auth_header)
+    etag = probe.headers["etag"]
+    conversions.body = bytes(reversed(conversions.body))
+
+    cache._ttl_seconds = lambda: 0
+    try:
+        head = await client.head(url, headers=admin_auth_header)
+        revalidated = await client.head(
+            url,
+            headers={
+                **admin_auth_header,
+                "If-None-Match": if_none_match.format(etag=etag),
+            },
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 1
+    assert "content-length" not in head.headers and "etag" not in head.headers, (
+        "a HEAD on a registered table described the stored artifact after the "
+        "TTL; nothing proves the table still holds those bytes"
+    )
+    assert revalidated.status_code == 200

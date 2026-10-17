@@ -25,7 +25,10 @@ and releases use semantic versioning.
   is the only version that URL has served, since DuckDB reads ranges only
   after a HEAD gives it a length. When the rebuild produces different bytes,
   a ranged request still gets the whole new file and the next HEAD reports no
-  length.
+  length. This covers datasets whose table GeoLens owns. A registered PostGIS
+  table can change outside GeoLens, so its exports behave as before: a
+  rebuild answers ranges with the whole file, and a HEAD after the cache
+  expires reports no length.
 
 ## [1.25.1] - 2026-10-16
 
