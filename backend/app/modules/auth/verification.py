@@ -1,9 +1,9 @@
-"""Email-verification token service (SIGNUP-03/05).
+"""Email-verification token service.
 
 Opaque single-use tokens, mirroring the ``RefreshToken`` pattern: the raw
 token goes to the caller and only its sha256 hash is persisted. Redemption
 returns ``None`` uniformly for expired, unknown, and already-consumed tokens
-(enumeration-safe, SIGNUP-05). Callers own the transaction (flush, not
+(enumeration-safe). Callers own the transaction (flush, not
 commit).
 """
 
@@ -52,9 +52,8 @@ async def redeem_verification_token(
     """Redeem a raw verification token, activating the user's email.
 
     Returns the user's UUID on success, else ``None`` — expired, unknown, and
-    already-consumed tokens all return ``None`` identically (enumeration-safe,
-    SIGNUP-05: no timing or response difference leaks whether the email
-    exists).
+    already-consumed tokens all return ``None`` identically (enumeration-safe:
+    no timing or response difference leaks whether the email exists).
     """
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     now = datetime.now(UTC)

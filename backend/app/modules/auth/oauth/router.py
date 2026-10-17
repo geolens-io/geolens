@@ -294,7 +294,7 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
     else:
         # Generic OIDC / GitHub without discovery -- explicit URLs. GitHub's
         # token endpoint returns form-encoded unless Accept: application/json
-        # is requested, hence token_endpoint_auth_method below (SSO-05).
+        # is requested, hence token_endpoint_auth_method below.
         register_kwargs["authorize_url"] = provider.authorize_url
         register_kwargs["access_token_url"] = provider.token_url
         register_kwargs["userinfo_endpoint"] = provider.userinfo_url
@@ -467,7 +467,7 @@ async def oauth_callback(
             db, request, user, frontend_url=frontend_url, sign_in_nonce=sign_in_nonce
         )
 
-        # HARDEN-04: emit success audit entry before the commit so it persists
+        # Emit success audit entry before the commit so it persists
         # in the same transaction. Details carry no secrets, tokens, or email.
         await audit_emit(
             db,
@@ -536,7 +536,7 @@ async def oauth_callback(
                 provider=provider_slug,
                 correlation_id=correlation_id,
             )
-            # HARDEN-04: emit failure audit entry; commit in its own try/except
+            # Emit failure audit entry; commit in its own try/except
             # so a commit error is logged and does not mask the redirect.
             await audit_emit(
                 db,
@@ -564,7 +564,7 @@ async def oauth_callback(
                 f"{frontend_url}/oauth/callback"
                 f"#error={outcome}&correlation_id={correlation_id}"
             )
-            # SEC-13: same Referrer-Policy override as success path
+            # Same Referrer-Policy override as success path
             return RedirectResponse(
                 url=error_url,
                 status_code=302,
@@ -588,7 +588,7 @@ async def oauth_callback(
                 provider=provider_slug,
                 correlation_id=correlation_id,
             )
-        # HARDEN-04: emit failure audit entry for generic OAuth error.
+        # Emit failure audit entry for generic OAuth error.
         await audit_emit(
             db,
             AuditEvent(
@@ -612,7 +612,7 @@ async def oauth_callback(
                 correlation_id=correlation_id,
             )
         error_url = f"{frontend_url}/oauth/callback#error=oauth_failed&correlation_id={correlation_id}"
-        # SEC-13: same Referrer-Policy override as success path
+        # Same Referrer-Policy override as success path
         return RedirectResponse(
             url=error_url,
             status_code=302,
@@ -685,7 +685,7 @@ async def exchange_sign_in_code(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# Dual-shape decorator — both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
 # the 404 regression introduced by redirect_slashes=False (api/main.py).

@@ -129,13 +129,11 @@ _CSRF_PARAM_DESCRIPTION = (
 )
 
 
-# SP-11 (v1009.1) superseded by ROUTE-01 (Phase 1092): both slash and
-# no-slash variants register the same handler; canonical OpenAPI-published
-# form is /login, /login/ is a hidden alias. SP-11's original no-trailing-
-# slash-only registration (to dodge FastAPI's 307 stripping the POST body
-# for OAuth2 form callers) is now structurally impossible because
-# redirect_slashes=False at the app level (api/main.py). Keep ``SP-11`` as
-# the grep-anchor prefix so a search for that audit ID lands here.
+# Both slash and no-slash variants register the same handler; the canonical
+# OpenAPI-published form is /login, /login/ is a hidden alias. Registering
+# only the no-trailing-slash form (to dodge FastAPI's 307 stripping the POST
+# body for OAuth2 form callers) is not possible because
+# redirect_slashes=False at the app level (api/main.py).
 @router.post("/login/", response_model=TokenResponse, include_in_schema=False)
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(_login_rate_limit)
@@ -161,7 +159,7 @@ async def login(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )
 
     # fix(#1230): OAuth2PasswordRequestForm applies no length
     # limit to username, so an unauthenticated caller could otherwise persist
@@ -224,7 +222,7 @@ async def login(
                 detail="Account not active",
             )
 
-    # DOMAIN-04: enforce allowed_email_domains on password login. Null-email
+    # Enforce allowed_email_domains on password login. Null-email
     # skip, get_uncached cache-bypass, and the manage_settings break-glass all
     # live in the shared gate (fix(#836)).
     if user is not None:
@@ -234,12 +232,12 @@ async def login(
             await _audit_login_failure("email_domain_not_allowed", user_id=user.id)
             raise
 
-    # SSO-01/SSO-02: when password_login_enabled is False, reject password
+    # When password_login_enabled is False, reject password
     # login for non-admins (manage_settings break-glass, same as domain gate).
     # Cache-bypass: a stale `true` during a disable's invalidate->commit
-    # window would let non-admins keep logging in for up to 30s (Codex P2).
+    # window would let non-admins keep logging in for up to 30s.
     if user is not None and not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
-        from app.modules.auth.permissions import (  # LAZY — per D-17
+        from app.modules.auth.permissions import (
             MANAGE_SETTINGS,
             user_has_capability,
         )
@@ -402,7 +400,7 @@ def _refresh_session_key(request: Request) -> str:
     return f"refresh-session:{session_id}"
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — both slash forms register
+# Dual-shape decorator — both slash forms register
 # the same handler. Slash form is canonical (published); no-slash form is
 # a hidden alias closing the 404 regression from redirect_slashes=False.
 @router.post("/refresh", response_model=TokenResponse, include_in_schema=False)
@@ -469,13 +467,13 @@ async def refresh(
 
     service = AuthService(db)
 
-    # CR-01 (Phase 1236 Plan 03): enforce allowed_email_domains at refresh
+    # Enforce allowed_email_domains at refresh
     # time too, so tightening the allowlist after login rejects the next
     # refresh (no gap between login-time and session-continuation checks).
     #
     # Peeks at the user WITHOUT revoking the token first — if the domain
     # check blocks the user, the old token stays intact. Break-glass for a
-    # returning manage_settings admin, same as DOMAIN-04.
+    # returning manage_settings admin, same as login.
     # PASSWORD_LOGIN_ENABLED is intentionally NOT checked here: it's a
     # login-METHOD policy and must not gate session continuation for users
     # who authenticated via SSO.
@@ -509,7 +507,7 @@ async def refresh(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.post(
     "/register",
     response_model=RegisterResponse,
@@ -544,7 +542,7 @@ async def register(
     # path must keep the global self-signup endpoint closed, so users aren't
     # created outside the deployment's isolation boundary. Fires before
     # REGISTRATION_ENABLED so the standard self-hosted path is unchanged.
-    from app.platform.extensions import has_extension  # LAZY: preserved per D-17
+    from app.platform.extensions import has_extension
 
     if has_extension("cloud"):
         raise HTTPException(
@@ -566,7 +564,7 @@ async def register(
             detail="Password sign-up is disabled; sign in with a single sign-on provider",
         )
 
-    # DOMAIN-02: enforce allowed_email_domains on self-serve signup. No
+    # Enforce allowed_email_domains on self-serve signup. No
     # principal exists at signup, so no break-glass user is passed.
     await enforce_email_domain_gate(db, body.email)
     if not body.email and await ALLOWED_EMAIL_DOMAINS.get_uncached(db):
@@ -575,24 +573,24 @@ async def register(
             detail="An email address in an allowed domain is required to sign up",
         )
 
-    # Phase 279 ADMIN-05 (L-02): user.register audit event for funnel
+    # user.register audit event for funnel
     # visibility (registration count and IP).
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )
 
-    # Phase 1230 EVENT-01: admin signup notification, emitted AFTER
+    # Admin signup notification, emitted AFTER
     # db.commit() and ONLY in the non-collision branch, so a notification
     # failure can't roll back the user row and the collision path stays
     # byte-identical regardless of toggle state.
     from app.platform.notifications.events import (
         build_event_notification,
         emit_event_safe,
-    )  # LAZY — preserved per D-17
+    )
 
     service = AuthService(db)
-    # SEC-012: on a collision the service raises ValueError without creating
+    # On a collision the service raises ValueError without creating
     # a duplicate row; we swallow it and return the SAME pending-approval
     # response a genuine registration returns, to prevent enumeration.
     collision = False
@@ -607,7 +605,7 @@ async def register(
         collision = True
 
     # Outcome depends on CONFIG + submitted email only, never on whether this
-    # was a genuine signup or a swallowed collision (SEC-012 enumeration
+    # was a genuine signup or a swallowed collision (enumeration
     # safety) — the verify-email path once leaked account existence this way.
     verification_required = await EMAIL_VERIFICATION_REQUIRED.get_uncached(db)
     smtp_configured = bool(settings.smtp_host)
@@ -616,7 +614,7 @@ async def register(
     )
 
     if not collision:
-        # ADMIN-05 (L-02): registrant is the actor (no admin exists yet);
+        # Registrant is the actor (no admin exists yet);
         # resource_id == user_id == the new pending user.
         ip = get_client_ip(request)
         await audit_emit(
@@ -631,7 +629,7 @@ async def register(
             ),
         )
         await db.commit()
-        # EVENT-01: notify admin AFTER commit so a notification error can't
+        # Notify admin AFTER commit so a notification error can't
         # roll back the user row; emit_event_safe swallows errors.
         _username = body.username
         _email = body.email or ""
@@ -647,9 +645,9 @@ async def register(
 
         if verification_required and body.email and not smtp_configured:
             # No SMTP configured despite verification required: fall back to
-            # admin-approval, but surface the mismatch (WR-02) rather than
+            # admin-approval, but surface the mismatch rather than
             # degrading silently, so an operator can see why.
-            import structlog  # LAZY — per D-17
+            import structlog
 
             structlog.stdlib.get_logger(__name__).warning(
                 "register.verification_required_but_smtp_unconfigured",
@@ -661,13 +659,13 @@ async def register(
             )
 
     if wants_email_verification:
-        # SIGNUP-03/#267: send for both genuine registrations and swallowed
+        # Send for both genuine registrations and swallowed
         # collisions — a collision gets a decoy token so delivery stays
         # uniform and can't reveal whether the username/email existed.
         if new_user_id is not None:
             from app.modules.auth.verification import (
                 issue_verification_token,
-            )  # LAZY: per D-17
+            )
 
             raw_token = await issue_verification_token(db, new_user_id)
             await db.commit()
@@ -676,11 +674,11 @@ async def register(
 
         # Map an SMTP/OSError to HTTP 502; never expose the exception repr
         # (may include an SMTP password) — only the exception type name.
-        import smtplib  # LAZY: per D-17
+        import smtplib
 
         from app.modules.auth.verification_email import (
             send_verification_email,
-        )  # LAZY: per D-17
+        )
 
         try:
             await send_verification_email(
@@ -700,7 +698,7 @@ async def register(
             ) from None
 
     # Unified response: IDENTICAL for a genuine new user and a swallowed
-    # collision given the same (config, email) — closes the SIGNUP-03
+    # collision given the same (config, email) — closes the
     # enumeration gap between the verify-email and collision-swallow paths.
     if wants_email_verification:
         return RegisterResponse(
@@ -716,7 +714,7 @@ async def register(
     )
 
 
-# Email verification endpoints (Phase 1231 SIGNUP-03/05).
+# Email verification endpoints.
 async def _grant_registration_role(db: AsyncSession, user_id: uuid.UUID) -> None:
     """Give a just-activated account the self-registration role unless it has one."""
     if await db.scalar(select(UserRole.role_id).where(UserRole.user_id == user_id)):
@@ -727,7 +725,7 @@ async def _grant_registration_role(db: AsyncSession, user_id: uuid.UUID) -> None
         db.add(UserRole(user_id=user_id, role_id=role_id))
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.post(
     "/verify-email",
     response_model=RegisterResponse,
@@ -752,11 +750,11 @@ async def verify_email(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — per D-17
+    )
     from app.modules.auth.verification import (
         redeem_verification_token,
-    )  # LAZY — per D-17
-    from sqlalchemy import update  # LAZY — per D-17
+    )
+    from sqlalchemy import update
 
     user_id = await redeem_verification_token(db, body.token)
     if user_id is None:
@@ -768,11 +766,11 @@ async def verify_email(
     # Activate the account: flip is_active + status so the auth gate in
     # dependencies.py lets the user through. redeem_verification_token
     # already flipped email_verified.
-    from app.modules.auth.models import User  # LAZY — per D-17
+    from app.modules.auth.models import User
 
     # Only activate accounts still PENDING: an admin may have suspended the
     # account within the token's validity window, and the link must NOT
-    # silently undo that (CR-01) — only the activation flip is gated here.
+    # silently undo that — only the activation flip is gated here.
     activated = await db.scalar(
         update(User)
         .where(
@@ -801,7 +799,7 @@ async def verify_email(
     return RegisterResponse(message="Email verified successfully. You can now log in.")
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.post(
     "/resend-verification",
     response_model=RegisterResponse,
@@ -831,13 +829,13 @@ async def resend_verification(
 
     from app.modules.auth.verification import (
         issue_verification_token,
-    )  # LAZY — per D-17
+    )
     from app.modules.auth.verification_email import (
         send_verification_email,
-    )  # LAZY — per D-17
-    from sqlalchemy import select  # LAZY — per D-17
+    )
+    from sqlalchemy import select
 
-    from app.modules.auth.models import User  # LAZY — per D-17
+    from app.modules.auth.models import User
 
     # Look up an unverified user by email (case-insensitive, L1).
     result = await db.execute(
@@ -852,8 +850,8 @@ async def resend_verification(
         # Swallow send errors so the response stays identical to the
         # unknown-email path (enumeration-safe); log at WARNING so operators
         # can diagnose SMTP misconfiguration without surfacing it to clients.
-        import smtplib  # LAZY — per D-17
-        import structlog  # LAZY — per D-17
+        import smtplib
+        import structlog
 
         _log = structlog.stdlib.get_logger(__name__)
 
@@ -935,7 +933,7 @@ async def logout_current_session(
     return response
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
 @router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
@@ -973,7 +971,7 @@ async def logout(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )
 
     service = AuthService(db)
     user_id: uuid.UUID | None = identity.id if identity is not None else None
@@ -1046,14 +1044,14 @@ async def create_download_token_endpoint(
     Anonymous callers are allowed for public datasets. The returned token has
     ``typ='download'``, ``scope='dataset:{dataset_id}'``, and a TTL of 120s.
     """
-    from datetime import UTC, datetime, timedelta  # LAZY — stdlib, per D-17 ordering
+    from datetime import UTC, datetime, timedelta
 
-    import jwt as _jwt  # LAZY — per D-17
+    import jwt as _jwt
 
-    from app.modules.catalog.authorization import (  # LAZY — per D-17
+    from app.modules.catalog.authorization import (
         check_dataset_access_or_anonymous,
     )
-    from app.modules.catalog.datasets.domain.service import (  # LAZY — per D-17
+    from app.modules.catalog.datasets.domain.service import (
         get_dataset,
     )
 
@@ -1071,7 +1069,7 @@ async def create_download_token_endpoint(
     # create_download_token (includes sub claim); anonymous users on a public
     # dataset get a token with no sub — _resolve_download_user returns None
     # for sub-less tokens, and download_cog branches on user-None for public
-    # visibility + a NULL user_id audit row (KNOWN-01, Phase 1071).
+    # visibility + a NULL user_id audit row.
     download_tenant_id = getattr(dataset, "tenant_id", None)
     if is_multi_tenant() and download_tenant_id is None:
         # Hosted records without durable tenant ownership are invalid and must
@@ -1081,7 +1079,7 @@ async def create_download_token_endpoint(
         )
 
     if user is not None:
-        from app.modules.auth.providers import AuthenticatedIdentity  # LAZY — per D-17
+        from app.modules.auth.providers import AuthenticatedIdentity
 
         identity = AuthenticatedIdentity(
             user_id=user.id,
@@ -1113,7 +1111,7 @@ async def create_download_token_endpoint(
     return DownloadTokenResponse(token=token, expires_in=120)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.get("/config", response_model=ConfigResponse, include_in_schema=False)
 @router.get("/config/", response_model=ConfigResponse)
 async def config(
@@ -1130,7 +1128,7 @@ async def config(
     banner_text = await BANNER_TEXT.get(db) if banner_enabled else ""
     banner_color = await BANNER_COLOR.get(db)
     email_verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
-    # SSO-03: expose the SSO-only flag so the login page can hide the password
+    # Expose the SSO-only flag so the login page can hide the password
     # form on first render (no flash).
     password_login_enabled = await PASSWORD_LOGIN_ENABLED.get(db)
     return ConfigResponse(
@@ -1146,7 +1144,7 @@ async def config(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.get("/me", response_model=UserResponse, include_in_schema=False)
 @router.get("/me/", response_model=UserResponse)
 async def me(
@@ -1169,7 +1167,7 @@ async def me(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.get(
     "/me/permissions",
     response_model=PermissionsResponse,
@@ -1220,7 +1218,7 @@ async def me_usage(
 
 
 # Self-service API key management.
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.get("/api-keys", response_model=ApiKeyListResponse, include_in_schema=False)
 @router.get("/api-keys/", response_model=ApiKeyListResponse)
 async def list_my_api_keys(
@@ -1255,7 +1253,7 @@ async def list_my_api_keys(
     )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.post(
     "/api-keys",
     response_model=ApiKeyCreateResponse,
@@ -1281,7 +1279,7 @@ async def create_my_api_key(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )
     from app.modules.auth.service import create_api_key_for_user
 
     api_key, raw_key = await create_api_key_for_user(
@@ -1332,7 +1330,7 @@ async def revoke_my_api_key(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )
 
     result = await db.execute(
         select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == current_user.id)
@@ -1361,7 +1359,7 @@ async def revoke_my_api_key(
 
 
 # Password change.
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Dual-shape decorator — see /refresh above.
 @router.post(
     "/change-password",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -1378,7 +1376,7 @@ async def change_password(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )
     from app.modules.auth.providers.local import (
         hash_password_async,
         verify_password_async,
@@ -1417,7 +1415,7 @@ async def change_password(
     current_user.password_hash = await hash_password_async(body.new_password)
     await settle_login_success(db, throttle)
 
-    # SEC-S15 (Phase 1062-01): bump token_version so all outstanding access
+    # Bump token_version so all outstanding access
     # JWTs for this user are invalidated on their next request, forcing
     # re-auth on every other device.
     #

@@ -1,4 +1,4 @@
-"""Verification-email sender for self-serve signup (SIGNUP-03).
+"""Verification-email sender for self-serve signup.
 
 Calls ``send_email`` directly — NOT ``notify()``, which fans out to admin
 sinks and would deliver the registrant's link to the admin address instead.

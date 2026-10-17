@@ -57,7 +57,7 @@ logger = structlog.stdlib.get_logger(__name__)
 # Shares /admin prefix with admin/router.py — kept separate for module organization.
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
-# SEC-FU-08: Owner-facing column-DDL feed at /audit/* (separate prefix so it
+# Owner-facing column-DDL feed at /audit/* (separate prefix so it
 # is accessible to non-admin dataset owners, not just superusers).
 audit_datasets_router = APIRouter(
     prefix="/audit", tags=["Audit"], responses=ERROR_RESPONSES_AUTH
@@ -275,9 +275,9 @@ class _AuditExportStream:
             await self._record_outcome("completed", row_count)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator -- trailing-slash is
-# canonical (in OpenAPI); no-slash is a hidden alias closing the 404
-# regression from redirect_slashes=False (api/main.py).
+# Dual-shape decorator -- trailing-slash is canonical (in OpenAPI); no-slash
+# is a hidden alias closing the 404 regression from redirect_slashes=False
+# (api/main.py).
 @router.get(
     "/audit-logs",
     response_model=AuditLogListResponse,
@@ -453,7 +453,7 @@ async def export_audit_logs(
     )
 
 
-# SEC-FU-08: Owner-facing column-DDL feed.
+# Owner-facing column-DDL feed.
 @audit_datasets_router.get(
     "/datasets/{dataset_id}/column-ddl",
     response_model=ColumnDdlFeedResponse,

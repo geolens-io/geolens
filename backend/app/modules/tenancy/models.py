@@ -1,9 +1,9 @@
-"""Tenancy ORM models — dormant substrate for Phase 1207.
+"""Tenancy ORM models — dormant substrate.
 
 These three tables (organizations, tenants, org_memberships) are created by
 migration 0005_dormant_tenancy and are inert in single_tenant mode.  No
-foreign-key enforcement is wired in this phase; FK constraints and RLS
-policies land in Phase 1208.
+foreign-key enforcement is wired here; FK constraints and RLS policies
+are not part of these models.
 
 All models are declared on the shared Base so ``alembic check`` / autogenerate
 see them alongside the rest of the catalog schema.
@@ -23,7 +23,7 @@ class Organization(Base):
     """Top-level billing/ownership entity.
 
     In single_tenant mode this table is empty and never queried.
-    The cloud overlay (Phase 1211) populates it at tenant-signup time.
+    The cloud overlay populates it at tenant-signup time.
     """
 
     __tablename__ = "organizations"
@@ -49,7 +49,7 @@ class Organization(Base):
 class Tenant(Base):
     """Logical tenant within an organization (subdomain-shaped slug).
 
-    ``slug`` is the globally unique host-routing key consumed by the TSEAM-04
+    ``slug`` is the globally unique host-routing key consumed by the
     request-context middleware. One configured tenant base domain means one
     slug must resolve to exactly one RLS tenant UUID.
 
@@ -68,13 +68,13 @@ class Tenant(Base):
         server_default=func.gen_random_uuid(),
     )
     slug: Mapped[str] = mapped_column(String(63), nullable=False)
-    # Dormant link — no FK constraint until Phase 1208.
+    # Dormant link — no FK constraint.
     organization_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    # Shard routing key — trivial 'shard-0' at one shard; Phase 1214 populates
-    # real values when shards are promoted/rebalanced.  This is the routing MAP
+    # Shard routing key — trivial 'shard-0' at one shard; real values are
+    # populated when shards are promoted/rebalanced.  This is the routing MAP
     # consumed by tenant_shard_id() in backend/app/core/db/tenant_schema.py.
     shard_id: Mapped[str | None] = mapped_column(
         Text,
@@ -97,7 +97,7 @@ class OrgMembership(Base):
     """User ↔ Organization membership join table.
 
     Composite PK (user_id, organization_id) — both stored without FK
-    constraints (dormant) until Phase 1208.
+    constraints (dormant).
     """
 
     __tablename__ = "org_memberships"

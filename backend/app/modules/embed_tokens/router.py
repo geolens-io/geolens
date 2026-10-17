@@ -51,9 +51,9 @@ router = APIRouter(
 )
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator -- trailing-slash is
-# canonical (in OpenAPI); no-slash is a hidden alias closing the 404
-# regression from redirect_slashes=False (api/main.py).
+# Dual-shape decorator -- trailing-slash is canonical (in OpenAPI); no-slash
+# is a hidden alias closing the 404 regression from redirect_slashes=False
+# (api/main.py).
 @router.post(
     "",
     response_model=EmbedTokenCreatedResponse,
@@ -151,7 +151,7 @@ async def create_embed_token_endpoint(
     return EmbedTokenCreatedResponse.model_validate(token_data)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see POST above.
+# Dual-shape decorator — see POST above.
 @router.get("", response_model=EmbedTokenListResponse, include_in_schema=False)
 @router.get("/", response_model=EmbedTokenListResponse)
 async def list_embed_tokens_endpoint(

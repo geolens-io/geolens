@@ -24,10 +24,9 @@ class AuditLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    # Phase 279 ADMIN-05 (L-02/Rule 1): nullable (FK ondelete='SET NULL') --
-    # a hard-deleted user's audit rows survive with user_id=None. The
-    # previous non-nullable typing raised a ValidationError serializing
-    # those rows.
+    # Nullable (FK ondelete='SET NULL'): a hard-deleted user's audit rows
+    # survive with user_id=None. Non-nullable typing raised a
+    # ValidationError serializing those rows.
     user_id: uuid.UUID | None
     username: str | None = None
     action: str
@@ -47,7 +46,7 @@ class AuditLogListResponse(BaseModel):
     total: int
 
 
-# SEC-FU-08: Column DDL feed response models.
+# Column DDL feed response models.
 
 
 class ColumnDdlEntry(BaseModel):

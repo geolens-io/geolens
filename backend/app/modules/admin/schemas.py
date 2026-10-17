@@ -47,7 +47,7 @@ SortDirection = Literal["asc", "desc"]
 # fix(#1715): single shared password-policy wiring for every admin schema that
 # accepts a password; rules live in auth/password_policy.py.
 def _enforce_password_policy(value: str) -> str:
-    """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
+    """Enforce the application password policy."""
     from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
 
     validate_password_from_settings(value)

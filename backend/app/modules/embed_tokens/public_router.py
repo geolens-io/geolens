@@ -1,4 +1,4 @@
-"""Public embed-shell framing-policy endpoint (builder-audit #338 P0-02).
+"""Public embed-shell framing-policy endpoint.
 
 The ``/m/{token}`` shell is served statically by nginx, so its per-token
 frame-ancestors CSP can't be set by the SPA -- it's injected via an
@@ -44,13 +44,13 @@ async def embed_frame_policy(
 ) -> Response:
     """Return the per-token frame-ancestors framing policy for the embed shell.
 
-    builder-audit #338 P0-02. Always 200; the framing decision is carried in the
+    Always 200; the framing decision is carried in the
     ``Content-Security-Policy`` and ``X-Embed-Frame-Ancestors`` headers.
     """
     if not token:
-        # Codex P1 (#338): no embed token present -- a plain share view or
-        # public embed without domain locking. Framing stays open (matches
-        # pre-P0-02 behavior); fail-closed 'none' is reserved for a token
+        # No embed token present -- a plain share view or public embed
+        # without domain locking. Framing stays open (matches the behavior
+        # before domain locking); fail-closed 'none' is reserved for a token
         # that IS present but invalid/revoked/expired. Private data stays
         # protected at the tile layer (X-Embed-Token validation).
         frame_ancestors = ""

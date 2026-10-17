@@ -248,7 +248,7 @@ class AdminService:
 
         Raises ValueError if username/email is taken or role not found.
 
-        HARDEN-04: the role-existence check runs BEFORE the User row is added
+        The role-existence check runs BEFORE the User row is added
         or flushed, for a readable error rather than the FK backstop alone.
         The TOCTOU window (role deleted between check and insert) is accepted
         -- the FK constraint catches it.
@@ -520,7 +520,7 @@ class AdminService:
     async def convert_saml_user_to_local(
         self, user_id: uuid.UUID, password: str
     ) -> tuple[User, str]:
-        """Convert a SAML-authenticated user to local-password (Phase 221 LIFECYCLE-06).
+        """Convert a SAML-authenticated user to local-password.
 
         In one (uncommitted) transaction:
           1. Load the user; raise ValueError("User not found") if absent.
@@ -530,16 +530,16 @@ class AdminService:
              provider_type='saml'); raise ValueError if absent.
           4. Set user.password_hash = hash_password(password).
           5. Flip user.auth_provider from 'oauth' to 'local'.
-          6. DELETE the SAML oauth_accounts row (clean break, D-04 -- the
+          6. DELETE the SAML oauth_accounts row (clean break -- the
              oauth_providers row stays; other users may still link to it).
           7. revoke_all_tokens(commit=False, bump_key_epoch=True) so no
              SAML-era credential survives.
 
         Returns (user, provider_slug); the router uses provider_slug for the
-        audit-log details and writes/commits the audit row itself (D-05).
+        audit-log details and writes/commits the audit row itself.
 
-        Per D-06/D-07: users.id, and user_roles/api_keys/share_tokens/audit_logs/
-        last_login_at, are never touched.
+        Never touched: users.id, user_roles, api_keys, share_tokens,
+        audit_logs and last_login_at.
         """
         # fix(#1715): FOR UPDATE, matching the reset and the login -- this
         # rotates credentials and must not read/decide/write from a snapshot
@@ -583,7 +583,7 @@ class AdminService:
             delete(OAuthAccount).where(OAuthAccount.id == saml_account.id)
         )
 
-        # SEC-S15 CR-02: forces re-authentication rather than leaving an
+        # Forces re-authentication rather than leaving an
         # outstanding SAML JWT valid until natural expiry, and SAML-era
         # refresh tokens unusable afterwards. bump_key_epoch=True (fix(#821))
         # also stops pre-conversion API keys.
@@ -644,7 +644,7 @@ class AdminService:
         if role is not None:
             filters.append(User.roles.any(Role.name == role))
         if search is not None:
-            # T-2/T-1: normalize BOTH column AND pattern with
+            # Normalize BOTH column AND pattern with
             # lower(catalog.immutable_unaccent(...)) to match the trigram GIN
             # indexes (ix_users_username_trgm, ix_users_email_trgm) and make
             # search accent-insensitive ("José" must itself be unaccented).

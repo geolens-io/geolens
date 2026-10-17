@@ -87,7 +87,7 @@ class UserCreate(BaseModel):
     @field_validator("password", mode="after")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
+        """Enforce the application password policy."""
         from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
 
         validate_password_from_settings(v)
@@ -98,7 +98,7 @@ class RegisterResponse(BaseModel):
     message: str
     # Computed purely from (config + submitted email), so it is IDENTICAL for a
     # genuine new signup and a swallowed username/email collision — the
-    # collision path must not be distinguishable (SEC-012 enumeration-safety).
+    # collision path must not be distinguishable (enumeration-safety).
     next_step: Literal["verify_email", "await_approval"] | None = Field(
         default=None,
         description=(
@@ -367,7 +367,7 @@ class ChangePasswordRequest(BaseModel):
     @field_validator("new_password", mode="after")
     @classmethod
     def validate_new_password(cls, v: str) -> str:
-        """Enforce the application password policy on the new password (SEC-S16)."""
+        """Enforce the application password policy on the new password."""
         from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
 
         validate_password_from_settings(v)

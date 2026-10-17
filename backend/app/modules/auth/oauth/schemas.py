@@ -15,7 +15,7 @@ from app.modules.auth.schemas import validate_role_name
 
 
 def _validate_optional_http_url(value: str | None) -> str | None:
-    """Validate an optional HTTP(S) URL (TYPE-N4).
+    """Validate an optional HTTP(S) URL.
 
     Returns the value unchanged if None or a parseable HTTP/HTTPS URL, else
     raises ValueError. Prefer this over Pydantic's HttpUrl so the DB column
@@ -55,7 +55,7 @@ def _validate_idp_certificate(value: str | None) -> str | None:
     return value
 
 
-# TYPE-5: Pydantic max_length values below must match the SQLAlchemy String(N)
+# Pydantic max_length values below must match the SQLAlchemy String(N)
 # widths in models.py to avoid silent truncation at DB insert. Column widths
 # are the source of truth.
 _SLUG_MAX = 50  # oauth_providers.slug: String(50)
@@ -199,7 +199,7 @@ class OAuthProviderCreate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_per_type(self):
-        """Enforce per-type field requirements (RESEARCH §6, D-12).
+        """Enforce per-type field requirements.
 
         SAML providers require all 4 SAML fields, no OAuth credentials.
         OAuth providers require client_id + client_secret and must NOT set
@@ -239,9 +239,9 @@ class OAuthProviderCreate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_idp_mapping_gate(self):
-        """Gate group-based role mapping behind the enterprise edition (D-01/02/03).
+        """Gate group-based role mapping behind the enterprise edition.
 
-        Empty dict/None allowed in community (D-02 carve-out — "no mapping").
+        Empty dict/None allowed in community ("no mapping").
         Only a non-empty mapping or non-None group_claim triggers the gate.
         """
         if not is_enterprise():
@@ -387,9 +387,9 @@ class OAuthProviderUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_idp_mapping_gate(self):
-        """Gate group-based role mapping behind the enterprise edition (D-01/02/03).
+        """Gate group-based role mapping behind the enterprise edition.
 
-        Empty dict/None allowed in community (D-02 carve-out — "no mapping").
+        Empty dict/None allowed in community ("no mapping").
         Only a non-empty mapping or non-None group_claim triggers the gate.
         """
         if not is_enterprise():

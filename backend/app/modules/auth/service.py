@@ -51,7 +51,7 @@ class AuthService:
     ) -> str:
         """Create a signed JWT for the given identity.
 
-        SEC-S15 (Phase 1062-01): payload includes ``jti`` (unique per-token
+        The payload includes ``jti`` (unique per-token
         id) and ``token_version`` — a JWT whose token_version is behind the
         user's current value is rejected by get_current_user/get_optional_user,
         so logout and password-change revocations take effect immediately.
@@ -79,7 +79,7 @@ class AuthService:
             )
             _raw_version = result.scalar_one_or_none()
             tenant_id = None
-        # WR-04: explicit None check rather than `or 1`, so a stored
+        # Explicit None check rather than `or 1`, so a stored
         # token_version=0 isn't silently coerced to 1 (unreachable today, but
         # explicit intent beats relying on falsiness).
         token_version: int = _raw_version if _raw_version is not None else 1
@@ -116,7 +116,7 @@ class AuthService:
     ) -> str:
         """Create a download-scoped JWT for a single dataset.
 
-        SEC-04/M-66: a JWT in a URL query parameter is far more leak-prone
+        A JWT in a URL query parameter is far more leak-prone
         than a Bearer header (browser history, logs, accidental copy).
         ``typ='download'``, a dataset-scoped ``scope``, and a <=2-minute TTL
         bound the damage if the URL is exposed; the session JWT keeps working
@@ -176,7 +176,7 @@ class AuthService:
     async def get_user_from_refresh_token(self, raw_token: str) -> "User | None":
         """Return the User linked to *raw_token* without revoking it.
 
-        CR-01 (Phase 1236 Plan 03): used by the refresh handler to check the
+        Used by the refresh handler to check the
         domain allowlist BEFORE the old token is revoked — callers must call
         rotate_refresh_token only after the check passes, so a rejected token
         stays usable (no silent revocation on block).
@@ -498,7 +498,7 @@ class AuthService:
     ) -> int:
         """Revoke all active refresh tokens AND bump User.token_version (logout).
 
-        SEC-S15 (Phase 1062-01): incrementing token_version invalidates every
+        Incrementing token_version invalidates every
         access JWT issued before the bump on the next authenticated request,
         closing the "logout doesn't invalidate access JWT" gap.
 
@@ -587,7 +587,7 @@ class AuthService:
 
         Raises ValueError if the username or email already exists.
 
-        ADMIN-05 (L-02): FLUSHES but does NOT commit — the caller controls
+        FLUSHES but does NOT commit — the caller controls
         the transaction so a follow-up audit_emit lands in the same one.
         """
         # Hashed before the existence checks so a taken name or email costs

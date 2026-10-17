@@ -60,7 +60,7 @@ def refresh_cookie_path(request: Request) -> str:
 
 
 def _secure_cookies() -> bool:
-    """SEC-005: same production switch that hides the API docs and sets
+    """Same production switch that hides the API docs and sets
     ``https_only`` on SessionMiddleware. Development and test runs have no TLS
     terminator, so a ``Secure`` cookie there would be silently dropped."""
     return settings.is_production

@@ -1,4 +1,4 @@
-"""Fernet encryption for secrets GeoLens stores at rest (OAUTH-02): covers
+"""Fernet encryption for secrets GeoLens stores at rest: covers
 ``OAuthProvider.client_secret_encrypted`` and ``.idp_certificate``.
 
 Keys are read in this order: ``SECRET_ENCRYPTION_KEY``, then

@@ -181,10 +181,10 @@ def admitted_capabilities(
 async def user_has_capability(db: AsyncSession, user: Any, capability: str) -> bool:
     """Return True if *user* holds *capability* via any of their assigned roles.
 
-    Used for break-glass exemptions (e.g. DOMAIN-04 manage_settings bypass).
-    Resolves roles via get_user_roles and checks the effective permission
-    matrix; does NOT add DB code to domain_validation.py (DB-free by contract,
-    T-1235 purity gate). *user* may be any object with a ``.id`` UUID
+    Used for break-glass exemptions (e.g. the manage_settings bypass of the
+    email-domain gate). Resolves roles via get_user_roles and checks the
+    effective permission matrix; does NOT add DB code to domain_validation.py
+    (DB-free by contract). *user* may be any object with a ``.id`` UUID
     attribute (User ORM or Identity).
     """
     roles = await get_user_roles(db, user)

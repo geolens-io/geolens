@@ -1,4 +1,4 @@
-"""Password complexity validator for SEC-S16 (Phase 1062-01).
+"""Password complexity validator.
 
 Enforces configurable minimum length and character-class diversity at every
 password entry point:
@@ -14,7 +14,7 @@ Policy (defaults, configurable via env):
     Classes: lowercase [a-z], uppercase [A-Z], digit [0-9], symbol (everything else)
   - Maximum 72 bytes once UTF-8 encoded (bcrypt's input limit; not configurable)
 
-A denylist (breached passwords) is deferred to SEC-FU Phase 1063.
+A denylist (breached passwords) is not implemented.
 """
 
 from __future__ import annotations
