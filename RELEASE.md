@@ -74,8 +74,8 @@ commit:
    `.github/workflows/release.yml`'s "Notify the site of the release" step).
    Without the dispatch token the step is a logged no-op and the release still
    publishes.
-4. SDK and CLI publishes pause for one-click approval before they ship; image
-   and release builds do not.
+4. SDK, CLI and MCP server publishes (including the MCP Registry entry) pause
+   for one-click approval before they ship; image and release builds do not.
 5. `verify-published.yml` runs after the publishes complete and confirms every
    surface matches.
 
