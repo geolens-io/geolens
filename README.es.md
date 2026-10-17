@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="frontend/public/app-icon-dark.png" alt="Logotipo de GeoLens: una lupa sobre un globo terráqueo con marcas de mira" width="96">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-emblem-dark.svg">
+    <img src=".github/assets/geolens-emblem.svg" alt="Logotipo de GeoLens: una lupa sobre un globo terráqueo con marcas de mira" width="96">
+  </picture>
 </p>
 
 <h1 align="center">GeoLens</h1>
@@ -64,7 +67,7 @@ pueden borrarse en cualquier momento.
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
 <img src=".github/assets/geolens-dataset-page.png" alt="La página del conjunto de datos Atlantic Hurricane Tracks: trayectorias de tormentas en una vista previa del mapa, insignias de vectorial, subido, fuente actualizada, publicado y público, y el número de entidades, la geometría, el CRS, la versión y el número de columnas" width="100%">
 </picture>
-<br><sub>Cada conjunto de datos tiene una página con vista previa del mapa, metadatos, atributos y su origen.</sub>
+<br><sub>Cada conjunto de datos tiene una página con sus metadatos y su fuente, y con una vista previa del mapa cuando tiene extensión.</sub>
 </td>
 </tr>
 <tr>
@@ -80,7 +83,7 @@ pueden borrarse en cualquier momento.
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
 <img src=".github/assets/geolens-version-history.png" alt="El historial de versiones del conjunto de datos Significant Volcanic Eruptions: tres versiones GeoJSON con fechas, nombres de archivo y número de entidades, la actual marcada y un botón Restaurar en la versión anterior" width="100%">
 </picture>
-<br><sub>Al reemplazar un conjunto de datos se conservan las versiones anteriores, y puedes restaurar la previa.</sub>
+<br><sub>Cada reemplazo queda registrado en el historial, y puedes restaurar la versión anterior.</sub>
 </td>
 </tr>
 <tr>
