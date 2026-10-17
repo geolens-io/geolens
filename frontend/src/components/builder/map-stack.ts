@@ -238,7 +238,7 @@ function popupEnabled(popupConfig: PopupConfig | null | undefined) {
 // terrain source?" predicate. Both the legend synthetic-entry derivation
 // (terrain-legend.ts) and the delete-time terrain-clear check
 // (builder-layer-mutations.ts) consume THIS one predicate so legend <-> stack
-// <-> mesh-resolver stay in lockstep (the phase invariant).
+// <-> mesh-resolver stay in lockstep.
 export function isTerrainCapableDemLayer(layer: {
   is_dem?: boolean | null;
   dataset_record_type?: string | null;

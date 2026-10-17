@@ -73,9 +73,8 @@ const ROW_FILTERING_OPERATIONS = ['clip', 'select_by_location', 'intersect'] as 
 // The picker filtered exactly one of these before: dissolve dropped
 // `source_count`. Everything else was offered and then refused on submit, so
 // the only way to learn a field was unusable was to run the operation. Both
-// pickers share the rule now rather than the join picker learning it alone —
-// the finding named the join picker, but the gap is in what the pickers know
-// about the server's rules, and dissolve had the same hole.
+// pickers share the rule: the gap is in what the pickers know about the
+// server's rules, and dissolve had the same hole as the join picker.
 const SAFE_COLUMN_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 // Mirrors MAX_IDENTIFIER_LENGTH in backend/app/platform/analysis_sql.py:
 // PostgreSQL's NAMEDATALEN - 1. Safe as a character count here because

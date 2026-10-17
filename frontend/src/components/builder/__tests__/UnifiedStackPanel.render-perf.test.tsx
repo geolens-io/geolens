@@ -198,8 +198,7 @@ describe('UnifiedStackPanel — render performance (PERF-02, PB-05, PB-08)', () 
    * e2e/perf/builder-large-map.spec.ts → "input-latency: hover latency on
    * 50-layer stack is < 30ms p50". It requires a live Docker stack.
    *
-   * The vitest Profiler API approach was evaluated but deferred per plan
-   * acceptance criteria: "Profiler API tests are notoriously fragile" —
+   * A vitest Profiler API approach was rejected as fragile:
    * React's concurrent scheduler can batch renders unpredictably, making
    * exact render-count assertions flaky across React versions and test
    * environments. The Playwright test provides more meaningful end-to-end

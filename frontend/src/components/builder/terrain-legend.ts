@@ -58,7 +58,7 @@ type TerrainBackingLayer = {
  * in the layer set. Without the backing-layer check, a dangling
  * terrain_config (legacy maps whose source layer was deleted) would render a
  * phantom "3D terrain" legend entry while the stack reports it missing and no
- * mesh paints — the exact legend<->map disagreement this phase eliminates.
+ * mesh paints, which is the legend<->map disagreement this check prevents.
  * Mirrors the stack's `sourceStatus: 'active'` condition (map-stack.ts).
  */
 export function deriveTerrainLegendEntry(
