@@ -248,8 +248,11 @@ describe the sources in a `geolens.yaml` manifest and run `geolens apply`;
 [`examples/manifests/`](examples/manifests/) has templates and the
 [CLI guide](https://docs.getgeolens.com/guides/cli/) has the schema.
 
-To load the demo's maps and datasets (public open data) into your install, run the seed script.
-Use your own admin username if you changed it.
+To load the demo's maps and datasets into your install, run the seed script. It needs internet
+access and downloads public open data from about a dozen sources, including a ~466 MB relief file
+and 62 terrain tiles; `--no-oceans` and `--no-terrain` skip those, and
+[scripts/README.md](scripts/README.md) lists every option. Use your own admin username if you
+changed it.
 
 ```sh
 pip install httpx                                     # the seed script needs Python 3.10+
