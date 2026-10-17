@@ -787,25 +787,34 @@ async def export_dataset_endpoint(
     # losing more than the export.
     try:
         if stored is not None:
-            # may_serve_range=False: this request BUILT the artifact (or
-            # lost the publish race), so it can't know what the client's
-            # offsets were measured against — whole is the safe half of
-            # RFC 9110 14.2. A matching If-Range or a byte-0 Range (a cold
-            # GDAL open's first request) overrides it, honoured unless this
-            # URL answered different bytes inside the last TTL (#1585 r1).
-            leading_slice_ok = not stored.contested
-            if leading_slice_ok and _leading_bare_range(request, stored.size):
-                leading_slice_ok = (
-                    not await artifact_cache.url_answered_other_bytes_recently(
-                        dataset_id, selection, stored.digest
-                    )
+            # This request BUILT the artifact (or lost the publish race), so
+            # a bare Range is sliced only when the rebuild reproduced the
+            # bytes this URL already served and nothing else: a TTL rollover
+            # of unchanged data. Otherwise whole, the safe half of RFC 9110
+            # 14.2, except a byte-0 Range (a cold GDAL open's first request)
+            # while this URL answered no other bytes recently.
+            may_serve_range = False
+            leading_slice_ok = False
+            if not stored.contested and _bare_satisfiable_range(request, stored.size):
+                may_serve_range = await artifact_cache.url_held_only_these_bytes(
+                    dataset_id,
+                    selection,
+                    stored.digest,
+                    own_key=stored.key,
+                    before=snapshot_at,
                 )
+                if not may_serve_range and _leading_bare_range(request, stored.size):
+                    leading_slice_ok = (
+                        not await artifact_cache.url_answered_other_bytes_recently(
+                            dataset_id, selection, stored.digest
+                        )
+                    )
             response = artifact_response.read_response(
                 get_storage(),
                 stored,
                 range_header=request.headers.get("range"),
                 if_range=request.headers.get("if-range"),
-                may_serve_range=False,
+                may_serve_range=may_serve_range,
                 leading_slice_ok=leading_slice_ok,
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )

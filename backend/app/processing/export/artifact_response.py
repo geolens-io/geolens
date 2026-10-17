@@ -5,10 +5,12 @@ whole representation goes back with 200 (RFC 9110 14.2) — a ``/vsicurl/``
 client sends no If-Range, so a rebuild can't tell it's a different file,
 and only a whole 200 can't splice two representations together.
 
-Exceptions: a Range starting at byte 0 is honoured on a fresh build (#1585,
-GDAL vsicurl's first request); ranges are answered whole for one TTL after
-a URL's bytes change; and a matching ``If-Range`` (RFC 9110 13.1.5) is
-always honoured, since it proves what bytes the client already holds.
+Exceptions: a rebuild that reproduced the only bytes the URL holds is
+sliced like the artifact it replaces; a Range starting at byte 0 is honoured
+on a fresh build (#1585, GDAL vsicurl's first request); ranges are answered
+whole for one TTL after a URL's bytes change; and a matching ``If-Range``
+(RFC 9110 13.1.5) is always honoured, since it proves what bytes the client
+already holds.
 """
 
 import asyncio
@@ -71,7 +73,7 @@ def read_response(
 ) -> Response:
     """The GET: a 206 slice, a 416, or the whole artifact.
 
-    ``may_serve_range``: true only if the artifact existed before this
+    ``may_serve_range``: true only if these bytes were served before this
     request (gates the splice in the module docstring). ``leading_slice_ok``
     is the byte-0 exception, set only for a fresh build with no other live
     representation. ``background`` must run AFTER the response (fix(#435)).

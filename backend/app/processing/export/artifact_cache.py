@@ -166,6 +166,34 @@ async def url_answered_other_bytes_recently(
     return False
 
 
+async def url_held_only_these_bytes(
+    dataset_id: uuid.UUID, selection: str, digest: str, *, own_key: str, before: float
+) -> bool:
+    """Was this a rebuild of bytes the URL already served, and only those?
+
+    True when every artifact of this URL still stored, at any age up to the
+    sweep horizon, carries ``digest``, and one other than ``own_key`` was
+    published before ``before``. A client holding offsets from any of them
+    then holds offsets into these exact bytes. Fails CLOSED on a listing error.
+    """
+    earlier = False
+    try:
+        async for page in get_storage().iter_object_pages(
+            _url_prefix(dataset_id, selection)
+        ):
+            for obj in page:
+                parsed = parse_artifact_key(obj.key)
+                if parsed is None:
+                    continue
+                if parsed[2] != digest:
+                    return False
+                published = _published_at(obj.last_modified.timestamp(), parsed[0])
+                earlier = earlier or (obj.key != own_key and published < before)
+    except Exception:  # broad: unknown history proves nothing; whole is safe
+        return False
+    return earlier
+
+
 def _selection_prefix(dataset_id: uuid.UUID, selection: str) -> str:
     return f"{_ROOT}/{_tenant_segment()}/{dataset_id}/{selection}/"
 

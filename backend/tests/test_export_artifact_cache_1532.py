@@ -5076,3 +5076,161 @@ async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_who
         f"answered {settled.status_code}; GDAL opens after a settled change must work"
     )
     assert settled.headers["etag"] == v2_etag
+
+
+# ---------------------------------------------------------------------------
+# A TTL rollover of unchanged data
+# ---------------------------------------------------------------------------
+
+
+async def test_an_unchanged_rebuild_after_the_ttl_still_slices_a_bare_range(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """DuckDB and GDAL read a footer with a bare Range, often a TTL after the probe.
+
+    The artifact expires every TTL whether or not the data moved, so the request
+    that lands after the rollover rebuilds. When the rebuild reproduces the
+    bytes the URL already served, and the URL holds nothing else, a client's
+    offsets point into these exact bytes, and the slice is the same one a hit
+    would have given. Answering whole made every rollover cost a reader the
+    whole file, and DuckDB retries a whole answer to a Range until it gives up.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Rollover Unchanged")
+    url = _url(dataset.id)
+
+    probe = await client.get(url, headers=admin_auth_header)
+    assert probe.status_code == 200 and conversions.count == 1
+
+    cache._ttl_seconds = lambda: 0
+    try:
+        footer = await client.get(
+            url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2, "the read after the rollover must rebuild"
+    assert footer.status_code == 206, (
+        f"a bare Range on a rebuild of unchanged data answered "
+        f"{footer.status_code}; the URL has only ever served these bytes"
+    )
+    assert footer.content == conversions.body[100:200]
+    assert footer.headers["content-range"] == f"bytes 100-199/{len(conversions.body)}"
+    assert footer.headers["etag"] == probe.headers["etag"]
+
+
+async def test_a_changed_rebuild_after_the_ttl_answers_a_bare_range_whole(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """The counterfactual: the data moved and nothing bumped the version.
+
+    The rebuild after the rollover lands under the same selection with other
+    bytes. A client holding offsets from the first artifact must get the whole
+    new file, not a slice of it.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Rollover Changed")
+    url = _url(dataset.id)
+
+    probe = await client.get(url, headers=admin_auth_header)
+    assert probe.status_code == 200 and conversions.count == 1
+
+    conversions.body = bytes(reversed(conversions.body))
+    cache._ttl_seconds = lambda: 0
+    try:
+        resumed = await client.get(
+            url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2
+    assert resumed.status_code == 200, (
+        f"a bare Range on a rebuild with new bytes answered {resumed.status_code}; "
+        f"the client's earlier offsets were measured against the old artifact"
+    )
+    assert resumed.content == conversions.body
+    assert "content-range" not in resumed.headers
+    assert resumed.headers["etag"] != probe.headers["etag"]
+
+    # The data moves back. The next rebuild matches the first artifact, but the
+    # client that just took the whole second one holds offsets into that.
+    conversions.body = bytes(reversed(conversions.body))
+    cache._ttl_seconds = lambda: 0
+    try:
+        reverted = await client.get(
+            url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 3
+    assert reverted.status_code == 200, (
+        f"a rebuild matching an earlier artifact answered {reverted.status_code} "
+        f"while the URL still holds other bytes a client may be reading"
+    )
+    assert reverted.headers["etag"] == probe.headers["etag"]
+
+
+async def test_only_earlier_identical_bytes_let_a_rebuild_slice(
+    test_db_session, monkeypatch
+):
+    """``url_held_only_these_bytes`` needs a predecessor and no rival, at any age.
+
+    A rebuild's own key is not a predecessor, and neither is a same-digest
+    artifact published after the request began (a concurrent cold build). Other
+    bytes anywhere under the URL, even in an older version segment, refuse it,
+    and so does a listing that fails.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Rollover Predecessor")
+    storage = get_storage()
+    payload = b"the bytes this URL serves"
+    digest = hashlib.sha256(payload).hexdigest()
+    selection = cache.selection_key(
+        dataset_id=dataset.id,
+        table_name="t",
+        dataset_title="Rollover Predecessor",
+        tile_cache_version=2,
+        format_key="geojson",
+        target_crs=None,
+        bbox=None,
+        where=None,
+    )
+    own = await _seed_aged_artifact(storage, dataset.id, selection, digest, payload, 0)
+    started = time.time() - 30
+
+    async def _held() -> bool:
+        return await cache.url_held_only_these_bytes(
+            dataset.id, selection, digest, own_key=own, before=started
+        )
+
+    assert not await _held(), "a rebuild's own artifact is not a predecessor"
+
+    await _seed_aged_artifact(storage, dataset.id, selection, digest, payload, 10)
+    assert not await _held(), "published after the request began: not earlier"
+
+    await _seed_aged_artifact(storage, dataset.id, selection, digest, payload, 120)
+    assert await _held()
+
+    older_version = selection.split("/", 1)[0] + "/" + "0" * 20
+    other = b"what this URL served before the change"
+    await _seed_aged_artifact(
+        storage,
+        dataset.id,
+        older_version,
+        hashlib.sha256(other).hexdigest(),
+        other,
+        3000,
+    )
+    assert not await _held(), "other bytes under the URL, at any age, refuse it"
+
+    def _down():
+        raise OSError("object store is down")
+
+    monkeypatch.setattr("app.processing.export.artifact_cache.get_storage", _down)
+    assert not await _held(), "an unreadable history must fail closed"

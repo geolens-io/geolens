@@ -15,6 +15,13 @@ and releases use semantic versioning.
   Cloudflare loads a versioned path under it, which a CSP source naming one
   file doesn't match, so the browser blocked the beacon and logged a CSP error
   on every page. Installs that set the file URL should switch to the host.
+- Dataset exports keep answering byte ranges with `206` after the cached
+  export expires, as long as the data hasn't changed. A cached export is
+  reused for a minute, and a ranged request that arrived after that and
+  rebuilt it used to get the whole file back, so DuckDB `read_parquet` fell
+  back to downloading the whole GeoParquet file instead of the footer and the
+  columns a query names. When the rebuild produces different bytes, a ranged
+  request still gets the whole new file.
 
 ## [1.25.1] - 2026-10-16
 
