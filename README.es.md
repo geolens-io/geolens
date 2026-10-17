@@ -48,6 +48,91 @@ La [demostración](https://demo.getgeolens.com) no requiere instalación ni cuen
 con Google, GitHub o Microsoft para usar el constructor de mapas. Los datos de la demostración
 pueden borrarse en cualquier momento.
 
+## Un vistazo más de cerca
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
+<img src=".github/assets/geolens-catalog-search.png" alt="Búsqueda en el catálogo de GeoLens de 'where storms hit the coast', sin iniciar sesión, con conjuntos de datos de huracanes y costas, con insignias de tipo, fuente y actualidad junto a los filtros" width="100%">
+</picture>
+<br><sub>Búsqueda por significado: "where storms hit the coast" encuentra trayectorias de huracanes y capas de exposición costera.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
+<img src=".github/assets/geolens-dataset-page.png" alt="La página del conjunto de datos Atlantic Hurricane Tracks: trayectorias de tormentas en una vista previa del mapa, insignias de vectorial, subido, fuente actualizada, publicado y público, y el número de entidades, la geometría, el CRS, la versión y el número de columnas" width="100%">
+</picture>
+<br><sub>Cada conjunto de datos tiene una página con vista previa del mapa, metadatos, atributos y su origen.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-import-preview-dark.png">
+<img src=".github/assets/geolens-import-preview.png" alt="La pestaña URL de servicio de la página Importar datos con la vista previa de la capa ArcGIS USGS Significant Earthquakes: CRS, tipo de geometría, número de entidades, nombre de la capa y filas de muestra" width="100%">
+</picture>
+<br><sub>Antes de importar una capa de servicio, GeoLens previsualiza sus columnas y las primeras filas.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
+<img src=".github/assets/geolens-version-history.png" alt="El historial de versiones del conjunto de datos Significant Volcanic Eruptions: tres versiones GeoJSON con fechas, nombres de archivo y número de entidades, la actual marcada y un botón Restaurar en la versión anterior" width="100%">
+</picture>
+<br><sub>Al reemplazar un conjunto de datos se conservan las versiones anteriores, y puedes restaurar la previa.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
+<img src=".github/assets/geolens-builder-style.png" alt="El constructor de mapas con el mapa Restless Earth en un globo: un mapa de calor de terremotos a lo largo de los límites de las placas del Pacífico, la lista de capas agrupadas y el panel de estilo del mapa de calor con sus rampas de color" width="100%">
+</picture>
+<br><sub>Las capas se representan como puntos, símbolos, mapas de calor o agrupaciones, y la lista de rampas puede limitarse a las aptas para daltonismo.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
+<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="El constructor de mapas de GeoLens representando el Cervino como terreno 3D a partir de lidar swissALTI3D, con cumbres rotuladas, rutas de escalada, la lista de capas y una leyenda" width="100%">
+</picture>
+<br><sub>Terreno 3D a partir de tus propios datos de elevación, aquí el Cervino con lidar swissALTI3D.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
+<img src=".github/assets/geolens-stac-imagery.jpg" alt="El constructor de mapas con cuatro escenas Sentinel-2 en color real y con fecha sobre la ciudad de Nueva York y el norte de Nueva Jersey, referenciadas desde el catálogo STAC Earth Search, con la lista de capas y la leyenda" width="100%">
+</picture>
+<br><sub>Escenas Sentinel-2 referenciadas desde un catálogo STAC. Las imágenes se quedan donde están y se sirven en teselas bajo demanda.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-share-embed-dark.png">
+<img src=".github/assets/geolens-share-embed.png" alt="El diálogo Compartir de un mapa: visibilidad Público, con Solo tú y Todos los miembros del equipo como otras opciones, un enlace para compartir y un código de incrustación iframe" width="100%">
+</picture>
+<br><sub>Mantén un mapa para ti, ábrelo a tu equipo o hazlo público con un enlace y un código de incrustación.</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
+<img src=".github/assets/geolens-admin-overview.png" alt="La página Resumen de administración: Todos los sistemas operativos, con el estado de la base de datos, el almacenamiento, la caché y la caché de teselas, el total de conjuntos de datos, las incorporaciones recientes y el almacenamiento usado, junto al menú de administración" width="100%">
+</picture>
+<br><sub>El resumen de administración muestra el estado de los servicios junto a los totales de datos y almacenamiento.</sub>
+</td>
+<td width="50%" valign="top">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-permissions-dark.png">
+<img src=".github/assets/geolens-admin-permissions.png" alt="La página Permisos de administración: capacidades como Subir conjuntos de datos, Exportar datos, Editar metadatos y Gestionar usuarios, con una casilla para cada uno de los roles lector, editor y administrador" width="100%">
+</picture>
+<br><sub>Roles de lector, editor y administrador, con cada capacidad activada o desactivada por rol.</sub>
+</td>
+</tr>
+</table>
+
 ## Cómo encaja todo
 
 ```mermaid
@@ -75,15 +160,6 @@ flowchart LR
 ```
 
 ## Un catálogo para datos dispersos
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-catalog-search-dark.png">
-    <img src=".github/assets/geolens-catalog-search.png" alt="Búsqueda en el catálogo de GeoLens de 'where storms hit the coast' con seis conjuntos de datos de huracanes y costas, con miniaturas, insignias de origen e insignias de actualidad, junto a los filtros de tipo, palabra clave, colección, ubicación y fecha" width="100%">
-  </picture>
-  <br>
-  <sub>Búsqueda por significado: "where storms hit the coast" encuentra trayectorias de huracanes, corredores de tormentas y capas de exposición costera.</sub>
-</p>
 
 - Sube Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, File Geodatabase
   comprimida en zip, CSV, Excel o GeoTIFF (convertido a Cloud-Optimized GeoTIFF). Los 3D Tiles y
@@ -115,15 +191,6 @@ comprueba que la fuente siga respondiendo y, en los servicios, avisa de los camb
 origen antes de que lleguen a tus mapas. Si un servicio desaparece, la copia importada sigue funcionando.
 
 ## Crea y comparte mapas
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-    <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="El constructor de mapas de GeoLens representando el Cervino como terreno 3D a partir de lidar swissALTI3D, con cumbres rotuladas, rutas de escalada, la lista de capas y una leyenda" width="100%">
-  </picture>
-  <br>
-  <sub>El Cervino como terreno 3D a partir de lidar swissALTI3D, con cumbres y rutas de escalada de OpenStreetMap.</sub>
-</p>
 
 - Capas de puntos, símbolos, mapas de calor, agrupaciones, líneas, flechas, polígonos, extrusión
   3D, ráster y sombreado del relieve, con estilos basados en datos, etiquetas, iconos, patrones,
