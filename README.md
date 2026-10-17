@@ -194,7 +194,7 @@ works without it.
 
 ## Install
 
-You need Docker Engine 24+ and Docker Compose v2. A fresh install runs six containers in about
+You need Git, Docker Engine 24+ and Docker Compose v2. A fresh install runs six containers in about
 1.3 GB of memory on linux/amd64 or linux/arm64.
 
 ```sh
