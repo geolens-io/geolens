@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useExpiryClock } from '@/hooks/use-expiry-clock';
 import { isApiKeyExpired } from '@/lib/api-key-expiry';
 import { formatDate } from '@/lib/format';
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
@@ -61,7 +62,7 @@ export function DatasetWriteKeys({ datasetId }: { datasetId: string }) {
   const [expiry, setExpiry] = useState<ExpiryDays>('90');
   const [revealKey, setRevealKey] = useState<ApiKeyCreateResponse | null>(null);
   const [revokingKey, setRevokingKey] = useState<DatasetApiKeyResponse | null>(null);
-  const [now] = useState(() => new Date());
+  const now = useExpiryClock(keys?.map((key) => key.expires_at) ?? []);
 
   function resetForm() {
     setShowForm(false);

@@ -1,3 +1,4 @@
+import { act } from '@testing-library/react';
 import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import { createDatasetApiKey, listDatasetApiKeys, revokeDatasetApiKey } from '@/api/datasets';
 import { useAuthStore } from '@/stores/auth-store';
@@ -63,6 +64,25 @@ describe('DatasetWriteKeys', () => {
     const current = screen.getByText('Survey webhook').closest('li') as HTMLElement;
     expect(within(current).queryByText('Expired')).not.toBeInTheDocument();
     expect(within(current).getByText(/^Expires /)).toBeInTheDocument();
+  });
+
+  it('marks a key expired when its expiry passes while the card is open', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(new Date('2026-01-10T12:00:00Z'));
+      mockList.mockResolvedValue([makeKey({ expires_at: '2026-01-10T12:01:00Z' })]);
+      render(<DatasetWriteKeys datasetId="ds-1" />);
+      const row = (await screen.findByText('Survey webhook')).closest('li') as HTMLElement;
+      expect(within(row).queryByText('Expired')).not.toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(61_000);
+      });
+
+      expect(within(row).getByText('Expired')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('wraps the fingerprint and badges below a key name at phone width', async () => {
