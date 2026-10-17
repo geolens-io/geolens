@@ -40,10 +40,11 @@ and releases use semantic versioning.
   500 at commit, and the dry run answers 400. A body that passes gets 200 with
   the Feature, or a FeatureCollection of them, as it would be stored, without
   an `id`. The request stores no feature and leaves the catalog entry, the
-  tile cache and the audit log as they were. A dataset whose table, or a
-  partition or inheritance child of it, has an enabled user trigger that fires
-  on INSERT is refused with 409, because the trigger could have effects a
-  rollback can't undo. A dry run can consume sequence values, including those
+  tile cache and the audit log as they were. Dry runs are available for
+  datasets stored in an ordinary table with no enabled user trigger and no
+  rule on INSERT, since those could have effects a rollback can't undo. A
+  view, a partitioned or foreign table, or a table with such a trigger or rule
+  is refused with 409. A dry run can consume sequence values, including those
   of a column default, so stored ids may have gaps. A `dataset_write` key may
   dry-run its own dataset, as it may write it. The create route and its SDK
   methods are unchanged; the SDKs gain a separate dry-run method.

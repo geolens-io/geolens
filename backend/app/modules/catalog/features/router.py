@@ -91,12 +91,12 @@ from app.modules.catalog.features.service import (
     FeatureBatchError,
     UnwritablePropertyError,
     delete_feature,
+    dry_run_blocker,
     effective_geometry_type,
     geojson_bounds,
     get_feature_by_id,
     get_features,
     get_features_geojson_z,
-    has_user_insert_trigger,
     insert_feature,
     insert_features,
     lock_catalog_rows_for_write,
@@ -220,18 +220,33 @@ def _created_feature_response(
     )
 
 
+_DRY_RUN_REFUSALS = {
+    "not_a_table": "A dry run is only available for a dataset stored in an "
+    "ordinary table.",
+    "insert_side_effects": "A dry run is not available for this dataset: its "
+    "table has an INSERT trigger or rule, whose effects a dry run cannot undo.",
+}
+
+
 @asynccontextmanager
-async def _insert_scope(db: AsyncSession, dry_run: bool):
+async def _insert_scope(db: AsyncSession, dry_run: bool, table_name: str):
     """Run a create's inserts as they are, or in a savepoint rolled back on exit.
 
     A dry run keeps the real inserts so the database's own casts and
     constraints refuse a bad value as they would for a real create. Deferred
     constraints are checked before the rollback, since a real create meets
     them at commit. The rest of the request's transaction is left as it was.
+    A table whose insert could reach past the transaction is refused with 409
+    first; see ``dry_run_blocker``.
     """
     if not dry_run:
         yield
         return
+    blocker = await dry_run_blocker(db, table_name)
+    if blocker is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_DRY_RUN_REFUSALS[blocker]
+        )
     async with db.begin_nested() as savepoint:
         yield
         await db.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
@@ -289,7 +304,7 @@ async def _create_features(
     """Insert every feature of a FeatureCollection in this transaction, or none."""
     geometries = [feature.geometry.model_dump() for feature in body.features]
     try:
-        async with _insert_scope(db, dry_run):
+        async with _insert_scope(db, dry_run, dataset.table_name):
             rows = await insert_features(
                 db,
                 dataset.table_name,
@@ -1100,11 +1115,12 @@ async def dry_run_create_feature(
     FeatureCollection of them in request order, with no `id`, `table_id` or
     `tile_cache_version`.
 
-    A dataset whose table, or any of its partitions or inheritance children,
-    has an enabled user trigger that fires on INSERT is refused with 409,
-    since the trigger could have effects outside the transaction. A dry run
-    can consume sequence values, including those of a column default, so
-    stored ids can have gaps.
+    A dry run is only available for a dataset stored in an ordinary table
+    with no enabled user trigger and no rule on INSERT, since those could have
+    effects outside the transaction. A view, a partitioned or foreign table,
+    or a table with such a trigger or rule is refused with 409. A dry run can
+    consume sequence values, including those of a column default, so stored
+    ids can have gaps.
     """
     return await _create(db, dataset_id, body, user, None, None, True)
 
@@ -1129,12 +1145,6 @@ async def _create(
     await check_dataset_write_access(db, dataset, dataset_id, user)
     await require_dataset_editing_enabled(db, dataset_id)
     _require_feature_table(dataset)
-    if dry_run and await has_user_insert_trigger(db, dataset.table_name):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A dry run is not available for this dataset: its table "
-            "has an INSERT trigger, whose effects a dry run cannot undo.",
-        )
 
     if isinstance(body, FeatureCollectionCreate):
         if idempotency_key is not None:
@@ -1159,7 +1169,7 @@ async def _create(
                 db, dataset, keyed, idempotency_attempt or 1, body
             )
         else:
-            async with _insert_scope(db, dry_run):
+            async with _insert_scope(db, dry_run, dataset.table_name):
                 row = await insert_feature(
                     db,
                     dataset.table_name,

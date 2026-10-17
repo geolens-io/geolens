@@ -638,7 +638,8 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
     """The refresh is inside the DBAPIError classification at all four sites."""
 
     HANDLERS = {
-        "create_feature",
+        # The create route and its dry run share this body.
+        "_create",
         "replace_single_feature",
         "patch_single_feature",
         "delete_single_feature",
@@ -725,7 +726,8 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
             return False
 
         handlers = {
-            "create_feature",
+            # The create route and its dry run share this body.
+            "_create",
             "replace_single_feature",
             "patch_single_feature",
             "delete_single_feature",

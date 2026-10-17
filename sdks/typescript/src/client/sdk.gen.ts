@@ -2525,11 +2525,12 @@ export const createFeatureDatasetsDatasetIdFeaturesPost = <ThrowOnError extends 
  * FeatureCollection of them in request order, with no `id`, `table_id` or
  * `tile_cache_version`.
  *
- * A dataset whose table, or any of its partitions or inheritance children,
- * has an enabled user trigger that fires on INSERT is refused with 409,
- * since the trigger could have effects outside the transaction. A dry run
- * can consume sequence values, including those of a column default, so
- * stored ids can have gaps.
+ * A dry run is only available for a dataset stored in an ordinary table
+ * with no enabled user trigger and no rule on INSERT, since those could have
+ * effects outside the transaction. A view, a partitioned or foreign table,
+ * or a table with such a trigger or rule is refused with 409. A dry run can
+ * consume sequence values, including those of a column default, so stored
+ * ids can have gaps.
  */
 export const dryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPost = <ThrowOnError extends boolean = false>(options: Options<DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostData, ThrowOnError>): RequestResult<DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostResponses, DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostErrors, ThrowOnError> => (options.client ?? client).post<DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostResponses, DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostErrors, ThrowOnError>({
     security: [

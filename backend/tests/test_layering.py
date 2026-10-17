@@ -1392,7 +1392,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router.py": 1543,
     # Feature writes share the dataset guards, the database error mapping and the
     # catalog refresh; create also carries idempotent repeats and the dry run.
-    "backend/app/modules/catalog/features/router.py": 1588,
+    "backend/app/modules/catalog/features/router.py": 1598,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1423,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
@@ -1416,15 +1416,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Embed tokens share origin/scope checks, revocation and cached-denial behavior.
     "backend/app/modules/embed_tokens/service.py": 1019,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
-    # invariants; temporal writes reuse the validated filter parsers, and batch
-    # inserts reuse the single-insert validation.
-    "backend/app/modules/catalog/features/service.py": 1527,
+    # invariants; temporal writes reuse the validated filter parsers, batch
+    # inserts reuse the single-insert validation, and the create dry run checks
+    # the table's kind, insert triggers and rules with the same catalog probes.
+    "backend/app/modules/catalog/features/service.py": 1544,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, share the permission extension's one filter.
     "backend/app/modules/catalog/authorization.py": 1176,
-    # invariants; temporal writes reuse the validated filter parsers, batch
-    # inserts reuse the single-insert validation, and the create dry run reads
-    # the table's insert triggers from the same catalog probes.
 }
 
 
