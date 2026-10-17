@@ -108,7 +108,7 @@ flowchart LR
 </p>
 
 Chaque jeu de données consigne le fichier, la table, le service ou l’élément STAC dont il provient
-et la date de sa dernière actualisation. Donnez-lui une fréquence de mise à jour et GeoLens le
+et la date de sa dernière actualisation. Donnez une fréquence de mise à jour à un jeu de données importé et GeoLens le
 marque comme à jour, à actualiser ou en retard. Pour les services et les sources STAC, GeoLens
 vérifie aussi que la source répond encore et signale les changements de schéma en amont avant
 qu’ils n’atteignent vos cartes. Si un service disparaît, la copie importée continue de
@@ -265,9 +265,9 @@ de terrain ; `--no-oceans` et `--no-terrain` les ignorent, et
 d’administrateur si vous l’avez changé.
 
 ```sh
-pip install httpx                                     # the seed script needs Python 3.10+
+python3 -m venv .venv && .venv/bin/pip install httpx  # the seed script needs Python 3.10+
 GEOLENS_ADMIN_PASSWORD="$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" \
-  python scripts/seed-showcase.py --username admin
+  .venv/bin/python scripts/seed-showcase.py --username admin
 ```
 
 La [référence de l’API](https://docs.getgeolens.com/guides/api/) et les
