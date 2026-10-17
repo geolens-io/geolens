@@ -202,7 +202,7 @@ workflow fonctionne sans elle.
 
 ## Installation
 
-Il vous faut Git, Docker Engine 24+ et Docker Compose v2. Une installation neuve exécute six conteneurs
+Il vous faut Git, curl, Docker Engine 24+ et Docker Compose v2. Une installation neuve exécute six conteneurs
 avec environ 1,3 Go de mémoire sur linux/amd64 ou linux/arm64.
 
 ```sh
