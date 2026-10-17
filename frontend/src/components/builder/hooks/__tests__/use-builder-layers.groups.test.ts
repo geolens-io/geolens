@@ -45,7 +45,7 @@ function renderBuilderLayers(
 describe('useBuilderLayers — group_meta / groupMeta', () => {
 
   // Test 1: toggle expands
-  // Per (commit 116fe289), the BASEMAP group's toggle-expand is a
+  // The BASEMAP group's toggle-expand is a
   // UI-only affordance and does NOT mark the map as dirty — it has no
   // persisted carrier, so a false "unsaved" badge on expand/collapse was
   // misleading. FOLDER groups do persist collapse state (the

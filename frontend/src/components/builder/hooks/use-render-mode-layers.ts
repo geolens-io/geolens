@@ -113,7 +113,7 @@ export function useRenderModeLayers({
    *  The cluster⇄points transition reuses the layer's MapLibre ids on a DIFFERENT
    *  source, so the old layer graph must be torn down first or the reconciler
    *  skips the replacement and then deletes the stale layer → blank until the next
-   *  sync (Codex #351). Remove the layer + every companion id here; source
+   *  sync. Remove the layer + every companion id here; source
    *  create/teardown stays with syncMapComposition's removeStaleSourcesAndLayers. */
   const removeLayerGraphForReactiveSync = useCallback(function runRemove(layerId: string): void {
     const map = mapInstanceRef.current;

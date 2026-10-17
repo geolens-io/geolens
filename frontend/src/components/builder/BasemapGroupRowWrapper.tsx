@@ -20,8 +20,7 @@ interface BasemapGroupRowWrapperProps {
   isMultiSelectionActive?: boolean;
 }
 
-// Basemap group is SORTABLE — was useDroppable-only
-// in (pinned it to bottom). Lifted to useSortable mirroring
+// Basemap group is SORTABLE, using useSortable like
 // FolderGroupRowWrapper so the user can drag the basemap between top and bottom
 // positions in the layer stack. The `data` option preserves the catalog
 // drop-target semantics (handleDragEnd in MapBuilderPage still reads

@@ -2980,7 +2980,7 @@ describe('AnalysisPanel select by location (feat(#955))', () => {
       expect(mockTerraDraw.instance.addFeatures).toHaveBeenCalled(),
     );
 
-    // 's rule survives the widening: the retained polygon's TerraDraw
+    // The cleanup rule survives the widening: the retained polygon's TerraDraw
     // layers must come off the map when the next operation ignores them.
     // Asserted through stop() rather than through the request body — the body
     // omits `mask` for centroid anyway, so it cannot tell the two apart.

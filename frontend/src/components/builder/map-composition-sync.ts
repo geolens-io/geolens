@@ -16,8 +16,8 @@ import {
 type RefBox<T> = { current: T };
 
 // One pending root-style idle-retry per map instance, so a newer
-// appearance application can cancel a stale one (Codex P2 on #848). Covers
-// projection and, since, sky — both are root style state with the
+// appearance application can cancel a stale one. Covers projection
+// and sky — both are root style state with the
 // same "needs a parsed style" precondition.
 const pendingRootStyleRetries = new WeakMap<MaplibreMap, () => void>();
 
@@ -161,10 +161,10 @@ export function applyMapBasemapAppearance({
   // Style._checkLoaded), which is already true inside a `style.load`
   // callback, so attempt it immediately rather than gating on
   // isStyleLoaded()/idle — a slow tile source would otherwise leave a saved
-  // globe map visibly in mercator (Codex P2 round 2 on #848). If the style
+  // globe map visibly in mercator. If the style
   // is not parsed yet the call throws; retry once on `style.load`, and
   // cancel any stale retry first so a projection change during the load
-  // window can't be reverted by an old callback (Codex P2 round 1 on #848).
+  // window can't be reverted by an old callback.
   const staleRetry = pendingRootStyleRetries.get(map);
   if (staleRetry) {
     map.off?.('style.load', staleRetry);

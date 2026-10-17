@@ -185,7 +185,7 @@ describe('BasemapSublayerEditorScene', () => {
   });
 
   it('Test 13: DETAIL LEVEL section is removed (Phase 1051 INV-01 REMOVE disposition pin)', () => {
-    // Regression guard for the REMOVE disposition shipped in
+    // Regression guard for the removed DETAIL LEVEL section:
     // the dead-wired DETAIL LEVEL pill strip and customized-hint paragraph must
     // not be reintroduced without a real consumer for sublayer detail-level
     // style mutation. If a future feature needs this surface, it should re-add

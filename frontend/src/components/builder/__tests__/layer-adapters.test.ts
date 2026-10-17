@@ -471,7 +471,7 @@ describe('lineAdapter', () => {
     // syncPaint -> syncVectorPaint sets it again.
     expect(setCalls.length).toBeGreaterThanOrEqual(2);
     for (const [, , value] of setCalls) {
-      // Identity (===), not just equality. Engine-foundation guarantee for
+      // Identity (===), not just equality.
       expect(value).toBe(gradient);
     }
   });

@@ -3748,11 +3748,11 @@ describe('SHARE-09 export PNG composition', () => {
     expect(joined).not.toContain('…');
   });
 
-  /* The budget used to be a DESKTOP figure while
-   * the comment above it named iOS Safari's smaller one. codex's case, and the
-   * numbers here are iOS Safari's measured ceiling written out rather than read
-   * from the constant — the whole point is that the bound holds on the smallest
-   * engine, so a test that reads the constant would relax with it. */
+  /* The budget once was a DESKTOP figure while the comment above it named
+   * iOS Safari's smaller one. The numbers here are iOS Safari's measured
+   * ceiling written out rather than read from the constant: the bound has to
+   * hold on the smallest engine, so a test that reads the constant would
+   * relax with it. */
   it('keeps an iPad-sized export inside iOS Safari\'s ceiling (#1541)', async () => {
     const { toast } = await import('sonner');
     const IOS_MAX_AREA = 4096 * 4096; // 16,777,216

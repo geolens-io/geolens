@@ -751,7 +751,7 @@ export function ChatPanel({
         // Unreachable in practice: applyActions dispatches the turn's winning
         // query result itself (and never routes one here), and staging only
         // ever accepts destructive actions. Kept for exhaustiveness — with no
-        // turn prompt to hand it, 's title suggestion falls back.
+        // turn prompt to hand it, the title suggestion falls back.
         dispatchQueryResult(action);
         return false;
       case 'add_layer': {

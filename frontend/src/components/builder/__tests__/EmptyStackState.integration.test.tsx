@@ -10,8 +10,8 @@
  *   - Browse all → onOpenAddData() with no pre-fill
  *   - stopPropagation: ＋ does NOT also trigger card-body
  *
- * Requirement: (inline search → modal pre-fill) and
- * (suggest-card ＋ → direct add → flyout open).
+ * Covers inline search → modal pre-fill, and
+ * suggest-card ＋ → direct add → flyout open.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

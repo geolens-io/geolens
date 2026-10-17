@@ -197,7 +197,7 @@ describe('map composition sync', () => {
 
     // setProjection is attempted even while isStyleLoaded() is false — it
     // only needs the style parsed, and gating on idle left a saved globe map
-    // visibly in mercator during slow tile loads (Codex P2 round 2 on #848).
+    // visibly in mercator during slow tile loads.
     setProjection.mockClear();
     applyMapBasemapAppearance({
       map: { isStyleLoaded: vi.fn(() => false), setProjection } as unknown as MaplibreMap,
@@ -224,7 +224,7 @@ describe('map composition sync', () => {
     const globeRetry = once.mock.calls[0][1] as () => void;
 
     // A newer application cancels the stale retry, so a projection change
-    // during the load window can't be reverted (Codex P2 round 1 on #848).
+    // during the load window can't be reverted.
     applyMapBasemapAppearance({
       map: loading,
       basemapConfig: { projection: 'mercator' } as MapBasemapConfig,

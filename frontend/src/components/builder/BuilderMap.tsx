@@ -212,7 +212,7 @@ export const BuilderMap = memo(function BuilderMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   // Mount-time projection for the MapGL prop, frozen because a
   // CHANGED prop hits react-maplibre's unguarded _updateSettings setter which
-  // throws mid style-swap (Codex P2 r4 on #848); runtime toggles go through
+  // throws mid style-swap; runtime toggles go through
   // applyMapBasemapAppearance instead.
   const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number }; sourceId?: string }) => void) | null>(null);

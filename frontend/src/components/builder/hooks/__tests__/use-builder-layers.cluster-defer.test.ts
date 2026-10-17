@@ -100,7 +100,7 @@ describe('render-mode switch — cluster transitions defer to reactive sync', ()
     // source. The reactive sync owns the ADD now → no imperative addLayer here…
     expect(mapStub.addLayer).not.toHaveBeenCalled();
     // …but the old layer graph MUST be torn down first, or the reconciler skips
-    // re-adding the (now cluster) layer because its id still exists (Codex #351).
+    // re-adding the (now cluster) layer because its id still exists.
     expect(mapStub.removeLayer).toHaveBeenCalledWith(`layer-${LAYER_ID}`);
   });
 

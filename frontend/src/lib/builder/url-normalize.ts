@@ -4,8 +4,8 @@
  * Mirrors backend `_normalize_origin` in
  * `backend/app/modules/embed_tokens/schemas.py:14-31` so the chip the user
  * sees after pressing Enter equals the string the backend persists after PATCH.
- * Eliminates (flash-of-non-canonical-text between optimistic render
- * and PATCH response).
+ * This avoids a flash of non-canonical text between the optimistic render
+ * and the PATCH response.
  *
  * CSP invariant:
  * `*` is NEVER a valid origin. `normalizeOrigin('*')` throws `WildcardOriginError`.

@@ -8,10 +8,9 @@ import {
   type MouseEvent,
 } from 'react';
 
-// The inline-rename state machine was duplicated
-// near-verbatim between StackRow and FolderGroupRow — including the subtle
-// blur-double-fire / committingRef / Radix onCloseAutoFocus focus-race logic
-// that already required a. This hook is the single source.
+// StackRow and FolderGroupRow share this inline-rename state machine,
+// including the subtle blur-double-fire / committingRef / Radix
+// onCloseAutoFocus focus-race logic.
 
 interface UseInlineRenameOptions {
   /** Current display value — used as the initial edit value and the Escape revert target. */
