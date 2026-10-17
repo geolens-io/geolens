@@ -291,7 +291,7 @@ descarga `install.sh` y `SHA256SUMS` de la misma
   `ghcr.io/geolens-io/geolens-frontend`, y `latest` es la última versión estable.
 - Para producción, consulta la [Guía de instalación](https://docs.getgeolens.com/guides/quickstart/install/)
   y las guías de [servicios gestionados en la nube](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/).
-  Docker Compose es la vía compatible; un chart de Helm experimental, mantenido por la comunidad,
+  Docker Compose es la vía con soporte oficial; un chart de Helm experimental, mantenido por la comunidad,
   está en [geolens-deployments](https://github.com/geolens-io/geolens-deployments).
 
 Una base de datos externa debe ser PostgreSQL 15+ con PostGIS, pgvector 0.5+, pg_trgm y unaccent,
