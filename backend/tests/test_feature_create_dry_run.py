@@ -24,7 +24,10 @@ from tests.test_api_key_dataset_scope import (  # noqa: F401 - owner, datasets a
     datasets,
     owner,
 )
+from tests import test_features_crud
 from tests.test_features_crud import _cleanup_table, _create_test_table_and_dataset
+
+test_layer = test_features_crud.test_layer
 
 POINT_A = {"type": "Point", "coordinates": [-73.9857, 40.7484]}
 POINT_B = {"type": "Point", "coordinates": [-118.2437, 34.0522]}
@@ -49,27 +52,17 @@ def _collection(*features: dict) -> dict:
     return {"type": "FeatureCollection", "features": list(features)}
 
 
+def _as_body(feature: dict, as_collection: bool) -> dict:
+    """The feature alone, or after a valid one in a FeatureCollection."""
+    return _collection(_feature(POINT_B), feature) if as_collection else feature
+
+
 async def _drop_dataset(session, table_name: str, record_id) -> None:
     await _cleanup_table(session, table_name)
     await session.execute(
         text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
     )
     await session.commit()
-
-
-@pytest.fixture
-async def point_layer(test_db_session):
-    admin_id = await get_user_id(test_db_session, "admin")
-    dataset = await _create_test_table_and_dataset(
-        test_db_session, created_by=admin_id, geometry_type="POINT"
-    )
-    dataset_id, table_name, record_id = (
-        dataset.id,
-        dataset.table_name,
-        dataset.record_id,
-    )
-    yield dataset_id, table_name
-    await _drop_dataset(test_db_session, table_name, record_id)
 
 
 @pytest.fixture
@@ -155,9 +148,12 @@ async def test_dry_run_of_one_feature_answers_200_and_stores_nothing(
 
 
 async def test_dry_run_of_a_collection_answers_200_and_stores_nothing(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    test_layer,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     before = await _stored_state(test_db_session, dataset_id, table_name)
 
     resp = await client.post(
@@ -221,12 +217,12 @@ async def test_a_dry_run_leaves_nothing_for_a_later_commit_to_store(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     request_session_commits,
     body,
 ):
     """The inserts are undone inside the request, not only when its session closes."""
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     resp = await client.post(_dry(dataset_id), json=body, headers=admin_auth_header)
 
     assert resp.status_code == 200, resp.text
@@ -260,7 +256,7 @@ async def test_a_refused_dry_run_is_refused_as_a_real_create_is(
     as_collection,
 ):
     dataset_id, table_name = dated_layer
-    body = _collection(_feature(POINT_B), feature) if as_collection else feature
+    body = _as_body(feature, as_collection)
 
     dry, real = await _both(client, admin_auth_header, dataset_id, body)
 
@@ -271,11 +267,14 @@ async def test_a_refused_dry_run_is_refused_as_a_real_create_is(
 
 @pytest.mark.parametrize("as_collection", [False, True], ids=["feature", "collection"])
 async def test_a_dry_run_of_the_wrong_geometry_type_is_refused_as_a_real_create_is(
-    client: AsyncClient, admin_auth_header: dict, point_layer, as_collection
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_layer,
+    as_collection,
 ):
-    dataset_id, _ = point_layer
+    dataset_id = test_layer.id
     feature = _feature(POLYGON, name="square")
-    body = _collection(_feature(POINT_A), feature) if as_collection else feature
+    body = _as_body(feature, as_collection)
 
     dry, real = await _both(client, admin_auth_header, dataset_id, body)
 
@@ -284,17 +283,13 @@ async def test_a_dry_run_of_the_wrong_geometry_type_is_refused_as_a_real_create_
 
 
 async def test_a_dry_run_is_refused_with_editing_off_as_a_real_create_is(
-    client: AsyncClient, admin_auth_header: dict, point_layer, monkeypatch
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_layer,
+    monkeypatch,
 ):
-    import app.core.persistent_config as pc
-
-    dataset_id, _ = point_layer
-
-    class _AlwaysOff:
-        async def get(self, _db):
-            return False
-
-    monkeypatch.setattr(pc, "ENABLE_DATASET_EDITING", _AlwaysOff())
+    dataset_id = test_layer.id
+    await _editing_off(monkeypatch)
 
     dry, real = await _both(client, admin_auth_header, dataset_id, _feature(POINT_A))
 
@@ -303,9 +298,12 @@ async def test_a_dry_run_is_refused_with_editing_off_as_a_real_create_is(
 
 
 async def test_a_dry_run_by_a_stranger_is_refused_as_a_real_create_is(
-    client: AsyncClient, editor_auth_header: dict, test_db_session, point_layer
+    client: AsyncClient,
+    editor_auth_header: dict,
+    test_db_session,
+    test_layer,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     dry, real = await _both(client, editor_auth_header, dataset_id, _feature(POINT_A))
 
     assert dry[0] == 403, dry
@@ -324,10 +322,14 @@ async def test_a_dry_run_on_a_missing_dataset_is_404(
 
 @pytest.mark.parametrize("path", ["features/dry-run/", "features/dry-run"])
 async def test_the_dry_run_path_reaches_the_dry_run(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer, path
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    test_layer,
+    path,
 ):
     """Neither spelling is taken for a feature id by the routes under features/."""
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
 
     resp = await client.post(
         f"/datasets/{dataset_id}/{path}",
@@ -341,11 +343,13 @@ async def test_the_dry_run_path_reaches_the_dry_run(
 
 
 async def test_a_dry_run_body_over_the_feature_write_limit_is_refused_as_a_create_is(
-    client: AsyncClient, admin_auth_header: dict, point_layer
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_layer,
 ):
     from app.api.middleware.body_limit import FEATURE_WRITE_BODY_LIMIT_BYTES
 
-    dataset_id, _ = point_layer
+    dataset_id = test_layer.id
     body = _feature(POINT_A, name="x" * FEATURE_WRITE_BODY_LIMIT_BYTES)
 
     dry, real = await _both(client, admin_auth_header, dataset_id, body)
@@ -355,9 +359,9 @@ async def test_a_dry_run_body_over_the_feature_write_limit_is_refused_as_a_creat
 
 
 @pytest.fixture
-async def name_unique_deferred(test_db_session, point_layer):
+async def name_unique_deferred(test_db_session, test_layer):
     """A deferred unique name on the point layer's table, and one row named taken."""
-    _, table_name = point_layer
+    table_name = test_layer.table_name
     await test_db_session.execute(
         text(
             f"ALTER TABLE data.{table_name} ADD CONSTRAINT {table_name}_name_key "
@@ -372,7 +376,7 @@ async def name_unique_deferred(test_db_session, point_layer):
         )
     )
     await test_db_session.commit()
-    return point_layer
+    return test_layer
 
 
 @pytest.mark.parametrize("as_collection", [False, True], ids=["feature", "collection"])
@@ -386,9 +390,12 @@ async def test_a_dry_run_is_refused_by_a_deferred_constraint(
     """A real create meets a deferred constraint at commit, after a dry run's rollback."""
     from app.api.main import app
 
-    dataset_id, table_name = name_unique_deferred
+    dataset_id, table_name = (
+        name_unique_deferred.id,
+        name_unique_deferred.table_name,
+    )
     feature = _feature(POINT_A, name="taken")
-    body = _collection(_feature(POINT_B), feature) if as_collection else feature
+    body = _as_body(feature, as_collection)
 
     dry = await client.post(_dry(dataset_id), json=body, headers=admin_auth_header)
     client._transport = ASGITransport(app=app, raise_app_exceptions=False)
@@ -414,13 +421,13 @@ _NOT_A_TABLE_REFUSAL = (
 
 
 @pytest.fixture
-async def side_effects(test_db_session, point_layer):
+async def side_effects(test_db_session, test_layer):
     """A side table and a sequence for a trigger or rule to write.
 
     The sequence stands in for an effect a rollback cannot undo. Yields the
     names; everything is dropped afterwards, along with the trigger function.
     """
-    _, table_name = point_layer
+    table_name = test_layer.table_name
     names = {
         "side": f"{table_name}_side",
         "seq": f"{table_name}_seq",
@@ -489,14 +496,14 @@ async def test_a_dry_run_is_refused_on_a_table_with_an_insert_trigger(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     side_effects,
     as_collection,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     await _ddl(test_db_session, _trigger_ddl(side_effects, table_name))
     feature = _feature(POINT_A, name="a")
-    body = _collection(_feature(POINT_B), feature) if as_collection else feature
+    body = _as_body(feature, as_collection)
 
     resp = await client.post(_dry(dataset_id), json=body, headers=admin_auth_header)
 
@@ -512,12 +519,12 @@ async def test_only_an_insert_rule_that_fires_refuses_a_dry_run(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     side_effects,
     mode,
     status,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     rule = f"{table_name}_rule"
     ddl = [
         f"CREATE RULE {rule} AS ON INSERT TO data.{table_name} "
@@ -647,12 +654,12 @@ def _user_code_ddl(kind: str, t: str) -> tuple[list[str], list[str]]:
 
 
 @pytest.fixture
-async def teardown_ddl(test_db_session, point_layer):
+async def teardown_ddl(test_db_session, test_layer):
     """Statements to run after the test, before the point layer is dropped."""
+    table_name = test_layer.table_name
     statements: list[str] = []
     yield statements
     await test_db_session.rollback()
-    _, table_name = point_layer
     await _ddl(test_db_session, f"DROP TABLE data.{table_name} CASCADE", *statements)
 
 
@@ -683,11 +690,11 @@ async def test_a_table_that_can_run_user_code_on_insert_refuses_a_dry_run(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     teardown_ddl,
     kind,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     ddl, teardown = _user_code_ddl(kind, table_name)
     teardown_ddl.extend(teardown)
     await _ddl(test_db_session, *ddl)
@@ -701,9 +708,13 @@ async def test_a_table_that_can_run_user_code_on_insert_refuses_a_dry_run(
 
 @pytest.mark.parametrize("path", ["features/dry-run/", "features/dry-run"])
 async def test_a_check_refuses_a_collection_dry_run_on_either_path(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer, path
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    test_layer,
+    path,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     await _ddl(test_db_session, *_user_code_ddl("check", table_name)[0])
 
     resp = await client.post(
@@ -716,10 +727,13 @@ async def test_a_check_refuses_a_collection_dry_run_on_either_path(
 
 
 async def test_a_plain_table_with_built_in_and_postgis_indexes_allows_a_dry_run(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    test_layer,
 ):
     """Built-in and PostGIS operator classes and access methods are trusted."""
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     await _ddl(
         test_db_session,
         f"CREATE INDEX ON data.{table_name} USING gist (geom)",
@@ -737,9 +751,12 @@ async def test_a_plain_table_with_built_in_and_postgis_indexes_allows_a_dry_run(
 
 
 async def test_built_in_and_extension_column_types_allow_a_dry_run(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    test_layer,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     await _ddl(
         test_db_session,
         f"ALTER TABLE data.{table_name} ADD COLUMN n int, ADD COLUMN seen "
@@ -755,9 +772,12 @@ async def test_built_in_and_extension_column_types_allow_a_dry_run(
 
 
 async def test_an_index_access_method_from_an_extension_allows_a_dry_run(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, point_layer
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    test_layer,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     await _ddl(
         test_db_session,
         "CREATE EXTENSION IF NOT EXISTS bloom",
@@ -825,11 +845,11 @@ async def test_a_check_taking_an_advisory_lock_refuses_a_dry_run(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     monkeypatch,
 ):
     """A session advisory lock would outlive the rollback, on the pooled connection."""
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     key = uuid.uuid4().int % 2**31
     await _ddl(
         test_db_session,
@@ -849,12 +869,12 @@ async def test_a_generated_column_refuses_a_dry_run(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     teardown_ddl,
     monkeypatch,
 ):
     """Its function is only declared immutable, and runs though the body omits it."""
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     key = uuid.uuid4().int % 2**31
     fn = f"data.{table_name}_probe"
     teardown_ddl.append(f"DROP FUNCTION {fn}(text)")
@@ -878,14 +898,14 @@ async def test_a_table_missing_at_the_check_is_never_inserted_into(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     side_effects,
     monkeypatch,
 ):
     """Recreated with an INSERT trigger right after the check, it still is not."""
     from app.modules.catalog.features import router as features_router
 
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     stash = f"{table_name}_away"
     await _ddl(test_db_session, f"ALTER TABLE data.{table_name} RENAME TO {stash}")
     real_blocker = features_router.dry_run_blocker
@@ -920,11 +940,11 @@ async def test_a_trigger_that_does_not_fire_on_an_insert_leaves_the_dry_run_alon
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     side_effects,
     kind,
 ):
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     trigger = side_effects["trigger"]
     if kind == "update-only":
         await _ddl(test_db_session, _trigger_ddl(side_effects, table_name, "UPDATE"))
@@ -948,11 +968,11 @@ async def test_an_insert_into_the_parent_fires_no_trigger_on_an_inheritance_chil
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     side_effects,
 ):
     """Rows inserted into an inheritance parent stay in the parent."""
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     child = f"{table_name}_child"
     await _ddl(
         test_db_session,
@@ -1032,14 +1052,14 @@ async def test_the_dry_run_holds_off_a_trigger_created_after_its_check(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
-    point_layer,
+    test_layer,
     side_effects,
     monkeypatch,
 ):
     """The check and the insert see the same triggers: the table stays locked."""
     from app.modules.catalog.features import router as features_router
 
-    dataset_id, table_name = point_layer
+    dataset_id, table_name = test_layer.id, test_layer.table_name
     checked, release = asyncio.Event(), asyncio.Event()
     real_blocker = features_router.dry_run_blocker
 

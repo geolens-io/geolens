@@ -2525,17 +2525,12 @@ export const createFeatureDatasetsDatasetIdFeaturesPost = <ThrowOnError extends 
  * FeatureCollection of them in request order, with no `id`, `table_id` or
  * `tile_cache_version`.
  *
- * A dry run is only available for a dataset stored in an ordinary table
- * that is not a partition, with no enabled user trigger or rule on INSERT,
- * no CHECK constraint or outgoing foreign key, row security off, no
- * expression or partial index, no generated column, the heap access method
- * and built-in or extension index access methods, only built-in or
- * extension column types with no user-defined cast to JSON, and no index
- * operator class with a volatile function, since those could run code with
- * effects outside the transaction. Any other dataset is refused with 409. The insert still
- * runs column defaults, type input functions and index support functions,
- * volatile defaults included, so a dry run can consume sequence values and
- * stored ids can have gaps.
+ * A dataset whose table has a shape that lets an insert run code with
+ * effects outside the transaction, such as a trigger, a CHECK constraint or
+ * a user-defined column type, is refused with 409, and the detail names
+ * those shapes. The insert still runs column defaults, type input functions
+ * and index support functions, volatile defaults included, so a dry run can
+ * consume sequence values and stored ids can have gaps.
  */
 export const dryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPost = <ThrowOnError extends boolean = false>(options: Options<DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostData, ThrowOnError>): RequestResult<DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostResponses, DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostErrors, ThrowOnError> => (options.client ?? client).post<DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostResponses, DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostErrors, ThrowOnError>({
     security: [

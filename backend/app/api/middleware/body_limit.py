@@ -135,21 +135,11 @@ def _is_feature_write_route(path: str, method: str) -> bool:
 
     if (
         method == "POST"
-        and len(segments) == 5
+        and len(segments) >= 5
         and segments[1] == "datasets"
         and _is_uuid(segments[2])
         and segments[3] == "features"
-        and segments[4] == ""
-    ):
-        return True
-
-    if (
-        method == "POST"
-        and len(segments) in (5, 6)
-        and segments[1] == "datasets"
-        and _is_uuid(segments[2])
-        and segments[3] == "features"
-        and segments[4:] in (["dry-run"], ["dry-run", ""])
+        and segments[4:] in ([""], ["dry-run"], ["dry-run", ""])
     ):
         return True
 

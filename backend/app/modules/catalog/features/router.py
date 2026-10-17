@@ -337,7 +337,9 @@ async def _create_features(
                 await effective_geometry_type(db, dataset),
                 dataset_srid=dataset.srid,
             )
-            table_oid = await current_table_oid(db, dataset.table_name)
+        if dry_run:
+            return _dry_run_response(rows, collection=True)
+        table_oid = await current_table_oid(db, dataset.table_name)
     except FeatureBatchError as e:
         await db.rollback()
         raise _batch_feature_refused(e)
@@ -346,8 +348,6 @@ async def _create_features(
     except DBAPIError as exc:
         await db.rollback()
         raise _feature_write_db_error(exc)
-    if dry_run:
-        return _dry_run_response(rows, collection=True)
 
     gids = [row["gid"] for row in rows]
     geometry_types = {feature.geometry.type for feature in body.features}
@@ -1137,17 +1137,12 @@ async def dry_run_create_feature(
     FeatureCollection of them in request order, with no `id`, `table_id` or
     `tile_cache_version`.
 
-    A dry run is only available for a dataset stored in an ordinary table
-    that is not a partition, with no enabled user trigger or rule on INSERT,
-    no CHECK constraint or outgoing foreign key, row security off, no
-    expression or partial index, no generated column, the heap access method
-    and built-in or extension index access methods, only built-in or
-    extension column types with no user-defined cast to JSON, and no index
-    operator class with a volatile function, since those could run code with
-    effects outside the transaction. Any other dataset is refused with 409. The insert still
-    runs column defaults, type input functions and index support functions,
-    volatile defaults included, so a dry run can consume sequence values and
-    stored ids can have gaps.
+    A dataset whose table has a shape that lets an insert run code with
+    effects outside the transaction, such as a trigger, a CHECK constraint or
+    a user-defined column type, is refused with 409, and the detail names
+    those shapes. The insert still runs column defaults, type input functions
+    and index support functions, volatile defaults included, so a dry run can
+    consume sequence values and stored ids can have gaps.
     """
     return await _create(db, dataset_id, body, user, None, None, True)
 
@@ -1207,7 +1202,9 @@ async def _create(
                     await effective_geometry_type(db, dataset),
                     dataset_srid=dataset.srid,
                 )
-                table_oid = await current_table_oid(db, dataset.table_name)
+            if dry_run:
+                return _dry_run_response([row], collection=False)
+            table_oid = await current_table_oid(db, dataset.table_name)
             if idempotency_key is not None:
                 # The catalog rows go before the key row: its foreign key
                 # takes a shared lock on the dataset that the metadata
@@ -1243,8 +1240,6 @@ async def _create(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
-    if dry_run:
-        return _dry_run_response([row], collection=False)
     if keyed is not None:
         return await _finish_repeat(
             db, dataset, user, dataset_id, body, repeat, keyed.table_oid
