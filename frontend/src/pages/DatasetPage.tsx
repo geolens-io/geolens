@@ -500,12 +500,12 @@ export function DatasetPage() {
       </div>
       {showTableReadout && (
         <span
-          className="inline-flex items-center gap-0.5 readout text-xs text-muted-foreground"
+          className="inline-flex min-w-0 max-w-full items-center gap-0.5 readout text-xs text-muted-foreground"
           title={t('header.tableReadout', { defaultValue: 'PostGIS table' })}
           data-testid="dataset-table-readout"
         >
-          {dataset.table_name}
-          <CopyButton value={dataset.table_name} className="inline-flex size-5 items-center justify-center rounded-sm hover:bg-muted transition-colors pointer-coarse:-m-3 pointer-coarse:size-11" />
+          <span className="min-w-0 truncate" title={dataset.table_name}>{dataset.table_name}</span>
+          <CopyButton value={dataset.table_name} className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm hover:bg-muted transition-colors pointer-coarse:-m-3 pointer-coarse:size-11" />
         </span>
       )}
     </>

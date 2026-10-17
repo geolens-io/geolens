@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import {
   useDistributions,
   useSetPrimaryDistribution,
@@ -156,6 +156,15 @@ describe('AccessTab', () => {
         public_base_url: 'https://catalog.example.com',
       },
     } as ReturnType<typeof useTileConfig>);
+  });
+
+  it('truncates the code header URL so the copy button stays on screen', () => {
+    render(<AccessTab dataset={makeDataset()} />);
+
+    const header = screen.getByText('GET').parentElement as HTMLElement;
+    const url = within(header).getByTitle(/collections\/ds-1\/items/);
+    expect(url).toHaveClass('min-w-0', 'flex-1', 'truncate');
+    expect(within(header).getByRole('button')).toHaveClass('shrink-0');
   });
 
   it('renders a distribution-backed OGC snippet and csv-only export for table datasets', () => {

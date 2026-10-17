@@ -304,6 +304,17 @@ describe('DatasetPage actions by record type', () => {
     expect(screen.getByTestId('reupload-dialog')).toBeInTheDocument();
   });
 
+  it('truncates a long table name in the readout and keeps its copy button visible', async () => {
+    await renderAs('vector_dataset');
+
+    const readout = screen.getByTestId('dataset-table-readout');
+    expect(readout).toHaveClass('min-w-0', 'max-w-full');
+    const name = readout.querySelector('span.truncate');
+    expect(name).toHaveAttribute('title', expect.stringMatching(/\S/));
+    expect(name).toHaveClass('min-w-0', 'truncate');
+    expect(within(readout).getByRole('button')).toHaveClass('shrink-0');
+  });
+
   it('offers Add to map to a capable viewer who does not own the dataset', async () => {
     act(() => { useAuthStore.setState({ user: { ...OWNER, id: 'reader-id', roles: ['viewer'] } }); });
     await renderAs('vector_dataset');

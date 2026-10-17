@@ -232,16 +232,18 @@ function ApiSnippet({
       </div>
       <div className="rounded-lg overflow-hidden border bg-(--code-bg) text-(--code-text)">
         <div className="flex items-center gap-2 px-3.5 py-2 bg-(--code-chrome) border-b border-(--code-chrome-border)">
-          <span className="px-1.5 py-0.5 rounded-sm font-mono text-mini font-semibold text-(--code-method-badge) bg-(--code-method-badge-bg)">
+          <span className="shrink-0 px-1.5 py-0.5 rounded-sm font-mono text-mini font-semibold text-(--code-method-badge) bg-(--code-method-badge-bg)">
             {activeTab === 'qgis' ? 'ADD' : 'GET'}
           </span>
-          <span className="font-mono text-mini text-(--code-muted)">
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-mini text-(--code-muted)"
+            title={activeTab === 'qgis' ? undefined : ogcFeaturesUrl}
+          >
             {activeTab === 'qgis' ? 'Layer → Add Vector Layer' : ogcFeaturesUrl}
           </span>
-          <span className="flex-1" />
           <button
             onClick={handleCopy}
-            className="px-2 py-0.5 rounded-sm text-mini font-mono bg-(--code-chrome-border) text-(--code-text)/80 hover:text-(--code-text) cursor-pointer border-0"
+            className="shrink-0 px-2 py-0.5 rounded-sm text-mini font-mono bg-(--code-chrome-border) text-(--code-text)/80 hover:text-(--code-text) cursor-pointer border-0"
           >
             {copied ? <Check className="inline size-3 me-1" /> : <Copy className="inline size-3 me-1" />}
             {copied ? t('common:copied') : t('common:copy')}
