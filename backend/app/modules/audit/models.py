@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = (
-        # Indexes added in migration 0009 (H-06) — declared on the model so
+        # Indexes added in migration 0009 — declared on the model so
         # alembic check sees them; the migration is the source of truth for
         # the actual DDL.
         Index(
@@ -38,7 +38,7 @@ class AuditLog(Base):
             "resource_id",
             postgresql_where="resource_id IS NOT NULL",
         ),
-        # DBM-09: GIN trigram index for admin audit-log ILIKE search.
+        # GIN trigram index for admin audit-log ILIKE search.
         # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_audit_logs_action_trgm",

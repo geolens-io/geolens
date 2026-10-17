@@ -48,7 +48,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 # Generic error text for a failed run. The exception itself goes to the log —
 # it can carry provider payloads, asyncpg internals and file paths, and the
-# job row is readable through /jobs/{id} (RES-2, same reasoning the inline
+# job row is readable through /jobs/{id} (same reasoning the inline
 # route applied to its 502 body).
 BACKFILL_FAILED_MESSAGE = FixedReason(
     "Embedding backfill failed. See server logs for details.", code="backfill_failed"

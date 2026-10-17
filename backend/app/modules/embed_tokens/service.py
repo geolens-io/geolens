@@ -43,9 +43,9 @@ from app.platform.extensions import get_processing_port
 logger = structlog.stdlib.get_logger(__name__)
 
 
-# fix(#1778): revoking a token evicts its positive cache entry before the
+# Revoking a token evicts its positive cache entry before the
 # caller's commit, so a concurrent reader can re-SELECT the still-active row
-# and re-cache it as valid for the full TTL (builder-audit #338 P0-01). A
+# and re-cache it as valid for the full TTL. A
 # revoke therefore writes a DENIAL here instead of deleting the key, and
 # readers publish positives with set_if_absent -- whichever write lands
 # first wins, so the denial always survives the race. TTL must cover the
@@ -100,17 +100,17 @@ async def _deny_revoked_embed_tokens(db: AsyncSession, *token_hashes: str) -> No
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
 
-# Phase 268 H-31: gates the localhost-Origin bypass on the TCP peer also
+# Gates the localhost-Origin bypass on the TCP peer also
 # being loopback, since the Origin header alone is forgeable by non-browser
 # callers.
 #
-# fix(#1555): stays an exact set (not a range like _is_localhost_origin) on
+# Stays an exact set (not a range like _is_localhost_origin) on
 # purpose -- this only GATES a bypass, so a miss just denies the shortcut;
 # widening it would hand the bypass to more callers than #1555 intends.
 _LOOPBACK_CLIENT_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
-# BUG-028: allowed_origins storage and request-origin extraction share ONE
+# allowed_origins storage and request-origin extraction share ONE
 # bracket-preserving normalizer (schemas._normalize_origin) so an IPv6
 # literal byte-matches between the allowlist and the live request origin.
 
@@ -129,7 +129,7 @@ def _is_localhost_origin(origin: str) -> bool:
 
 
 def _client_is_loopback(request: Request) -> bool:
-    """Phase 268 H-31: True iff the actual TCP peer is a loopback IP.
+    """True iff the actual TCP peer is a loopback IP.
 
     request.client.host is the ASGI server's socket peer address and
     cannot be forged via headers, unlike Origin.
@@ -237,7 +237,7 @@ async def _request_origin_is_allowed(
     Known consequence: a top-level (unframed) navigation to the shell
     sends identical headers to the framed case and is accepted too;
     nothing distinguishes them, and possession of the token itself is what
-    still gates that path (SEC-022).
+    still gates that path.
     """
     if not allowed_origins:
         return True
@@ -250,7 +250,7 @@ async def _request_origin_is_allowed(
         # Both sides are pre-normalized: allowed_origins by
         # schemas._validate_origins, origin by extract_request_origin.
         return True
-    # Phase 268 H-31: Origin alone is forgeable, so the localhost bypass
+    # Origin alone is forgeable, so the localhost bypass
     # also requires the TCP peer to be loopback.
     if _is_localhost_origin(origin) and _client_is_loopback(request):
         return True
@@ -357,7 +357,7 @@ def build_embed_frame_ancestors(
 ) -> str:
     """Build the CSP frame-ancestors directive for the /m/{token} embed shell.
 
-    builder-audit #338 P0-02: domain restrictions used to protect only the
+    Domain restrictions used to protect only the
     tile/data calls, not the shell's own HTML document, so any site could
     frame it. Invalid/revoked/expired -> 'none' (fail closed). Valid with
     allowed_origins -> 'self' + origins. Valid without -> '' (intentional
@@ -448,7 +448,7 @@ async def create_embed_token(
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     token_hint = "et_..." + raw_token[-8:]
 
-    # EMBED-01 (Phase 1212): tenant_id is derived server-side from
+    # tenant_id is derived server-side from
     # Map.tenant_id, never from a client header or argument. Inert (None)
     # in single_tenant.
     map_tenant_id = map_scope.tenant_id if map_scope else None
@@ -517,9 +517,8 @@ async def revoke_embed_tokens_by_map(
 ) -> int:
     """Revoke ALL active embed tokens for a map and purge their cache.
 
-    builder-audit #338 P0-01: the maps router's revoke /
-    visibility-downgrade paths used to flip only MapShareToken.is_active,
-    never EmbedToken, so a copied embed token kept serving tiles until its
+    The maps router's revoke / visibility-downgrade paths used to flip only
+    MapShareToken.is_active, never EmbedToken, so a copied embed token kept serving tiles until its
     natural expiry. Wired into the share-revoke, public->non-public
     downgrade, and layer-change paths. Writes a denial over the positive
     cache entry (#1778), so the 5-minute TTL cannot extend access past
@@ -548,7 +547,7 @@ async def revoke_embed_tokens_for_dropped_datasets(
     db: AsyncSession,
     map_id: uuid.UUID,
 ) -> int:
-    """builder-audit #338 P0-01: revoke tokens orphaned by a layer change.
+    """Revoke tokens orphaned by a layer change.
 
     A token is scoped to the dataset ids that were layers when it was
     minted. If any active token now references a dataset no longer a layer
@@ -637,10 +636,9 @@ async def resolve_embed_scope_for_map(
 ) -> set[uuid.UUID]:
     """Resolve the dataset ids an embed token authorizes for map_id.
 
-    fix(#394) SH-01/B-023: embed tokens are a private-dataset capability
-    (SEC-022) -- the tile path always honored them, but the shared-map
-    metadata endpoint dropped non-visible datasets, so a valid scoped
-    token couldn't even construct those layers. This lets get_shared_map
+    Embed tokens are a private-dataset capability -- the tile path always
+    honored them, but the shared-map metadata endpoint dropped non-visible
+    datasets, so a valid scoped token couldn't even construct those layers. This lets get_shared_map
     widen its visibility filter to the token's snapshot scope.
 
     Fail-closed: returns an empty set (never raises) for an unknown,
@@ -770,15 +768,15 @@ async def validate_embed_token_access(
         allowed_origins = token.allowed_origins
         scoped_dataset_ids = token.scoped_dataset_ids
 
-        # Cache positive: include expires_at (SEC-014 re-check) and
-        # tenant_id (EMBED-02 cache-hit path, Phase 1212).
+        # Cache positive: include expires_at (for the re-check) and
+        # tenant_id (for the cache-hit path).
         #
-        # fix(#1778): set_if_absent, not set. This row read as committed-
+        # set_if_absent, not set. This row read as committed-
         # active, but a revocation may be mid-flight on it right now (plain
         # READ COMMITTED doesn't block on the revoker's lock) and may have
         # already stamped a denial under this key. Overwriting it would
         # restore the token for the rest of this entry's TTL -- exactly the
-        # window builder-audit #338 P0-01 closes.
+        # window the live layer-membership re-check below closes.
         seconds_until_expiry = (token.expires_at - now).total_seconds()
         cache_ttl = int(
             min(EMBED_TOKEN_POSITIVE_TTL_SECONDS, max(0, seconds_until_expiry))
@@ -811,8 +809,7 @@ async def validate_embed_token_access(
     if str(dataset_id) not in scoped_dataset_ids:
         return False
 
-    # EMBED-02 (Phase 1212): fail-closed tenant-equality check, inert in
-    # single_tenant. SEC-022 invariant: no new public/published recheck is
+    # Fail-closed tenant-equality check, inert in single_tenant. No new public/published recheck is
     # introduced here, only this tenant-equality gate.
     if is_multi_tenant():
         # Resolve token's tenant: DB-miss path uses the ORM object; cache-hit
@@ -828,7 +825,7 @@ async def validate_embed_token_access(
         dataset = await get_processing_port().get_dataset(db, dataset_id)
         dataset_tenant = getattr(dataset, "tenant_id", None) if dataset else None
 
-        # CR-01 (Phase 1212): explicit NULL guard. `None != None` is False,
+        # Explicit NULL guard. `None != None` is False,
         # so without this, a legacy NULL-tenant token would pass the
         # equality check against any NULL-tenant dataset.
         if token_tenant is None or dataset_tenant is None:
@@ -836,12 +833,12 @@ async def validate_embed_token_access(
         if token_tenant != dataset_tenant:
             return False
 
-    # builder-audit #338 P0-01: fail-closed live layer-membership re-check.
+    # Fail-closed live layer-membership re-check.
     # scoped_dataset_ids is a creation-time snapshot; if the dataset's layer
     # was later removed (or the map deleted), a cached positive could keep
     # granting tile access until expiry. Runs on both cache-hit and
     # cache-miss paths. Does NOT recheck Map.visibility -- embed tokens are
-    # a private-dataset capability (SEC-022), so a private map must still
+    # a private-dataset capability, so a private map must still
     # serve via an active token; visibility downgrades are handled by
     # revoke_embed_tokens_by_map instead.
     if token is not None:
@@ -948,7 +945,7 @@ async def list_admin_embed_tokens(
     if map_id:
         base = base.where(EmbedToken.map_id == map_id)
 
-    # EMBED-03 (Phase 1212): tenant filter so a tenant-A admin cannot list
+    # Tenant filter so a tenant-A admin cannot list
     # tenant-B tokens via the admin endpoint.
     if tenant_id is not None:
         base = base.where(EmbedToken.tenant_id == tenant_id)
@@ -996,7 +993,7 @@ async def bulk_revoke_embed_tokens(
 ) -> int:
     """Bulk-revoke embed tokens. Returns the count actually revoked.
 
-    WR-01 (Phase 1212): when tenant_id is supplied, only that tenant's
+    When tenant_id is supplied, only that tenant's
     tokens are revoked, preventing a tenant-A admin from revoking
     tenant-B tokens by UUID. Inert in single_tenant.
     """
