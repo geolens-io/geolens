@@ -2403,6 +2403,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/datasets/{dataset_id}/features/dry-run/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry Run Create Feature
+         * @description Check a feature create without writing it.
+         *
+         *     Takes the body `POST /datasets/{dataset_id}/features/` takes and runs
+         *     every check that create runs, the database's own casts and constraints
+         *     included, so a body it would refuse is refused here with the same status
+         *     and body. A deferred constraint is checked here too: a create that breaks
+         *     one fails at commit with a 500, and this answers 400. Nothing is written.
+         *     A body that passes gets 200 with the feature as it would be stored, or a
+         *     FeatureCollection of them in request order, with no `id`, `table_id` or
+         *     `tile_cache_version`.
+         *
+         *     A dry run is only available for a dataset stored in an ordinary table
+         *     with no enabled user trigger and no rule on INSERT, since those could have
+         *     effects outside the transaction. A view, a partitioned or foreign table,
+         *     or a table with such a trigger or rule is refused with 409. A dry run can
+         *     consume sequence values, including those of a column default, so stored
+         *     ids can have gaps.
+         */
+        post: operations["dry_run_create_feature_datasets__dataset_id__features_dry_run__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datasets/{dataset_id}/features/{gid}": {
         parameters: {
             query?: never;
@@ -26759,6 +26795,199 @@ export interface operations {
                          * @description The dataset's tile_cache_version after this write committed. Send it as the tile routes' `_v` query parameter when reloading tiles, so a request that reaches a different API worker is forced to re-read the dataset instead of serving that worker's own cached snapshot.
                          */
                         tile_cache_version?: number | null;
+                    };
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    dry_run_create_feature_datasets__dataset_id__features_dry_run__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeatureCreate"] | components["schemas"]["FeatureCollectionCreate"];
+            };
+        };
+        responses: {
+            /** @description The feature or features as they would be stored. Nothing was written. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/geo+json": {
+                        /**
+                         * Type
+                         * @default Feature
+                         * @constant
+                         */
+                        type: "Feature";
+                        /** Geometry */
+                        geometry?: {
+                            /**
+                             * Type
+                             * @constant
+                             */
+                            type: "GeometryCollection";
+                            /** Geometries */
+                            geometries: {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            }[];
+                        } | {
+                            /**
+                             * Type
+                             * @enum {string}
+                             */
+                            type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                            /** Coordinates */
+                            coordinates: unknown[];
+                        } | null;
+                        /** Properties */
+                        properties: {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        /**
+                         * Type
+                         * @default FeatureCollection
+                         * @constant
+                         */
+                        type: "FeatureCollection";
+                        /** Features */
+                        features: {
+                            /**
+                             * Type
+                             * @default Feature
+                             * @constant
+                             */
+                            type: "Feature";
+                            /** Geometry */
+                            geometry?: {
+                                /**
+                                 * Type
+                                 * @constant
+                                 */
+                                type: "GeometryCollection";
+                                /** Geometries */
+                                geometries: {
+                                    /**
+                                     * Type
+                                     * @enum {string}
+                                     */
+                                    type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                    /** Coordinates */
+                                    coordinates: unknown[];
+                                }[];
+                            } | {
+                                /**
+                                 * Type
+                                 * @enum {string}
+                                 */
+                                type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
+                                /** Coordinates */
+                                coordinates: unknown[];
+                            } | null;
+                            /** Properties */
+                            properties: {
+                                [key: string]: unknown;
+                            };
+                        }[];
                     };
                     "application/json": unknown;
                 };

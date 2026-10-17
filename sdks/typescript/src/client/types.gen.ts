@@ -19880,6 +19880,164 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
 
 export type CreateFeatureDatasetsDatasetIdFeaturesPostResponse = CreateFeatureDatasetsDatasetIdFeaturesPostResponses[keyof CreateFeatureDatasetsDatasetIdFeaturesPostResponses];
 
+export type DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostData = {
+    /**
+     * Body
+     */
+    body: FeatureCreate | FeatureCollectionCreate;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/features/dry-run/';
+};
+
+export type DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostError = DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostErrors[keyof DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostErrors];
+
+export type DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostResponses = {
+    /**
+     * The feature or features as they would be stored. Nothing was written.
+     */
+    200: {
+        /**
+         * Type
+         */
+        type?: 'Feature';
+        /**
+         * Geometry
+         */
+        geometry?: {
+            /**
+             * Type
+             */
+            type: 'GeometryCollection';
+            /**
+             * Geometries
+             */
+            geometries: Array<{
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+            }>;
+        } | {
+            /**
+             * Type
+             */
+            type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+            /**
+             * Coordinates
+             */
+            coordinates: Array<unknown>;
+        } | null;
+        /**
+         * Properties
+         */
+        properties: {
+            [key: string]: unknown;
+        };
+    } | {
+        /**
+         * Type
+         */
+        type?: 'FeatureCollection';
+        /**
+         * Features
+         */
+        features: Array<{
+            /**
+             * Type
+             */
+            type?: 'Feature';
+            /**
+             * Geometry
+             */
+            geometry?: {
+                /**
+                 * Type
+                 */
+                type: 'GeometryCollection';
+                /**
+                 * Geometries
+                 */
+                geometries: Array<{
+                    /**
+                     * Type
+                     */
+                    type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                    /**
+                     * Coordinates
+                     */
+                    coordinates: Array<unknown>;
+                }>;
+            } | {
+                /**
+                 * Type
+                 */
+                type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
+                /**
+                 * Coordinates
+                 */
+                coordinates: Array<unknown>;
+            } | null;
+            /**
+             * Properties
+             */
+            properties: {
+                [key: string]: unknown;
+            };
+        }>;
+    };
+};
+
+export type DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostResponse = DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostResponses[keyof DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostResponses];
+
 export type DeleteSingleFeatureDatasetsDatasetIdFeaturesGidDeleteData = {
     body?: never;
     path: {

@@ -128,7 +128,7 @@ def _is_upload_route(path: str, method: str = "POST") -> bool:
 
 
 def _is_feature_write_route(path: str, method: str) -> bool:
-    """Return True for the three GeoJSON feature mutation route shapes."""
+    """Return True for the GeoJSON feature mutation and create dry-run route shapes."""
     norm = _strip_api_prefix(path)
     method = method.upper()
     segments = norm.split("/")
@@ -140,6 +140,16 @@ def _is_feature_write_route(path: str, method: str) -> bool:
         and _is_uuid(segments[2])
         and segments[3] == "features"
         and segments[4] == ""
+    ):
+        return True
+
+    if (
+        method == "POST"
+        and len(segments) in (5, 6)
+        and segments[1] == "datasets"
+        and _is_uuid(segments[2])
+        and segments[3] == "features"
+        and segments[4:] in (["dry-run"], ["dry-run", ""])
     ):
         return True
 

@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from shapely import to_geojson
 from shapely.errors import GEOSException
@@ -776,6 +776,49 @@ async def _geom_column_is_measured(session: AsyncSession, table_name: str) -> bo
     )
     typmod_type = result.scalar_one_or_none()
     return typmod_type is not None and typmod_type.strip().upper().endswith("M")
+
+
+DryRunBlocker = Literal["not_a_table", "insert_side_effects"]
+
+_DRY_RUN_PROBE = text(
+    "SELECT c.relkind::text AS relkind, EXISTS (SELECT 1 FROM pg_trigger tg "
+    "WHERE tg.tgrelid = c.oid AND NOT tg.tgisinternal "
+    "AND tg.tgenabled IN ('O', 'A') AND (tg.tgtype::int & 4) <> 0) "
+    "OR EXISTS (SELECT 1 FROM pg_rewrite rw "
+    "WHERE rw.ev_class = c.oid AND rw.ev_type = '3') AS side_effects "
+    "FROM pg_class c WHERE c.oid = to_regclass(format('%I.%I', "
+    "CAST(:schema AS text), CAST(:t AS text)))"
+)
+
+
+async def dry_run_blocker(
+    session: AsyncSession, table_name: str
+) -> DryRunBlocker | None:
+    """Why a dry-run insert into the table could leave effects behind, or None.
+
+    Only an ordinary table qualifies, and only while it has no enabled user
+    INSERT trigger and no INSERT rule: either may reach past the transaction,
+    where the rolled-back insert cannot undo it. The table is locked in ROW
+    EXCLUSIVE mode, the insert's own lock, first, so no trigger or rule can be
+    added before the insert; the lock lasts until the transaction ends.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    params = {"schema": tenant_data_schema(current_tenant_var.get()), "t": table_name}
+    row = (await session.execute(_DRY_RUN_PROBE, params)).first()
+    if row is None:
+        # A missing table fails in the insert as it would for a real create.
+        return None
+    if row.relkind != "r":
+        return "not_a_table"
+    quoted = get_catalog_port().quote_table(table_name)
+    # codeql[py/sql-injection] table identifier from quote_table, which validates it
+    await session.execute(text(f"LOCK TABLE {quoted} IN ROW EXCLUSIVE MODE"))
+    row = (await session.execute(_DRY_RUN_PROBE, params)).one()
+    if row.relkind != "r":
+        return "not_a_table"
+    return "insert_side_effects" if row.side_effects else None
 
 
 async def effective_geometry_type(session: AsyncSession, dataset) -> str:

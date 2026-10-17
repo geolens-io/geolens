@@ -30,6 +30,24 @@ and releases use semantic versioning.
   `FeatureCreate | FeatureCollectionCreate` and returns a union of the two 201
   shapes, so TypeScript callers that read `id` from the result narrow it
   first.
+- `POST /datasets/{dataset_id}/features/dry-run/` checks a feature create
+  without writing it, so an integration can verify a webhook destination
+  without leaving a test feature behind. It takes the body the create route
+  takes and runs every check that route runs, including write access, the
+  dataset editing switch and the database's own column casts and constraints.
+  A body the create would refuse is refused with the same status and body. A
+  deferred constraint is checked too: a create that breaks one fails with a
+  500 at commit, and the dry run answers 400. A body that passes gets 200 with
+  the Feature, or a FeatureCollection of them, as it would be stored, without
+  an `id`. The request stores no feature and leaves the catalog entry, the
+  tile cache and the audit log as they were. Dry runs are available for
+  datasets stored in an ordinary table with no enabled user trigger and no
+  rule on INSERT, since those could have effects a rollback can't undo. A
+  view, a partitioned or foreign table, or a table with such a trigger or rule
+  is refused with 409. A dry run can consume sequence values, including those
+  of a column default, so stored ids may have gaps. A `dataset_write` key may
+  dry-run its own dataset, as it may write it. The create route and its SDK
+  methods are unchanged; the SDKs gain a separate dry-run method.
 - The Create Dataset dialog offers a Timestamp column type. It creates the
   same `timestamp with time zone` column as adding a timestamp column to an
   existing dataset, and `POST /datasets/create/` now accepts `timestamp` as a
