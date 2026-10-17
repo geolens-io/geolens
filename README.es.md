@@ -282,7 +282,7 @@ La [referencia de la API](https://docs.getgeolens.com/guides/api/) y las
 - El inicio de sesión usa cuentas locales u OAuth 2.0/OIDC (Google, Microsoft, GitHub o un
   proveedor genérico), con roles, permisos por conjunto de datos, claves de API por usuario y un
   registro de auditoría. El autorregistro está desactivado por defecto.
-- Todo lo de este repositorio es Apache 2.0, y las funciones publicadas aquí seguirán siendo
+- El código de este repositorio es Apache 2.0 (el nombre y el logotipo no), y las funciones publicadas aquí seguirán siendo
   gratuitas. [EDITIONS.md](EDITIONS.md) describe el soporte de pago y los complementos opcionales.
 
 ## Limitaciones conocidas
