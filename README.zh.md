@@ -185,7 +185,7 @@ grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin pass
 用 CLI 发布示例文件，然后通过 OGC API Features 把它读回来：
 
 ```sh
-pip install geolens-cli                               # needs Python 3.11+
+pipx install geolens-cli                              # needs Python 3.11+
 geolens login http://localhost:8080/api               # your admin username and password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 export GEOLENS_API_KEY="paste-your-api-key-here"      # create one on your Settings page
