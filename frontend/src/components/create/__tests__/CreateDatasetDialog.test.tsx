@@ -2,9 +2,14 @@ import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { CreateDatasetDialog } from '../CreateDatasetDialog';
 
+const mutation = vi.hoisted(() => ({ isPending: false }));
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
-  useCreateDataset: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateDataset: () => ({ mutate: vi.fn(), isPending: mutation.isPending }),
 }));
+
+afterEach(() => {
+  mutation.isPending = false;
+});
 
 function setup() {
   const onOpenChange = vi.fn();
@@ -53,4 +58,17 @@ it('asks before Cancel closes a dirty form', async () => {
 it('names each column type picker', () => {
   setup();
   expect(screen.getByRole('combobox', { name: 'Type' })).toBeInTheDocument();
+});
+
+it('ignores close requests while the create is pending', async () => {
+  const { onOpenChange, user } = setup();
+  await user.type(screen.getByLabelText('Dataset Title'), 'Trees');
+  mutation.isPending = true;
+  await user.type(screen.getByLabelText('Dataset Title'), 's');
+  await user.keyboard('{Escape}');
+  expect(onOpenChange).not.toHaveBeenCalled();
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Dataset Title')).toHaveValue('Treess');
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
 });

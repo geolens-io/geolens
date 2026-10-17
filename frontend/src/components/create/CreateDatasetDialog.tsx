@@ -62,7 +62,9 @@ export function CreateDatasetDialog({ open, onOpenChange }: CreateDatasetDialogP
     title.trim() !== '' || columns.some((c) => c.name.trim() !== '' || c.type !== 'text');
 
   function requestClose() {
-    if (isDirty && !createMutation.isPending) {
+    // A failed create must leave the form in place to retry.
+    if (createMutation.isPending) return;
+    if (isDirty) {
       setDiscardConfirmOpen(true);
     } else {
       onOpenChange(false);
@@ -141,7 +143,7 @@ export function CreateDatasetDialog({ open, onOpenChange }: CreateDatasetDialogP
   return (
     <>
       <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : requestClose())}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg" showCloseButton={!createMutation.isPending}>
           <DialogHeader>
             <DialogTitle>{t('create.title')}</DialogTitle>
           </DialogHeader>
@@ -203,7 +205,12 @@ export function CreateDatasetDialog({ open, onOpenChange }: CreateDatasetDialogP
             </div>
 
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={requestClose}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={requestClose}
+                disabled={createMutation.isPending}
+              >
                 {t('common:cancel')}
               </Button>
               <Button type="submit" disabled={createMutation.isPending}>

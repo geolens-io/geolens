@@ -24,7 +24,6 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 from app.modules.catalog.datasets.domain.schemas import IngestionResult
-from app.modules.catalog.layers.schemas import ALLOWED_COLUMN_TYPES
 from app.modules.catalog.features.service import is_writable_feature_column
 from app.modules.catalog.datasets.domain.service_relationships import (
     auto_detect_relationships,
@@ -42,7 +41,7 @@ _TYPE_MAP = {
     "float": "DOUBLE PRECISION",
     "date": "DATE",
     "boolean": "BOOLEAN",
-    "timestamp": ALLOWED_COLUMN_TYPES["timestamp"],
+    "timestamp": "TIMESTAMP WITH TIME ZONE",
 }
 
 
