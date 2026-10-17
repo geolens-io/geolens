@@ -23,8 +23,10 @@ from datetime import date, datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy import case, func, or_, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.sqlstate import is_lock_conflict
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.record_types import capabilities
@@ -37,6 +39,7 @@ from app.modules.catalog.features.idempotency import current_table_oid, held_tab
 from app.modules.catalog.features.service import refresh_dataset_metadata
 from app.platform.catalog_locks import (
     WORKER_LOCK_TIMEOUT,
+    REQUEST_LOCK_TIMEOUT,
     CatalogLockConflict,
     lock_catalog_rows,
     record_live_data_write,
@@ -208,6 +211,29 @@ async def unsupported_table(
             code="retention_delete_rule",
         )
     return None
+
+
+async def hold_table_for_setting(session: AsyncSession, table_name: str) -> None:
+    """Hold the live table until commit so no foreign key, trigger or ALTER can
+    land between a save's checks and its commit. Raises ``CatalogLockConflict``.
+    """
+    if await current_table_oid(session, table_name) is None:
+        return
+    quoted = get_catalog_port().quote_table(table_name)
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :budget, true)"),
+        {"budget": REQUEST_LOCK_TIMEOUT},
+    )
+    try:
+        # codeql[py/sql-injection] table via quote_table; the mode is a literal
+        await session.execute(text(f"LOCK TABLE ONLY {quoted} IN ROW EXCLUSIVE MODE"))
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await session.rollback()
+        raise CatalogLockConflict(
+            "Another operation is changing this dataset's table."
+        ) from exc
 
 
 def cutoff_for(now: datetime, days: int, type_name: str) -> datetime | date:

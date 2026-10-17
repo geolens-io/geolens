@@ -18,7 +18,7 @@ from app.modules.catalog.authorization import (
     check_dataset_write_access,
     lock_dataset_rows_for_write,
 )
-from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetRetentionResponse,
     DatasetRetentionUpdate,
@@ -28,6 +28,7 @@ from app.modules.catalog.features.retention import (
     RetentionRefused,
     check_retention,
     count_rows_past,
+    hold_table_for_setting,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -75,6 +76,9 @@ async def set_dataset_retention(
     rows_past_cutoff = 0 if dry_run else None
     cutoff = None
     if retention is not None:
+        if not dry_run:
+            # The data table before the catalog rows, the order feature writes use.
+            await hold_table_for_setting(db, dataset.table_name)
         try:
             cutoff = await check_retention(db, dataset, retention)
         except RetentionRefused as exc:
@@ -105,11 +109,15 @@ async def set_dataset_retention(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
             )
-        # Stamped as other dataset setting edits are; the trigger supplies a
-        # monotonic time, and setting updated_at forces the UPDATE for the same
-        # actor, as record subresource writes do.
-        dataset.record.updated_at = func.now()
-        dataset.record.updated_by = user.id
+        # Written outright: the loaded record predates the lock, so assigning
+        # an equal updated_by would write nothing. The trigger sets the time.
+        await db.execute(
+            update(Record)
+            .where(Record.id == dataset.record_id)
+            .values(updated_at=func.now(), updated_by=user.id)
+            .execution_options(synchronize_session=False)
+        )
+        db.expire(dataset.record, ["updated_at", "updated_by"])
         await audit_emit(
             db,
             AuditEvent(

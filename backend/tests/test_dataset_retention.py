@@ -1826,6 +1826,124 @@ class TestSetting:
         assert after_clear[0] > after_save[0]
         assert after_clear[1] == admin_id
 
+    async def test_a_save_holds_the_table_against_a_new_delete_trigger(
+        self, client: AsyncClient, admin_auth_header, seed, test_db_session, monkeypatch
+    ):
+        import app.core.db as db_module
+        from sqlalchemy.exc import DBAPIError
+
+        from app.core.db.sqlstate import is_lock_conflict
+        from app.modules.catalog.datasets.api import router_retention
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(created_by=admin_id, rows=[])
+        function = f"data.ret_trg_{uuid.uuid4().hex[:8]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql "
+                "AS $$ BEGIN RETURN OLD; END $$"
+            )
+        )
+        await test_db_session.commit()
+        real_check = router_retention.check_retention
+        refused: list[bool] = []
+
+        async def trigger_attempt_then_check(session, target, retention):
+            async with db_module.async_session() as other:
+                await other.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                try:
+                    await other.execute(
+                        text(
+                            f"CREATE TRIGGER on_delete AFTER DELETE ON "
+                            f"data.{dataset.table_name} FOR EACH ROW "
+                            f"EXECUTE FUNCTION {function}()"
+                        )
+                    )
+                    await other.commit()
+                except DBAPIError as exc:
+                    refused.append(is_lock_conflict(exc))
+                    await other.rollback()
+            return await real_check(session, target, retention)
+
+        monkeypatch.setattr(
+            router_retention, "check_retention", trigger_attempt_then_check
+        )
+        try:
+            resp = await self._put(
+                client,
+                dataset.id,
+                {"retention": {"column": "seen_at", "days": 30}},
+                admin_auth_header,
+            )
+
+            assert refused == [True]
+            assert resp.status_code == 200, resp.text
+            assert await _stored_setting(test_db_session, dataset.id) == ("seen_at", 30)
+        finally:
+            await test_db_session.execute(text(f"DROP FUNCTION {function}() CASCADE"))
+            await test_db_session.commit()
+
+    @pytest.mark.parametrize(
+        ("start", "requested"),
+        [
+            ((None, None), {"column": "seen_at", "days": 30}),
+            (("seen_at", 30), {"column": "seen_on", "days": 7}),
+            (("seen_at", 30), None),
+        ],
+        ids=["enable", "change", "clear"],
+    )
+    async def test_a_save_credits_its_editor_over_a_concurrent_prune(
+        self,
+        client: AsyncClient,
+        admin_auth_header,
+        seed,
+        test_db_session,
+        monkeypatch,
+        start,
+        requested,
+    ):
+        from app.modules.catalog.datasets.api import router_retention
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id, column=start[0], days=start[1], rows=[]
+        )
+        record_of = "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+        await test_db_session.execute(
+            text(
+                f"UPDATE catalog.records SET updated_by = :user WHERE id = {record_of}"
+            ),
+            {"user": admin_id, "id": dataset.id},
+        )
+        await test_db_session.commit()
+        real_lock = router_retention.lock_dataset_rows_for_write
+
+        async def prune_clears_the_editor_then_lock(db, target, **kwargs):
+            await _commit_elsewhere(
+                f"UPDATE catalog.records SET updated_by = NULL WHERE id = {record_of}",
+                {"id": dataset.id},
+            )
+            return await real_lock(db, target, **kwargs)
+
+        monkeypatch.setattr(
+            router_retention,
+            "lock_dataset_rows_for_write",
+            prune_clears_the_editor_then_lock,
+        )
+
+        resp = await self._put(
+            client, dataset.id, {"retention": requested}, admin_auth_header
+        )
+
+        assert resp.status_code == 200, resp.text
+        test_db_session.expire_all()
+        editor = await test_db_session.scalar(
+            select(Record.updated_by)
+            .join(Dataset, Dataset.record_id == Record.id)
+            .where(Dataset.id == dataset.id)
+        )
+        assert editor == admin_id
+
     async def test_the_owner_saves_and_clears_retention(
         self, client: AsyncClient, admin_auth_header, seed, test_db_session
     ):
