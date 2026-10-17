@@ -554,6 +554,47 @@ class TestRun:
             .where(Dataset.id == dataset.id)
         )
 
+    async def test_each_pruning_run_advances_the_record_modified_time(
+        self, seed, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await seed(
+            created_by=admin_id,
+            column="seen_at",
+            days=30,
+            rows=[
+                {"name": "old", "seen_at": NOW - timedelta(days=90), "x": 0, "y": 0},
+                {"name": "unplaced", "seen_at": NOW - timedelta(days=20)},
+            ],
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{dataset.table_name} SET geom = NULL, "
+                "geom_4326 = NULL WHERE name = 'unplaced'"
+            )
+        )
+        await test_db_session.commit()
+
+        async def modified():
+            test_db_session.expire_all()
+            return await test_db_session.scalar(
+                select(Record.updated_at)
+                .join(Dataset, Dataset.record_id == Record.id)
+                .where(Dataset.id == dataset.id)
+            )
+
+        seeded = await modified()
+        assert await retention.prune_expired_rows(now=NOW) == {dataset.id: 1}
+        after_first = await modified()
+        assert await self._extent_is_null(test_db_session, dataset) is True
+
+        later = NOW + timedelta(days=15)
+        assert await retention.prune_expired_rows(now=later) == {dataset.id: 1}
+        after_second = await modified()
+
+        assert seeded < after_first < after_second
+        assert await _names(test_db_session, dataset) == set()
+
     async def test_pruning_the_last_geometry_clears_the_extent(
         self, seed, test_db_session
     ):
@@ -1164,9 +1205,24 @@ class TestRace:
             )
         )
 
+        modified_before = await test_db_session.scalar(
+            select(Record.updated_at)
+            .join(Dataset, Dataset.record_id == Record.id)
+            .where(Dataset.id == dataset.id)
+        )
+
         assert await retention.prune_expired_rows(now=NOW) == {}
         await self._assert_untouched(test_db_session, dataset, dataset.id)
         assert await _settle_pending(test_db_session, dataset.id) is False
+        test_db_session.expire_all()
+        assert (
+            await test_db_session.scalar(
+                select(Record.updated_at)
+                .join(Dataset, Dataset.record_id == Record.id)
+                .where(Dataset.id == dataset.id)
+            )
+            == modified_before
+        )
 
     @pytest.mark.parametrize(
         ("start", "concurrent", "requested"),

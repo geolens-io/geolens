@@ -78,7 +78,9 @@ export function RetentionCard({ dataset, canEdit }: RetentionCardProps) {
   const pickable = isFeatureDataset ? temporalColumns : [];
 
   const days = parseDays(daysInput);
-  const canSave = column !== '' && days !== null && !mutation.isPending;
+  // A saved column since dropped or renamed stays selected until another is picked.
+  const columnPickable = pickable.some((option) => option.name === column);
+  const canSave = columnPickable && days !== null && !mutation.isPending;
 
   // A date column's cutoff is UTC midnight of its date; formatted as a
   // local instant it would name the day before west of UTC.

@@ -307,6 +307,15 @@ async def _record_batch(
         )
         .execution_options(synchronize_session=False)
     )
+    # The record carries the dataset's modification time, which a batch that
+    # changes no record column would otherwise leave behind; its trigger
+    # supplies a monotonic wall time, as for record subresource writes.
+    await session.execute(
+        update(Record)
+        .where(Record.id == dataset.record_id)
+        .values(updated_at=func.now())
+        .execution_options(synchronize_session=False)
+    )
     if await record_live_data_write(session, dataset) is None:
         raise _BatchStale
     await audit_emit_required(

@@ -120,6 +120,27 @@ describe('RetentionCard', () => {
     await waitFor(() => expect(setDatasetRetention).toHaveBeenCalledWith('ds-1', null, { dryRun: undefined }));
   });
 
+  it('keeps Save off while a dropped retention column is still selected', async () => {
+    const user = userEvent.setup();
+    render(
+      <RetentionCard
+        dataset={feed({
+          retention: { column: 'seen_at', days: 30 },
+          column_info: [{ name: 'observed_on', type: 'date' }],
+        })}
+        canEdit
+      />,
+    );
+
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    await user.click(screen.getByRole('combobox', { name: 'Date column' }));
+    await user.click(screen.getByRole('option', { name: 'observed_on' }));
+
+    expect(save).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Turn off' })).toBeEnabled();
+  });
+
   it('still offers Turn off when the retention column is gone', async () => {
     const user = userEvent.setup();
     vi.mocked(setDatasetRetention).mockResolvedValue({ retention: null, rows_past_cutoff: 0, cutoff: null });
