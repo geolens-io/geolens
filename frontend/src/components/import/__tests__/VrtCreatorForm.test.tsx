@@ -47,10 +47,10 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// fix(#1778): rebuilt to the shape service_records.py actually serializes
+// The shape service_records.py actually serializes
 // (proj:code / proj:shape / raster:bands / gsd), not the flat
-// epsg/dtype/nodata/width/height/res_x/res_y fields the API never returned.
-// `nodata` now distinguishes three real JSON
+// epsg/dtype/nodata/width/height/res_x/res_y fields the API never returns.
+// `nodata` distinguishes three real JSON
 // shapes -- omitted entirely (default '-9999' when unset, or forced via
 // `omitNodataKey` to simulate the remote-COG shape where band stats never
 // carry a nodata key), explicitly `null` (a band that HAS nodata metadata
@@ -315,19 +315,16 @@ describe('VrtCreatorForm', () => {
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
 
-    // fix(#1877): the visible reason must use the same first-known-crs
+    // The visible reason must use the same first-known-crs
     // reference validateSources compares against, not selectedSources[0]
     // (which can be crs-unset).
     const reasons = document.getElementById('vrt-mismatch-reasons');
     expect(reasons?.textContent).toContain('"first":"EPSG:4326"');
   });
 
-  // fix(#1778): these three checks read epsg/dtype/nodata/width/height/
-  // res_x/res_y off OGCRecordProperties, none of which the API ever
-  // returned, so the operands were always undefined and every branch below
-  // was dead code -- the fixture agreed with the (wrong) hand-typed mirror
-  // and both disagreed with the server. Now sourced from raster:bands,
-  // proj:shape, and gsd, the shape the API actually serializes.
+  // These three checks source epsg/dtype/nodata/width/height/res_x/res_y
+  // from raster:bands, proj:shape, and gsd, the shape the API actually
+  // serializes (OGCRecordProperties has no such fields).
   it('mismatched dtype across mosaic sources disables submit (#1778)', { timeout: 15000 }, async () => {
     const user = userEvent.setup({ delay: null });
     const source1 = makeCogSource({ id: 'ds-dtype-a', title: 'Dtype Source A', dtype: 'uint8' });
@@ -492,13 +489,13 @@ describe('VrtCreatorForm', () => {
 
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
-    // fix(#1811): the reason was only ever in a hover tooltip; now also
-    // always-visible text, and the button points at it via aria-describedby.
+    // The reason is always-visible text (not only a hover tooltip), and the
+    // button points at it via aria-describedby.
     expect(screen.getByText('vrt.gridMismatch')).toBeInTheDocument();
     expect(submitButton).toHaveAttribute('aria-describedby', 'vrt-mismatch-reasons');
   });
 
-  // fix(#1811): a matched set must show neither the disabled state nor the
+  // A matched set must show neither the disabled state nor the
   // (now absent) reason text — the mismatch UI is error-only.
   it('a matched band-stack set shows no mismatch reason text and enables submit', async () => {
     const user = userEvent.setup({ delay: null });
@@ -705,12 +702,12 @@ describe('VrtCreatorForm', () => {
   });
 
   it('clears the search blur timer on unmount so it cannot fire into a torn-down tree', () => {
-    // fix(#1758): the 150 ms blur delay used to outlive the component. Nothing
-    // cleared it, so unmounting inside its window left it queued, and on the CI
-    // runner it fired after jsdom teardown and threw `window is not defined`
-    // out of react-dom's scheduler. That failed the whole vitest run while
-    // every test in it passed, which is the shape of failure hardest to
-    // attribute to the file that caused it.
+    // The 150 ms blur delay must be cleared on unmount. Otherwise
+    // unmounting inside its window leaves it queued, and on the CI runner it
+    // fires after jsdom teardown and throws `window is not defined` out of
+    // react-dom's scheduler. That fails the whole vitest run while every test
+    // in it passes, which is the shape of failure hardest to attribute to the
+    // file that caused it.
     vi.useFakeTimers();
     try {
       const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');

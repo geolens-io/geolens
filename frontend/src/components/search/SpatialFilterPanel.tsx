@@ -32,8 +32,8 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { normalizeBboxLongitudes, toFitBounds, type Bbox } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
 import 'maplibre-gl/dist/maplibre-gl.css';
-// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
-// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+// Wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph.
 import '@/lib/maplibre-worker';
 
 type DrawMode = 'rectangle' | 'polygon';

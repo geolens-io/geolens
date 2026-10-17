@@ -64,7 +64,7 @@ export function LayerLegend({
   const terrainEntry = useMemo(() => {
     const entry = deriveTerrainLegendEntry(terrainConfig, layers, { labelKey: 'viewer.legend.terrain3d' });
     if (!entry) return null;
-    // fix(#452): the viewer now clears terrain when the bound DEM is LIVE-hidden
+    // The viewer clears terrain when the bound DEM is LIVE-hidden
     // via the legend eye (useViewerTerrain honors visibleLayers), so a hidden
     // source must not keep a synthetic "3D terrain" row for a mesh that no
     // longer renders. Same helper as ViewerMap's mesh gate — one definition,
@@ -113,9 +113,9 @@ export function LayerLegend({
         id="layer-legend-panel"
         role="region"
         aria-label={t('viewer.legend.title')}
-        // fix(#731): cap the height against the CONTAINER, not the viewport —
+        // Cap the height against the CONTAINER, not the viewport —
         // the panel is absolutely positioned inside the map, so a viewport cap
-        // let a tall legend run down behind the Map data button (bottom-20 +
+        // would let a tall legend run down behind the Map data button (bottom-20 +
         // ~2rem) and the basemap toggle (bottom-8) in the same corner. 11rem =
         // the 3.5rem top offset plus clearance above that bottom-left stack.
         className="absolute start-3 top-14 z-10 w-64 max-h-[calc(100%-11rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50"
@@ -138,7 +138,7 @@ export function LayerLegend({
               className="px-3 py-2 hover:bg-accent/50"
             >
               <div className="flex items-center gap-2">
-                {/* fix(#452): same ◬ chip as the stack's terrain-mode DEM row —
+                {/* Same ◬ chip as the stack's terrain-mode DEM row —
                     legend and layer-list icons must agree, so derive the glyph
                     instead of hardcoding it. */}
                 <RasterGlyphChip glyph={demChipGlyph('terrain')} />
@@ -158,7 +158,7 @@ export function LayerLegend({
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
-                  {/* fix(#452): one shared icon component with the builder layer
+                  {/* One shared icon component with the builder layer
                       stack — raster/DEM rows get the same glyph chip (▦/⛰/◬),
                       vector rows the same colorized geometry icon. */}
                   <LayerTypeIcon

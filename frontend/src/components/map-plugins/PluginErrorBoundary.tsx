@@ -16,7 +16,7 @@ export class PluginErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     logger.error(`Plugin "${this.props.pluginId}" crashed:`, error, info.componentStack);
-    // fix(#834): feed the problem-report buffer like the other boundaries so a
+    // Feed the problem-report buffer like the other boundaries so a
     // plugin crash doesn't produce an empty report.
     pushReportEntry({
       severity: 'error',

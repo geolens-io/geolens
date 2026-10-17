@@ -3,7 +3,7 @@ import { act, render, screen } from '@/test/test-utils';
 import { changeTestLanguage } from '@/test/i18n';
 import { BboxMapPicker } from '../BboxMapPicker';
 
-// test(#828): region-label coverage. The map canvas cannot carry an aria-label
+// Region-label coverage. The map canvas cannot carry an aria-label
 // (@vis.gl/react-maplibre v8 drops it), so the wrapper role="region" label is
 // the picker's only accessible name — a broken t() lookup would render an
 // unlabeled region with no test noticing.

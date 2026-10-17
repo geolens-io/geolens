@@ -110,7 +110,7 @@ describe('JobList retry capability', () => {
     expect(mockRetry).toHaveBeenCalledWith('job-1');
   });
 
-  // feat(#1677): one-click cancel on active rows, Retry parity.
+  // One-click cancel on active rows, Retry parity.
   it('offers cancel on a running job and fires the mutation', async () => {
     mockUseAdminJobs.mockReturnValue({
       data: {

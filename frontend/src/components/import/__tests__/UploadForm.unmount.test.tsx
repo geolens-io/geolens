@@ -1,12 +1,12 @@
 /**
- * fix(#1712): an upload batch must survive the form unmounting.
+ * An upload batch must survive the form unmounting.
  *
  * The Import page renders tabs conditionally, so switching away mid-upload
  * unmounts UploadForm. The upload (and the preview call chained after it)
  * keeps running server-side, so if the returned job id lands in dead
  * component state the user is left with an unreachable pending job and its
  * staged bytes until the stale-pending sweep collects them. Mirrors
- * UrlImportForm.unmount.test.tsx (#1708) for this tab's batch shape.
+ * UrlImportForm.unmount.test.tsx for this tab's batch shape.
  */
 import { render, screen, waitFor, act } from '@/test/test-utils';
 import { UploadForm } from '../UploadForm';

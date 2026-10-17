@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router';
 import { AuditLogViewer } from '../AuditLogViewer';
 
-// fix(#1204): the audit log is server-paginated, so ordering had to go through
+// The audit log is server-paginated, so ordering had to go through
 // the API — sorting only the current page would leave page 1 sorted and page 2
 // unrelated, which looks correct in the UI and is not. These tests pin the
 // URL-owned sort state, the accessibility contract, and the two columns that

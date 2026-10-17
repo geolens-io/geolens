@@ -112,7 +112,7 @@ const EMPTY_FORM: SamlFormData = {
 export function SamlProvidersSection() {
   const { t } = useTranslation('admin');
   const queryClient = useQueryClient();
-  // fix(#1117): SAML rows live in the same table as OAuth and are returned by the
+  // SAML rows live in the same table as OAuth and are returned by the
   // login page's /auth/oauth/providers/, so every mutation here also has to refresh
   // the login buttons — see hooks/use-auth-providers.ts.
   const invalidateAuthProviders = useInvalidateAuthProviders();

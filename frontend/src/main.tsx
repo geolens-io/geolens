@@ -25,13 +25,13 @@ import './index.css';
 
 // NOTE: maplibre's worker URL is wired in `@/lib/maplibre-worker`, imported by
 // the map surfaces themselves. It must NOT be imported here — that puts
-// map-vendor in the eager entry graph for every route (fix(#1624)).
+// map-vendor in the eager entry graph for every route.
 
 // Start capturing console/network/error signal at app load so the in-app
 // problem reporter has history ready the moment a user opens it.
 initReportCapture();
 
-// fix(#645): self-heal tabs whose lazy route chunks vanished behind a deploy.
+// Self-heal tabs whose lazy route chunks vanished behind a deploy.
 installStaleAssetReload();
 
 function reportQueryKey(key: unknown): string | undefined {

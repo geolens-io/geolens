@@ -1,18 +1,14 @@
-// fix(#903): the frontend's shared antimeridian-aware bbox helpers.
+// The frontend's shared antimeridian-aware bbox helpers.
 //
-// The backend can now hold an extent that crosses the antimeridian as a
+// The backend can hold an extent that crosses the antimeridian as a
 // two-ring MULTIPOLYGON, and `extent_to_bbox()` reports it in the RFC 7946
 // §5.2 / STAC **spec form**: `west > east` (e.g. Fiji, `[178.5, -20, -178.5,
-// -15]`). Nothing on the frontend understood that, so `core/geo.py` routes six
-// map-facing consumers through `extent_to_span_bbox()` instead, which returns a
-// monotonic `-180..180`. That fallback is honest but over-broad: a Fiji dataset
-// reports the whole world.
+// -15]`). `core/geo.py` also offers `extent_to_span_bbox()`, which returns a
+// monotonic `-180..180`; that form is honest but over-broad (a Fiji dataset
+// reports the whole world).
 //
 // These helpers mirror the backend split so each call site declares which form
-// it wants instead of assuming `minx < maxx`. They do not change what the API
-// sends today — they are what has to exist before the backend can flip a
-// consumer back to the spec form (see the issue's sequencing: #934, then this,
-// then one consumer at a time).
+// it wants instead of assuming `minx < maxx`.
 
 export type Bbox = [number, number, number, number];
 

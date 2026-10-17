@@ -125,11 +125,10 @@ export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
         />
       ))}
       {/* BBox rectangle(s).
-          fix(#903): this file already detected a crossing extent for the
-          viewBox, but still drew one rect from `maxx - minx` — negative, so
-          `Math.max(width, 2)` collapsed it into a 2°-wide sliver pinned at the
-          east edge. Draw the two seam halves instead; a non-crossing extent
-          still yields exactly one rect. */}
+          A crossing extent is drawn as its two seam halves: one rect from
+          `maxx - minx` would be negative, so `Math.max(width, 2)` would
+          collapse it into a 2°-wide sliver pinned at the east edge. A
+          non-crossing extent yields exactly one rect. */}
       {splitBbox(bbox).map(([w, s, e, n], i) => (
         <rect
           key={i}

@@ -105,9 +105,9 @@ describe('MapCardGrid', () => {
   });
 });
 
-// fix(#1005): the thumbnail cache version moved off `updated_at`, which was
-// carrying two meanings — a lazy backfill on first builder open reordered the
-// "Last updated" gallery for what was a read.
+// The thumbnail cache version is not `updated_at`, which carries two
+// meanings — a lazy backfill on first builder open would reorder the
+// "Last updated" gallery for what is a read.
 describe.each([
   ['MapCard', MapCard],
   ['MapCardGrid', MapCardGrid],

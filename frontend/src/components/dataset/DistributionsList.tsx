@@ -66,12 +66,12 @@ function CopyableUrl({
   const [downloading, setDownloading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const resolvedUrl = resolveDistributionUrl(distribution.url, publicApiUrl);
-  // fix(#1863 P1 / #1867): same-origin (relative, or absolute matching this
+  // Same-origin (relative, or absolute matching this
   // instance's own API) gets the bearer token; a genuinely external url
   // (e.g. a manual viewer-app link) must never receive it.
   const isSameOriginApiResource =
     !isAbsoluteUrl(distribution.url) || isSameOriginAbsoluteUrl(distribution.url);
-  // fix(#1863 P2): a vector-tile row's url is a template
+  // A vector-tile row's url is a template
   // (/tiles/data.<table>/{z}/{x}/{y}.pbf — no literal resource at that
   // path) and a raster/VRT row's url is a bare object-storage key
   // (rasters/<id>/<sha>/source.cog.tif — not the real, token-gated COG
@@ -100,7 +100,7 @@ function CopyableUrl({
     timerRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
-  // fix(#1863 P1): a plain <a href download> browser navigation carries no
+  // A plain <a href download> browser navigation carries no
   // Authorization header, so a private or unpublished dataset's export
   // endpoint rejected it as anonymous. Route same-origin GeoLens resources
   // through the same refresh-aware, bearer-authenticated fetch-and-save flow
@@ -127,12 +127,11 @@ function CopyableUrl({
       <code className="flex-1 rounded-sm bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={resolvedUrl}>
         {resolvedUrl}
       </code>
-      {/* fix(#1856): these were copyable text with no way to actually fetch
-          the resource. Same-origin GeoLens resources download through the
-          authenticated fetch flow (needed for private/unpublished datasets);
-          an external URL from a manual distribution is a plain link instead
-          — it is not ours to attach a bearer token to.
-          fix(#1863 P2): a tile-template or bare-storage-key row (see
+      {/* Copy alone cannot fetch the resource. Same-origin GeoLens
+          resources download through the authenticated fetch flow (needed for
+          private/unpublished datasets); an external URL from a manual
+          distribution is a plain link instead — it is not ours to attach a
+          bearer token to. A tile-template or bare-storage-key row (see
           isFetchable above) gets no download action at all — copy remains
           the only way to get the value, since there is nothing a single
           fetch or plain navigation could resolve. */}
@@ -192,13 +191,13 @@ function distributionLabel(distribution: DistributionResponse): string {
   return `${base} (${distribution.id})`;
 }
 
-/** feat(#1395): radio-style set-primary control. Rendered only for manual
+/** Radio-style set-primary control. Rendered only for manual
  * (non-auto_generated) rows — `update_distribution` rejects any write,
  * `is_primary` included, against an auto_generated row with a 400, so a
  * control on those rows could never do anything but fail. The currently
  * primary manual row renders checked and disabled; clicking any other one
  * PATCHes it to `is_primary: true`, which the backend applies as a
- * last-write-wins demote of every other row on the record (#1383).
+ * last-write-wins demote of every other row on the record.
  *
  * `isMutating` disables every sibling control
  * while any promotion is in flight, not just the clicked one — two manual

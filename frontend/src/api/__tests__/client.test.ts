@@ -48,7 +48,7 @@ describe('apiFetch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
-    // fix(#2038): the transient refresh back-off is module state; start signed out.
+    // The transient refresh back-off is module state; start signed out.
     abortInflightRefresh();
   });
 
@@ -276,16 +276,16 @@ describe('apiFetch', () => {
     });
   });
 
-  // fix(#1302): with no stored refresh token the session may still be alive —
+  // With no stored refresh token the session may still be alive —
   // the credential is an httpOnly cookie JS cannot see — so a 401 must still
   // attempt a refresh. Only when that refresh also fails is the session dead.
   it('still attempts a cookie refresh on 401 with no stored refresh token', async () => {
     const { refreshAccessToken } = await import('@/api/auth');
-    // fix(#2038): 401 is what makes the session dead rather than merely stalled.
+    // 401 is what makes the session dead rather than merely stalled.
     vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('unauthorized', 401));
 
     useAuthStore.setState({ token: 'cookie-session-token', refreshToken: null });
-    // fix(#1849): a failed refresh no longer retries with the dead token, so
+    // A failed refresh does not retry with the dead token, so
     // only the initial 401 fetch happens — one queued response, not two.
     mockFetch.mockResolvedValueOnce(errorResponse(401));
 
@@ -316,7 +316,7 @@ describe('apiFetch', () => {
 
     await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
     expect(useAuthStore.getState().token).toBeNull();
-    // fix(#1849): a failed refresh must not retry the original request with
+    // A failed refresh must not retry the original request with
     // the now-dead token — only the initial 401 fetch happens.
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
@@ -370,7 +370,7 @@ describe('apiFetch', () => {
 
         expect(result).toBeInstanceOf(ApiError);
         expect(mockFetch).toHaveBeenCalledTimes(1);
-        // fix(#2038): rate-limited is transient, so the session survives it.
+        // Rate-limited is transient, so the session survives it.
         expect(useAuthStore.getState().token).toBe('expired-token-1849c');
       } finally {
         vi.useRealTimers();
@@ -407,7 +407,7 @@ describe('apiFetch', () => {
       expect(useAuthStore.getState().token).toBe('peer-rotated-token');
     });
 
-    // fix(#2038): without the back-off, an auth outage let every 401'd surface
+    // Without the back-off, an auth outage would let every 401'd surface
     // in every tab re-ask forever against a rate-limited endpoint.
     it('stops asking until the back-off expires after a transient failure', async () => {
       vi.useFakeTimers();
@@ -547,11 +547,11 @@ describe('apiFetch', () => {
       const { refreshAccessToken } = await import('@/api/auth');
       const mockRefresh = vi.mocked(refreshAccessToken);
 
-      // fix(#2038): a REJECTED credential, so no transient back-off is armed
+      // A REJECTED credential, so no transient back-off is armed
       // and the second wave below is free to ask again immediately.
       mockRefresh.mockRejectedValueOnce(new ApiError('unauthorized', 401));
       useAuthStore.setState({ token: 'expired', refreshToken: 'r' });
-      // fix(#1849): a failed refresh no longer retries with the dead token —
+      // A failed refresh does not retry with the dead token —
       // one queued response, not two.
       mockFetch.mockResolvedValueOnce(errorResponse(401));
 

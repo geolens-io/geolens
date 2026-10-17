@@ -36,7 +36,7 @@ interface ImportMetadataFormProps {
   } | null;
 }
 
-// fix(#927/#929): no `restricted` — see RegisterForm. Visibility is now
+// No `restricted` — see RegisterForm. Visibility is
 // private/public at import time, and the dataset Access tab owns changing it.
 // Radix Select cannot hold an empty-string value. Real columns are prefixed so
 // no source field name can equal the "no column" placeholder.
@@ -78,7 +78,7 @@ export function ImportMetadataForm({
   const { t } = useTranslation('import');
   const formId = useId();
   const fieldId = (field: string) => `${formId}-${field}`;
-  // feat(#1691): hide the Public option when the restrict_public_visibility
+  // Hide the Public option when the restrict_public_visibility
   // instance setting caps non-admins at non-public (server enforces via 403).
   const canSetPublic = useCanSetPublicVisibility();
   const visibilityOptions = canSetPublic

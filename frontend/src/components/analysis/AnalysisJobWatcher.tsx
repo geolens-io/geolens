@@ -162,26 +162,26 @@ export function AnalysisJobWatcher() {
     // staleness rule. An elapsed-time guess is wrong in both
     // directions: too short and a legitimately long job loses its completion
     // notification entirely, too long and the save guard outlives the API's own
-    // cap. fix(#691): the server holds the materialize slot on a heartbeat
+    // cap. The server holds the materialize slot on a heartbeat
     // lease, and the job-status route this component polls auto-fails an
     // analysis job whose lease expired — so a hard-killed worker surfaces
     // here as status 'failed' within the lease window, this watcher clears,
     // and the Analysis panel's Create button re-enables at the same moment
     // the server would admit a new materialize. The client still needs no
     // staleness rule of its own; it mirrors the server's verdict.
-    // fix(#1677): 'cancelled' is terminal too. The cancel control made it a
-    // reachable outcome for every job type, and `useJobStatus` already stops
-    // polling on it — but this watcher did not clear, so a cancelled analysis
-    // job stayed tracked in a PERSISTED store forever, surviving reloads, and
-    // the Analysis panel's Create button (gated on `!!s.job`) never
-    // re-enabled short of logging out or clearing site data.
+    // 'cancelled' is terminal too. The cancel control makes it a reachable
+    // outcome for every job type, and `useJobStatus` already stops polling on
+    // it. Without clearing here a cancelled analysis job would stay tracked
+    // in a PERSISTED store forever, surviving reloads, and the Analysis
+    // panel's Create button (gated on `!!s.job`) would never re-enable short
+    // of logging out or clearing site data.
     if (status !== 'complete' && status !== 'failed' && status !== 'cancelled')
       return;
 
-    // Once per job per tab. The clear used to be synchronous, so a re-run
-    // simply fell out at `if (!job)`; now the claim is awaited, and any render
-    // in between re-enters — including the one the claim's own store write
-    // causes, and the one a fresh `t` identity causes on every render. This
+    // Once per job per tab. The claim is awaited, so a re-run no longer falls
+    // out at `if (!job)`, and any render in between re-enters — including the
+    // one the claim's own store write causes, and the one a fresh `t` identity
+    // causes on every render. This
     // also subsumes StrictMode's double invoke, which is why the effect needs
     // no cleanup-based guard.
     if (handledRef.current.has(job.jobId)) return;
@@ -199,7 +199,7 @@ export function AnalysisJobWatcher() {
       if (data?.quicklook_pending) setQuicklookJobId(job.jobId);
     }
 
-    // feat(#1008): with two builders open, both tabs poll this job and both
+    // With two builders open, both tabs poll this job and both
     // reach here. Exactly one may report it — the claim is a written, durable
     // arbiter rather than a timing accident, so it also holds for a tab that
     // reloads after another already reported.
@@ -235,7 +235,7 @@ export function AnalysisJobWatcher() {
             });
           }
         } else if (status === 'cancelled') {
-          // fix(#1677): not an error — somebody asked for this. It still
+          // Not an error — somebody asked for this. It still
           // deserves a notification, because the cancel can arrive from
           // another tab, or from the dataset's owner or an admin cancelling
           // a run this user started, and the panel is about to re-enable
@@ -257,7 +257,7 @@ export function AnalysisJobWatcher() {
             { id: toastId },
           );
         } else {
-          // fix(#1953): the coded reason is not a detail worth showing.
+          // The coded reason is not a detail worth showing.
           const reason = data?.error_message;
           const message =
             fixedFailureReason(data?.error_code) ??
@@ -299,7 +299,7 @@ export function AnalysisJobWatcher() {
       // finished run's name and re-enable its own Create button.
       // Settled either way: a failed run KEEPS its name for the retry, which
       // is a decision, not an omission — the departure handler below must not
-      // second-guess it. fix(#1677): a cancelled run keeps it for the same
+      // second-guess it. A cancelled run keeps it for the same
       // reason — nothing was created, and re-running under the same name is
       // the likely next step.
       titleRetiredRef.current.add(tracked.jobId);

@@ -1,5 +1,5 @@
 /**
- * fix(#1832): a drop made while the upload-config query is still fetching
+ * A drop made while the upload-config query is still fetching
  * must survive the form unmounting before that query settles.
  *
  * `e2e/upload.spec.ts:51` ("a tab switch mid-upload does not strand the
@@ -37,7 +37,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// fix(#1832): unlike UploadForm.unmount.test.tsx's static mock, this one
+// Unlike UploadForm.unmount.test.tsx's static mock, this one
 // needs to flip from fetching to settled WHILE the form is unmounted, the
 // exact window the report pins. `vi.hoisted` so the mutable flag survives
 // the vi.mock factory's hoist.

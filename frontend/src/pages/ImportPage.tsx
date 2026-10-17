@@ -22,7 +22,7 @@ type Tab = 'upload' | 'url' | 'register' | 'service' | 'stac';
 
 const MODE_TABS: { value: Tab; icon: typeof Upload; labelKey: string }[] = [
   { value: 'upload', icon: Upload, labelKey: 'tabs.upload' },
-  // feat(#1705): URL variant of upload — server-side fetch into staging.
+  // URL variant of upload — server-side fetch into staging.
   { value: 'url', icon: Link, labelKey: 'tabs.url' },
   { value: 'register', icon: Database, labelKey: 'tabs.register' },
   { value: 'service', icon: Globe, labelKey: 'tabs.service' },

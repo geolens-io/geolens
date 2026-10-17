@@ -4,11 +4,10 @@ import { Protocol as PmtilesProtocol } from 'pmtiles';
 import { tileRetryProtocol } from './tile-retry-protocol';
 
 /**
- * feat(#846): point maplibre-gl v6 at its worker file.
+ * Point maplibre-gl v6 at its worker file.
  *
  * v6 ships the worker as a separate ESM file resolved relative to
- * `import.meta.url`. v5 was a UMD bundle that inlined the worker source and
- * self-registered it, so no consumer wiring existed. `vite.config.ts` folds
+ * `import.meta.url`. `vite.config.ts` folds
  * maplibre into the `map-vendor` chunk, which moves `import.meta.url` away from
  * the package directory and leaves the sibling worker unresolvable, so the URL
  * has to be handed over explicitly.
@@ -18,7 +17,7 @@ import { tileRetryProtocol } from './tile-retry-protocol';
  * builds. No error, no console message, vector tiles simply never request
  * (upstream maplibre-gl-js#8186).
  *
- * fix(#1624): this deliberately does NOT live in `main.tsx`. Importing
+ * This deliberately does NOT live in `main.tsx`: importing
  * maplibre from the app entry puts `map-vendor` (~295 kB gzip) in the eager
  * entry graph and its modulepreload list, so every login, admin, and search
  * page would download the whole mapping bundle before rendering, defeating the

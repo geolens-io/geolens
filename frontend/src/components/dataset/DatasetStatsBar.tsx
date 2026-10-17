@@ -59,7 +59,7 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
     if (rasterGsd != null) {
       cells.push({
         label: t('raster.resolution', { defaultValue: 'Resolution' }),
-        // fix(#569): res_x/res_y are CRS units — a geographic CRS delivers
+        // res_x/res_y are CRS units — a geographic CRS delivers
         // degrees, which must not be labeled meters.
         value: formatGsd(
           rasterGsd,

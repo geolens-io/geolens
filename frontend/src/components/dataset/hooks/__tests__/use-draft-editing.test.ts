@@ -254,7 +254,7 @@ describe('useDraftEditing', () => {
     expect(success).toBe(false);
   });
 
-  // fix(#1851): DatasetPage stays mounted across a route change from one
+  // DatasetPage stays mounted across a route change from one
   // dataset to another, so without a reset keyed on datasetId a staged draft
   // for dataset A survived into dataset B's render.
   it('resets staged drafts when datasetId changes', () => {

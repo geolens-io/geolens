@@ -17,9 +17,9 @@ import { useAuthStore } from '@/stores/auth-store';
 import { LandingFirstGuard } from '../LandingFirstGuard';
 import type { AuthConfigResponse } from '@/types/api';
 
-// fix(#1778): SearchPage was statically imported here, dragging ~163KB /
-// 32 modules of search-only source (FilterPanel, color-ramps, etc.) into
-// the shared entry chunk for every route. Read the source rather than
+// A static SearchPage import would drag ~163KB / 32 modules of search-only
+// source (FilterPanel, color-ramps, etc.) into the shared entry chunk for
+// every route. Read the source rather than
 // re-deriving it from the module graph, so the test fails if a future edit
 // reintroduces a top-level static import.
 const GUARD_SOURCE = readFileSync(resolve(__dirname, '../LandingFirstGuard.tsx'), 'utf-8');
@@ -99,7 +99,7 @@ function renderGuard(
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/']}>
-        {/* fix(#1778): SearchPage is now lazy-loaded inside LandingFirstGuard,
+        {/* SearchPage is now lazy-loaded inside LandingFirstGuard,
             so a Suspense boundary is required (RootLayout supplies one in
             production). */}
         <Suspense fallback={<div data-testid="loading" />}>
@@ -191,15 +191,15 @@ describe('LandingFirstGuard', () => {
   });
 
   /**
-   * fix(#1515): the guest-browse marker is read DURING RENDER, so a throw here
-   * is a blank page. `typeof sessionStorage !== 'undefined'` did not protect
-   * it — the property exists and the READ is what raises. Observed as
+   * The guest-browse marker is read DURING RENDER, so a throw here
+   * is a blank page. `typeof sessionStorage !== 'undefined'` does not protect
+   * it — the property exists and the READ is what raises. Seen as
    * "SecurityError: Failed to read the 'sessionStorage' property from 'Window'"
    * inside a sandboxed frame, surfaced by React Router as a page error.
    *
    * Deny the way the browser denies: a getter that throws on property access.
-   * Mocking getItem to return null would prove nothing, because the old code
-   * never reached getItem.
+   * Mocking getItem to return null would prove nothing, because the throw
+   * happens before getItem is reached.
    */
   function denyStorage(): () => void {
     const original = Object.getOwnPropertyDescriptor(window, 'sessionStorage');

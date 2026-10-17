@@ -1,7 +1,7 @@
 import i18next from 'i18next';
 import { fallbackLng, normalizeLanguage } from './i18n';
 
-// fix(#2029): the zh bundle is Simplified Chinese only. Match by CLDR
+// The zh bundle is Simplified Chinese only. Match by CLDR
 // script via Intl.Locale (zh-MY maximizes to Hans, zh-TW to Hant), not by
 // discarding everything after the first hyphen.
 describe('normalizeLanguage', () => {
@@ -31,7 +31,7 @@ describe('normalizeLanguage', () => {
   });
 });
 
-// fix(#2029 P1): an English-initial session kept silently rendering English
+// An English-initial session must not keep silently rendering English
 // after switching locale. vi.doMock substitutes a standalone
 // i18next.createInstance() since resetModules() can't evict the shared one.
 describe('changeAppLanguage (English-initial session)', () => {

@@ -61,8 +61,8 @@ import {
   viewerQueryLayerIds,
 } from '@/components/viewer/viewer-query-layer-ids';
 import 'maplibre-gl/dist/maplibre-gl.css';
-// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
-// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+// Wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph.
 import '@/lib/maplibre-worker';
 
 /**
@@ -156,11 +156,11 @@ export const ViewerMap = memo(function ViewerMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
-  // feat(#845): mount-time projection for the MapGL prop; see the comment at
+  // Mount-time projection for the MapGL prop; see the comment at
   // the <MapGL projection> site for why it must never change after mount.
   const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
   const layerEntries = useMemo(() => createViewerLayerEntries(layers), [layers]);
-  // feat(#1472): the visible layers' required credit lines, for the attribution
+  // The visible layers' required credit lines, for the attribution
   // control below.
   const layerAttributions = useMemo(
     () => collectLayerAttributions(layers, visibleLayers),
@@ -180,20 +180,20 @@ export const ViewerMap = memo(function ViewerMap({
   const { tokenMap, refreshTokens } = useViewerTokens({ layers, embedToken });
   // Shared tile-auth recovery: a vector tile 401/403 kicks one throttled token
   // re-mint, and the sync pass re-signs the sources once the new token lands.
-  // fix(#890): report every mint the recovery path actually kicks (suppressed),
-  // so a tab-return recovery still leaves a trace now that it no longer arrives
-  // wrapped in a 403 burst.
+  // Report every mint the recovery path actually kicks (suppressed),
+  // so a tab-return recovery still leaves a trace even though it does not
+  // arrive wrapped in a 403 burst.
   const recoverTileAuth = useTileAuthRecovery(refreshTokens, (trigger) =>
     reportTileTokenRemint('viewer', trigger),
   );
-  // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
+  // A tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
   useVisibleTileTokenRefresh(() => tokenMap.values(), recoverTileAuth, () =>
     refreshRasterTileSources(mapRef.current),
   );
 
-  // fix(#452): the bound DEM's LIVE visibility (legend eye toggle). Saved
+  // The bound DEM's LIVE visibility (legend eye toggle). Saved
   // visibility is handled inside the hook; this covers the client-side
   // override so hiding the DEM in the viewer flattens the mesh too. Shared
   // with LayerLegend's synthetic-entry gate so legend and mesh cannot split.
@@ -295,19 +295,18 @@ export const ViewerMap = memo(function ViewerMap({
   const effectiveBasemap = isBlank
     ? undefined
     : findBasemapById(basemaps ?? [], basemapStyle);
-  // fix(#1778): was a lone CARTO fallback with no attribution string; every
-  // other map surface falls back to OpenFreeMap.
+  // Falls back to OpenFreeMap like every other map surface.
   const fallbackUrl = FALLBACK_BASEMAP_STYLE_URL;
   const styleValue = useMemo(
-    // chore(#835): pass the basemap's configured attribution through, matching
-    // BuilderMap/DatasetMap — the viewer (the public surface where attribution
-    // matters most) previously dropped it for raster XYZ basemaps.
+    // Pass the basemap's configured attribution through, matching
+    // BuilderMap/DatasetMap — the viewer is the public surface where
+    // attribution matters most, including for raster XYZ basemaps.
     () => (isBlank
       ? toMaplibreStyle(BLANK_BASEMAP_ID)
       : toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl, effectiveBasemap?.attribution)),
     [effectiveBasemap?.url, effectiveBasemap?.attribution, fallbackUrl, isBlank],
   );
-  // chore(#835): shared fetch-and-sanitize path (see use-remote-basemap-style).
+  // Shared fetch-and-sanitize path (see use-remote-basemap-style).
   // Viewer-specific behavior: on fetch failure, fall back to handing MapLibre
   // the raw style URL so the map still gets a basemap.
   const mapStyle = useRemoteBasemapStyle({
@@ -441,14 +440,14 @@ export const ViewerMap = memo(function ViewerMap({
       registerBasemapStyleGeneration(map);
 
       // First-party vs third-party request classification
-      // (chore(#835): shared `isThirdPartyTileUrl` in lib/tile-utils). Used to
+      // (shared `isThirdPartyTileUrl` in lib/tile-utils). Used to
       // gate BOTH the credential headers below
       // and the embed-auth error toast in the error handler.
       const isThirdPartyUrl = (url?: string): boolean =>
         isThirdPartyTileUrl(url, tileConfigRef.current);
 
       // Absolutify URLs and attach the embed token / raster Bearer header.
-      // chore(#835): shared builder — react-maplibre v8 ignores the
+      // Shared builder — react-maplibre v8 ignores the
       // transformRequest PROP after mount, so each map wires it here in onLoad.
       map.setTransformRequest(buildTileTransformRequest({
         embedToken,
@@ -477,12 +476,11 @@ export const ViewerMap = memo(function ViewerMap({
         // re-mint: the sync pass re-signs the sources when it lands, and a dead
         // session surfaces through the global signed-out handling via the mint.
         if ((status === 401 || status === 403) && !isThirdPartyUrl(e.error?.url)) {
-          // audit(w3-maps A2): recoverTileAuth() returning false is
-          // contractual — a recent re-mint didn't cure the error (revoked
-          // grant, expired signature). Previously the return value was
-          // discarded and the surface stayed fully silent; fall through to
-          // the existing deduped tile-error toast instead.
-          // fix(#890): the re-mint still runs for a raster/DEM failure — the
+          // recoverTileAuth() returning false is contractual — a recent
+          // re-mint didn't cure the error (revoked grant, expired signature).
+          // Fall through to the existing deduped tile-error toast rather than
+          // leaving the surface silent.
+          // The re-mint still runs for a raster/DEM failure — the
           // mint request goes through apiFetch, whose proactive refresh renews
           // an expiring JWT, and that Bearer is the ONLY thing that fixes a
           // raster 401. But a fresh sig cannot help a
@@ -490,7 +488,7 @@ export const ViewerMap = memo(function ViewerMap({
           // does for a vector tile: toast regardless, matching
           // `isHandledTileAuthError`, which keeps logging these.
           const recovering = recoverTileAuth();
-          // fix(#907): …unless a session renewal is in flight, which is the one
+          // …unless a session renewal is in flight, which is the one
           // thing that DOES fix a raster 401, and whose post-rotation reload is
           // about to retry these tiles.
           const rasterUnrecoverable =
@@ -516,7 +514,7 @@ export const ViewerMap = memo(function ViewerMap({
         }
       });
 
-      // chore(#835): shared resolver; the read-only viewer stubs every missing
+      // Shared resolver; the read-only viewer stubs every missing
       // image (knownImagesOnly: false) to keep the public console clean.
       map.setMissingStyleImageResolver(makeStyleImageMissingResolver(map, { knownImagesOnly: false }));
 
@@ -1090,7 +1088,7 @@ export const ViewerMap = memo(function ViewerMap({
         mapStyle={mapStyle}
         styleDiffing={false}
         locale={mapLocale}
-        // feat(#845): the prop covers the cold-mount window — react-maplibre
+        // The prop covers the cold-mount window — react-maplibre
         // applies it on the initial style.load, before our onLoad-captured
         // appearance sync can run. Frozen at mount: a CHANGED projection prop
         // goes through react-maplibre's unguarded _updateSettings setter,
@@ -1101,8 +1099,8 @@ export const ViewerMap = memo(function ViewerMap({
         attributionControl={false}
         minZoom={1}
         onLoad={handleLoad}
-        // fix(#755): claim the wrapper's `error` fallback so a handled
-        // tile-auth 401/403 (#621 re-mint / embed-expired toast in
+        // Claim the wrapper's `error` fallback so a handled
+        // tile-auth 401/403 (re-mint / embed-expired toast in
         // handleLoad's error handler) stops double-logging a red AJAXError
         // console row.
         onError={logUnhandledMapError}
@@ -1113,7 +1111,7 @@ export const ViewerMap = memo(function ViewerMap({
           <TerrainControl source="terrain-dem" position="top-right" />
         )}
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
-        {/* feat(#1472): the `key` is load-bearing, not cosmetic. react-maplibre's
+        {/* The `key` is load-bearing, not cosmetic. react-maplibre's
             useControl builds the control once with `useMemo(…, [])`, so a
             changed `customAttribution` prop never reaches MapLibre. Keying on
             the credit set remounts the control (removeControl + addControl)

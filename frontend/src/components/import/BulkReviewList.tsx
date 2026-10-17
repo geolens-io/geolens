@@ -458,10 +458,10 @@ export function BulkReviewList({
                           {t(isSpreadsheetExt(ext) ? 'bulk.sheetLabel' : 'bulk.layerLabel')}
                         </Label>
                         {/* Native <select> → themed ui/select. */}
-                        {/* fix(#1778): mirrors UrlImportForm.tsx's handleLayerChange
-                            guard (#1708 r24): the layer picker stayed live during a
-                            commit, so changing it re-enabled the commit button
-                            against a request that could not be recalled. */}
+                        {/* Mirrors UrlImportForm.tsx's handleLayerChange
+                            guard: a layer picker left live during a commit
+                            would re-enable the commit button against a
+                            request that cannot be recalled. */}
                         <Select
                           value={entry.previewData.layer_name}
                           onValueChange={(v) => onSheetChange?.(entry.id, v)}

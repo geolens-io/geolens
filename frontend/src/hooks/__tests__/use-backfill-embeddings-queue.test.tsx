@@ -6,7 +6,7 @@ import { useBackfillEmbeddings, useEmbeddingStats } from '@/hooks/use-admin';
 import { getEmbeddingStats } from '@/api/admin';
 import type { EmbeddingStatsResponse } from '@/types/api';
 
-// fix(#1542): the backfill runs on the job queue now. Two consequences reach
+// The backfill runs on the job queue. Two consequences reach
 // this hook: the response is an acknowledgement with a job id rather than a
 // result with counts, and a run already in flight comes back as 409 — a
 // refusal, not a failure. Reporting the refusal as "Embedding backfill failed"
@@ -74,9 +74,9 @@ describe('useBackfillEmbeddings (#1542)', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  // fix(#2025): the enqueue response proves a run exists, and the stats
+  // The enqueue response proves a run exists, and the stats
   // endpoint is where its progress is read. Without this refetch the operator
-  // who queued the run waited out the 30s staleTime before the bar appeared.
+  // who queued the run would wait out the 30s staleTime before the bar appears.
   it('refetches the coverage stats so the queued run starts reporting progress', async () => {
     mockGetEmbeddingStats.mockResolvedValue(STATS);
     mockTriggerBackfill.mockResolvedValueOnce({

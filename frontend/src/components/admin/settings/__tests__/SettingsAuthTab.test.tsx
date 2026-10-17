@@ -316,7 +316,7 @@ describe('SettingsAuthTab', () => {
     });
   });
 
-  // fix(#1117): every OAuth mutation has to refresh BOTH the admin table
+  // Every OAuth mutation has to refresh BOTH the admin table
   // (settingsOAuth.providers, read here) and the login page's buttons
   // (authConfig.oauthProviders, read by components/auth/OAuthButtons.tsx). Only the
   // first was invalidated, so an admin who added or removed a provider and then
@@ -428,9 +428,9 @@ describe('SettingsAuthTab', () => {
     });
   });
 
-  // fix(#1755): the OAuth client secret is an admin secret, not a login
+  // The OAuth client secret is an admin secret, not a login
   // credential -- it needs the same password-manager opt-out attributes the
-  // service-token inputs gained in #1750.
+  // service-token inputs carry.
   describe('Client Secret field opts out of password managers', () => {
     it('opts out the client secret field', async () => {
       const user = userEvent.setup();
@@ -447,7 +447,7 @@ describe('SettingsAuthTab', () => {
     });
   });
 
-  // fix(#1778): email_verification_required registers on tab="auth" but no
+  // email_verification_required registers on tab="auth" but no
   // tab component read the key, so the control an operator needs to decide
   // whether self-registered accounts activate without proving an address was
   // invisible in the admin UI.

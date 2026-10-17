@@ -1,7 +1,7 @@
 import { render, screen } from '@/test/test-utils';
 import { SpatialFilterPanel } from '../SpatialFilterPanel';
 
-// test(#828): region-label coverage. The map canvas cannot carry an aria-label
+// Region-label coverage. The map canvas cannot carry an aria-label
 // (@vis.gl/react-maplibre v8 drops it), so the wrapper role="region" label and
 // the control labels are the only accessible names this panel has — a broken
 // t() lookup would render an unlabeled region and empty buttons with no test

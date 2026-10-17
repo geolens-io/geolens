@@ -53,7 +53,7 @@ function renderWithClient<T>(factory: () => T): { result: { current: T }; qc: Qu
 describe('useJobStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // fix(#762): the hook now gates on an auth token; these tests run as an
+    // The hook gates on an auth token; these tests run as an
     // authenticated user unless they say otherwise.
     useAuthStore.setState({ token: 'jwt-token', refreshToken: null, expiresAt: null, user: null });
   });
@@ -95,10 +95,10 @@ describe('useJobStatus', () => {
   });
 
   /**
-   * fix(#1556): the poll's terminal check is a DENYLIST, so a terminal status
+   * The poll's terminal check is a DENYLIST, so a terminal status
    * missing from it does not merely mis-render — it polls /jobs/{id} every 2s
-   * for the life of the tab. An abandoned presigned upload now settles
-   * 'cancelled', which was the missing one.
+   * for the life of the tab. An abandoned presigned upload settles
+   * 'cancelled', so it has to be in the set.
    */
   it('stops polling once a job settles cancelled', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -144,9 +144,9 @@ describe('useJobStatus', () => {
   });
 
   /**
-   * fix(#1778): before this, refetchInterval only checked
-   * query.state.data?.status, so a query stuck in isError (data stays
-   * undefined) polled /jobs/{id} every 2s for the life of the tab.
+   * refetchInterval must not rely on query.state.data?.status alone: a query
+   * stuck in isError (data stays undefined) would poll /jobs/{id} every 2s
+   * for the life of the tab.
    */
   it('stops polling once the status read settles a definitive 404', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

@@ -17,17 +17,17 @@ import { Badge } from '@/components/ui/badge';
 export function AIStatusCard() {
   const { t } = useTranslation('admin');
   const { can } = usePermissions();
-  // fix(#653): /admin/ai-status is gated by require_ai_status_reader, which
+  // /admin/ai-status is gated by require_ai_status_reader, which
   // switches from manage_users to manage_tenants in multi-tenant mode — a
   // manage_users-only gate hid the card from multi-tenant operators and fired
   // queries the backend 403s.
   const canReadAIStatus = useAIStatusReader();
   const canManageUsers = can('manage_users');
-  // fix(#817): the settings link targets /admin/settings/ai, whose route gate
+  // The settings link targets /admin/settings/ai, whose route gate
   // is mode-aware (manage_tenants in multi-tenant) — match it.
   const canAdminSettings = useSettingsAdmin();
   const { data: aiStatus, isLoading } = useAIStatus({ enabled: canReadAIStatus });
-  // fix(#653): /admin/embedding-stats requires manage_users in BOTH tenancy
+  // /admin/embedding-stats requires manage_users in BOTH tenancy
   // modes, so it keeps its own gate; the card gate alone would 403 for a
   // manage_tenants-only operator.
   const { data: embeddingStats } = useEmbeddingStats({

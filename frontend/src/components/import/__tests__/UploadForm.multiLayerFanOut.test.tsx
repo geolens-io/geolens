@@ -224,8 +224,8 @@ async function driveToReview(preview: ReturnType<typeof makeMultiLayerPreview>) 
 describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 1058-04)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // fix(#1712): UploadForm drives uploads through the module-scoped
-    // upload-session singleton now. Test (a) deliberately leaves its entry
+    // UploadForm drives uploads through the module-scoped
+    // upload-session singleton. Test (a) deliberately leaves its entry
     // in the session (single-layer fan-out is a no-op), which would
     // otherwise be ADOPTED by the next test's render() in place of its own
     // fresh drop.
@@ -457,8 +457,8 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
 describe('UploadForm — "Import All with Defaults" threads the selected layer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // fix(#1712): UploadForm drives uploads through the module-scoped
-    // upload-session singleton now. Test (a) deliberately leaves its entry
+    // UploadForm drives uploads through the module-scoped
+    // upload-session singleton. Test (a) deliberately leaves its entry
     // in the session (single-layer fan-out is a no-op), which would
     // otherwise be ADOPTED by the next test's render() in place of its own
     // fresh drop.

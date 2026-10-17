@@ -121,10 +121,9 @@ function validateSources(
       }
     }
 
-    // fix(#1778): dtype comes from the first band of raster:bands, the
-    // shape the API actually returns — the flat dtype field this check
-    // used to read was never emitted by the serializer, so it was always
-    // undefined and this check was dead code.
+    // Dtype comes from the first band of raster:bands, the
+    // shape the API actually returns (the serializer emits no flat dtype
+    // field).
     const srcDtype = src.properties['raster:bands']?.[0]?.data_type;
     const firstDtype = first.properties['raster:bands']?.[0]?.data_type;
 
@@ -202,7 +201,7 @@ function errorMessage(
   code: string,
   src: OGCRecordResponse,
   first: OGCRecordResponse,
-  // fix(#1877): must use the same reference (refCrs, the first source with
+  // Must use the same reference (refCrs, the first source with
   // a KNOWN crs) that validateSources compares against — not `first`, which
   // can itself be crs-unset.
   refCrs: string | null | undefined,
@@ -304,11 +303,12 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     }
   }, [multiSourceErrorCount, t]);
 
-  // fix(#1758): the search input's blur delay below used to outlive the
-  // component. Unmounting inside its 150 ms window left the timer queued, and
-  // firing it afterwards called setState on a torn-down tree. In vitest that
-  // surfaced as an unhandled `window is not defined` thrown out of react-dom's
-  // scheduler, which fails the whole run even when every test passes.
+  // The search input's blur delay below must not outlive the component.
+  // Unmounting inside its 150 ms window would leave the timer queued, and
+  // firing it afterwards would call setState on a torn-down tree. In vitest
+  // that surfaces as an unhandled `window is not defined` thrown out of
+  // react-dom's scheduler, which fails the whole run even when every test
+  // passes.
   useEffect(
     () => () => {
       if (blurTimerRef.current !== null) clearTimeout(blurTimerRef.current);
@@ -351,13 +351,13 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     title.trim().length === 0 ||
     createVrtMutation.isPending;
 
-  // fix(#1877): the same reference validateSources compares CRS against —
+  // The same reference validateSources compares CRS against —
   // the first source with a KNOWN crs, not necessarily selectedSources[0].
   const refCrs = selectedSources.find((s) => s.properties.crs)?.properties.crs;
 
-  // fix(#1811): validationErrors only ever reached a per-source tooltip, so
-  // Create disabled with no visible reason. Same messages, deduplicated, as
-  // always-visible text.
+  // validationErrors are also shown as always-visible text (same messages,
+  // deduplicated), so a disabled Create button has a visible reason beyond
+  // the per-source tooltip.
   const mismatchReasons = hasErrors
     ? [...new Set(
         selectedSources.flatMap((source) =>
@@ -619,7 +619,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
             <p className="text-xs text-muted-foreground">{t('vrt.minSources')}</p>
           )}
 
-          {/* fix(#1811): same reasons the per-source tooltip already
+          {/* Same reasons the per-source tooltip already
               carries, surfaced as always-visible text. */}
           {hasErrors && (
             <div id="vrt-mismatch-reasons" className="space-y-0.5">

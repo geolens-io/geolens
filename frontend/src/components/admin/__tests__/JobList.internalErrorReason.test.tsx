@@ -2,7 +2,7 @@ import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { JobList } from '../JobList';
 
-// fix(#2035): a stored 'internal_error' must read the same operator-facing
+// A stored 'internal_error' must read the same operator-facing
 // sentence as the CLI (cli/geolens_cli/refresh.py), not the generic fallback.
 
 const { mockUseAdminJobs } = vi.hoisted(() => ({ mockUseAdminJobs: vi.fn() }));

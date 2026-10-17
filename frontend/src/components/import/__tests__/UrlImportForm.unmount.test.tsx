@@ -66,7 +66,7 @@ const VECTOR_PREVIEW = {
 beforeEach(() => {
   vi.clearAllMocks();
   clearUrlImport();
-  // fix(#1710): this suite drives the REAL useJobStatus, which is gated on a
+  // This suite drives the REAL useJobStatus, which is gated on a
   // signed-in token, and the form parks on the download until the job reads
   // `pending`. Without both the resumed mount never reaches preview.
   useAuthStore.setState({ token: 'test-token' });

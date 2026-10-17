@@ -1,10 +1,10 @@
 /**
- * feat(#1486): the credit line drawn into every rendered map image.
+ * The credit line drawn into every rendered map image.
  *
  * The fitter is the only piece with real logic, so it carries most of these
  * tests. Its stub context measures LENGTH-PROPORTIONALLY (`chars * 0.5 *
  * fontPx`): a constant-width stub cannot exercise a wrap boundary at all,
- * which is how #1541's dropped credits went unseen at this level.
+ * which would let dropped credits go unseen at this level.
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -455,7 +455,7 @@ describe('readRenderedAttribution', () => {
     expect(readRenderedAttribution(sourcesMap('   ', '\n\t'))).toEqual([]);
   });
 
-  /* feat(#1553 candidate 4): <object>, <embed>, <iframe> and <video> render
+  /* <object>, <embed>, <iframe> and <video> render
    * perfectly visibly in the on-screen control — MapLibre's sanitizer strips
    * only <script>, on* handlers and javascript:/data: URLs — and none of them
    * derives DOM text. They take the same treatment as an unnamed <img>:
@@ -690,7 +690,7 @@ describe('readRenderedAttribution', () => {
   });
 
   it('counts a filter-excluded source as shown, exactly as the control does', () => {
-    // feat(#1553 candidate 2), settled by parity rather than by evaluation:
+    // Settled by parity with the control rather than by evaluation:
     // MapLibre sets `used` from `!layer.isHidden(zoom)` alone (verified in the
     // 6.5.0 source), so a layer whose filter matches no feature still puts its
     // source's credit in the on-screen control. Matching the control means
@@ -712,7 +712,7 @@ describe('readRenderedAttribution', () => {
     expect(credits).toEqual(['© Filtered But Credited', '© Plain']);
   });
 
-  /* feat(#1553 candidate 1): the priority set reads MapLibre's OWN live
+  /* The priority set reads MapLibre's OWN live
    * `used`/`usedForTerrain` flags — the exact state the on-screen control
    * renders from (`map.style.tileManagers` in 6.5.0) — whenever the map
    * exposes them, so the partition cannot drift from the control. The modeled
@@ -875,7 +875,7 @@ describe('readRenderedAttribution', () => {
   });
 
   it('collapses raw-distinct credits whose rendered text is identical', () => {
-    // chore(#1553 candidate 3): the one DELIBERATE divergence from the
+    // The one DELIBERATE divergence from the
     // control's dedupe, which compares raw HTML and renders `© OSM | © OSM`
     // for two anchors differing only in href. Text is what the image renders,
     // so text-identical credits are visual duplicates here and keep one line.
@@ -1704,7 +1704,7 @@ describe('export canvas ceiling', () => {
   });
 });
 
-/* feat(#1553): the layout fits only what the budget can hold. The bound is
+/* The layout fits only what the budget can hold. The bound is
  * sound only if it cannot change an answer, which these assert — including on
  * the word-wrapper path, where a misplaced bound would pick the wrong one. */
 describe('bounded layout (#1553)', () => {

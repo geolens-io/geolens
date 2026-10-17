@@ -162,7 +162,7 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisJobStore.getState().job).not.toBeNull();
   });
 
-  // fix(#1677): the cancel control made `cancelled` a reachable TERMINAL
+  // The cancel control made `cancelled` a reachable TERMINAL
   // status for every job type. `useJobStatus` already stopped polling on it,
   // but this watcher cleared only on complete/failed — so a cancelled
   // analysis job stayed in the PERSISTED store forever, survived reloads, and
@@ -212,7 +212,7 @@ describe('AnalysisJobWatcher', () => {
     expect(useAnalysisJobStore.getState().job).toBeNull();
   });
 
-  // feat(#1008): two builders open means two watchers polling the same job.
+  // Two builders open means two watchers polling the same job.
   // Without a claim each raises its own toast and its own invalidation — the
   // per-job toastId only collapses StrictMode's double invoke within one tab.
   it('stays silent when another tab already claimed the completion', async () => {
@@ -719,9 +719,9 @@ describe('AnalysisJobWatcher', () => {
     expect(onAdd).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#833): the single-use guard is shared with the Analysis panel's own
-  // "Add to map" button — each affordance used to dedupe only against itself,
-  // so clicking the toast action and then the panel button added twice.
+  // The single-use guard is shared with the Analysis panel's own
+  // "Add to map" button — if each affordance deduped only against itself,
+  // clicking the toast action and then the panel button would add twice.
   it('the toast action shares its single-use marker via useAnalysisAddedStore', async () => {
     const onAdd = vi.fn();
     registerAnalysisAddToMap(onAdd, 'm1');

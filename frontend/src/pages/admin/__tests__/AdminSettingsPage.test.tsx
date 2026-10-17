@@ -152,13 +152,12 @@ describe('AdminSettingsPage', () => {
     expect(screen.getByTestId('settings-general-tab')).toBeInTheDocument();
   });
 
-  // test(#828): the appearance tab's edition gate lives here (visibleTabs
+  // The appearance tab's edition gate lives here (visibleTabs
   // excludes 'appearance' unless isEnterprise). Both edition directions are
   // pinned below because e2e can only ever observe one of them — the stack
-  // under test has a single edition. fix(#871) removed the static
-  // appearance→map redirect from App.tsx that used to outrank
-  // `admin/settings/:tab` and keep this gate from ever seeing the URL; these
-  // two cases are what the route now delegates to.
+  // under test has a single edition. App.tsx has no static appearance→map
+  // redirect that would outrank `admin/settings/:tab` and keep this gate from
+  // ever seeing the URL; these two cases are what the route delegates to.
   describe('appearance tab edition gating (#828)', () => {
     function renderAppearanceRoute() {
       mockUseParams.mockReturnValue({ tab: 'appearance' });

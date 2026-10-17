@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /**
- * fix(#726): whether a builder draw mode currently owns the map pointer.
+ * Whether a builder draw mode currently owns the map pointer.
  *
  * The analysis clip mask runs its own TerraDraw instance over the live map
  * (AnalysisPanel). A vertex click places its vertex and then falls through to

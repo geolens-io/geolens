@@ -214,7 +214,7 @@ export function DatasetPage() {
     setIsTaskMapPreviewOpen(false);
     setIsDataTabExpanded(false);
   }, [id]);
-  // fix(#583): pad the page clear of the open AI chat panel — the fixed panel
+  // Pad the page clear of the open AI chat panel — the fixed panel
   // otherwise floats over the sticky detail tabs and header stat cells.
   const [isChatOpen, setIsChatOpen] = useState(false);
   const isEditor = useAuthStore((s) => s.isEditor());
@@ -278,7 +278,7 @@ export function DatasetPage() {
   const handleTabChange = useCallback(
     (value: string) => {
       setActiveTab(value);
-      // fix(#1991): router navigation, not a raw `window.location.hash` write.
+      // Router navigation, not a raw `window.location.hash` write.
       // The raw write is a POP the data router did not create, which disarms
       // useUnsavedGuard's blocker. `search` is passed because a partial `to`
       // defaults it to empty and would drop the query string.
@@ -833,9 +833,9 @@ export function DatasetPage() {
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
-                // fix(#1851): "Leave" claimed to discard but only navigated —
-                // the staged drafts stayed in state and reappeared (then could
-                // PATCH) on whatever mounted next.
+                // "Leave" must discard, not only navigate — otherwise the
+                // staged drafts stay in state and reappear (then could PATCH)
+                // on whatever mounts next.
                 discardPendingDrafts();
                 blocker.proceed?.();
               }}

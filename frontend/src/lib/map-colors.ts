@@ -100,16 +100,15 @@ export const MAP_COLORS = {
     background: '#ffffff',
     text: '#0a0a0a',
     mutedText: '#666666',
-    /** "Powered by GeoLens". fix(#1486): renamed from `attribution`, which it
-     *  never was — it paints branding, and the name became actively misleading
-     *  once real map attribution existed. Real attribution uses `mutedText`,
-     *  because #999999 on white is about 2.8:1 and a licence-required credit
-     *  is not somewhere to reuse a decorative contrast. */
+    /** "Powered by GeoLens". Named `branding`, not `attribution`: it paints
+     *  branding, and real map attribution uses `mutedText` because #999999 on
+     *  white is about 2.8:1 and a licence-required credit is not somewhere to
+     *  reuse a decorative contrast. */
     branding: '#999999',
-    /** feat(#1486): ground for the credit line drawn over map imagery in the
+    /** Ground for the credit line drawn over map imagery in the
      *  thumbnail and OG crops. 0.78 alpha establishes its own ground, so one
      *  fixed light-scrim/dark-text pair stays legible over both light and dark
-     *  tiles — and over the globe's space backdrop (#1479). */
+     *  tiles — and over the globe's space backdrop. */
     attributionScrim: 'rgba(255,255,255,0.78)',
     /** The void a globe leaves around itself is
      *  transparent in the WebGL canvas, so a capture composited over

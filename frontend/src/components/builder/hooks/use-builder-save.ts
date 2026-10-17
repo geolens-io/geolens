@@ -306,7 +306,7 @@ function doCapture(
       drawAttributionOverlay(og, credits, OG_ATTRIBUTION);
 
       uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
-        // chore(#1021): this refetches nothing on the builder route, and that is
+        // This refetches nothing on the builder route, and that is
         // expected rather than a bug. maps.all is ['maps'] while the builder mounts
         // useMap, which is ['map', id], a different root string. The target is the
         // MapsPage browse list (['maps', params]), whose MapCard renders

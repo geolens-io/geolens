@@ -11,13 +11,11 @@ import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/ty
  * 'fanned_out' is terminal because the parent never transitions again; its
  * children (with their own job IDs) carry forward progress. See SMOKE-v1013-F1.
  *
- * fix(#1556): 'cancelled' joined the set, and the set became a named function
- * rather than an inline condition. This is a DENYLIST — anything missing from
- * it polls /jobs/{id} every 2s for the life of the tab — so it has to be
- * exhaustive over the status enum, and the one place that decides is easier to
- * keep exhaustive than a condition inside a query option. An abandoned
- * presigned upload now settles 'cancelled' instead of 'failed', which is
- * exactly the status that was missing.
+ * This is a DENYLIST — anything missing from it polls /jobs/{id} every 2s for
+ * the life of the tab — so it has to be exhaustive over the status enum, and
+ * a named function is easier to keep exhaustive than a condition inside a
+ * query option. 'cancelled' is in the set: an abandoned presigned upload
+ * settles 'cancelled'.
  */
 export function isTerminalJobStatus(status: string | undefined): boolean {
   return (
@@ -40,10 +38,10 @@ export function isDefinitiveJobError(error: unknown): boolean {
 }
 
 export function useJobStatus(jobId: string | null) {
-  // fix(#762): AnalysisJobWatcher mounts in RootLayout with a persist-backed
-  // job id, so without this gate a stale tracked job made an anonymous
+  // AnalysisJobWatcher mounts in RootLayout with a persist-backed
+  // job id, so without this gate a stale tracked job would make an anonymous
   // visitor on a public page fire an authenticated-only poll — whose 401
-  // logged them out. Sibling useDatasetJobStatus gates identically; once a
+  // would log them out. Sibling useDatasetJobStatus gates identically; once a
   // token appears the poll resumes and the watcher resolves the stale job.
   const hasToken = useAuthStore((s) => !!s.token);
   return useQuery({
@@ -51,7 +49,7 @@ export function useJobStatus(jobId: string | null) {
     queryFn: () => getJobStatus(jobId!),
     enabled: !!jobId && hasToken,
     staleTime: 2000,
-    // fix(#1778): a 401/403/404 on the status read is definitive (gone or no
+    // A 401/403/404 on the status read is definitive (gone or no
     // longer ours), matching AnalysisJobWatcher's `gone` check — stop polling
     // rather than hammering the endpoint every 2s for the life of the tab.
     refetchInterval: (query) => {
@@ -112,10 +110,10 @@ export function useRetryJob() {
   });
 }
 
-// fix(#1778): #1709 granted job-creator cancel server-side but shipped no
-// caller for it on the import surfaces the creator actually uses (JobProgress
-// terminates every import path) — only the admin job list and the refresh-run
-// history reached /jobs/{id}/cancel. Same shape as useCancelAdminJob
+// The backend grants job-creator cancel; this is the caller for the import
+// surfaces the creator actually uses (JobProgress terminates every import
+// path), alongside the admin job list and the refresh-run history. Same
+// shape as useCancelAdminJob
 // (hooks/use-admin.ts), scoped to the ingest job-status query import owns.
 export function useCancelJob() {
   const qc = useQueryClient();

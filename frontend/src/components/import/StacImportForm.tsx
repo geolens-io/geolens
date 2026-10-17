@@ -49,7 +49,7 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 
-// feat(#1764): the four-way choice the backend's CredentialMethod enum names.
+// The four-way choice the backend's CredentialMethod enum names.
 // A copy rather than a shared component, matching ServiceCredentialBlock's
 // own note that converging the two is a follow-up.
 type StacCredentialMethod = 'none' | 'bearer' | 'basic' | 'header';
@@ -189,7 +189,7 @@ export function StacImportForm() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const importErrorId = useId();
-  // fix(#1712): a mount that STARTED the import must not act on its own
+  // A mount that STARTED the import must not act on its own
   // settlement after it unmounts — `handleImport`'s function body keeps
   // running past an unmount (unlike the request itself, nothing cancels
   // it), and without this guard it would call setStep/clearStacImport for a
@@ -214,7 +214,7 @@ export function StacImportForm() {
     [items],
   );
 
-  // fix(#1764): a failed Connect returns here with the credential intact, so
+  // A failed Connect returns here with the credential intact, so
   // editing the URL to another catalog would send the first catalog's key to
   // the second. Same reset, same reason, as ServiceUrlForm's.
   const authOrigin = originOf(url);
@@ -277,7 +277,7 @@ export function StacImportForm() {
     setProbedSizes({});
     setImportResult(null);
     setError(null);
-    // fix(#1712): defensive symmetry with the success/failure settlement
+    // Defensive symmetry with the success/failure settlement
     // paths above, which already clear on their own — reset is not
     // reachable while an import is actually in flight (no control renders
     // during the 'importing' step), but this keeps the invariant explicit
@@ -336,7 +336,7 @@ export function StacImportForm() {
     setError(null);
 
     try {
-      // feat(#1764): the same credential the connect step used, so search
+      // The same credential the connect step used, so search
       // sees what connect saw rather than the anonymous view.
       const auth = buildStacAuth();
       const result = await searchStacItems({
@@ -511,15 +511,15 @@ export function StacImportForm() {
         collection: i.collection,
         title: i.title,
         data_asset_href: i.data_asset_href!,
-        // feat(#1266): echo which asset key the href came from. The href is
+        // Echo which asset key the href came from. The href is
         // what an upstream publisher moves; the key is what still names the
         // same asset afterwards, so a refresh follows the move instead of
         // re-running the priority list and possibly binding another band.
         data_asset_key: i.data_asset_key,
-        // feat(#1692): echo the asset's declared media type so the persisted
+        // Echo the asset's declared media type so the persisted
         // origin asset re-advertises it on the STAC items GeoLens serves.
         data_asset_type: i.data_asset_type,
-        // feat(#1222): echo the item's own href back so the dataset's origin
+        // Echo the item's own href back so the dataset's origin
         // can point at the item, not only its asset. The health probe needs
         // both to tell "the file is gone" from "the publisher withdrew it".
         item_href: i.item_href,
@@ -530,7 +530,7 @@ export function StacImportForm() {
         keywords: selectedCollection?.keywords ?? [],
       }));
 
-    // fix(#1712): the request lives at module scope so its outcome is not
+    // The request lives at module scope so its outcome is not
     // lost if this form unmounts before it settles (see
     // api/stac-import-session.ts for why this is the one STAC call worth
     // protecting). Awaiting the SAME promise the session holds means this
@@ -556,7 +556,7 @@ export function StacImportForm() {
       },
       search: { startDate, endDate, bboxText, maxCloud, cloudCoverSeen, appliedFilters, nextPage },
     };
-    // feat(#1764): a boolean, never the credential. `/import` contacts no
+    // A boolean, never the credential. `/import` contacts no
     // catalog, so this is the only way the dataset can learn that browsing
     // this one needed a credential and its first refresh should ask for one.
     const session = startStacImport(
@@ -568,7 +568,7 @@ export function StacImportForm() {
     );
     try {
       const result = await session.promise;
-      // fix(#1712): if this mount unmounted while the request was in
+      // If this mount unmounted while the request was in
       // flight, the session is now what the NEXT mount adopts — leave it
       // alone rather than clearing it out from under that adoption.
       if (!mountedRef.current) return;
@@ -599,7 +599,7 @@ export function StacImportForm() {
     }
   };
 
-  // fix(#1712): re-attach to an import that was running (or finished) while
+  // Re-attach to an import that was running (or finished) while
   // this form was unmounted. Without this, a tab switch mid-import loses
   // the created/skipped/error counts even though the datasets it created
   // are real (see the module docstring for why this is milder than the
@@ -1289,7 +1289,7 @@ export function StacImportForm() {
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 className="font-mono text-sm"
-                // fix(#1746): autocomplete="off" alone does not stop Chrome
+                // autocomplete="off" alone does not stop Chrome
                 // offering a saved password on a service credential, so opt
                 // every password manager out explicitly.
                 autoComplete="new-password"

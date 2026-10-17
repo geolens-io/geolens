@@ -136,7 +136,7 @@ describe('LazyLoadErrorBoundary', () => {
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 
-  // fix(#834): silent boundary — must feed the problem-report buffer
+  // Silent boundary — must feed the problem-report buffer
   it('records the crash in the problem-report buffer', () => {
     render(
       <LazyLoadErrorBoundary>
@@ -163,7 +163,7 @@ describe('PluginErrorBoundary', () => {
     expect(screen.queryByText('Test error')).not.toBeInTheDocument();
   });
 
-  // fix(#834): silent boundary — must feed the problem-report buffer
+  // Silent boundary — must feed the problem-report buffer
   it('records the crash in the problem-report buffer', () => {
     render(
       <PluginErrorBoundary pluginId="test-plugin">
@@ -206,7 +206,7 @@ describe('RouteErrorBoundary', () => {
     );
   });
 
-  // fix(#834): silent boundary — must feed the problem-report buffer
+  // Silent boundary — must feed the problem-report buffer
   it('records the route error in the problem-report buffer', () => {
     render(<RouteErrorBoundary />);
     expect(getReportEntries()).toEqual(

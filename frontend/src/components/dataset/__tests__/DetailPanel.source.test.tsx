@@ -74,7 +74,7 @@ function makeDataset(recordType: RecordType): DatasetResponse {
   };
 }
 
-// feat(#1285): DetailPanel now wires the "Refresh from source" action into
+// DetailPanel now wires the "Refresh from source" action into
 // SourcePanel's `actions` slot, gated on canEdit AND REFRESHABLE_ORIGINS
 // (origin presence alone is too broad — an upload,
 // created, or STAC origin resolves just fine but the refresh door refuses
@@ -139,7 +139,7 @@ it.each<[string, string]>([
 );
 
 it('offers the refresh action for a stac-origin dataset, which now has a strategy', () => {
-  // feat(#1266): the refresh door dispatches stac to its own executor, which
+  // The refresh door dispatches stac to its own executor, which
   // re-reads the item document and follows the asset if the publisher moved
   // it. A binding whose item identity cannot be verified is still refused,
   // but per dataset and with a reason the error-map renders — not by hiding

@@ -1,6 +1,6 @@
-// fix(#645): the reload latch must fire once, block rapid repeats, and allow
+// The reload latch must fire once, block rapid repeats, and allow
 // a later retry after the window expires — otherwise a broken build loops.
-// fix(#1515): and when the latch itself is unreachable, it must not reload at
+// And when the latch itself is unreachable, it must not reload at
 // all — an unlatched reload IS the loop.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

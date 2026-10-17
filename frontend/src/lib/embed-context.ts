@@ -1,7 +1,7 @@
 /**
- * fix(#1515): is this document the embedded map viewer?
+ * Is this document the embedded map viewer?
  *
- * The embed snippet now ships `sandbox="allow-scripts allow-same-origin"`,
+ * The embed snippet ships `sandbox="allow-scripts allow-same-origin"`,
  * because without it the frame has an opaque origin and cannot load its own
  * module graph. Restoring the origin also restores the viewer's persisted
  * session, and an embed running as whoever happens to be signed in is not what
@@ -9,8 +9,7 @@
  * on its own. So the API client reads this and stays out of the session
  * entirely — no bearer token, no proactive refresh, and no logout on a 401.
  *
- * That last one is not a nicety. Before this change the frame was opaque and
- * had no session to spend; now a 401 from inside someone else's page would
+ * That last one is not a nicety. A 401 from inside someone else's page would
  * otherwise run the refresh-then-logout path and sign the viewer out of GeoLens
  * in their other tabs.
  *

@@ -8,9 +8,8 @@ import {
   type Bbox,
 } from '../bbox';
 
-// fix(#903): the shape the backend can now produce (RFC 7946 §5.2 / STAC spec
-// form) and that nothing on the frontend understood. Fiji is the canonical
-// case: ~3° of longitude reported as `west > east`.
+// The shape the backend can produce (RFC 7946 §5.2 / STAC spec form).
+// Fiji is the canonical case: ~3° of longitude reported as `west > east`.
 const FIJI: Bbox = [178.5, -20, -178.5, -15];
 const NYC: Bbox = [-74.5, 40.5, -73.5, 41.5];
 const WORLD: Bbox = [-180, -90, 180, 90];

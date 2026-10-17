@@ -359,9 +359,8 @@ describe('queryKeys factory', () => {
   // -------------------------------------------------------------------------
   describe('saml', () => {
     it('providers returns expected key', () => {
-      // fix(#1164): pins the string the admin SAML list has always cached under.
-      // It used to live only in inline literals at the call sites, so nothing
-      // caught a typo that turned an invalidation into a no-op.
+      // Pins the string the admin SAML list caches under, so a typo cannot
+      // silently turn an invalidation into a no-op.
       expect(queryKeys.saml.providers).toEqual(['saml', 'providers']);
     });
 

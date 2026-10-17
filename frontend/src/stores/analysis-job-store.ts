@@ -17,7 +17,7 @@ export interface TrackedAnalysisJob {
 }
 
 /**
- * feat(#1008): the written claim on a job's completion.
+ * The written claim on a job's completion.
  *
  * Only the most recent one is kept — the store tracks a single job at a time,
  * so an older claim can never be consulted again.
@@ -30,8 +30,8 @@ export interface AnalysisCompletionClaim {
   /** How the run ended. A tab that never observed the
    *  terminal poll itself still has document-local cleanup to do once the
    *  claim reaches it, and complete and failed call for different cleanup.
-   *  fix(#1677): 'cancelled' joined the set — cancel is a user-reachable
-   *  terminal status for every job type now, analysis included. */
+   *  'cancelled' is in the set — cancel is a user-reachable
+   *  terminal status for every job type, analysis included. */
   status: 'complete' | 'failed' | 'cancelled';
   at: number;
 }
@@ -284,7 +284,7 @@ export const useAnalysisJobStore = create<AnalysisJobState>()(
 );
 
 /**
- * feat(#1008): cross-tab mirror.
+ * Cross-tab mirror.
  *
  * Two builders open on the same map each poll the same materialize job, and
  * neither knows about the other: the second tab's Create button stays enabled
@@ -354,10 +354,10 @@ export function registerAnalysisAddToMap(
 }
 
 /**
- * fix(#833): dataset ids already added to a map through an analysis
+ * Dataset ids already added to a map through an analysis
  * "Add to map" affordance. A completed run raises TWO affordances (the
- * watcher's toast action and the Analysis panel's button); each used to keep
- * its own single-use flag, so clicking both added the layer twice. Shared
+ * watcher's toast action and the Analysis panel's button); separate
+ * single-use flags would let clicking both add the layer twice. Shared
  * here so either click retires both. A store (not a module Set) so the panel
  * button re-renders to its "Added to map" state when the toast action does
  * the add. Session-scoped and keyed on dataset id on purpose: a NEW run's

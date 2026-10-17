@@ -145,7 +145,7 @@ describe('buildClusterTileUrl', () => {
     );
   });
 
-  // fix(#403): unclustered features on the server-cluster path are styled and
+  // Unclustered features on the server-cluster path are styled and
   // popup-inspected like plain vector features, so the cols= opt-in must ride
   // the cluster tile URL too (sorted + deduped for cache-key stability).
   it('appends normalized cols= so unclustered features carry attributes', () => {
@@ -217,10 +217,10 @@ describe('isMvtSourceLayerConfigReady', () => {
 });
 
 // ---------------------------------------------------------------------------
-// chore(#835): shared first-party/third-party classifier + transformRequest
-// builder. The three map surfaces (BuilderMap / ViewerMap / DatasetMap) had
-// drifted apart here — the viewer's missing raster Bearer (#819) was this
-// drift biting, so the header behavior is pinned below.
+// Shared first-party/third-party classifier + transformRequest
+// builder. The three map surfaces (BuilderMap / ViewerMap / DatasetMap) share
+// it so they cannot drift apart (e.g. a surface missing the raster Bearer),
+// and the header behavior is pinned below.
 // ---------------------------------------------------------------------------
 
 describe('isThirdPartyTileUrl', () => {
@@ -271,7 +271,7 @@ describe('buildTileTransformRequest', () => {
     });
   });
 
-  // fix(#1688 follow-up): transformRequest runs before MapLibre's protocol
+  // transformRequest runs before MapLibre's protocol
   // dispatch, so a pmtiles:// URL must pass through byte-identical or the
   // registered protocol handler never sees it.
   it('passes pmtiles:// URLs through unchanged with no headers', () => {

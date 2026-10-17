@@ -106,8 +106,8 @@ describe('SettingsAITab — embedding coverage single spinner (#347 (ADM-05))', 
     expect(container.querySelectorAll('.animate-spin')).toHaveLength(0);
   });
 
-  // fix(#2025): the page used to track only the run it queued itself, so a run
-  // another operator started left both buttons live and the click bought a 409.
+  // Tracking only the run this page queued would leave both buttons live for
+  // a run another operator started, and the click would buy a 409.
   it('disables both buttons while a run somebody else started is in flight', () => {
     hoisted.useEmbeddingStats.mockReturnValue({
       data: {
@@ -153,14 +153,14 @@ describe('SettingsAITab — embedding coverage single spinner (#347 (ADM-05))', 
   });
 });
 
-// fix(#1503): after an embedding-model swap every stored vector belongs to the
+// After an embedding-model swap every stored vector belongs to the
 // previous model, so coverage reads 0 while the rows are still there. The panel
 // has to name that state and keep Regenerate All — the control that clears
 // those rows — reachable.
-// fix(#1506): the non-force backfill now selects on "no vector under the ACTIVE
-// model", so Generate Missing covers stale records too. #1503 gated that button
-// on `missing_records - stale_records > 0`, which hid the cheap remedy on the
-// exact state it fixes; the gate is now `missing_records > 0`.
+// The non-force backfill selects on "no vector under the ACTIVE
+// model", so Generate Missing covers stale records too. The button is gated on
+// `missing_records > 0`; gating on `missing_records - stale_records > 0` would
+// hide the cheap remedy on the exact state it fixes.
 describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => {
   beforeEach(() => {
     hoisted.canManageUsers = true;
@@ -200,9 +200,9 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
     expect(screen.getByRole('button', { name: 'Regenerate All' })).toBeInTheDocument();
   });
 
-  // fix(#1506): the counterfactual for the gate change. Under #1503's
+  // The counterfactual for the gate. Under
   // `missing_records - stale_records > 0` this state (100 missing, all of them
-  // stale) evaluated to 0 and the button was absent.
+  // stale) would evaluate to 0 and the button would be absent.
   it('offers Generate Missing when every missing record is stale', () => {
     renderTab();
     expect(screen.getByRole('button', { name: /Generate Missing/ })).toBeInTheDocument();
@@ -232,9 +232,8 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
     expect(screen.getByText(/cannot be used by semantic search/)).toBeInTheDocument();
   });
 
-  // fix(#1506): the warning used to send operators straight to Regenerate All,
-  // which re-embeds the whole catalog. It has to name the incremental remedy
-  // first now that one exists.
+  // Regenerate All re-embeds the whole catalog, so the warning has to name
+  // the incremental remedy first.
   it('names Generate Missing as the remedy before Regenerate All', () => {
     renderTab();
     expect(
@@ -243,7 +242,7 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
   });
 });
 
-// feat(#635): Test Connection button drives the live ?probe=true endpoint.
+// Test Connection button drives the live ?probe=true endpoint.
 describe('SettingsAITab — Test Connection probe (#635)', () => {
   const mockProbe = vi.mocked(probeAIStatus);
 
@@ -305,9 +304,9 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     expect(screen.queryByRole('button', { name: /Test Connection/ })).not.toBeInTheDocument();
   });
 
-  // fix(#652): require_ai_status_reader switches to manage_tenants in
+  // require_ai_status_reader switches to manage_tenants in
   // multi-tenant mode — the button gate must switch with it.
-  // fix(#653): the gate now flows through the shared useAIStatusReader hook;
+  // The gate now flows through the shared useAIStatusReader hook;
   // these tests exercise the real hook via the mocked permission/edition hooks.
   it('multi-tenant: manage_users alone does NOT show the button', () => {
     hoisted.isMultiTenant = true;
@@ -325,7 +324,7 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     expect(screen.getByRole('button', { name: /Test Connection/ })).toBeInTheDocument();
   });
 
-  // fix(#653): /admin/embedding-stats + /admin/backfill-embeddings require
+  // /admin/embedding-stats + /admin/backfill-embeddings require
   // manage_users in BOTH tenancy modes — unlike the ai-status reader gate,
   // the coverage block must NOT unlock for a manage_tenants-only operator.
   it('multi-tenant: manage_tenants alone keeps embedding coverage disabled', () => {
@@ -338,7 +337,7 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     expect(screen.queryByRole('button', { name: /Generate Missing/ })).not.toBeInTheDocument();
   });
 
-  // fix(#652): the probe tests PERSISTED settings — a dirty form must not
+  // The probe tests PERSISTED settings — a dirty form must not
   // let green results vouch for unsaved edits.
   it('disables the button and explains while the form has unsaved changes', async () => {
     const user = userEvent.setup();
@@ -354,7 +353,7 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     expect(mockProbe).not.toHaveBeenCalled();
   });
 
-  // fix(#652): prior results describe the persisted config — they must not
+  // Prior results describe the persisted config — they must not
   // stay visible next to unsaved edits they never probed.
   it('hides prior results while the form is dirty', async () => {
     const user = userEvent.setup();
@@ -380,7 +379,7 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     expect(screen.queryByText('OK')).not.toBeInTheDocument();
   });
 
-  // fix(#652): a failed retry must not keep showing the previous green rows.
+  // A failed retry must not keep showing the previous green rows.
   it('clears prior results when a retry fails before returning a probe body', async () => {
     const user = userEvent.setup();
     mockProbe.mockResolvedValueOnce({

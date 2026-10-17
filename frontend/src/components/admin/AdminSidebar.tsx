@@ -45,7 +45,7 @@ import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import type { Capability } from '@/lib/capabilities';
 
-// fix(#1185): the destructive recipe an alert badge needs, matching the
+// The destructive recipe an alert badge needs, matching the
 // `failed` pill in the jobs table (both come from `semanticBadgeColors`).
 // SidebarMenuBadge pins its color with `peer-hover/menu-button:` and
 // `peer-data-[active=true]/menu-button:` variants, so those prefixes have to
@@ -62,7 +62,7 @@ const overviewItems = [
   { labelKey: 'adminNav.overview', to: '/admin/overview', icon: LayoutDashboard, capability: 'manage_users' },
 ] as const;
 
-// fix(#1185): a badge that counts a PROBLEM rather than a total. Every other
+// A badge that counts a PROBLEM rather than a total. Every other
 // Operations badge is a row count for the list behind it, so a bare failed-job
 // count read as a broken total (badge 3, list 200). An alert badge renders in
 // destructive colors, is spoken as "N failed jobs" instead of a naked number,
@@ -83,7 +83,7 @@ type OperationItem = {
   alertBadge?: AlertBadge;
   enterpriseOnly?: boolean;
   capability: Capability;
-  // fix(#1778): SAML calls the mode-aware /settings/oauth-providers/ API
+  // SAML calls the mode-aware /settings/oauth-providers/ API
   // (manage_tenants in multi-tenant mode), not raw manage_settings, so its
   // visibility must follow useSettingsAdmin() like the Settings group does.
   settingsGated?: boolean;
@@ -162,7 +162,7 @@ export function AdminSidebar() {
   const { data: auditLogCount } = useAuditLogCount(canManageSettings);
   const { data: publishedMapCount } = usePublishedMapCount(canManageUsers);
   const { isEnterprise } = useEdition();
-  // fix(#817): the /settings/* API (including /settings/enterprise-tabs/)
+  // The /settings/* API (including /settings/enterprise-tabs/)
   // flips to manage_tenants in multi-tenant mode — gate the Settings nav
   // group and its query on the mode-aware hook, not raw manage_settings.
   const canAdminSettings = useSettingsAdmin();
@@ -207,7 +207,7 @@ export function AdminSidebar() {
     // top-14 + height calc keep the viewport-fixed sidebar below the sticky
     // h-14 navbar: without the offset the navbar buries the sidebar header and
     // slides over the sidebar during macOS elastic overscroll.
-    // fix(#569): include env(safe-area-inset-top) so the sidebar header
+    // Include env(safe-area-inset-top) so the sidebar header
     // doesn't sit under the navbar by the inset on notched devices.
     <Sidebar
       collapsible="icon"
@@ -249,7 +249,7 @@ export function AdminSidebar() {
               {visibleOperationsItems.map(({ labelKey, to, icon: Icon, badgeKey, alertBadge }) => {
                 const count = badgeKey ? badgeCounts[badgeKey] : undefined;
                 const showBadge = count !== undefined && count > 0;
-                // fix(#1185): the alert treatment applies only while the badge
+                // The alert treatment applies only while the badge
                 // is actually showing. At zero there is nothing to alert about,
                 // so the row stays a plain link to the unfiltered list.
                 const alertLabel =

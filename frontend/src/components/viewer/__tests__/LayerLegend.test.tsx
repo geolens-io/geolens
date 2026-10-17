@@ -408,13 +408,11 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     expect(screen.queryByText('3D terrain')).not.toBeInTheDocument();
   });
 
-  // Regression: the viewer keeps toggled-off layers in the list (visibility
-  // fix(#452): live-hiding the bound DEM now DISABLES terrain (useViewerTerrain
-  // honors visibleLayers), so the synthetic entry must disappear with it — a
-  // "3D terrain" row for a mesh that no longer renders is a phantom. The DEM
-  // keeps its own toggled-off per-layer row so the user can re-show it.
-  // (Inverts the pre-#452 pin: back then the mesh stayed active on live-hide,
-  // so the synthetic row had to stay too.)
+  // The viewer keeps toggled-off layers in the list, and live-hiding the
+  // bound DEM DISABLES terrain (useViewerTerrain honors visibleLayers), so the
+  // synthetic entry must disappear with it — a "3D terrain" row for a mesh
+  // that no longer renders is a phantom. The DEM keeps its own toggled-off
+  // per-layer row so the user can re-show it.
   it('drops the synthetic entry when the source DEM is live-toggled off', () => {
     render(
       <LayerLegend
@@ -439,7 +437,7 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     expect(screen.getByRole('button', { name: 'Show swissALTI3D relief' })).toBeInTheDocument();
   });
 
-  // fix(#452): icon parity — the legend renders the SAME glyph chip as the
+  // Icon parity — the legend renders the SAME glyph chip as the
   // builder layer stack (⛰ for a hillshade-mode DEM row, ◬ for the synthetic
   // terrain entry), not divergent lucide icons.
   it('renders stack-parity glyph chips for DEM rows and the synthetic terrain entry', () => {

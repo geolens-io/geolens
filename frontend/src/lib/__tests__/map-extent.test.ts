@@ -65,9 +65,9 @@ describe('computeLargeExtentView', () => {
   });
 });
 
-// fix(#903): before the seam-aware helpers, `maxx - minx` went negative for a
-// crossing bbox — isLargeExtent said "small" and computeLargeExtentView flew to
-// the antipode of the data at a world-wide zoom.
+// `maxx - minx` goes negative for a crossing bbox — without the seam-aware
+// helpers isLargeExtent would say "small" and computeLargeExtentView would fly
+// to the antipode of the data at a world-wide zoom.
 describe('antimeridian-crossing extents (fix #903)', () => {
   const FIJI: [number, number, number, number] = [178.5, -20, -178.5, -15];
 

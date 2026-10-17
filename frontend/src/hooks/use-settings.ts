@@ -70,7 +70,7 @@ export function useFeatureFlags() {
 }
 
 /**
- * feat(#1691): whether the current user may set `visibility: public`.
+ * Whether the current user may set `visibility: public`.
  *
  * False only when the `restrict_public_visibility` instance setting is on
  * AND the user is not an admin. The server enforces the rule with a 403 at
@@ -137,7 +137,7 @@ export function useUpdateSettings() {
   const qc = useQueryClient();
   const refetchSettingsViews = () => {
     qc.invalidateQueries({ queryKey: queryKeys.settings.all });
-    // fix(#553): several settings (banner_text/color, landing_first)
+    // Several settings (banner_text/color, landing_first)
     // surface through /auth/config, which mounted banners read with a
     // 5-min staleTime — refetch it so saves apply immediately
     qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
@@ -193,7 +193,7 @@ export function useResetSettings() {
     mutationFn: (keys: string[]) => resetSettings(keys),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
-      // fix(#553): same as useUpdateSettings — banner/landing_first
+      // Same as useUpdateSettings — banner/landing_first
       // resets surface through /auth/config
       qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
       toast.success(i18n.t('settingsToasts.resetSuccess'));

@@ -120,9 +120,9 @@ export function reportNetworkError(opts: {
 }
 
 /**
- * fix(#890): convenience tap for a tile-token re-mint. The reactive 403 burst
- * the proactive tab-return re-mint (#755 / #881) replaced at least left evidence
- * in this buffer that a recovery had happened; the visible-edge path is silent,
+ * Convenience tap for a tile-token re-mint. A reactive 403 burst
+ * at least leaves evidence in this buffer that a recovery happened; the
+ * proactive tab-return re-mint (the visible-edge path) is silent,
  * so a "tiles were briefly broken" report arrives with no trace of the token
  * rotation that fixed it. Called from `useTileAuthRecovery` only when a mint
  * actually starts, so one entry means one mint. Suppressed — routine
@@ -140,7 +140,7 @@ export function reportTileTokenRemint(surface: string, trigger: string): void {
 }
 
 /**
- * fix(#908): how many distinct failures the buffer holds, not how many rows.
+ * How many distinct failures the buffer holds, not how many rows.
  * Every unrecovered map error writes TWO error rows — a `maplibre` row from the
  * surface handler (which carries the sourceId, so it cannot be dropped) and a
  * `console` row derived from `logUnhandledMapError`'s console.error (which is
@@ -205,7 +205,7 @@ function sourceIdOf(entry: ReportEntry): string {
 }
 
 /**
- * fix(#908): collapse a message down to the failure it describes. MapLibre
+ * Collapse a message down to the failure it describes. MapLibre
  * builds an AJAXError message as `AJAXError: <status> (<code>): <url>`, so
  * without this every failing tile of ONE broken source is its own key and the
  * badge still runs to 9+.

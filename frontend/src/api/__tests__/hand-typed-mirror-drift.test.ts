@@ -94,7 +94,7 @@ const MIRRORS: MirrorShape[] = [
   {
     schema: 'RasterTileToken',
     source: 'tiles.ts RasterTileToken',
-    // fix(#688): sig/exp/scope/expires_in are REQUIRED, matching the schema.
+    // sig/exp/scope/expires_in are REQUIRED, matching the schema.
     // The unsigned local shape lives in its own type
     // (`UnsignedRasterTileTemplate`) rather than as optional fields here — this
     // mirror describes what the API sends, and check 3 would reject them as

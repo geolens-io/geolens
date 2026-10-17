@@ -484,8 +484,8 @@ describe('preset IDs', () => {
   });
 });
 
-// fix(#1778): every map surface must fall back to the same basemap provider.
-// ViewerMap previously hardcoded a CARTO style URL no other surface used.
+// Every map surface must fall back to the same basemap provider.
+// A surface hardcoding its own style URL (e.g. CARTO) would diverge.
 describe('FALLBACK_BASEMAP_STYLE_URL', () => {
   it('is the shared OpenFreeMap style, not a vendor-specific URL', () => {
     expect(FALLBACK_BASEMAP_STYLE_URL).toBe('https://tiles.openfreemap.org/styles/positron');
@@ -732,9 +732,9 @@ describe('applyBasemapConfigToStyle prominence reversibility (builder-audit #338
   });
 });
 
-// chore(#835): shared missing-style-image resolver; knownImagesOnly parameterizes
+// Shared missing-style-image resolver; knownImagesOnly parameterizes
 // the builder-vs-viewer/dataset divergence instead of three inline copies.
-// feat(#846): v6 passes the bare id, not an event object.
+// v6 passes the bare id, not an event object.
 describe('makeStyleImageMissingResolver', () => {
   function fakeImageHost(has = false) {
     return {

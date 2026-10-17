@@ -1,13 +1,13 @@
 /**
- * feat(#1705): UrlImportForm orchestration tests.
+ * UrlImportForm orchestration tests.
  *
  * The heavy children (ImportMetadataForm, ImportPreview, JobProgress) are
  * stubbed. These tests pin the step machine and the API call shapes:
  * submit, download, preview, review, commit, tracking, error fallback to
  * idle, and layer_name threading for multi-layer containers.
  *
- * feat(#1710): the submit call only queues a download, so every path to a
- * preview now runs through the job poll returning a `pending` job.
+ * The submit call only queues a download, so every path to a
+ * preview runs through the job poll returning a `pending` job.
  */
 import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
@@ -76,7 +76,7 @@ const VECTOR_PREVIEW = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // fix(#1710): the download is observed through useJobStatus, which is
+  // The download is observed through useJobStatus, which is
   // gated on a signed-in token. Without one the poll never runs and the
   // form stays on the download step forever.
   useAuthStore.setState({ token: 'test-token' });
@@ -104,7 +104,7 @@ describe('UrlImportForm', () => {
     expect(screen.getByRole('button', { name: 'urlImport.fetch' })).toBeDisabled();
   });
 
-  // fix(#1710): the submit call answers before the file exists, so the
+  // The submit call answers before the file exists, so the
   // download is a polled job state. These two pin both of its exits.
   test('a queued download shows job progress and does not preview yet', async () => {
     mockUploadFromUrl.mockResolvedValue({ job_id: 'job-3', status: 'running' });

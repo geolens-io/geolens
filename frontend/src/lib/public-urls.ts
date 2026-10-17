@@ -3,11 +3,10 @@ import type { TileConfig } from '@/api/settings';
 /**
  * Is a browser served from this hostname talking to its own machine?
  *
- * fix(#1555): this was a set of three exact spellings, mirroring a backend set
- * of three. Loopback is a RANGE — all of `127.0.0.0/8` — so `http://127.0.0.2`
- * was classified as a real public origin on both sides, and the deployment
- * offered a domain lock whose shell URL every recipient resolves to their own
- * machine. `is_loopback_host` in backend/app/core/public_urls.py states the
+ * Loopback is a RANGE — all of `127.0.0.0/8` — not a set of exact spellings,
+ * so `http://127.0.0.2` must not be classified as a real public origin, or the
+ * deployment would offer a domain lock whose shell URL every recipient
+ * resolves to their own machine. `is_loopback_host` in backend/app/core/public_urls.py states the
  * same rule for Python, and `public-app-url-shape.cases.json` holds the two to
  * the same answers.
  *
@@ -105,12 +104,11 @@ function parseUsablePublicUrl(url: string): URL | null {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
   if (!parsed.hostname) return null;
   if (parsed.search || parsed.hash) return null;
-  // fix(#1555): NO `/api` PATH. The persistent-setting validator has always
-  // rejected an app URL that names the API base, and the environment path did
-  // not — so `PUBLIC_APP_URL=https://maps.example.com/api` arrived here through
-  // tile-config and built `/api/api/maps/...` card links and `/api/m/...`
-  // iframe sources. `is_api_base_path` (backend/app/core/public_urls.py) is now
-  // the one statement of it, and both entry points ask it.
+  // NO `/api` PATH. An app URL that names the API base would build
+  // `/api/api/maps/...` card links and `/api/m/...` iframe sources (e.g.
+  // `PUBLIC_APP_URL=https://maps.example.com/api` arriving here through
+  // tile-config). `is_api_base_path` (backend/app/core/public_urls.py) is the
+  // one statement of the rule, and both entry points ask it.
   //
   // `parsed.pathname` has ALREADY resolved dot segments, so `/api/.` arrives
   // here as `/api/` and is refused for free. That is precisely why the backend
@@ -172,11 +170,10 @@ function hostIsAlreadyCanonical(url: string, parsed: URL): boolean {
     ? hostAndPort.slice(0, hostAndPort.indexOf(']') + 1)
     : hostAndPort.split(':')[0];
   if (written.endsWith('.')) return false;
-  // fix(#1555): an IPv4-MAPPED literal has no spelling both sides call
+  // An IPv4-MAPPED literal has no spelling both sides call
   // canonical. This parser renders `[::ffff:127.0.0.1]` as `[::ffff:7f00:1]`
   // and Python renders `::ffff:7f00:1` as `::ffff:127.0.0.1`, so each side
-  // calls the other's output wrong: before this, `[::ffff:192.168.1.5]` was
-  // accepted by the backend and refused here. Both refuse the class now — the
+  // would call the other's output wrong. Both refuse the class — the
   // plain IPv4 form is unambiguous. Tested against `parsed.hostname`, which is
   // this parser's canonical spelling, so it catches the class rather than one
   // spelling of it; the pattern is the mapped block `::ffff:0:0/96`, which

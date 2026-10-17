@@ -15,8 +15,8 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
 import { MAP_COLORS } from '@/lib/map-colors';
 
-// fix(#1778): bound the undo ring so a long drag/freehand trace (one full
-// store snapshot per `change` event, with no prior cap) cannot grow memory
+// Bound the undo ring so a long drag/freehand trace (one full
+// store snapshot per `change` event) cannot grow memory
 // without limit for the duration of a single editing session.
 const MAX_UNDO_HISTORY = 50;
 
@@ -427,7 +427,7 @@ export function useTerraDraw(
 
       const snapshot = filteredSnapshot(draw);
       historyRef.current.push(snapshot);
-      // fix(#1778): drop the oldest entry once the ring exceeds its cap —
+      // Drop the oldest entry once the ring exceeds its cap —
       // still enough undo depth for normal use, without unbounded growth.
       // The true pre-edit baseline lives in baselineRef,
       // OUTSIDE this ring, so eviction here never loses it.

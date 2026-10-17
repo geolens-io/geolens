@@ -260,9 +260,9 @@ describe('normalizeLayerStyleState — raster stretch/colormap round-trip (v1034
     expect(style_config?.builder?.hypso_ramp).toBe('Inferno');
   });
 
-  // test(#828): hypso_reversed round-trip — the saved ramp direction must
+  // hypso_reversed round-trip — the saved ramp direction must
   // re-hydrate onto paint['_hypso-reversed'] on load, or a saved reversed
-  // tint silently renders forward (regressed once in the 1.6.0 cycle).
+  // tint silently renders forward.
   it('re-injects builder.hypso_reversed=true onto paint as _hypso-reversed', () => {
     const { paint, style_config } = normalizeLayerStyleState(
       { builder: { hypso_enabled: true, hypso_ramp: 'Viridis', hypso_reversed: true } },
@@ -296,7 +296,7 @@ describe('normalizeLayerStyleState — raster stretch/colormap round-trip (v1034
 });
 
 // ---------------------------------------------------------------------------
-// test(#828): heatmap ramp-reversal write path through normalization — the
+// Heatmap ramp-reversal write path through normalization — the
 // editor stores paint['_heatmap-reversed']; normalization must lift it into
 // style_config.builder.heatmapReversed and strip the builder-private key.
 // ---------------------------------------------------------------------------

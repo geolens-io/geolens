@@ -1,6 +1,6 @@
 import { cookieAuthAvailable, readCsrfCookie, cookieAuthHeaders } from '@/lib/auth-transport';
 
-// fix(#1302): the refresh token moved into an httpOnly cookie. These pin the
+// The refresh token lives in an httpOnly cookie. These pin the
 // two decisions that gate the flow: whether the cookie can work at all (it only
 // replays to the origin that set it), and how the double-submit CSRF token is
 // carried.
@@ -30,10 +30,10 @@ describe('cookieAuthAvailable', () => {
     vi.resetModules();
   });
 
-  // fix(#1446): a protocol-relative base has no scheme but is still
-  // cross-origin. Treating "no http(s):// prefix" as same-origin opted such a
-  // deployment into cookie mode while withholding the cookie, so sessions
-  // stopped refreshing at access-token expiry.
+  // A protocol-relative base has no scheme but is still
+  // cross-origin. Treating "no http(s):// prefix" as same-origin would opt such
+  // a deployment into cookie mode while withholding the cookie, so sessions
+  // would stop refreshing at access-token expiry.
   it('is false for a protocol-relative cross-origin base', async () => {
     vi.doMock('@/lib/constants', () => ({ API_BASE: '//api.elsewhere.example/v1' }));
     vi.resetModules();
@@ -43,7 +43,7 @@ describe('cookieAuthAvailable', () => {
     vi.resetModules();
   });
 
-  // fix(#1446): the backend scopes the cookie under its fixed `/api` root_path,
+  // The backend scopes the cookie under its fixed `/api` root_path,
   // so a same-origin base mounted elsewhere gets a cookie the browser never
   // sends — and cookie mode returns no body token to fall back on.
   it('is false for a same-origin base mounted outside the cookie scope', async () => {

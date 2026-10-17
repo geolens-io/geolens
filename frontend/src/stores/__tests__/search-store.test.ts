@@ -116,7 +116,7 @@ describe('useSearchStore', () => {
     expect(useSearchStore.getState().spatial_predicate).toBe('intersects');
   });
 
-  // fix(#1713): drop the typed/drawn search intent that could implicate the
+  // Drop the typed/drawn search intent that could implicate the
   // previous identity, called from the identity-change choke point (see
   // lib/__tests__/auth-cache-reset.test.ts for that wiring).
   it('clearIdentityScopedFilters clears search-shaping fields', () => {

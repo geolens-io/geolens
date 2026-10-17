@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { DatasetOrigin } from '@/types/api';
 
-// feat(#1218): the union moved to types/api.ts, where the backend now serves it
+// The union lives in types/api.ts, where the backend serves it
 // as the computed `origin` field. Re-exported here so existing importers keep
 // working and the vocabulary keeps one definition.
 

@@ -122,7 +122,7 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
     expect(attributeTableSrc).toMatch(/columnVisibility/);
   });
 
-  // fix(#820): dynamic measurement (measureElement) fed back synchronously
+  // Dynamic measurement (measureElement) fed back synchronously
   // (measure→layout→re-render) when a Chrome AX tree was attached, freezing
   // the page in an infinite render loop. Rows are fixed-height; reintroducing
   // measureElement reintroduces the freeze. Live coverage: e2e/attribute-table-ax.spec.ts.
@@ -130,7 +130,7 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
     expect(attributeTableSrc).not.toContain('measureElement');
   });
 
-  // fix(#820): with measurement gone, the virtualizer's row size and the
+  // With measurement gone, the virtualizer's row size and the
   // rendered row height must agree by construction. The row height is derived
   // from the density mode (44px default / 28px compact, measured in Chromium)
   // and enforced on the cells via matching height classes (h-11 / h-7, py-0).
@@ -140,7 +140,7 @@ describe('PERF-07: AttributeTable virtualization wiring', () => {
     expect(attributeTableSrc).toMatch(/compact \? 'h-7 py-0 text-xs' : 'h-11 py-0'/);
   });
 
-  // fix(#851): virtual-core does not invalidate its measurement cache when
+  // virtual-core does not invalidate its measurement cache when
   // estimateSize changes, so a density toggle must explicitly call
   // virtualizer.measure() or totals/offsets keep the old row height.
   it('resets cached row sizes when the density mode changes', () => {

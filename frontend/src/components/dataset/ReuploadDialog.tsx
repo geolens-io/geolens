@@ -152,14 +152,14 @@ export function ReuploadDialog({
   const [step, setStep] = useState<ReuploadStep>('source-select');
   const [sourceType, setSourceType] = useState<ReuploadSourceType | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  // fix(#1768): the dataset's origin as it was when this replacement was
+  // The dataset's origin as of when this replacement was
   // staged, captured beside the job id and sent with the commit. Between
   // staging and the user's confirmation a service or STAC re-upload can bind
   // this dataset to a remote source; the swap the commit queues would rebind
   // it to `upload` and sever that binding, so the server refuses the commit
   // when the origin it reads is no longer this one.
   const [stagedOriginKind, setStagedOriginKind] = useState<DatasetOrigin | null>(null);
-  // fix(#1822): gate "Try Again" on a landed post-refusal refetch (see
+  // Gate "Try Again" on a landed post-refusal refetch (see
   // handleConfirm's catch block), not just the refusal itself.
   const [isRefreshingOrigin, setIsRefreshingOrigin] = useState(false);
   const [originRefreshFailed, setOriginRefreshFailed] = useState(false);
@@ -297,8 +297,8 @@ export function ReuploadDialog({
       );
       setStep('error');
     } else if (jobData.status === 'cancelled') {
-      // fix(#1677): cancel is a reachable terminal status now. With no branch
-      // here the dialog sat on the tracking spinner forever — polling had
+      // Cancel is a reachable terminal status. With no branch
+      // here the dialog would sit on the tracking spinner forever — polling has
       // already stopped, so nothing would ever move it again. No retry
       // guidance: a deliberate cancel and a sweep-abandoned upload both just
       // start over, not retry a specific attempt.
@@ -511,7 +511,7 @@ export function ReuploadDialog({
         jobId,
         token,
         ...(selectedFileLayer !== null ? { layerName: selectedFileLayer } : {}),
-        // fix(#1768): the origin as of staging, not as of now — `dataset` is a
+        // The origin as of staging, not as of now — `dataset` is a
         // live query result, so reading it here would re-read the very change
         // this condition exists to catch and always agree with the server.
         expectedOriginKind: stagedOriginKind,
@@ -528,7 +528,7 @@ export function ReuploadDialog({
       );
       setStep('error');
 
-      // fix(#1768, #1822): dataset.origin is stale; wait for a landed fetch
+      // dataset.origin is stale; wait for a landed fetch
       // (fetchQuery, not refetchQueries, which resolves early when paused)
       // before re-enabling retry.
       if (isOriginChangedError(err)) {
@@ -570,7 +570,7 @@ export function ReuploadDialog({
     setPreview(null);
     setJobId(null);
     setStagedOriginKind(null);
-    // fix(#1822): reset for a second origin_changed round in this session.
+    // Reset for a second origin_changed round in this session.
     setIsRefreshingOrigin(false);
     setOriginRefreshFailed(false);
     if (sourceType === 'service_url') {
@@ -839,7 +839,7 @@ export function ReuploadDialog({
                   })}
                   value={serviceToken}
                   onChange={(event) => setServiceToken(event.target.value)}
-                  // fix(#1746): request-only service token, not a login
+                  // Request-only service token, not a login
                   // credential — opt out of password managers explicitly.
                   autoComplete="new-password"
                   data-1p-ignore
@@ -1182,7 +1182,7 @@ export function ReuploadDialog({
               {error ?? t('reupload.errorFallback')}
             </p>
             <DialogFooter className="w-full">
-              {/* fix(#1822): disabled while the origin refetch is pending,
+              {/* Disabled while the origin refetch is pending,
                   and permanently if it fails. */}
               <Button
                 variant="outline"

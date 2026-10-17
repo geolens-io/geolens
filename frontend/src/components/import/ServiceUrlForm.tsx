@@ -122,7 +122,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const authOrigin = originOf(url);
   const isArcGisShaped = looksLikeArcGisServiceUrl(url);
   const isArcGisPortalShaped = looksLikeArcGisPortalUrl(url);
-  // fix(#1712): guards every `setState` reached after an `await` in the
+  // Guards every `setState` reached after an `await` in the
   // preview/commit session helpers below, mirroring UrlImportForm's
   // identical ref (`url-import-session.ts`'s consumer) — the module-scoped
   // session keeps running regardless of mount state, but this component
@@ -293,7 +293,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   // and so clears the timer, so this effect only needs to cover unmount.
   useEffect(() => clearExpiryTimer, [clearExpiryTimer]);
 
-  // fix(#1712): mirrors url-import-session.ts's identical guard — reset is
+  // Mirrors url-import-session.ts's identical guard — reset is
   // available from every terminal state, but clearing the session mid-commit
   // orphans a commit that then succeeds untracked, with nothing left to
   // adopt it back.
@@ -483,7 +483,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     }
   };
 
-  // fix(#1712): the session is owned by the module (`service-url-session.ts`),
+  // The session is owned by the module (`service-url-session.ts`),
   // so a tab switch mid-preview cannot strand the job. Everything below only
   // decides what THIS mount displays; `session.promise` keeps running
   // regardless. Mirrors UrlImportForm's `runSession` (`url-import-session.ts`).
@@ -504,7 +504,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
             const title = body.existing_title ?? t('serviceUrl.unknownDataset');
             const msg = t('serviceUrl.alreadyRegistered', { title });
             setError(msg);
-            // fix(#1712): `probeResult` is only available when THIS mount
+            // `probeResult` is only available when THIS mount
             // started the preview — a mount adopting a session that failed
             // while unmounted never probed, so there is no layer list to go
             // back to. Falls back to idle rather than rendering a
@@ -562,7 +562,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
       object_id_field: layer.object_id_field,
     };
 
-    // fix(#1835): pairs the minted token with its expiry in the session.
+    // Pairs the minted token with its expiry in the session.
     await runPreviewSession(
       startServicePreview(request, isArcGisShaped, isArcGisShaped ? tokenExpiresAt : null),
     );
@@ -595,7 +595,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
       ...(isArcGisShaped && token ? { token } : {}),
       ...(auth ? { auth } : {}),
     });
-    // fix(#1712): attached BEFORE this awaits, so an unmount mid-commit
+    // Attached BEFORE this awaits, so an unmount mid-commit
     // still leaves the operation reachable for the next mount to subscribe
     // to — mirrors `attachUrlImportCommit` (`url-import-session.ts`).
     attachServiceCommit(commitPromise);
@@ -637,7 +637,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     setUrl(session.url);
     if (session.isArcGisShaped) {
       setToken(session.token ?? '');
-      // fix(#1835): a restored token with no expiry check reads as
+      // A restored token with no expiry check reads as
       // never-expiring — re-check and reschedule instead of trusting it.
       if (session.token && session.tokenExpiresAt) {
         if (msUntilExpiry(session.tokenExpiresAt) <= 0) {
@@ -671,7 +671,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only restore of the in-flight session's credentials
   }, []);
 
-  // fix(#1712): re-attach to a preview or commit that was running (or
+  // Re-attach to a preview or commit that was running (or
   // finished) while this form was unmounted — a tab switch away and back.
   // Without this, the job id the server returned to a dead component would
   // be unreachable, plus a pending commit issued against it. Mount-only,
@@ -799,7 +799,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
               const unsupported = layer.importable === false;
               return (
                 <button
-                  // fix(#1746): keyed by layer_id, not layer.name — two
+                  // Keyed by layer_id, not layer.name — two
                   // layers in the same service can share a display name
                   // (e.g. two ArcGIS sublayers both titled
                   // REC_PassiveConservedAccessScore), and a name-keyed list
@@ -968,7 +968,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   className="font-mono text-sm"
-                  // fix(#1746): this is a request-only service token, not a
+                  // This is a request-only service token, not a
                   // login credential, and autocomplete="off" alone does not
                   // stop Chrome from offering a saved password here, so opt
                   // out of every password manager explicitly.
@@ -1162,7 +1162,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   className="font-mono text-sm"
-                  // fix(#1746): this is a request-only service token, not a login
+                  // This is a request-only service token, not a login
                   // credential — autocomplete="off" alone does not stop Chrome from
                   // offering a saved password here, so opt out of every password
                   // manager explicitly.

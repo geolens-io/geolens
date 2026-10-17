@@ -49,11 +49,11 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     dem_vertical_units: layer.dem_vertical_units ?? null,
     is_3d: layer.is_3d ?? null,
     feature_count: layer.dataset_feature_count ?? null,
-    // fix(#403): without the version stamp the anonymous viewer builds tile
+    // Without the version stamp the anonymous viewer builds tile
     // URLs with no _v= cache-buster, so in-place dataset refreshes (e.g.
     // seed-showcase.py --refresh-quakes) keep serving stale tiles from cache.
     tile_version: layer.tile_version ?? null,
-    // feat(#1472): this adapter drops anything it does not list, so the credit
+    // This adapter drops anything it does not list, so the credit
     // line has to be copied explicitly or /maps/{id} renders no attribution
     // while the share link for the same map does.
     dataset_attribution: layer.dataset_attribution ?? null,

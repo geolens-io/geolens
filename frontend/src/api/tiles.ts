@@ -13,7 +13,7 @@ export type VectorTileToken = {
  * pins that against `openapi.json` in both directions. */
 export type RasterTileToken = {
   kind: 'raster';
-  /** fix(#688): arrives with `?sig=&exp=&scope=` already in it. MapLibre issues
+  /** Arrives with `?sig=&exp=&scope=` already in it. MapLibre issues
    * the tile image requests itself and attaches no header, so the template has
    * to be self-sufficient for a client that cannot use `setTransformRequest`. */
   tile_url: string;
@@ -30,7 +30,7 @@ export type RasterTileToken = {
 
 /** The same shape MINUS the signature, built locally rather than fetched.
  *
- * fix(#688): `rasterTokenFromLayer` (layer-description.ts) assembles this from a saved
+ * `rasterTokenFromLayer` (layer-description.ts) assembles this from a saved
  * layer row, which has no signature and cannot have one — the in-app map
  * authenticates with a bearer token through `setTransformRequest` instead. It
  * is a separate type rather than four optional fields on `RasterTileToken`

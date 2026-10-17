@@ -48,11 +48,11 @@ import type {
 
 interface SourcePanelProps {
   dataset: DatasetResponse;
-  /** Injected by the caller (DetailPanel wires the #1285 "Refresh from
-   *  source" action here, gated on canEdit and a resolvable origin). The
-   *  read-only #1225 integration passed nothing. */
+  /** Injected by the caller (DetailPanel wires the "Refresh from
+   *  source" action here, gated on canEdit and a resolvable origin). A
+   *  read-only integration passes nothing. */
   actions?: ReactNode;
-  /** feat(#1677): the same owner-or-admin signal that gates the injected
+  /** The same owner-or-admin signal that gates the injected
    *  refresh action, minus the origin gate — cancel rights are a superset
    *  of refresh rights on this surface (a run can be in flight on a dataset
    *  whose origin no longer resolves). Gates the Cancel button on the
@@ -84,8 +84,8 @@ type HealthDetail =
   | 'timeout'
   | 'network_error'
   | 'blocked_by_policy'
-  // fix(#1746): separate from 'unauthorized', whose copy says the source "now
-  // requires" access — wrong for a service that has been org-only all along.
+  // Separate from 'unauthorized', whose copy says the source "now
+  // requires" access — wrong for a service that is org-only throughout.
   | 'auth_required';
 
 const HEALTH_DETAILS = new Set<HealthDetail>([
@@ -267,7 +267,7 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
   const { data, isLoading, isError } = useDatasetVersions(dataset.id);
   const fetched = (data?.versions ?? []).filter((version) => version.dataset_id === dataset.id);
   const hasFirstVersion = fetched.some((version) => version.version_number === 1);
-  // fix(#1280): current fields cannot reconstruct mutable version-1 state.
+  // Current fields cannot reconstruct mutable version-1 state.
   const currentFieldsAreInitial = dataset.current_version === 1;
   const versions: DatasetVersionResponse[] = [
     ...fetched,
@@ -422,7 +422,7 @@ function RefreshRunHistory({
                     { defaultValue: run.status },
                   )}
                 </Badge>
-                {/* fix(#1325): run.origin_kind is the run's execution door,
+                {/* run.origin_kind is the run's execution door,
                     not the dataset's origin shown by the OriginBadge above —
                     the two can visibly disagree while work is in flight (see
                     the CHECK constraint comment in refresh/models.py for a
@@ -436,7 +436,7 @@ function RefreshRunHistory({
                 >
                   {t('sourcePanel.refresh.history.mechanismLabel', { mechanism: run.origin_kind })}
                 </Badge>
-                {/* feat(#1677): one-click cancel on the active run, Retry
+                {/* One-click cancel on the active run, Retry
                     parity — no confirm dialog; recoverable and data-safe
                     under the backend's no-swap fence. Keyed on the run's
                     ingest_job_id (absent on legacy rows, so gated on it). */}

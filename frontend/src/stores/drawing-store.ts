@@ -22,10 +22,10 @@ interface DrawingState {
    *  editor), as that map computes it, for the page's unsaved-changes guard. */
   hasUnsavedMapWork: boolean;
   /**
-   * fix(#1713): the identity that adopted the current target, for
-   * bookkeeping. NOT the write gate below (see `sessionEpoch`) — fix(#1761
-   * review P1) found that comparing this to the live identity directly
-   * breaks down once both sides are anonymous.
+   * The identity that adopted the current target, for
+   * bookkeeping. NOT the write gate below (see `sessionEpoch`) — comparing
+   * this to the live identity directly breaks down once both sides are
+   * anonymous.
    */
   ownerId: string | null;
   /**
@@ -83,7 +83,7 @@ function currentUserId(): string | null {
 }
 
 /**
- * fix(#1713): shared by the initial state and clearDrawing, so a reset can
+ * Shared by the initial state and clearDrawing, so a reset can
  * never drift from what "nothing adopted" looks like.
  *
  * Deliberately excludes `sessionEpoch` — see its
@@ -104,7 +104,7 @@ const CLEARED_STATE = {
 export const useDrawingStore = create<DrawingState>()((set, get) => ({
   ...CLEARED_STATE,
   sessionEpoch: 0,
-  // fix(#1713): the adoption point for a drawing target. Stamps the
+  // The adoption point for a drawing target. Stamps the
   // signed-in identity at the moment the target is set, and — because this
   // always replaces selectedFeature/isEditDirty rather than merging with
   // whatever was there — a call under a new identity self-heals the store
@@ -126,7 +126,7 @@ export const useDrawingStore = create<DrawingState>()((set, get) => ({
     }),
   setMode: (mode) => set({ activeMode: mode }),
   clearDrawing: () => set({ ...CLEARED_STATE }),
-  // fix(#1713): the other adoption point, and the one an in-flight edit can
+  // The other adoption point, and the one an in-flight edit can
   // reach asynchronously — handleEditAttributeSubmit and selectFeatureFromMap
   // (components/dataset/hooks/use-feature-editing.ts) both read/derive a
   // feature, await a request, then call this with the result.

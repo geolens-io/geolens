@@ -155,7 +155,7 @@ describe('FeaturePopup', () => {
   });
 
   it('fix(#584): hides configured fields absent from BOTH tile properties and the schema (stale config)', () => {
-    // fix(#586): a reupload/rename can strand old names in visible_fields;
+    // A reupload/rename can strand old names in visible_fields;
     // those stay hidden, while schema-present-but-null fields render '--'.
     const features: FeatureInfo[] = [
       makeFeature({
@@ -216,7 +216,7 @@ describe('FeaturePopup', () => {
   });
 
   it('title-only mode (visibleFields []) never shows the zoom hint, even with columnInfo present', () => {
-    // fix(#586): [] is the intentional "title only" contract — the zoom
+    // [] is the intentional "title only" contract — the zoom
     // hint is for the all-fields (null) case only.
     const features: FeatureInfo[] = [
       makeFeature({

@@ -80,7 +80,7 @@ export class LazyLoadErrorBoundary extends Component<
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     logger.error('[LazyLoadErrorBoundary]', error, errorInfo);
-    // fix(#834): feed the problem-report buffer like the other boundaries so a
+    // Feed the problem-report buffer like the other boundaries so a
     // crash behind this boundary doesn't produce an empty report.
     pushReportEntry({
       severity: 'error',

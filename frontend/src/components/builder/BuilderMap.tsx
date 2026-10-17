@@ -274,7 +274,7 @@ export const BuilderMap = memo(function BuilderMap({
       : toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
     [isBlank, basemapEntry?.url, basemapEntry?.attribution, fallbackUrl],
   );
-  // chore(#835): shared fetch-and-sanitize path (see use-remote-basemap-style).
+  // Shared fetch-and-sanitize path (see use-remote-basemap-style).
   // Builder-specific behavior rides the callbacks: reset the first-load
   // latch on fetch start, clear the notice + latch success, and surface the
   // 'style' notice on failure. No raw-URL fallback on
@@ -626,7 +626,7 @@ export const BuilderMap = memo(function BuilderMap({
       map.on('idle', idleHandlerRef.current);
 
       // Absolutify URLs and attach auth header for raster tile requests.
-      // chore(#835): shared builder — react-maplibre v8 ignores the
+      // Shared builder — react-maplibre v8 ignores the
       // transformRequest PROP after mount, so each map wires it here in onLoad.
       map.setTransformRequest(buildTileTransformRequest({
         getTileConfig: () => syncInputsRef.current.tileConfig,
@@ -786,7 +786,7 @@ export const BuilderMap = memo(function BuilderMap({
       };
       map.on('error', errorHandlerRef.current);
 
-      // chore(#835): shared resolver; knownImagesOnly keeps the builder's
+      // Shared resolver; knownImagesOnly keeps the builder's
       // editor-facing missing-image warnings for unknown ids.
       styleImageMissingHandlerRef.current = makeStyleImageMissingResolver(map, { knownImagesOnly: true });
       map.setMissingStyleImageResolver(styleImageMissingHandlerRef.current);

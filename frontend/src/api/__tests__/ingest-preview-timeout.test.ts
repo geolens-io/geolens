@@ -1,5 +1,5 @@
 /**
- * fix(#1778): previewFile and previewServiceLayer used apiFetch's 30s
+ * previewFile and previewServiceLayer used apiFetch's 30s
  * default timeout while the server-side work they trigger can run far
  * longer — run_ogrinfo_preview is bounded at 300s (worse on its JSON-decode
  * fallback), and a WFS namespace retry makes run_service_preview run twice

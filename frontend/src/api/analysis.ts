@@ -9,7 +9,7 @@ import type {
 export async function previewAnalysis(
   datasetId: string,
   body: AnalysisPreviewRequest,
-  // fix(#787 item 3): callers cancel a preview they no longer want. apiFetch
+  // Callers cancel a preview they no longer want. apiFetch
   // composes this with its own request timeout, so whichever fires first wins.
   signal?: AbortSignal,
 ): Promise<AnalysisPreviewResponse> {

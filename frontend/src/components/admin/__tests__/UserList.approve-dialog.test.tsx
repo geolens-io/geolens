@@ -1,4 +1,4 @@
-// fix(#1778): the Approve-user role combobox had a bare <label> with no
+// The Approve-user role combobox had a bare <label> with no
 // htmlFor and RoleSelect was called without its id prop, so the combobox
 // that decides a pending signup's role (viewer/editor/admin) announced as
 // unnamed. Both sibling dialogs (UserCreateDialog, UserEditDialog) already

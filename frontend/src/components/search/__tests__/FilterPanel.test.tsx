@@ -262,7 +262,7 @@ describe('FilterPanel identity reset (fix #1761 review round 4)', () => {
     expect(useSearchStore.getState().spatialPanelOpen).toBe(false);
   });
 
-  // fix(#1778): the date-range and temporal-extent popovers paired a bare
+  // The date-range and temporal-extent popovers paired a bare
   // <label> (no htmlFor) with a sibling <Input>, so the two date fields in
   // each popover announced as unnamed. Both popovers are closed at mount
   // and portal to document.body, so the axe gate structurally cannot reach

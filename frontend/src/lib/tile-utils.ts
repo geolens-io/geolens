@@ -13,8 +13,7 @@ export function resolveTileBaseUrl(
 
 /**
  * First-party vs third-party request classification for map tile/style
- * requests. chore(#835): extracted from ViewerMap's inline classifier so all
- * three map surfaces share one implementation.
+ * requests. All three map surfaces share this one implementation.
  *
  * First-party means: our own origin, or the configured tile CDN origin
  * (`cdn_base_url` / `TILE_BASE_URL`, resolved via the same
@@ -71,11 +70,11 @@ export function buildTileTransformRequest(
   options: TileTransformRequestOptions = {},
 ): (url: string) => { url: string; headers?: Record<string, string> } {
   return (url: string) => {
-    // fix(#1688 follow-up): absolutify ONLY site-relative paths. The old
-    // `startsWith('http')` predicate origin-prefixed every other scheme, and
-    // transformRequest runs BEFORE MapLibre's custom-protocol dispatch, so a
-    // `pmtiles://…` basemap source became `http://<origin>pmtiles://…` and
-    // never reached the registered pmtiles protocol handler.
+    // Absolutify ONLY site-relative paths. A `startsWith('http')` predicate
+    // would origin-prefix every other scheme, and transformRequest runs BEFORE
+    // MapLibre's custom-protocol dispatch, so a `pmtiles://…` basemap source
+    // would become `http://<origin>pmtiles://…` and never reach the
+    // registered pmtiles protocol handler.
     const absUrl =
       url.startsWith('/') && !url.startsWith('//') ? `${window.location.origin}${url}` : url;
     const tileConfig = options.getTileConfig?.() ?? null;
@@ -206,10 +205,10 @@ export function buildClusterTileUrl(
     ? tileBaseUrl.replace(/\/$/, '')
     : `${window.location.origin}/api`;
   const url = `${base}/tiles/clusters/${getMvtSourceLayerName(tableName)}/{z}/{x}/{y}.pbf`;
-  // fix(#403): unclustered features (past cluster_max_zoom / single-point
+  // Unclustered features (past cluster_max_zoom / single-point
   // buckets) need the data-driven styling + popup columns projected, exactly
-  // like the plain vector path — without cols= the server used to emit
-  // attribute-less features and categorical paint/popups silently broke.
+  // like the plain vector path — without cols= the server emits
+  // attribute-less features and categorical paint/popups silently break.
   const cols = normalizeExtraCols(extraCols);
   return appendTileParams(url, tileToken, tileVersion, {
     cluster_radius: options.clusterRadius,
@@ -219,7 +218,7 @@ export function buildClusterTileUrl(
 }
 
 /**
- * fix(#907): reload every raster/DEM source's tiles after the session JWT has
+ * Reload every raster/DEM source's tiles after the session JWT has
  * been renewed.
  *
  * Renewing the credential is not enough on its own. MapLibre resumes its own
@@ -230,8 +229,8 @@ export function buildClusterTileUrl(
  * plumbing fires and those errored tiles are never retried — the map keeps the
  * holes until the user pans.
  *
- * `refreshTiles` is MapLibre's own reload-in-place API (the same one #584 uses
- * to survive a paused TileManager) and needs no URL change, so this is
+ * `refreshTiles` is MapLibre's own reload-in-place API (it survives a paused
+ * TileManager) and needs no URL change, so this is
  * idempotent and safe to call when nothing failed.
  */
 export function refreshRasterTileSources(map: MaplibreMapLike | null | undefined): number {

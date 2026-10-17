@@ -1,8 +1,8 @@
 import { formatRelativeTime } from './relative-time';
 
-// chore(#835): the Intl relative-time implementation moved to
-// `lib/relative-time.ts` (it was written out 4x across the app). Re-exported
-// here so existing importers (e.g. quality-freshness) keep their contract.
+// The Intl relative-time implementation lives in `lib/relative-time.ts`.
+// Re-exported here so existing importers (e.g. quality-freshness) keep their
+// contract.
 export { formatRelativeTime } from './relative-time';
 
 interface ProvenanceIdentityLabels {

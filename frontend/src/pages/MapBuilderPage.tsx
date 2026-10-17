@@ -60,7 +60,7 @@ import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { previewSaveMode } from '@/components/builder/ephemeral-preview';
-// feat(#1241): only mounted while the save dialog is open, and it pulls in the
+// Only mounted while the save dialog is open, and it pulls in the
 // import page's metadata form — lazy so the builder's initial chunk is unchanged.
 const SaveChatPreviewDialog = lazy(() =>
   import('@/components/builder/SaveChatPreviewDialog').then((m) => ({ default: m.SaveChatPreviewDialog }))
@@ -142,7 +142,7 @@ export function MapBuilderPage() {
   const removeLayer = useRemoveLayer();
 
   const { isAIAvailable: aiAvailable } = useAIAvailability();
-  // feat(#1241): saving a chat preview creates a dataset through POST
+  // Saving a chat preview creates a dataset through POST
   // /ingest/*, which needs the caller's own `upload` capability. The map's edit
   // rights say nothing about it. can() is false while the query is in flight,
   // which is the safe way round: the affordance appears once the capability is
@@ -150,8 +150,8 @@ export function MapBuilderPage() {
   //
   // `export` as well. The snapshot hands the caller a
   // durable, caller-owned copy of source attributes they may only be able to
-  // READ, which is exactly why analysis materialize requires both (fix(#692),
-  // `require_permission("upload", "export")` in
+  // READ, which is exactly why analysis materialize requires both
+  // (`require_permission("upload", "export")` in
   // backend/app/modules/catalog/datasets/api/router_analysis.py). The ingest
   // endpoints ask only for `upload` because their file normally comes from the
   // caller's own machine; this one's does not, so the client must not offer a
@@ -168,7 +168,7 @@ export function MapBuilderPage() {
   // pluginCtx useMemo. The ref provides stable imperative access without re-renders.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [railPanel, setRailPanel] = useState<RailPanel>(null);
-  // feat(#675): chat run_analysis preview → Analysis panel handoff. The nonce
+  // Chat run_analysis preview → Analysis panel handoff. The nonce
   // keys a panel remount so successive handoffs re-apply the prefill.
   const [analysisPrefill, setAnalysisPrefill] = useState<
     (EphemeralAnalysisHandoff & { nonce: number }) | null
@@ -200,14 +200,14 @@ export function MapBuilderPage() {
   // the lift-DndContext architecture decision.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastToggleAnchor = useRef<string | null>(null);
-  // fix(#833): selected rows the layer search hides are parked here instead of
+  // Selected rows the layer search hides are parked here instead of
   // being pruned outright, and rejoin the selection when the search stops
   // hiding them. Cleared on every explicit selection interaction — Escape/
   // outside click, drag-start, bulk actions, and cmd/shift
   // clicks, which replace the selection — so stale parked rows cannot
   // resurrect a selection the user's gesture already discarded.
   const searchHiddenSelectionRef = useRef<Set<string>>(new Set());
-  // fix(#771): the layer-search query is lifted here (hybrid-controlled on
+  // The layer-search query is lifted here (hybrid-controlled on
   // UnifiedStackPanel) so selectableRowIds below can be derived from the
   // RENDERED row set — a shift-click range must never sweep rows the search
   // has filtered out or that live inside a collapsed group.
@@ -252,7 +252,7 @@ export function MapBuilderPage() {
 
   // Composed hooks
   const dialogs = useBuilderDialogs();
-  // fix(#392): callback ref bridging useBuilderLayers (rendered first, below)
+  // Callback ref bridging useBuilderLayers (rendered first, below)
   // to useBuilderSave (rendered after it, at ~line 281+7). useBuilderSave
   // populates this with a function that registers a server-created layer into
   // the Save-diff baseline; useBuilderLayers' handleAddDataset /
@@ -267,7 +267,7 @@ export function MapBuilderPage() {
     addLayer,
     removeLayer,
     saveBaselineSyncRef,
-    // fix(#1863 P2): reactive counterpart of mapInstanceRef, so the #1854
+    // Reactive counterpart of mapInstanceRef, so the
     // auto-zoom watcher can retry once the (possibly still-loading) map
     // becomes ready, instead of silently losing a zoom that arrived first.
     mapInstance,
@@ -515,7 +515,7 @@ export function MapBuilderPage() {
       layerId,
       persistence: 'server',
     }),
-    // fix(#913): the revert routes through the mutation handlers above, so the
+    // The revert routes through the mutation handlers above, so the
     // map is re-marked dirty on the way back to its saved state. Ask the
     // baseline owner to re-derive; it clears only when the WHOLE map is clean.
     onRevertToSaved: layers.requestCleanRecheck,
@@ -625,7 +625,7 @@ export function MapBuilderPage() {
         visible: basemapVisible,
         opacity: basemapState.config.opacity ?? 1,
         sublayers: [],
-        // fix(#585): semantic comparison against the default appearance — the
+        // Semantic comparison against the default appearance — the
         // stored config is often a materialized all-defaults object, so a
         // non-null check would read every map as customized.
         hasCustomAppearance: hasCustomBasemapAppearance(layers.basemapConfig, layers.showBasemapLabels),
@@ -646,7 +646,7 @@ export function MapBuilderPage() {
       visible: basemapVisible,
       opacity: basemapState.config.opacity ?? 1,
       sublayers: basemapState.sublayers,
-      // fix(#585): see the no-basemap branch above.
+      // See the no-basemap branch above.
       hasCustomAppearance: hasCustomBasemapAppearance(layers.basemapConfig, layers.showBasemapLabels),
     };
   }, [basemapState, basemapVisible, layers.basemapConfig, layers.showBasemapLabels, t]);
@@ -672,7 +672,7 @@ export function MapBuilderPage() {
     },
   });
 
-  // fix(#392): 'group' means the editor is closed (LayerEditorPanel never
+  // 'group' means the editor is closed (LayerEditorPanel never
   // renders for it — see isEditorOpen above), so LayerEditorPanel's narrower
   // editorScene prop type intentionally excludes it. Derive a panel-safe
   // scene once rather than widening the panel's contract.
@@ -694,7 +694,7 @@ export function MapBuilderPage() {
 
   // Derive selectable row ids (ordered list, basemap excluded)
   // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler.
-  // fix(#771): derived from the RENDERED row set (shared helper with
+  // Derived from the RENDERED row set (shared helper with
   // UnifiedStackPanel) instead of the raw flat array — the raw list let a
   // shift-click range select children of collapsed groups and rows hidden by
   // the layer search, so bulk delete/visibility/opacity acted on rows the
@@ -706,20 +706,18 @@ export function MapBuilderPage() {
     [layers.localLayers, layers.groupMeta, layerSearch],
   );
 
-  // fix(#771): selection ids can outlive their rows — handleRemove,
-  // handleDeleteGroup, handleUngroup, and the #767 empty-group prune all
-  // remove rows without touching selectedIds, so the bulk bar kept
-  // over-reporting counts it could not perform. Prune against the live layer
+  // Selection ids can outlive their rows — handleRemove,
+  // handleDeleteGroup, handleUngroup, and the empty-group prune all
+  // remove rows without touching selectedIds, so the bulk bar would
+  // over-report counts it could not perform. Prune against the live layer
   // set. Skipped while a bulk delete is in flight: its optimistic removal
   // must not eat the preserved-on-failure selection (a full-failure rollback
   // restores the rows in the same commit that clears isDeleting).
-  // fix(v1.6.0 audit B7): also intersect with selectableRowIds — a row hidden
-  // by the layer search or a collapsed group must leave the selection, or the
-  // bulk bar keeps acting on rows the user can no longer see.
-  // fix(#833): rows hidden by the layer search leave the ACTIVE selection (B7
-  // stands: the bulk bar must not act on rows the user cannot see) but are
-  // parked and rejoin it when they become visible again — hiding used to
-  // prune them permanently. Parked rows are restored only once selectable
+  // Also intersect with selectableRowIds: a row hidden by the layer search or
+  // a collapsed group must leave the ACTIVE selection, or the bulk bar keeps
+  // acting on rows the user can no longer see. Rows hidden by the layer search
+  // are parked and rejoin the selection when they become visible again.
+  // Parked rows are restored only once selectable
   // again (search cleared/edited AND not inside a collapsed group); deleted
   // rows are dropped for good. The park/restore bookkeeping lives outside the
   // updater where it must be idempotent (StrictMode double-invokes updaters).
@@ -844,7 +842,7 @@ export function MapBuilderPage() {
     handleCmdClick(id);
   }, [handleCmdClick]);
 
-  // fix(#833): every explicit selection reset also drops the search-parked
+  // Every explicit selection reset also drops the search-parked
   // rows — a dismissed selection must not resurrect when the search clears.
   const resetMultiSelection = useCallback(() => {
     setSelectedIds(new Set());
@@ -877,7 +875,7 @@ export function MapBuilderPage() {
   }, [applyBulkOpacity]);
 
   const handleBulkGroup = useCallback((ids: Set<string>) => {
-    // fix(#392): only clear the selection when a group was
+    // Only clear the selection when a group was
     // actually created; an ineligible selection must stay intact so the user
     // can see it, read the toast, and adjust instead of losing it silently.
     if (applyBulkGroup(ids)) resetMultiSelection();
@@ -946,9 +944,9 @@ export function MapBuilderPage() {
   // the signal survives this page unmounting. This page contributes only the
   // "Add to map" capability, which needs its layer actions.
   const setAnalysisJob = useAnalysisJobStore((s) => s.setJob);
-  // fix(#760): the mobile rail buttons need the same ambient job signal the
-  // desktop rail shows (feat(#682)) — <800px was the only surface with no
-  // indication at all that a materialize is still running.
+  // The mobile rail buttons need the same ambient job signal the
+  // desktop rail shows — <800px would otherwise have no indication at all
+  // that a materialize is still running.
   const analysisJobRunning = useAnalysisJobStore((s) => !!s.job);
   const handleAnalysisJobChange = useCallback(
     (jobId: string | null, title?: string) => {
@@ -970,7 +968,7 @@ export function MapBuilderPage() {
   });
   useEffect(() => () => registerAnalysisAddToMap(null, null), []);
 
-  // feat(#675): "Save as dataset" on the ephemeral preview — open the Analysis
+  // "Save as dataset" on the ephemeral preview — open the Analysis
   // panel prefilled with the operation behind the chat preview.
   const ephemeralAnalysis = layers.ephemeralResult?.analysis;
   const handleSaveAnalysisPreview = useCallback(() => {
@@ -979,8 +977,8 @@ export function MapBuilderPage() {
     setRailPanel('analysis');
   }, [ephemeralAnalysis]);
 
-  // feat(#1241): the same affordance for a preview with no analysis behind it —
-  // a plain chat query result, which until now could only be dismissed. The
+  // The same affordance for a preview with no analysis behind it —
+  // a plain chat query result, which can otherwise only be dismissed. The
   // draft snapshots the FeatureCollection at the moment the dialog opens, so a
   // new chat turn (or a dismiss) landing mid-dialog can't swap what gets saved
   // out from under the name the user is typing.
@@ -994,14 +992,14 @@ export function MapBuilderPage() {
     setChatSaveDraft({ geojson: ephemeralResult.geojson, prompt: ephemeralResult.prompt });
   }, [ephemeralResult]);
 
-  // fix(#1009): the preview's stack-row props. Memoized because a fresh object
+  // The preview's stack-row props. Memoized because a fresh object
   // literal on the UnifiedStackPanel prop would defeat its memo() on every
   // render of this (very large) page.
   const previewRowProps = useMemo(() => {
     const result = layers.ephemeralResult;
     if (!result) return null;
     const featureCount = result.geojson.features.length;
-    // feat(#1241): which save (if any) this preview earns — the truncation
+    // Which save (if any) this preview earns — the truncation
     // guard and the upload-capability gate both live in previewSaveMode.
     const saveMode = previewSaveMode({ ...result, featureCount }, canSaveDataset);
     return {
@@ -1450,8 +1448,8 @@ export function MapBuilderPage() {
     announce(t('a11y.dragPosition', { n: index + 1, total: layers.localLayers.length }));
   }, [layers.localLayers, announce, t]);
 
-  // fix(#785): dnd-kit's DEFAULT announcements are hardcoded English built
-  // from the draggable id — every drag emitted "Picked up draggable item
+  // dnd-kit's DEFAULT announcements are hardcoded English built
+  // from the draggable id — every drag would emit "Picked up draggable item
   // <uuid>…" into dnd-kit's own live region, in English regardless of locale,
   // competing with the app's localized announce() region. Announce translated,
   // human layer names instead. Catalog drags return undefined: their pickup /
@@ -1976,7 +1974,7 @@ export function MapBuilderPage() {
               onBulkApplyStyle={handleBulkApplyStyle}
               copiedStyleGeometryClass={layers.copiedStyleGeometryClass}
               onKeyboardReorder={handleRowKeyboardReorder}
-              // fix(#759): the keyboard reorder mode shares the pointer
+              // The keyboard reorder mode shares the pointer
               // path's aria-live region instead of staying silent.
               onAnnounce={announce}
               onAddDataClick={handleAddDataClick}
@@ -2004,7 +2002,7 @@ export function MapBuilderPage() {
               selectedIds={selectedIds}
               isMultiSelectionActive={isMultiSelectionActive}
               selectableRowIds={selectableRowIds}
-              // fix(#771): hybrid-controlled search so selectableRowIds above
+              // Hybrid-controlled search so selectableRowIds above
               // tracks exactly what the panel renders.
               layerSearch={layerSearch}
               onLayerSearchChange={setLayerSearch}
@@ -2021,7 +2019,7 @@ export function MapBuilderPage() {
               deletingCount={layers.deletingCount}
               freshLayerId={layers.freshLayerId}
               basemapPosition={basemapState.config.basemap_position ?? 'bottom'}
-              // fix(#1009): the ephemeral preview as a non-persisting row pinned
+              // The ephemeral preview as a non-persisting row pinned
               // above the sortable region. Not a member of `layers`, so it can
               // never be reordered, styled, grouped, or saved into the map.
               preview={previewRowProps}
@@ -2146,7 +2144,7 @@ export function MapBuilderPage() {
               />
             </Suspense>
           </MapErrorBoundary>
-          {/* fix(#1009): the preview's surface is the stack row above — but the
+          {/* The preview's surface is the stack row above — but the
               stack panel only exists at ≥1100px; below that the sidebar
               collapses to SidebarRail, which has no rows. Keep the badge for
               exactly that case, so the narrow layout doesn't lose the count,
@@ -2188,7 +2186,7 @@ export function MapBuilderPage() {
                       : btn.label
                   }
                   aria-pressed={railPanel === btn.id}
-                  // fix(#760): mirrors BuilderRail's feat(#682) job signal.
+                  // Mirrors BuilderRail's job signal.
                   aria-busy={btn.id === 'analysis' && analysisJobRunning}
                   className={cn(
                     'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors',
@@ -2343,7 +2341,7 @@ export function MapBuilderPage() {
         </LazyLoadErrorBoundary>
       )}
 
-      {/* feat(#1241): snapshot a chat query preview into a real dataset.
+      {/* Snapshot a chat query preview into a real dataset.
           Mounted only while open, for the same reason StyleJsonDialog above is
           — an always-mounted lazy component resolves its import on first paint
           and the split buys nothing. */}

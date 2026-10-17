@@ -29,11 +29,11 @@ export function AppLayout() {
   const showFooterBranding = !isEnterprise || branding?.show_badge !== false;
 
   return (
-    // fix(#522): the navbar is fixed (out of flow), so reserve its height
+    // The navbar is fixed (out of flow), so reserve its height
     // (h-14 + safe-area) as top padding on the shell. Applies to both branches:
     // min-h-screen pages get their content pushed below the navbar, and h-dvh
-    // map routes correctly lose this height to flex-1 — exactly as they did when
-    // the navbar consumed flow height. Banners render below the navbar as a result.
+    // map routes correctly lose this height to flex-1 — exactly as if the
+    // navbar consumed flow height. Banners render below the navbar as a result.
     <div
       className={cn(
         'flex flex-col pt-[calc(3.5rem+env(safe-area-inset-top))]',
@@ -41,7 +41,7 @@ export function AppLayout() {
       )}
     >
       <SkipToContent />
-      {/* fix(#553): inside the flex shell so h-dvh map routes lose height to
+      {/* Inside the flex shell so h-dvh map routes lose height to
           the banner instead of overflowing the viewport */}
       <SiteBanner />
       <Navbar />

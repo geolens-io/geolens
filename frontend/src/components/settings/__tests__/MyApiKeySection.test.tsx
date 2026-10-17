@@ -176,7 +176,7 @@ describe('GLUX-002 / GLUX-014: MyApiKeySection control semantics', () => {
   });
 });
 
-// fix(#875): per-key scopes. A read-only key is a different credential in
+// Per-key scopes. A read-only key is a different credential in
 // practice, so the list has to say which one you are holding, and the mint
 // form has to be able to ask for one.
 describe('#875: API key scope', () => {

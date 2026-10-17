@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMyApiKeys, useCreateMyApiKey, useRevokeMyApiKey } from '@/hooks/use-api-keys';
 import { formatDate } from '@/lib/format';
-// chore(#835): consolidated into the shared formatter (was written out here
-// and in admin/ApiKeySection.tsx).
+// Shared with admin/ApiKeySection.tsx.
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
 import { cn } from '@/lib/utils';
@@ -166,7 +165,7 @@ export function MyApiKeySection() {
                     }`}
                     aria-hidden="true"
                   />
-                  {/* fix(#305): replace dot+title+sr-only with a visible status badge so state is
+                  {/* Replace dot+title+sr-only with a visible status badge so state is
                       conveyed as visible text, not color alone. The dot stays as a secondary visual cue. */}
                   <Badge
                     className={cn(
@@ -176,7 +175,7 @@ export function MyApiKeySection() {
                   >
                     {t(`admin:apiKeys.${status}`)}
                   </Badge>
-                  {/* fix(#875): a read-only key is a different credential in
+                  {/* A read-only key is a different credential in
                       practice; the list has to say which one you are holding. */}
                   {key.scope === 'read_only' && (
                     <Badge variant="secondary" className="px-1.5">

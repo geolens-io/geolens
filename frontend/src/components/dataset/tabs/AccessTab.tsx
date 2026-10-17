@@ -63,13 +63,12 @@ interface AccessTabProps {
   canManageKeys?: boolean;
 }
 
-/** fix(#927): the visibility values this control can move a dataset TO, in
- * ladder order. `restricted` is not one: a non-admin owner who picked it lost
- * access to their own dataset, and grants have no write path (#929). A dataset
+/** The visibility values this control can move a dataset TO, in
+ * ladder order. `restricted` is not one: a non-admin owner who picked it would
+ * lose access to their own dataset, and grants have no write path. A dataset
  * already stored as `restricted` still displays its own value (see below) — a
  * one-way exit, never a silent coercion to something the user did not pick.
- * fix(#930): `internal` joined the ladder once its permission branches landed;
- * the import pickers deliberately stay at private/public. */
+ * The import pickers deliberately stay at private/public. */
 const SELECTABLE_VISIBILITIES = ['private', 'internal', 'public'] as const;
 
 /** The full ladder in widening order, for deciding whether a
@@ -266,7 +265,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
   const { t } = useTranslation('dataset');
   const { endpoints, publicApiBaseUrl } = useDatasetAccessEndpoints(dataset);
   const updateDataset = useUpdateDataset();
-  // feat(#1691): the restrict_public_visibility instance setting caps
+  // The restrict_public_visibility instance setting caps
   // non-admins at non-public; the server enforces it with a 403, this only
   // disables the affordance.
   const canSetPublic = useCanSetPublicVisibility();
@@ -275,7 +274,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
     dataset.visibility as (typeof SELECTABLE_VISIBILITIES)[number],
   );
 
-  // feat(#1070): a visibility change held back while the owner confirms that
+  // A visibility change held back while the owner confirms that
   // keywords inherited from the analysis source may reach readers who cannot
   // open that source.
   const [pendingChange, setPendingChange] = useState<{
@@ -301,11 +300,10 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
             toast.warning(result.metadata_warnings[0]);
           }
         },
-        // fix(#927): moving a dataset away from public while a public map uses
+        // Moving a dataset away from public while a public map uses
         // it is a 422 from `_apply_visibility_change`. This control is the
         // first UI that can trigger it, so the message has to reach the user
-        // rather than leaving the select silently snapping back (#931 owns
-        // turning that prose into its own localized message).
+        // rather than leaving the select silently snapping back.
         onError: (err) =>
           toast.error(formatMutationError('dataset:metadataEdit.visibilityFailed', err)),
       },
@@ -328,7 +326,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
         dataset.visibility as (typeof VISIBILITY_LADDER)[number],
       );
     if (widens) {
-      // feat(#1070): ask the counterfactual — "at this visibility, would
+      // Ask the counterfactual — "at this visibility, would
       // inherited keywords reach someone who cannot open their source?" — and
       // put the diff in front of the owner before the change applies.
       // Advisory only: a failed probe never blocks the change (the backend
@@ -458,7 +456,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {/* fix(#927): a stored `restricted` dataset keeps showing what
+                  {/* A stored `restricted` dataset keeps showing what
                       it actually is — offered as the current value only, never
                       as a move. */}
                   {isLegacyVisibility && (
@@ -500,7 +498,7 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
         </CardContent>
       </Card>
 
-      {/* feat(#1070): the publish-moment diff — which inherited keywords the
+      {/* The publish-moment diff — which inherited keywords the
           wider audience would see, with the option to back out and prune. */}
       <AlertDialog
         open={pendingChange !== null}

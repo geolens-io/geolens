@@ -193,9 +193,9 @@ describe('uploadChunks', () => {
     await expect(promise).resolves.toEqual(['retry-etag']);
   });
 
-  // fix(#1778): the retry loop only fires on a REJECTED fetch/XHR — a part
+  // The retry loop only fires on a REJECTED fetch/XHR — a part
   // PUT that stalls on a half-open TCP connection never rejects on its
-  // own, so it used to hang forever with no timeout and no way out.
+  // own, so it needs its own inactivity timeout to ever fail.
   it('attaches an inactivity timer to every part even when the caller passes no signal', async () => {
     const promise = uploadChunks(['u1'], file, 100);
     await vi.waitFor(() => expect(MockXHR.instances).toHaveLength(1));

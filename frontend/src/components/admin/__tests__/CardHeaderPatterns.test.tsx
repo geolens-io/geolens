@@ -165,7 +165,7 @@ describe('admin card header patterns', () => {
     expect(screen.getByRole('option', { name: 'audit.export' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'dataset.view' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'user.deactivate' })).toBeInTheDocument();
-    // fix(#1230): dataset.create is now a real emitted action (create_dataset
+    // dataset.create is a real emitted action (create_dataset
     // in service_create.py), so it belongs in the filter options.
     expect(screen.getByRole('option', { name: 'dataset.create' })).toBeInTheDocument();
   });

@@ -1,4 +1,4 @@
-// fix(#755): `logUnhandledMapError` is the <Map> `onError` prop for every
+// `logUnhandledMapError` is the <Map> `onError` prop for every
 // surface with its own tile-auth recovery (builder, viewer, dataset preview).
 // It must drop the console log ONLY for the handled first-party 401/403
 // vector-tile case — the recovery path owns those — and replicate the
@@ -132,10 +132,10 @@ describe('isHandledTileAuthError (fix #755)', () => {
   });
 });
 
-// fix(#890): the surfaces' own error handlers claimed to have "handled" raster
-// 401/403s (re-mint requested) even though nothing there can cure them, which
-// left one suppressed report row next to the unsuppressed console row above.
-// They now share this predicate, so the two sides cannot disagree again.
+// The surfaces' own error handlers must not claim to have "handled" raster
+// 401/403s (re-mint requested) when nothing there can cure them, which would
+// leave one suppressed report row next to the unsuppressed console row above.
+// They share this predicate, so the two sides cannot disagree.
 describe('isRasterTileAuthError (fix #890)', () => {
   const rasterUrl = `${window.location.origin}/raster-tiles/0b0af5ab-1f3e-4c1a-9d7e-8f1f0c9d2e11/tiles/9/151/191.png`;
   const vectorUrl = `${window.location.origin}/api/tiles/data.t/1/2/3.pbf?sig=a`;
@@ -174,7 +174,7 @@ describe('isRasterTileAuthError (fix #890)', () => {
   });
 });
 
-// fix(#907): a raster 401 is unrecoverable — EXCEPT while a session renewal is
+// A raster 401 is unrecoverable — EXCEPT while a session renewal is
 // in flight, which is the one thing that fixes it. Logging it then would leave
 // an unsuppressed red report entry for a tab return that healed itself.
 describe('logUnhandledMapError during a session renewal (fix #907)', () => {

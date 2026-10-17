@@ -24,7 +24,7 @@ interface UserResetPasswordDialogProps {
 }
 
 /**
- * feat(#1715): the administrator half of "Contact a GeoLens administrator for a
+ * The administrator half of "Contact a GeoLens administrator for a
  * password reset", which the login page has always said and nothing could do.
  *
  * One field, no generated value and no clipboard copy: the administrator picks
@@ -120,7 +120,7 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
               // here. The placeholder states the default the API describes.
               minLength={8}
               placeholder={t('users.resetPasswordDialog.passwordPlaceholder')}
-              // fix(#1746): autoComplete="off" alone does not stop Chrome from
+              // autoComplete="off" alone does not stop Chrome from
               // offering a saved password on a password-type field. This value
               // belongs to someone else's account, so opt out of every password
               // manager explicitly rather than let one file it under this admin.

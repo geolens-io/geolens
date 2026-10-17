@@ -58,7 +58,7 @@ const SAML_PROVIDER: SamlProviderConfig = {
   sp_entity_id: 'https://geo.example.com/api/auth/saml/okta',
 };
 
-// fix(#1117): SAML rows live in the same catalog.oauth_providers table as OAuth and
+// SAML rows live in the same catalog.oauth_providers table as OAuth and
 // are returned unfiltered by the login page's /auth/oauth/providers/, so a SAML
 // mutation changes the login buttons too. This section invalidated its own list and
 // the admin OAuth list but never authConfig.oauthProviders.
@@ -82,9 +82,9 @@ describe('SamlProvidersSection provider mutations', () => {
       .mockResolvedValue(undefined);
   }
 
-  // fix(#1164): the SAML list key is asserted here too. It used to be an inline
-  // `['saml', 'providers']` literal repeated at all four call sites, so nothing
-  // bound the invalidations to the key the list actually reads.
+  // The SAML list key is asserted here too. An inline `['saml', 'providers']`
+  // literal repeated at each call site would leave nothing binding the
+  // invalidations to the key the list actually reads.
   function expectEveryProviderCache(
     invalidateQueries: ReturnType<typeof spyOnInvalidate>,
   ) {
@@ -168,11 +168,11 @@ describe('SamlProvidersSection provider mutations', () => {
     expectEveryProviderCache(invalidateQueries);
   });
 
-  // fix(#1164): the three tests above stub invalidateQueries, so they prove the call
-  // was made with the right key but not that the LIST reads that same key. Those were
-  // two independent literals until now. This one lets the real invalidation run and
-  // watches for the refetch, so a read/invalidate mismatch surfaces as a list that
-  // never reloads — the silent no-op the issue is about.
+  // The three tests above stub invalidateQueries, so they prove the call
+  // was made with the right key but not that the LIST reads that same key.
+  // This one lets the real invalidation run and watches for the refetch, so a
+  // read/invalidate mismatch surfaces as a list that never reloads — a silent
+  // no-op.
   it('refetches its own provider list after a mutation', async () => {
     vi.mocked(createSamlProvider).mockResolvedValueOnce(SAML_PROVIDER);
     const user = userEvent.setup();

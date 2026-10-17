@@ -1,13 +1,14 @@
 /**
- * fix(#1778): "no layer change mid-commit" guard, bulk path.
+ * "no layer change mid-commit" guard, bulk path.
  *
- * The #1708 r24 guard (UrlImportForm.tsx's handleLayerChange) was never
- * applied to BulkReviewList's layer/sheet picker, so it stayed enabled while
- * a commit was in flight -- changing it drove the entry back to 'preview',
- * re-enabling the commit button against a request that was already running.
+ * UrlImportForm.tsx's handleLayerChange guards against layer changes
+ * mid-commit. BulkReviewList's layer/sheet picker needs the same guard:
+ * changing it while a commit is in flight would drive the entry back to
+ * 'preview', re-enabling the commit button against a request that is already
+ * running.
  *
- * This test pins the UI half of the fix: the layer/sheet <Select> is
- * disabled once the entry's status is 'committing'.
+ * This test pins the UI half: the layer/sheet <Select> is disabled once the
+ * entry's status is 'committing'.
  */
 import { render, screen } from '@/test/test-utils';
 import { BulkReviewList } from '../BulkReviewList';

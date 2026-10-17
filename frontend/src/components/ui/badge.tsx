@@ -15,7 +15,7 @@ const badgeVariants = cva(
         default: "bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
         secondary:
           "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
-        // fix(#1778): same dark-fill contrast fix as button.tsx's destructive
+        // Same dark-fill contrast fix as button.tsx's destructive
         // variant (dark:bg-destructive/60 composited against
         // text-destructive-foreground is 2.61:1; text-white is 6.24:1).
         destructive:

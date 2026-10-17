@@ -1,9 +1,8 @@
-// fix(#1778): listApiKeys fetched `total` and then discarded it, capping the
-// visible list at the backend default limit=50 with no indication more keys
-// existed — a key an admin needed to revoke could be permanently invisible.
-// The flat limit=200 fetch that replaced it
-// was itself the backend's hard cap (`le=200`) — a user with 201+ keys
-// still had no way to reach the rest. useApiKeys now returns
+// Discarding `total` would cap the visible list at the backend default
+// limit=50 with no indication more keys existed — a key an admin needed to
+// revoke could be permanently invisible. A flat limit=200 fetch is the
+// backend's hard cap (`le=200`), so a user with 201+ keys would still have no
+// way to reach the rest. useApiKeys returns
 // {items, total, isLoading, hasMore} for a given pageCount, and the
 // component's "Load more" control grows pageCount until every key loads.
 import { fireEvent, render, screen } from '@/test/test-utils';

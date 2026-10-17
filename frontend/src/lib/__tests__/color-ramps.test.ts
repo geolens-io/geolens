@@ -115,9 +115,9 @@ describe('getRampColors with reversed flag', () => {
   });
 });
 
-// fix(#1856): qualitative palettes are discrete categories, not a gradient —
-// sampling them continuously blended unrelated hues and washed small counts
-// out toward grey. getRampColors now assigns palette entries directly.
+// Qualitative palettes are discrete categories, not a gradient —
+// sampling them continuously would blend unrelated hues and wash small counts
+// out toward grey. getRampColors assigns palette entries directly.
 describe('getRampColors on qualitative ramps (#1856)', () => {
   it('five categories on Set2 yield five distinct palette members', () => {
     const colors = getRampColors('Set2', 5);
@@ -354,7 +354,7 @@ describe('colorClassificationIsOrphaned', () => {
     expect(colorClassificationIsOrphaned(categorical(), { 'fill-color': RAMP }, 'Polygon')).toBe(false);
   });
 
-  // fix(#461): an all-null column legitimately yields `categories: []`, and
+  // An all-null column legitimately yields `categories: []`, and
   // buildCategoricalExpression emits a BARE colour for it rather than a below-arity
   // `match`. Calling that orphaned makes the editor regenerate on every render.
   it('is not orphaned by a config that claims no classes', () => {

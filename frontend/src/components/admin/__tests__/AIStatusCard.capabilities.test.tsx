@@ -14,7 +14,7 @@ vi.mock('@/hooks/use-permissions', () => ({
   }),
 }));
 
-// fix(#653): the card gate goes through useAIStatusReader, which composes
+// The card gate goes through useAIStatusReader, which composes
 // usePermissions with useEdition — mock the edition side too.
 vi.mock('@/hooks/use-edition', () => ({
   useEdition: () => ({
@@ -88,7 +88,7 @@ describe('AIStatusCard capability gates', () => {
     expect(screen.queryByText('AI Status')).not.toBeInTheDocument();
   });
 
-  // fix(#653): /admin/ai-status is gated by require_ai_status_reader — the
+  // /admin/ai-status is gated by require_ai_status_reader — the
   // capability flips from manage_users to manage_tenants in multi-tenant mode.
   it('multi-tenant: manage_users alone hides the card and fires no queries', () => {
     mocks.isMultiTenant = true;
@@ -108,7 +108,7 @@ describe('AIStatusCard capability gates', () => {
     render(<AIStatusCard />);
 
     expect(mocks.useAIStatus).toHaveBeenCalledWith({ enabled: true });
-    // fix(#653): /admin/embedding-stats stays manage_users in both modes —
+    // /admin/embedding-stats stays manage_users in both modes —
     // a manage_tenants-only operator would 403, so the query stays disabled.
     expect(mocks.useEmbeddingStats).toHaveBeenCalledWith({ enabled: false });
     expect(screen.getByText('AI Status')).toBeInTheDocument();

@@ -9,7 +9,7 @@ function stripTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-// fix(#1863 P1): exported so callers can tell a same-origin, relative
+// Exported so callers can tell a same-origin, relative
 // GeoLens API path (needs the session's bearer token) apart from an
 // already-qualified external URL (a manual distribution, e.g. a viewer app)
 // that resolveDistributionUrl leaves untouched and that must never receive it.
@@ -17,7 +17,7 @@ export function isAbsoluteUrl(value: string): boolean {
   return ABSOLUTE_URL_RE.test(value) || value.startsWith('//');
 }
 
-// fix(#1863 P2): a `{z}`/`{x}`/`{y}`-style placeholder (the auto-generated
+// A `{z}`/`{x}`/`{y}`-style placeholder (the auto-generated
 // vector_tiles row is exactly `/tiles/data.<table>/{z}/{x}/{y}.pbf`) names a
 // TEMPLATE, not a literal resource — no single fetch resolves it.
 const TILE_TEMPLATE_RE = /\{[^{}]+\}/;
@@ -44,7 +44,7 @@ function normalizeApiBasePath(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
 }
 
-// fix(#1867): exported so callers can compare an absolute distribution url
+// Exported so callers can compare an absolute distribution url
 // against THIS instance's own API origin — the same resolution api/client.ts
 // uses to build its own fetch targets from `API_BASE`.
 function getRuntimeApiBaseUrl(): string | null {

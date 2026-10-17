@@ -1,14 +1,14 @@
 /**
- * fix(#1712): a STAC import must survive the form unmounting.
+ * A STAC import must survive the form unmounting.
  *
  * The Import page renders tabs conditionally, so switching away mid-import
  * unmounts StacImportForm. `importStacItems` keeps running server-side and
  * creates datasets SYNCHRONOUSLY (no job id — see
- * api/stac-import-session.ts's module docstring for why this tab's actual
- * shape differs from what #1712 assumed by analogy with the Service tab).
+ * api/stac-import-session.ts's module docstring for how this tab differs
+ * from the Service tab).
  * An unmount mid-request loses the created/skipped/error counts even though
  * the datasets it created are real; this session protects that response.
- * Mirrors UrlImportForm.unmount.test.tsx (#1708) for this tab's shape.
+ * Mirrors UrlImportForm.unmount.test.tsx for this tab's shape.
  */
 import { StrictMode, act } from 'react';
 import { createRoot } from 'react-dom/client';

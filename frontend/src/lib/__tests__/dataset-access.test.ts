@@ -1,6 +1,6 @@
 import type { DistributionResponse, RecordType } from '@/types/api';
 
-// fix(#1877): isSameOriginAbsoluteUrl must compare canonical URL.origin
+// isSameOriginAbsoluteUrl must compare canonical URL.origin
 // values against getRuntimeApiBaseUrl() (reads API_BASE from lib/constants.ts)
 // — each vi.doMock below exercises a different API_BASE per case.
 describe('isSameOriginAbsoluteUrl (#1877)', () => {

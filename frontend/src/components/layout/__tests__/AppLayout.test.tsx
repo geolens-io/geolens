@@ -97,7 +97,7 @@ describe('AppLayout', () => {
     expect(document.querySelector('a[href="/admin"]')).not.toBeNull();
   });
 
-  // fix(#817): a multi-tenant fleet operator can hold manage_tenants alone —
+  // A multi-tenant fleet operator can hold manage_tenants alone —
   // the admin routes admit them, so the navbar entry must be discoverable too.
   it('shows the admin entry to a manage_tenants-only fleet operator in multi-tenant mode', () => {
     permissionState.manageTenants = true;

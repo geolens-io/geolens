@@ -140,7 +140,7 @@ function NonUploadRail({ mode }: { mode: 'url' | 'register' | 'service' | 'stac'
   const isStac = mode === 'stac';
   const isUrl = mode === 'url';
 
-  // feat(#1705): URL import gets its own rail copy — it copies data in like
+  // URL import gets its own rail copy — it copies data in like
   // Upload (unlike Register/Service, which point at live sources).
   if (isUrl) {
     return (

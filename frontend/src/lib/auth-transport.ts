@@ -28,16 +28,16 @@ const COOKIE_SCOPED_API_PATH = '/api';
 export function cookieAuthAvailable(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    // fix(#1446): resolve EVERY base against the page URL rather than treating
+    // Resolve EVERY base against the page URL rather than treating
     // "no http(s):// prefix" as proof of same-origin. A protocol-relative base
     // like `//api.example.com` has no scheme yet is cross-origin, and
-    // misreading it opted the app into cookie mode while `credentials:
-    // 'same-origin'` withheld the cookie — every session would have stopped
+    // misreading it would opt the app into cookie mode while `credentials:
+    // 'same-origin'` withheld the cookie — every session would stop
     // refreshing once its access token expired. Resolution handles the
     // relative default correctly too.
     const base = new URL(API_BASE, window.location.href);
     if (base.origin !== window.location.origin) return false;
-    // fix(#1446): same origin is necessary but not sufficient — the PATH has to
+    // Same origin is necessary but not sufficient — the PATH has to
     // fall inside the cookie's scope too. FRONTEND_API_BASE_URL is documented
     // as "URL path or absolute URL", so a deployment can mount the API at, say,
     // `/geolens-api` behind a rewriting proxy. The cookie would still be scoped

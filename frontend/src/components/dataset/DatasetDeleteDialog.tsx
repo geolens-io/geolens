@@ -35,9 +35,9 @@ function parseDependentVrts(error: Error): DependentVrt[] | null {
 /**
  * Whether this delete leaves the operator's PostgreSQL table behind.
  *
- * fix(#1452): registering an existing table copies no data, so deleting the
+ * Registering an existing table copies no data, so deleting the
  * dataset detaches instead of dropping. Both served facts come from the
- * server — `origin` is computed there (#1218) and `origin_ref.managed` is
+ * server — `origin` is computed there and `origin_ref.managed` is
  * stamped at registration — and `geolens_owns_table` in the backend's
  * platform/dataset_origin.py is the authority this mirrors for copy only.
  *

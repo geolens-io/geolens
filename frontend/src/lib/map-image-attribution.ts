@@ -1,11 +1,10 @@
 /**
- * feat(#1486): attribution for the images the builder renders.
+ * Attribution for the images the builder renders.
  *
  * Every image this product produces — the PNG export, the 400x250 thumbnail,
  * the 1200x630 OG card — is distributed outside the application while showing
- * basemap tiles whose licence requires visible credit, and (since #1477)
- * dataset tiles whose source terms may require it too. None of them carried a
- * credit line before this module existed.
+ * basemap tiles whose licence requires visible credit, and dataset tiles
+ * whose source terms may require it too.
  *
  * The trap this module exists to avoid: all three capture paths composite from
  * `map.getCanvas()`, a flat WebGL fill. MapLibre's own attribution control is a
@@ -64,10 +63,10 @@ interface AttributionMapLike {
   /** The current zoom, against which a layer's zoom range is judged. Also
    *  public, also only used to order; see `shownSourceIds`. */
   getZoom?: () => number | undefined;
-  /** feat(#1553): MapLibre's live style object, reached ONLY to read the same
+  /** MapLibre's live style object, reached ONLY to read the same
    *  `used`/`usedForTerrain` flags the on-screen AttributionControl renders
-   *  from. Typed `unknown` because the shape is internal and has been renamed
-   *  under us once already; `liveUsedSourceIds` reads it defensively and the
+   *  from. Typed `unknown` because the shape is internal and can be renamed
+   *  between releases; `liveUsedSourceIds` reads it defensively and the
    *  modeled approximation stays as the fallback. */
   style?: unknown;
 }
@@ -151,7 +150,7 @@ function textAlternative(el: Element): string | null {
 /** Replaced elements that, like an image, display external content identified
  *  only by a URL, mapped to the attribute carrying that URL.
  *
- *  feat(#1553 candidate 4): MapLibre's control sanitizer strips only <script>,
+ *  MapLibre's control sanitizer strips only <script>,
  *  `on*` handlers and javascript:/data: URLs, so every one of these renders
  *  perfectly visibly in the on-screen control — and none of them derives DOM
  *  text, so a provider crediting itself with `<object data="logo.svg">` used to
@@ -232,7 +231,7 @@ function collectCreditText(node: Node): string {
     const alternative = textAlternative(el);
     const urlAttrs = EMBED_URL_ATTRS[tag];
     if (alternative) inner = alternative;
-    // feat(#1553 candidate 4): an unnamed URL-bearing embed is displaying
+    // An unnamed URL-bearing embed is displaying
     // something we cannot name, exactly like an unnamed <img>. Placeholder,
     // not silence — mirroring the image rule keeps the two forms a provider
     // actually ships (img and object/embed logos) from diverging.
@@ -386,10 +385,10 @@ function dedupe(entries: string[]): string[] {
  * elides first is now the hidden sources, which is the correct thing to lose.
  * The on-screen control filters (an unused source's credit simply is not
  * there), so a bounded export with room to spare renders a SUPERSET of the
- * control's line. That is the one deliberate, decided divergence (#1541
- * review) and it errs in the licensing-safe direction.
+ * control's line. That is the one deliberate divergence and it errs in the
+ * licensing-safe direction.
  *
- * feat(#1553): `shownSourceIds` now reads MapLibre's live `used` /
+ * `shownSourceIds` reads MapLibre's live `used` /
  * `usedForTerrain` flags — the control's own input — whenever the map exposes
  * them, and falls back to the documented approximation (layer visibility, zoom
  * range, terrain) only when it does not. See its comment for the two tiers and
@@ -401,7 +400,7 @@ function dedupe(entries: string[]): string[] {
  *
  *  - MapLibre's own "MapLibre" self-credit does not reach the image. It is a
  *    control default rather than a source, so no structured list contains it,
- *    and it was DECIDED on #1541 review that it should stay out rather than be
+ *    and it deliberately stays out rather than being
  *    hardcoded back in: MapLibre GL JS is BSD-3-Clause, which requires its
  *    notice in source and binary distributions, not in rendered output, so no
  *    licence obligation turns on its presence in an exported PNG. Putting it
@@ -436,7 +435,7 @@ interface AttributionStyle {
  * this list is ordered shown-first and by style order within that, which is
  * load-bearing (see `readRenderedAttribution`).
  *
- * chore(#1553 candidate 3): re-verified line-by-line against the installed
+ * Verified line-by-line against the installed
  * maplibre-gl 6.5.0 (`_updateAttributions`): exact-duplicate skip at
  * collection, whitespace-only filter, length sort, then drop any entry a
  * LATER — post-sort, longer — entry `includes`. Two rules line up exactly:
@@ -469,7 +468,7 @@ function suppressContainedCredits(entries: string[]): string[] {
 
 /**
  * Source ids that are rendering, in TWO TIERS: MapLibre's own live
- * `used`/`usedForTerrain` flags where they are reachable (feat(#1553)), and
+ * `used`/`usedForTerrain` flags where they are reachable, and
  * the modeled approximation of them where they are not.
  *
  * TIER 1 — the live flags (`liveUsedSourceIds`). The on-screen
@@ -518,7 +517,7 @@ function suppressContainedCredits(entries: string[]): string[] {
  * the 6.5.0 source: `used` is set from `!layer.isHidden(zoom)` alone, so these
  * make a source render nothing while the on-screen control still credits it:
  *
- *   - a layer `filter` that matches no feature (#1553 candidate 2: the control
+ *   - a layer `filter` that matches no feature (the control
  *     counts such a source used and shows its credit, so PARITY with the
  *     control means counting it shown here too — evaluating filters ourselves
  *     would open a divergence, not close one)
@@ -540,7 +539,7 @@ interface LiveTileManagerLike {
 }
 
 /**
- * feat(#1553): the ids MapLibre itself counts used, read from the live flags
+ * The ids MapLibre itself counts used, read from the live flags
  * the on-screen control renders from, or null when the internal collection is
  * not reachable. The truthiness test mirrors the control's own
  * (`tileManager.used || tileManager.usedForTerrain`).
@@ -577,7 +576,7 @@ function shownSourceIds(
   map: AttributionMapLike,
   style: AttributionStyle | null | undefined,
 ): Set<string> {
-  // feat(#1553): the live flags first — this is the state the on-screen
+  // The live flags first — this is the state the on-screen
   // control renders from, so the partition cannot drift from it. The model
   // below is the fallback for a map that does not expose them.
   const live = liveUsedSourceIds(map);
@@ -726,7 +725,7 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
  *  Returns null when a single entry is wider than `maxWidth`, which is the one
  *  case entry-boundary wrapping cannot resolve on its own.
  *
- *  fix(#1553): the width scan is its own first pass so `maxLines` cannot
+ *  The width scan is its own first pass so `maxLines` cannot
  *  change the answer — it short-circuits at the same entry the interleaved
  *  check did, and only the LAYOUT stops early. */
 function wrapEntries(
@@ -838,7 +837,7 @@ function wrapWords(
       lines.push(...pieces.slice(0, -1));
       current = pieces[pieces.length - 1] ?? '';
     }
-    // fix(#1553): greedy and left to right, so every line already emitted is
+    // Greedy and left to right, so every line already emitted is
     // final. Past the budget the caller re-fits a counted prefix and throws
     // these away, and finishing the wrap only to discard it is the whole cost.
     if (lines.length > maxLines) return lines;
@@ -850,7 +849,7 @@ function wrapWords(
 interface FitAttributionOptions {
   maxWidth: number;
   fontPx: number;
-  /** feat(#1553): stop once the result is known to exceed this many lines. */
+  /** Stop once the result is known to exceed this many lines. */
   maxLines?: number;
 }
 
@@ -866,7 +865,7 @@ interface FittedAttribution {
  * every entry. There is no code path that drops one, which is the property the
  * whole module exists to hold. Leaves `ctx.font` set.
  *
- * feat(#1553): `maxLines` makes it a BOUNDED PROBE whose lines are a PREFIX
+ * `maxLines` makes it a BOUNDED PROBE whose lines are a PREFIX
  * once the budget is exceeded, so only a caller that discards them there may
  * pass it. Both wrappers are greedy, so the under-budget result is unchanged.
  */
@@ -955,8 +954,8 @@ function fitEntryPrefix(
   maxLines: number,
 ): { lines: string[]; count: number } {
   if (maxLines <= 0) return { lines: [], count: 0 };
-  // fix(#1553): each probe only has to answer "more than maxLines?", so it
-  // stops there. A probe over 200 credits of 5,000 characters otherwise laid
+  // Each probe only has to answer "more than maxLines?", so it
+  // stops there. A probe over 200 credits of 5,000 characters would otherwise lay
   // out every line it was about to reject, once per step of the search.
   const wrapFirst = (count: number): string[] => {
     if (count === 0) return [];
@@ -1018,7 +1017,7 @@ function fillScrim(
  * doubles apparent weight, and these are JPEGs — halo plus chroma subsampling
  * is exactly where small text turns to mush. One fixed pair works over both
  * light and dark tiles because the scrim establishes its own ground, which also
- * covers the globe case (#1479), where the bottom-right may be space rather
+ * covers the globe case, where the bottom-right may be space rather
  * than tiles.
  *
  * Returns whether anything was drawn.
@@ -1101,8 +1100,8 @@ const BAND_GAP = 12;
  * The export canvas's own ceiling, and why it has one.
  *
  * The band's measured height is assigned straight
- * to the export canvas, and #1541 review had ruled that growth UNLIMITED, on
- * the reasoning that the export canvas has no height constraint. Browsers do.
+ * to the export canvas, so growth is not bounded by the band itself, and the
+ * export canvas has no height constraint of its own. Browsers do.
  * Every engine caps a canvas both per side and by total area, and past either
  * one the canvas is unusable with nothing raised to say so: `toBlob` hands back
  * null, the export toasts a failure, and no image is produced at all. At the

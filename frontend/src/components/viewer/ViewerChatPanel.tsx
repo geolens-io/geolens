@@ -148,7 +148,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
   const applyQueryResult = useCallback((action: ChatAction): QueryResult | undefined => {
     const geojson = action.geojson;
     if (!geojson) {
-      // fix(#676): the winning result has no geometry (empty analysis,
+      // The winning result has no geometry (empty analysis,
       // attribute-only query) — clear the single-slot overlay instead of
       // leaving the previous turn's features and badge on the map.
       handleDismissEphemeral();
@@ -166,24 +166,20 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
     ) {
       const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
       if (!(minX < -180 || minY < -90 || maxX > 180 || maxY > 90 || minX > maxX || minY > maxY)) {
-        // fix(#674 audit): forward the truncation pair so the badge discloses
+        // Forward the truncation pair so the badge discloses
         // "N of TOTAL" rather than presenting a capped overlay as complete.
         //
-        // fix(#1076): and forward it without a total too. A clip filters rows,
-        // so the server reports none for it — requiring one dropped the
-        // disclosure and a capped clip read as complete. This surface matters
-        // most of the two: an embed or a shared link lands here.
-        //
-        // The producer half is #1071; until it lands this branch is correct and
-        // simply not yet reachable for a clip.
+        // Forward it without a total too. A clip filters rows, so the server
+        // reports none for it — requiring one would drop the disclosure and a
+        // capped clip would read as complete. This surface matters most of
+        // the two: an embed or a shared link lands here.
         //
         // `truncated` is the SQL row cap, not a statement
         // about the overlay — the server clips the FeatureCollection to its own
         // render budget after it, so a 300-row answer arrives as 50 features
         // with the flag false. chatOverlayCompleteness catches that too. The
         // builder needs it for the save guard; this surface needs it for the
-        // same reason it needed #674: the badge must not call a clipped
-        // overlay complete.
+        // same reason: the badge must not call a clipped overlay complete.
         const preview = geojson;
         handleQueryResult(
           preview,
@@ -225,7 +221,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           setStreamingText(streamed);
         } else if (event === 'actions') {
           // Read-only: only show_query_result is acted on; any edit action is
-          // ignored. feat(#534): apply only the LAST query result — an earlier
+          // ignored. Apply only the LAST query result — an earlier
           // spatial result may be superseded by a sanity-check retry, and a
           // per-action apply would leave the flyover describing a different
           // result than the table (matches the builder's winning-action rule).
@@ -284,15 +280,14 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
 
   return (
     <>
-      {/* fix(#542): the viewer applied the query overlay with no legend entry,
-          badge, or dismissal — orange highlights persisted unexplained. Reuse
-          the builder's badge; the viewer's bottom-left column is occupied by
-          BasemapToggle (bottom-8) and the Map data button (bottom-20). */}
-      {/* fix(#1009): the builder moved this affordance into its layer stack
-          (EphemeralPreviewRow) and dropped the badge there. Do NOT finish the
-          deletion here: the viewer has no layer stack to host a row, so this
-          badge is #542's only dismissal surface. Removing it re-opens #542
-          verbatim — an orange overlay with no way to explain or dismiss it. */}
+      {/* The query overlay needs a badge and dismissal, or the orange
+          highlights are unexplained. Reuse the builder's badge; the viewer's
+          bottom-left column is occupied by BasemapToggle (bottom-8) and the
+          Map data button (bottom-20). */}
+      {/* The builder hosts this affordance in its layer stack
+          (EphemeralPreviewRow) and has no badge. The viewer has no layer stack
+          to host a row, so this badge is its only dismissal surface: removing
+          it leaves an orange overlay with no way to explain or dismiss it. */}
       {ephemeralResult && (
         <EphemeralBadge
           featureCount={ephemeralResult.geojson.features.length}
@@ -302,10 +297,10 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           className="bottom-32 start-3"
         />
       )}
-    {/* fix(#542): end-16, not end-3 — the problem-reporter lifebuoy (fixed
+    {/* end-16, not end-3 — the problem-reporter lifebuoy (fixed
         bottom-10 right-4, size-10) appears in the bottom-right corner once
-        errors are captured and overlapped the FAB (same class of bug as the
-        dataset-page fix in #540). */}
+        errors are captured and would overlap the FAB (as on the dataset
+        page). */}
     <div className="absolute bottom-8 end-16 z-10 flex flex-col items-end gap-2">
       {open && (
         <section

@@ -22,7 +22,7 @@ export interface ChatResultHandoff {
    *  handoff that drops the completeness pair arrives looking complete. */
   truncated?: true;
   totalCount?: number;
-  /** feat(#1241): the question this result answers, so the builder can suggest
+  /** The question this result answers, so the builder can suggest
    *  a name for it. Absent handoffs fall back to a generic title. */
   prompt?: string;
 }

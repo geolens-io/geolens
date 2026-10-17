@@ -1,7 +1,7 @@
-// fix(#834): ThemeProvider must survive storage-blocked contexts (Safari
+// ThemeProvider must survive storage-blocked contexts (Safari
 // private-mode iframes, strict cookie settings) where any localStorage access
-// throws — previously this crashed before React mounted (white screen on the
-// embed surface).
+// throws, which would otherwise crash before React mounted (white screen on
+// the embed surface).
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ThemeProvider, useTheme } from '../theme-provider';
 

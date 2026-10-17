@@ -15,7 +15,7 @@ describe('#1866: changeTestLanguage loads real locale bundles', () => {
   });
 
   it('switches between two non-English, non-fallback locales', async () => {
-    // fix(#1866): a second locale exercises the plain addResourceBundle
+    // A second locale exercises the plain addResourceBundle
     // path (data[lng] already exists), not just the placeholder branch.
     await changeTestLanguage('de');
     expect(i18n.t('import:dropzone.browse')).toBe('Durchsuchen');

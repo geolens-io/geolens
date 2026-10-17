@@ -431,7 +431,7 @@ export function SourceQualityTab({
             </div>
           )}
 
-          {/* feat(#1472): attribution sits beside license because it is the
+          {/* Attribution sits beside license because it is the
               same obligation seen from the other side — license names the
               terms, this is the credit those terms require on display. Unlike
               license it is editable, so an operator can add a credit line a

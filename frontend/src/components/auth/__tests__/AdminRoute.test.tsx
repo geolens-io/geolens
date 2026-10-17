@@ -91,7 +91,7 @@ describe('AdminRoute', () => {
     expect(screen.getByText('Admin Content')).toBeInTheDocument();
   });
 
-  // fix(#817): a multi-tenant fleet operator can hold manage_tenants alone —
+  // A multi-tenant fleet operator can hold manage_tenants alone —
   // the enclosing admin gate must admit them so AdminSettingsRoute is
   // reachable.
   it('multi-tenant: admits a manage_tenants-only fleet operator', () => {
@@ -141,7 +141,7 @@ describe('AdminCapabilityRoute', () => {
   });
 });
 
-// fix(#817): the settings/config-ops APIs require manage_settings in
+// The settings/config-ops APIs require manage_settings in
 // single-tenant but manage_tenants in multi-tenant — the route gate must
 // switch the same way so per-tenant admins don't land on tabs whose every
 // request 403s.
@@ -195,7 +195,7 @@ describe('AdminSettingsRoute', () => {
     expect(screen.queryByText('Admin Index')).not.toBeInTheDocument();
   });
 
-  // fix(#817): an edition fetch failure must not fall back to the
+  // An edition fetch failure must not fall back to the
   // single-tenant capability — that would re-authorize the per-tenant admin
   // whose every settings request 403s in multi-tenant.
   it('fails closed when the edition query has failed', () => {
@@ -239,7 +239,7 @@ describe('AdminIndexRoute', () => {
     expect(screen.getByText('Settings Admin')).toBeInTheDocument();
   });
 
-  // fix(#817): neither overview nor audit admits a manage_tenants-only
+  // Neither overview nor audit admits a manage_tenants-only
   // fleet operator — land them on the settings pages they can use.
   it('multi-tenant: lands a manage_tenants-only fleet operator on the settings pages', () => {
     editionState.isMultiTenant = true;

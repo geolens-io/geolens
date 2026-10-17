@@ -1,4 +1,4 @@
-// fix(#1866): a test file calling changeLanguage(/changeAppLanguage( must
+// A test file calling changeLanguage(/changeAppLanguage( must
 // also import changeTestLanguage from @/test/i18n, or t() silently renders
 // English under vitest instead of the target locale.
 //
@@ -19,7 +19,7 @@ const TEST_FILES = import.meta.glob('/src/**/*.{test,spec}.{ts,tsx}', {
 const HELPER_IMPORT = /\bimport\s*\{[^}]*\bchangeTestLanguage\b[^}]*\}\s*from/;
 const CALL_PATTERN = /\b(?:changeLanguage|changeAppLanguage)\(/;
 
-// fix(#1866): strips // and /* */ comments before matching CALL_PATTERN, so
+// Strips // and /* */ comments before matching CALL_PATTERN, so
 // prose mentioning `i18n.changeLanguage('fr')` isn't read as a real call.
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
@@ -33,7 +33,7 @@ function callsWithoutHelper(source: string): boolean {
   return CALL_PATTERN.test(stripped) && !HELPER_IMPORT.test(stripped);
 }
 
-// fix(#2029): i18n.test.ts calls changeAppLanguage on a standalone
+// i18n.test.ts calls changeAppLanguage on a standalone
 // i18next.createInstance(), not the shared frozen-resource harness the
 // helper works around, so it's exempt from this check.
 const HELPER_EXEMPT_FILES = new Set(['/src/i18n/i18n.test.ts']);

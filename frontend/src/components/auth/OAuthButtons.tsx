@@ -153,7 +153,7 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
               title={compact ? label : undefined}
               aria-label={compact ? label : undefined}
               onClick={async () => {
-                // fix(#1446): OAuth is a second sign-in entry point and needs
+                // OAuth is a second sign-in entry point and needs
                 // the same guard password login has. A logout dispatched
                 // moments earlier revokes every refresh token and deletes the
                 // cookies, so a fast callback could install the new session

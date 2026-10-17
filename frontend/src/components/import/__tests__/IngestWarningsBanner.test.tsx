@@ -37,7 +37,7 @@ describe('IngestWarningsBanner', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // fix(#888): the Mercator clamp used to destroy geometry in silence.
+  // The Mercator clamp destroys geometry, so it must not be silent.
   it('names the dropped feature count for a mercator_clip warning', () => {
     render(
       <IngestWarningsBanner
@@ -85,7 +85,7 @@ describe('IngestWarningsBanner', () => {
     expect(screen.queryByText(/was trimmed/)).not.toBeInTheDocument();
   });
 
-  // fix(#906): a skipped clip (narrow-validity CRS) lost nothing but must
+  // A skipped clip (narrow-validity CRS) lost nothing but must
   // not be silent — and must not claim geometry was clipped away.
   it('explains a skipped clip instead of claiming geometry was removed', () => {
     render(

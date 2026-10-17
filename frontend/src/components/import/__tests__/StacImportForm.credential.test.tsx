@@ -1,5 +1,5 @@
 /**
- * feat(#1764) — the STAC import wizard's credential block. What is pinned:
+ * The STAC import wizard's credential block. What is pinned:
  * one `auth` object reaches connect, collections and search; a stale
  * method's or a stale catalog's fields are never sent.
  */

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { useAuthStore } from '@/stores/auth-store';
 import type { AnalysisOperation } from '@/types/api';
 
-/** fix(#757): the AnalysisPanel form fields that must survive the panel's
+/** The AnalysisPanel form fields that must survive the panel's
  *  conditional unmount — a rail-panel switch, Escape, or crossing the 800px
  *  breakpoint all unmount it, and losing a hand-drawn clip mask or a typed
  *  dataset name to a stray click is data loss. One snapshot PER MAP

@@ -6,8 +6,7 @@ import {
 import { useAuthStore } from '@/stores/auth-store';
 import type { UserResponse } from '@/types/api';
 
-// fix(#699): the tracked-job store had no tests at all, which left its three
-// load-bearing behaviours unpinned — it persists (the whole point is
+// The tracked-job store has three load-bearing behaviours — it persists (the whole point is
 // outliving a closed panel or a reload), it rehydrates that persisted job on
 // the next mount, and it drops the job when the signed-in identity changes so
 // the next account on a shared browser does not inherit a run whose status
@@ -36,8 +35,8 @@ describe('analysis-job-store', () => {
   describe('persistence', () => {
     it('writes the tracked job to storage', () => {
       useAnalysisJobStore.getState().setJob(job);
-      // toMatchObject, not toEqual: setJob also stamps the owning identity
-      // (feat(#1008)), and these tests are about the job round-tripping, not
+      // toMatchObject, not toEqual: setJob also stamps the owning identity,
+      // and these tests are about the job round-tripping, not
       // about who owns it — the ownership stamp has its own tests in
       // analysis-job-store.cross-tab.test.ts. Pinning the exact shape here
       // would make every future field addition fail three unrelated tests.

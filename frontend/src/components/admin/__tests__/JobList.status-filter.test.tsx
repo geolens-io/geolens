@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { NavLink } from 'react-router';
 import { JobList } from '../JobList';
 
-// fix(#1185): the admin sidebar's failed-jobs badge links to
+// The admin sidebar's failed-jobs badge links to
 // /admin/jobs?status=failed so the number the user clicked equals the number
 // the list shows. That only holds if JobList reads the status filter off the
 // URL, so these tests pin the read, the write-back, and the fallback for a

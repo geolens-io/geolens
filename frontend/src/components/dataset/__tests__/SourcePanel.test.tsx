@@ -128,7 +128,7 @@ beforeEach(() => {
   } as unknown as ReturnType<typeof useCancelRefreshJob>);
 });
 
-// feat(#1677): one active (running) run alongside a terminal one, for the
+// One active (running) run alongside a terminal one, for the
 // cancel-affordance tests below.
 function mockActiveAndTerminalRuns() {
   vi.mocked(useDatasetRefreshRuns).mockReturnValue({
@@ -475,7 +475,7 @@ describe('SourcePanel', () => {
     });
   });
 
-  // feat(#1677): the one-click cancel affordance on the active run row.
+  // The one-click cancel affordance on the active run row.
   it('offers cancel only on the active run, for a manager, and fires the mutation', async () => {
     mockActiveAndTerminalRuns();
     const mutate = vi.fn();
@@ -680,7 +680,7 @@ describe('SourcePanel', () => {
     expect(container.innerHTML).not.toContain('Bearer hidden');
   });
 
-  // fix(#1746): the panel renders null for a detail code it does not know, so
+  // The panel renders null for a detail code it does not know, so
   // a backend code with no entry here is invisible rather than obviously
   // broken. This is the assertion that notices.
   it('renders the auth_required detail rather than nothing', () => {
@@ -898,7 +898,7 @@ describe('SourcePanel', () => {
     expect(screen.queryByText(/memberHealth\.stale/)).not.toBeInTheDocument();
   });
 
-  // fix(#2035): a stored 'internal_error' must read the same operator-facing
+  // A stored 'internal_error' must read the same operator-facing
   // sentence as the CLI (cli/geolens_cli/refresh.py), not the generic fallback.
   it('renders the CLI-matching sentence for a failed run stored as internal_error', () => {
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({

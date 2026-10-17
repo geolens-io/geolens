@@ -44,7 +44,7 @@ export function useViewerTerrain({
   terrainConfig?: MapTerrainConfig | null;
   tokenMap?: Map<string, TileToken>;
   /**
-   * fix(#452): the bound DEM's LIVE visibility from the viewer legend's eye
+   * The bound DEM's LIVE visibility from the viewer legend's eye
    * toggle (ViewerMap resolves it from visibleLayers). The saved `visible`
    * check below covers maps saved with a hidden DEM, but the legend
    * toggle is a client-side override the saved flag never reflects — without
@@ -61,7 +61,7 @@ export function useViewerTerrain({
     [layers, terrainConfig],
   );
 
-  // fix(#451): whether the shared payload carries ANY rendering of the bound
+  // Whether the shared payload carries ANY rendering of the bound
   // dataset. Distinguishes "row filtered out / metadata not loaded" (terrain
   // may still seed from the raster token — the share-token embed of a private
   // DEM dataset depends on this) from "rows exist but none is a visible
@@ -80,8 +80,8 @@ export function useViewerTerrain({
       setTerrainReady(false);
       return;
     }
-    // fix(#454): same hole as BuilderMap.applyTerrainConfig — a one-shot idle
-    // deferral (reseedTerrainOnStyleLoad) landing mid style-transition used to
+    // Same as BuilderMap.applyTerrainConfig — a one-shot idle
+    // deferral (reseedTerrainOnStyleLoad) landing mid style-transition would
     // no-op silently and leave the mesh flat until an unrelated dep changed.
     // Re-arm on the next idle instead; double-applies are idempotent.
     if (!map.isStyleLoaded()) {
@@ -103,16 +103,16 @@ export function useViewerTerrain({
       : currentTerrainLayer?.tile_url;
     // Honor the bound DEM layer's saved visibility the same way the
     // builder does (BuilderMap applyTerrainConfig: effectiveTerrainEnabled =
-    // enabled && demLayerVisible). Previously the viewer (and embeds, which
-    // reuse this hook) rendered terrain from a hidden DEM row, so a saved map
-    // could show no terrain in the builder and active terrain in the viewer.
-    // fix(#451): when the payload DOES carry rows for the bound dataset but
+    // enabled && demLayerVisible). The viewer (and embeds, which reuse this
+    // hook) must not render terrain from a hidden DEM row, or a saved map could
+    // show no terrain in the builder and active terrain in the viewer.
+    // When the payload DOES carry rows for the bound dataset but
     // none resolves as a terrain-capable DEM (legacy/corrupt binding), the mesh
     // must stay off — the reveal gate and legend already say "no terrain" in
     // that state. When it carries NO rows (filtered private dataset in a
     // share-token embed, or metadata still loading), keep seeding from the
-    // raster token as before.
-    // fix(#452): AND the live legend-toggle state, so hiding the DEM in the
+    // raster token.
+    // AND the live legend-toggle state, so hiding the DEM in the
     // viewer flattens the mesh just like the builder's eye toggle does.
     const demLayerVisible = (currentTerrainLayer
       ? currentTerrainLayer.visible !== false
@@ -139,14 +139,14 @@ export function useViewerTerrain({
     });
     setTerrainReady(true);
 
-    // #186 (b): warn once per enable when the DEM covers only a small slice of
+    // Warn once per enable when the DEM covers only a small slice of
     // the viewport. demBounds come from the raster token (the only bounds source
     // available here; SharedLayerResponse carries no bounds). When the terrain is
     // driven by a non-raster token (no bounds), the guard simply no-ops.
     //
-    // fix(#1128): BuilderMap switched to the layer's `dataset_extent_bbox`,
+    // BuilderMap uses the layer's `dataset_extent_bbox`,
     // because the token span cannot distinguish a seam-crossing DEM from a
-    // global one. This site deliberately did NOT follow: `SharedLayerResponse`
+    // global one. This site deliberately does NOT: `SharedLayerResponse`
     // has no extent field, and adding one would buy nothing — `audience:
     // 'viewer'` below suppresses the toast before `demBounds` is read, so there is no
     // under-warning here to fix.

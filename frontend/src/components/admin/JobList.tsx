@@ -104,7 +104,7 @@ function formatDuration(startedAt: string | null, completedAt: string | null): s
 
 export function JobList() {
   const { t } = useTranslation('admin');
-  // fix(#1185): the admin sidebar's failed-jobs badge links here as
+  // The admin sidebar's failed-jobs badge links here as
   // /admin/jobs?status=failed so the number the user clicked equals the number
   // the list shows. Status therefore lives in the URL rather than in component
   // state — that also makes a filtered view bookmarkable and the back button
@@ -183,7 +183,7 @@ export function JobList() {
     // the Created column already renders as the active descending sort, so
     // clicking it must flip to ascending rather than re-assert descending.
     const next = sortField === field && sortOrder === 'asc' ? 'desc' : 'asc';
-    // fix(#1204): sorting is a refinement of the current view, so it takes the
+    // Sorting is a refinement of the current view, so it takes the
     // same self-write exemption the status dropdown does. Without the flag the
     // effect above would read this write as an external navigation and clear
     // the user's search and user filters on every header click.
@@ -528,7 +528,7 @@ export function JobList() {
                                   {retryAdminJob.isPending ? t('jobs.retrying') : t('jobs.retry')}
                                 </Button>
                               )}
-                              {/* feat(#1677): one-click cancel on active
+                              {/* One-click cancel on active
                                   rows, Retry parity — no confirm dialog;
                                   the action is recoverable and data-safe
                                   under the backend's no-swap fence. */}

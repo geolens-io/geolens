@@ -1,4 +1,4 @@
-// fix(#1778): Terra Draw undo history grew without bound and was never reset
+// Terra Draw undo history must stay bounded and be reset
 // on the feature-edit (drag) path. These tests mock the `terra-draw` and
 // `terra-draw-maplibre-gl-adapter` packages so the hook's `change`/`finish`
 // handlers can be driven directly, without a real WebGL map.

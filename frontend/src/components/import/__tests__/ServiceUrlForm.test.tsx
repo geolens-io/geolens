@@ -1,11 +1,11 @@
 /**
- * fix(#1746): ServiceUrlForm regression tests.
+ * ServiceUrlForm tests.
  *
- * Two findings pinned here:
- * - Finding 4: the service-token field is a request-only credential, not a
- *   login password, so it must opt every password manager out explicitly
+ * Two behaviors pinned here:
+ * - The service-token field is a request-only credential, not a login
+ *   password, so it must opt every password manager out explicitly
  *   (autoComplete="off" alone does not stop Chrome from offering to save it).
- * - Finding 8: the layer picker must be keyed by layer_id, not layer.name —
+ * - The layer picker must be keyed by layer_id, not layer.name —
  *   two ArcGIS sublayers can share a display name (e.g. two sublayers both
  *   titled REC_PassiveConservedAccessScore), and a name-keyed list would
  *   collapse or misroute the duplicates.
@@ -55,7 +55,7 @@ vi.mock('../JobProgress', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // fix(#1712): the preview/commit session (service-url-session.ts) is
+  // The preview/commit session (service-url-session.ts) is
   // module-scoped, same reasoning as url-import-session.ts's own test
   // hygiene — without this, a session left behind by one test's mid-preview
   // or mid-commit unmount is adopted by the next test's fresh render.

@@ -36,9 +36,9 @@ export function SchemaDiffView({ schemaDiff }: SchemaDiffViewProps) {
         </div>
         <div>
           <p className="text-xs text-muted-foreground">{t('schemaDiff.delta')}</p>
-          {/* fix(#1746): null is UNKNOWN, not zero. A service preview whose
+          {/* Null is UNKNOWN, not zero. A service preview whose
               collection size the service never published has no delta to
-              show, and rendering one as 0 read as "no change". */}
+              show, and rendering one as 0 would read as "no change". */}
           <p
             className={cn(
               'text-lg font-semibold',
@@ -124,9 +124,10 @@ export function SchemaDiffView({ schemaDiff }: SchemaDiffViewProps) {
         </div>
       )}
 
-      {/* fix(#1746): an unknown delta is not "no change". Coalescing it to 0
-          said "No schema changes detected" about a re-upload whose row count
-          nobody had established, which is the opposite of what null means. */}
+      {/* An unknown delta is not "no change". Coalescing it to 0
+          would say "No schema changes detected" about a re-upload whose row
+          count nobody has established, which is the opposite of what null
+          means. */}
       {!hasChanges && schemaDiff.row_count_delta === null && (
         <p className="text-sm text-muted-foreground">
           {t('schemaDiff.rowCountUnknown')}

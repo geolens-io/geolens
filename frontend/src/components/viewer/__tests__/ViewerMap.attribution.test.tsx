@@ -1,5 +1,5 @@
 /**
- * feat(#1472): the viewer's per-dataset attribution control.
+ * The viewer's per-dataset attribution control.
  *
  * Two levels, because the bug this feature fixes can reappear at either:
  * the pure collection helper (what credits, in what order, deduped), and the

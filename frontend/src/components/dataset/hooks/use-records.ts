@@ -93,7 +93,7 @@ export function useDistributions(recordId: string | undefined) {
   });
 }
 
-// feat(#1395): set-primary control. mutationFn's argument is the
+// Set-primary control: mutationFn's argument is the
 // distributionId being promoted — the row that ends up carrying is_primary
 // after the backend demotes every other row on the record in the same write.
 //

@@ -50,7 +50,7 @@ describe('useCreateMyApiKey', () => {
     expect(mockCreateMyApiKey).toHaveBeenCalledWith('New Key', { scope: 'full' });
   });
 
-  // fix(#875): the scope the form picked has to reach the request body — the
+  // The scope the form picked has to reach the request body — the
   // whole feature is inert if the mutation drops it.
   it('threads a read_only scope through to the request', async () => {
     mockCreateMyApiKey.mockResolvedValueOnce({ id: 'k3' } as never);

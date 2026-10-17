@@ -279,12 +279,12 @@ describe('the shared PUBLIC_APP_URL shape rule', () => {
 });
 
 /**
- * fix(#1555): which origins are loopback is part of the contract too.
+ * Which origins are loopback is part of the contract too.
  *
- * Both sides carried an enumerated set of three spellings, so `127.0.0.2` — a
- * loopback address to every operating system — was classified as a routable
- * public origin. Here that hands out a share link nobody else can open; on the
- * backend it lets `assert_domain_lock_is_enforceable` issue a domain lock whose
+ * Loopback is a range, not an enumerated set of spellings: `127.0.0.2` is a
+ * loopback address to every operating system, so classifying it as a routable
+ * public origin would hand out a share link nobody else can open here, and on
+ * the backend let `assert_domain_lock_is_enforceable` issue a domain lock whose
  * shell URL every recipient resolves to their own machine. The two must agree
  * about which deployments are misconfigured, so the table is shared:
  * `is_loopback_host` in backend/app/core/public_urls.py runs the same entries.
@@ -332,12 +332,12 @@ describe('the shared loopback classification', () => {
 });
 
 /**
- * fix(#1555): an app URL that names the API base is not an app URL.
+ * An app URL that names the API base is not an app URL.
  *
- * The persistent-setting validator has always rejected it; the environment path
- * did not, and `PUBLIC_APP_URL=https://maps.example.com/api` arrived here
- * through tile-config. Every consumer appends to this value, so the copied card
- * link became `/api/api/maps/...` and the iframe source `/api/m/...`.
+ * The persistent-setting validator rejects it, and so must the environment
+ * path: `PUBLIC_APP_URL=https://maps.example.com/api` arrives here through
+ * tile-config. Every consumer appends to this value, so the copied card link
+ * would become `/api/api/maps/...` and the iframe source `/api/m/...`.
  */
 describe('an /api base is never handed out as the app URL', () => {
   const SERVED_AT = 'https://maps.example.com';

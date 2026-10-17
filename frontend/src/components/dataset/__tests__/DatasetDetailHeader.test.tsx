@@ -56,9 +56,9 @@ describe('DatasetDetailHeader', () => {
     expect(headings[0]).toHaveTextContent('World Countries');
   });
 
-  // fix(#1778): the editable title's InlineEdit was rendered with no
-  // placeholder, so the underlying <input> had no accessible name at all
-  // once clicked into edit mode.
+  // The editable title's InlineEdit needs a placeholder, otherwise the
+  // underlying <input> has no accessible name at all once clicked into edit
+  // mode.
   it('#1778 — the editable title input has an accessible name once clicked into edit mode', async () => {
     const user = userEvent.setup();
     render(

@@ -30,7 +30,7 @@ const TrustBrowserPage = lazy(loadTrustBrowserPage);
 const loadOAuthCallbackPage = () =>
   import('./pages/OAuthCallbackPage').then(m => ({ default: m.OAuthCallbackPage }));
 const OAuthCallbackPage = lazy(loadOAuthCallbackPage);
-// fix(#448): map routes kick off the map-vendor chunk (~306KB gz, maplibre-gl)
+// Map routes kick off the map-vendor chunk (~306KB gz, maplibre-gl)
 // in parallel with the route chunk. Without this the vendor download
 // serializes BEHIND the page chunk — the page module only reaches its own
 // maplibre import after it has itself loaded.
@@ -57,7 +57,7 @@ const ImportPage = lazy(loadImportPage);
 const loadMapsPage = () =>
   import('./pages/MapsPage').then(m => ({ default: m.MapsPage }));
 const MapsPage = lazy(loadMapsPage);
-// fix(#448): see PublicViewerPage — warm map-vendor alongside the route chunk.
+// See PublicViewerPage — warm map-vendor alongside the route chunk.
 const loadMapViewerGate = () =>
   Promise.all([import('./pages/MapViewerGate'), import('maplibre-gl')]).then(
     ([m]) => ({ default: m.MapViewerGate }),
@@ -96,15 +96,15 @@ const NotFoundPage = lazy(loadNotFoundPage);
 function RootLayout() {
   return (
     <LazyLoadErrorBoundary>
-      {/* fix(#628): global session-expiry host — needs router context for the
+      {/* Global session-expiry host — needs router context for the
           sign-in-returns-to-route action, so it lives here rather than main.tsx. */}
       <SessionExpiredDialog />
       <SessionRestoreNotice />
-      {/* feat(#682): analysis-job notifier — global so a materialize job that
+      {/* Analysis-job notifier — global so a materialize job that
           outlives the builder (panel closed, navigated away, tab reloaded)
           still reports when it lands. Needs router context for its
           "View dataset" action, so it lives here rather than main.tsx.
-          fix(#1018): the reload case covers a job still RUNNING at reload
+          The reload case covers a job still RUNNING at reload
           time, which is what the persisted store carries. Once the job reaches
           a terminal status the watcher persists setJob(null) and reports
           through a toast — and the toast is `duration: Infinity` and NOT
@@ -121,7 +121,7 @@ function RootLayout() {
   );
 }
 
-// fix(#553): auth pages live outside AppLayout but should still show the
+// Auth pages live outside AppLayout but should still show the
 // admin-configured announcement banner. Their min-h-screen shells tolerate
 // the extra banner height; full-height shells (AppLayout map routes,
 // PublicViewerPage) mount SiteBanner inside their own flex column instead.
@@ -181,7 +181,7 @@ export const appRoutes = (
             <Route element={<AdminCapabilityRoute capability="manage_settings" />} handle={requires('capability')}>
               <Route path="admin/audit" element={<AdminAuditPage />} handle={preload(loadAdminAuditPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
-            {/* fix(#817): the settings and config-ops APIs flip to
+            {/* The settings and config-ops APIs flip to
                 manage_tenants in multi-tenant mode, so their routes gate
                 mode-aware — plain manage_settings admitted per-tenant admins
                 whose every settings request 403s. */}
@@ -190,17 +190,17 @@ export const appRoutes = (
               <Route path="admin/settings" element={<Navigate to="/admin/settings/general" replace />} />
               <Route path="admin/settings/:tab" element={<AdminSettingsPage />} handle={preload(loadAdminSettingsPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/config-ops" element={<AdminConfigOpsPage />} handle={preload(loadAdminConfigOpsPage)} errorElement={<RouteErrorBoundary />} />
-              {/* fix(#1778): SAML calls /settings/oauth-providers/, the same
-                  mode-aware API as the tabs above — it was gated on raw
-                  manage_settings, the exact drift #817 fixed for Settings. */}
+              {/* SAML calls /settings/oauth-providers/, the same
+                  mode-aware API as the tabs above, so it must not be gated on
+                  raw manage_settings. */}
               <Route path="admin/saml" element={<AdminSamlPage />} handle={preload(loadAdminSamlPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
             {/* Redirects from old routes.
-                fix(#871): no `admin/settings/appearance` entry in this block — a
-                static path outranks `admin/settings/:tab`, so the old
-                appearance→map redirect made the enterprise branding tab
+                No `admin/settings/appearance` entry in this block — a
+                static path outranks `admin/settings/:tab`, so an
+                appearance→map redirect would make the enterprise branding tab
                 unreachable. AdminSettingsPage's edition gate owns that URL
-                now (enterprise renders it, community sends it to general). */}
+                (enterprise renders it, community sends it to general). */}
             <Route path="admin/share-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             <Route path="admin/embed-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             <Route path="admin/settings/infrastructure" element={<Navigate to="/admin/overview" replace />} />

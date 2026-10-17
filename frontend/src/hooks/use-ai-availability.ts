@@ -14,14 +14,14 @@ import { queryKeys } from '@/lib/query-keys';
  * ## Two readiness sources
  *
  * - **AI-status readers** (the mode-aware capability mirrored by
- *   `useAIStatusReader()` — fix(#815): was gated on the `isAdmin` flag, which
- *   403'd capability-less admins and skipped capability-holding non-admins)
+ *   `useAIStatusReader()`, not the `isAdmin` flag, which would 403
+ *   capability-less admins and skip capability-holding non-admins)
  *   read the detailed `/api/admin/ai-status/` endpoint (provider, key
  *   presence) so the disabled-state UI can distinguish `env_disabled` vs `no_key`.
  * - **Other editors holding `use_ai_chat`** read the public-safe
  *   `/api/ai/availability/` endpoint, which returns only a boolean and leaks no
  *   provider/key detail. This lets a permitted editor open builder chat when AI
- *   is enabled and configured — previously the hook returned `false` for every
+ *   is enabled and configured — the hook would otherwise return `false` for every
  *   non-admin because only admins could read the admin status endpoint.
  * - **Viewers (no `use_ai_chat`)** fire NEITHER endpoint, so there is no 401/403
  *   console noise; they get a safe disabled state with `reason = 'permission'`.
@@ -51,19 +51,19 @@ export type AIUnavailableReason = 'env_disabled' | 'no_key' | 'permission';
 
 export function useAIAvailability() {
   const token = useAuthStore((s) => s.token);
-  // fix(#815): branch on the backend's actual gate (mode-aware capability),
+  // Branch on the backend's actual gate (mode-aware capability),
   // not the isAdmin flag — the flag both over- and under-selected.
   const canReadStatus = useAIStatusReader();
-  // fix(#816): canReadStatus derives from the edition query's tenancy mode,
+  // canReadStatus derives from the edition query's tenancy mode,
   // which reads as single-tenant until that query settles — probing before
   // then can hit the wrong endpoint (a 403 that lands in error telemetry).
   // Hold both probes until the edition is known.
   const editionResolved = !useEdition().isLoading;
-  // fix(#818): can() returns false while the permissions query is still
-  // loading, which settled reason='permission' with isLoading=false and
-  // flashed the no-permission disabled state at permitted editors on a cold
-  // mount. Fold the permissions query's loading into isLoading (mirroring
-  // how #816 folded the edition query's) so the spinner covers the window.
+  // can() returns false while the permissions query is still
+  // loading, which would settle reason='permission' with isLoading=false and
+  // flash the no-permission disabled state at permitted editors on a cold
+  // mount. Fold the permissions query's loading into isLoading (as the
+  // edition query's is) so the spinner covers the window.
   const { can, isLoading: permissionsLoading } = usePermissions();
   const canUse = can('use_ai_chat');
 
@@ -85,7 +85,7 @@ export function useAIAvailability() {
   let reason: AIUnavailableReason | null = null;
 
   if (permissionsLoading) {
-    // fix(#818): don't settle reason='permission' before permissions resolve —
+    // Don't settle reason='permission' before permissions resolve —
     // loading maps to reason=null (spinner via isLoading), per the taxonomy above.
     isAIAvailable = false;
   } else if (!canUse) {

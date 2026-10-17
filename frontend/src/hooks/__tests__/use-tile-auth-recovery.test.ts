@@ -12,7 +12,7 @@ import { tryRefresh } from '@/api/client';
 
 vi.mock('@/api/client', () => ({ tryRefresh: vi.fn(async () => true) }));
 
-// fix(#621): one re-mint per cooldown window — MapLibre can fire dozens of
+// One re-mint per cooldown window — MapLibre can fire dozens of
 // tile errors per pan, and hammering the mint endpoint cannot help. Errors in
 // the settle window ride the pending re-mint (true); errors that persist past
 // it mean the re-mint didn't cure them (false).
@@ -68,7 +68,7 @@ describe('useTileAuthRecovery', () => {
     expect(remint).toHaveBeenCalledTimes(2);
   });
 
-  // fix(#890): telemetry lives here because this is the only place that knows a
+  // Telemetry lives here because this is the only place that knows a
   // mint actually started — the returned boolean is `true` both for a fresh mint
   // and for an error riding the settle window, and `false` mid-cooldown.
   describe('onRemint telemetry (fix #890)', () => {
@@ -134,11 +134,11 @@ describe('useTileAuthRecovery', () => {
   });
 });
 
-// fix(#755): tile sigs are minted on 900 s `round_expiry()` boundaries, so a tab
+// Tile sigs are minted on 900 s `round_expiry()` boundaries, so a tab
 // backgrounded for a few minutes routinely returns with an expired token and
 // MapLibre 403s every visible tile before the reactive handler heals the map.
 // The proactive path re-mints on the VISIBLE edge instead — on the hidden edge a
-// `setTiles` reload would be dropped by the paused TileManager (fix(#584)).
+// `setTiles` reload would be dropped by the paused TileManager.
 
 function vectorToken(expSeconds: number): TileToken {
   return { kind: 'vector', sig: 's', exp: expSeconds, scope: 'x', expires_in: 900 };
@@ -308,8 +308,8 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(remint).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#890): the trigger is what makes the re-mint traceable — the reactive
-  // 403 burst this path replaced at least left warnings behind as evidence that
+  // The trigger is what makes the re-mint traceable — a reactive
+  // 403 burst at least leaves warnings behind as evidence that
   // a recovery happened. `useTileAuthRecovery` turns it into one report per
   // actual mint (see its onRemint suite above).
   it('names itself as the trigger so the report can distinguish a tab return', () => {
@@ -345,7 +345,7 @@ describe('useVisibleTileTokenRefresh (fix #755)', () => {
     expect(onRemint).not.toHaveBeenCalled();
   });
 
-  // fix(#907): raster/DEM tiles carry the session JWT in an Authorization
+  // Raster/DEM tiles carry the session JWT in an Authorization
   // header, so a raster-only map has no `exp` for hasExpiringVectorToken to
   // see. Without the session half of the gate it 401s its whole tile surface
   // once on tab return.

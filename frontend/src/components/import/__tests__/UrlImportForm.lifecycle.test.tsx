@@ -163,7 +163,7 @@ beforeEach(() => {
 afterEach(() => clearUrlImport());
 
 async function driveToReview(preview: unknown, jobId: string) {
-  // fix(#1710): the submit call only queues a download, so the form parks on
+  // The submit call only queues a download, so the form parks on
   // the job poll until it reads `pending`. Answer that here, then restore
   // whatever tracking status the test configured before calling this.
   const tracking = mockUseJobStatus(null) ?? { data: undefined };

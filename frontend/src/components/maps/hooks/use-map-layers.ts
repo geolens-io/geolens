@@ -318,7 +318,7 @@ export function useMapLayers({
         // freshly re-added on remount. Bust that with tileVersion (the
         // dataset's updated_at) the same way the vector source already does
         // via buildSignedTileUrl.
-        // fix(#1372, #2007): the server embeds `?v=<tile_cache_version>` and
+        // The server embeds `?v=<tile_cache_version>` and
         // `pv=<publication_version>` (nginx's shared cache keys on both) — any
         // server query supersedes this client-side append, which would both
         // make nginx key on the wrong `v` and emit a second `?`.

@@ -1,8 +1,8 @@
 import i18n from '@/i18n/i18n';
 
 /** Abbreviate large numbers for legend readability (e.g. 8918925.75 → "8.9M").
- *  fix(#403): abbreviation starts at 10,000 — 4-digit values are often years
- *  (a year-built legend used to render "1.9K – 1.9K"), and "5,000" is no
+ *  Abbreviation starts at 10,000 — 4-digit values are often years
+ *  (a year-built legend would render "1.9K – 1.9K"), and "5,000" is no
  *  harder to read than "5.0K". */
 function formatBreakValue(v: number): string {
   const locale = i18n.language;

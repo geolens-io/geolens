@@ -50,7 +50,7 @@ case "$NGINX_RESOLVER" in
   \[*) ;;
   *:*:*) NGINX_RESOLVER="[$NGINX_RESOLVER]" ;;  # bare IPv6 nameserver → nginx bracket syntax
 esac
-# fix(#580): /api/ upload cap, matching the backend's UPLOAD_MAX_SIZE_MB.
+# /api/ upload cap, matching the backend's UPLOAD_MAX_SIZE_MB.
 # Deployment configs map that setting here with an "m" suffix; the default
 # preserves the previously hard-coded 500m. Guarded so an invalid value fails
 # fast at boot instead of crash-looping on an nginx config error.

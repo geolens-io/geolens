@@ -26,7 +26,7 @@ function getSystemTheme(): 'dark' | 'light' {
     : 'light';
 }
 
-// fix(#834): localStorage access throws in storage-blocked contexts (Safari
+// localStorage access throws in storage-blocked contexts (Safari
 // private-mode iframes, strict cookie settings) — exactly the embed surface.
 // Guard reads/writes so the app still mounts with an in-memory theme, matching
 // how theme-init.js and the persisted zustand stores tolerate blocked storage.

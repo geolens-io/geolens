@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { tryRefresh } from '@/api/client';
 import { otherTab } from '@/test/broadcast-channel';
 
-// fix(#1302): AC — after login the persisted `geolens-auth` value holds no
+// AC — after login the persisted `geolens-auth` value holds no
 // refresh token, and the refresh call carries the cookie plus its double-submit
 // CSRF header instead of a body token.
 
@@ -82,7 +82,7 @@ describe('browser refresh transport', () => {
     expect(init.headers).toMatchObject({ 'X-GeoLens-Auth-Mode': 'cookie' });
   });
 
-  // fix(#1446): the request must be fully formed before the caller tears down
+  // The request must be fully formed before the caller tears down
   // local state. Routing it through apiFetch would await a proactive refresh
   // first when the token is near expiry, and a caller that stopped waiting
   // during that window got a logout POST with no Authorization header — while
@@ -108,13 +108,13 @@ describe('browser refresh transport', () => {
     expect(init.method).toBe('POST');
     expect(init.headers).toMatchObject({ Authorization: 'Bearer live-access' });
     expect(init.credentials).toBe('same-origin');
-    // fix(#1446): survives an immediate close/navigate after clicking Logout.
+    // Survives an immediate close/navigate after clicking Logout.
     expect(init.keepalive).toBe(true);
     // Exactly one request: no proactive-refresh detour.
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  // fix(#1446): when the access token has already expired there is no bearer
+  // When the access token has already expired there is no bearer
   // token to send, and the refresh cookie authenticates the call server-side.
   // That path is CSRF-protected, so the double-submit token must ride along.
   it('logout carries the CSRF token so the cookie can authenticate it', async () => {
@@ -137,7 +137,7 @@ describe('browser refresh transport', () => {
     });
   });
 
-  // fix(#2038): a 2xx whose body fails to parse leaves a live session behind a
+  // A 2xx whose body fails to parse leaves a live session behind a
   // failed sign-in, but /auth/logout/ revokes EVERY session of the user and a
   // malformed body is no evidence the credential was rejected.
   it('does not revoke every session when a successful login response fails to parse', async () => {
@@ -158,7 +158,7 @@ describe('browser refresh transport', () => {
     ).toBeUndefined();
   });
 
-  // fix(#1446): logout revokes EVERY refresh token for the user and deletes
+  // Logout revokes EVERY refresh token for the user and deletes
   // the cookies, so a request that lands after a fresh login revokes the new
   // session's row, and a delayed response erases its cookie. Login waits.
   it('does not let a new login overtake a logout still in flight', async () => {
@@ -200,8 +200,8 @@ describe('browser refresh transport', () => {
     expect(order).toEqual(['logout', 'login']);
   });
 
-  // fix(#1446): two teardown paths can each dispatch a revocation (a terminal
-  // getMe 401 and a login catch, say). A single last-write-wins slot let
+  // Two teardown paths can each dispatch a revocation (a terminal
+  // getMe 401 and a login catch, say). A single last-write-wins slot would let
   // awaitPendingLogout return once the LATER request settled, while the
   // earlier one was still holding the user lock server-side — free to revoke
   // rows a new sign-in just created. Every outstanding revocation must drain.
@@ -524,7 +524,7 @@ describe('browser refresh transport', () => {
   });
 });
 
-// fix(#1446): logout races its wait against a short timer, so a slow refresh
+// Logout races its wait against a short timer, so a slow refresh
 // can still be running when the store is torn down. If that refresh then wrote
 // its rotated tokens back, the browser would be fully signed in again while
 // sitting on /login.
@@ -602,7 +602,7 @@ describe('late refresh after logout', () => {
     }
   });
 
-  // fix(#1446): the epoch guard stops the store write, but the browser applies
+  // The epoch guard stops the store write, but the browser applies
   // a response's Set-Cookie regardless. If the user signs in again before a
   // stale refresh response lands, that cookie would replace the new session's
   // credential with the one the logout revoked. Aborting means the response is

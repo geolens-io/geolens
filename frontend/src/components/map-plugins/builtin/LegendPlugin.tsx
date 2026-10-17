@@ -110,7 +110,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
         <div data-testid="legend-terrain-synthetic">
           <div className="p-1 text-xs">
             <div className="flex items-center gap-1.5">
-              {/* fix(#452): same ◬ chip as the stack's terrain-mode DEM row —
+              {/* Same ◬ chip as the stack's terrain-mode DEM row —
                   legend and layer-list icons must agree, so derive the glyph
                   instead of hardcoding it. */}
               <RasterGlyphChip glyph={demChipGlyph('terrain')} />
@@ -233,7 +233,7 @@ function LegendLayerBody({
           </>
         ) : (
           <div className="flex items-center gap-1.5">
-            {/* fix(#452): one shared icon component with the layer stack —
+            {/* One shared icon component with the layer stack —
                 raster/DEM rows get the same glyph chip (▦/⛰/◬) the stack
                 shows instead of a divergent lucide icon. */}
             <LayerTypeIcon

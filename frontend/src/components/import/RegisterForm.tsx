@@ -16,8 +16,8 @@ import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 import { describeFailureReason } from '@/lib/failure-reason';
 
-// fix(#927/#929): `restricted` is not offered at import time — a non-admin
-// owner who picked it lost access to their own dataset, and grants have no
+// `restricted` is not offered at import time — a non-admin
+// owner who picked it would lose access to their own dataset, and grants have no
 // write path. The type goes with the option, so nothing keeps typechecking
 // against a value the picker cannot produce.
 type DatasetVisibilityChoice = 'private' | 'public';
@@ -274,7 +274,7 @@ function TableDetail({
   isPending: boolean;
 }) {
   const { t } = useTranslation('import');
-  // feat(#1691): hide the Public option when the restrict_public_visibility
+  // Hide the Public option when the restrict_public_visibility
   // instance setting caps non-admins at non-public (server enforces via 403).
   const canSetPublic = useCanSetPublicVisibility();
   const refusal = table.refusal_reason ?? null;

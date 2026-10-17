@@ -259,8 +259,8 @@ export async function uploadChunks(
         const result = await putChunkXHR(urls[i], chunk, signal);
         if (result.ok) {
           const etag = result.etag;
-          // fix(#1778): a cross-origin PUT only exposes ETag when the bucket's
-          // CORS policy lists it (ExposeHeaders). Pushing '' here used to
+          // A cross-origin PUT only exposes ETag when the bucket's
+          // CORS policy lists it (ExposeHeaders). Pushing '' here would
           // reach S3's complete_multipart_upload with an empty part ETag,
           // which the backend maps to a "session may have expired" 502 — a
           // message that can never be fixed by retrying. Fail with the real

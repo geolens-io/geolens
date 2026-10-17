@@ -119,7 +119,7 @@ const mockPreviewFile = vi.mocked(previewFile);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // fix(#1712): UploadForm now drives uploads through the module-scoped
+  // UploadForm drives uploads through the module-scoped
   // upload-session singleton — reset it so a batch left in-flight (most of
   // these tests never commit or remove their dropped file) is not ADOPTED
   // by the next test's render() instead of starting from the dropzone.

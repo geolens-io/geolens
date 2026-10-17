@@ -66,7 +66,7 @@ describe('ViewerChatPanel', () => {
 
     renderPanel();
 
-    // fix(#674 audit): the badge labels analysis previews as well as query
+    // The badge labels analysis previews as well as query
     // results, so its copy is operation-neutral ("Result", not "Query result").
     expect(screen.getByText(/Result/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss result' }));
@@ -133,9 +133,9 @@ describe('ViewerChatPanel', () => {
     expect(screen.getByText('1 row')).toBeInTheDocument();
   });
 
-  // fix(#1076): the viewer is the surface an embed or a shared link lands on,
+  // The viewer is the surface an embed or a shared link lands on,
   // so a silent truncation here reaches the widest audience. A clip reports no
-  // source total, and requiring one dropped the flag before the badge saw it.
+  // source total, and requiring one would drop the flag before the badge sees it.
   it('forwards a cap that arrives without a total', async () => {
     setAvailable(true);
     mockStream.mockImplementation(async function* () {

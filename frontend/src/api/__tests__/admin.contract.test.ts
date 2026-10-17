@@ -127,7 +127,7 @@ describe('admin api request contracts', () => {
     await admin.createApiKey('u1', 'ci-key');
     expect(calledUrl()).toBe('/admin/api-keys/');
     expect(calledInit()?.method).toBe('POST');
-    // fix(#875): scope is always sent, defaulting to the pre-#875 behaviour.
+    // Scope is always sent, defaulting to a full-access key.
     expect(JSON.parse(calledInit()?.body as string)).toEqual({
       user_id: 'u1',
       name: 'ci-key',

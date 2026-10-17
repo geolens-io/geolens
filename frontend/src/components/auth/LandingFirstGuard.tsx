@@ -21,10 +21,9 @@ import { getAuthConfig } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
 import { readSessionStorage } from '@/lib/storage';
 
-// fix(#1778): was a static import, dragging SearchPage's ~163KB subtree
-// (FilterPanel, color-ramps, etc.) into the entry chunk for every route.
-// RootLayout's <Suspense> already wraps the route Outlet, so no new
-// boundary is needed here.
+// Lazy so SearchPage's ~163KB subtree (FilterPanel, color-ramps, etc.) stays
+// out of the entry chunk for every route. RootLayout's <Suspense> already
+// wraps the route Outlet, so no new boundary is needed here.
 const SearchPage = lazy(() => import('@/pages/SearchPage').then((m) => ({ default: m.SearchPage })));
 
 const GUEST_BROWSE_KEY = 'gl-guest-browse';
@@ -39,12 +38,11 @@ export function LandingFirstGuard() {
   });
 
   const landingFirst = config?.landing_first ?? false;
-  // fix(#1515): this read happens during render, so an exception here is a blank
-  // page, not a lost preference. The previous `typeof sessionStorage !==
-  // 'undefined'` guard did not prevent one: the property exists in every context
-  // that matters, and it is READING it that throws — SecurityError in a frame
-  // with an opaque origin, and in some private-browsing modes. Same defect shape
-  // as the two reload latches in this fix; third site.
+  // This read happens during render, so an exception here is a blank
+  // page, not a lost preference. A `typeof sessionStorage !== 'undefined'`
+  // guard would not prevent one: the property exists in every context that
+  // matters, and it is READING it that throws — SecurityError in a frame with
+  // an opaque origin, and in some private-browsing modes.
   const guestBrowse = readSessionStorage(GUEST_BROWSE_KEY) === 'true';
 
   // Redirect ONLY when: flag ON + unauthenticated + no guest-browse marker

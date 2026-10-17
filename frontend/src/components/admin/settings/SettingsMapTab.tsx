@@ -270,7 +270,7 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset: submitReset
                     className="h-7 text-xs max-w-xs"
                     placeholder={basemap.api_key ? '••••••••' : t('settings.basemaps.apiKeyPlaceholder', 'Enter API key')}
                     defaultValue={basemap.api_key ?? ''}
-                    // fix(#1755): admin secret, not a login credential, so opt
+                    // Admin secret, not a login credential, so opt
                     // out of every password manager explicitly.
                     autoComplete="new-password"
                     data-1p-ignore
@@ -332,7 +332,7 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset: submitReset
                   placeholder={t('settings.basemaps.apiKeyPlaceholder', 'Optional — required if URL contains {api_key}')}
                   value={newApiKey}
                   onChange={(e) => setNewApiKey(e.target.value)}
-                  // fix(#1755): admin secret, not a login credential, so opt
+                  // Admin secret, not a login credential, so opt
                   // out of every password manager explicitly.
                   autoComplete="new-password"
                   data-1p-ignore

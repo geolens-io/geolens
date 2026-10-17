@@ -29,7 +29,7 @@ const COLOR_CLASSES: Record<string, string> = {
 
 const DISMISS_KEY = 'gl-site-banner-dismissed';
 
-// feat(#1662): make https:// URLs in admin-entered banner text
+// Make https:// URLs in admin-entered banner text
 // clickable. The text itself stays React-escaped; only the matched URL
 // becomes an anchor, so an admin cannot inject markup through the banner.
 // Trailing sentence punctuation stays outside the link.

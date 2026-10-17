@@ -124,7 +124,6 @@ describe('useRelatedDatasets', () => {
   });
 });
 
-// feat(#1395): set-primary control.
 describe('useSetPrimaryDistribution', () => {
   beforeEach(() => vi.clearAllMocks());
 

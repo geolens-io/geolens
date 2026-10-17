@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router';
 import { JobList } from '../JobList';
 
-// fix(#1204): the Jobs list is server-paginated, so ordering had to go through
+// The Jobs list is server-paginated, so ordering had to go through
 // the API — sorting only the current page would leave page 1 sorted and page 2
 // unrelated, which looks correct in the UI and is not. These tests pin the
 // URL-owned sort state, the accessibility contract, and the columns that
@@ -182,8 +182,8 @@ describe('JobList sorting', () => {
   });
 
   it('does not clear the search filter when a header is activated', async () => {
-    // fix(#1204): JobList resets its filters on any navigation it did not make
-    // itself (#1185), keyed on location.key. A sort write produces a new key,
+    // JobList resets its filters on any navigation it did not make
+    // itself, keyed on location.key. A sort write produces a new key,
     // so without the self-write exemption every header click would silently
     // wipe the user's search — the list would reorder AND widen at once.
     const user = userEvent.setup();

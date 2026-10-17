@@ -1,6 +1,6 @@
-// chore(#835): the single relative-time formatter. Previously written out 4x
-// (provenance-attribution, ReportEntryList, admin ApiKeySection, settings
-// MyApiKeySection) with drifting unit ranges and fallbacks.
+// The single relative-time formatter, shared by provenance-attribution,
+// ReportEntryList, admin ApiKeySection and settings MyApiKeySection so unit
+// ranges and fallbacks cannot drift.
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;

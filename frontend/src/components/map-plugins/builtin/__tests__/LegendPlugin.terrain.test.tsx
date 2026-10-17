@@ -207,7 +207,7 @@ describe('LegendPlugin terrain consistency (Fix 1)', () => {
   });
 });
 
-// fix(#769): hydrateFolderGroupLayers builds the synthetic group:folder row by
+// hydrateFolderGroupLayers builds the synthetic group:folder row by
 // spreading the group's first child, so it inherits visible/show_in_legend/
 // paint wholesale — the legend filter must exclude it or every folder group
 // renders a phantom entry carrying a duplicate of the first child's swatch.

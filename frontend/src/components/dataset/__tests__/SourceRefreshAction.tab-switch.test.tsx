@@ -155,7 +155,7 @@ describe('SourceRefreshAction + useDatasetRefreshWatch (tab-switch survival)', (
   });
 
   it('the trigger re-enables after a dispatched run completes while the Source tab was unmounted', async () => {
-    // fix(#831 precedent, VerifyEmailPage.test.tsx): shouldAdvanceTime keeps
+    // shouldAdvanceTime keeps
     // the mocked promise chains progressing while fake timers still control
     // TanStack's refetchInterval; delay: null keeps userEvent synchronous
     // under them.

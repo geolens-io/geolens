@@ -211,15 +211,15 @@ export async function uploadFile(
 }
 
 /**
- * feat(#1705): the URL variant of upload. The backend fetches the file
+ * The URL variant of upload. The backend fetches the file
  * server-side (SSRF-validated, size-capped) into staging; the returned job
  * then flows through the same preview → commit pipeline as a direct upload.
  *
- * feat(#1710): this call only validates and queues, so the download no longer
- * bounds it. The job it returns is `running` until the worker has the file;
+ * This call only validates and queues, so the download does not
+ * bound it. The job it returns is `running` until the worker has the file;
  * poll `getJobStatus` and preview once it reaches `pending`.
  *
- * It still outlives apiFetch's 30s default. Two server-side waits are
+ * It can still outlive apiFetch's 30s default. Two server-side waits are
  * sequential and each has its own 30s ceiling: the auth phase checks out a
  * session before the handler runs, which can spend DB_POOL_TIMEOUT under pool
  * saturation, and the SSRF preflight is then allowed PREFLIGHT_DNS_MAX_SECONDS
@@ -266,7 +266,7 @@ export async function getJobStatusByDataset(
   });
 }
 
-// fix(#1778): the request-scoped preview handler runs run_ogrinfo_preview,
+// The request-scoped preview handler runs run_ogrinfo_preview,
 // bounded at OGRINFO_TIMEOUT_SECONDS = 300s server-side, with a JSON-decode
 // fallback that can spawn ogrinfo twice more at 300s each — worst case
 // exceeds even nginx's own 600s `location /api/` read timeout. apiFetch's
@@ -328,7 +328,7 @@ export async function retryJob(jobId: string): Promise<UploadResponse> {
   });
 }
 
-// feat(#1677): one-click cancel for a pending/running job. The backend CASes
+// One-click cancel for a pending/running job. The backend CASes
 // the job row (and its bound refresh run) to `cancelled` and commits before
 // the best-effort queue abort, so a 200 here is durable.
 export async function cancelJob(jobId: string): Promise<JobCancelResponse> {
@@ -337,7 +337,7 @@ export async function cancelJob(jobId: string): Promise<JobCancelResponse> {
   });
 }
 
-// feat(#1746 B4): `auth` is a third, optional argument rather than a
+// `auth` is a third, optional argument rather than a
 // replacement for `token` — ReuploadDialog.tsx still calls this with the
 // two-argument bearer-only form, and the backend itself refuses a body that
 // sets both (`reject_service_auth_conflict`), so a caller passes at most one.
@@ -352,7 +352,7 @@ export async function probeService(
   });
 }
 
-// fix(#1778): a WFS namespace mismatch makes run_service_preview run TWICE
+// A WFS namespace mismatch makes run_service_preview run TWICE
 // server-side (initial attempt, then a retry) at 30s each — a 60s worst
 // case past apiFetch's 30s default.
 const SERVICE_PREVIEW_TIMEOUT_MS = 90_000;

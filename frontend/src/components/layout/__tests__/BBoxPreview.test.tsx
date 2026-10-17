@@ -18,8 +18,7 @@ describe('BBoxPreview', () => {
     expect(rects[0].getAttribute('width')).toBe('2'); // 1° clamped to the 2 minimum
   });
 
-  // fix(#903): the file already detected a crossing extent for the viewBox, but
-  // still drew one rect from `maxx - minx` — negative, so it collapsed into a
+  // A single rect from `maxx - minx` would be negative and collapse into a
   // sliver pinned at the east edge instead of showing where the data is.
   it('draws both seam halves for an antimeridian-crossing extent', () => {
     const { container } = render(<BBoxPreview bbox={[178.5, -20, -178.5, -15]} />);

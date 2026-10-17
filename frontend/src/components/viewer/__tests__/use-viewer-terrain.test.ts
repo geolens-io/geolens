@@ -193,7 +193,7 @@ describe('useViewerTerrain', () => {
     expect(map.setTerrain).toHaveBeenLastCalledWith(null);
   });
 
-  // fix(#451): rows for the bound dataset exist but none is terrain-capable
+  // Rows for the bound dataset exist but none is terrain-capable
   // (legacy/corrupt binding) — the mesh must stay off, matching the reveal
   // gate and legend, instead of silently draping from the raster token.
   it('clears terrain when the bound dataset has rows but no terrain-capable DEM rendering', async () => {
@@ -227,7 +227,7 @@ describe('useViewerTerrain', () => {
     expect(map.addSource).not.toHaveBeenCalled();
   });
 
-  // fix(#452): the viewer legend's live eye toggle must flatten the mesh —
+  // The viewer legend's live eye toggle must flatten the mesh —
   // the saved `visible` flag never reflects that client-side override.
   it('clears terrain when the bound DEM is live-hidden and restores it on re-show', async () => {
     const map = createMap();
@@ -255,8 +255,8 @@ describe('useViewerTerrain', () => {
     expect(map.setTerrain).toHaveBeenLastCalledWith({ source: 'terrain-dem', exaggeration: 1.5 });
   });
 
-  // fix(#454): same hole as BuilderMap — a reseed idle landing mid
-  // style-transition used to no-op silently, leaving the viewer mesh flat.
+  // Same as BuilderMap — a reseed idle landing mid style-transition must not
+  // no-op silently and leave the viewer mesh flat.
   it('re-arms when the reseed idle lands mid style-transition (#454)', async () => {
     const map = createMap();
     const mapRef = { current: map as unknown as MaplibreMap };
@@ -317,7 +317,7 @@ describe('useViewerTerrain', () => {
   });
 });
 
-// fix(#451): the ViewerMap reveal gate. A regression here degrades to a silent
+// The ViewerMap reveal gate. A regression here degrades to a silent
 // 4s veil on every terrain-enabled map with a hidden/unresolvable DEM — no
 // other test observes that, so pin the predicate directly.
 describe('isViewerTerrainExpected', () => {

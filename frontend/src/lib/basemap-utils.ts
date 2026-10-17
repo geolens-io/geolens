@@ -102,10 +102,9 @@ const RELIEF_PALETTE: Record<
 const FALLBACK_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
 
 /**
- * fix(#1778): the shared basemap-style fallback, used whenever the basemap
+ * The shared basemap-style fallback, used whenever the basemap
  * list has not loaded yet or a configured id fails to resolve. Every map
- * surface must fall back to the same provider — ViewerMap previously fell
- * back to a CARTO style no other surface touches, with no attribution.
+ * surface must fall back to the same provider, with attribution.
  */
 export const FALLBACK_BASEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 export const FALLBACK_BASEMAP_STYLE_URL_DARK = 'https://tiles.openfreemap.org/styles/dark';
@@ -151,7 +150,7 @@ interface StyleImageHost {
 }
 
 /**
- * chore(#835): the single missing-style-image resolver shared by BuilderMap,
+ * The single missing-style-image resolver shared by BuilderMap,
  * ViewerMap, and DatasetMap. Stubs a missing style image with a transparent
  * 1x1 pixel so MapLibre stops warning about it.
  *
@@ -163,7 +162,7 @@ interface StyleImageHost {
  *   image (e.g. `circle_11_black` and other basemap sprites outside the known
  *   set) to keep the public/preview console clean.
  *
- * feat(#846): maplibre-gl v6 made `styleimagemissing` notify-only — a listener
+ * maplibre-gl v6 made `styleimagemissing` notify-only — a listener
  * can no longer supply the image for the request that fired it, because the
  * response batch is assembled before the event is emitted. `addImage()` from a
  * listener would only take effect on a LATER request for the same id, which

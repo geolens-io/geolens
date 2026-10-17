@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { refreshAccessToken, logoutSession, revokeCurrentSession } from '@/api/auth';
 import type { TokenResponse } from '@/types/api';
 
-// fix(#628): the fetch core must treat "401 + the follow-up refresh is also
+// The fetch core must treat "401 + the follow-up refresh is also
 // dead" as a single session-death event: clear the persisted auth state and
 // invoke the registered handler exactly ONCE, no matter how many in-flight
 // requests fail together. Anonymous 401s (no session to expire) must never
@@ -38,7 +38,7 @@ function jsonResponse(data: unknown, status = 200): Response {
   } as Response;
 }
 
-// fix(#1302): the latch is keyed on the ACCESS token now that the refresh token
+// The latch is keyed on the ACCESS token now that the refresh token
 // is an httpOnly cookie JS cannot read. Access tokens rotate on every login and
 // every refresh (each is a fresh JWT with its own jti), so each session's value
 // is unique — which is the property the latch needs.
@@ -66,19 +66,19 @@ describe('session-expiry notification (fix #628)', () => {
   afterEach(() => {
     unregister();
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
-    // fix(#2038): the transient refresh back-off is module state; end signed out.
+    // The transient refresh back-off is module state; end signed out.
     abortInflightRefresh();
   });
 
-  // fix(#2038): a rate-limited refresh in one client used to revoke every
-  // session of the user, so every other client then revoked in turn.
+  // A rate-limited refresh in one client must not revoke every session of the
+  // user, which would make every other client revoke in turn.
   it('keeps the session and revokes nothing when the refresh is rate-limited', async () => {
     signIn();
     const live = useAuthStore.getState().token;
     mockFetch.mockResolvedValue(errorResponse(401));
     vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('rate limited', 429));
 
-    // fix(#2038): flagged unconfirmed so a sign-in catch downstream cannot read
+    // Flagged unconfirmed so a sign-in catch downstream cannot read
     // it as a rejected credential and revoke every session.
     await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401, unconfirmed: true });
 
@@ -87,8 +87,8 @@ describe('session-expiry notification (fix #628)', () => {
     expect(useAuthStore.getState().token).toBe(live);
   });
 
-  // fix(#2038): refreshAccessToken issues a bare fetch, so a real offline
-  // failure arrives as a TypeError, not an ApiError.
+  // A real offline failure arrives as a TypeError, not an ApiError, because
+  // refreshAccessToken issues a bare fetch.
   it('keeps the session and revokes nothing when the refresh cannot reach the server', async () => {
     signIn();
     const live = useAuthStore.getState().token;
@@ -102,7 +102,7 @@ describe('session-expiry notification (fix #628)', () => {
     expect(useAuthStore.getState().token).toBe(live);
   });
 
-  // fix(#2038): a rejected refresh row has nothing left to revoke server-side.
+  // A rejected refresh row has nothing left to revoke server-side.
   it('clears local state without a server revocation when the refresh is rejected', async () => {
     signIn();
     mockFetch.mockResolvedValue(errorResponse(401));
@@ -117,7 +117,7 @@ describe('session-expiry notification (fix #628)', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  // fix(#2038): 403 on refresh is a rejection too, and ends the session the
+  // 403 on refresh is a rejection too, and ends the session the
   // same way 401 does.
   it('clears local state and prompts when the refresh is answered 403', async () => {
     signIn();

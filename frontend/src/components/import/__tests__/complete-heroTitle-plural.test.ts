@@ -1,13 +1,13 @@
-// fix(#1853): the import success screen's `complete.heroTitle` had no
-// `_one`/`_other` split, so i18next always served the (plural) bare key —
+// The import success screen's `complete.heroTitle` has an `_one`/`_other`
+// split; without it i18next would always serve the (plural) bare key —
 // "1 datasets added to the catalog" — regardless of count.
 //
 // French and Spanish CLDR plural rules select
 // a distinct "many" category for an exact non-zero multiple of a million
 // (Intl.PluralRules('fr').select(1000000) === 'many'), and i18next does NOT
 // fall back from an unresolved heroTitle_many to heroTitle_other — a
-// missing _many rendered the raw key or the English fallback string
-// instead. Added heroTitle_many to all five locale bundles (AGENTS.md:
+// missing _many renders the raw key or the English fallback string
+// instead. heroTitle_many exists in all five locale bundles (AGENTS.md:
 // plural-suffix keys are all-locales-or-none).
 //
 // These tests read the locale JSON bundles directly rather than driving

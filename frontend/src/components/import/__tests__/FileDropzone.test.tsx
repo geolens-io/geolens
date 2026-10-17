@@ -1,8 +1,7 @@
-// fix(#1853): `instructions` shipped as a full sentence ending in the same
-// verb the component appends separately ("browse"/"Examinar"/"Parcourir"/
-// "Durchsuchen"/"浏览"), so the headline read "...to browse browse to
-// upload" — the trailing verb duplicated. `instructions` is now trimmed to
-// the lead-in fragment in all five locales; these tests render the real
+// `instructions` is the lead-in fragment only, because the component appends
+// the verb separately ("browse"/"Examinar"/"Parcourir"/"Durchsuchen"/"浏览");
+// a full sentence would duplicate it ("...to browse browse to upload"). These
+// tests render the real
 // component against the real bundles so a regression shows up as a
 // literal duplicate substring.
 import i18n from 'i18next';
@@ -11,7 +10,7 @@ import { changeTestLanguage } from '@/test/i18n';
 import { FileDropzone } from '../FileDropzone';
 import type { SupportedLng } from '@/i18n/config';
 
-// fix(#1866): the real, non-English browse word per locale, proving
+// The real, non-English browse word per locale, proving
 // changeTestLanguage loaded the bundle instead of falling back to English.
 const NON_ENGLISH_LOCALES: Exclude<SupportedLng, 'en'>[] = ['es', 'fr', 'de', 'zh'];
 const NON_ENGLISH_BROWSE_WORD: Record<Exclude<SupportedLng, 'en'>, string> = {

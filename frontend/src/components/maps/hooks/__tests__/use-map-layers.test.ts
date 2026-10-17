@@ -217,7 +217,7 @@ describe('useMapLayers raster tile source cache-busting', () => {
     expect(source?.tiles[0]).not.toContain('?v=');
   });
 
-  // fix(#1372): the server now embeds `?v=<tile_cache_version>` in the raster
+  // The server embeds `?v=<tile_cache_version>` in the raster
   // tile URL (the shared nginx cache keys on it). A second client-side `v`
   // would make nginx key on the wrong (first) value, so the append must yield
   // to a server-versioned URL.
@@ -232,7 +232,7 @@ describe('useMapLayers raster tile source cache-busting', () => {
     );
   });
 
-  // fix(#2007): a legacy row with no tile_cache_version emits `?pv=` alone.
+  // A legacy row with no tile_cache_version emits `?pv=` alone.
   // A `?` appended onto that is a malformed URL, not a second version.
   it('leaves a server URL carrying only the publication version alone', () => {
     const map = runRasterHook(

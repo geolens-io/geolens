@@ -13,7 +13,7 @@ interface ServiceCredentialBlockProps {
 }
 
 /**
- * fix(#1746 B4, plan 3.1): the refresh door's WFS / OGC API Features
+ * The refresh door's WFS / OGC API Features
  * credential prompt. Sibling to `ArcgisCredentialBlock` in this same
  * directory — that component's own module comment already notes the two
  * are independent copies of one taxonomy, converging remains a follow-up —

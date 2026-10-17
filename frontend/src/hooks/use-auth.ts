@@ -75,19 +75,19 @@ export function useAuth() {
   );
 
   const logout = useCallback(async () => {
-    // fix(#1446): revoke server-side BEFORE tearing down local state. The
+    // Revoke server-side BEFORE tearing down local state. The
     // request needs the bearer token that storeLogout is about to clear, and
-    // since fix(#1302) the refresh cookie can only be removed by the server's
+    // the refresh cookie can only be removed by the server's
     // Set-Cookie. A failure here (offline, or a session already dead) must not
     // trap the user in a session they asked to leave, so the local teardown
     // runs either way.
-    // fix(#1446): dispatch, do not await. logoutSession reads the bearer token
+    // Dispatch, do not await. logoutSession reads the bearer token
     // synchronously and issues a plain fetch, so the request is already in
     // flight with its credential attached by the time this returns — teardown
     // below cannot affect it. Waiting would only buy a confirmation we never
     // act on, at the cost of holding the user on an authenticated screen for
     // as long as the network stalls.
-    // fix(#1446): abandon any refresh still in flight first. Its response
+    // Abandon any refresh still in flight first. Its response
     // carries a Set-Cookie the browser would apply on arrival, and if the user
     // signs in again before it lands it would overwrite the new session's
     // cookie with the token this logout is about to revoke.

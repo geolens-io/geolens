@@ -15,7 +15,7 @@ const drawingStoreState = vi.hoisted(() => ({
   clearDrawing: vi.fn(),
 }));
 
-// fix(#1851): a plain object mock can't vary the blocker's `state` per test,
+// A plain object mock can't vary the blocker's `state` per test,
 // and the "Leave" wiring is only exercised while it is 'blocked'.
 const mockUseUnsavedGuard = vi.hoisted(() => vi.fn());
 
@@ -296,7 +296,7 @@ describe('DatasetPage editable affordance integration', () => {
     setUser(null);
   });
 
-  // fix(#433): this test walks two full edit→stage→resolve cycles with
+  // This test walks two full edit→stage→resolve cycles with
   // per-keystroke userEvent typing through a heavy DatasetPage render; on
   // loaded CI runners (coverage-instrumented, 2 cores) it can exceed the 5s
   // default timeout while every step is properly awaited — slowness, not a
@@ -378,9 +378,9 @@ describe('DatasetPage editable affordance integration', () => {
     expect(screen.getByTestId('dataset-chat-panel')).toHaveAttribute('data-above-pending-bar', 'false');
   });
 
-  // fix(#1851): "Leave" on the unsaved-changes dialog let navigation proceed
-  // without discarding the staged draft, which then reappeared (and could be
-  // saved) against whatever dataset mounted next.
+  // "Leave" on the unsaved-changes dialog must discard the staged draft, not
+  // just let navigation proceed: otherwise it reappears (and could be saved)
+  // against whatever dataset mounts next.
   it('discards the staged draft when the user chooses Leave on the unsaved-changes dialog', async () => {
     setUser(EDITOR_USER);
     const user = userEvent.setup();

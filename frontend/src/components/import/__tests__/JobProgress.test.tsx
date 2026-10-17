@@ -141,7 +141,7 @@ describe('JobProgress retry capability', () => {
   });
 });
 
-// fix(#2035): a stored 'internal_error' must read the same operator-facing
+// A stored 'internal_error' must read the same operator-facing
 // sentence as the CLI (cli/geolens_cli/refresh.py), not the generic fallback.
 describe('JobProgress internal_error reason', () => {
   beforeEach(() => {
@@ -165,8 +165,8 @@ describe('JobProgress internal_error reason', () => {
   });
 });
 
-// fix(#1778): #1709 granted job-creator cancel server-side, but JobProgress —
-// the terminal render for every import path — offered no way to reach it.
+// The backend grants job-creator cancel, so JobProgress — the terminal render
+// for every import path — must offer a way to reach it.
 describe('JobProgress owner cancel', () => {
   beforeEach(() => {
     mockUseJobStatus.mockReset();
@@ -231,8 +231,8 @@ describe('JobProgress cancelled state', () => {
   });
 });
 
-// fix(#1778): a failing GET /jobs/{id} used to fall into the isLoading/!job
-// branch (undefined data, isLoading false after retries exhaust), rendering
+// A failing GET /jobs/{id} must not fall into the isLoading/!job branch
+// (undefined data, isLoading false after retries exhaust), which would render
 // "Loading job status..." forever instead of a real error state.
 describe('JobProgress error branch', () => {
   beforeEach(() => {

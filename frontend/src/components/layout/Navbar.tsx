@@ -133,7 +133,7 @@ function UserMenu() {
   // #305: explicit light/dark override (default stays 'system', which
   // already honors prefers-color-scheme). resolvedTheme drives the icon/label.
   const { setTheme, resolvedTheme } = useTheme();
-  // fix(#817): also admit a multi-tenant fleet operator (manage_tenants
+  // Also admit a multi-tenant fleet operator (manage_tenants
   // only) — the admin routes admit them via the same mode-aware predicate.
   const settingsAdmin = useSettingsAdmin();
   const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
@@ -262,7 +262,7 @@ function MobileNav() {
   const [collectionOpen, setCollectionOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [vrtOpen, setVrtOpen] = useState(false);
-  // fix(#817): also admit a multi-tenant fleet operator (manage_tenants
+  // Also admit a multi-tenant fleet operator (manage_tenants
   // only) — the admin routes admit them via the same mode-aware predicate.
   const settingsAdmin = useSettingsAdmin();
   const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
@@ -396,13 +396,13 @@ function MobileNav() {
 export function Navbar() {
   const { t } = useTranslation();
   const { can } = usePermissions();
-  // fix(#817): also admit a multi-tenant fleet operator (manage_tenants
+  // Also admit a multi-tenant fleet operator (manage_tenants
   // only) — the admin routes admit them via the same mode-aware predicate.
   const settingsAdmin = useSettingsAdmin();
   const canAccessAdmin = can('manage_users') || can('manage_settings') || settingsAdmin;
 
   return (
-    // fix(#522): fixed (not sticky) so the navbar shares the viewport-fixed
+    // Fixed (not sticky) so the navbar shares the viewport-fixed
     // positioning context of the admin sidebar — otherwise macOS elastic
     // overscroll slides the sticky navbar over the stationary fixed sidebar.
     // AppLayout reserves this header's height (h-14 + safe-area) as top padding.

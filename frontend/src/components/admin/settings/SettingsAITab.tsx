@@ -74,8 +74,8 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const { t } = useTranslation('admin');
   const { can } = usePermissions();
   const canManageUsers = can('manage_users');
-  // fix(#653): the #652 inline gate moved into the shared useAIStatusReader
-  // hook so ai-status surfaces can't drift from require_ai_status_reader again.
+  // The shared useAIStatusReader hook keeps ai-status surfaces from drifting
+  // from require_ai_status_reader.
   const canProbe = useAIStatusReader();
   // The regeneration after a width or model change asks for every tenant, which
   // takes the same mode permission: manage_tenants when hosted, manage_users
@@ -94,7 +94,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   // terminal state so the coverage figure above refreshes when it lands.
   const [backfillJobId, setBackfillJobId] = useState<string | null>(null);
   const backfillJob = useBackfillJobStatus(backfillJobId);
-  // fix(#2025): a run somebody else started counts too. Tracking only the job
+  // A run somebody else started counts too. Tracking only the job
   // this page queued left both buttons live for every other operator, whose
   // click then bought a 409 the guard had to refuse.
   const backfillRunning =
@@ -107,7 +107,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
   const [isProbing, setIsProbing] = useState(false);
   const [probe, setProbe] = useState<AIProbeReport | null>(null);
 
-  // fix(#652): probe results describe the PERSISTED config — drop them when
+  // Probe results describe the PERSISTED config — drop them when
   // the saved settings change underneath us (e.g. after a Save reload).
   useEffect(() => {
     setProbe(null);
@@ -127,8 +127,8 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
 
   const handleBackfill = (force = false) => {
     if (!canManageUsers) return;
-    // fix(#1542): the run is queued now, not done by the time this resolves —
-    // a full regenerate takes minutes and used to hold the request open past
+    // The run is queued, not done by the time this resolves —
+    // a full regenerate takes minutes and would hold the request open past
     // the 600s edge timeout. There are no counts to report yet.
     // Keep the job id so the run is actually tracked to
     // its end, rather than acknowledged and forgotten.
@@ -257,7 +257,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
 
   const handleTestConnection = async () => {
     setIsProbing(true);
-    // fix(#652): drop previous rows first so a failed retry can't keep
+    // Drop previous rows first so a failed retry can't keep
     // showing stale green results next to only a toast.
     setProbe(null);
     try {
@@ -593,7 +593,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                 />
               </div>
               <div className="flex gap-2">
-                {/* fix(#1506): the non-force backfill now selects on "no
+                {/* The non-force backfill now selects on "no
                     vector under the ACTIVE model", so it covers stale records
                     too — the #1503 gate that subtracted them hid this button
                     on the one catalog state it can fix most cheaply. */}
@@ -615,7 +615,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                     )}
                   </Button>
                 )}
-                {/* fix(#1503): stale rows keep this button reachable. After a
+                {/* Stale rows keep this button reachable. After a
                     model swap embedded_records drops to 0, and Regenerate All
                     is the only control that clears the superseded vectors. */}
                 {(embeddingStats.embedded_records > 0 || embeddingStats.stale_records > 0) && (
@@ -641,7 +641,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
                 <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3">
                   <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
                   <p className="text-sm text-foreground">
-                    {/* fix(#1506): Generate Missing re-embeds these without
+                    {/* Generate Missing re-embeds these without
                         touching the records the active model already covers,
                         so it is the cheaper remedy and named first. It adds
                         the current-model vector and leaves the superseded row
@@ -716,11 +716,11 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
           </div>
         )}
 
-        {/* feat(#635): live probe — a settings-only operator would 403 on the
+        {/* Live probe — a settings-only operator would 403 on the
             probe endpoint; hide rather than dangle a dead button. */}
         {canProbe && (
           <div className="mt-4 space-y-2">
-            {/* fix(#652): the probe resolves PERSISTED settings — block it while
+            {/* The probe resolves PERSISTED settings — block it while
                 the form is dirty so green results can't vouch for unsaved edits. */}
             <Button
               variant="outline"
@@ -738,7 +738,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset: submitReset,
             <p className="text-sm text-muted-foreground max-w-md">
               {hasDirty ? t('ai.testConnectionDirty') : t('ai.testConnectionDescription')}
             </p>
-            {/* fix(#652): hide (not clear) while dirty — a Discard restores
+            {/* Hide (not clear) while dirty — a Discard restores
                 exactly the config these rows were probed against. */}
             {probe && !hasDirty && (
               <div className="space-y-1.5 pt-1">

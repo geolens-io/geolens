@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { appRoutes } from './App';
 import { ALL_TAB_KEYS } from '@/pages/admin/AdminSettingsPage';
 
-// fix(#871): a legacy `admin/settings/appearance` → `/admin/settings/map`
+// A legacy `admin/settings/appearance` → `/admin/settings/map`
 // redirect sat next to `admin/settings/:tab` for four months. React Router
 // ranks a fully static path above a dynamic one, so the redirect fired for
 // every edition and the enterprise branding tab was unreachable —

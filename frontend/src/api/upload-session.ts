@@ -459,19 +459,17 @@ export function releaseUploadBatch(): void {
 }
 
 /**
- * fix(#1832): files dropped while the upload-config query was still
- * fetching, held at module scope — the other half of the same #1712
- * mechanism, for a window this session did not originally cover.
+ * Files dropped while the upload-config query was still
+ * fetching, held at module scope.
  *
  * `UploadForm` cannot validate (or start) a drop against extension/size/
  * quota rules before `useUploadConfig()` settles, so `handleFilesAccepted`
- * used to queue it in a plain `useState` and a `useEffect` flushed it once
- * the query resolved. That queue lived ONLY in component state: a tab
- * switch that unmounted the form before the flush effect ran discarded the
- * drop entirely, before it ever reached `startUploadEntry` above — so
- * nothing in `current.entries` existed for a remount to adopt, and the
- * report's "empty dropzone, no batch chip" is exactly that (not a case
- * where an entry existed and got lost; one was never created).
+ * queues it and a `useEffect` flushes it once the query resolves. Held only
+ * in component state, that queue would be discarded by a tab switch that
+ * unmounted the form before the flush effect ran, before the drop ever
+ * reached `startUploadEntry` above — so nothing in `current.entries` would
+ * exist for a remount to adopt, and the user would see an empty dropzone
+ * with no batch chip.
  *
  * Mirrors `current`'s shape rather than reusing it: these files have not
  * been validated yet, so they are not upload entries and must not be

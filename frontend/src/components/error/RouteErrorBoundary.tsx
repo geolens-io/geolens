@@ -11,7 +11,7 @@ export function RouteErrorBoundary() {
   const navigate = useNavigate();
   const { t } = useTranslation('common');
 
-  // fix(#834): feed the problem-report buffer like the other boundaries so a
+  // Feed the problem-report buffer like the other boundaries so a
   // route crash doesn't produce an empty report.
   useEffect(() => {
     pushReportEntry({

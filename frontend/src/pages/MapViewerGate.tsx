@@ -66,11 +66,11 @@ export function MapViewerGate() {
     (shouldCheckAccess && accessQuery.isError);
   useDocumentTitle(isOwnLoadingOrError ? t('pageTitle.map') : null);
 
-  // fix(#1778): React.lazy() only fires its import() at first render of
-  // <MapBuilderPage/>, so the chunk download used to serialize BEHIND the
+  // React.lazy() only fires its import() at first render of
+  // <MapBuilderPage/>, so the chunk download would serialize BEHIND the
   // /map-access round trip on this route's likely-editor path — the same
   // "vendor download serializes behind the page chunk" shape App.tsx already
-  // works around for MapViewerGate itself (#448). Kick the download off in
+  // works around for MapViewerGate itself. Kick the download off in
   // parallel with the access check when the optimistic branch (editor) is
   // likely; a wrong guess (e.g. a downgraded editor) still renders the
   // correct branch once accessQuery resolves, just without the head start.

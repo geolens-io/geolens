@@ -148,7 +148,7 @@ describe('SourceRefreshAction', () => {
     drawingStoreState.targetDatasetId = null;
   });
 
-  // feat(#1746 B4): the plain bearer-only field is now ArcGIS-only; a
+  // The plain bearer-only field is now ArcGIS-only; a
   // 'service'-origin WFS/OGC API Features dataset gets the four-way
   // credential method select instead (ServiceCredentialBlock).
   it('opens a confirm dialog with a credential method select for a service origin', async () => {
@@ -162,7 +162,7 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 
-  // fix(#1746): this is a request-only service token, not a login credential.
+  // This is a request-only service token, not a login credential.
   // autoComplete="off" alone does not stop Chrome from offering a saved
   // password on a password-type field, so every password manager needs an
   // explicit opt-out.
@@ -1301,7 +1301,7 @@ describe('SourceRefreshAction', () => {
 
       it('expires a minted token while the dialog stays open, clearing it and swapping the copy', async () => {
         mutateAsync.mockRejectedValue(serviceTokenRequiredError());
-        // fix(#831 precedent, VerifyEmailPage.test.tsx): shouldAdvanceTime
+        // shouldAdvanceTime
         // keeps the mocked arcgisSignIn promise progressing while fake
         // timers also control the scheduled expiry; delay: null keeps
         // userEvent synchronous under them.
@@ -1447,7 +1447,7 @@ describe('REFRESHABLE_ORIGINS', () => {
     // created with 409 refresh_not_applicable. This is the value DetailPanel
     // gates on; a widened set here without a matching backend strategy would
     // show the "Refresh from source" control for origins the backend refuses.
-    // feat(#1266): stac gained one.
+    // Stac gained one.
     expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['postgis', 'service', 'stac']);
   });
 });

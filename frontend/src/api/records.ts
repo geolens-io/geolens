@@ -30,7 +30,7 @@ export async function deleteContact(recordId: string, contactId: string): Promis
 // Keywords
 export async function listKeywords(
   recordId: string,
-  // feat(#1070): counterfactual audience for inherited_audience_gap — "would
+  // Counterfactual audience for inherited_audience_gap — "would
   // this visibility/status expose inherited keywords past their source?"
   opts?: { audienceVisibility?: string; audienceRecordStatus?: string },
 ): Promise<KeywordListResponse> {
@@ -57,7 +57,7 @@ export async function listDistributions(recordId: string): Promise<DistributionL
   return apiFetch<DistributionListResponse>(`/records/${encodeURIComponent(recordId)}/distributions/`);
 }
 
-// feat(#1395): the set-primary control — the only mutation the UI issues
+// The set-primary control — the only mutation the UI issues
 // against this resource. Manual distributions only: the backend rejects any
 // update (`is_primary` included) to an auto_generated row with a 400.
 export async function updateDistribution(

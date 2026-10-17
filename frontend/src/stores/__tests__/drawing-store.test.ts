@@ -106,7 +106,7 @@ describe('useDrawingStore', () => {
     expect(state.isEditDirty).toBe(false);
   });
 
-  // fix(#1713): the ownership check at the adoption point — the structural
+  // The ownership check at the adoption point — the structural
   // half that holds even if the identity-change teardown in
   // lib/auth-cache-reset.ts is skipped or races an in-flight write. See
   // lib/__tests__/auth-cache-reset.test.ts for the end-to-end teardown

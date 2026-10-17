@@ -16,7 +16,7 @@ export function AdminOverviewPage() {
         title={t('overview.title')}
         breadcrumbs={[{ label: t('common:adminNav.admin'), to: '/admin' }]}
         actions={
-          // feat(#379): edition badge; hidden until the edition query resolves
+          // Edition badge; hidden until the edition query resolves
           // so a licensed instance never flashes "Community".
           isLoading ? null : (
             <Badge variant={isEnterprise ? 'default' : 'secondary'}>

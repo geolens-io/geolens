@@ -6,7 +6,7 @@ import { DatasetMap } from '@/components/dataset/DatasetMap';
 import { previewSourceId } from '@/components/maps/hooks/use-map-layers';
 import { BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 
-// fix(#1004): what the map was actually told to draw and where to point. The
+// What the map was actually told to draw and where to point. The
 // three camera/extent sites derive from the bbox prop alone, so recording the
 // props MapGL and Source receive is enough to pin all three.
 const mapSpy = vi.hoisted(() => ({
@@ -1939,11 +1939,11 @@ describe('DatasetMap generic-geometry draw gating (fix #430 codex r18/r19)', () 
   });
 });
 
-// fix(#1004): the dataset payload now carries the RFC 7946 §5.2 spec bbox, so a
+// The dataset payload carries the RFC 7946 §5.2 spec bbox, so a
 // seam-crossing extent arrives as west > east instead of flattened to
-// [-180, s, 180, n]. All three consumers here carry #903 seam handling that the
-// flattened pair made unreachable — isLargeExtent measured a 360° span and took
-// the large-extent branch every time.
+// [-180, s, 180, n]. All three consumers here handle the seam; a flattened
+// pair would make that unreachable — isLargeExtent would measure a 360° span
+// and take the large-extent branch every time.
 describe('DatasetMap antimeridian extent (fix #1004)', () => {
   // The reproduction fixture: points at 179.5, -179.5 and 178.44 near Fiji.
   const FIJI_BBOX: [number, number, number, number] = [178.44, -18.14, -179.5, -16.5];

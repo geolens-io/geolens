@@ -293,10 +293,9 @@ describe('InlineEdit multiline keyboard reachability (#528 review)', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  // fix(#1778): the single-line editor's <input> had no accessible-name
-  // mechanism at all -- unlike multiline mode, which already carries a
-  // `title` hint. It only renders after a click into edit mode, so the
-  // gating axe suite structurally cannot reach it.
+  // The single-line editor's <input> needs an accessible name -- unlike
+  // multiline mode, which carries a `title` hint. It only renders after a
+  // click into edit mode, so the gating axe suite structurally cannot reach it.
   it('#1778 — the single-line input falls back to the caller-supplied placeholder as its accessible name', () => {
     const { container } = render(
       <InlineEdit value="" onSave={vi.fn()} canEdit placeholder="Dataset title" />,

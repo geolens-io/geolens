@@ -167,7 +167,7 @@ describe('DatasetChatPanel', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/maps/map-9', {
       state: { addDatasetId: 'ds-1', chatResult: true },
     });
-    // feat(#1241): the prompt rides along so the builder can suggest a name if
+    // The prompt rides along so the builder can suggest a name if
     // the carried result is saved as a dataset.
     expect(JSON.parse(sessionStorage.getItem('geolens-chat-result')!)).toEqual({
       geojson,

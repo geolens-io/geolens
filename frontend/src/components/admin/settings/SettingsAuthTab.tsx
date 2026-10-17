@@ -153,8 +153,8 @@ const EMPTY_FORM: ProviderFormData = {
 function OAuthProvidersSection() {
   const { t } = useTranslation('admin');
   const PROVIDER_TYPE_LABELS = useProviderTypeLabels();
-  // fix(#1117): invalidates the login page's provider buttons alongside this
-  // table — the two used to drift, see hooks/use-auth-providers.ts.
+  // Invalidates the login page's provider buttons alongside this
+  // table so the two cannot drift, see hooks/use-auth-providers.ts.
   const invalidateAuthProviders = useInvalidateAuthProviders();
 
   const { providers, isLoading, isError } = useOAuthProviders();
@@ -580,7 +580,7 @@ function OAuthProvidersSection() {
                 value={form.client_secret}
                 onChange={(e) => setForm((prev) => ({ ...prev, client_secret: e.target.value }))}
                 placeholder={editingProvider ? '********' : ''}
-                // fix(#1755): admin secret, not a login credential, so opt out
+                // Admin secret, not a login credential, so opt out
                 // of every password manager explicitly.
                 autoComplete="new-password"
                 data-1p-ignore
@@ -663,7 +663,7 @@ function OAuthProvidersSection() {
                   )}
                 </SelectContent>
               </Select>
-              {/* fix(#1778): the role only applies to accounts this provider
+              {/* The role only applies to accounts this provider
                   creates, and whether it creates any is the registration
                   switch's call. Say so here, where the decision is made. */}
               <p className="text-xs text-muted-foreground">

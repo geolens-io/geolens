@@ -27,7 +27,7 @@ const FIELDS = [
   { key: 'cors_allowed_origins', defaultValue: '' },
   { key: 'global_rate_limit', defaultValue: 60 },
   { key: 'ogc_items_max_page_size', defaultValue: 1000 },
-  // fix(#1778): the registry puts these two on tab="network" and their
+  // The registry puts these two on tab="network" and their
   // docstrings say the admin Settings UI is the only control (there is no
   // env var for either) — but no tab component ever read the keys.
   { key: 'semantic_search_rate_limit', defaultValue: 30 },

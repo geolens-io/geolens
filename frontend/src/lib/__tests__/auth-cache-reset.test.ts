@@ -72,7 +72,7 @@ describe('wireAuthCacheReset', () => {
     }
   });
 
-  // fix(#1713): drawing-store's target dataset, selected feature (a real
+  // drawing-store's target dataset, selected feature (a real
   // row's property bag) and edit-dirty flag are identity-scoped residue of
   // the same kind — an in-place identity change must not leave them for the
   // next signed-in user.
@@ -198,7 +198,7 @@ describe('wireAuthCacheReset', () => {
     }
   });
 
-  // fix(#1713): milder than drawing-store — search intent, not row data —
+  // Milder than drawing-store — search intent, not row data —
   // but the same class and the same choke point.
   it('clears identity-scoped search fields when identity changes, not on token refresh', () => {
     const qc = new QueryClient();
@@ -230,8 +230,8 @@ describe('wireAuthCacheReset', () => {
     }
   });
 
-  // fix(#1850): the AI chat transcript is sessionStorage keyed on the map,
-  // not on identity, and previously outlived logout — a second user signing
+  // The AI chat transcript is sessionStorage keyed on the map,
+  // not on identity, so it must not outlive logout — a second user signing
   // in in the same tab would render the first user's prompts and query
   // metadata.
   it('clears geolens-chat-* sessionStorage keys when identity changes, not on token refresh', () => {

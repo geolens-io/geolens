@@ -86,10 +86,9 @@ export function clusterAggregateFeatureInfo(
   return {
     properties: aggregateProperties,
     layerName: options.layerName,
-    // Was `Cluster: N feature(s)` with manual English
-    // pluralization; now an i18next plural key.
+    // An i18next plural key, not manual English pluralization.
     title: i18n.t('builder:cluster.popupTitle', { count, countLabel }),
-    // fix(#586): only list keys actually present — the popup's
+    // Only list keys actually present — the popup's
     // no-schema fallback renders configured-but-absent fields as '--', which
     // would surface a meaningless "Expansion Zoom: --" on clusters without one.
     visibleFields: ['feature_count', 'source', 'expansion_zoom', 'cluster_id']
@@ -140,12 +139,12 @@ export async function activateClusterFeature(
   const center = clusterFeatureCoordinates(feature);
   if (!center) return false;
   const target = await clusterExpansionZoom(map, feature, sourceId);
-  // fix(#893): ease to the expansion zoom only when it is deeper than where we
+  // Ease to the expansion zoom only when it is deeper than where we
   // already are. Two ways it is not. At CLUSTER_ZOOM_CEILING with
-  // cluster_max_zoom=22 the server's now-honest value (#882) IS the current
+  // cluster_max_zoom=22 the server's value IS the current
   // zoom. And a parent cluster tile still drawn overzoomed while its
   // replacement loads reports the shallow expansion zoom of the level it was
-  // cut at, which used to ease the user BACKWARDS out of the view they were
+  // cut at, which would ease the user BACKWARDS out of the view they were
   // zooming into. Falling back to the current zoom recentres without moving the
   // zoom — at the ceiling no zoom can split the cluster, so recentring is the
   // whole honest response, and a click can never lose ground.

@@ -15,8 +15,8 @@ describe('useInvalidateAuthProviders', () => {
 
     result.current();
 
-    // fix(#1117): the pairing IS the fix — the admin surfaces already hit the first
-    // key and the bug was the second one going unrefreshed.
+    // Both keys must be invalidated: the admin key alone would leave the
+    // login page's buttons unrefreshed.
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: queryKeys.settingsOAuth.providers,
     });

@@ -1,9 +1,9 @@
-// fix(#755): the @vis.gl/react-maplibre wrapper subscribes the map `error`
+// The @vis.gl/react-maplibre wrapper subscribes the map `error`
 // event unconditionally and, when the <Map> component has no `onError` prop,
 // falls back to `console.error(e.error)` for every event — in parallel with
 // each surface's own `map.on('error')` handler. For the 401/403 vector-tile
 // case that handler already recovers (cached-token re-sign and/or
-// the #621 throttled token re-mint), the raw AJAXError therefore still hits
+// the throttled token re-mint), the raw AJAXError therefore still hits
 // the console and lands as an unsuppressed red row in the problem-report
 // buffer next to the suppressed recovery warnings, making a recovered
 // situation read as a breakage.
@@ -23,15 +23,15 @@ interface MapLibreErrorLike {
 /** True when `url` is a GeoLens raster/DEM tile request — the backend shape is
  * `/raster-tiles/{id}/tiles/{z}/{x}/{y}.png`.
  *
- * audit(w3-maps A1): that second `/tiles/` segment satisfies the first-party
- * vector match below, which misclassified raster 401/403s as handled. Raster
+ * That second `/tiles/` segment satisfies the first-party
+ * vector match below, which would misclassify raster 401/403s as handled. Raster
  * auth rides the `Authorization` header attached by `setTransformRequest`, not
  * the signed-tile `sig=` query param, so neither the cached-token re-sign nor a
  * token re-mint can cure a raster auth failure.
  *
- * fix(#890): exported so the surfaces' own `error` handlers agree with
- * `isHandledTileAuthError` on what "handled" means — the handlers used to claim
- * recovery for raster while this module (correctly) still logged the failure. */
+ * Exported so the surfaces' own `error` handlers agree with
+ * `isHandledTileAuthError` on what "handled" means, rather than claiming
+ * recovery for raster while this module still logs the failure. */
 export function isRasterTileUrl(url: string | undefined): boolean {
   return !!url && url.includes('/raster-tiles/');
 }
@@ -58,7 +58,7 @@ export function isHandledTileAuthError(e: MapLibreErrorLike): boolean {
   return isFirstPartyTileUrl(e.error?.url);
 }
 
-/** fix(#907): the raster tile-auth case a session refresh can actually cure —
+/** The raster tile-auth case a session refresh can actually cure —
  * a 401, i.e. the credential expired. A 403 is an upstream denial (Titiler or
  * its object store passes that status through), so a fresh JWT changes
  * nothing: suppressing it during a renewal would hide a real failure behind a
@@ -68,12 +68,11 @@ export function isRefreshableRasterAuthError(e: MapLibreErrorLike): boolean {
   return e.error?.status === 401 && isRasterTileUrl(e.error?.url);
 }
 
-/** fix(#890): a 401/403 on a raster/DEM tile — the one tile-auth case NO
+/** A 401/403 on a raster/DEM tile — the one tile-auth case NO
  * surface can recover (see `isRasterTileUrl`). Surfaces use it to skip their
  * vector re-sign / re-mint path so the failure surfaces once (toast + this
  * module's `console.error`) instead of being reported as a suppressed
- * "recovered" entry alongside an unsuppressed red console row (the #755
- * double-log shape, still live for raster/DEM until this fix). */
+ * "recovered" entry alongside an unsuppressed red console row. */
 export function isRasterTileAuthError(e: MapLibreErrorLike): boolean {
   const status = e.error?.status;
   if (status !== 401 && status !== 403) return false;
@@ -85,13 +84,13 @@ export function isRasterTileAuthError(e: MapLibreErrorLike): boolean {
  * 401/403s, which log nothing — the surface's `map.on('error')` handler
  * recovers those and reports them (suppressed) where applicable.
  *
- * fix(#907): a raster/DEM 401 is now handled too, but only while a session
+ * A raster/DEM 401 is handled too, but only while a session
  * renewal is in flight — that renewal is what fixes it, and the post-rotation
  * reload retries the tiles. Without this the surfaces suppress their own row
  * while this fallback still console.errors the same failure, which
- * `initReportCapture` turns into an unsuppressed red entry: the #755
- * double-log shape, for a tab return that healed itself. Outside that window a
- * raster auth failure is unrecoverable and still logs, exactly as #890 made it. */
+ * `initReportCapture` turns into an unsuppressed red entry for a tab return
+ * that healed itself. Outside that window a raster auth failure is
+ * unrecoverable and still logs. */
 export function logUnhandledMapError(e: MapLibreErrorLike): void {
   if (isHandledTileAuthError(e)) return;
   if (isRefreshableRasterAuthError(e) && isSessionRenewalPending()) return;

@@ -5,8 +5,8 @@ import { FILL_PATTERN_IDS } from '@/components/builder/layer-adapters/fill-patte
  * has to show "this polygon is patterned": the builder's FillPatternPicker, the
  * legend chip (builder + viewer), and the layer-list swatch.
  *
- * fix(#951): this lived inside FillPatternPicker, so the legend and the layer
- * icons had no way to reach it without importing a builder panel component.
+ * It lives here rather than in FillPatternPicker so the legend and the layer
+ * icons can reach it without importing a builder panel component.
  *
  * Gradients use `currentColor`, so a consumer sets `color` to whatever the chip
  * should draw in and the pattern follows.
@@ -65,18 +65,18 @@ export function fillPatternFromPaint(paint: Record<string, unknown> | undefined)
 }
 
 /**
- * fix(#914): the colour a built-in fill pattern draws in — the layer's own fill
+ * The colour a built-in fill pattern draws in — the layer's own fill
  * colour, wherever it currently lives.
  *
  * A pattern deletes `fill-color` from paint, so for any layer patterned
- * through the picker the colour is in the `fillColorSaved` stash (#910). `paint`
+ * through the picker the colour is in the `fillColorSaved` stash. `paint`
  * still wins when it holds a string, which covers maps saved by older clients that
  * carry both keys. Returns undefined when there is nothing to tint with, and every
  * consumer then falls back to the fixed grey — map and previews alike.
  *
  * The map adapter and the three preview surfaces all resolve the tint through this
  * one function; a surface left reading its own colour would disagree with the map,
- * which is the #951 class of bug this enhancement could otherwise reintroduce.
+ * and that disagreement is the bug this function exists to prevent.
  */
 export function fillPatternTint(
   paint: Record<string, unknown> | undefined,

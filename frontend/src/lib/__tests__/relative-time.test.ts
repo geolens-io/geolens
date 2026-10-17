@@ -1,4 +1,4 @@
-// chore(#835): the single relative-time formatter (was written out 4x).
+// The single relative-time formatter.
 import { formatRelativeTime, formatLastUsedRelativeTime } from '@/lib/relative-time';
 
 const NOW = new Date('2026-07-29T12:00:00Z');

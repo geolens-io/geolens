@@ -74,7 +74,7 @@ function isGoneError(err: unknown): boolean {
 }
 
 /**
- * feat(#1705): import a dataset straight from an HTTP(S) file URL.
+ * Import a dataset straight from an HTTP(S) file URL.
  *
  * The URL variant of the Upload tab: the backend fetches the file
  * server-side (SSRF-validated, size-capped) into staging, and from there the
@@ -198,7 +198,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
       }
       if (!mountedRef.current) return;
       setJobId(fetchedJobId);
-      // fix(#1710): the POST only queues the download, so the file is not
+      // The POST only queues the download, so the file is not
       // staged yet. The job poll below decides when it is previewable; a
       // resumed session lands here too and its poll answers immediately.
       setStep('downloading');
@@ -287,7 +287,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
     step === 'tracking' || step === 'downloading' ? jobId : null,
   );
 
-  // fix(#1710): the download's only observer. `pending` means the bytes are
+  // The download's only observer. `pending` means the bytes are
   // staged; any terminal status means the worker settled it and there is
   // nothing to preview, so the tab returns to a usable idle form.
   useEffect(() => {
@@ -453,7 +453,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
   };
 
   // ── Server-side download ──
-  // fix(#1710): the same JobProgress the rest of the import uses, so the
+  // The same JobProgress the rest of the import uses, so the
   // download gets the shared progress bar, step label and cancel control
   // instead of a bespoke spinner the user cannot escape.
   if (step === 'downloading' && jobId) {
@@ -463,7 +463,7 @@ export function UrlImportForm({ initialUrl = '' }: { initialUrl?: string }) {
         <p className="text-xs text-muted-foreground">
           {t('urlImport.downloadingHint')}
         </p>
-        {/* fix(#1710): while the status read itself is failing JobProgress
+        {/* While the status read itself is failing JobProgress
             offers only "Retry status", so without this the tab has no way out
             until a page reload. It CANCELS rather than resetting: a bare reset
             drops the only copy of the job id while the worker may still be

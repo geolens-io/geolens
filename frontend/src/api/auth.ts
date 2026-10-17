@@ -15,7 +15,7 @@ export async function login(
   username: string,
   password: string,
 ): Promise<OrderedTokens> {
-  // fix(#1446): never overtake a logout still in flight. It revokes every
+  // Never overtake a logout still in flight. It revokes every
   // refresh token for the user and deletes the cookies, so landing after this
   // login would revoke the new session's row or erase its cookie. Bounded by
   // logoutSession's own 3s timeout, and only waits when one is actually
@@ -30,7 +30,7 @@ export async function login(
   return withCookieWrite(async () => {
     const response = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
-      // fix(#1302): opt into the httpOnly refresh cookie. The response's
+      // Opt into the httpOnly refresh cookie. The response's
       // refresh_token is null in that mode, so nothing token-shaped reaches
       // localStorage.
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...cookieAuthHeaders() },
@@ -131,19 +131,17 @@ export async function getMe(): Promise<UserResponse> {
 const LOGOUT_TIMEOUT_MS = 3_000;
 
 /**
- * fix(#1446): end the session on the server, not just in this tab.
+ * End the session on the server, not just in this tab.
  *
- * The endpoint has always revoked the refresh-token rows and bumped
- * token_version, but nothing in the SPA ever called it — clearing localStorage
- * was enough to strand the browser. fix(#1302) removed that property: the
- * refresh credential is now an httpOnly cookie JS cannot touch, so a purely
+ * The endpoint revokes the refresh-token rows and bumps token_version. The
+ * refresh credential is an httpOnly cookie JS cannot touch, so a purely
  * client-side logout would leave a live cookie (and its server row) behind for
  * the remainder of its lifetime. Only the server's `Set-Cookie` can clear it.
  *
  * Deliberately a plain fetch rather than `apiFetch`, reading the bearer token
  * synchronously so the request is fully formed and in flight before the caller
- * tears down local state. Routing it through `apiFetch` looked appealing (its
- * 401 path can refresh from the cookie and retry) but is wrong here: when the
+ * tears down local state. Routing it through `apiFetch` is wrong here even
+ * though its 401 path can refresh from the cookie and retry: when the
  * access token sits inside the proactive-refresh window, `apiFetch` awaits a
  * refresh BEFORE dispatching. If the caller stopped waiting during that
  * window, the refresh still installed a rotated cookie while the logout POST
@@ -151,12 +149,12 @@ const LOGOUT_TIMEOUT_MS = 3_000;
  * credential this call exists to revoke.
  */
 /**
- * fix(#1446): the in-flight revocation, tracked so a new login cannot overtake
+ * The in-flight revocation, tracked so a new login cannot overtake
  * it. Logout revokes EVERY refresh token for the user and deletes the cookies,
  * so a request that lands after a fresh login would revoke the new session's
  * row, and a delayed response would erase its cookie.
  */
-// fix(#1446): a Set, not a single slot. Concurrent teardown paths can each
+// A Set, not a single slot. Concurrent teardown paths can each
 // dispatch a revocation (a terminal getMe 401 and a login-catch, say), and
 // last-write-wins would let awaitPendingLogout return while the older request
 // is still holding the user lock server-side — free to revoke rows a new
@@ -172,7 +170,7 @@ export async function awaitPendingLogout(): Promise<void> {
 
 export async function logoutSession(): Promise<void> {
   const { token, refreshToken } = useAuthStore.getState();
-  // fix(#1446): carry the cookie-mode headers too. When the access token has
+  // Carry the cookie-mode headers too. When the access token has
   // aged out, the refresh credential authenticates this call server-side, and
   // the cookie transport requires the double-submit CSRF token.
   const headers: Record<string, string> = { ...cookieAuthHeaders() };
@@ -191,7 +189,7 @@ export async function logoutSession(): Promise<void> {
     headers,
     credentials: 'same-origin',
     signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
-    // fix(#1446): callers dispatch this without awaiting, so a user who clicks
+    // Callers dispatch this without awaiting, so a user who clicks
     // Logout and immediately closes or navigates the tab would otherwise have
     // the request cancelled at unload — local state already cleared, refresh
     // row and cookie still alive. keepalive is built for exactly this, and the
@@ -263,10 +261,8 @@ export async function createMyApiKey(
   name: string,
   options: { scope?: ApiKeyScope; expiresAt?: string | null } = {},
 ): Promise<ApiKeyCreateResponse> {
-  // fix(#875): this mirror sent only { name }. expires_at has been accepted by
-  // ApiKeyCreateRequest since #821 and was never threaded, so the UI could not
-  // mint an expiring key at all; threading scope on top of that omission would
-  // have left the mirror half-wired.
+  // The body carries expires_at and scope as well as name, so the UI can mint
+  // an expiring, scoped key.
   return apiFetch<ApiKeyCreateResponse>('/auth/api-keys/', {
     method: 'POST',
     body: JSON.stringify({
@@ -379,7 +375,7 @@ export async function refreshAccessToken(
       ...(refreshToken ? { 'Content-Type': 'application/json' } : {}),
     },
     credentials: 'same-origin',
-    // fix(#1446): this call bypasses apiFetch, so it never inherited the
+    // This call bypasses apiFetch, so it never inherited the
     // request bound and could hang forever. That stalls
     // anything awaiting a refresh (logout, most visibly), and worse, leaves
     // tryRefresh's inflight singleton un-cleared — its `finally` never runs —
@@ -401,7 +397,7 @@ export async function refreshAccessToken(
   }, abortSignal);
 
   if (!response.ok) {
-    // fix(#1849): tryRefresh's 429 back-off branch checks `err instanceof
+    // tryRefresh's 429 back-off branch checks `err instanceof
     // ApiError`, so a plain Error here made that branch dead code — a
     // rate-limited refresh never got the pause before the next attempt.
     const error = new ApiError(translateApiErrorDetail(undefined, response.status), response.status);

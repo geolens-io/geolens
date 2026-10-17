@@ -1,7 +1,7 @@
-// fix(#1515): public/asset-guard.js ships in the shell as a plain <script>, so
-// nothing imports it and nothing covered it. It is also the half that produced
-// the flood: under an opaque origin `sessionStorage` THROWS, and reloading from
-// the catch bypassed the latch entirely.
+// public/asset-guard.js ships in the shell as a plain <script>, so
+// nothing imports it and no other test covers it. Under an opaque origin
+// `sessionStorage` THROWS, and reloading from the catch would bypass the latch
+// entirely and flood the server with reloads.
 //
 // The file is read and evaluated here rather than reimplemented, so the test
 // fails if the shipped guard regresses.

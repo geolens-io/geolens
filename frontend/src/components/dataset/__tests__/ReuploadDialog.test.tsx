@@ -381,7 +381,7 @@ describe('ReuploadDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  // fix(#1746): this is a request-only service token, not a login credential,
+  // This is a request-only service token, not a login credential,
   // so it must opt every password manager out explicitly.
   it('opts every password manager out of the service token field', async () => {
     const user = userEvent.setup();
@@ -637,7 +637,7 @@ describe('ReuploadDialog', () => {
     expect(screen.queryByText(/^File:/)).not.toBeInTheDocument();
   });
 
-  // fix(#1768): the commit carries the origin the dialog SAW when it staged
+  // The commit carries the origin the dialog SAW when it staged
   // the replacement, so the server can refuse a dataset rebound mid-flow
   // instead of severing the new binding on the swap.
   it('sends the origin it saw with a file-source commit', async () => {
@@ -734,7 +734,7 @@ describe('ReuploadDialog', () => {
   // re-captured from the `dataset` prop, which is served from the cache the
   // server just disagreed with. Without the invalidation the retry re-sends
   // the same stale kind and 409s forever.
-  // fix(#1822): "Try Again" stays disabled until the origin refetch lands.
+  // "Try Again" stays disabled until the origin refetch lands.
   it('keeps "Try Again" disabled until the origin refetch resolves, then enables it', async () => {
     const user = userEvent.setup();
     commitMutateAsync.mockRejectedValueOnce(

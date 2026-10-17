@@ -112,7 +112,7 @@ export function SourceRefreshAction({
   // threaded in as a prop so this component stays self-contained; it is the
   // same derivation DetailPanel uses for the REFRESHABLE_ORIGINS gate.
   const origin = dataset.origin ?? datasetOrigin(dataset);
-  // feat(#1764): a STAC origin joined the credential path — its refresh
+  // A STAC origin takes the credential path — its refresh
   // re-reads the catalog over HTTP, so it takes the same four-way choice
   // WFS and OGC API Features take. A registered table still takes none.
   // Publishing a kept upload contacts no source, so it takes no credential.
@@ -319,7 +319,7 @@ export function SourceRefreshAction({
                 <Input
                   id="source-refresh-token"
                   type="password"
-                  // fix(#1746): autoComplete="off" alone does not stop Chrome
+                  // autoComplete="off" alone does not stop Chrome
                   // from offering a saved password on a password-type field —
                   // this is a request-only service token, so opt out of every
                   // password manager explicitly.
@@ -352,7 +352,7 @@ export function SourceRefreshAction({
                 />
                 {serviceTokenRequired && (
                   <p className="text-xs text-muted-foreground">
-                    {/* feat(#1764): the way out differs by origin — a STAC
+                    {/* The way out differs by origin — a STAC
                         dataset has no Re-Upload dialog, it is re-imported
                         from the catalog. */}
                     {t(

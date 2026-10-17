@@ -98,9 +98,8 @@ describe('HeatmapStyleControls', () => {
     expect(screen.getByTestId('color-ramp-picker')).toHaveTextContent('Blues');
   });
 
-  // test(#828): the reverse toggle regressed once in the 1.6.0 cycle (an inert
-  // default-false checkbox with no callback wired). Pin the write side: toggling
-  // must persist _heatmap-reversed AND rebuild heatmap-color with the flag.
+  // Pin the write side of the reverse toggle: toggling must persist
+  // _heatmap-reversed AND rebuild heatmap-color with the flag.
   describe('ramp reversal write side (#828)', () => {
     beforeEach(() => {
       vi.mocked(buildHeatmapColorExpression).mockClear();

@@ -1,5 +1,5 @@
 /**
- * fix(#1778): the Appearance/branding toggle sent `branding_show_badge`;
+ * The Appearance/branding toggle sent `branding_show_badge`;
  * the registry key is `branding.show_badge`, so every save 400s.
  *
  * Pins the exact PUT body key `updateBranding` sends, so a future rename

@@ -58,7 +58,7 @@ describe('FilterSheet identity reset (fix #1761 review round 4)', () => {
   });
 });
 
-// fix(#1778): the sheet's date-range and temporal-extent sections each
+// The sheet's date-range and temporal-extent sections each
 // paired a bare <label> (no htmlFor) with a sibling <Input>, extracted
 // verbatim from FilterPanel's same bug — so all four date fields in the
 // mobile sheet announced as unnamed. The sheet is closed at mount, so the

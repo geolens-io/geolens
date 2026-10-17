@@ -58,9 +58,9 @@ describe('report buffer', () => {
   });
 });
 
-// fix(#890): #881 replaced the reactive 403 burst with a proactive tab-return
-// re-mint, which left no trace at all — the burst's warnings were at least
-// evidence that a recovery had happened. This tap restores that signal.
+// The proactive tab-return re-mint leaves no trace on its own — the reactive
+// 403 burst's warnings were at least evidence that a recovery had happened.
+// This tap provides that signal.
 describe('reportTileTokenRemint', () => {
   it('records a suppressed entry naming the surface and the trigger', () => {
     reportTileTokenRemint('viewer', 'tab-return');
@@ -96,7 +96,7 @@ describe('reportTileTokenRemint', () => {
   });
 });
 
-// fix(#908): one unrecovered map failure writes two error rows — a `maplibre`
+// One unrecovered map failure writes two error rows — a `maplibre`
 // row carrying the sourceId and a `console` row derived from
 // logUnhandledMapError. Both are worth keeping; counting them both is not.
 describe('countDistinctFailures (fix #908)', () => {

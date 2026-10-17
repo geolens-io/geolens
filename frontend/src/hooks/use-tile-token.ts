@@ -41,11 +41,11 @@ export function useTileToken(datasetId: string | undefined) {
       return Math.max(d.expires_in * 800, 30_000);
     },
     staleTime: 60_000,
-    // fix(#908): explicit because it is the whole hidden-tab policy — a hidden
+    // Explicit because it is the whole hidden-tab policy — a hidden
     // tab must not refresh, since MapLibre drops the resulting setTiles reload
-    // while the source's TileManager is paused (fix(#584)). It matched the
-    // TanStack default before, which is exactly what made the #755 403 burst
-    // guaranteed rather than probabilistic.
+    // while the source's TileManager is paused. Leaving it at the TanStack
+    // default would make the tab-return 403 burst guaranteed rather than
+    // probabilistic.
     refetchIntervalInBackground: false,
   });
 }
@@ -98,7 +98,7 @@ export function useTileTokens(datasetIds: string[]) {
       if (!isFinite(minVectorExpiry)) return false;
       return Math.max(minVectorExpiry * 800, 30_000);
     },
-    // fix(#908): see useTileToken above — the hidden-tab policy is stated at
+    // See useTileToken above — the hidden-tab policy is stated at
     // every site rather than inherited from the TanStack default.
     refetchIntervalInBackground: false,
   });

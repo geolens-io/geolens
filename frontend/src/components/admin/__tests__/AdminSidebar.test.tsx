@@ -79,7 +79,7 @@ vi.mock('@/hooks/use-settings', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: { count?: number }) => {
-      // fix(#1185): the failed-jobs label is the sidebar's only plural key.
+      // The failed-jobs label is the sidebar's only plural key.
       // Resolve it the way i18next would so the assertions below read the
       // rendered copy rather than a bare key. `EN_ADMIN_NAV` below pins these
       // strings against the real bundle.
@@ -240,16 +240,16 @@ describe('AdminSidebar', () => {
     expect(useEnterpriseOnlyTabsMock).toHaveBeenCalledWith({ enabled: true });
   });
 
-  // fix(#817): the settings/config-ops APIs require manage_tenants in
+  // The settings/config-ops APIs require manage_tenants in
   // multi-tenant mode — a manage_settings-only per-tenant admin must not see
   // the Settings group (every request behind those links 403s). Audit Log
   // stays manage_settings in BOTH modes.
   //
-  // fix(#1778): SAML calls the same mode-aware /settings/oauth-providers/
+  // SAML calls the same mode-aware /settings/oauth-providers/
   // API, so it must follow the Settings group here too, not Audit Log — a
-  // manage_settings-only per-tenant admin saw the SAML nav item and the
-  // route admitted them, but every SAML request 403'd (the exact drift #817
-  // fixed for the Settings tabs).
+  // manage_settings-only per-tenant admin would otherwise see the SAML nav
+  // item and be admitted by the route, but every SAML request would 403 (the
+  // same drift as the Settings tabs).
   it('multi-tenant: hides the Settings group AND SAML for a manage_settings-only admin', () => {
     const multiTenant = {
       isEnterprise: true,
@@ -287,7 +287,7 @@ describe('AdminSidebar', () => {
 });
 
 // ---------------------------------------------------------------------------
-// fix(#1185): the Jobs badge counts FAILED jobs while every sibling badge
+// The Jobs badge counts FAILED jobs while every sibling badge
 // counts the total behind its list, so a bare number read as a broken total
 // (badge 3, list 200). It must render as an alert: destructive colors, a
 // spoken "N failed jobs" label instead of a naked digit, and a click target

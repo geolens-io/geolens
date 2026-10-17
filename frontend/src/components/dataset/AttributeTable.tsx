@@ -104,11 +104,10 @@ function InlineCellEditor({
   const [value, setValue] = useState(initialValue);
   const errorId = useId();
 
-  // fix(#1628): keyed on isSaving, not []. The saving branch below swaps the
-  // input out for a spinner, and a save that fails leaves the editor open —
-  // before #1628 the editor was remounted wholesale on every render, so this
-  // effect happened to re-run and put the caret back. It no longer remounts,
-  // so re-focus explicitly when the input comes back.
+  // Keyed on isSaving, not []. The saving branch below swaps the
+  // input out for a spinner, and a save that fails leaves the editor open.
+  // The editor is not remounted on re-render, so re-focus explicitly when the
+  // input comes back.
   useEffect(() => {
     if (isSaving) return;
     inputRef.current?.focus();
@@ -148,7 +147,7 @@ function InlineCellEditor({
         onChange={(e) => setValue(e.target.value)}
         onBlur={commit}
         onKeyDown={handleKeyDown}
-        // fix(#820): the input must fit inside the fixed row height for its
+        // The input must fit inside the fixed row height for its
         // density mode (44px default / 28px compact) so an open editor cannot
         // stretch the row past the virtualizer's per-mode row size.
         className={`${compact ? 'h-6' : 'h-7'} text-xs px-1`}
@@ -274,7 +273,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     }
   }, [datasetId, updateFeature, t]);
 
-  // fix(#1628): everything the cell renderer needs that changes from render to
+  // Everything the cell renderer needs that changes from render to
   // render, read through one ref so `columns` below never has to list it.
   //
   // TanStack's `<table.FlexRender cell={cell} />` renders `columnDef.cell` as
@@ -282,19 +281,18 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   // `columns` array is a new element type at every cell position and React
   // unmounts and remounts the whole cell subtree instead of re-rendering it.
   // That resets InlineCellEditor's `value` state back to the stored cell value.
-  // `columns` used to depend on `handleCellSave`, whose own dep list carries
-  // the object react-query's useMutation returns — and that is rebuilt on
-  // EVERY render (`return { ...result, mutate, mutateAsync: result.mutate }`,
+  // Depending on `handleCellSave` would do exactly that: its dep list carries
+  // the object react-query's useMutation returns, which is rebuilt on EVERY
+  // render (`return { ...result, mutate, mutateAsync: result.mutate }`,
   // react-query 5.101 useMutation.ts). So any re-render at all, from anywhere
-  // in the page, silently threw away what the user had typed into an open
-  // cell editor. Enter then hit commit()'s value === initialValue branch: no
-  // PATCH, no validation message, editor just closes. That is the #1628 e2e
-  // flake, and the same reset also defeated the "keep the editor open so the
-  // value can be corrected" behaviour for real users.
+  // in the page, would silently throw away what the user had typed into an
+  // open cell editor. Enter would then hit commit()'s value === initialValue
+  // branch: no PATCH, no validation message, editor just closes, and the "keep
+  // the editor open so the value can be corrected" behaviour would be defeated.
   //
   // Reading state from a ref during render is the pattern this component
-  // already used for `editingCell`: the ref is written in this render pass,
-  // before FlexRender renders the cells that read it.
+  // uses for `editingCell`: the ref is written in this render pass, before
+  // FlexRender renders the cells that read it.
   const cellRenderState = {
     editingCell,
     editError,
@@ -394,7 +392,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
         return cellValue;
       },
     }));
-    // fix(#1628): the column list and `t` ONLY. Every other input the renderer
+    // The column list and `t` ONLY. Every other input the renderer
     // needs comes from cellRenderRef, because adding any of them back here
     // remounts every cell — and with it any open editor — whenever they change.
     // `t` is safe to keep: react-i18next caches its useSyncExternalStore
@@ -420,7 +418,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   // post-filter row model from TanStack Table — sort/filter state changes flow
   // through naturally on each render via `count: rows.length`.
   const rows = table.getRowModel().rows;
-  // fix(#820): fixed-height rows only — never reintroduce dynamic row
+  // Fixed-height rows only — never reintroduce dynamic row
   // measurement here. With a Chrome AX tree attached (screen reader, CDP
   // Accessibility.enable), the measure→layout→re-render edge fed back
   // synchronously and locked the page in an infinite render loop.
@@ -432,10 +430,8 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   // not — the border is absorbed into the specified height). Keep rowHeight
   // and the cell height classes in lockstep.
   const rowHeight = compact ? 28 : 44;
-  // fix(#1407): react-hooks/incompatible-library only reports the first
-  // flagged hook it finds per component. The removed useReactTable() call
-  // used to occupy that slot (suppressed below it), which silently masked
-  // this same warning on useVirtualizer() below.
+  // react-hooks/incompatible-library only reports the first flagged hook it
+  // finds per component, so the suppression below applies to useVirtualizer().
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual returns imperative helpers; this component keeps virtualizer state local.
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -445,7 +441,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   });
   const virtualItems = virtualizer.getVirtualItems();
 
-  // fix(#851): TanStack Virtual (virtual-core 3.17.x) does not include
+  // TanStack Virtual (virtual-core 3.17.x) does not include
   // estimateSize in its measurement-cache deps (getMeasurementOptions covers
   // count/padding/scrollMargin/getItemKey/enabled/lanes/gap only), so when
   // the density toggle flips rowHeight 44↔28 the cells resize immediately but
@@ -485,7 +481,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     );
   }
 
-  // fix(#820): exact per-density cell height (py-0 + h-*) instead of padding,
+  // Exact per-density cell height (py-0 + h-*) instead of padding,
   // so real row pitch always equals `rowHeight` and the virtualizer's offset
   // math stays correct without dynamic measurement.
   const cellClass = compact ? 'h-7 py-0 text-xs' : 'h-11 py-0';

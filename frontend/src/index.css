@@ -94,7 +94,7 @@
   --map-water:  oklch(0.85 0.02 220);
 
   /* ─ Globe space ─
-     feat(#1479): the void behind the sphere on globe-projection maps. Has no
+     The void behind the sphere on globe-projection maps. Has no
      dark-mode counterpart on purpose — space is the same dark in both themes,
      and a light value is exactly what makes the globe read as a sticker on
      white. Sits a little below the dark theme's --background (0.145) so the
@@ -625,8 +625,8 @@ html [data-sonner-toaster][data-sonner-theme] {
 }
 
 /* ── Globe projection: the space behind the sphere ─────────────────────────
- * feat(#1479): nothing inside a MapLibre style can paint the void a globe
- * leaves around itself. The atmosphere pass added in #1473/#1474 returns
+ * Nothing inside a MapLibre style can paint the void a globe
+ * leaves around itself. The atmosphere pass returns
  * alpha 0 for rays that miss the planet, the canvas clears transparent, and
  * the style's `background` layer is drawn per tile so it stays clipped to the
  * sphere. What shows through is whatever is behind the canvas — the page — so

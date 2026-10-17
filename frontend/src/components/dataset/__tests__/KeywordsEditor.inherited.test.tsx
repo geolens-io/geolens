@@ -1,4 +1,4 @@
-// feat(#1070): keywords copied from the analysis source carry an "inherited"
+// Keywords copied from the analysis source carry an "inherited"
 // marker, and an audience gap (readers who cannot open that source) surfaces
 // as a hint line for the editor.
 import { render, screen, waitFor } from '@/test/test-utils';

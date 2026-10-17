@@ -67,7 +67,7 @@ function PublicViewer() {
   const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
-  // fix(#553): every branch shows the site banner (except embeds), including
+  // Every branch shows the site banner (except embeds), including
   // expired/invalid share links — maintenance notices must reach those visitors
   if (isLoading) {
     return (
@@ -83,8 +83,8 @@ function PublicViewer() {
   if (isError || !data) {
     const isExpired = error instanceof ApiError && error.status === 410;
     return (
-      // fix(#569): h-dvh column like the loading/main branches — SiteBanner +
-      // min-h-screen overflowed the viewport by the banner's height.
+      // Use an h-dvh column like the loading/main branches — SiteBanner +
+      // min-h-screen would overflow the viewport by the banner's height.
       <div className="flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
       <main className="app-surface-gradient flex min-h-0 flex-1 overflow-y-auto px-6">
@@ -152,7 +152,7 @@ function PublicViewer() {
   };
 
   return (
-    // fix(#553): flex column so the banner takes height from the map viewport
+    // Flex column so the banner takes height from the map viewport
     // instead of pushing it below the fold; embeds never show the host banner
     <div className="relative flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}

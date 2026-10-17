@@ -11,7 +11,7 @@ function SeverityIcon({ severity }: { severity: ReportSeverity }) {
   return <Info className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />;
 }
 
-// chore(#835): shared formatter; exact seconds + hour cap preserve this
+// Shared formatter; exact seconds + hour cap preserve this
 // session-scoped list's original rendering.
 function formatRelative(ts: number, language: string): string {
   return formatRelativeTime(new Date(ts), new Date(), language, {

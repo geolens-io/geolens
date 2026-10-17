@@ -51,7 +51,7 @@ export const EDITABLE_FIELDS: DatasetEditField[] = [
   'access_constraints',
   'sensitivity_classification',
   'quality_statement',
-  // feat(#1472): editable so an operator can add or correct a required credit
+  // Editable so an operator can add or correct a required credit
   // line without re-ingesting. `license` beside it stays read-only.
   'attribution',
   'data_vintage_start',

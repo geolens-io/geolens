@@ -31,7 +31,7 @@ export function chatOverlayCompleteness(
   const total = typeof action.row_count === 'number' ? action.row_count : undefined;
   const clipped = action.truncated === true || (total != null && featureCount < total);
   if (!clipped) return {};
-  // fix(#1076): the flag does not wait for the total. A clip filters rows, so
+  // The flag does not wait for the total. A clip filters rows, so
   // the server reports no source total for it; the surface picks its wording
   // from whether one arrived.
   return { truncated: true, ...(total != null ? { totalCount: total } : {}) };

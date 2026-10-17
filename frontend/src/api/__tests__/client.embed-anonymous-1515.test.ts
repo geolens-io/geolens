@@ -1,5 +1,5 @@
 /**
- * fix(#1515): the embedded viewer must not spend the viewer's session.
+ * The embedded viewer must not spend the viewer's session.
  *
  * The emitted snippet now carries `allow-same-origin`, so the frame shares the
  * GeoLens origin and therefore the persisted auth store. Without this, an embed

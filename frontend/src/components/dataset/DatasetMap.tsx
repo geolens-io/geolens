@@ -50,8 +50,8 @@ import { motionDuration } from '@/lib/reduced-motion';
 import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
-// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
-// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+// Wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph.
 import '@/lib/maplibre-worker';
 
 /** System columns excluded from the attribute form */
@@ -193,7 +193,7 @@ export const DatasetMap = memo(function DatasetMap({
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
   const tileConfigReady = isMvtSourceLayerConfigReady(tileConfig);
-  // chore(#835): ref so the transformRequest installed once in handleLoad reads
+  // Ref so the transformRequest installed once in handleLoad reads
   // the current tile config without re-registering (same pattern as ViewerMap).
   const tileConfigRef = useRef(tileConfig);
   tileConfigRef.current = tileConfig;
@@ -229,24 +229,24 @@ export const DatasetMap = memo(function DatasetMap({
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const invalidateTileTokens = useInvalidateTileTokens();
   const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance, invalidateTileTokens);
-  // fix(#621): shared tile-auth recovery — a tile 401/403 kicks one throttled
+  // Shared tile-auth recovery — a tile 401/403 kicks one throttled
   // token re-mint; the refreshed token re-renders the declarative <Source>
   // with a freshly signed URL.
-  // fix(#890): report every mint the recovery path actually kicks (suppressed),
-  // so a tab-return recovery still leaves a trace now that it no longer arrives
-  // wrapped in a 403 burst.
+  // Report every mint the recovery path actually kicks (suppressed),
+  // so a tab-return recovery still leaves a trace even though it does not
+  // arrive wrapped in a 403 burst.
   const recoverTileAuth = useTileAuthRecovery(invalidateTileTokens, (trigger) =>
     reportTileTokenRemint('dataset-preview', trigger),
   );
-  // fix(#755): a tab backgrounded past the 900 s sig boundary comes back with
+  // A tab backgrounded past the 900 s sig boundary comes back with
   // stale tokens, so MapLibre's resumed fetches 403 before the error handler
   // can heal them. Kick the same throttled re-mint on the visible edge.
   useVisibleTileTokenRefresh(() => [rawTileToken], recoverTileAuth, () =>
     refreshRasterTileSources(mapRef.current),
   );
-  // fix(#890): `url` is read to tell a raster/DEM auth failure (unrecoverable)
+  // `url` is read to tell a raster/DEM auth failure (unrecoverable)
   // from a vector one (re-mintable).
-  // feat(#846): v6 narrowed the `error` event payload to `ErrorLike`
+  // v6 narrowed the `error` event payload to `ErrorLike`
   // ({ message: string }). A handler type with NO property in common with it
   // trips TS's weak-type check, so `message` is declared here to match the
   // sibling raster/vector handlers below. `status`/`url` are still populated at
@@ -503,7 +503,7 @@ export const DatasetMap = memo(function DatasetMap({
         if (tilesIdleIdleHandlerRef.current) {
           map.off('idle', tilesIdleIdleHandlerRef.current);
         }
-        // fix(#621): detach the tile-auth recovery handler symmetrically.
+        // Detach the tile-auth recovery handler symmetrically.
         if (tileAuthErrorHandlerRef.current) {
           map.off('error', tileAuthErrorHandlerRef.current);
         }
@@ -693,7 +693,7 @@ export const DatasetMap = memo(function DatasetMap({
       // Instant under prefers-reduced-motion.
       map.flyTo({ center, zoom, duration: motionDuration(1000) });
     } else {
-      // fix(#903): an antimeridian-crossing extent is expressed by letting east
+      // An antimeridian-crossing extent is expressed by letting east
       // run past 180 — MapLibre normalizes it, and the alternative is fitting
       // the complementary 340° of the world.
       map.fitBounds(toFitBounds(bbox!), { padding: 60, duration: motionDuration(1000) });
@@ -758,7 +758,7 @@ export const DatasetMap = memo(function DatasetMap({
 
   const [minx, miny, maxx, maxy] = hasBbox ? bbox : [0, 0, 0, 0];
 
-  // fix(#903): a planar ring built straight from a `west > east` pair draws the
+  // A planar ring built straight from a `west > east` pair draws the
   // complementary 340° rectangle over the map. Split the extent at the seam and
   // draw the halves as a MultiPolygon — one ring for everything that does not
   // cross, so non-crossing extents render byte-identically to before.
@@ -801,7 +801,7 @@ export const DatasetMap = memo(function DatasetMap({
       setMapInstance(map);
 
       // Absolutify URLs and attach auth header for raster tile requests.
-      // chore(#835): shared builder — react-maplibre v8 ignores the
+      // Shared builder — react-maplibre v8 ignores the
       // transformRequest PROP after mount, so each map wires it here in onLoad.
       map.setTransformRequest(buildTileTransformRequest({
         getTileConfig: () => tileConfigRef.current,
@@ -809,8 +809,8 @@ export const DatasetMap = memo(function DatasetMap({
 
       // Suppress missing-image warnings from basemap sprites (e.g. circle-11,
       // circle_11_black) with a transparent 1x1 pixel fallback for any missing
-      // icon. chore(#835): shared resolver (knownImagesOnly: false — preview
-      // surface, keep the console clean).
+      // icon. Shared resolver (knownImagesOnly: false — preview surface, keep
+      // the console clean).
       map.setMissingStyleImageResolver(makeStyleImageMissingResolver(map, { knownImagesOnly: false }));
 
       // data-tiles-loaded signal, re-armed on every camera move
@@ -851,28 +851,26 @@ export const DatasetMap = memo(function DatasetMap({
         onTileError?.();
       };
 
-      // fix(#621): the dataset preview previously had NO vector-tile 401/403
-      // handling — the most likely surface in the 7-hour silent-403 incident.
-      // A stale sig kicks one throttled token re-mint, and a conclusively
-      // dead session surfaces through the global signed-out handling (#628)
-      // via the mint request itself.
-      // audit(w3-maps A2): recoverTileAuth() returning false is contractual —
-      // a recent re-mint didn't cure the error (revoked grant, expired embed
-      // token). Previously that return value was discarded and the surface
-      // stayed fully silent; now it falls through to the existing onTileError
-      // error path. Auth failures surface even after a confirmed load (unlike
-      // sporadic tile errors) because they break the whole tile surface.
-      // fix(#890): a raster/DEM 401/403 is not cured by a fresh sig — raster auth
-      // rides the Authorization header, so the re-mint returned true ("handled")
-      // without changing anything and the preview stayed silent behind a blank
-      // raster. Still kick the re-mint (its apiFetch renews an expiring JWT,
-      // which IS what a raster 401 needs, but never let its `true`
-      // stand in for recovery: route a raster failure to the error path.
+      // Vector-tile 401/403 handling: a stale sig kicks one throttled token
+      // re-mint, and a conclusively dead session surfaces through the global
+      // signed-out handling via the mint request itself.
+      // recoverTileAuth() returning false is contractual — a recent re-mint
+      // didn't cure the error (revoked grant, expired embed token) — so it
+      // falls through to the existing onTileError error path rather than
+      // leaving the surface silent. Auth failures surface even after a
+      // confirmed load (unlike sporadic tile errors) because they break the
+      // whole tile surface.
+      // A raster/DEM 401/403 is not cured by a fresh sig — raster auth
+      // rides the Authorization header, so the re-mint would return true
+      // ("handled") without changing anything and leave the preview silent
+      // behind a blank raster. Still kick the re-mint (its apiFetch renews an
+      // expiring JWT, which IS what a raster 401 needs), but never let its
+      // `true` stand in for recovery: route a raster failure to the error path.
       tileAuthErrorHandlerRef.current = (e: { error?: { message?: string; status?: number; url?: string } }) => {
         const s = e.error?.status;
         if (s !== 401 && s !== 403) return;
         const reminting = recoverTileAuth();
-        // fix(#907): a raster auth error counts as recovering while a session
+        // A raster auth error counts as recovering while a session
         // renewal is in flight — that renewal is what fixes it, and its
         // post-rotation reload retries the tiles.
         const recovering =
@@ -901,7 +899,7 @@ export const DatasetMap = memo(function DatasetMap({
             fireReadyOnce(false);
             return;
           }
-          // fix(#907): a 401/403 lost to the tab-return refresh race is not a
+          // A 401/403 lost to the tab-return refresh race is not a
           // broken source — the post-rotation reload retries it moments later,
           // and this listener is independent of the auth handler above, so
           // without this it still latched the permanent error overlay that the
@@ -1171,7 +1169,7 @@ export const DatasetMap = memo(function DatasetMap({
     );
   }
 
-  // fix(#903): same seam handling as the zoom-to-extent path above.
+  // Same seam handling as the zoom-to-extent path above.
   const bounds: LngLatBoundsLike | undefined = hasBbox
     ? toFitBounds([minx, miny, maxx, maxy])
     : undefined;
@@ -1222,8 +1220,8 @@ export const DatasetMap = memo(function DatasetMap({
         interactive
         scrollZoom={isFullscreen}
         onLoad={handleLoad}
-        // fix(#755): claim the wrapper's `error` fallback so a handled
-        // tile-auth 401/403 (#621 re-mint in handleLoad's error handler)
+        // Claim the wrapper's `error` fallback so a handled
+        // tile-auth 401/403 (re-minted in handleLoad's error handler)
         // stops double-logging a red AJAXError console row.
         onError={logUnhandledMapError}
       >

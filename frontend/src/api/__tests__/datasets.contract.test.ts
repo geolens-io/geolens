@@ -13,8 +13,7 @@ vi.mock('@/api/client', () => ({
 
 const mockApiFetch = vi.mocked(apiFetch);
 
-// chore(#835): the single-step `updatePublicationStatus` rows were removed
-// with the function itself — the app talks only to the target-status endpoint.
+// The app talks only to the target-status endpoint.
 describe('dataset publication-status API contract', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -40,7 +39,7 @@ describe('dataset publication-status API contract', () => {
   });
 });
 
-// fix(#1778): reuploadDataset sends a FormData body that can hold up to
+// The reuploadDataset FormData body can hold up to
 // upload_max_size_mb (500 MB) — it must not fall back to apiFetch's 30s
 // default timeout, or a large transfer aborts client-side before it finishes.
 describe('reuploadDataset timeout', () => {
@@ -63,8 +62,8 @@ describe('reuploadDataset timeout', () => {
   });
 });
 
-// fix(#1768): the commit body's expected-origin condition. `expected_origin_kind`
-// is optional server-side, and an ABSENT key is the pre-#1768 contract — so the
+// The commit body's expected-origin condition. `expected_origin_kind`
+// is optional server-side, and an ABSENT key means no origin check — so the
 // caller must omit it rather than send null when it has no captured origin.
 describe('reuploadCommit expected-origin condition', () => {
   beforeEach(() => vi.clearAllMocks());

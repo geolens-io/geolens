@@ -31,7 +31,7 @@ describe('chatOverlayCompleteness', () => {
     });
   });
 
-  // fix(#1076): a clip filters rows, so no source total is reported. The flag
+  // A clip filters rows, so no source total is reported. The flag
   // must survive without one.
   it('keeps a cap that arrives without a total', () => {
     expect(chatOverlayCompleteness({ truncated: true }, 500)).toEqual({ truncated: true });

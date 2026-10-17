@@ -90,7 +90,7 @@ export function KeywordsEditor({ recordId, canEdit }: KeywordsEditorProps) {
         {keywords.map((kw) => (
           <Badge key={kw.id} variant="secondary" className="gap-1">
             {kw.keyword}
-            {/* feat(#1070): a keyword copied from the analysis source is marked
+            {/* A keyword copied from the analysis source is marked
                 so the owner knows they did not author it. The flag is only ever
                 true for a requester who can access the source. */}
             {kw.inherited && (
@@ -126,7 +126,7 @@ export function KeywordsEditor({ recordId, canEdit }: KeywordsEditorProps) {
         )}
       </div>
 
-      {/* feat(#1070): some current readers cannot open the source these
+      {/* Some current readers cannot open the source these
           keywords came from — worth a line before the owner widens access. */}
       {canEdit && data?.inherited_audience_gap && (
         <p className="text-xs text-warning">

@@ -1,9 +1,9 @@
 import { useAuthStore } from '@/stores/auth-store';
 import { abortInflightRefresh, ApiError, onSessionExpired } from '@/api/client';
 
-// fix(#1446): the XHR upload path cleared the store directly on a terminal 401,
-// skipping the single signed-out prompt every other surface shows (fix(#628)).
-// It now routes through notifySessionExpired.
+// A terminal 401 on the XHR upload path routes through notifySessionExpired
+// rather than clearing the store directly, so the single signed-out prompt
+// every other surface shows still appears.
 
 const mockLogoutSession = vi.fn<() => Promise<void>>();
 const mockRefresh = vi.fn<() => Promise<never>>();
@@ -44,7 +44,7 @@ describe('upload auth failure (fix #1446)', () => {
   afterEach(() => {
     unregister();
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
-    // fix(#2038): the transient refresh back-off is module state; end signed out.
+    // The transient refresh back-off is module state; end signed out.
     abortInflightRefresh();
   });
 
@@ -61,13 +61,13 @@ describe('upload auth failure (fix #1446)', () => {
       uploadFile(new File(['x'], 'a.geojson')),
     ).rejects.toMatchObject({ status: 401 });
 
-    // fix(#2038): local teardown only — /auth/logout/ revokes every device.
+    // Local teardown only — /auth/logout/ revokes every device.
     expect(mockLogoutSession).not.toHaveBeenCalled();
     expect(handler).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  // fix(#2038): the upload door shares the rule — only a rejected refresh
+  // The upload door shares the rule — only a rejected refresh
   // credential ends the session.
   it('keeps the session when the upload 401s but the refresh failed transiently', async () => {
     const { uploadFile } = await import('@/api/ingest');

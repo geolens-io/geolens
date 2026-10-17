@@ -159,7 +159,7 @@ describe('useAuth', () => {
     expect(mockRevokeCurrentSession).toHaveBeenCalledExactlyOnceWith('issued-a');
   });
 
-  // fix(#1446): login installs the refresh cookie before getMe() runs, so a
+  // Login installs the refresh cookie before getMe() runs, so a
   // rejected credential must be revoked — a store reset cannot reach it.
   it('revokes the session when getMe rejects the credential after a login', async () => {
     mockLogin.mockResolvedValueOnce({
@@ -196,7 +196,7 @@ describe('useAuth', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/login');
   });
 
-  // fix(#1446): the refresh credential is an httpOnly cookie since fix(#1302),
+  // The refresh credential is an httpOnly cookie,
   // so only the server can end the session. A logout that just clears the store
   // would leave a live cookie behind.
   it('logout revokes the session server-side before clearing local state', async () => {
@@ -217,7 +217,7 @@ describe('useAuth', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  // fix(#1446): revocation is DISPATCHED, never awaited. logoutSession forms
+  // Revocation is DISPATCHED, never awaited. logoutSession forms
   // its request with a synchronously-captured bearer token, so teardown cannot
   // strip its credential, and a stalled network cannot hold the user on an
   // authenticated screen.

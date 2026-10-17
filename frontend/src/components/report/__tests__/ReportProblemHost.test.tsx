@@ -40,9 +40,10 @@ describe('ReportProblemHost', () => {
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
-  // fix(#908): the badge counts distinct failures. An unrecovered tile error
+  // The badge counts distinct failures. An unrecovered tile error
   // writes both a `maplibre` row (which carries the sourceId) and a `console`
-  // row from logUnhandledMapError, and it used to read "2" for one failure.
+  // row from logUnhandledMapError, so counting rows would read "2" for one
+  // failure.
   it('counts one failure for the maplibre + console pair a 5xx tile writes', async () => {
     signIn();
     render(<ReportProblemHost />);

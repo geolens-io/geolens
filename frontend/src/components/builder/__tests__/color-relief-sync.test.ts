@@ -87,8 +87,8 @@ describe('buildElevationExpression', () => {
     expect(expr.length).toBe(HEADER + (GUARD_PAIRS + 7) * 2);
   });
 
-  // test(#828): render side of hypso_reversed — the flag regressed once in the
-  // 1.6.0 cycle. reversed=true must actually flip the 7 ramp colors.
+  // Render side of hypso_reversed: reversed=true must actually flip the 7 ramp
+  // colors.
   it('reversed=true reverses the ramp colors relative to reversed=false', () => {
     const forward = buildElevationExpression('Viridis', undefined, undefined, false);
     const reversed = buildElevationExpression('Viridis', undefined, undefined, true);

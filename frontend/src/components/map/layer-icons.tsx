@@ -271,7 +271,7 @@ export function getLayerColors(facts: LegendFacts | null): string[] {
 }
 
 /**
- * fix(#452): shared glyph chip for raster-family layers. StackRow, the builder
+ * Shared glyph chip for raster-family layers. StackRow, the builder
  * LegendPlugin, and the viewer LayerLegend all render this one component so the
  * legend icon can never drift from the layer-stack icon again.
  */
@@ -302,7 +302,7 @@ export type LayerTypeIconLayer = Pick<MapLayerResponse, 'dataset_geometry_type'>
   >;
 
 /**
- * fix(#452): single source of truth for a layer's type icon, shared by the
+ * Single source of truth for a layer's type icon, shared by the
  * builder layer stack and BOTH legend surfaces (LegendPlugin, viewer
  * LayerLegend). Raster/VRT layers get the glyph chip (▦, DEM: ⛰/◬); vector
  * layers get the colorized geometry icon. Extracted from StackRow.TypeIcon.

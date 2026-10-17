@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
-// chore(#835): consolidated into the shared formatter (was written out here
-// and in settings/MyApiKeySection.tsx).
+// Shared with settings/MyApiKeySection.tsx.
 import { formatLastUsedRelativeTime } from '@/lib/relative-time';
 import { cn } from '@/lib/utils';
 import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
@@ -175,8 +174,8 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
 
       {keys.length > 0 && (
         <div className="space-y-2">
-          {/* fix(#1778): `total` used to be fetched and dropped, so a user
-              past the 50-key page limit had no indication more existed. */}
+          {/* Without the `total` check a user past the 50-key page limit
+              would have no indication more existed. */}
           {total > keys.length && (
             <p className="text-xs text-muted-foreground">
               {t('apiKeys.showingOf', { shown: keys.length, total })}
@@ -214,7 +213,7 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
                       {t('apiKeys.expired')}
                     </Badge>
                   )}
-                  {/* fix(#875): an admin auditing another user's keys needs to
+                  {/* An admin auditing another user's keys needs to
                       see which of them can write. */}
                   {key.scope === 'read_only' && (
                     <Badge variant="secondary" className="px-1.5">

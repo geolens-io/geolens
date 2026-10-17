@@ -26,7 +26,7 @@ interface RemoteBasemapStyleOptions {
 }
 
 /**
- * chore(#835): the single remote-basemap-style fetch effect shared by
+ * The single remote-basemap-style fetch effect shared by
  * BuilderMap and ViewerMap (DatasetMap never fetches style JSON in app code —
  * its imperative `setStyle` + `transformStyle` path lets MapLibre fetch).
  *

@@ -10,7 +10,7 @@ import type {
   StacImportResponse,
 } from '@/types/api';
 
-// feat(#1764): `auth` is applied to the call that carries it.
+// `auth` is applied to the call that carries it.
 // `/services/stac/import` takes none: it contacts no catalog, so accepting
 // one there would take a credential the request then drops.
 export async function connectStac(
@@ -52,7 +52,7 @@ export async function fetchStacAssetSizes(
   });
 }
 
-// feat(#1764): `catalogAuthRequired` is a boolean, never the credential.
+// `catalogAuthRequired` is a boolean, never the credential.
 // It marks the dataset so its first refresh asks for one instead of failing
 // anonymously against a catalog that needs it.
 export async function importStacItems(

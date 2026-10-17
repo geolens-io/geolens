@@ -8,7 +8,7 @@ import {
 import { useAuthStore } from '@/stores/auth-store';
 import type { UserResponse } from '@/types/api';
 
-// feat(#1008): two mechanisms that are easy to conflate.
+// Two mechanisms that are easy to conflate.
 //
 // The MIRROR keeps every tab's view of the in-flight job current, so a second
 // builder knows a run is already going and its Create button is disabled

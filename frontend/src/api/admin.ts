@@ -134,7 +134,7 @@ export async function deactivateUser(userId: string): Promise<UserResponse> {
 }
 
 /**
- * feat(#1715): admin-initiated password reset. The submitted value is sent once
+ * Admin-initiated password reset. The submitted value is sent once
  * and never held anywhere else on the client; the backend revokes the target's
  * outstanding sessions and API keys as part of the same request.
  */
@@ -158,12 +158,10 @@ export async function rejectUser(userId: string): Promise<void> {
 }
 
 // API Key management
-// fix(#1778): was capped at the backend's default limit=50 with `total`
-// fetched and discarded, so a user holding more than 50 keys had an
-// arbitrary subset silently hidden from the only UI that revokes them.
-// The flat limit=200 cap above was itself the
-// backend's hard max (`le=200`) -- a user with 201+ keys still had no way to
-// reach the rest. skip/limit are now threaded through so the caller can page.
+// skip/limit are threaded through so the caller can page: the backend's
+// default is limit=50 and its hard max is `le=200`, so a user with more keys
+// than one page would otherwise have an arbitrary subset hidden from the only
+// UI that revokes them.
 export async function listApiKeys(
   userId: string,
   options: { skip?: number; limit?: number } = {},
@@ -180,8 +178,8 @@ export async function createApiKey(
   name: string,
   options: { scope?: ApiKeyScope; expiresAt?: string | null } = {},
 ): Promise<ApiKeyCreateResponse> {
-  // fix(#875): same omission as createMyApiKey — expires_at has been accepted
-  // by AdminApiKeyCreateRequest since #821 and was never sent.
+  // Mirrors createMyApiKey — AdminApiKeyCreateRequest accepts expires_at, so
+  // it is sent along with the scope.
   return apiFetch<ApiKeyCreateResponse>('/admin/api-keys/', {
     method: 'POST',
     body: JSON.stringify({
@@ -250,9 +248,9 @@ export async function getAIStatus(): Promise<AIStatusResponse> {
   return apiFetch<AIStatusResponse>('/admin/ai-status/');
 }
 
-// feat(#635): live provider probe — spends real provider tokens, so only
+// Live provider probe — spends real provider tokens, so only
 // invoked from an explicit admin action, never on page load.
-// fix(#652): chat + embeddings probe sequentially at up to 15s each, so the
+// Chat + embeddings probe sequentially at up to 15s each, so the
 // backend's sanitized timeout rows can arrive after the default 30s client
 // deadline — outlive the backend worst case instead of toasting a generic error.
 export async function probeAIStatus(): Promise<AIStatusResponse> {

@@ -2,7 +2,7 @@ import { render, screen } from '@/test/test-utils';
 import type { EmbeddingStatsResponse } from '@/types/api';
 import { BackfillRunStatus } from '../BackfillRunStatus';
 
-// fix(#2025): an operator could not see how far a backfill had got, what
+// An operator could not see how far a backfill had got, what
 // earlier runs did, or how long one would take before starting it.
 
 const base: EmbeddingStatsResponse = {

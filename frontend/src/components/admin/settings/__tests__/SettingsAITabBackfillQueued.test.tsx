@@ -4,10 +4,10 @@ import { toast } from 'sonner';
 import type { SettingItem } from '@/api/settings';
 import { SettingsAITab } from '../SettingsAITab';
 
-// fix(#1542): the backfill is queued, so by the time the mutation resolves the
-// run has not started, let alone finished. The panel used to read counts off
-// the response ("Generated N embeddings") — under the queued contract those
-// fields do not exist, and reporting a result nobody has yet would be a
+// The backfill is queued, so by the time the mutation resolves the
+// run has not started, let alone finished. Under the queued contract the
+// response has no counts ("Generated N embeddings"), and reporting a result
+// nobody has yet would be a
 // fabricated one. It acknowledges the queueing instead; the coverage figure
 // above the buttons is what reflects the finished run.
 

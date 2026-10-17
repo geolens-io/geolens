@@ -33,12 +33,12 @@
     "noUncheckedSideEffectImports": true
 
     /*
-     * fix(#438): ARC-09 — `noUncheckedIndexedAccess` is deliberately OFF.
-     * A sizing trial (2026-07-10) produced 554 errors across ~100 files,
-     * concentrated in map-styling / style-spec code (VrtCreatorForm 33,
-     * SpatialFilterPanel 26, classification 25, plus builder tests). Enabling
-     * it is its own migration, best done alongside the ARC-01 typed adapter
-     * seam that also removes the ARC-11 `as unknown as` cluster. Same call for
+     * `noUncheckedIndexedAccess` is deliberately OFF.
+     * Enabling it produces roughly 550 errors across ~100 files,
+     * concentrated in map-styling / style-spec code (VrtCreatorForm,
+     * SpatialFilterPanel, classification, plus builder tests). Enabling
+     * it is its own migration, best done alongside a typed adapter
+     * seam that also removes the `as unknown as` cluster. Same call for
      * exactOptionalPropertyTypes / noImplicitReturns / noImplicitOverride.
      */
   },

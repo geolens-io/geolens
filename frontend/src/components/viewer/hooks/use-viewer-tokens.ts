@@ -7,9 +7,9 @@ import type { TileToken, TileTokenBatchResponse } from '@/api/tiles';
 import { queryKeys } from '@/lib/query-keys';
 import type { SharedLayerResponse } from '@/types/api';
 
-// fix(#890): while the mint endpoint is down, keep retrying at this cadence.
+// While the mint endpoint is down, keep retrying at this cadence.
 // TanStack's bounded `retry` covers the fast attempts; this covers a longer
-// outage the way the deleted hand-rolled loop's backoff CAP did. Without it the
+// outage. Without it the
 // interval below would return false (no data → no TTL to derive) and a viewer
 // that failed its first mint would never recover on its own.
 const TOKEN_RETRY_INTERVAL_MS = 60_000;
@@ -34,18 +34,16 @@ function refreshIntervalMs(data: TileTokenBatchResponse | undefined): number | f
  * Manages tile token fetching and auto-refresh for the viewer map.
  * Returns the current token map and whether a fetch error occurred.
  *
- * fix(#890): this used to be a hand-rolled `useState` + `setTimeout` loop, which
- * gave the viewer the OPPOSITE refresh policy to the builder and dataset
- * preview: Chrome throttles a hidden tab's timers but still fires them, so a
- * refresh landing while hidden pushed a fresh token URL at a paused map — the
- * dropped-`setTiles` hazard from fix(#584) — while the TanStack-based surfaces
- * did nothing at all until the tab came back. It is now the same TanStack path
- * the builder uses: `refetchIntervalInBackground: false` means a hidden tab gets
- * ZERO refreshes, and the visible-edge re-mint (fix(#755) /
- * `useVisibleTileTokenRefresh` in ViewerMap) owns the tab-return case. That
- * deletes the timer/cancellation machinery behind fix(#831) and fix(#850)
- * outright, and makes ViewerMap's existing `useInvalidateTileTokens()` (WebGL
- * context restore) actually reach the viewer's tokens.
+ * It uses the same TanStack path as the builder. A hand-rolled `useState` +
+ * `setTimeout` loop would be the OPPOSITE refresh policy: Chrome throttles a
+ * hidden tab's timers but still fires them, so a refresh landing while hidden
+ * would push a fresh token URL at a paused map (MapLibre drops the
+ * `setTiles` reload while the source's TileManager is paused).
+ * `refetchIntervalInBackground: false` means a hidden tab gets ZERO refreshes,
+ * and the visible-edge re-mint (`useVisibleTileTokenRefresh` in ViewerMap)
+ * owns the tab-return case. TanStack owns the timer and cancellation, and
+ * ViewerMap's `useInvalidateTileTokens()` (WebGL context restore) reaches the
+ * viewer's tokens.
  */
 export function useViewerTokens({
   layers,
@@ -76,9 +74,9 @@ export function useViewerTokens({
     retry: 3,
     refetchInterval: (q) =>
       q.state.status === 'error' ? TOKEN_RETRY_INTERVAL_MS : refreshIntervalMs(q.state.data),
-    // fix(#890): explicit because it is the whole policy — a hidden tab must not
+    // Explicit because it is the whole policy — a hidden tab must not
     // refresh, since MapLibre drops the resulting setTiles reload while the
-    // source's TileManager is paused (fix(#584)).
+    // source's TileManager is paused.
     refetchIntervalInBackground: false,
   });
 
@@ -95,7 +93,7 @@ export function useViewerTokens({
 
   const tokenError = query.isError;
 
-  // fix(#621): on-demand re-mint for the tile 401/403 recovery path. Stable
+  // On-demand re-mint for the tile 401/403 recovery path. Stable
   // identity so map error handlers can depend on it without re-registering.
   const refetchRef = useRef(query.refetch);
   refetchRef.current = query.refetch;

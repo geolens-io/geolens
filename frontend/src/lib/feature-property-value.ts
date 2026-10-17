@@ -3,10 +3,10 @@
  * popup (`FeaturePopup`) and the accessible data panel (`AccessibleMapDataPanel`)
  * so the same property value renders the same way in both places.
  *
- * fix(#1627): the two components had drifted apart — the popup had no
- * object/array branch and fell through to `String(value)`, which rendered
- * `[object Object]` for an object-valued property. The data panel already
- * `JSON.stringify`d objects. Centralizing avoids a third copy drifting too.
+ * Centralizing keeps the two from drifting apart: without an object/array
+ * branch a component falls through to `String(value)`, which renders
+ * `[object Object]` for an object-valued property, so objects are
+ * `JSON.stringify`d here.
  *
  * `null`/`undefined` return `null` — callers render their own existing empty
  * text (the popup uses "--", the panel uses "—") rather than sharing one

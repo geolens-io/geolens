@@ -126,7 +126,7 @@ describe('useSettingsForm', () => {
     });
   });
 
-  // fix(#830): a mid-edit settings refetch (new array identity) must not
+  // A mid-edit settings refetch (new array identity) must not
   // wipe drafts or disarm the unsaved-changes guard.
   describe('refetch mid-edit', () => {
     const fields = [

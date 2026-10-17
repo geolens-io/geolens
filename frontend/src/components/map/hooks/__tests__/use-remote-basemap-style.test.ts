@@ -1,4 +1,4 @@
-// chore(#835): shared remote-basemap-style fetch path for BuilderMap and
+// Shared remote-basemap-style fetch path for BuilderMap and
 // ViewerMap. Pins the parameterized divergence: the viewer falls back to the
 // raw style URL on fetch failure; the builder keeps the placeholder and
 // surfaces a notice via onFetchError.

@@ -12,13 +12,13 @@ import type { DatasetResponse, RecordType } from '@/types/api';
 
 vi.mock('@/components/dataset/hooks/use-records', () => ({
   useDistributions: vi.fn(),
-  // feat(#1395): DistributionsList calls this unconditionally; AccessTab's
+  // DistributionsList calls this unconditionally; AccessTab's
   // own tests don't exercise the set-primary control, so a stable no-op
   // mutate is enough to keep it from throwing.
   useSetPrimaryDistribution: vi.fn(),
 }));
 
-// feat(#1070): the visibility change probes the keywords endpoint for
+// The visibility change probes the keywords endpoint for
 // inherited keywords before mutating.
 vi.mock('@/api/records', () => ({
   listKeywords: vi.fn(),
@@ -430,7 +430,7 @@ describe('AccessTab', () => {
     });
   });
 
-  // fix(#927): visibility was read-only after import — the only way to publish a
+  // Visibility was read-only after import — the only way to publish a
   // private dataset was to re-import it.
   describe('visibility control', () => {
     beforeEach(() => {
@@ -473,7 +473,7 @@ describe('AccessTab', () => {
       expect(screen.queryByRole('option', { name: 'Restricted' })).not.toBeInTheDocument();
     });
 
-    // feat(#1691): the restrict_public_visibility instance setting caps
+    // The restrict_public_visibility instance setting caps
     // non-admins at non-public. The server enforces it with a 403; this
     // control disables the Public move and explains why.
     it('disables the Public move when the instance restricts public to admins', async () => {
@@ -505,8 +505,8 @@ describe('AccessTab', () => {
       ).not.toHaveAttribute('aria-disabled', 'true');
     });
 
-    // fix(#930): `internal` joined the ladder once its permission branches
-    // landed. The import pickers deliberately stay at private/public.
+    // `internal` is on the ladder. The import pickers deliberately stay at
+    // private/public.
     it('offers internal as a move, between private and public', async () => {
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
 
@@ -575,7 +575,7 @@ describe('AccessTab', () => {
       await waitFor(() => expect(toast.error).toHaveBeenCalled());
     });
 
-    // feat(#1070): inherited keywords get a confirm/diff step before the
+    // Inherited keywords get a confirm/diff step before the
     // audience widens past the source they came from.
     describe('inherited-keyword confirm', () => {
       const inheritedProbe = {

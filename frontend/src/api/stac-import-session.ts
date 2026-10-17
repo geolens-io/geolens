@@ -11,43 +11,34 @@ import type {
 } from '@/types/api';
 
 /**
- * fix(#1712): the in-flight STAC import, owned OUTSIDE React.
+ * The in-flight STAC import, owned OUTSIDE React.
  *
- * SCOPE NOTE, checked against the code rather than assumed from the issue:
- * #1712 describes this tab's strand risk by analogy with the Service tab,
- * as `previewServiceLayer`'s `job_id`. That call does not exist on this
- * path — `StacImportForm` never imports `previewServiceLayer` (grep
- * confirms it), and `api/stac.ts` has no job-based step at all. The
- * connect/collections/search calls here are read-only and safe to simply
- * re-run on remount. `importStacItems` (`POST /services/stac/import`) is
- * the one call that mutates, and it creates datasets SYNCHRONOUSLY,
- * returning their outcome in the response body — no job id, nothing
- * `pending` for the stale-job sweep to collect. So an unmount mid-import
- * loses the created/skipped/error counts and the per-item results, but the
- * datasets it created are real and stay discoverable in the catalog — the
- * "papercut, not a leak" shape #1712 gives `RegisterForm`, which this call
- * turns out to share once its actual shape is checked instead of assumed.
+ * Unlike the Service tab, this path has no job id to strand: `StacImportForm`
+ * never calls `previewServiceLayer`, and `api/stac.ts` has no job-based step.
+ * The connect/collections/search calls are read-only and safe to re-run on
+ * remount. `importStacItems` (`POST /services/stac/import`) is the one call
+ * that mutates, and it creates datasets SYNCHRONOUSLY, returning their outcome
+ * in the response body, so nothing is left `pending` for the stale-job sweep to
+ * collect. An unmount mid-import loses the created/skipped/error counts and the
+ * per-item results, but the datasets it created are real and stay discoverable
+ * in the catalog.
  *
- * This session still protects the response, because losing the confirmation
- * view is a real (if milder) regression and the fix is the same shape as
- * the other tabs. Single-entry, matching `url-import-session.ts`: one STAC
- * import request covers the whole selected batch of items, not one entry
+ * This session protects the response, because losing the confirmation view is a
+ * real (if milder) loss. Single-entry, matching `url-import-session.ts`: one
+ * STAC import request covers the whole selected batch of items, not one entry
  * per item.
  *
- * Also carries the search CONTEXT (catalog,
- * collections list, selected collection, search results, selected item
- * ids) the way the Upload session already carries the selected layer in
- * `previewData` — an adopted result used to restore only `importResult`,
- * so the "Back to Results" button on the done screen (which sets `step`
- * back to `items`) rendered nothing: the `items` branch guards on
- * `selectedCollection` and `catalogInfo`, both null on a fresh mount, so it
- * fell through to the empty URL form. A second round found the same gap
- * one level up: `collections` was missing too, so the `collections`
- * breadcrumb from an adopted `items` view rendered an empty list instead
- * of the catalog's real one. Captured at the moment the import starts,
- * since that is the last point every one of these values is still known.
+ * It also carries the search CONTEXT (catalog, collections list, selected
+ * collection, search results, selected item ids) the way the Upload session
+ * carries the selected layer in `previewData`. Adopting only `importResult`
+ * would leave "Back to Results" on the done screen (which sets `step` back to
+ * `items`) rendering nothing: the `items` branch guards on `selectedCollection`
+ * and `catalogInfo`, both null on a fresh mount, so it would fall through to
+ * the empty URL form, and a missing `collections` would render an empty
+ * breadcrumb list. Captured at the moment the import starts, since that is the
+ * last point every one of these values is still known.
  *
- * Deliberately not persisted — same reasoning as #1708/#1712 generally.
+ * Deliberately not persisted.
  */
 export interface StacImportContext {
   catalogInfo: StacConnectResponse;

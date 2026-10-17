@@ -29,7 +29,7 @@ import type { SettingItem } from '@/api/settings';
 import type { ResetHandler } from '@/components/admin/settings/useSettingsForm';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 
-// Exported for the App route-table guard (fix(#871)): a static
+// Exported for the App route-table guard: a static
 // `admin/settings/<key>` route outranks `admin/settings/:tab`, so any static
 // path matching one of these keys silently steals the tab from this page.
 export const ALL_TAB_KEYS = ['general', 'auth', 'ai', 'network', 'storage', 'map', 'permissions', 'appearance'] as const;

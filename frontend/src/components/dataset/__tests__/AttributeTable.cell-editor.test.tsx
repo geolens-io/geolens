@@ -1,17 +1,18 @@
 /**
- * fix(#1628): an in-progress inline cell edit must survive an unrelated
+ * An in-progress inline cell edit must survive an unrelated
  * re-render of AttributeTable.
  *
  * TanStack's `<table.FlexRender cell={cell} />` renders `columnDef.cell` as the
  * React component TYPE, so rebuilding the `columns` array gives every cell a
  * new element type and React remounts the cell subtree instead of re-rendering
  * it — wiping InlineCellEditor's `value` state back to the stored cell value.
- * `columns` used to list `handleCellSave`, whose dep list carries the object
- * react-query's `useMutation` returns, and that object is rebuilt on every
- * render. So any re-render at all discarded what the user had typed, and the
- * following Enter took commit()'s `value === initialValue` branch: no PATCH,
- * no validation message, editor silently closed. That is the intermittent
- * failure e2e/feature-editing.spec.ts kept hitting.
+ * Listing `handleCellSave` in `columns` would do that: its dep list carries
+ * the object react-query's `useMutation` returns, and that object is rebuilt
+ * on every render. Any re-render at all would discard what the user had
+ * typed, and the following Enter would take commit()'s
+ * `value === initialValue` branch: no PATCH, no validation message, editor
+ * silently closed (the intermittent failure e2e/feature-editing.spec.ts
+ * exercises).
  *
  * `useUpdateFeature` is deliberately NOT mocked here — the real react-query
  * `useMutation` identity churn is the trigger under test, and a hand-stubbed

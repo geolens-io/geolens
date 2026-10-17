@@ -35,7 +35,7 @@ export function createViewerLayerEntries<T extends ViewerLayerIdentityInput>(
 }
 
 /**
- * fix(#452): whether the DEM backing `terrain_config` is live-visible in the
+ * Whether the DEM backing `terrain_config` is live-visible in the
  * viewer (legend eye toggle). The ONE definition both the mesh gate
  * (ViewerMap → useViewerTerrain) and the synthetic legend entry (LayerLegend)
  * must share — if they re-derived it independently, a future consumer that
@@ -61,7 +61,7 @@ export function isTerrainBackingLiveVisible<
 }
 
 /**
- * feat(#1472): the distinct credit lines the currently visible layers' datasets
+ * The distinct credit lines the currently visible layers' datasets
  * require, in stacking order, for MapLibre's attribution control.
  *
  * Scoped to `visibleLayers` — the live eye-toggle state, the same set the
@@ -83,8 +83,8 @@ export function isTerrainBackingLiveVisible<
  * injectivity load-bearing: any two distinct credit sets that collide here are
  * two sets a toggle can move between without the control updating.
  *
- * `JSON.stringify`, not a `join`. A credit containing the
- * separator collided — `['A|B']` and `['A', 'B']` both yielded `A|B`.
+ * `JSON.stringify`, not a `join`: a credit containing the
+ * separator would collide — `['A|B']` and `['A', 'B']` would both yield `A|B`.
  */
 export function attributionControlKey(credits: string[]): string {
   return `attribution-${JSON.stringify(credits)}`;

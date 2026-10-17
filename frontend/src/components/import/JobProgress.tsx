@@ -131,17 +131,17 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     }
   }, [job?.status, job?.warning_message]);
 
-  // fix(#1778): a failing GET /jobs/{id} used to leave `job` undefined
-  // forever whenever there was no data yet, falling into the isLoading/!job
-  // branch below and rendering an indefinite "Loading status…" spinner.
+  // A failing GET /jobs/{id} leaves `job` undefined whenever there is no
+  // data yet, which would fall into the isLoading/!job branch below and
+  // render an indefinite "Loading status…" spinner.
   //
-  // `!job` alone missed a second case — a
+  // `!job` alone misses a second case — a
   // successful pending/running fetch leaves TanStack's stale `data` in
   // place, so a LATER poll returning 401/403/404 sets `isError` without
-  // clearing `data`. That skipped this guard AND `isLoading || !job` below
-  // (job is truthy), so the main render kept showing the stale in-flight
-  // job — Cancel button included — even though refetchInterval had already
-  // stopped polling it for good. Render this error state whenever `job` is
+  // clearing `data`. That skips this guard AND `isLoading || !job` below
+  // (job is truthy), so the main render would keep showing the stale
+  // in-flight job — Cancel button included — even though refetchInterval
+  // has already stopped polling it for good. Render this error state whenever `job` is
   // missing (any error — a 5xx with no data yet must not spin forever
   // either) OR polling has definitively stopped due to the error while the
   // cached job is still in-flight. A terminal `job`
@@ -213,10 +213,10 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     }
   };
 
-  // fix(#1778): the backend already grants cancel to the job's creator
-  // (#1709) — this is the only client caller that reaches it from an import
-  // surface. One-click, matching the admin job list and the refresh-run
-  // history's cancel (feat #1677): no confirm dialog, a toast on rejection.
+  // The backend grants cancel to the job's creator — this is the only
+  // client caller that reaches it from an import surface. One-click,
+  // matching the admin job list and the refresh-run history's cancel: no
+  // confirm dialog, a toast on rejection.
   const handleCancel = () => {
     cancelMutation.mutate(jobId, {
       onError: () => toast.error(t('jobProgress.cancelFailed')),

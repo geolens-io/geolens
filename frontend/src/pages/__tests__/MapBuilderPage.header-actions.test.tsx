@@ -129,7 +129,7 @@ vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
 
 let mockExpandedLayerId: string | null = null;
 const mockHandleToggleExpand = vi.fn();
-// fix(#943): stable identity so the analysis registration below can assert
+// Stable identity so the analysis registration below can assert
 // WHICH callback got registered, not just that something did.
 const mockChatAddDataset = vi.fn();
 

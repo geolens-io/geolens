@@ -119,8 +119,8 @@ function formatMetersGsd(meters: number, locale: string): string {
 /**
  * Format a raster ground-sample distance given in CRS units.
  *
- * fix(#569): geographic CRSs deliver `gsd` in DEGREES — formatting them as
- * meters showed "2 cm" for a 60-arc-second global DEM. When the payload says
+ * Geographic CRSs deliver `gsd` in DEGREES — formatting them as
+ * meters would show "2 cm" for a 60-arc-second global DEM. When the payload says
  * the CRS is geographic (or, for older payloads without the flag, the CRS is
  * EPSG:4326), render arc units with an approximate equatorial ground
  * distance, e.g. `60″ (≈1.9 km)`.
@@ -141,7 +141,7 @@ export function formatGsd(
     // arc-seconds ("30 arc-second", "60 arc-second"), so 60″ stays 60″.
     arc = `${(arcSeconds / 60).toLocaleString(locale, { maximumFractionDigits: 1 })}′`;
   } else {
-    // fix(#588): sub-arcsecond pixels (e.g. ~0.01″ / 30 cm EPSG:4326 drone
+    // Sub-arcsecond pixels (e.g. ~0.01″ / 30 cm EPSG:4326 drone
     // imagery) round to a meaningless "0″" at a fixed 1 decimal. Below 1″,
     // switch to significant digits so any magnitude stays readable.
     const secondsOpts: Intl.NumberFormatOptions =

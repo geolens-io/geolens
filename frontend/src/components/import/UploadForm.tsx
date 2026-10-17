@@ -219,7 +219,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     // An explicit reset means the user is done with this batch; a commit
     // still in flight for it settles into nothing.
     clearUploadBatch();
-    // fix(#1832): same reasoning for the config-fetch queue.
+    // Same reasoning for the config-fetch queue.
     clearPendingUploadFiles();
     // Refresh remaining_dataset_quota so "Upload More" after an import reflects
     // the new dataset count instead of the cached pre-import value on
@@ -252,7 +252,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
       showBatch(adopted);
       setPhase(adopted.entries.some(isUploadInFlight) ? 'uploading' : 'reviewing');
     }
-    // fix(#1832): rehydrate a drop that was still waiting on the
+    // Rehydrate a drop that was still waiting on the
     // upload-config query when this form unmounted — see
     // `queuePendingUploadFiles`'s doc comment in upload-session.ts for the
     // race this closes. The flush effect below re-runs on this same mount
@@ -337,7 +337,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
     setEntries(newEntries);
     setPhase('uploading');
 
-    // fix(#1712): the upload+preview work for each entry now runs at module
+    // The upload+preview work for each entry runs at module
     // scope (`upload-session.ts`), not in this closure — so it keeps running,
     // and its outcome stays reachable, if this form unmounts before it
     // settles. The subscription effect above mirrors updates back into
@@ -351,12 +351,12 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
 
   // Queue drops that land mid-fetch instead of processing them against an
   // unresolved/stale quota; merge (not replace) so a second drop in the same
-  // window can't swallow the first (PR #274 follow-up).
+  // window can't swallow the first.
   //
-  // fix(#1832): the queue itself is now module-scoped (`upload-session.ts`),
+  // The queue itself is module-scoped (`upload-session.ts`),
   // not just this component's state — a tab switch that unmounts the form
-  // before `configFetching` settles used to discard the drop outright, since
-  // nothing had reached `startUploadEntry`'s session yet for a remount to
+  // before `configFetching` settles would otherwise discard the drop outright,
+  // since nothing has reached `startUploadEntry`'s session yet for a remount to
   // adopt. `setPendingFiles` still runs too, so this mount's own render
   // reflects the queue immediately; the module copy is what a remount reads.
   const handleFilesAccepted = (files: File[]) => {
@@ -379,7 +379,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   useEffect(() => {
     if (configFetching || !pendingFiles || phase !== 'idle') return;
     setPendingFiles(null);
-    // fix(#1832): release the module-scoped copy in step with the local
+    // Release the module-scoped copy in step with the local
     // one — this effect is the only consumer, so nothing else needs it
     // once the flush it is about to do below has claimed the files.
     clearPendingUploadFiles();

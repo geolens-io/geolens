@@ -1,5 +1,5 @@
-// fix(#392): the viewer's global map.on('error') handler swallowed
-// every 4xx, so an expired/invalid embed token (X-Embed-Token) rendered blank
+// The viewer's global map.on('error') handler must not swallow every 4xx:
+// an expired/invalid embed token (X-Embed-Token) would render blank
 // layers with no user feedback. This spec proves an embed-token 401/403
 // surfaces a deduped "access expired" toast, while a genuine no-data 404
 // stays silent (regression guard).
@@ -236,7 +236,7 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  // fix(#392): transformRequest attaches X-Embed-Token to every request the map
+  // transformRequest attaches X-Embed-Token to every request the map
   // makes, including third-party basemap CDN fetches — a 401/403 from one of
   // those hosts is not an embed-token problem and must not misfire the toast.
   it('stays quiet on a 401 from a third-party basemap CDN host', async () => {
@@ -269,9 +269,9 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
     );
   });
 
-  // fix(#392): a protocol-relative URL (`//host/path`) starts with `/` but is
+  // A protocol-relative URL (`//host/path`) starts with `/` but is
   // NOT a same-origin relative path — it must still be origin-checked rather
-  // than short-circuited to first-party. (audit WR-01a)
+  // than short-circuited to first-party.
   it('stays quiet on a 401 from a protocol-relative third-party CDN URL', async () => {
     renderEmbedViewer();
     await waitFor(() => {
@@ -285,9 +285,9 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  // fix(#392): when the deployment configures a tile CDN (`cdn_base_url`), that
+  // When the deployment configures a tile CDN (`cdn_base_url`), that
   // origin is first-party too — a genuine embed-token failure there must
-  // still surface the toast, not be swallowed as "third-party". (audit WR-01b)
+  // still surface the toast, not be swallowed as "third-party".
   it('surfaces the toast on a 401 from the configured tile CDN origin', async () => {
     tileConfigState.cdn_base_url = 'https://cdn.example.com';
     renderEmbedViewer();

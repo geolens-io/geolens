@@ -26,9 +26,9 @@ vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }));
 
-// fix(#1863 P1): a plain <a href download> browser navigation carries no
+// A plain <a href download> browser navigation carries no
 // Authorization header, so a private/unpublished dataset's export endpoint
-// rejected it as anonymous. Same-origin distributions now route through
+// would reject it as anonymous. Same-origin distributions route through
 // this authenticated helper instead — mocked here the same way
 // ExportButton.test.tsx mocks downloadExport (the sibling wrapper around
 // the same underlying authenticatedRawFetch + token-refresh machinery,
@@ -214,14 +214,13 @@ describe('DistributionsList', () => {
     expect(screen.getByText('https://example.com/app')).toBeInTheDocument();
   });
 
-  // fix(#1856): each distribution row was copyable text only — there was no
-  // way to actually fetch the resource without hand-editing the URL.
+  // Each distribution row offers a way to fetch the resource, not just copy
+  // its URL.
   //
-  // fix(#1863 P1): the first fix made every row a plain <a href download>,
-  // which is a bare browser navigation with no Authorization header — a
-  // private/unpublished dataset's export endpoint rejected it as anonymous.
-  // Same-origin (relative-url) distributions now download through
-  // authenticatedDownload; an already-absolute url (a manual distribution
+  // A plain <a href download> is a bare browser navigation with no
+  // Authorization header — a private/unpublished dataset's export endpoint
+  // would reject it as anonymous. Same-origin (relative-url) distributions
+  // download through authenticatedDownload; an already-absolute url (a manual distribution
   // pointing off-site, e.g. the "Viewer App" row) stays a plain link, since
   // it is not a GeoLens API resource and must never receive the session's
   // bearer token.
@@ -267,9 +266,9 @@ describe('DistributionsList', () => {
       expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
     });
 
-    // fix(#1867): the P1 fix above treated EVERY absolute url as external,
-    // so a manual distribution typed out in full against this instance's
-    // own API (rather than relative) never got the bearer token either.
+    // Treating EVERY absolute url as external would mean a manual
+    // distribution typed out in full against this instance's own API (rather
+    // than relative) never got the bearer token either.
     it('downloads an absolute same-origin distribution through the authenticated fetch, not a plain link', async () => {
       const sameOriginUrl = `${window.location.origin}/api/datasets/1/export?format=gpkg`;
       mockUseDistributions.mockReturnValue({
@@ -413,7 +412,6 @@ describe('DistributionsList', () => {
     });
   });
 
-  // feat(#1395): set-primary control.
   describe('set-primary control', () => {
     beforeEach(() => {
       mockUseDistributions.mockReturnValue({

@@ -22,7 +22,7 @@ function updateDocumentLanguage(lng?: string) {
   document.documentElement.dir = rtlLanguages.has(resolvedLng) ? 'rtl' : 'ltr';
 }
 
-// fix(#2029): `zh` here is Simplified Chinese only. Ask Intl.Locale for the
+// `zh` here is Simplified Chinese only. Ask Intl.Locale for the
 // tag's actual script (zh-MY maximizes to Hans, zh-TW to Hant) rather than
 // guessing from a region allowlist or discarding the region entirely.
 function isSimplifiedChineseTag(tag: string): boolean {
@@ -72,7 +72,7 @@ async function buildInitialResources() {
   const initialLanguage = detectInitialLanguage();
 
   if (initialLanguage === fallbackLng) {
-    // fix(#2029 P1): `resources` is frozen/non-extensible; passed by
+    // `resources` is frozen/non-extensible; passed by
     // reference, a later addResourceBundle() for another language throws.
     // Clone it so the store stays extensible without mutating the export.
     return {
@@ -124,7 +124,7 @@ export async function changeAppLanguage(lng: string) {
   const nextLanguage = normalizeLanguage(lng);
   await initializeI18n();
 
-  // fix(#2029 P1): hasLoadedNamespace resolves through the fallback chain
+  // hasLoadedNamespace resolves through the fallback chain
   // and falsely reports an unregistered language "loaded", skipping this
   // load. hasResourceBundle checks the actual store, not the fallback.
   if (!i18n.hasResourceBundle(nextLanguage, defaultNS)) {

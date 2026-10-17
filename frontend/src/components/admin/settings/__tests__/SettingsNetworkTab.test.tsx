@@ -1,4 +1,4 @@
-// fix(#1778): semantic_search_rate_limit and basemap_proxy_rate_limit
+// semantic_search_rate_limit and basemap_proxy_rate_limit
 // register on tab="network" and their docstrings say the admin Settings UI
 // is the only control (neither has an env var), but this tab never read
 // either key, so an operator could not tighten the embedding

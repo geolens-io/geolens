@@ -3,11 +3,11 @@ import type { TileToken } from '@/api/tiles';
 import { useAuthStore } from '@/stores/auth-store';
 import { tryRefresh } from '@/api/client';
 
-// fix(#621): one re-mint per cooldown window bounds the retry loop — MapLibre
+// One re-mint per cooldown window bounds the retry loop — MapLibre
 // can fire dozens of tile errors per pan, and a mint that just failed will not
 // succeed milliseconds later.
 const REMINT_COOLDOWN_MS = 30_000;
-// fix(#819): settle window — how long after kicking a re-mint we keep treating errors as
+// Settle window — how long after kicking a re-mint we keep treating errors as
 // "the same burst the re-mint is about to cure". MapLibre fires one error per
 // failing tile, so tiles 2..N of the burst that *triggered* the re-mint arrive
 // while the mint request + token→setTiles plumbing are still in flight.
@@ -18,7 +18,7 @@ const REMINT_COOLDOWN_MS = 30_000;
 const REMINT_SETTLE_MS = 10_000;
 
 /**
- * fix(#621): shared vector-tile auth recovery for every map surface (builder,
+ * Shared vector-tile auth recovery for every map surface (builder,
  * viewer, dataset preview). The builder's re-sign only reuses the
  * token already in hand — when the signature itself has expired, the only fix
  * is a re-mint. Each surface passes its own `remint` (invalidate the
@@ -26,7 +26,7 @@ const REMINT_SETTLE_MS = 10_000;
  * then flows through that surface's existing token→setTiles plumbing.
  *
  * The mint request rides the shared fetch core, so a conclusively dead
- * session (401 + refresh-401) triggers the global signed-out handling (#628)
+ * session (401 + refresh-401) triggers the global signed-out handling
  * instead of a per-surface toast.
  *
  * Returns true while recovery is plausibly in progress (a re-mint was just
@@ -34,7 +34,7 @@ const REMINT_SETTLE_MS = 10_000;
  * per-surface error UI); false when errors persist after the re-mint had time
  * to land (it didn't cure them — fall through to existing error UI).
  *
- * fix(#890): `onRemint` fires exactly when this hook kicks a FRESH mint — never
+ * `onRemint` fires exactly when this hook kicks a FRESH mint — never
  * inside the settle window or the cooldown gap, where the returned boolean says
  * nothing about whether a mint ran. That makes it the only honest place to
  * report a re-mint from; `trigger` names the path that asked for one so the
@@ -61,13 +61,13 @@ export function useTileAuthRecovery(
   }, [remint]);
 }
 
-// fix(#755): a sig that expires seconds from now is already useless — MapLibre's
+// A sig that expires seconds from now is already useless — MapLibre's
 // resumed tile requests would reach the server after the boundary. Treat any
 // vector token inside this window as due for a re-mint.
 const EXPIRY_SKEW_MS = 60_000;
 
 /**
- * fix(#755): true when any vector token is past `exp` or within
+ * True when any vector token is past `exp` or within
  * EXPIRY_SKEW_MS of it. Raster tokens carry no expiry (their `tile_url` is
  * stable and auth rides the Authorization header), so they never qualify.
  * `exp` is the unix-seconds expiry the mint endpoint stamps into the tile URL.
@@ -84,7 +84,7 @@ export function hasExpiringVectorToken(
 }
 
 /**
- * fix(#907): true when the session access token is at or inside the same skew
+ * True when the session access token is at or inside the same skew
  * window. Raster/DEM tiles authenticate with that JWT through
  * `buildTileTransformRequest`'s Authorization header, not with a signed tile
  * sig, so `hasExpiringVectorToken` can never see their credential expire — a
@@ -99,7 +99,7 @@ export function hasExpiringSession(
   return expiresAt != null && expiresAt - nowMs <= EXPIRY_SKEW_MS;
 }
 
-// fix(#907): how long a raster/DEM auth failure stays attributable to a
+// How long a raster/DEM auth failure stays attributable to a
 // renewal we are actively running. MapLibre resumes its fetches the instant the
 // tab is visible and can 401 before the refresh lands, so those errors are the
 // expected shape of the race, not a dead session — and the post-rotation reload
@@ -117,11 +117,11 @@ let renewalDeadline = 0;
 let renewalPendingUntil = 0;
 
 /**
- * fix(#907): true while a visible-edge session renewal is in flight (or has
+ * True while a visible-edge session renewal is in flight (or has
  * just reloaded the raster sources). The surfaces' error handlers use it to
  * stop telling the user to reload the page for a raster 401 that is seconds
- * from healing on its own. #890 made those failures unsuppressed because
- * NOTHING could cure them; this narrows that to the window where something
+ * from healing on its own. Raster failures are otherwise unsuppressed because
+ * nothing else can cure them; this narrows that to the window where something
  * demonstrably is.
  */
 export function isSessionRenewalPending(nowMs: number = Date.now()): boolean {
@@ -135,7 +135,7 @@ export function isSessionRenewalPending(nowMs: number = Date.now()): boolean {
   return nowMs < renewalPendingUntil;
 }
 
-// fix(#907): how long to keep watching for a rotation after our own refresh
+// How long to keep watching for a rotation after our own refresh
 // attempt failed. Bounded so a permanently dead session leaves no listener
 // behind; the reactive 401 path still owns anything slower than this.
 const RENEWAL_WATCH_MS = 30_000;
@@ -144,7 +144,7 @@ const RENEWAL_WATCH_MS = 30_000;
  * our own refresh produced the new one, otherwise on the first store change a
  * concurrent mint's refresh writes, and never if neither happens.
  *
- * fix(#2038): compares token VALUES; the reload needs the new token, not just a
+ * Compares token VALUES; the reload needs the new token, not just a
  * refresh's success. */
 function reloadOnTokenRotation(reload: () => void): void {
   const tokenBefore = useAuthStore.getState().token;
@@ -182,11 +182,11 @@ function reloadOnTokenRotation(reload: () => void): void {
 }
 
 /**
- * fix(#755): re-mint tile tokens on the tab-return edge instead of after the
+ * Re-mint tile tokens on the tab-return edge instead of after the
  * 403 burst. Tile sigs are minted on `round_expiry()` 900 s boundaries, so a
  * tab backgrounded for a few minutes routinely crosses one; MapLibre then
  * resumes its fetches with the stale `sig` and every visible tile 403s before
- * the reactive #621 handler heals the map.
+ * the reactive handler heals the map.
  *
  * Deliberately the SAME `recover` callback the 403 handler uses, so this only
  * pulls the existing re-mint forward: its 30 s cooldown / 10 s settle window
@@ -198,12 +198,12 @@ function reloadOnTokenRotation(reload: () => void): void {
  * once and still sees the current token set.
  *
  * Fires on the VISIBLE edge only: MapLibre 5 drops a `setTiles` reload while
- * the source's TileManager is paused (fix(#584)) and a hidden tab has no rAF,
+ * the source's TileManager is paused and a hidden tab has no rAF,
  * so re-minting while still hidden would silently no-op.
  *
- * fix(#890): passes the `tab-return` trigger so `useTileAuthRecovery`'s
- * `onRemint` reports which path recovered — the 403 burst this replaced at
- * least evidenced a recovery, and a proactive re-mint otherwise leaves none.
+ * Passes the `tab-return` trigger so `useTileAuthRecovery`'s
+ * `onRemint` reports which path recovered — a 403 burst at least evidences a
+ * recovery, and a proactive re-mint otherwise leaves none.
  */
 export function useVisibleTileTokenRefresh(
   getTokens: () => Iterable<TileToken | null | undefined>,
@@ -218,10 +218,10 @@ export function useVisibleTileTokenRefresh(
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
-      // fix(#907): the session JWT counts too. Raster/DEM tiles authenticate
+      // The session JWT counts too. Raster/DEM tiles authenticate
       // with it through `buildTileTransformRequest`'s Authorization header,
       // not a signed sig, so `hasExpiringVectorToken` can never see their
-      // credential expire and a raster-only map had nothing to trigger on.
+      // credential expire and a raster-only map would have nothing to trigger on.
       const sessionExpiring = hasExpiringSession(useAuthStore.getState().expiresAt);
       if (!hasExpiringVectorToken(getTokensRef.current()) && !sessionExpiring) return;
       if (sessionExpiring) {

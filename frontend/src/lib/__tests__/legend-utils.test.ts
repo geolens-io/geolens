@@ -1,7 +1,7 @@
 import { breakLabel } from '@/lib/legend-utils';
 
-// fix(#403): 4-digit break values are often years (a year-built legend used to
-// render "1.9K – 1.9K"); abbreviation now starts at 10,000.
+// 4-digit break values are often years (a year-built legend would render
+// "1.9K – 1.9K"), so abbreviation starts at 10,000.
 describe('breakLabel', () => {
   it('renders 4-digit integer breaks verbatim (years stay readable)', () => {
     const breaks = [1900, 1950, 2000];

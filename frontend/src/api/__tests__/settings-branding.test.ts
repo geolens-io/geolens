@@ -1,10 +1,8 @@
 /**
- * fix(#1778): updateBranding accepts Partial<BrandingConfig> -- so
- * `updateBranding({ privacy_url: '...' })` typechecks -- but only ever
- * forwarded `show_badge` into the PUT payload, silently dropping
- * privacy_url (and any future BrandingConfig field). A privacy_url-only
- * call issued `PUT /settings/` with an empty settings object and still
- * resolved as a success.
+ * updateBranding accepts Partial<BrandingConfig>, so
+ * `updateBranding({ privacy_url: '...' })` typechecks. Every field must be
+ * forwarded into the PUT payload: dropping one would send an empty settings
+ * object for a privacy_url-only call and still resolve as a success.
  *
  * These pin the request body updateBranding builds for privacy_url alone
  * and for both fields together, so a future field added to BrandingConfig

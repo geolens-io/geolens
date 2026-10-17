@@ -182,7 +182,7 @@ describe('PublicMapViewerPage', () => {
     });
   });
 
-  // fix(#403): without tile_version the anonymous viewer builds tile URLs with
+  // Without tile_version the anonymous viewer builds tile URLs with
   // no _v= cache-buster, so in-place dataset refreshes serve stale tiles.
   it('forwards the layer tile_version so tile URLs stay cache-busted', async () => {
     mockedUseMap.mockReturnValue({

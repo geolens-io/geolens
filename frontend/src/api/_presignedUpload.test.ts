@@ -137,8 +137,8 @@ describe('uploadChunks', () => {
     expect(progress).toEqual([4 / 11, 8 / 11, 1]);
   });
 
-  // fix(#1778): an empty-string ETag used to reach the backend's
-  // complete_multipart_upload, which mapped it to a "session may have
+  // An empty-string ETag reaching the backend's
+  // complete_multipart_upload would map to a "session may have
   // expired" 502 — advice that can never fix a bucket CORS misconfiguration
   // (ExposeHeaders must list ETag for a cross-origin PUT to expose it at
   // all). Fail fast instead, naming the real cause.

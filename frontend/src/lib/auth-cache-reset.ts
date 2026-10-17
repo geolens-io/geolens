@@ -8,7 +8,7 @@ import { clearStacImport } from '@/api/stac-import-session';
 import { removeSessionStorage } from '@/lib/storage';
 
 /**
- * fix(#1850): the AI chat transcript (`geolens-chat-<mapId>`, ChatPanel.tsx)
+ * The AI chat transcript (`geolens-chat-<mapId>`, ChatPanel.tsx)
  * and the one-shot "open in builder" handoff payload (`geolens-chat-result`,
  * chat-result-handoff.ts) are sessionStorage, keyed only on the map — not on
  * identity. sessionStorage outlives logout, so a second user signing in in
@@ -17,7 +17,7 @@ import { removeSessionStorage } from '@/lib/storage';
  * changed, drop it. Collecting keys first, then removing, because removing
  * mid-loop shifts sessionStorage's live index and skips entries.
  *
- * fix(#1536 gate): the enumeration (`.length`/`.key`) has no helper in
+ * The enumeration (`.length`/`.key`) has no helper in
  * lib/storage.ts, so it stays raw here, guarded by the try/catch below —
  * kept as a plain loop rather than `.forEach`, which would cross a function
  * boundary and fall outside the try's frame. The removal itself goes
@@ -68,7 +68,7 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     // the now-anonymous tab. Same choke point, same rule: identity changed,
     // drop everything captured under the old one.
     clearReportEntries();
-    // fix(#1713): drawing-store's target dataset, selected feature (a real
+    // drawing-store's target dataset, selected feature (a real
     // row's property bag) and edit-dirty flag are the same identity-scoped
     // residue, plus the milder case of search-store's typed/drawn search
     // intent. Same choke point, same rule: identity changed, drop everything
@@ -82,10 +82,10 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     useDrawingStore.getState().bumpSessionEpoch();
     useDrawingStore.getState().clearDrawing();
     useSearchStore.getState().clearIdentityScopedFilters();
-    // fix(#1850): see clearChatSessionStorage's doc comment above.
+    // See clearChatSessionStorage's doc comment above.
     clearChatSessionStorage();
 
-    // fix(#1712): the Upload and STAC tabs' module-scoped in-flight
+    // The Upload and STAC tabs' module-scoped in-flight
     // sessions are the same kind of identity-scoped residue — each records
     // the user id that started it and refuses adoption by a different one
     // (`peekUploadBatch`/`peekStacImport`), but that check only runs when
@@ -94,7 +94,7 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     // mounts next, rather than leaving it to be caught lazily.
     clearUploadBatch();
     clearStacImport();
-    // fix(#1832): the queue a drop sits in before the upload-config query
+    // The queue a drop sits in before the upload-config query
     // settles is the same identity-scoped residue as the batch above, and
     // deserves the same choke point rather than only the ownerId check the
     // batch's own peek already does.
