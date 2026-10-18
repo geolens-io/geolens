@@ -354,7 +354,7 @@ export function AttributeTable({
       header: () => (
         <>
           {col.name}
-          <span className="font-normal text-muted-foreground/70" title={col.type}>
+          <span className="font-normal text-muted-foreground" title={col.type}>
             {shortType(col.type)}
           </span>
         </>
