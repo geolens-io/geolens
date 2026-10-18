@@ -180,11 +180,12 @@ describe('AccessTab', () => {
     expect(within(header).getByRole('button')).toHaveClass('shrink-0');
   });
 
-  it('renders a distribution-backed OGC snippet and csv-only export for table datasets', () => {
+  it('renders a distribution-backed OGC snippet and no duplicate export picker for table datasets', () => {
     render(<AccessTab dataset={makeDataset()} />);
 
     expect(screen.getByText('Connect with QGIS, Python, or curl')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Download another format' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Download another format' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Export format' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Export' })).not.toBeInTheDocument();
 
     const codeBlock = document.querySelector('pre');
@@ -192,12 +193,6 @@ describe('AccessTab', () => {
     expect(codeBlock).toHaveTextContent('https://catalog.example.com/api/collections/ds-1/items?limit=10');
     expect(codeBlock).not.toHaveTextContent('/api/v1/collections/public_parks');
     expect(codeBlock).not.toHaveTextContent('public_parks');
-
-    // The format picker is now a Radix Select; its options
-    // only mount when opened. For table datasets CSV is the sole format, so the
-    // trigger displays it.
-    const select = screen.getByRole('combobox', { name: 'Export format' });
-    expect(select).toHaveTextContent('CSV');
   });
 
   it('hides the API snippet for raster datasets that do not expose OGC features', () => {
@@ -444,6 +439,16 @@ describe('AccessTab', () => {
         key: 'ArrowDown',
       });
     }
+
+    it('puts the visibility card above the downloads', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+      const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+      const visibilityIndex = headings.indexOf('Who can access this dataset');
+      const downloadsIndex = headings.indexOf('Downloads and connections');
+      expect(visibilityIndex).toBeGreaterThanOrEqual(0);
+      expect(downloadsIndex).toBeGreaterThan(visibilityIndex);
+    });
 
     it('renders a read-only badge for viewers and non-owner editors', () => {
       render(<AccessTab dataset={makeDataset({ visibility: 'private' })} />);

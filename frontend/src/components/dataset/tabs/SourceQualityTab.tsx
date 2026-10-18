@@ -6,6 +6,8 @@ import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
 import { useLineageDraft, useQualityStatementDraft } from '@/hooks/use-ai-metadata';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
@@ -86,6 +88,7 @@ export function SourceQualityTab({
   const qualityStatementDraft = useQualityStatementDraft();
   const [qualityDraftText, setQualityDraftText] = useState<string | null>(null);
   const updateDataset = useUpdateDataset();
+  const [themeEditorOpen, setThemeEditorOpen] = useState(false);
   const [expandedFields, setExpandedFields] = useState<Set<string>>(() => new Set());
 
   const toggleExpanded = useCallback((field: string) => {
@@ -284,14 +287,14 @@ export function SourceQualityTab({
             <Label htmlFor="update-frequency" className="text-sm font-medium text-muted-foreground">
               {t('iso.updateFrequency')}
             </Label>
-            <EditableFieldShell capability={capabilities.update_frequency} testId="editable-field-shell-update-frequency">
+            <EditableFieldShell capability={capabilities.update_frequency} hideEditIcon testId="editable-field-shell-update-frequency">
               {capabilities.update_frequency.editable ? (
                 <Select
                   value={draftValues.update_frequency || undefined}
                   onValueChange={handleFrequencyChange}
                 >
                   <SelectTrigger id="update-frequency" className="h-8 w-56">
-                    <SelectValue placeholder={t('iso.updateFrequency')} />
+                    <SelectValue placeholder={t('common:notSet')} />
                   </SelectTrigger>
                   <SelectContent>
                     {UPDATE_FREQUENCY_OPTIONS.map((opt) => (
@@ -384,31 +387,50 @@ export function SourceQualityTab({
         </CardHeader>
         <CardContent className="space-y-3">
           <SectionCapabilityHint capability={capabilities.theme_category} />
-          <EditableFieldShell capability={capabilities.theme_category} testId="editable-field-shell-theme-category">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {THEME_CATEGORIES.map((category) => {
-                const isChecked = selectedCategories.includes(category);
-                return (
-                  <div key={category} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`theme-${category}`}
-                      checked={isChecked}
-                      onCheckedChange={(checked) =>
-                        canEdit && handleThemeCategoryToggle(category, checked === true)
-                      }
-                      disabled={!capabilities.theme_category.editable}
-                    />
-                    <Label
-                      htmlFor={`theme-${category}`}
-                      className="text-sm font-normal cursor-pointer"
-                    >
-                      {translateThemeCategory(t, category)}
-                    </Label>
-                  </div>
-                );
-              })}
+          <div className="flex flex-wrap items-center gap-2" data-testid="theme-category-summary">
+            {selectedCategories.length > 0 ? (
+              selectedCategories.map((category) => (
+                <Badge key={category} variant="secondary">
+                  {translateThemeCategory(t, category)}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-sm text-muted-foreground italic">{t('common:notSet')}</span>
+            )}
+            {capabilities.theme_category.editable && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-expanded={themeEditorOpen}
+                aria-controls="theme-category-editor"
+                onClick={() => setThemeEditorOpen((open) => !open)}
+              >
+                {t('iso.editThemeCategories')}
+              </Button>
+            )}
+          </div>
+          {capabilities.theme_category.editable && themeEditorOpen && (
+            <div id="theme-category-editor" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {THEME_CATEGORIES.map((category) => (
+                <div key={category} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`theme-${category}`}
+                    checked={selectedCategories.includes(category)}
+                    onCheckedChange={(checked) =>
+                      canEdit && handleThemeCategoryToggle(category, checked === true)
+                    }
+                  />
+                  <Label
+                    htmlFor={`theme-${category}`}
+                    className="text-sm font-normal cursor-pointer"
+                  >
+                    {translateThemeCategory(t, category)}
+                  </Label>
+                </div>
+              ))}
             </div>
-          </EditableFieldShell>
+          )}
         </CardContent>
       </Card>
 
@@ -509,14 +531,14 @@ export function SourceQualityTab({
             <Label htmlFor="sensitivity-classification" className="text-sm font-medium text-muted-foreground">
               {t('iso.sensitivity')}
             </Label>
-            <EditableFieldShell capability={capabilities.sensitivity_classification} testId="editable-field-shell-sensitivity">
+            <EditableFieldShell capability={capabilities.sensitivity_classification} hideEditIcon testId="editable-field-shell-sensitivity">
               {capabilities.sensitivity_classification.editable ? (
                 <Select
                   value={draftValues.sensitivity_classification || undefined}
                   onValueChange={handleSensitivityChange}
                 >
                   <SelectTrigger id="sensitivity-classification" className="h-8 w-56">
-                    <SelectValue placeholder={t('iso.sensitivity')} />
+                    <SelectValue placeholder={t('common:notSet')} />
                   </SelectTrigger>
                   <SelectContent>
                     {SENSITIVITY_OPTIONS.map((opt) => (

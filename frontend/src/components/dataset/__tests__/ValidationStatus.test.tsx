@@ -40,11 +40,35 @@ function createValidationResult({
 }
 
 describe('ValidationStatus', () => {
+  it.each([
+    [1, 1, '1 issue found', '1 warning'],
+    [2, 2, '2 issues found', '2 warnings'],
+  ])('pluralizes the status badge for %i issue(s)', (errors, warnings, issuesText, warningsText) => {
+    const issue = (field: string): ValidationIssue => ({ field, message: `Missing ${field}`, severity: 'error' });
+    mockUseValidation.mockReturnValue(
+      createValidationResult({
+        isValid: false,
+        errors: Array.from({ length: errors }, (_, i) => issue(`f${i}`)),
+      }),
+    );
+    const { unmount } = render(<ValidationStatus datasetId="dataset-1" canEdit />);
+    expect(screen.getByText(issuesText)).toBeInTheDocument();
+    unmount();
+
+    mockUseValidation.mockReturnValue(
+      createValidationResult({
+        warnings: Array.from({ length: warnings }, (_, i) => ({ ...issue(`w${i}`), severity: 'warning' as const })),
+      }),
+    );
+    render(<ValidationStatus datasetId="dataset-1" canEdit />);
+    expect(screen.getByText(warningsText)).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     mockUseValidation.mockReturnValue(createValidationResult());
   });
 
-  it('renders helper guidance and likely causes when warnings/errors exist', () => {
+  it('renders helper guidance without repeating the itemized issues', () => {
     mockUseValidation.mockReturnValue(
       createValidationResult({
         isValid: false,
@@ -60,9 +84,9 @@ describe('ValidationStatus', () => {
 
     render(<ValidationStatus datasetId="dataset-1" canEdit />);
 
-    expect(screen.getByTestId('validation-helper-text')).toHaveTextContent(/issue\(s\).*warning\(s\).*need attention/i);
-    expect(screen.getByTestId('validation-likely-causes')).toHaveTextContent(/Missing Source Url/i);
-    expect(screen.getByTestId('validation-likely-causes')).toHaveTextContent(/Missing Update Frequency/i);
+    expect(screen.getByTestId('validation-helper-text')).toHaveTextContent(/Troubleshoot/i);
+    expect(screen.queryByTestId('validation-likely-causes')).not.toBeInTheDocument();
+    expect(screen.getByText(/Missing source URL/)).toBeInTheDocument();
     expect(screen.getByTestId('validation-troubleshoot-trigger')).toBeInTheDocument();
   });
 

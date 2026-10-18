@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import {
@@ -29,10 +29,8 @@ vi.mock('sonner', () => ({
 // A plain <a href download> browser navigation carries no
 // Authorization header, so a private/unpublished dataset's export endpoint
 // would reject it as anonymous. Same-origin distributions route through
-// this authenticated helper instead — mocked here the same way
-// ExportButton.test.tsx mocks downloadExport (the sibling wrapper around
-// the same underlying authenticatedRawFetch + token-refresh machinery,
-// which is covered at the api/client.test.ts level already).
+// this authenticated helper instead. Its fetch and token-refresh machinery
+// is covered at the api/client.test.ts level already.
 vi.mock('@/api/datasets', () => ({
   authenticatedDownload: vi.fn(),
 }));
@@ -224,6 +222,51 @@ describe('DistributionsList', () => {
   // pointing off-site, e.g. the "Viewer App" row) stays a plain link, since
   // it is not a GeoLens API resource and must never receive the session's
   // bearer token.
+  describe('compact rows', () => {
+    beforeEach(() => {
+      mockUseDistributions.mockReturnValue({
+        data: { distributions: DISTRIBUTIONS_WITH_MANUAL_ROW, total: 3 },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+    });
+
+    it('puts format, title, URL and both actions on one row without an "(auto)" chip', () => {
+      render(<DistributionsList recordId="record-1" />);
+
+      const row = screen.getByText('GeoPackage Download').closest('li') as HTMLElement;
+      expect(within(row).getByText('gpkg')).toBeInTheDocument();
+      expect(within(row).getByText('https://catalog.example.com/api/datasets/1/export?format=gpkg')).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: 'Download' })).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: 'Copy URL' })).toBeInTheDocument();
+      expect(screen.queryByText(/\(auto\)/)).not.toBeInTheDocument();
+    });
+
+    it('does not nest a card per group', () => {
+      render(<DistributionsList recordId="record-1" />);
+
+      expect(document.querySelector('[data-slot="card"]')).toBeNull();
+    });
+
+    it('offers a DuckDB snippet for the GeoParquet download', () => {
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [{
+            ...DISTRIBUTIONS_WITH_MANUAL_ROW[0],
+            id: 'parquet-1',
+            format: 'parquet',
+            title: 'GeoParquet Download',
+            url: '/datasets/1/export?format=parquet',
+          }],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+      render(<DistributionsList recordId="record-1" />);
+
+      expect(screen.getByText(/SELECT \* FROM 'GeoParquet Download\.parquet'/)).toBeInTheDocument();
+    });
+  });
+
   describe('download control (#1856 / #1863)', () => {
     beforeEach(() => {
       mockUseDistributions.mockReturnValue({

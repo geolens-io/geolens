@@ -10,6 +10,8 @@ interface EditableFieldShellProps {
   children: ReactNode;
   className?: string;
   testId?: string;
+  /** For controls that are already directly editable, where the pencil adds nothing. */
+  hideEditIcon?: boolean;
   onAttemptEdit?: () => void;
 }
 
@@ -18,6 +20,7 @@ export function EditableFieldShell({
   children,
   className,
   testId,
+  hideEditIcon = false,
   onAttemptEdit,
 }: EditableFieldShellProps) {
   const [showDeniedHint, setShowDeniedHint] = useState(false);
@@ -64,7 +67,7 @@ export function EditableFieldShell({
       >
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">{children}</div>
-          {capability.editable && (
+          {capability.editable && !hideEditIcon && (
             <Pencil
               className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70 group-focus-within:text-primary/70"
               aria-hidden

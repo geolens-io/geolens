@@ -35,7 +35,6 @@ import { visibilityColors } from '@/lib/status-colors';
 import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 import { getVisibilityLabel } from '@/i18n/labels';
 import { DistributionsList } from '@/components/dataset/DistributionsList';
-import { ExportButton } from '@/components/dataset/ExportButton';
 import { TilesetAccess } from '@/components/dataset/TilesetAccess';
 import { PointCloudAccess } from '@/components/dataset/PointCloudAccess';
 import { DatasetWriteKeys } from '@/components/dataset/DatasetWriteKeys';
@@ -108,15 +107,13 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
   }
 
   return (
-    <Card className="mt-3">
-      <CardHeader className="pb-3">
-        <CardTitle level={3} className="text-sm">{t('distributions.tiles')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-1.5">
+    <section className="mt-4" aria-labelledby="distributions-xyz-tiles">
+      <h3 id="distributions-xyz-tiles" className="mb-1 text-sm font-medium">{t('distributions.tiles')}</h3>
+      <div className="py-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
           <Badge variant="outline" className="text-xs">XYZ</Badge>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 rounded-sm bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={tileUrl}>
+          <div className="flex min-w-56 flex-1 basis-56 items-center gap-2">
+            <code className="min-w-0 flex-1 rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground truncate" title={tileUrl}>
               {tileUrl}
             </code>
             <Button
@@ -131,8 +128,8 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
             </Button>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -367,72 +364,6 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
 
   return (
     <>
-      {/* Downloads and service endpoints */}
-      {showDistributions && (
-        <Card>
-          <CardHeader>
-            <CardTitle level={2} className="text-base">{t('distributions.title')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {dataset.record_id ? (
-              <DistributionsList
-                recordId={dataset.record_id}
-                canEdit={canEdit}
-                visibility={dataset.visibility}
-              />
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {t('distributions.noDistributions')}
-              </p>
-            )}
-            {featureTable && (
-              <div className="mt-4 border-t pt-4 space-y-2">
-                <h3 className="text-sm font-medium">{t('distributions.otherFormats')}</h3>
-                <ExportButton datasetId={dataset.id} datasetName={dataset.title} recordType={dataset.record_type} />
-              </div>
-            )}
-            {/* XYZ Tile URL for raster/VRT datasets */}
-            {tileToken === 'raster' && dataset.raster?.connect?.tile_url && (
-              <TileUrlSection tileUrl={dataset.raster.connect.tile_url} />
-            )}
-            {tileToken === 'vector' && dataset.record_type !== 'table' && dataset.visibility !== 'public' && (
-              <p className="text-xs text-muted-foreground mt-4">{t('serviceUrls.vectorTilesKeyHint')}</p>
-            )}
-            <p className="text-xs text-muted-foreground mt-4">
-              {t('serviceUrls.authHelpSimple')}{' '}
-              <Link to="/settings" className="underline hover:text-foreground">
-                {t('serviceUrls.manageApiKeys')}
-              </Link>
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {dataset.tileset && <TilesetAccess tileset={dataset.tileset} visibility={dataset.visibility} />}
-      {dataset.pointcloud?.url && (
-        <PointCloudAccess url={dataset.pointcloud.url} visibility={dataset.visibility} />
-      )}
-
-      {/* API access snippet */}
-      {featureTable && endpoints.ogcFeaturesUrl && publicApiBaseUrl && (
-        <ApiSnippet
-          apiBaseUrl={publicApiBaseUrl}
-          collectionId={dataset.id}
-          ogcFeaturesUrl={endpoints.ogcFeaturesUrl}
-          srid={dataset.srid ?? 4326}
-        />
-      )}
-
-      {/* Anyone who may list and revoke the keys sees them; creating one also
-          needs the edit_metadata capability and a geometry column, which every
-          feature write requires. */}
-      {canManageKeys && featureTable && (
-        <DatasetWriteKeys
-          datasetId={dataset.id}
-          canCreate={canCreateKeys && dataset.geometry_type !== null}
-        />
-      )}
-
       {/* Visibility */}
       <Card>
         <CardHeader>
@@ -497,6 +428,66 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
           )}
         </CardContent>
       </Card>
+
+      {/* Downloads and service endpoints */}
+      {showDistributions && (
+        <Card>
+          <CardHeader>
+            <CardTitle level={2} className="text-base">{t('distributions.title')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {dataset.record_id ? (
+              <DistributionsList
+                recordId={dataset.record_id}
+                canEdit={canEdit}
+                visibility={dataset.visibility}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {t('distributions.noDistributions')}
+              </p>
+            )}
+            {/* XYZ Tile URL for raster/VRT datasets */}
+            {tileToken === 'raster' && dataset.raster?.connect?.tile_url && (
+              <TileUrlSection tileUrl={dataset.raster.connect.tile_url} />
+            )}
+            {tileToken === 'vector' && dataset.record_type !== 'table' && dataset.visibility !== 'public' && (
+              <p className="text-xs text-muted-foreground mt-4">{t('serviceUrls.vectorTilesKeyHint')}</p>
+            )}
+            <p className="text-xs text-muted-foreground mt-4">
+              {t('serviceUrls.authHelpSimple')}{' '}
+              <Link to="/settings" className="underline hover:text-foreground">
+                {t('serviceUrls.manageApiKeys')}
+              </Link>
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {dataset.tileset && <TilesetAccess tileset={dataset.tileset} visibility={dataset.visibility} />}
+      {dataset.pointcloud?.url && (
+        <PointCloudAccess url={dataset.pointcloud.url} visibility={dataset.visibility} />
+      )}
+
+      {/* API access snippet */}
+      {featureTable && endpoints.ogcFeaturesUrl && publicApiBaseUrl && (
+        <ApiSnippet
+          apiBaseUrl={publicApiBaseUrl}
+          collectionId={dataset.id}
+          ogcFeaturesUrl={endpoints.ogcFeaturesUrl}
+          srid={dataset.srid ?? 4326}
+        />
+      )}
+
+      {/* Anyone who may list and revoke the keys sees them; creating one also
+          needs the edit_metadata capability and a geometry column, which every
+          feature write requires. */}
+      {canManageKeys && featureTable && (
+        <DatasetWriteKeys
+          datasetId={dataset.id}
+          canCreate={canCreateKeys && dataset.geometry_type !== null}
+        />
+      )}
 
       {/* The publish-moment diff — which inherited keywords the
           wider audience would see, with the option to back out and prune. */}

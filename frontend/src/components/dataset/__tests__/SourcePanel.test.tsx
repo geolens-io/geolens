@@ -237,12 +237,49 @@ describe('SourcePanel', () => {
     expect(screen.getByText('parks.geojson')).toBeInTheDocument();
     expect(screen.getByText('sha256:abc123')).toBeInTheDocument();
     expect(screen.getByText('1,234')).toBeInTheDocument();
-    expect(screen.getByText('Healthy')).toBeInTheDocument();
-    expect(screen.getByText('Fresh')).toBeInTheDocument();
-    expect(screen.getByText('No drift')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Source history' })).toBeInTheDocument();
     expect(screen.getByText(/parks-v2\.geojson/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Future source action' })).toBeInTheDocument();
+  });
+
+  it('hides remote-source health fields and scheduled sync for an uploaded file', () => {
+    render(<SourcePanel dataset={makeDataset({ origin: 'upload', source_health: 'healthy' })} />);
+
+    expect(screen.getByText('Last refreshed')).toBeInTheDocument();
+    for (const label of ['Last checked', 'Health', 'Source freshness', 'Schema drift']) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText('Healthy')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Loading scheduled sync')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Scheduled sync' })).not.toBeInTheDocument();
+  });
+
+  it('shows remote-source health fields and the scheduled sync seam for a service source', () => {
+    render(
+      <SourcePanel
+        dataset={makeDataset({
+          origin: 'service',
+          source_health: 'healthy',
+          source_freshness: 'fresh',
+          schema_drift_status: 'none',
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Last checked')).toBeInTheDocument();
+    expect(screen.getByText('Healthy')).toBeInTheDocument();
+    expect(screen.getByText('Fresh')).toBeInTheDocument();
+    expect(screen.getByText('No drift')).toBeInTheDocument();
+    expect(screen.getByLabelText('Loading scheduled sync')).toBeInTheDocument();
+  });
+
+  it('wraps source and refresh history in cards like the sections above them', () => {
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    for (const name of ['Source history', 'Refresh history']) {
+      const heading = screen.getByRole('heading', { name });
+      expect(heading.closest('[data-slot="card"]')).not.toBeNull();
+    }
   });
 
   it('labels the pointer as a credential-free source URL', () => {
@@ -274,15 +311,12 @@ describe('SourcePanel', () => {
     expect(screen.getByText('Checked when the source is refreshed.')).toBeInTheDocument();
   });
 
-  it.each(['upload', 'service'] as const)(
-    'does not promise a health check for a %s source',
-    (origin) => {
-    render(<SourcePanel dataset={makeDataset({ source_health: 'unknown', origin })} />);
+  it('does not promise a health check for a service source', () => {
+    render(<SourcePanel dataset={makeDataset({ source_health: 'unknown', origin: 'service' })} />);
 
     expect(screen.getByText('Not checked')).toBeInTheDocument();
     expect(screen.queryByText('Checked when the source is refreshed.')).not.toBeInTheDocument();
-    },
-  );
+  });
 
   it('renders refresh run history distinctly from source version history', () => {
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({

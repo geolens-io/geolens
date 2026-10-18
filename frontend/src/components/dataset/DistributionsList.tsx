@@ -6,7 +6,8 @@ import {
   useSetPrimaryDistribution,
 } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CopyButton } from '@/components/ui/copy-button';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Copy, Check, Circle, CircleDot, Loader2, Download } from 'lucide-react';
@@ -57,9 +58,11 @@ const DISTRIBUTION_GROUPS: Record<string, DistributionGroup> = {
 function CopyableUrl({
   distribution,
   publicApiUrl,
+  className,
 }: {
   distribution: DistributionResponse;
   publicApiUrl: string | null | undefined;
+  className?: string;
 }) {
   const { t } = useTranslation('dataset');
   const [copied, setCopied] = useState(false);
@@ -103,8 +106,8 @@ function CopyableUrl({
   // A plain <a href download> browser navigation carries no
   // Authorization header, so a private or unpublished dataset's export
   // endpoint rejected it as anonymous. Route same-origin GeoLens resources
-  // through the same refresh-aware, bearer-authenticated fetch-and-save flow
-  // ExportButton already uses (api/datasets.ts's authenticatedDownload).
+  // through a refresh-aware, bearer-authenticated fetch-and-save flow
+  // (api/datasets.ts's authenticatedDownload).
   async function handleAuthenticatedDownload() {
     if (downloading) return;
     setDownloading(true);
@@ -123,8 +126,8 @@ function CopyableUrl({
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <code className="flex-1 rounded-sm bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={resolvedUrl}>
+    <div className={cn('flex min-w-0 items-center gap-2', className)}>
+      <code className="min-w-0 flex-1 rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground truncate" title={resolvedUrl}>
         {resolvedUrl}
       </code>
       {/* Copy alone cannot fetch the resource. Same-origin GeoLens
@@ -296,29 +299,29 @@ export function DistributionsList({ recordId, canEdit = false, visibility = 'pub
 
   const grouped = groupByType(distributions);
 
+  const parquet = grouped.get('download')?.find((dist) => dist.format === 'parquet');
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {TYPE_ORDER.filter((type) => grouped.has(type)).map((type) => (
-        <Card key={type}>
-          <CardHeader className="pb-3">
-            <CardTitle level={3} className="text-sm">{t(TYPE_LABEL_KEYS[type])}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <section key={type} aria-labelledby={`distributions-${type}`}>
+          <h3 id={`distributions-${type}`} className="mb-1 text-sm font-medium">
+            {t(TYPE_LABEL_KEYS[type])}
+          </h3>
+          <ul className="divide-y">
             {grouped.get(type)!.map((dist) => (
-              <div key={dist.id} className="space-y-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
+              <li key={dist.id} className="py-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                   <Badge variant="outline" className="text-xs">
                     {dist.format}
                   </Badge>
+                  {dist.title && (
+                    <span className="text-sm font-medium">{dist.title}</span>
+                  )}
                   {dist.is_primary && (
                     <Badge variant="secondary" className="text-xs">
                       {t('distributions.primary')}
                     </Badge>
-                  )}
-                  {dist.auto_generated && (
-                    <span className="text-xs text-muted-foreground">
-                      ({t('distributions.auto')})
-                    </span>
                   )}
                   {canEdit && !dist.auto_generated && (
                     <SetPrimaryControl
@@ -328,19 +331,44 @@ export function DistributionsList({ recordId, canEdit = false, visibility = 'pub
                       isPendingThisRow={setPrimary.isPending && setPrimary.variables === dist.id}
                     />
                   )}
+                  <CopyableUrl
+                    distribution={dist}
+                    publicApiUrl={publicApiBaseUrl}
+                    className="min-w-56 flex-1 basis-56"
+                  />
                 </div>
-                {dist.title && (
-                  <p className="text-sm font-medium">{dist.title}</p>
-                )}
                 {dist.description && (
-                  <p className="text-xs text-muted-foreground">{dist.description}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{dist.description}</p>
                 )}
-                <CopyableUrl distribution={dist} publicApiUrl={publicApiBaseUrl} />
-              </div>
+              </li>
             ))}
-          </CardContent>
-        </Card>
+          </ul>
+        </section>
       ))}
+      {parquet && <DuckDbHint distribution={parquet} />}
+    </div>
+  );
+}
+
+/** GeoParquet is lakehouse-native: a copy-paste DuckDB snippet makes the download queryable, not just archived. */
+function DuckDbHint({ distribution }: { distribution: DistributionResponse }) {
+  const { t } = useTranslation('dataset');
+  // Mirror the saved filename: browsers replace path separators, and a single quote must be doubled to stay a valid DuckDB string literal.
+  const base = (distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_');
+  const file = `${base}.${distribution.format}`.replace(/'/g, "''");
+  const snippet = `INSTALL spatial; LOAD spatial;\nSELECT * FROM '${file}' LIMIT 10;`;
+
+  return (
+    <div className="rounded-md border bg-muted/30 p-2.5">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="font-mono text-2xs uppercase tracking-wide text-muted-foreground">
+          {t('export.duckdbHint', { defaultValue: 'Query with DuckDB' })}
+        </span>
+        <CopyButton value={snippet} />
+      </div>
+      <pre className="overflow-x-auto text-2xs leading-5 text-foreground">
+        <code>{snippet}</code>
+      </pre>
     </div>
   );
 }
