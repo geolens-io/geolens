@@ -24,8 +24,8 @@ export function DatasetDownloadMenu({ datasetId, datasetName, geometryType }: Da
   const handleSelect = async (format: ExportFormat) => {
     try {
       await downloadExport(datasetId, format, exportFilename(datasetName, format));
-    } catch {
-      toast.error(t('export.failed'));
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : t('export.failed'));
     }
   };
 

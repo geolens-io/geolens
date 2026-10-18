@@ -60,6 +60,14 @@ describe('floating dock inset', () => {
     expect(readInset()).toBe('');
   });
 
+  it('reserves the lifted launcher position above the pending-edits bar', () => {
+    setAvailable(true);
+    render(
+      <DatasetChatPanel datasetId="ds-1" datasetTitle="NY Parks" showOpenInBuilder abovePendingBar />,
+    );
+    expect(readInset()).toBe('14rem');
+  });
+
   it('is not set when AI is unavailable', () => {
     setAvailable(false);
     renderPanel();
