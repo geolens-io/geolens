@@ -110,6 +110,8 @@ class TestDetector:
             "# Keys 0..N-1 were already persisted when key N failed.\nx = 1\n",
             "# Phase 1: validate the SQL. Phase 2 runs it.\nx = 1\n",
             "# See AGENTS.md and .github/ADR-002.md for the rules (#1218).\nx = 1\n",
+            "# Claude's platform settings are environment-only.\nx = 1\n",
+            "# A server-side cursor rounds 2.5 to 2 (see #1218).\nx = 1\n",
         ],
     )
     def test_legitimate_text_does_not_trip(self, source):
@@ -130,6 +132,12 @@ class TestDetector:
             "# fix(geolens-io/site#12): keep the header.\nx = 1\n",
             "# fix(review #1800 P2 round 3): abort the upload.\nx = 1\n",
             "# Docs(#77): name the env var.\nx = 1\n",
+            "# sec(#3152): keep this workaround.\nx = 1\n",
+            "# i18n(#12): plural keys.\nx = 1\n",
+            "# The cost cap stays on (codex P3 on #402).\nx = 1\n",
+            "# codex round 3 on #1660: abort the multipart upload.\nx = 1\n",
+            "# Found in review round 3 (#1660).\nx = 1\n",
+            "# Flagged in review r12 of #1113.\nx = 1\n",
         ],
     )
     def test_a_provenance_prefix_fails_even_though_it_is_anchored(self, source):

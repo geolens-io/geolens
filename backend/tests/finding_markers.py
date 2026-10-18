@@ -46,12 +46,13 @@ PLANNING_NOTE_RE = re.compile(
     r"|\b[\w-]*(?:PLAN|RESEARCH)\.md\b|\b[A-Z0-9][\w-]*-FOLLOWUP\b"
 )
 
-# A commit-style provenance prefix (`fix(#1234):`, `feat(#88 review)`,
-# `fix(site#86)`, `fix(review #1800 round 3)`). It carries its own issue
-# number, so the anchor rule below never applies.
+# A commit-style provenance prefix of any type (`fix(#1234):`, `sec(#88
+# review)`, `fix(site#86)`, `fix(review #1800 round 3)`), a code reviewer's
+# name, or a review round. Each carries its own history, so the anchor rule
+# below never applies. `Claude` is a product name here, so it is not listed.
 PROVENANCE_RE = re.compile(
-    r"\b(?:fix|feat|refactor|perf|chore|test|docs|ci|build|style|revert|ux)"
-    r"\([^()\n]*#\d+[^()\n]*\)",
+    r"\b[a-z][a-z0-9-]*\([^()\n]*#\d+[^()\n]*\)"
+    r"|\b(?:codex|coderabbit|copilot|chatgpt)\b|\bround\s*\d+\b|\breview\s+r\d+\b",
     re.IGNORECASE,
 )
 

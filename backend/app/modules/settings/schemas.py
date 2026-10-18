@@ -594,7 +594,7 @@ def validate_max_datasets_per_user(v: Any) -> int:
 def validate_max_ai_tokens_per_user_per_day(v: Any) -> int:
     # 0 = unlimited; reject negatives, which would otherwise persist as
     # "overridden" yet behave as unlimited via the cap>0 guard in
-    # _check_ai_budget — silently disabling the cost cap (codex P3 on #402).
+    # _check_ai_budget — silently disabling the cost cap.
     return _validate_bounded_int(
         v, "max_ai_tokens_per_user_per_day", 0, 9007199254740991
     )
