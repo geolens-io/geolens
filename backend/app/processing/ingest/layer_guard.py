@@ -1,6 +1,6 @@
 """Request-level layer_name validation for the ingest endpoints.
 
-fix(#823): a user-supplied ``layer_name`` (preview query param, vector commit
+A user-supplied ``layer_name`` (preview query param, vector commit
 body, fan-out request) reaches GDAL argv as a positional token. These helpers
 give the router endpoints clear 4xx responses before any job state changes;
 the argv-level backstop is ``ogr.validate_layer_name_argv``.
@@ -35,7 +35,7 @@ def known_layer_names(job: "IngestJob") -> set[str]:
 
 
 def validate_commit_layer_name(job: "IngestJob", layer_name: object) -> None:
-    """Guard the single-layer commit endpoint's layer_name (fix(#823)).
+    """Guard the single-layer commit endpoint's layer_name.
 
     Rejects option-like names outright, and names absent from the preview's
     all_layers when that list exists. Sources with no all_layers get the

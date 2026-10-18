@@ -1,8 +1,6 @@
 """Shared building blocks for the raster ingest and raster replace tasks.
 
-fix(#1290): a pure extraction from ``tasks_raster`` (crossed the 1000-line
-ratchet threshold) — every function moved verbatim, and nothing here is a
-Procrastinate task. What both raster tails need: the manifest-VRT
+Nothing here is a Procrastinate task. What both raster tails need: the manifest-VRT
 discriminators, the strict-COG gate, the row builders for a freshly
 published raster, the managed-key resolver, and the orphan reaper.
 """
@@ -148,12 +146,12 @@ async def create_raster_dataset(
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a raster ingest.
 
-    fix(#1290): ``meta`` describes the CONVERTED COG — the file this
+    ``meta`` describes the CONVERTED COG — the file this
     dataset will serve. ``original_srid`` is the one value that must
     describe the upload instead, so the caller reads it off the source and
     passes it in.
 
-    fix(#1778): ``dataset_id`` lets the caller decide the id BEFORE this
+    ``dataset_id`` lets the caller decide the id BEFORE this
     transaction opens, since the object keys the tail is about to write
     embed it and naming them on the durable job row needs the id to exist
     while that row is still writable. Default None keeps every other
@@ -170,9 +168,9 @@ async def create_raster_dataset(
     Dataset = _port.get_dataset_orm_class()
     Record = _port.get_record_orm_class()
 
-    # fix(#302): authoritative count-cap check in the same transaction that
+    # Authoritative count-cap check in the same transaction that
     # inserts the Record (the upload-time pre-check is not atomic).
-    # fix(#430): same for the byte cap — recount under the per-user advisory
+    # Same for the byte cap — recount under the per-user advisory
     # lock so concurrent raster uploads can't overshoot max_storage_bytes_per_user.
     from app.modules.quota.service import (
         reserve_dataset_slot,
@@ -193,8 +191,8 @@ async def create_raster_dataset(
         record_type="raster_dataset",
         visibility=visibility,
         record_status=record_status,
-        # fix(#302): created_by was never set on raster records, leaving
-        # them NULL and invisible to per-user quota count and owner checks.
+        # created_by must be set on raster records, or they stay
+        # NULL and invisible to per-user quota count and owner checks.
         created_by=created_by,
         updated_by=created_by,
     )
@@ -211,23 +209,22 @@ async def create_raster_dataset(
         source_format="geotiff",
         source_filename=source_filename,
         srid=meta.get("epsg"),
-        # fix(#1290): the SRID the uploaded file declared, which under a
+        # The SRID the uploaded file declared, which under a
         # `srid_override` is not the one the COG carries — two fields, two
         # questions, same line the replace tail draws.
         original_srid=original_srid,
-        # fix(#1218): every creation path stamps this (see create_dataset) or
+        # Every creation path stamps this (see create_dataset) or
         # post-migration rows report null while backfilled ones don't.
         # Python value, not func.now(): a SQL expression leaves the
         # attribute expired and the next read lazy-loads.
         last_refreshed_at=datetime.now(timezone.utc),
     )
-    # feat(#1218): a raster dataset IS the COG; the pre-conversion upload is
+    # A raster dataset IS the COG; the pre-conversion upload is
     # transient, so the origin is the uploaded file with no remote URI to
-    # point at (ADR-002 Decision 7).
-    # fix(#1294): file_hash was missing here, unlike the replace tail's call
-    # in tasks_raster_swap.py — both go through this same set_dataset_origin
-    # authority, so passing the caller's already-computed source_sha256 is
-    # the whole fix.
+    # point at.
+    # file_hash is passed like the replace tail's call in tasks_raster_swap.py
+    # — both go through this same set_dataset_origin authority, using the
+    # caller's already-computed source_sha256.
     set_dataset_origin(
         dataset, "upload", filename=source_filename, file_hash=source_sha256
     )
@@ -467,7 +464,7 @@ async def observe_publish_commit(
     committed id whose job disagrees is not this commit's. Anything else, and a
     probe that fails, is ``UNKNOWN``. ``error`` is what the commit raised.
     """
-    # fix(#909)-style late bind so tests' engine patching is honored.
+    # Late bind so tests' engine patching is honored.
     import app.core.db as db_module
 
     from app.platform.jobs.models import IngestJob
@@ -509,7 +506,7 @@ async def observe_publish_commit(
 def absorb_cancellation(exc: BaseException) -> None:
     """Clear the pending cancellation a stand-down is about to stop honouring.
 
-    fix(#1778): a tail that observes its publish landed returns normally
+    A tail that observes its publish landed returns normally
     instead of re-raising, so on the cancel path it swallows the
     ``asyncio.CancelledError`` #1709's ``abort=True`` delivers. Suppressing
     a cancellation without saying so leaves ``Task.cancelling()`` above
@@ -524,7 +521,7 @@ def absorb_cancellation(exc: BaseException) -> None:
         task.uncancel()
 
 
-# fix(#1778): the `user_metadata` field a raster tail names its pre-commit
+# The `user_metadata` field a raster tail names its pre-commit
 # object keys under. `written_storage_keys` is a local list, so a SIGKILL or
 # OOM between the puts and the terminal `finally` reclaimed nothing:
 # `base_key` embeds a dataset id that rolls back with the transaction, so no
@@ -540,10 +537,10 @@ def attempt_scoped_raster_base_key(
 ) -> str:
     """The object prefix ONE replace attempt may write under.
 
-    fix(#1778): the replace tail used to key on dataset id plus content hash
-    alone, deterministic across attempts — re-running the same upload
-    derives the same three keys, a collision the durable reaper can't
-    survive. ``fail_stale_jobs``'s commit both settles the dead attempt and
+    Keying on dataset id plus content hash alone would be
+    deterministic across attempts — re-running the same upload derives the
+    same three keys, a collision the durable reaper can't survive.
+    ``fail_stale_jobs``'s commit both settles the dead attempt and
     releases the dataset's active-run reservation, so a replacement can be
     admitted while post-commit cleanup is still running; the new attempt
     then writes the same keys the reaper is about to delete, and its own
@@ -597,7 +594,7 @@ async def record_unpublished_storage_keys(
     and refusing over it would trade a possible leak for a certain one.
     Only a confirmed zero-row match is a confirmed fence miss.
 
-    fix(#1778): one JSONB write, committed on its own session before the
+    One JSONB write, committed on its own session before the
     publishing transaction opens, so the keys are nameable after the
     process is gone. Logical keys (never tenant-resolved) so the sweep
     resolves them in its own tenant context, as it already does for
@@ -658,7 +655,7 @@ async def record_unpublished_storage_keys(
         )
     if not unpublished:
         return True
-    # fix(#1778): APPEND to what the row already names, never replace it.
+    # APPEND to what the row already names, never replace it.
     # `/jobs/{id}/retry` preserves `user_metadata`, so a retried ingest
     # reaches this with the previous attempt's keys still on the row; a
     # merge that set the field to this attempt's keys alone would drop
@@ -708,7 +705,7 @@ async def record_unpublished_storage_keys(
         # an abort. See the docstring: only a confirmed zero-row match does.
         return True
     if not result.rowcount:  # type: ignore[attr-defined]
-        # fix(#1778): a confirmed miss. This attempt no longer owns the
+        # A confirmed miss. This attempt no longer owns the
         # row, so the objects it is about to write would have nothing durable
         # naming them; the caller must not write them.
         structlog.get_logger().warning(

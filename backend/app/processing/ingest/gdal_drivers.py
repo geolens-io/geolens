@@ -1,6 +1,6 @@
 """Which OGR drivers may open a staged upload.
 
-fix(#1846, GHSA-hrf5-v3cq-frx5): GDAL picks a driver by asking every
+GDAL picks a driver by asking every
 registered one whether it recognises the bytes, and several answer yes to a
 document that is really a set of instructions — OGR_VRT follows
 ``<SrcDataSource>`` to an arbitrary path or URL, and WFS identifies on

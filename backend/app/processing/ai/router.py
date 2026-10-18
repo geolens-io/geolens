@@ -810,7 +810,7 @@ async def _authorize_metadata_dataset(
     would bypass an in-service check). ``check_dataset_access`` raises 404
     on denial — same as a nonexistent dataset, not an existence oracle.
 
-    fix(#435): goes through ProcessingPort, not a direct catalog import —
+    Goes through ProcessingPort, not a direct catalog import —
     an Enterprise/Cloud port couldn't observe this authorization otherwise.
     """
     port = get_processing_port()

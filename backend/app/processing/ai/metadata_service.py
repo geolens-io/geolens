@@ -284,7 +284,7 @@ async def _generate_structured(
 
     Records token usage (subsystem ``metadata``) so metadata-assist calls count
     toward the per-user daily budget — otherwise the cap is bypassable through
-    the four ``/ai/metadata/*`` endpoints (fix(#402)).
+    the four ``/ai/metadata/*`` endpoints.
     """
 
     # Resolve provider and model from PersistentConfig

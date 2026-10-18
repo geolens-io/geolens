@@ -15,7 +15,7 @@
 - errors expose only ``SandboxError.user_message``; every EVALUATED query
   emits a durable audit event.
 
-Audit scope (fix(#565)): PRE-sandbox rejections (auth, body validation,
+Audit scope: PRE-sandbox rejections (auth, body validation,
 rate limit) are logged, not written to the durable trail — a write per
 throttled 429 would let cheap requests amplify into unbounded audit writes.
 
@@ -112,13 +112,13 @@ _QUERY_TIMEOUT_MS = 5_000
 _QUERY_DEFAULT_ROW_LIMIT = 100
 _QUERY_MAX_ROW_LIMIT = 1000
 
-# fix(#1778): the self-join fan-out cap moved to sandbox_bounds.py and now
+# The self-join fan-out cap lives in sandbox_bounds.py and
 # applies to query_data too — a property of the shared planner/pool, not
 # this endpoint, and both surfaces share the `use_ai_chat` permission. Kept
-# under the local name so the #565 regression tests read unchanged.
+# under the local name so the existing tests read unchanged.
 _QUERY_MAX_TABLE_REPEATS = MAX_TABLE_REPEATS
 
-# Output-amplifying functions dropped on this raw surface (fix(#565)): each
+# Output-amplifying functions dropped on this raw surface: each
 # turns a small input into an arbitrarily large single cell via a width/
 # count/replacement argument, which no SQL-length cap, row_limit, or
 # statement timeout bounds. The allowlist currently admits only format/
@@ -154,7 +154,7 @@ _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
     }
 )
 
-# fix(#1778): the VALUES-row, output-column and concurrency bounds moved to
+# The VALUES-row, output-column and concurrency bounds live in
 # sandbox_bounds.py so AI chat's query_data applies the same objects. The
 # response-byte cap stays here: it bounds THIS endpoint's serialized HTTP
 # response, which the chat tool result does not produce.
@@ -166,9 +166,9 @@ _capacity_bound = capacity_bound
 _query_slots = query_slots
 
 # Module-level so tests can lower them; slowapi evaluates callables per
-# request. These reuse the app-wide ``limiter``, so fix(#2018): the
+# request. These reuse the app-wide ``limiter``, so the
 # per-user/per-IP counters are cluster-wide wherever REDIS_URL is set and
-# per-uvicorn-worker otherwise (fix(#565)). Either way it's a secondary
+# per-uvicorn-worker otherwise. Either way it's a secondary
 # bound: the sandbox's per-user advisory lock is a Postgres xact lock
 # (GLOBAL across workers), already serializing each user to ONE in-flight
 # query at a 5 s statement timeout, so the counter only caps request
@@ -354,7 +354,7 @@ async def sandbox_query_endpoint(
             max_table_repeats=_QUERY_MAX_TABLE_REPEATS,
             require_reader_role=True,
             # Return the request connection before the sandbox opens its own,
-            # and cap total concurrent executions (fix(#565)). Nothing below
+            # and cap total concurrent executions. Nothing below
             # reads `db`; the audit trail uses its own session.
             release_session=True,
             capacity_semaphore=_query_slots,
@@ -377,11 +377,11 @@ async def sandbox_query_endpoint(
     await _audit_query(
         request, user, body, row_count=result.row_count, truncated=result.truncated
     )
-    # fix(#565): driver types Pydantic cannot serialize turn a successful,
+    # Driver types Pydantic cannot serialize turn a successful,
     # already-audited query into a 500. Normalize each cell — bytea to
     # \x-hex (matching to_jsonb), asyncpg ranges to text — recursively.
     result.rows = [[_json_safe(cell) for cell in row] for row in result.rows]
-    # fix(#565): a wide DATA cell (or a projection the column cap let
+    # A wide DATA cell (or a projection the column cap let
     # through) can still make one row gigabytes. Bound by the response's
     # ACTUAL serialized size, not `str(cell)` length (undercounts multi-byte
     # UTF-8 and JSON escaping) — serialize once, measure encoded bytes, and
@@ -402,7 +402,7 @@ def _json_safe(value: object) -> object:
     Mirrors ``service_analysis._json_safe`` — duplicated because ``processing/``
     may not import ``modules.catalog``. Encodes bytea as ``\\x``-hex (matching
     to_jsonb) and asyncpg ranges (``int4range``, ``tsrange``, …) as their text
-    form, which Pydantic cannot serialize natively (fix(#565)).
+    form, which Pydantic cannot serialize natively.
     Recurses into containers; scalar driver types Pydantic handles (datetime,
     Decimal, UUID) pass through.
     """

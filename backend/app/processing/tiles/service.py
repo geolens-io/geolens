@@ -18,7 +18,7 @@ _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 # Columns to exclude from MVT attribute selection
 _EXCLUDED_COLUMNS = {"geom", "geom_4326", "gid"}
 
-# fix(#403): output property names the cluster tile query itself emits.
+# Output property names the cluster tile query itself emits.
 # A user column with one of these names must not be projected onto
 # unclustered features or it would duplicate an output column name.
 _CLUSTER_RESERVED_COLUMNS = {
@@ -44,7 +44,7 @@ _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # nothing — callers opt specific columns back in at every zoom via
 # `additional_columns` (the runtime `cols=` param; see
 # `_select_tile_columns`), which UNIONs them in regardless of this budget
-# but never past an explicit `tile_columns` allowlist (fix(#1778)).
+# but never past an explicit `tile_columns` allowlist.
 _DEFAULT_NO_ATTR_BELOW_ZOOM = 10
 
 # Hard cap on features per tile to bound query cost.
@@ -61,10 +61,10 @@ _CLUSTER_INPUT_LIMIT = 100000
 # 360/(extent*2^z) degrees of longitude at zoom z.
 _MVT_EXTENT = 4096
 
-# fix(#868): cluster_radius arrives in CSS/screen pixels (MapLibre
+# cluster_radius arrives in CSS/screen pixels (MapLibre
 # clusterRadius semantics). Tiles display at 512 CSS px, so one pixel
-# covers _MVT_EXTENT/512 = 8 extent units. The old math divided by extent
-# without this factor, producing a grid ~8x finer than requested.
+# covers _MVT_EXTENT/512 = 8 extent units. Dividing by extent
+# without this factor would produce a grid ~8x finer than requested.
 _TILE_DISPLAY_SIZE_PX = 512
 _CLUSTER_PX_TO_EXTENT_UNITS = _MVT_EXTENT / _TILE_DISPLAY_SIZE_PX
 
@@ -154,10 +154,8 @@ def parse_cols_param(
     on this dataset, sorted and deduped. The returned key is NOT the
     request — it's what the request ADDS to the projection the tile would
     have had without it, so two requests producing the same SQL produce one
-    cache entry (fix(#403) asked only for the sorted/deduped half).
-
-    fix(#1778): both halves used to be the caller's own string, so the key
-    varied on input the projection ignores. Three cases now collapse:
+    cache entry. Sorting and deduping alone would leave the key varying on
+    input the projection ignores. Three cases collapse:
 
     * `?cols=<random>` — an unknown name is silently dropped, so the tile
       was byte-identical to the unfiltered one under a fresh key.
@@ -233,7 +231,7 @@ def _select_tile_columns(
     budget, validated against `columns`; names failing `_COLUMN_NAME_RE` or
     absent from `columns` are silently dropped.
 
-    fix(#1778): when `tile_columns` is set, `additional_columns` is also
+    When `tile_columns` is set, `additional_columns` is also
     intersected with it, so the three rules above hold for a `cols=` request
     too — the zoom budget is a default the caller may override; the
     allowlist is not.
@@ -265,8 +263,8 @@ def _select_tile_columns(
             if isinstance(name, str) and _COLUMN_NAME_RE.match(name)
         }
         if allowlist is not None:
-            # fix(#1778): `cols=` overrides the ZOOM budget, never the admin
-            # allowlist. It used to union past `tile_columns` too, making the
+            # `cols=` overrides the ZOOM budget, never the admin
+            # allowlist. Unioning past `tile_columns` would make the
             # per-dataset attribute-exposure control advisory: an operator
             # who set `tile_columns` to [] or a narrow list still shipped
             # every other column to any client appending `cols=` —
@@ -412,9 +410,9 @@ def _build_cluster_tile_query(
     $1=z, $2=x, $3=y, $4=source layer name, $5=cluster max zoom,
     $6=cluster radius in CSS/screen pixels (MapLibre ``clusterRadius``
     semantics; converted to MVT extent units in-query via
-    ``_CLUSTER_PX_TO_EXTENT_UNITS`` — fix(#868)).
+    ``_CLUSTER_PX_TO_EXTENT_UNITS``).
 
-    fix(#868): the bucket grid anchors to the WORLD MINIMUM in absolute
+    The bucket grid anchors to the WORLD MINIMUM in absolute
     EPSG:3857 coordinates, not the tile's own minx/miny, so adjacent tiles'
     grids line up (bucket size at a fixed zoom is identical for every
     tile). A 0-anchored grid put the origin of a cell straddling the
@@ -454,7 +452,7 @@ def _build_cluster_tile_query(
     radius in CSS px (48 by default); zero for geometry already inside the
     tile.
 
-    fix(#874): ``expansion_zoom`` is derived per cluster rather than
+    ``expansion_zoom`` is derived per cluster rather than
     shipping ``cluster_max_zoom + 1`` for every one of them. The bucket grid
     halves per zoom, so the split zoom is the smallest zoom at which the
     cell's extreme members fall in different cells of the same
@@ -466,7 +464,7 @@ def _build_cluster_tile_query(
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
     unclustered features omit those and carry ``source_gid``.
 
-    fix(#403): ``attr_columns`` (pre-filtered via ``_select_tile_columns``,
+    ``attr_columns`` (pre-filtered via ``_select_tile_columns``,
     same rules as the plain vector path) are projected onto UNCLUSTERED
     features via a join back to the source row. Cluster features keep NULLs
     for these columns, which ST_AsMVT omits per feature, so cluster
@@ -815,7 +813,7 @@ async def get_cluster_tile(
         pool: asyncpg connection pool (used only when ``conn`` is None).
         table_name: PostGIS table name (without schema prefix).
         z, x, y: Tile coordinates.
-        columns: Column info list from the dataset. fix(#403): resolved
+        columns: Column info list from the dataset. Resolved
             through ``_select_tile_columns`` (identical rules to ``get_tile``:
             per-zoom defaults, ``tile_columns`` allowlist, ``cols=`` opt-in)
             and projected onto UNCLUSTERED features so data-driven styling
@@ -824,7 +822,7 @@ async def get_cluster_tile(
         additional_columns: Runtime opt-in columns (the ``cols=`` param).
         cluster_radius: Cluster radius in CSS/screen pixels (MapLibre
             ``clusterRadius`` semantics; converted to MVT extent units
-            inside the query — fix(#868)).
+            inside the query).
         cluster_max_zoom: Maximum zoom level at which clustering is active.
         conn: Optional already-acquired asyncpg connection (see ``get_tile``
             docstring for details).

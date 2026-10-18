@@ -37,7 +37,7 @@ from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info, probe_geom_4326
 
 # Re-exported from `ogr.py`, which owns it so `api/main.py` can read the whole
-# set of export media types without importing pyarrow (fix(#1532)).
+# set of export media types without importing pyarrow.
 from app.processing.export.ogr import PARQUET_MEDIA_TYPE  # noqa: F401
 
 # Mirror router._MAX_EXPORT_FEATURES. The router skips its cap when a dataset's
@@ -441,7 +441,7 @@ async def plan_parquet_export(
 ) -> ParquetExportPlan:
     """Everything that decides a parquet export's STATUS, producing no file.
 
-    fix(#1513): split out so the route can run this
+    Split out so the route can run this
     BEFORE answering a HEAD — introspection, filter validation and the
     bounded count are reads a HEAD can afford; left inside
     ``export_parquet``, a HEAD answered 200 while the GET later failed
@@ -496,7 +496,7 @@ async def plan_parquet_export(
         # prefilter plus exact ST_Intersects, with the antimeridian split
         # when minx > maxx (parse_bbox allows it) — && alone would drop
         # antimeridian boxes and return an envelope-overlap superset.
-        # fix(#885): fragment comes from the shared builder in export/ogr.py
+        # Fragment comes from the shared builder in export/ogr.py
         # so the ogr2ogr path splits identically.
         clauses.append(bbox_where_sql(bbox))
         params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])

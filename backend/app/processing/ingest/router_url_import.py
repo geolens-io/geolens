@@ -63,7 +63,7 @@ def _credential_free_url(url: str) -> str:
 def _url_import_filename(body: UrlUploadRequest) -> str:
     """The staging filename for a URL import, or the endpoint's 400/422.
 
-    fix(#1708): both name sources go through the byte clamp (filesystems cap
+    Both name sources go through the byte clamp (filesystems cap
     NAME_MAX in BYTES, not the schema's 255 characters). Callers must invoke
     this INSIDE their guarded block — urlparse can raise ValueError on a
     malformed authority.
@@ -101,9 +101,9 @@ def _url_import_filename(body: UrlUploadRequest) -> str:
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
-        # fix(#1710): 413 stays documented. The download moved to the worker,
+        # 413 stays documented. The download runs in the worker,
         # but `check_upload_quota` still refuses an over-quota caller here,
-        # and dropping it took the branch out of both SDKs.
+        # and dropping it would remove the branch from both SDKs.
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
@@ -143,7 +143,7 @@ async def upload_from_url(
     from app.platform.security import SSRFError, validate_url_for_ssrf
     from app.processing.ingest.tasks import fetch_url
 
-    # Exception-safe on malformed input by design (fix(#1119)) — safe to run
+    # Exception-safe on malformed input by design — safe to run
     # before the guarded block below.
     safe_url = redact_url_credentials(body.url)
     try:
@@ -158,7 +158,7 @@ async def upload_from_url(
                 detail=refusal_detail(exc),
             ) from exc
 
-        # fix(#1708): commit here to END the auth-phase transaction before the
+        # Commit here to END the auth-phase transaction before the
         # DNS await — getaddrinfo has no bound of its own, and holding a
         # connection through it could exhaust the pool under concurrent imports.
         await db.commit()
@@ -167,7 +167,7 @@ async def upload_from_url(
         # before anything is queued. The worker's safe client re-validates at
         # connect time and per redirect hop during the download.
         #
-        # fix(#1708): bounded at the call site — getaddrinfo has no deadline
+        # Bounded at the call site — getaddrinfo has no deadline
         # of its own; wait_for cancels the to_thread wrapper immediately and
         # the abandoned resolver thread ends when the OS resolver gives up.
         try:
@@ -208,7 +208,7 @@ async def upload_from_url(
         # Content-Length may be absent or dishonest.
         await check_upload_quota(db, user.id, 0, request)
 
-        # feat(#1710): the row is committed 'running', not 'pending'. The
+        # The row is committed 'running', not 'pending'. The
         # success state of a URL import IS 'pending' (previewable), so a
         # pending row would tell the UI the download had finished; and the
         # stale-PENDING sweep may legally fire at 61s while a download is

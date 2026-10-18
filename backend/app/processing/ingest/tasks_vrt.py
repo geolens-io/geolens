@@ -72,7 +72,7 @@ from app.processing.ingest.tasks_raster_common import (
     record_unpublished_storage_keys,
 )
 
-# fix(#1938): the budget for the publish transaction's catalog.records wait.
+# The budget for the publish transaction's catalog.records wait.
 # Its only holders are request handlers that dirty the record and hold it from
 # flush to commit; nothing caps that, so this is a stuck-not-queued threshold.
 _PUBLISH_CATALOG_TIMEOUT = "15s"
@@ -142,7 +142,7 @@ async def _settle_failed_vrt_asset(
     from app.core.db import async_session
     from app.processing.raster.models import RasterAsset, VrtGeneration
 
-    # fix(#1962): the second arm is the whole rule, not a special
+    # The second arm is the whole rule, not a special
     # case for a legacy delivery. A `regenerating` asset is released unless a
     # LIVE generation owns it, because the sweep reaches an asset only through
     # a pending/running generation. A phantom pointer left by a rolled-back
@@ -205,7 +205,7 @@ async def snapshot_member_sources(
 ):
     """Stamp the instant, THEN read the members. Returns ``(snapshot_at, assets)``.
 
-    fix(#1290): ``last_regenerated_at`` names the state a VRT was
+    ``last_regenerated_at`` names the state a VRT was
     built FROM, which only holds if the instant predates the read — shared
     by both VRT tails so neither can get the order wrong.
 
@@ -229,7 +229,7 @@ async def snapshot_member_sources(
 def built_from_map(ordered_assets) -> dict:
     """``{dataset_id: asset_uri}`` for the members a build is assembling.
 
-    fix(#1290). This is what makes staleness a STATE question. The
+    This is what makes staleness a STATE question. The
     health endpoint compares each member's current committed ``asset_uri``
     against the entry recorded here, so "the stored VRT references a superseded
     COG" is answered by comparing what-is to what-was-built-from rather than by
@@ -242,7 +242,7 @@ def built_from_map(ordered_assets) -> dict:
 def staged_source_ids_or_none(generation) -> list[uuid.UUID] | None:
     """The generation's staged member set as UUIDs, or None when it stages none.
 
-    fix(#1327): NULL means "this generation changes no membership" — a
+    NULL means "this generation changes no membership" — a
     plain regenerate, or one queued before ``staged_source_ids`` existed.
     Both build from the live link rows, so one fallback covers two
     producers. A JSONB ``null`` also reads back as Python ``None``
@@ -271,7 +271,7 @@ def staged_source_ids_or_none(generation) -> list[uuid.UUID] | None:
 async def apply_staged_source_links(session, vrt_dataset_id, source_ids) -> None:
     """Make ``vrt_source_links`` equal ``source_ids``, positions from order.
 
-    fix(#1327): called only from the publish transaction that also swaps
+    Called only from the publish transaction that also swaps
     ``asset_uri`` and writes ``built_from``, so the declared composition
     becomes visible at the instant the built artifact does.
 
@@ -341,7 +341,7 @@ async def create_vrt_dataset(
     - Sets vrt_type and resolution_strategy on RasterAsset
     - Inserts vrt_source_links rows with position ordering
 
-    fix(#1778): ``dataset_id`` has the same job it has on
+    ``dataset_id`` has the same job it has on
     ``create_raster_dataset``: let the manifest-VRT tail name its object keys
     on the durable job row before this transaction opens.
 
@@ -356,7 +356,7 @@ async def create_vrt_dataset(
     Dataset = port.get_dataset_orm_class()
     Record = port.get_record_orm_class()
 
-    # fix(#302): authoritative count-cap check in the same transaction that
+    # Authoritative count-cap check in the same transaction that
     # inserts the Record (the upload-time pre-check is not atomic).
     from app.modules.quota.service import reserve_dataset_slot
 
@@ -371,7 +371,7 @@ async def create_vrt_dataset(
         # above, which commit directly to `published` — otherwise a public
         # VRT stayed in `draft` and 404'd on public tile access.
         record_status=record_status,
-        # fix(#302): created_by was never set on VRT records, leaving them
+        # created_by must be set on VRT records, or they stay
         # NULL and invisible to the per-user quota count and owner checks.
         created_by=created_by,
         updated_by=created_by,
@@ -389,7 +389,7 @@ async def create_vrt_dataset(
         source_format=None,  # VRT datasets have no source_format (avoids chk constraint)
         source_filename=source_filename,
         srid=meta.get("epsg"),
-        # fix(#1218): stamped like every other creation path —
+        # Stamped like every other creation path —
         # assembling a VRT IS a successful materialization. Python value,
         # not func.now(): a SQL expression leaves the attribute expired.
         last_refreshed_at=datetime.now(timezone.utc),
@@ -408,13 +408,13 @@ async def create_vrt_dataset(
         driver="VRT",
         storage_backend="local",
         ingested_at=datetime.now(timezone.utc),
-        # fix(#1290): the instant the members were READ, so a
+        # The instant the members were READ, so a
         # never-regenerated parent doesn't fall back to publish-time
         # `ingested_at` in the staleness comparison. Optional only because
         # the manifest-VRT caller has no snapshot; the build path always
         # supplies it.
         last_regenerated_at=snapshot_at,
-        # fix(#1290): the authoritative staleness input. The timestamp
+        # The authoritative staleness input. The timestamp
         # above stays for legacy rows that have no built-from set.
         built_from=built_from,
         epsg=meta.get("epsg"),
@@ -497,7 +497,7 @@ async def ingest_vrt(
     import shutil
     import tempfile
 
-    from app.core.db import async_session  # fix(#909): late-bind for tests
+    from app.core.db import async_session  # late-bind for tests
     from app.platform.extensions import get_processing_port
     from app.platform.jobs.models import IngestJob
     from app.processing.raster.models import RasterAsset
@@ -515,11 +515,11 @@ async def ingest_vrt(
         return
     job_uuid, attempt_uuid = resolved
     tmp_dir: str | None = None
-    # fix(#430): track storage puts so a failure after put (terminal commit /
+    # Track storage puts so a failure after put (terminal commit /
     # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
     # them forever — the guard ingest_raster already has.
     written_storage_keys: list[str] = []
-    # fix(#1778): "the VRT and its quicklooks are published", set at the
+    # "the VRT and its quicklooks are published", set at the
     # terminal commit and nowhere else. It replaces the `final_status` string
     # this reap used to read, because that string was set on the line after the
     # commit: a commit whose acknowledgement was lost left it "failed" and the
@@ -573,7 +573,7 @@ async def ingest_vrt(
                 raise ValueError(_MEMBER_AUDIENCE_FAILURE)
 
             # 3. Load RasterAsset rows for source datasets, stamped first.
-            # fix(#1290): the creation tail had NO snapshot instant, so
+            # The creation tail had NO snapshot instant, so
             # a member replaced during the initial build was masked exactly as
             # it was on regenerate — the status comparison falls back to the
             # parent's `ingested_at` when `last_regenerated_at` is NULL, and
@@ -613,7 +613,7 @@ async def ingest_vrt(
         asset_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
         vrt_size = os.path.getsize(vrt_path)
 
-        # fix(#1778): same treatment as `ingest_raster`. Steps 10-11
+        # Same treatment as `ingest_raster`. Steps 10-11
         # put the VRT/quicklooks before the terminal commit, and
         # `written_storage_keys` is a local list — a kill between put and
         # commit loses it with the process and rolls back the dataset row
@@ -639,7 +639,7 @@ async def ingest_vrt(
             job_id=job_id,
             task="ingest_vrt",
         ):
-            # fix(#1778): a confirmed fence miss. The second phase's own
+            # A confirmed fence miss. The second phase's own
             # attempt-fenced load below would catch this too, but stopping
             # here is what actually keeps the recorder's contract ("do not
             # write what nothing records") rather than depending on a second
@@ -660,12 +660,12 @@ async def ingest_vrt(
 
         # Second phase (short-lived session): create DB records, store assets,
         # commit job. This tail never adopted `_job_phase_session`, so the
-        # fence is matched by hand: fix(#1778) joins status ==
-        # "running" to the attempt fence (same require_status trap as
+        # fence is matched by hand: `status == "running"` joins
+        # the attempt fence (same require_status trap as
         # `_job_phase_session`'s docstring — a paused, not dead, worker can
         # still match an (id, attempt)-only fence and put the VRT/quicklooks
-        # to storage, which no rollback can undo); fix(#1778)
-        # adds `.with_for_update(key_share=True)` to close the SELECT-is-
+        # to storage, which no rollback can undo); and
+        # `.with_for_update(key_share=True)` to close the SELECT-is-
         # not-a-lock window between this read and the puts completing.
         async with async_session() as session:
             await note_publishing_xid(session)
@@ -713,7 +713,7 @@ async def ingest_vrt(
                 from app.platform.storage import get_storage
 
                 storage = get_storage()
-                # fix(#1778): the same value the durable record above
+                # The same value the durable record above
                 # named, since `dataset.id` IS `planned_dataset_id`. Written as
                 # the dataset's own id rather than the local so the key still
                 # reads as a property of the row it belongs to.
@@ -757,7 +757,7 @@ async def ingest_vrt(
                     ql512_key, tenant_id=current_tenant_var.get()
                 )
 
-                # fix(#1778): registered before the put, per
+                # Registered before the put, per
                 # archive_lossy_original's rule. A cancelled put can have
                 # completed, and CancelledError skips every statement below it.
                 written_storage_keys.append(_storage_vrt_key)
@@ -838,7 +838,7 @@ async def ingest_vrt(
                 exc_info=True,
             )
             return
-        # fix(#1778): write failure status via a fresh session, through the
+        # Write failure status via a fresh session, through the
         # same shared helper the re-upload doors use. This tail used to paste a
         # narrower copy of the UPDATE and emitted no `ingest_failed`
         # notification, so a VRT build failure was silent to an operator who
@@ -870,7 +870,7 @@ async def ingest_vrt(
         async with cleanup_step("ingest_vrt temp dir", job_id=job_id):
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
-        # fix(#430): reap storage bytes written before a terminal commit
+        # Reap storage bytes written before a terminal commit
         # that never became durable (mirrors ingest_raster's guard).
         async with cleanup_step("ingest_vrt orphaned storage keys", job_id=job_id):
             if not publish_committed and written_storage_keys:
@@ -900,7 +900,7 @@ async def regenerate_vrt(
     transaction that verifies job attempt and generation ownership, then
     prior objects are reaped.
 
-    Composition source (fix(#1327)): the generation's ``staged_source_ids``
+    Composition source: the generation's ``staged_source_ids``
     when it carries one (``add_vrt_source``/``remove_vrt_source`` record
     the intended post-mutation member set there rather than writing
     ``vrt_source_links`` up front), else the live link rows. Applied to
@@ -931,7 +931,7 @@ async def regenerate_vrt(
     """
     import asyncio
 
-    from app.core.db import async_session  # fix(#909): late-bind for tests
+    from app.core.db import async_session  # late-bind for tests
 
     _bind_task_log_context(
         task_name="regenerate_vrt",
@@ -962,7 +962,7 @@ async def regenerate_vrt(
     vrt_id = uuid.UUID(vrt_dataset_id)
     tmp_dir: str | None = None
     generation_uuid: uuid.UUID | None = None
-    # fix(#1327): the member set this attempt is publishing, when its
+    # The member set this attempt is publishing, when its
     # generation staged one. Set in phase 1 (and used for the build there),
     # applied to vrt_source_links in phase 2's publish transaction.
     staged_source_ids: list[uuid.UUID] | None = None
@@ -970,7 +970,7 @@ async def regenerate_vrt(
     heartbeat_task: asyncio.Task[None] | None = None
     generation_heartbeat_task: asyncio.Task[None] | None = None
     written_storage_keys: list[str] = []
-    # fix(#1778): same fence as `ingest_vrt` above, for the same reason — the
+    # Same fence as `ingest_vrt` above, for the same reason — the
     # generation swap and the job's terminal write share one transaction, so a
     # lost acknowledgement must not let the reap delete the generation the
     # RasterAsset now points at. See `publish_commit_landed`.
@@ -1015,7 +1015,7 @@ async def regenerate_vrt(
             vrt_asset_snapshot = vrt_asset_row
 
             # 3. Load vrt_source_links ordered by position — the composition
-            # currently being SERVED. fix(#1327): still read first and still
+            # currently being SERVED. Still read first and still
             # required to be non-empty, for both paths. It is the default
             # member set (step 3c may replace it with the generation's staged
             # one), and a VRT with no links at all is a broken row either way:
@@ -1102,7 +1102,7 @@ async def regenerate_vrt(
                 if vrt_asset_row.current_generation_id != generation_uuid:
                     raise ValueError("VRT generation ownership changed before claim")
 
-            # 3c. fix(#1327): build from the STAGED member set when this
+            # 3c. Build from the STAGED member set when this
             # generation carries one — the live link rows read above still
             # describe the VRT currently being served, not the one this
             # attempt is being asked to publish. Building from the links
@@ -1139,7 +1139,7 @@ async def regenerate_vrt(
             snapshot_at, ordered_assets = await snapshot_member_sources(
                 session, source_ids, raster_asset_cls=RasterAsset, dataset_cls=Dataset
             )
-            # fix(#1327): every member of the set being built must still be
+            # Every member of the set being built must still be
             # loadable, or the build silently publishes a mosaic missing a
             # member it claims (snapshot_member_sources drops what it cannot
             # find). A LIVE link cannot vanish — vrt_source_links pins its
@@ -1273,7 +1273,7 @@ async def regenerate_vrt(
             next_ql512_uri, tenant_id=_ctv.get()
         )
 
-        # fix(#1778): registered before the put, per archive_lossy_original's
+        # Registered before the put, per archive_lossy_original's
         # rule. A cancelled put can have completed, and CancelledError skips
         # every statement below it.
         written_storage_keys.append(next_vrt_physical_key)
@@ -1305,7 +1305,7 @@ async def regenerate_vrt(
         # Second phase (short-lived session): update RasterAsset metadata, mark
         # job complete, update dataset footprint.
         #
-        # fix(#1778): status == "running" joins the attempt fence.
+        # `status == "running"` joins the attempt fence.
         # The `current_generation_id` check below refuses a NEWER
         # generation's publish, but says nothing about a job the stale
         # sweep already failed with no newer generation existing yet — that
@@ -1315,7 +1315,7 @@ async def regenerate_vrt(
         # The objects written above are unaffected either way — reaped by
         # `sweep_stale_vrt_assets` on its own timeout.
         #
-        # fix(#1847): job row first, then asset — the order every worker
+        # Job row first, then asset — the order every worker
         # phase, `cancel_job`, and the dataset delete hold.
         async with async_session() as session:
             await note_publishing_xid(session)
@@ -1387,11 +1387,11 @@ async def regenerate_vrt(
 
                 # 12. Status transitions
                 vrt_asset.status = "ready"
-                # fix(#1290): the snapshot instant, NOT now(). See the
+                # The snapshot instant, NOT now(). See the
                 # capture site in phase 1 for why the field names the state the
                 # artifact was built from.
                 vrt_asset.last_regenerated_at = snapshot_at
-                # fix(#1290): recorded from the SAME ordered_assets the
+                # Recorded from the SAME ordered_assets the
                 # build used, in the publish transaction, so the stored set and
                 # the stored VRT always describe each other.
                 vrt_asset.built_from = built_from_map(ordered_assets)
@@ -1403,7 +1403,7 @@ async def regenerate_vrt(
                     )
                     vrt_asset_snapshot.current_generation_id = None
 
-                # 12a. fix(#1327): the staged member set lands HERE, in the
+                # 12a. The staged member set lands HERE, in the
                 # transaction that publishes the artifact built from it and
                 # writes built_from — never at request time — so
                 # vrt_source_links can never describe a composition the
@@ -1429,7 +1429,7 @@ async def regenerate_vrt(
                 )
                 vrt_dataset = dataset_result.scalar_one_or_none()
                 if vrt_dataset is not None:
-                    # fix(#1847, #1938): the writes below dirty both rows. The
+                    # The writes below dirty both rows. The
                     # asset SELECT above took the datasets row through its join;
                     # catalog.records is not in that query, so it is a real wait.
                     from app.platform.catalog_locks import (
@@ -1437,7 +1437,7 @@ async def regenerate_vrt(
                         lock_catalog_rows,
                     )
 
-                    # fix(#1938): read before the wait — the rollback inside a
+                    # Read before the wait — the rollback inside a
                     # failed acquisition expires every loaded instance.
                     log_dataset_id = str(vrt_dataset.id)
                     pre_wait_lock_timeout = await session.scalar(
@@ -1463,7 +1463,7 @@ async def regenerate_vrt(
                             ),
                         )
                         raise
-                    # fix(#1938): the budget ends with the wait it was sized
+                    # The budget ends with the wait it was sized
                     # for. The UPDATEs below sit outside lock_catalog_rows, so
                     # an expiry there would raise a bare DBAPIError.
                     await session.execute(
@@ -1478,7 +1478,7 @@ async def regenerate_vrt(
                             ADMITTED_CAPABILITY_METADATA_KEY
                         ),
                     )
-                    # feat(#1267) / ADR-002 Decision 5a: project the
+                    # Project the
                     # generation's completion instant into last_refreshed_at,
                     # in the SAME transaction as the generation swap, so
                     # source_freshness (#1224) reads a live signal for a NULL
@@ -1487,7 +1487,7 @@ async def regenerate_vrt(
                     # now() — one swap, one timestamp, no clock skew between
                     # the two records of it.
                     vrt_dataset.last_refreshed_at = generation.completed_at
-                    # fix(#1329): the VRT swap is the third
+                    # The VRT swap is the third
                     # pointer-swap door and never rolled the version the way
                     # raster replace does (tasks_raster_swap). Without the
                     # bump, pre-swap tiles stay valid in every version-keyed
@@ -1562,7 +1562,7 @@ async def regenerate_vrt(
                     )
                     if observation is PublishObservation.NOT_LANDED:
                         raise
-                    # fix(#1778): stand down rather than re-raise. The
+                    # Stand down rather than re-raise. The
                     # generation swap is durable, so every write the failure
                     # handler would make is a statement about a job that
                     # succeeded, and the generation row it stamps `failed` is
@@ -1609,7 +1609,7 @@ async def regenerate_vrt(
                 job_id=job_id,
                 task="regenerate_vrt",
             )
-        # fix(#1962): the asset settles first and alone. `sweep_stale_vrt_assets`
+        # The asset settles first and alone. `sweep_stale_vrt_assets`
         # fences its asset UPDATE on the generations it just failed, so an asset
         # still pointing at a terminal one is the state it can never reach.
         asset_settled = await _settle_failed_vrt_asset(
@@ -1620,12 +1620,12 @@ async def regenerate_vrt(
         # heartbeat went stale, and the stale-job sweep settles the job.
         try:
             async with async_session() as err_session:
-                # fix(#1950): the publish wait above gives up on a held
+                # The publish wait above gives up on a held
                 # catalog row, so this handler runs while the job row may be
                 # contended too. Both writes below share the budget.
                 await arm_job_error_write_budget(err_session)
                 await ledger.fail(err_session, job_uuid, attempt_uuid, reason=exc)
-                # fix(#1962): only once the asset is off this generation. A
+                # Only once the asset is off this generation. A
                 # terminal generation under an asset still pointing at it is
                 # the state `sweep_stale_vrt_assets` fences itself out of.
                 if generation_uuid is not None and asset_settled:
@@ -1633,7 +1633,7 @@ async def regenerate_vrt(
                         select(VrtGeneration).where(VrtGeneration.id == generation_uuid)
                     )
                     gen = gen_result.scalar_one_or_none()
-                    # fix(#1778): fenced at the statement, not only
+                    # Fenced at the statement, not only
                     # at the caller — a future path into this handler cannot
                     # relabel a generation whose artifact is published.
                     if gen and gen.status != "completed":
@@ -1647,7 +1647,7 @@ async def regenerate_vrt(
 
                 await err_session.commit()
         except DBAPIError as write_failure:
-            # fix(#1950): swallowed so the `raise` below re-raises the cause
+            # Swallowed so the `raise` below re-raises the cause
             # this handler was called for. Letting an expiry out would hand
             # the operator a lock timeout in place of the build failure.
             log_job_error_write_failure(
@@ -1674,7 +1674,7 @@ async def regenerate_vrt(
                 )
 
 
-# fix(#1327): a SECOND registered name for the SAME regeneration,
+# A SECOND registered name for the SAME regeneration,
 # used only by staged mutations (add/remove source), to close a rolling-
 # upgrade skew: a pre-#1327 worker doesn't know `staged_source_ids`, would
 # rebuild from the live links, and mark the generation COMPLETE — silently

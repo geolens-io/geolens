@@ -1,4 +1,4 @@
-"""Provenance written onto a materialized analysis output (feat(#765)).
+"""Provenance written onto a materialized analysis output.
 
 Everything needed is known at registration time, so it's written then
 rather than left in purgeable ``ingest_jobs.user_metadata``.
@@ -51,7 +51,7 @@ _MAX_FILTER_COLUMNS = 5
 def _format_metres(value: Any) -> str:
     """Metres as a person would write them: 500 m, 1609.34 m, 12345.678 m.
 
-    fix(#765): ``f"{number:g}"``'s default precision is SIX significant
+    ``f"{number:g}"``'s default precision is SIX significant
     digits, so it silently rounded (12345.678 -> "12345.7", 99999.99 ->
     "100000") — a distance the geometry wasn't built with, shown as
     provenance and exported through DCAT.
@@ -139,13 +139,13 @@ def _operation_phrase(
         if by_field:
             return f"Dissolved from {source} by {by_field}"
         return f"Dissolved from {source} into a single feature"
-    # fix(#1097): the four operations this branch adds had no branch, so
+    # The four operations this branch adds had no branch, so
     # they fell through to the generic fallback and their sentences named only
     # the source. That sentence is a product surface — the dataset page shows
     # it, search indexes it, and DCAT exports it — so an overlay whose whole
     # point is the second layer was described without mentioning one.
     if operation == "spatial_join":
-        # fix(#1097): join_fields (the transferred column list) is
+        # join_fields (the transferred column list) is
         # deliberately NOT named here. This sentence is stored once and
         # served raw to every requester who can see the output — none of
         # the export paths route it through visible_derived_from, which is
@@ -304,7 +304,7 @@ async def apply_analysis_provenance(
         return
 
     source_title = await _record_title(session, source_dataset_id)
-    # fix(#1097): keyed off the ID being present, not off the
+    # Keyed off the ID being present, not off the
     # mask_source discriminator. intersect takes a layer and has no
     # mask_source — the discriminator only distinguishes drawn from layer for
     # the operations that can be either — so gating on it meant an overlay's

@@ -14,9 +14,9 @@ from app.core.config import settings
 from app.processing.raster.vrt import gdal_vector_safe_env
 from app.core.csv_safety import escape_csv_formula
 
-# fix(#909): build_pg_conn_str is NOT imported at module scope — a
-# module-scope import snapshots it past the test fixture's patch, which once
-# sent a test export at the dev database (#898). Late-bind at call scope.
+# build_pg_conn_str is NOT imported at module scope — a
+# module-scope import snapshots it past the test fixture's patch, which would
+# send a test export at the dev database. Late-bind at call scope.
 from app.processing.ingest.ogr import (
     IngestionError,
     _communicate_with_timeout,
@@ -31,7 +31,7 @@ class ExportError(Exception):
     """Raised when an ogr2ogr export subprocess fails."""
 
 
-# fix(#1778): this conversion runs inside the request, so its deadline is the
+# This conversion runs inside the request, so its deadline is the
 # edge proxy's read timeout, not the offline worker's. Measured against the
 # request's own monotonic clock (deadline minus elapsed), not a fixed
 # allowance, so a slow pre-conversion step can't overrun the edge; a fast one
@@ -102,7 +102,7 @@ def export_subprocess_timeout_seconds(deadline: float | None) -> float:
     return max(remaining, float(EXPORT_BUDGET_FLOOR_SECONDS))
 
 
-# fix(#1532): lives HERE, not in `parquet.py` (which imports
+# Lives HERE, not in `parquet.py` (which imports
 # pyarrow at module scope), so the format table can be read without pulling
 # pyarrow into the importer's graph. `parquet.py` re-exports it.
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
@@ -153,7 +153,7 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
 # pyramid's own top zoom (catalog/records/service.py, map builder default).
 _PMTILES_MINZOOM = "0"
 _PMTILES_MAXZOOM_CEILING = 14
-# fix(#1686): unlike the live tile endpoint (renders on demand), the
+# Unlike the live tile endpoint (renders on demand), the
 # PMTiles writer materializes EVERY tile in MINZOOM..MAXZOOM intersecting the
 # data — a wide-extent polygon at fixed z14 could demand up to 4**14 tiles,
 # staging-disk exhaustion the feature-count cap can't see. Budget the
@@ -198,7 +198,7 @@ def pmtiles_maxzoom_for_extent(
 def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
     """Build the ``geom_4326`` bbox predicate for a raw-SQL WHERE fragment.
 
-    fix(#885): a west>east bbox crosses the antimeridian and is emitted as
+    A west>east bbox crosses the antimeridian and is emitted as
     ``[minx..180] OR [-180..maxx]`` — one predicate, so a seam-straddling
     feature matches once. Shared with the GeoParquet writer so the two
     export paths can't drift.
@@ -220,12 +220,12 @@ def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
     return envelope(minx, maxx)
 
 
-# fix(#1778): ogr2ogr writes CSV cells verbatim with no escaping; the
+# ogr2ogr writes CSV cells verbatim with no escaping; the
 # anonymous-reachable export route lets an editor's cell execute for any
 # visitor who opens it. Post-pass, since ogr2ogr has no layer-creation option.
 _CSV_FIELD_SIZE_LIMIT = 2**31 - 1
 
-# fix(#1778): how often the pass checks the clock. A row at a time
+# How often the pass checks the clock. A row at a time
 # would monotonic()-read every batch; 512 rows honors a deadline within
 # milliseconds while staying noise next to the csv parse.
 _CSV_DEADLINE_CHECK_ROWS = 512
@@ -360,7 +360,7 @@ async def run_ogr2ogr_export(
         cmd.extend(["-t_srs", target_srs])
 
     if bbox and bbox[0] > bbox[2]:
-        # fix(#885): -spat takes ONE rectangle; an antimeridian-crossing box
+        # -spat takes ONE rectangle; an antimeridian-crossing box
         # became the complement band and dropped every feature. Split into
         # the server-side WHERE instead, in one pass (not two -spat runs).
         spatial_where = bbox_where_sql(bbox, literal=True)
@@ -390,7 +390,7 @@ async def run_ogr2ogr_export(
     if format_key == "pmtiles":
         # Driver defaults MAXZOOM to 5; every column and the default layer
         # name pass through. No computed cap falls back to world-extent,
-        # the conservative direction (fix(#1686)).
+        # the conservative direction.
         maxzoom = (
             pmtiles_maxzoom
             if pmtiles_maxzoom is not None
@@ -405,16 +405,16 @@ async def run_ogr2ogr_export(
             ]
         )
 
-    # fix(#430): kill-on-timeout bounds the subprocess wall-clock
+    # Kill-on-timeout bounds the subprocess wall-clock
     # (mirrors ingest); libpq statement_timeout caps the query so it stops
     # when the child is killed.
     #
-    # fix(#1778): the bound is the request's, read once as late as possible.
+    # The bound is the request's, read once as late as possible.
     # `_communicate_with_timeout` kills on cancellation, but nothing cancels
     # a GET handler on client disconnect — this deadline bounds an orphan.
     export_timeout = export_subprocess_timeout_seconds(deadline)
-    # fix(#1846, GHSA-hrf5-v3cq-frx5): input here is a PG connection, not a
-    # caller document, so this wasn't the finding — clamped anyway so the
+    # Input here is a PG connection, not a
+    # caller document, so it isn't attacker-controlled — clamped anyway so the
     # structural gate has no exception site.
     export_env = gdal_vector_safe_env()
     # Milliseconds, and libpq wants an integer.
@@ -461,7 +461,7 @@ async def run_ogr2ogr_export(
             f"ogr2ogr export failed (exit {proc.returncode}): {stderr.decode().strip()}"
         )
 
-    # fix(#1778): see _harden_csv_formulas — only after a clean exit, off
+    # See _harden_csv_formulas — only after a clean exit, off
     # the event loop, under the request's clock; the budget is re-read here
     # (not reused) so it gets what the subprocess left.
     if format_key == "csv":

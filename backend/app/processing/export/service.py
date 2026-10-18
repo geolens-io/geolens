@@ -22,7 +22,7 @@ from app.core.runtime.staging import ensure_staging_ready
 logger = structlog.stdlib.get_logger(__name__)
 
 
-# fix(#1532): THE PROPERTY EVERY EXPORT FORMAT MUST KEEP — two
+# THE PROPERTY EVERY EXPORT FORMAT MUST KEEP — two
 # conversions of unchanged data must produce identical bytes. #1532 keys its
 # cached artifact on that digest, so a writer that stamps the conversion
 # moment makes every rebuild look new: the selection stays permanently
@@ -88,7 +88,7 @@ def _zip_export_files(temp_dir: str, zip_path: str) -> None:
                 shutil.copyfileobj(src, dest)
 
 
-# fix(#1532): the timestamp ogr2ogr stamps into every GeoPackage,
+# The timestamp ogr2ogr stamps into every GeoPackage,
 # rewritten to this. Any constant works; the GeoPackage epoch reads as
 # "deliberately not a time" rather than a wrong one.
 _GPKG_FIXED_LAST_CHANGE = "1970-01-01T00:00:00.000Z"
@@ -101,12 +101,12 @@ _GPKG_TIMESTAMP_COLUMNS = (
     ("gpkg_metadata_reference", "timestamp"),
 )
 
-# fix(#1633): SQLite header fields the row-level UPDATEs can't reach —
+# SQLite header fields the row-level UPDATEs can't reach —
 # offset 24-27 (change counter, bumped per write txn) and offset 92-95
 # ("version-valid-for") diverge between otherwise-identical builds because
 # ogr2ogr's write path commits a different transaction count under load.
 #
-# fix(#1633): a FIXED value here would defeat what SQLite
+# A FIXED value here would defeat what SQLite
 # uses the pair for (detecting another connection's write) — derive it from
 # the NORMALIZED content instead so unchanged data still gets one counter.
 _GPKG_HEADER_CHANGE_COUNTER_OFFSET = 24
@@ -115,7 +115,7 @@ _GPKG_HEADER_VERSION_VALID_FOR_OFFSET = 92
 # at 1, so 0 does not read as "a real counter value" even though the format
 # does not forbid it.
 _GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO = 1
-# fix(#1633): read/hash size for _stamp_gpkg_header_counters.
+# Read/hash size for _stamp_gpkg_header_counters.
 # `export_dataset` supports multi-GB GeoPackages under a 2 GiB container
 # memory cap, so loading the whole file into a bytearray (then hashlib
 # copying it again) could OOM. Both header offsets sit inside byte 0..99, so
@@ -126,7 +126,7 @@ _GPKG_HASH_CHUNK_SIZE = 1024 * 1024
 def _stamp_gpkg_header_counters(path: str) -> None:
     """Derive the SQLite change-counter pair from the file's own content.
 
-    fix(#1633): a fixed value would defeat detection of a
+    A fixed value would defeat detection of a
     different connection's write; the digest of the file with both counter
     fields zeroed keeps unchanged data on one counter, changed data on
     another. Streamed in chunks, same digest as hashing whole.
@@ -183,7 +183,7 @@ def normalize_gpkg_timestamps(path: str) -> None:
     Uses stdlib sqlite3, not GDAL: the columns are spec-defined, and the
     driver would mean a second full open and rewrite.
 
-    fix(#1633): also derives the SQLite header's change-counter pair from
+    Also derives the SQLite header's change-counter pair from
     the normalized content (see `_stamp_gpkg_header_counters`), since that
     counter is bumped by transaction COUNT, not content.
     """
@@ -217,7 +217,7 @@ def normalize_gpkg_timestamps(path: str) -> None:
         conn.close()
 
     if normalized:
-        # fix(#1633): only for a file genuinely opened as SQLite above — the
+        # Only for a file genuinely opened as SQLite above — the
         # DatabaseError branch already left the invalid file untouched.
         _stamp_gpkg_header_counters(path)
 
@@ -312,7 +312,7 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     # aren't in this dataset's column_info, even if they parse cleanly.
     valid_names = {col["name"].lower() for col in column_info}
 
-    # fix(#1870): the walk reads the code around the values, never the values.
+    # The walk reads the code around the values, never the values.
     # A quoted literal is never a column reference, so masking it here cannot
     # admit an unknown column before, after or between literals.
     identifiers = _IDENTIFIER_RE.findall(mask_quoted_literals(where))
@@ -331,7 +331,7 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
 def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
     """The download's ``(filename, media_type)``, derived WITHOUT exporting.
 
-    fix(#1513): both HEAD and GET read this one function so they can't
+    Both HEAD and GET read this one function so they can't
     advertise different Content-Type/Disposition.
 
     Raises:
@@ -383,7 +383,7 @@ async def export_dataset(
         column_info: Column metadata for where-clause validation.
         deadline: ``time.monotonic()`` stamp by which the whole request must
             be answered; passed to the ogr2ogr subprocess, which reads what
-            is left of it at spawn time (fix(#1778)).
+            is left of it at spawn time.
 
     Returns:
         Tuple of (file_path, download_filename, media_type).
@@ -414,7 +414,7 @@ async def export_dataset(
     temp_dir_path.mkdir(parents=False, exist_ok=False)
     temp_dir = str(temp_dir_path)
 
-    # fix(#435): own the temp directory until a path is handed back to the
+    # Own the temp directory until a path is handed back to the
     # caller — a failure or cancelled request otherwise left it behind.
     try:
         if format_key == "shp":
@@ -433,9 +433,8 @@ async def export_dataset(
                 deadline=deadline,
             )
 
-            # Zip all export.* files. fix(#435): DEFLATE of a multi-GB
-            # shapefile is CPU-bound and ran on the event loop, stalling
-            # every other request. fix(#435): drained on
+            # Zip all export.* files. DEFLATE of a multi-GB
+            # shapefile is CPU-bound, so it runs off the event loop; drained on
             # cancellation so the `except BaseException` rmtree below can't
             # delete temp_dir while the zip thread still writes into it.
             zip_path = os.path.join(temp_dir, filename)
@@ -454,18 +453,18 @@ async def export_dataset(
             bbox=bbox,
             where=where,
             format_key=format_key,
-            # fix(#1686): pmtiles is a single-file format, so THIS
+            # Pmtiles is a single-file format, so THIS
             # call is the one that must carry the extent-budgeted cap — the
             # shp branch above can never be pmtiles.
             pmtiles_maxzoom=pmtiles_maxzoom,
             deadline=deadline,
-            # fix(#1778): CSV formula hardening exempts a leading
+            # CSV formula hardening exempts a leading
             # sign only in columns the database calls numeric, so it needs
             # types, not values. Empty for other formats or missing column_info.
             numeric_columns=numeric_column_names(column_info),
         )
         if format_key == "gpkg":
-            # fix(#1532): off the event loop, like every other
+            # Off the event loop, like every other
             # blocking step here — it is a SQLite write over a file that can be
             # gigabytes.
             await run_in_thread_draining(normalize_gpkg_timestamps, output_path)

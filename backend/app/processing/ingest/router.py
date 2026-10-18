@@ -192,7 +192,7 @@ router = APIRouter(
 def _fallback_allowed_extensions() -> list[str]:
     """Allowed extensions when the persistent_config DB lookup fails.
 
-    fix(#1682): read from ``settings``, not a frozen literal, so this
+    Read from ``settings``, not a frozen literal, so this
     fallback doesn't silently reject formats added since it was written.
     """
     return list(settings.allowed_extensions_list)
@@ -348,7 +348,7 @@ async def request_presigned_upload(
     s3_key = f"staging/{job.id}/{staged_name}"
     physical_s3_key = resolve_current_storage_key(s3_key)
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
-    # fix(#1235): gate only, return discarded — refuses a dead-lifetime job
+    # Gate only, return discarded — refuses a dead-lifetime job
     # before an upload id is initiated; each URL still computes its own
     # expiration inside the signing thread.
     require_signable_job_lifetime(job.created_at)
@@ -365,7 +365,7 @@ async def request_presigned_upload(
                 raise initiation_cancel
             num_parts = math.ceil(request.file_size / PART_SIZE)
             urls = [
-                # fix(#1235): each part's expiration is computed INSIDE the
+                # Each part's expiration is computed INSIDE the
                 # signing thread — see `sign_url_with_deadline` for why the
                 # two must stay adjacent.
                 await run_in_thread_draining(
@@ -386,7 +386,7 @@ async def request_presigned_upload(
                     upload_id=upload_id,
                     job_id=job.id,
                 )
-            # fix(#1235): an HTTPException here is the lifetime refusal and
+            # An HTTPException here is the lifetime refusal and
             # must survive as its own 409, not get remapped to "Storage
             # service unavailable" — the abort above already ran.
             if isinstance(exc, (asyncio.CancelledError, HTTPException)):
@@ -433,8 +433,8 @@ async def request_presigned_upload(
         except (
             Exception
         ) as exc:  # broad: S3/MinIO presign-put can throw varied SDK errors; map to 502
-            # fix(#1235): HTTPException passthrough here too — signing moved
-            # into the thread, so the lifetime refusal now raises through
+            # HTTPException passthrough here too — signing happens
+            # in the thread, so the lifetime refusal raises through
             # this path and must not become "Storage service unavailable".
             if isinstance(exc, HTTPException):
                 raise
@@ -484,7 +484,7 @@ async def complete_presigned_upload(
             detail="Job is not a presigned upload",
         )
 
-    # fix(#1213): an abandoned presigned upload is marked failed by the
+    # An abandoned presigned upload is marked failed by the
     # stale-pending reaper after an hour, the same hour its PUT URL stays
     # valid — this door can reach the terminal-job case without stamping it.
     require_completable_presigned_job(job, restart_hint="Start a new upload.")
@@ -493,7 +493,7 @@ async def complete_presigned_upload(
     s3_key = um["s3_key"]
     physical_s3_key = resolve_current_storage_key(s3_key)
 
-    # fix(#1202): skip assembly when it already happened — the staging object
+    # Skip assembly when it already happened — the staging object
     # exists IFF CompleteMultipartUpload succeeded, so its presence alone is a
     # sound record, and a retry can't re-call complete with a SPENT upload id.
     # The parts-required 400 is skipped with it: a retrying client has nothing
@@ -518,7 +518,7 @@ async def complete_presigned_upload(
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
             if completion_cancel is not None:
-                # fix(#1233): do NOT delete the assembled object — its
+                # Do NOT delete the assembled object — its
                 # presence is the only record assembly succeeded (the upload
                 # id is spent); `should_assemble_multipart` relies on it for retries.
                 raise completion_cancel
@@ -540,7 +540,7 @@ async def complete_presigned_upload(
                 detail="Upload completion failed — the upload session may have expired. Please try again.",
             ) from exc
 
-    # fix(#1202): completion contract (exists check, size gate, drained
+    # Completion contract (exists check, size gate, drained
     # freeze, content validation) shared with the reupload door so the two
     # cannot drift — see the docstring for postconditions.
     frozen_key = await finalize_presigned_object(
@@ -566,13 +566,13 @@ async def complete_presigned_upload(
         await admit_presigned_pointcloud(storage, job, frozen_key=frozen_key)
 
     job.file_path = frozen_key
-    # fix(#1186): the presigned path never stamped file_type — on S3 every
-    # upload goes through it, so every GeoTIFF fell through to the vector
-    # branch (422 at preview, wrong commit dispatch).
+    # The presigned path must stamp file_type — on S3 every
+    # upload goes through it, so without it every GeoTIFF would fall through
+    # to the vector branch (422 at preview, wrong commit dispatch).
     _stamp_raster_metadata(job, job.source_filename)
     await db.commit()
 
-    # fix(#1202): delete AFTER commit, never before — deleting first left a
+    # Delete AFTER commit, never before — deleting first would leave a
     # failed commit with the staging object already gone and the frozen copy
     # orphaned. Swept later by reapers resolving the key via
     # `owned_presigned_staging_key`; grep that name rather than trusting a list here.
@@ -611,14 +611,14 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
     in ``queue_ingest_job`` — so every upload endpoint has to set it before
     the job is previewable or committable.
 
-    fix(#1186): this used to download the whole object and run
-    ``validate_raster_crs``, which is exactly why ``complete_presigned_upload``
-    never called it — presigned uploads exist for the multi-GB case, and the
-    completion request cannot afford a full-object download (preview downloads
-    the same object seconds later anyway). The only reader of the resulting
-    ``crs_missing`` flag is ``ingest_raster``, which has the raster's metadata
-    in hand and now derives the answer there. So the stamp costs no I/O and
-    both upload endpoints can afford it.
+    The stamp does no I/O. It does not download the object or run
+    ``validate_raster_crs``, which a presigned completion cannot afford:
+    presigned uploads exist for the multi-GB case, and preview downloads
+    the same object seconds later anyway. The only reader of the resulting
+    ``crs_missing`` flag is ``ingest_raster``, which has the raster's
+    metadata in hand and derives the answer there. So the stamp costs no
+    I/O and both upload endpoints can afford it, including a presigned
+    completion request.
     """
     job.user_metadata = raster_stamped_metadata(job.user_metadata, filename)
 
@@ -665,7 +665,7 @@ async def upload_file(
         job = await create_ingest_job(db, file.filename, "", user.id)
         job_id = job.id
         job_metadata = job.user_metadata
-        # fix(#1848): committed BEFORE the spooled body is staged, so no pooled
+        # Committed BEFORE the spooled body is staged, so no pooled
         # connection is held across the staging copy or put, the validation
         # download and the content sniff; a failed staging leaves it for the sweep.
         await db.commit()
@@ -698,7 +698,7 @@ async def upload_file(
                     db, user.id, kind_metadata[TILESET_UNPACKED_BYTES_FIELD], request
                 )
 
-            # fix(#1848): bind only while the row is still pending, stamping
+            # Bind only while the row is still pending, stamping
             # `staged_at` so the pending window restarts here rather than at
             # creation, which the upload itself has already spent.
             bound = await db.execute(
@@ -722,7 +722,7 @@ async def upload_file(
                     ),
                 )
         except BaseException:
-            # fix(#1848): the request owns the staged source until the bind
+            # The request owns the staged source until the bind
             # lands, so every failure before it deletes the file; the row
             # itself stays for the sweep or carries the refusal above.
             await _cleanup_saved_upload(saved_path, str(job_id))
@@ -837,7 +837,7 @@ async def preview_file(
     elevation range and size, read from its header and hierarchy.
     Only callable on jobs with status 'pending'.
     """
-    # fix(#823): layer_name reaches ogrinfo argv; 422 option-like values.
+    # layer_name reaches ogrinfo argv; 422 option-like values.
     reject_option_like_layer_name(layer_name)
 
     job = await get_job_or_404(db, job_id, user)
@@ -884,7 +884,7 @@ async def preview_file(
     try:
         info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
     except IngestBudgetExceededError as exc:
-        # fix(#948): the ceiling message is server-authored and actionable —
+        # The ceiling message is server-authored and actionable —
         # falling through to the generic handler would call an oversized
         # file "malformed or unsupported" when it's merely too large.
         raise HTTPException(
@@ -892,7 +892,7 @@ async def preview_file(
             detail=refusal_detail(exc),
         )
     except UnsafeUploadError as exc:
-        # fix(#1846, GHSA-hrf5-v3cq-frx5): server-authored refusal naming
+        # Server-authored refusal naming
         # what was blocked and what to upload instead — a presigned upload's
         # first whole-file check, since the presign door only sees a header probe.
         raise HTTPException(
@@ -1017,16 +1017,16 @@ async def commit_import(
     try:
         commit = Subclass.model_validate(request.model_dump())
     except ValidationError as e:
-        # fix(#1755, #1931): the only enforcement of the import-commit door's
+        # The only enforcement of the import-commit door's
         # shared safe-token rule. The flat CommitRequest declares the cap the
         # contract publishes; a charset rule has no JSON Schema spelling.
         raise RequestValidationError(errors=e.errors())
 
-    # fix(#823): dash-guard + all_layers membership check for the commit's
+    # Dash-guard and all_layers membership check for the commit's
     # layer_name, which reaches the worker's ogr2ogr argv (see layer_guard).
     validate_commit_layer_name(job, getattr(commit, "layer_name", None))
 
-    # fix(#2032): an unassigned EPSG code committed and was then ignored.
+    # An unassigned EPSG code is refused rather than committed and ignored.
     srid_refusal = await unknown_srid_refusal(
         db, getattr(commit, "srid_override", None)
     )
@@ -1036,7 +1036,7 @@ async def commit_import(
             detail=srid_refusal,
         )
 
-    # feat(#1691): a non-admin may not commit a public dataset when
+    # A non-admin may not commit a public dataset when
     # restrict_public_visibility is on. Local import: processing/ must not
     # import app.modules.catalog.* at module level.
     from app.modules.catalog.authorization import check_public_visibility_allowed
@@ -1051,7 +1051,7 @@ async def commit_import(
     # Extract the credential only for service commits (ServiceCommitRequest is
     # the only subclass carrying one). Never persisted.
     #
-    # feat(#1746): the structured `auth` object is what the layers below
+    # The structured `auth` object is what the layers below
     # take; the flat `token` is its deprecated bearer spelling, and a body that
     # sets both is refused by the model rather than having one win by an
     # ordering nobody wrote down. Same precedence rule, same conversion helper
@@ -1136,12 +1136,12 @@ async def commit_fan_out(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Job already processed (status='{job.status}')",
         )
-    # fix(#1709): the attempt id observed WITH the pending status above —
+    # The attempt id observed WITH the pending status above —
     # the terminal CAS at the bottom is fenced on this pair, so a cancel (or
     # any other writer) landing between here and there loses or wins cleanly.
     parent_attempt_id = job.attempt_id
 
-    # feat(#1691): fan-out jobs inherit the parent job's user_metadata, so a
+    # Fan-out jobs inherit the parent job's user_metadata, so a
     # visibility seeded there (defense-in-depth — the request schema itself
     # has no visibility field) goes through the same admin gate as a commit.
     from app.modules.catalog.authorization import check_public_visibility_allowed
@@ -1150,7 +1150,7 @@ async def commit_fan_out(
         db, user, (job.user_metadata or {}).get("visibility")
     )
 
-    # fix(#823): layer_name normalisation extracted to
+    # layer_name normalisation lives in
     # layer_guard.known_layer_names, shared with the single-layer commit endpoint.
     known_layer_names = known_layer_names_for(job)
 
@@ -1169,9 +1169,9 @@ async def commit_fan_out(
             },
         )
 
-    # fix(#1709): the terminal transition is the MUTEX for the whole
-    # dispatch — CASed and COMMITTED before the first child exists. The
-    # earlier shape (children first, CAS after) left a window where a
+    # The terminal transition is the MUTEX for the whole
+    # dispatch — CASed and COMMITTED before the first child exists. Creating
+    # children first and CASing after would leave a window where a
     # cancel could commit mid-loop and let an already-deferred child
     # complete before the post-loop cleanup's CAS refused it. With the flip
     # first, a cancel either wins outright or arrives after the parent is
@@ -1206,8 +1206,8 @@ async def commit_fan_out(
             db, job, parent_attempt_id=parent_attempt_id
         )
         if not restored:
-            # fix(#2016): the undo matched no row, so a third writer holds the
-            # parent terminal and this 202 hides it. Never silent again.
+            # The undo matched no row, so a third writer holds the
+            # parent terminal and this 202 hides it. Never silent.
             logger.warning(
                 "fan_out_parent_restore_missed",
                 job_id=str(job.id),
@@ -1312,7 +1312,7 @@ async def bulk_register_tables(
     """
     from app.core.db import async_session
 
-    # feat(#1691): gate ONCE for the whole batch — any item requesting public
+    # Gate ONCE for the whole batch — any item requesting public
     # visibility puts the request through the shared admin check before any
     # table is registered (403, not a per-item error, so nothing partial runs).
     from app.modules.catalog.authorization import check_public_visibility_allowed
@@ -1371,7 +1371,7 @@ async def create_vrt(
     Returns a job_id for polling. Validation + queuing logic lives in
     ``ingest.service.create_vrt_job`` (K5 extraction).
     """
-    # feat(#1691): a non-admin may not create a public VRT dataset when the
+    # A non-admin may not create a public VRT dataset when the
     # restrict_public_visibility instance setting is on.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
@@ -1401,7 +1401,7 @@ async def add_vrt_source(
     Returns 409 if the VRT is currently regenerating or the source is already linked.
     Returns 422 if the source is incompatible with existing sources.
     """
-    # fix(#1327): the resulting member set is STAGED on the VrtGeneration row;
+    # The resulting member set is STAGED on the VrtGeneration row;
     # vrt_source_links is written by the regeneration task's own transaction
     # that publishes the artifact. Comment, not docstring — the docstring is
     # published OpenAPI text, so editing it would churn openapi.json and SDKs.
@@ -1522,7 +1522,7 @@ async def add_vrt_source(
             detail=[e.model_dump(mode="json") for e in errors],
         )
 
-    # fix(#1327): STAGE the intended post-mutation member set on the
+    # STAGE the intended post-mutation member set on the
     # generation rather than writing vrt_source_links here — that table is
     # the catalog's statement about what's actually served, and
     # regenerate_vrt applies the staged set in the same transaction that
@@ -1544,7 +1544,7 @@ async def add_vrt_source(
     await db.commit()
 
     async def _defer() -> None:
-        # fix(#1327): dispatch the STAGED task name, not the legacy one — a
+        # Dispatch the STAGED task name, not the legacy one — a
         # pre-#1327 worker lacks it and fails loudly (TaskNotFound) instead
         # of silently rebuilding from live links and dropping this add.
         await defer_async_with_tenant(
@@ -1556,7 +1556,7 @@ async def add_vrt_source(
             triggered_by=str(user.id),
         )
 
-    # fix(#1327): no link-table rollback needed — with the member set staged
+    # No link-table rollback needed — with the member set staged
     # on the generation, an undispatched request never touched
     # vrt_source_links, so nothing needs to be put back.
     rollback = make_ingest_job_failed_rollback(
@@ -1564,7 +1564,7 @@ async def add_vrt_source(
     )
     await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
-    # fix(#1327): "queued", not "added". The catalog's source list still
+    # "queued", not "added". The catalog's source list still
     # describes the VRT being served; the addition becomes part of it when the
     # regeneration publishes the artifact that contains it.
     return VrtMutationResponse(
@@ -1590,7 +1590,7 @@ async def remove_vrt_source(
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
     """
-    # fix(#1327): the post-removal member set is STAGED on the VrtGeneration
+    # The post-removal member set is STAGED on the VrtGeneration
     # row; vrt_source_links is written by the regeneration task in the same
     # transaction that publishes the artifact without the removed member. Kept
     # out of the docstring — see the note on add_vrt_source.
@@ -1638,7 +1638,7 @@ async def remove_vrt_source(
             },
         )
 
-    # fix(#1327): read the current member set ONCE, in order — the count
+    # Read the current member set ONCE, in order — the count
     # guard, the "is it linked" guard and the staged post-removal set are
     # three questions about one set, and a single ordered read keeps them
     # from disagreeing.
@@ -1665,7 +1665,7 @@ async def remove_vrt_source(
             detail="Source not linked to this VRT",
         )
 
-    # fix(#1327): STAGE the post-removal member set on the generation rather
+    # STAGE the post-removal member set on the generation rather
     # than deleting the link row now — the link table keeps describing what's
     # served until regenerate_vrt applies the staged set in the same
     # transaction that publishes the artifact. Applying renumbers 0..n-1.
@@ -1684,7 +1684,7 @@ async def remove_vrt_source(
     await db.commit()
 
     async def _defer() -> None:
-        # fix(#1327): staged task name, same reasoning as the add endpoint —
+        # Staged task name, same reasoning as the add endpoint —
         # a pre-#1327 worker must refuse this delivery rather than rebuild
         # the composition it cannot see.
         await defer_async_with_tenant(
@@ -1696,7 +1696,7 @@ async def remove_vrt_source(
             triggered_by=str(user.id),
         )
 
-    # fix(#1327): nothing to re-insert — the link row was never deleted, and
+    # Nothing to re-insert — the link row was never deleted, and
     # the post-removal set is staged on the generation until the artifact
     # swap, so an undispatched request leaves the catalog untouched.
     rollback = make_ingest_job_failed_rollback(
@@ -1704,7 +1704,7 @@ async def remove_vrt_source(
     )
     await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
-    # fix(#1327): "queued", not "removed" — see the add endpoint's tail.
+    # "queued", not "removed" — see the add endpoint's tail.
     return VrtMutationResponse(
         job_id=job.id, message="Source removal queued, VRT regeneration started"
     )

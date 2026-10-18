@@ -1,4 +1,4 @@
-"""Turning a stored export artifact into a 200, a 206 or a 416 (fix(#1532)).
+"""Turning a stored export artifact into a 200, a 206 or a 416.
 
 A Range is honoured only when the artifact already existed; otherwise the
 whole representation goes back with 200 (RFC 9110 14.2) — a ``/vsicurl/``
@@ -76,15 +76,15 @@ def read_response(
     ``may_serve_range``: true only if these bytes were served before this
     request (gates the splice in the module docstring). ``leading_slice_ok``
     is the byte-0 exception, set only for a fresh build with no other live
-    representation. ``background`` must run AFTER the response (fix(#435)).
+    representation. ``background`` must run AFTER the response.
     """
     headers = artifact_headers(artifact)
 
-    # fix(#1532): evaluate If-Range before slicing — a client naming
+    # Evaluate If-Range before slicing — a client naming
     # the previous artifact must not get a slice of the current one. Strong
     # comparison, ignore-on-mismatch, per RFC 9110 13.1.5.
     #
-    # fix(#1532): a MATCHING If-Range outranks `may_serve_range`,
+    # A MATCHING If-Range outranks `may_serve_range`,
     # since it proves what a bare Range after a rebuild cannot.
     proven = if_range is not None and range_bound_to_this_version(
         if_range, artifact.etag
@@ -245,9 +245,8 @@ def _whole(
 ) -> Response:
     """The complete representation, streamed from one provider read.
 
-    Uses ``get_stream`` rather than looping ``get_range``: fix(#1540 review
-    P1) found a per-chunk loop turns one download into one object-store
-    request per megabyte.
+    Uses ``get_stream`` rather than looping ``get_range``: a per-chunk loop
+    turns one download into one object-store request per megabyte.
     """
     return StreamingResponse(
         storage.get_stream(artifact.key),

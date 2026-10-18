@@ -108,7 +108,7 @@ class RasterAsset(Base):
     last_regenerated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # fix(#1290): what the published VRT was assembled FROM, as
+    # What the published VRT was assembled FROM, as
     # {dataset_id: asset_uri}. Member staleness is a state comparison against
     # this — what a member IS versus what the artifact was built from — because
     # no timestamp can express "committed after my snapshot" (Postgres has no
@@ -158,7 +158,7 @@ class VrtGeneration(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     triggered_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # fix(#1327): the FULL post-mutation member set this generation intends
+    # The FULL post-mutation member set this generation intends
     # to publish (ordered dataset ids). Staged here, not applied to
     # `vrt_source_links` until the regeneration task's SAME transaction as
     # the artifact swap — a dead attempt leaves the catalog and served

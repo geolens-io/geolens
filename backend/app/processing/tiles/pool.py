@@ -18,7 +18,7 @@ _tile_pool: asyncpg.Pool | None = None
 # so this is not a bound on how long any holder keeps one.
 TILE_POOL_COMMAND_TIMEOUT_SECONDS = 10
 
-# fix(#1926): CHOSEN, not derived -- nothing the pool declares bounds queue
+# CHOSEN, not derived -- nothing the pool declares bounds queue
 # depth. Paired with the handler's `Retry-After: 2` so a shed caller retries
 # inside a map viewer's patience. Also bounds asyncpg's connection release.
 TILE_POOL_ACQUIRE_TIMEOUT_SECONDS = 3.0

@@ -1,4 +1,4 @@
-"""Expand the NL->SQL prompt's ``geolens_buffer`` marker (fix(#1589)).
+"""Expand the NL->SQL prompt's ``geolens_buffer`` marker.
 
 Asking the model to write ``render_geodesic_buffer``'s SQL by hand (#1001)
 failed unreliably: a dropped parenthesis or a paraphrase back to the bare
@@ -67,7 +67,7 @@ def _fail(message: str) -> SandboxError:
     ``invalid_query`` is the existing category for "this SQL cannot run",
     already mapped by ``chat_actions._execute_chat_tool``.
 
-    fix(#1589): ``message`` is server-only. ``_execute_chat_tool`` replaces
+    ``message`` is server-only. ``_execute_chat_tool`` replaces
     it with the generic ``ERROR_MESSAGES["invalid_query"]`` line, so neither
     user nor model ever sees the specific text — it's logged here for that
     reason, read by this log line and by pytest when an eval trips one.
@@ -172,8 +172,8 @@ def _marker_starts_at(sql: str, i: int, previous: str) -> bool:
     schema's function.
 
     ``previous`` is the last non-whitespace, non-comment character before
-    ``i``, tracked by callers as they scan. fix(#1589): reading
-    ``sql[i - 1]`` directly instead broke on ``public./**/geolens_buffer(…)``
+    ``i``, tracked by callers as they scan. Reading
+    ``sql[i - 1]`` directly instead breaks on ``public./**/geolens_buffer(…)``
     and ``public. geolens_buffer(…)`` — both qualified names in PostgreSQL,
     but the raw lookback saw ``/`` or a space, not the dot. ADJACENCY stays
     positional (``xgeolens_buffer`` is one identifier, ``x geolens_buffer``
@@ -259,7 +259,7 @@ def _contains_marker(text: str) -> bool:
 def _without_comments(text: str) -> str:
     """``text`` with its comments replaced by a space, literals untouched.
 
-    fix(#1589): the scanner skips comments when splitting arguments, but
+    The scanner skips comments when splitting arguments, but
     the slice it returns still contains them, and
     ``render_geodesic_buffer`` interpolates that slice into a larger
     expression. A block comment rides into the scaffold and perturbs the
@@ -338,7 +338,7 @@ def _matching_paren(text: str, opening: int) -> int | None:
 def _without_redundant_parens(text: str) -> str:
     """``text`` with wrapping parentheses removed, one layer at a time.
 
-    fix(#1589): ``geolens_buffer((s.geom_4326), 500)`` is a correct call —
+    ``geolens_buffer((s.geom_4326), 500)`` is a correct call —
     the parentheses are the model's formatting, not the validator's
     contract — but ``_is_bounded_geometry_source`` recognises only a bare
     column or a scalar subquery, so the wrapped form was refused as
@@ -398,7 +398,7 @@ def _checked_distance(raw: str) -> float:
     most ``MAX_BUFFER_METERS``. A zero-metre buffer is refused rather than
     rendered empty, matching the analysis surface.
 
-    Comments are dropped first (fix(#1589)) so
+    Comments are dropped first so
     ``geolens_buffer(s.geom_4326, 500 /* metres */)`` still parses.
     """
     text = _without_comments(raw).strip()

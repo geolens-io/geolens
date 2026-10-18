@@ -74,7 +74,7 @@ def _selects_geometry(item: exp.Expression) -> bool:
 
 
 def ensure_geometry_selected(sql: str, layers) -> str:
-    """fix(#544): deterministically append geom_4326 to row-level selects.
+    """Deterministically append geom_4326 to row-level selects.
 
     The model can answer a location-shaped question with attribute columns
     only, silently dropping the map overlay. Rather than a model-dependent
@@ -100,7 +100,7 @@ def ensure_geometry_selected(sql: str, layers) -> str:
         or stmt.args.get("distinct")
         or stmt.find(exp.With)  # any CTE, top-level or nested — stay out
         or stmt.args.get("joins")
-        # fix(#556): HAVING without GROUP BY is still an aggregate
+        # HAVING without GROUP BY is still an aggregate
         # (implicit single group), and its COUNT(*) lives outside the SELECT
         # list where the per-item aggregate check can't see it. args.get scopes
         # to THIS query, so a subquery's HAVING doesn't suppress the append.
@@ -112,7 +112,7 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     if from_clause is None:
         return sql
     table = from_clause.this
-    # fix(#1891): fold both parts the PostgreSQL way before comparing.
+    # Fold both parts the PostgreSQL way before comparing.
     if (
         not isinstance(table, exp.Table)
         or folded_identifier(table.args.get("db")) != "data"
@@ -120,16 +120,16 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     ):
         return sql
     for item in stmt.expressions:
-        # A bare * or table.* already includes the geometry column. fix(#556
-        # review P2): match only a genuine all-columns star, NOT a functional
-        # star like COUNT(*) — item.find(exp.Star) caught the latter and
-        # suppressed the append for windowed COUNT(*) OVER () queries.
+        # A bare * or table.* already includes the geometry column. Match
+        # only a genuine all-columns star, NOT a functional star like
+        # COUNT(*) — item.find(exp.Star) would catch the latter and suppress
+        # the append for windowed COUNT(*) OVER () queries.
         if isinstance(item, exp.Star) or (
             isinstance(item, exp.Column) and isinstance(item.this, exp.Star)
         ):
             return sql
         for fn in item.find_all(exp.Func):
-            # fix(#556): only consult _ANON_AGG_NAMES for exp.Anonymous
+            # Only consult _ANON_AGG_NAMES for exp.Anonymous
             # nodes. On a named Func, fn.name is arg-derived, not the function
             # name — CAST(mode AS TEXT) reports name="mode", which would falsely
             # trip the guard and drop the overlay for any row-level query that
@@ -146,7 +146,7 @@ def ensure_geometry_selected(sql: str, layers) -> str:
                 return sql
         if _selects_geometry(item):
             return sql
-    # fix(#556): build the qualifier from the alias/table AST
+    # Build the qualifier from the alias/table AST
     # identifier (not an f-string) so a quoted alias survives — FROM ... AS "P"
     # must append "P".geom_4326 (unquoted P folds to lowercase and fails), and
     # an alias with spaces must not raise a ParseError inside stmt.select().
@@ -155,7 +155,7 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     geom_col = exp.Column(this=exp.to_identifier("geom_4326"), table=ref_ident.copy())
     stmt.select(geom_col, copy=False)
     rendered = stmt.sql(dialect="postgres")
-    # fix(#556): sqlglot's postgres dialect does not faithfully
+    # sqlglot's postgres dialect does not faithfully
     # round-trip every pgvector/PostGIS distance operator — `<=>` (cosine) is
     # re-serialized as IS NOT DISTINCT FROM, silently turning nearest-neighbor
     # ranking into boolean equality. Re-rendering only happens on the append
@@ -207,8 +207,8 @@ def _is_geom_value(val: object) -> bool:
 
 
 def _first_non_null(rows: list[list], i: int) -> object:
-    """First non-null value in column i (fix(#556) review P2: probing only
-    rows[0] made a NULL leading geometry break detection and stripping)."""
+    """First non-null value in column i (probing only rows[0] lets a NULL
+    leading geometry break detection and stripping)."""
     for row in rows:
         val = row[i] if i < len(row) else None
         if val is not None:
@@ -219,7 +219,7 @@ def _first_non_null(rows: list[list], i: int) -> object:
 def strip_geometry_columns(
     columns: list[str], rows: list[list]
 ) -> tuple[list[str], list[list]]:
-    """Drop geometry-valued columns from tabular chat output (fix(#544)).
+    """Drop geometry-valued columns from tabular chat output.
 
     Raw WKB hex / GeoJSON strings are noise in a result table; geometry
     travels via the geojson payload instead. Value-based, not name-based:
@@ -243,7 +243,7 @@ def _detect_geom_column(columns: list[str], rows: list[list]) -> int | None:
     """Find the index of a geometry column.
 
     A geometry-*named* column that actually parses is preferred; otherwise
-    fall back to any column whose value parses as geometry (fix(#556) review:
+    fall back to any column whose value parses as geometry (e.g.
     aliased computed geometry such as ``ST_Buffer(...) AS buffer``). Both
     phases use the strict, parse-verified _is_geom_value so a geometry-named
     hash column cannot shadow the real geometry, and values are probed at the
@@ -268,12 +268,12 @@ _JS_MAX_SAFE_INT = 2**53 - 1
 def _safe_value(v: object) -> object:
     """Convert values the client cannot represent to str; pass through the rest.
 
-    fix(#1241): an integer outside JavaScript's safe range is lossy even
+    An integer outside JavaScript's safe range is lossy even
     though JSON-serializable (9007199254740993 arrives as
     9007199254740992). Emitting the exact digits as a string is the only
     shape that survives; smaller integers stay numbers.
 
-    fix(#1778): NaN/+-Infinity are the other unrepresentable values
+    NaN/+-Infinity are the other unrepresentable values
     (Postgres real/double hold all three). ``json.dumps`` writes bare
     tokens ``JSON.parse`` rejects, breaking the whole actions frame
     silently (or 500ing non-streaming, Starlette's ``allow_nan=False``).
@@ -337,8 +337,8 @@ def _parse_row_geometry(raw: object) -> tuple[object, dict] | None:
 def _row_properties(row: list, prop_indices: list[tuple[int, str]]) -> tuple[dict, int]:
     """Build one Feature's properties, counting non-finite float cells.
 
-    The count feeds the single warning `_extract_geojson` emits per result
-    (fix(#1778)); logging per cell would be unusable on a wide table.
+    The count feeds the single warning `_extract_geojson` emits per result;
+    logging per cell would be unusable on a wide table.
     """
     props: dict = {}
     non_finite = 0
@@ -355,7 +355,7 @@ def _extract_geojson(
 ) -> tuple[dict, list[float] | None] | None:
     """Build a GeoJSON FeatureCollection + bbox from query rows.
 
-    The bbox is ``None`` when no row contributed finite bounds (fix(#1778)).
+    The bbox is ``None`` when no row contributed finite bounds.
     Callers must omit the bbox from their payload in that case rather than
     forwarding a non-finite one.
     """
@@ -402,7 +402,7 @@ def _extract_geojson(
 
         # Update bbox
         bx = shape.bounds  # (minx, miny, maxx, maxy)
-        # fix(#1778): Shapely returns (nan, nan, nan, nan) for an EMPTY
+        # Shapely returns (nan, nan, nan, nan) for an EMPTY
         # geometry, and an EMPTY geometry parses, so the row above already
         # became a Feature while every comparison here is False against NaN.
         # A result whose geometries are all EMPTY (ST_Buffer(<point>, 0) yields

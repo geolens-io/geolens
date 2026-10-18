@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 _INSERT_BATCH_ROWS = 5000
 
-# fix(#948): the 500 MB upload cap is a weak proxy for the work a parquet
+# The 500 MB upload cap is a weak proxy for the work a parquet
 # file represents — it compresses well, and this loader runs in-process
 # with no subprocess timeout backstop (unlike ogr2ogr's
 # OGR2OGR_FILE_TIMEOUT_SECONDS) — so both ceilings are checked from the
@@ -91,7 +91,7 @@ def _geometry_column(geo: dict | None) -> tuple[str | None, dict]:
 def _srid_from_geo(col_meta: dict) -> int | None:
     """SRID from GeoParquet column metadata.
 
-    fix(#541): an OMITTED ``crs`` key means OGC:CRS84 (4326); explicit
+    An OMITTED ``crs`` key means OGC:CRS84 (4326); explicit
     ``"crs": null`` means unknown/unassigned. Either that or a PROJJSON
     without a resolvable EPSG id returns None so Missing-CRS/srid_override
     handling applies.
@@ -174,7 +174,7 @@ def _pg_type(t: pa.DataType) -> str:
         return "boolean"
     if pa.types.is_integer(t):
         # signed <=32-bit fits integer; int64/uint32 fit bigint; uint64 can
-        # exceed bigint's max so it gets numeric (fix(#541)).
+        # exceed bigint's max so it gets numeric.
         if pa.types.is_unsigned_integer(t) and t.bit_width == 64:
             return "numeric"
         return (
@@ -236,7 +236,7 @@ def _geometry_dimensions(
 ) -> tuple[bool, bool]:
     """(has Z, has M) for the geometry column (blocking).
 
-    fix(#646): GeoParquet metadata marks 3D variants with a " Z", " M" or
+    GeoParquet metadata marks 3D variants with a " Z", " M" or
     " ZM" suffix in ``geometry_types``; an empty list (e.g. our own exporter)
     is scanned row-by-row, stopping once both are found, so a late-file Z or M
     row can't slip past a 2D typmod.
@@ -260,7 +260,7 @@ def _geometry_dimensions(
 
 
 def _json_safe(v: Any) -> Any:
-    # fix(#543): NaN/Infinity would 500 the preview response — Starlette
+    # NaN/Infinity would 500 the preview response — Starlette
     # serializes JSON with allow_nan=False. Render them as null.
     if isinstance(v, float) and not math.isfinite(v):
         return None
@@ -276,7 +276,7 @@ def _open_and_inspect(file_path: str) -> tuple[pq.ParquetFile, dict]:
     geom_col, col_meta = _geometry_column(geo)
     skip = {geom_col, _covering_column(geo, geom_col)} - {None}
 
-    # fix(#948): the same footer gate the loader applies, here too — this
+    # The same footer gate the loader applies, here too — this
     # runs BEFORE the loader (run_ogrinfo ahead of run_ogr2ogr), and the
     # geometry probe below scans batches until the first non-NULL WKB,
     # unbounded on a file with millions of leading NULLs. Column count
@@ -416,7 +416,7 @@ async def load_parquet_to_postgis(
     skip = {source_geom_col, _covering_column(geo, source_geom_col)}
     plan = _column_plan(pf.schema_arrow, skip)
 
-    # fix(#948): budget gate goes HERE, before anything reads row data —
+    # Budget gate goes HERE, before anything reads row data —
     # _geometry_dimensions below decodes the whole geometry column when
     # geometry_types isn't declared (true of our own exporter's files), so
     # a check placed after it would let an over-limit file monopolize the
@@ -437,7 +437,7 @@ async def load_parquet_to_postgis(
     ddl_cols = ["gid serial PRIMARY KEY"]
     ddl_cols += [f"{_q(pg_name)} {pg_type}" for _, pg_name, pg_type, _ in plan]
     if geom_col is not None:
-        # fix(#641): a 2D typmod rejects Z WKB with "Geometry has Z dimension
+        # A 2D typmod rejects Z WKB with "Geometry has Z dimension
         # but column does not" — declare GeometryZ when the source carries Z.
         gtype = {
             (True, True): "GeometryZM",
@@ -453,7 +453,7 @@ async def load_parquet_to_postgis(
         # explicit cast: ST_GeomFromWKB has bytea AND text overloads, and an
         # untyped bind (e.g. an all-NULL batch) would be ambiguous.
         wkb_expr = f"ST_GeomFromWKB(CAST(:geom AS bytea), {int(srid)})"
-        # fix(#641): lift lower-dimension rows (missing Z or M becomes 0) so
+        # Lift lower-dimension rows (missing Z or M becomes 0) so
         # the typed column accepts mixed-dimension sources.
         lift = {
             (True, True): "ST_Force4D",
@@ -472,7 +472,7 @@ async def load_parquet_to_postgis(
     read_cols = [src for src, _, _, _ in plan] + ([geom_col] if geom_col else [])
 
     if not insert_cols:
-        # fix(#569): geometry-only file loaded as non-spatial would silently
+        # A geometry-only file loaded as non-spatial would silently
         # publish an empty dataset — fail with a clear message instead.
         from app.processing.ingest.ogr import IngestionError
 

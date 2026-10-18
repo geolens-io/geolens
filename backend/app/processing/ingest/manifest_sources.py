@@ -18,7 +18,7 @@ from app.processing.ingest.manifest_schemas import (
     ManifestSource,
 )
 
-# fix(#1201): a catalog record_status is an open set (an overlay may define
+# A catalog record_status is an open set (an overlay may define
 # its own, #1183); validate against the live extension, never re-freeze it.
 ManifestPublicationIntent = str
 ManifestSourceKind = Literal["local", "http", "storage"]
@@ -43,7 +43,7 @@ class ManifestPreparedSource:
     file_type: str | None
 
 
-# fix(#1201): visibility for the four community statuses only. An unlisted
+# Visibility for the four community statuses only. An unlisted
 # extension-defined status gets `_UNMAPPED_INTENT_VISIBILITY` — a status this
 # backend can't interpret must never be the one that widens visibility.
 _COMMUNITY_INTENT_VISIBILITY: dict[str, str] = {
@@ -60,7 +60,7 @@ def validate_publication_intent(
 ) -> str:
     """Check a manifest publication intent against the live workflow extension.
 
-    fix(#1201): allowed set is the registered WorkflowExtension's
+    Allowed set is the registered WorkflowExtension's
     ``status_order()``, resolved per call and never cached — an overlay
     registers after import.
     """
@@ -138,7 +138,7 @@ def _storage_uri_to_key(uri: str) -> str:
     key = parsed.path.lstrip("/")
     if not key:
         raise ManifestSourceError("s3:// manifest source must include an object key")
-    # fix(#1216): `staging/` keys are system-owned transient uploads, reaped
+    # `staging/` keys are system-owned transient uploads, reaped
     # at terminal job status. An operator-declared source there would get
     # deleted, so refuse it at declaration time.
     if key.startswith("staging/"):

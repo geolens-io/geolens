@@ -1,6 +1,6 @@
 """Procrastinate task: replace the COG behind an existing raster dataset.
 
-feat(#1221): replaces a raster's ``RasterAsset`` pointer in place rather
+Replaces a raster's ``RasterAsset`` pointer in place rather
 than deleting and re-importing (which loses the dataset id, grants, and
 every map layer pointing at it). Raster peer of
 ``tasks_reupload.reupload_file`` — same door, same admission gate, same
@@ -115,13 +115,13 @@ async def _read_published_cog(cog_path: str) -> dict:
     write, out-of-space overview pass, driver quirk), and the next steps
     discard the last-known-good asset, so this must be an explicit check.
 
-    Second (fix(#1290)) is the catalog's metadata: reading it from
+    Second is the catalog's metadata: reading it from
     the artifact that WILL serve, once, means no second seam that can
     drift from the first — the pre-conversion source describes a file the
     dataset no longer serves (compression always changes, nodata/CRS/
     footprint change under an override).
 
-    fix(#1291): footprint stays on that list even though ``srid_override``
+    Footprint stays on that list even though ``srid_override``
     no longer moves the corner coordinates — it changes what they MEAN, so
     reading them off the source would place the dataset at the wrong spot
     with no field visibly disagreeing.
@@ -175,11 +175,11 @@ async def _convert_and_verify_cog(
     """Convert to COG and read the result back.
 
     Returns ``(path, cog_status, metadata_of_the_converted_file)`` — that
-    third element is what the catalog persists (fix(#1290)); see
+    third element is what the catalog persists; see
     ``_read_published_cog`` for why it comes from here, not the source.
 
     Disk-space precheck lives here because it guards this conversion
-    specifically: COG output can reach ~3x the source. fix(#448): the
+    specifically: COG output can reach ~3x the source. The
     scratch directory must already be on the staging volume, not the
     container's RAM-backed /tmp, or this measures the wrong filesystem.
     """

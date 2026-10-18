@@ -287,7 +287,7 @@ class VectorCommitRequest(BaseCommitRequest):
     )
 
 
-# fix(#1961): each of these reaches a conversion argument, which is the
+# Each of these reaches a conversion argument, which is the
 # rewrite strict mode exists to refuse. Mirrors ``check_and_prepare_cog``'s
 # own predicate, case-sensitive DEFLATE default included.
 def reject_strict_cog_conflict(model: Any) -> Any:
@@ -369,10 +369,10 @@ class ServiceCommitRequest(BaseCommitRequest):
             "the database. Deprecated: use the auth object with method bearer."
         ),
     )
-    # fix(#1755): the deprecated flat spelling of a credential is held
+    # The deprecated flat spelling of a credential is held
     # to the same rule as the `auth` object beside it on this door.
     _validate_token = field_validator("token")(_validate_safe_token)
-    # feat(#1746): declared LAST — the generated Python SDK gives each field
+    # Declared LAST — the generated Python SDK gives each field
     # a positional slot in declaration order, and appending cannot move a
     # slot that already exists. Pinned by test_service_auth_contract_1746.
     auth: ServiceAuthRequest | None = Field(
@@ -427,7 +427,7 @@ class CommitRequest(BaseModel):
         le=998999,
         description="EPSG code to use when the source CRS is missing or incorrect. Assigns (relabels) the CRS the source is read under rather than reprojecting from it: raster pixel values are unchanged, and vector geometries are reprojected to EPSG:4326 from the assigned CRS as usual.",
     )
-    # fix(#1931): the cap is declared here as well as on ServiceCommitRequest
+    # The cap is declared here as well as on ServiceCommitRequest
     # because only this model's schema is published, and a constraint a caller
     # cannot read is not part of the contract.
     token: str | None = Field(
@@ -474,13 +474,13 @@ class CommitRequest(BaseModel):
         default=None,
         description="CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).",
     )
-    # feat(#1746): the handler re-validates ServiceCommitRequest from THIS
+    # The handler re-validates ServiceCommitRequest from THIS
     # model's dump, so a field absent here is dropped before the subclass
     # ever sees it. Appended, never inserted, for the positional-slot reason above.
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
-    # fix(#1949): appended for that same reason rather than placed beside the
+    # Appended for that same reason rather than placed beside the
     # other raster fields, which would move five existing positional slots.
     strict_cog: bool = Field(
         default=False,

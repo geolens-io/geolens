@@ -79,7 +79,7 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "set_filter",
         "description": (
-            # fix(#549): a pointer, not a second copy of the rule. This tool
+            # A pointer, not a second copy of the rule. This tool
             # carried no routing guidance at all while run_analysis carried
             # some, which is how "show me the ..." landed on a persistent
             # layer filter instead of a query result.
@@ -120,7 +120,7 @@ CHAT_TOOLS_ANTHROPIC = [
             "desired paint object. Use the correct paint property for the "
             "geometry type: fill-color for polygons, line-color for lines, "
             "circle-color for points. Data-driven coloring (a colour that "
-            # fix(#549): capability pointer only -- request-classification
+            # Capability pointer only -- request-classification
             # prose here is what the routing guard rejects.
             "varies by column value) belongs to set_data_driven_style."
         ),
@@ -307,7 +307,7 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "query_data",
         "description": (
-            # fix(#549)/feat(#1242): behavioural only -- classifying user
+            # Behavioural only -- classifying user
             # phrasing here would compete with the system prompt's verb
             # classes (build_chat_system_prompt's "Query Data Responses").
             "Query the user's map data using SQL. The server generates the "
@@ -329,7 +329,7 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "run_analysis",
         "description": (
-            # fix(#549): behavioural only -- the system prompt is the single
+            # Behavioural only -- the system prompt is the single
             # owner of verb classification; nothing here may re-litigate
             # which phrasing wins.
             "Run a parameterized PostGIS geometry operation on a layer and "
@@ -348,9 +348,8 @@ CHAT_TOOLS_ANTHROPIC = [
                 },
                 "operation": {
                     "type": "string",
-                    # feat(#683): `clip` joined the enum once #682 shipped
-                    # the layer-sourced mask; the old drawn-polygon-only
-                    # narrowing no longer holds. `dissolve` stays out: it's
+                    # `clip` takes a layer-sourced mask, so it
+                    # is in the enum. `dissolve` stays out: it's
                     # materialize-only, an aggregate with no preview shape.
                     "enum": ["buffer", "centroid", "clip"],
                     "description": (

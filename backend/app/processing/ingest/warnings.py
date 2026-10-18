@@ -32,7 +32,7 @@ class DbfTruncationCollisionWarning(TypedDict):
 class MercatorClipDetail(TypedDict):
     dropped_features: int
     clipped_features: int
-    # fix(#906): True when the clip was skipped because the safe envelope
+    # True when the clip was skipped because the safe envelope
     # degenerates under ST_Transform into the source CRS (e.g. EPSG:4807
     # collapses to a line). Counts are 0/0 then; warn so it isn't silent.
     clip_skipped: NotRequired[bool]
@@ -47,7 +47,7 @@ class MercatorClipCounts(TypedDict):
     """Return shape of ``clip_to_mercator_bounds``.
 
     ``shifted_longitudes``: source was 0..360, translated to -180..180
-    before the clip ran. ``clip_skipped`` (fix(#906)): clip didn't run
+    before the clip ran. ``clip_skipped``: clip didn't run
     because the safe envelope degenerated in the source CRS; the
     longitude shift was still applied.
     """
@@ -103,7 +103,7 @@ def make_mercator_clip_warning(
 ) -> MercatorClipWarning | None:
     """Build a ``mercator_clip`` warning, or None when no geometry was lost.
 
-    fix(#888): the Web Mercator clamp can silently empty geometry (e.g. a
+    The Web Mercator clamp can silently empty geometry (e.g. a
     point at lat -89.95 becomes ``MULTIPOINT EMPTY``); this makes that
     user-visible instead. Any shape other than the documented counts dict
     (stale producer, monkeypatched stand-in) yields None rather than a
@@ -115,7 +115,7 @@ def make_mercator_clip_warning(
     clipped = clip.get("clipped_features")
     if not isinstance(dropped, int) or not isinstance(clipped, int):
         return None
-    # fix(#906): a skipped clip lost no data but must not be silent either —
+    # A skipped clip lost no data but must not be silent either —
     # the dataset now carries geometry the Mercator clamp never inspected.
     skipped = clip.get("clip_skipped") is True
     if dropped <= 0 and clipped <= 0 and not skipped:

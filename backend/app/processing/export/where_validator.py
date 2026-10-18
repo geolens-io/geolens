@@ -127,7 +127,7 @@ def validate_where_ast(where: str) -> None:
 def canonical_where(where: str) -> str:
     """Validate ``where`` and return its canonical sqlglot re-render.
 
-    fix(#430): for callers that interpolate the fragment into SQL
+    For callers that interpolate the fragment into SQL
     text, the re-emission of the validated AST is used, never raw bytes.
 
     Raises ValueError via validate_where_ast on any disallowed construct.
@@ -138,7 +138,7 @@ def canonical_where(where: str) -> str:
     return statements[0].args["where"].this.sql(dialect="postgres")
 
 
-# fix(#1870): BOTH quote kinds are scanned in one pass, because a
+# BOTH quote kinds are scanned in one pass, because a
 # single quote inside a double-quoted identifier opens no literal in Postgres
 # and must open none here either.
 _QUOTED_RUN_RE = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")

@@ -38,7 +38,7 @@ def _sql_quote_ident(name: str) -> str:
 
     Doubles embedded double-quotes (PostgreSQL-standard escape).
 
-    fix(#640): colons are backslash-escaped because SQLAlchemy ``text()``
+    Colons are backslash-escaped because SQLAlchemy ``text()``
     parses ``:name`` as a bind parameter even inside quoted identifiers
     (e.g. a column literally named ``:id``); ``text()`` unescapes ``\\:``
     back to ``:`` at compile time. Valid only inside ``text()`` — do not

@@ -65,12 +65,12 @@ async def record_token_usage(
     Why independent: ``MAX_AI_TOKENS_PER_USER_PER_DAY`` reads this table,
     but gated AI paths commit inconsistently — ``get_db()`` doesn't commit
     on success, streaming/chat never commit, only the non-stream map
-    handler does (fix(#402)) — so a savepoint-only write is dropped on
+    handler does — so a savepoint-only write is dropped on
     the rest, under-counting the cap. This transaction is durable
     regardless of the request lifecycle: tokens already spent must
     survive even a later rollback.
     """
-    # fix(#909): late-bind so the test fixture's rebinding of
+    # Late-bind so the test fixture's rebinding of
     # app.core.db.async_session is honored; a module-scope import snapshots
     # the dev-DB factory.
     from app.core.db import async_session
@@ -99,7 +99,7 @@ async def record_token_usage_from_error(
     subsystem: str,
     model: str | None,
 ) -> None:
-    """Persist what a failed tool loop had already spent (fix(#1778)).
+    """Persist what a failed tool loop had already spent.
 
     Reads the counts ``attach_token_usage`` stamped onto the exception (or
     its cause: ``asyncio.wait_for`` raises ``TimeoutError`` ``from`` the
@@ -121,7 +121,7 @@ async def record_token_usage_from_error(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )
-    # fix(#1778): shielded. This is called from the handler that is
+    # Shielded. This is called from the handler that is
     # about to re-raise, and when that exception IS the cancellation, a plain
     # await here would be cancelled before the row lands.
     await _await_write_even_if_cancelled(
@@ -152,7 +152,7 @@ async def usage_accounting(
 ) -> AsyncIterator[None]:
     """Bill a provider tool loop for what it spent, however it ends.
 
-    fix(#1778): each caller had its own ``except Exception``, and
+    Each caller had its own ``except Exception``, and
     cancellation isn't one — an SSE client disconnecting after a
     completed round left tokens unrecorded. One context manager instead,
     so a caller added later gets it by construction; a structural test

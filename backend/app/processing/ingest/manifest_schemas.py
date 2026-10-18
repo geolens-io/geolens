@@ -97,7 +97,7 @@ ManifestBbox = Annotated[
     Field(min_length=4, max_length=4, description="WGS84 bbox hint."),
 ]
 
-# fix(#1683): mirrors the upload door's tier-1 vector formats (FlatGeobuf,
+# Mirrors the upload door's tier-1 vector formats (FlatGeobuf,
 # KML, KMZ, zipped File Geodatabase). `.zip` already covers a zipped FGDB —
 # the shapefile-vs-fgdb split happens downstream in `source_format.py`,
 # keyed off content, not this schema.
@@ -211,7 +211,7 @@ class ManifestMetadata(_ManifestBaseModel):
     attribution: NonEmptyString5000 | None = None
     bbox: ManifestBbox | None = None
 
-    # fix(#1472): the manifest is another write path to records.attribution,
+    # The manifest is another write path to records.attribution,
     # so it carries the dataset PATCH's same guard — enforced here so markup
     # fails apply with a 422 instead of being silently dropped at commit.
     @field_validator("attribution")
@@ -230,9 +230,9 @@ class ManifestMetadata(_ManifestBaseModel):
 
 
 class ManifestPublication(_ManifestBaseModel):
-    # fix(#1201): deliberately NOT a Literal — record_status is an open set
-    # (an overlay may define its own, #1183), and a frozen enum here 422'd
-    # statuses the API itself accepted. Checked live by
+    # Deliberately NOT a Literal — record_status is an open set
+    # (an overlay may define its own, #1183), and a frozen enum here would 422
+    # statuses the API itself accepts. Checked live by
     # `validate_publication_intent` in manifest_sources.py. 20-char bound
     # matches the record_status column (String(20)).
     intent: str = Field(

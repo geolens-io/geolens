@@ -37,7 +37,7 @@ class EmbeddingUnavailableError(Exception):
 class _Unset:
     """Sentinel type: "the caller pinned nothing", distinct from a pinned None.
 
-    fix(#1525): `None` is a legitimate RESOLVED endpoint — the provider
+    `None` is a legitimate RESOLVED endpoint — the provider
     interface lets an extension answer `{"base_url": None}` meaning "use
     the client default", and a run that snapshots that has pinned a real
     value. Testing `base_url is None` would read that pin as an omission
@@ -66,7 +66,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
 
     The 130s provider timeout suits background paths (ingest, backfill);
     request-hot-path callers (semantic search) wrap this call in a short
-    ``asyncio.wait_for`` instead — see service_semantic (fix(#448)).
+    ``asyncio.wait_for`` instead — see service_semantic.
 
     Raises:
         EmbeddingUnavailableError: if no OpenAI-compatible API key is configured.
@@ -78,7 +78,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
 async def resolve_embedding_base_url(session: AsyncSession) -> str | None:
     """Resolve the provider endpoint exactly as generate_embeddings_batch does.
 
-    fix(#1525): a caller pinning a configuration for a whole run needs the
+    A caller pinning a configuration for a whole run needs the
     endpoint too, from the provider rather than reading
     ``EMBEDDING_BASE_URL`` itself — the fallback chain (EMBEDDING_BASE_URL
     -> OPENAI_BASE_URL -> operator default, plus credential binding in
@@ -100,11 +100,11 @@ async def generate_embeddings_batch(
 ) -> list[list[float]]:
     """Generate embedding vectors for many texts in ONE provider call.
 
-    fix(#448): callers chunk to a sane batch size (backfill uses 128; the
+    Callers chunk to a sane batch size (backfill uses 128; the
     OpenAI endpoint accepts up to 2048 inputs) instead of one record per API
     call. generate_embedding() delegates here with a one-element list.
 
-    fix(#1511, #1525): ``model``/``dimensions``/``base_url`` let a caller
+    ``model``/``dimensions``/``base_url`` let a caller
     that already resolved the config pin it for the whole run instead of
     re-reading on every call. Pinned by presence, not by not-None, because
     ``None`` is itself a resolved value (see ``_Unset``); omit an argument
@@ -134,7 +134,7 @@ async def generate_embeddings_batch(
     # Hardcode "openai_compatible" — community ships one embedding provider;
     # overlays add more under different names.
     provider_ext = get_embedding_provider("openai_compatible")
-    # fix(#1525): resolve the live config only when something below would still
+    # Resolve the live config only when something below would still
     # come out of it. A fully pinned call needs nothing from it, and asking
     # anyway reopens the window the pin exists to close: the shipped provider's
     # resolve RAISES (not diverges) once an admin repoints the endpoint, because
@@ -271,7 +271,7 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
 
     try:
         if settings.geolens_runtime_db_role:
-            # fix(#1287): the runtime role deliberately cannot own or
+            # The runtime role deliberately cannot own or
             # alter catalog relations. The privileged reconciler installs this
             # bounded SECURITY DEFINER operation with PUBLIC execute revoked.
             rebuild_result = await db.execute(
@@ -302,7 +302,7 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
                 )
             )
         else:
-            # fix(#449): pgvector rejects HNSW on vector columns over 2000
+            # Pgvector rejects HNSW on vector columns over 2000
             # dims; leave the column unindexed (exact-scan fallback) instead
             # of failing the whole dimension change.
             logger.warning(
@@ -667,7 +667,7 @@ async def generate_and_store_embedding(
 
     content_hash = compute_content_hash(content_text)
 
-    # fix(#1546): this function writes its own `model_name` label — the
+    # This function writes its own `model_name` label — the
     # case `generate_embeddings_batch` says MUST pin all three values. It
     # didn't: it labelled rows from `EMBEDDING_MODEL.get()` while letting
     # the provider re-read the config itself, so a swap between the two
@@ -708,7 +708,7 @@ async def generate_and_store_embedding(
     existing = result.scalar_one_or_none()
     unchanged = existing is not None and existing.content_hash == content_hash
 
-    # fix(#1546): an UNSTAMPED row predates the configuration stamp. Semantic
+    # An UNSTAMPED row predates the configuration stamp. Semantic
     # search still matches it on model name alone, so unchanged content is
     # still a skip — a record does not get re-embedded at provider cost just to
     # earn a stamp. A force regenerate is what replaces those.
@@ -720,7 +720,7 @@ async def generate_and_store_embedding(
         )
         return False
 
-    # fix(#1546): unchanged content is only a skip when the stored vector also
+    # Unchanged content is only a skip when the stored vector also
     # came from the configuration that is live now. A row stamped with another
     # one is invisible to semantic search, so leaving it in place would report
     # coverage the search cannot use — the same relocation of the bug that the
@@ -768,12 +768,12 @@ async def generate_and_store_embedding(
     if existing:
         existing.embedding = vector
         existing.content_hash = content_hash
-        # fix(#1546): re-stamp. The row is keyed (record_id, model_name), so a
+        # re-stamp. The row is keyed (record_id, model_name), so a
         # configuration change that keeps the model lands HERE rather than on
         # the insert branch — leaving the old stamp would label the new vector
         # with the configuration of the one it replaced.
         existing.config_fingerprint = config_fingerprint
-        # fix(#1580): the DB clock, not the app's — related items anchors
+        # The DB clock, not the app's — related items anchors
         # on a record's most recently written row, and a worker whose
         # clock runs behind the database's could write a row that sorts
         # BEFORE the one it replaced. `clock_timestamp()`, not `now()`:

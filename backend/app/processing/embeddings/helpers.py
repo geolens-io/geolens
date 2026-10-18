@@ -25,20 +25,20 @@ _has_embeddings_cache: dict[str, tuple[bool, float]] = {}
 _HAS_EMBEDDINGS_TTL = 30.0  # seconds
 _HAS_EMBEDDINGS_MAX = 8  # bounded; operators rarely run more than 2-3 models
 
-# fix(#1506): named so a caller can branch on "the model is unknown" without
+# Named so a caller can branch on "the model is unknown" without
 # repeating the literal. Read-side callers may keep treating it as a name that
 # matches no stored row; a WRITE-side caller has to check for it explicitly
 # (see DefaultProcessingPort.get_records_without_embeddings).
 UNKNOWN_EMBEDDING_MODEL = "__model_unknown__"
 
-# fix(#1546): the sibling of the above for the whole configuration. Not a hex
+# The sibling of the above for the whole configuration. Not a hex
 # digest, so it can never collide with a real fingerprint and therefore matches
 # no STAMPED row. It does still match an unstamped one, which is the same
 # grandfathering `RecordEmbedding.usable_by_config` applies everywhere else.
 UNKNOWN_EMBEDDING_CONFIG = "__config_unknown__"
 
 
-# fix(#1546): ceiling on how far an iterative scan will go
+# Ceiling on how far an iterative scan will go
 # looking for rows that survive the filter. pgvector's own default is 20000;
 # stating it here makes the bound visible at the one place iterative scan is
 # turned on, and keeps a pathological catalog from turning one search into a
@@ -52,7 +52,7 @@ async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
     Default ``ef_search`` (40) misses relevant matches in recall-sensitive
     queries (related-items, semantic-search). ``SET LOCAL`` scope only.
 
-    fix(#1546): iterative scan too, because every caller filters the
+    Iterative scan too, because every caller filters the
     index's output AFTER the approximate scan picks candidates — without
     it, a catalog whose nearest rows are mostly filtered out (partial
     regenerate, or two models in one index) can have every candidate
@@ -81,7 +81,7 @@ async def resolve_embedding_model_name(
 ) -> str:
     """Return the active embedding model name, or a sentinel on failure.
 
-    fix(#1525): ``uncached`` reads straight from the DB, for the one
+    ``uncached`` reads straight from the DB, for the one
     caller gating a destructive operation on this value; cached is the
     default otherwise (see ``_snapshot_embedding_config`` in backfill.py
     for why the pre-delete snapshot can't use it).
@@ -90,7 +90,7 @@ async def resolve_embedding_model_name(
     lookup. Resolution errors fall back to ``"__model_unknown__"`` for a
     correct EXISTS result instead of a crash.
 
-    fix(#1506): the sentinel's "matches no row" property reads OPPOSITE
+    The sentinel's "matches no row" property reads OPPOSITE
     directions per caller — a coverage COUNT under-reports (safe), but a
     "which records still need work" SELECT over-reports (every record
     looks unembedded), so the backfill caller compares against
@@ -146,7 +146,7 @@ async def resolve_live_embedding_config(
 ) -> tuple[str, int | None, str | None, str] | None:
     """The live (model, dimensions, endpoint, fingerprint), or None if unresolvable.
 
-    fix(#1546): callers need the TRIPLE, not just the fingerprint — search
+    Callers need the TRIPLE, not just the fingerprint — search
     filters stored rows on the fingerprint and must generate its query
     vector under the SAME configuration, so returning all four as one read
     (not two) stops a settings change mid-resolve from comparing vector B
@@ -192,7 +192,7 @@ async def resolve_embedding_config_fingerprint(
 ) -> str:
     """Fingerprint the LIVE embedding configuration, or answer with a sentinel.
 
-    fix(#1546): the read-side counterpart of `embedding_config_fingerprint`
+    The read-side counterpart of `embedding_config_fingerprint`
     — writers stamp from the configuration they PINNED; readers ask this
     what the live configuration is. ``model_name``, when a caller already
     resolved it, makes the model they filter on and the model inside the
@@ -304,7 +304,7 @@ async def get_anchor_embedding_row(
     Returns ``(embedding, model_name, config_fingerprint)``, or None when the
     record has no vector at all.
 
-    fix(#1580): ONE definition of "the anchor row", read once. Two separate
+    ONE definition of "the anchor row", read once. Two separate
     reads (rank against one, score against another) could land on different
     models after a model swap, since a record holds one row per model
     (``uq_record_embedding_model``). The identity travels with the vector
@@ -363,7 +363,7 @@ async def get_nearest_record_ids(
     ``restrict`` narrows the candidates before the limit applies, so rows it
     excludes never take a neighbor's place.
 
-    fix(#1580): neighbours are restricted to the anchor row's own vector
+    Neighbours are restricted to the anchor row's own vector
     space via ``usable_by_stored_anchor`` — same model AND same stamp as
     the ANCHOR, not the live configuration, so a record embedded under a
     superseded configuration still finds its own neighbours instead of
@@ -375,7 +375,7 @@ async def get_nearest_record_ids(
     without it, a catalog whose nearest rows are mostly foreign-space
     returns nothing while usable vectors sit in the table.
     """
-    # fix(#1580): the caller may hand its anchor in (the one that scores
+    # The caller may hand its anchor in (the one that scores
     # results afterwards does), avoiding a second READ COMMITTED read that
     # could land a newer row than the one just ranked. Optional because
     # metadata_service reads neighbours with no anchor of its own to disagree

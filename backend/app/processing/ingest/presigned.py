@@ -38,7 +38,7 @@ async def _cleanup_presigned_object(
 ) -> None:
     """Best-effort rollback delete of one presigned object.
 
-    fix(#1213): drains, and swallows BaseException — deliberate
+    Drains, and swallows BaseException — deliberate
     rollback semantics. Two callers below delete BOTH objects in
     sequence on a deliberate refusal; a cancellation escaping the first
     would leave the staging object alive, handing the client back the very
@@ -80,7 +80,7 @@ async def abort_presigned_multipart_upload(
 def remaining_job_lifetime_seconds(created_at: datetime) -> int:
     """Seconds a presigned URL for this job may still legitimately be honoured.
 
-    fix(#1235): URL expiry anchors at SIGNING time, the job
+    URL expiry anchors at SIGNING time, the job
     deadline anchors at `created_at`, and the two drift by however long the
     request takes between the job INSERT and each signature — on a
     many-part file the sequential part-URL signing loop can run seconds
@@ -103,7 +103,7 @@ def remaining_job_lifetime_seconds(created_at: datetime) -> int:
 def require_signable_job_lifetime(created_at: datetime) -> int:
     """Remaining lifetime, refusing outright when too little of it is left.
 
-    fix(#1235): a `max(1, ...)` floor mints a URL USABLE for one
+    A `max(1, ...)` floor mints a URL USABLE for one
     more second, past the deadline — there is no `ExpiresIn` value that
     means "already dead", since it's relative to SIGNING time. The only way
     to avoid handing out a live URL is to not sign one.
@@ -119,7 +119,7 @@ def require_signable_job_lifetime(created_at: datetime) -> int:
     lands in the multipart try that aborts the upload and re-raises this
     exception unchanged.
 
-    fix(#1235): the margin lives in `core/config` with the setting
+    The margin lives in `core/config` with the setting
     whose lower bound must equal it, so a timeout that can't clear this
     check no longer boots at all — reaching this refusal means the request
     was slow, not that the deployment is misconfigured.
@@ -136,16 +136,15 @@ def require_signable_job_lifetime(created_at: datetime) -> int:
 def sign_url_with_deadline(storage_method, created_at: datetime, *args):
     """Compute the remaining lifetime and sign, as two adjacent instructions.
 
-    fix(#1235): a SYNC callable, handed to `run_in_thread_draining`
+    A SYNC callable, handed to `run_in_thread_draining`
     so both halves happen inside the signing thread. Recomputing per
-    signature (r5) fixed the loop's own delay but left one more layer of
-    the same drift: the computation ran on the event loop, while
-    `ExpiresIn` starts counting when boto signs, and any gap between the
-    two (executor saturation, GIL contention before the thread is picked
-    up) pushed expiry that far past the job deadline.
+    signature fixes the loop's own delay, but computing on the event loop
+    would leave one more layer of the same drift: `ExpiresIn` starts
+    counting when boto signs, and any gap between the two (executor
+    saturation, GIL contention before the thread is picked up) would push
+    expiry that far past the job deadline.
 
-    This terminates the recursion rather than shrinking it again: no
-    scheduler boundary is left between reading the clock and signing,
+    No scheduler boundary is left between reading the clock and signing,
     since the two are adjacent statements in one thread.
 
     Every storage method here takes `expiration` as its final positional
@@ -191,11 +190,11 @@ async def verify_completed_presigned_upload(
 ) -> int:
     """Verify a completed direct-to-object-storage upload before accepting it.
 
-    fix(#1290): completion is an ADMISSION POINT — it was running the
-    creation-shaped check, so an owner at the dataset-count cap could pass
-    the replacement-aware request-time door, upload the bytes, and be
-    refused here because the finalizer still treated it as a new dataset.
-    Replacement-aware admission has to hold at every admission point.
+    Completion is an ADMISSION POINT: a creation-shaped check here would
+    let an owner at the dataset-count cap pass the replacement-aware
+    request-time door, upload the bytes, and be refused because the
+    finalizer treated it as a new dataset. Replacement-aware admission has
+    to hold at every admission point.
 
     ``replacing_dataset_id`` is the reupload doors' way of saying which it
     is; None means a genuine creation and keeps the original check.
@@ -250,7 +249,7 @@ async def verify_completed_presigned_upload(
 async def lock_presigned_job(db: AsyncSession, job_id: uuid.UUID) -> "IngestJob":
     """Re-fetch a job under a row lock, with attributes reloaded from the row.
 
-    fix(#1202): the one-shot guard reads `file_path`, and the
+    The one-shot guard reads `file_path`, and the
     property it needs is TWO-PART:
 
     1. The SELECT must LOCK. Without `with_for_update` two overlapping
@@ -286,8 +285,7 @@ async def lock_presigned_job(db: AsyncSession, job_id: uuid.UUID) -> "IngestJob"
 def require_completable_presigned_job(job: "IngestJob", *, restart_hint: str) -> None:
     """Refuse a completion the job can no longer legitimately accept.
 
-    fix(#1213): "one-shot" has TWO resolved-state facts. Both
-    doors checked only the first.
+    "one-shot" has TWO resolved-state facts, and both doors must check both.
 
     1. `file_path` set — bytes accepted. A second call would re-freeze
        whatever now sits at the staging key, which the client's unexpired
@@ -306,14 +304,12 @@ def require_completable_presigned_job(job: "IngestJob", *, restart_hint: str) ->
     after an hour — the same hour the PUT URL stays valid, so the windows
     overlap.
 
-    fix(#1556): "terminal" is BOTH statuses since that reaper started using
-    `cancelled` rather than `failed` for the abandoned-upload class; reading
-    only `failed` would reopen this hole for exactly that class while every
-    door-stamped-route test kept passing.
+    "terminal" is BOTH statuses, because that reaper uses `cancelled`
+    rather than `failed` for the abandoned-upload class; reading only
+    `failed` would reopen this hole for exactly that class.
 
     REJECT rather than resurrect — reviving a failed job would re-open the
-    client-writable-state-re-entering class this endpoint spent ten review
-    rounds closing.
+    client-writable-state-re-entering class this endpoint closes.
     """
     if job.file_path:
         raise HTTPException(
@@ -339,7 +335,7 @@ async def should_assemble_multipart(
 ) -> bool:
     """Whether CompleteMultipartUpload still needs to run for this job.
 
-    fix(#1202): for an S3 multipart upload the staging object
+    For an S3 multipart upload the staging object
     exists IF AND ONLY IF CompleteMultipartUpload succeeded — uploaded
     parts are invisible as an object until then — so its presence is a
     sound assembly-done record with no metadata to keep in sync.
@@ -388,7 +384,7 @@ async def validate_presigned_content(
 ) -> None:
     """Run the direct path's content check against an object in storage.
 
-    fix(#1202): the direct upload doors call ``validate_file_content`` on the
+    The direct upload doors call ``validate_file_content`` on the
     staged bytes; the presigned completion paths did not — a presigned
     upload could reach preview (which hands the file to GDAL) with no
     content check behind it.
@@ -484,7 +480,7 @@ async def finalize_presigned_object(
             detail="File not found in S3 after upload",
         )
 
-    # fix(#1202): resource-waste fast path, NOT the security boundary.
+    # Resource-waste fast path, NOT the security boundary.
     # Presigned PUT URLs don't bind Content-Length, so without this an
     # oversize upload gets fully copied just to be rejected a moment later.
     # Advisory ONLY: the client can swell the object between this
@@ -497,7 +493,7 @@ async def finalize_presigned_object(
     try:
         raise_if_over_max_upload_size(staging_size, await UPLOAD_MAX_SIZE_MB.get(db))
     except HTTPException:
-        # fix(#1213): drop any frozen copy a PRIOR attempt left,
+        # Drop any frozen copy a PRIOR attempt left,
         # not just the staging object. The caller's commit failing after a
         # successful freeze deliberately keeps both objects for retry; if
         # that retry then trips this gate, the earlier frozen copy is

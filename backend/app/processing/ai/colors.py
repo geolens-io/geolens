@@ -1,6 +1,6 @@
 """CSS-color shape validation for AI-produced style values.
 
-fix(#394): named colors validate against the real CSS keyword set and
+Named colors validate against the real CSS keyword set and
 functional args are restricted to numeric/separator characters, so an
 unparseable value ("notacolor", "rgb(foo)") never reaches MapLibre paint
 validation. MapLibre remains the final validator; this is the cheap junk
@@ -54,7 +54,7 @@ def is_css_colorish(value: object) -> bool:
     return candidate.lower() in CSS_NAMED_COLORS
 
 
-# fix(#394): derive the label halo from text luminance rather than a fixed
+# Derive the label halo from text luminance rather than a fixed
 # "#ffffff" halo -- light text (the model picks it whenever it assumes a
 # "dark" basemap) plus a white halo washes out on relief/imagery/pale areas.
 _DARK_HALO = "#1a1a1a"

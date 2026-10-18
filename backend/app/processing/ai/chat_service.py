@@ -158,7 +158,7 @@ def build_chat_system_prompt(
         # Limit column info to first N columns to avoid token bloat
         cols_raw = layer.column_info or []
         cols_limited = cols_raw[:_MAX_COLUMNS_PER_LAYER]
-        # fix(#1778): column names reach here from the client for a map layer
+        # Column names reach here from the client for a map layer
         # and from an upstream service schema for an ArcGIS/STAC ingest, so
         # they carry the same injection risk as the layer name sanitized below.
         cols_str = ", ".join(
@@ -197,7 +197,7 @@ def build_chat_system_prompt(
                 :_MAX_SAMPLE_COLS
             ]:
                 vals = values[:5] if isinstance(values, list) else [values]
-                # fix(#1778): raw row content — the one field on this layer
+                # Raw row content — the one field on this layer
                 # that an attacker controls end to end via a public dataset.
                 safe_col = sanitize_dataset_value(col_name)
                 safe_vals = [sanitize_dataset_value(v) for v in vals]
@@ -243,13 +243,13 @@ def build_chat_system_prompt(
         )
     )
 
-    # feat(#1242): companion to query_data/set_filter, not a rewrite — this
+    # Companion to query_data/set_filter, not a rewrite — this
     # fires AFTER query_data answers a QUESTION, so it never decides which
-    # tool a request reaches. It must stay an OFFER, once: #549 is the
-    # regression where "show me the..." silently landed on a persistent
-    # filter, reverted because a read-shaped question must never mutate
-    # saved map state on its own. Gated on can_edit — a read-only caller
-    # has no set_filter tool, so offering it here would be broken.
+    # tool a request reaches. It must stay an OFFER, once: "show me the..."
+    # must not silently land on a persistent filter, because a read-shaped
+    # question must never mutate saved map state on its own. Gated on
+    # can_edit — a read-only caller has no set_filter tool, so offering it
+    # here would be broken.
     filter_offer_note = (
         (
             "\n- If the question was a simple row predicate on a layer "
@@ -266,7 +266,7 @@ def build_chat_system_prompt(
         else ""
     )
 
-    # fix(#1778): the fence is assembled by one helper that also strips
+    # The fence is assembled by one helper that also strips
     # any forged marker out of the block. Interpolating the tags here would
     # have left the id, the serialized filter and the paint dict able to close
     # the region early, since none of those pass through a sanitizer.
@@ -445,7 +445,7 @@ async def chat_edit_map(
         return _collect_chat_action(tool_name, tool_input, tool_result)
 
     await release_connection(session)
-    # fix(#1778): one accounting shape at every provider call site.
+    # One accounting shape at every provider call site.
     # The tokens are spent the moment the provider answers, so any way out of
     # the loop must still bill the daily cap: an exhaustion, a later request
     # failure, a tool executor that raises, or a client that disconnects.
@@ -480,7 +480,7 @@ async def chat_edit_map(
     )
 
     # Parse actions into ChatAction models (per-item; invalid ones drop with a
-    # note instead of failing the whole turn — fix(#525))
+    # note instead of failing the whole turn)
     actions, invalid = _build_chat_actions(result.actions)
 
     # Validate layer_id references + add_layer dataset RBAC

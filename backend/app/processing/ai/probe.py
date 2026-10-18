@@ -1,4 +1,4 @@
-"""Live AI provider probe (fix(#627)).
+"""Live AI provider probe.
 
 The admin ai-status endpoint reports whether a provider key is CONFIGURED;
 this module answers whether it WORKS. A key rotated or expired upstream
@@ -125,7 +125,7 @@ async def _probe_embeddings(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     provider_ext = get_embedding_provider("openai_compatible")
     runtime_config = await provider_ext.resolve_runtime_config(db)
     model = await EMBEDDING_MODEL.get(db) or runtime_config.get("default_model")
-    # fix(#627): same dims resolution as production embedding
+    # Same dims resolution as production embedding
     # generation (generate_embeddings_batch) — probing with dimensions=None
     # (the model's natural size) would pass while a configured-but-unsupported
     # EMBEDDING_DIMS still breaks every real backfill/search call.

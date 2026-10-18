@@ -44,7 +44,7 @@ def _current_tenant_schema() -> str:
     Reads ``current_tenant_var`` and delegates to ``tenant_data_schema`` which
     is a hard no-op returning ``'data'`` in single_tenant mode.
     Called by ingest task helpers to route CREATE/RENAME/DROP/GRANT statements
-    to the correct per-tenant schema (DP-01, Phase 1209-02).
+    to the correct per-tenant schema.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
@@ -62,7 +62,7 @@ async def rename_pkey_to_match_table(session: "AsyncSession", table_name: str) -
     ALTER TABLE ... RENAME TO keeps the constraint (and its backing index)
     named after the attempt-scoped staging table (``*_staging_<uuid>_pkey``),
     which is what QGIS/pgAdmin/DBeaver users see on a direct connection
-    (db-audit #529). Call inside the publish transaction, which already
+    Call inside the publish transaction, which already
     holds the table's AccessExclusiveLock from the rename, so this cannot
     block. Failure is cosmetic and must never fail the ingest — it is
     swallowed under a SAVEPOINT and logged.
@@ -109,7 +109,7 @@ def _current_tenant_role() -> str:
     Reads ``current_tenant_var`` and delegates to ``tenant_reader_role`` which
     is a hard no-op returning ``'geolens_reader'`` in single_tenant mode.
     Called by ingest task helpers to GRANT SELECT to the correct per-tenant
-    reader role (DP-01, Phase 1209-02).
+    reader role.
     """
     from app.core.db.tenant_schema import tenant_reader_role
     from app.core.db.tenant_session import current_tenant_var
@@ -129,15 +129,15 @@ async def _emit_billing_event(
     event_id: str | None = None,
     table_name: str | None = None,
 ) -> bool:
-    """Dispatch a billable usage event to registered BillingExtensions (METER-01).
+    """Dispatch a billable usage event to registered BillingExtensions.
 
     Imports ONLY ``get_billing_extensions`` from ``app.platform.extensions`` —
-    zero billing/stripe symbols enter core (T-1213-06); no-op in OSS/
+    zero billing/stripe symbols enter core; no-op in OSS/
     single_tenant since ``DefaultBillingExtension`` has no ``on_usage_event``.
     Each extension call is wrapped in try/except that logs and continues:
-    a failing billing extension must never fail an ingest task (T-1213-05).
+    a failing billing extension must never fail an ingest task.
     ``tenant_id`` comes from the worker's ``current_tenant_var`` (set by
-    middleware), never client input (T-1213-07 spoofing).
+    middleware), never client input (a client-supplied value could be spoofed).
 
     Args:
         tenant_id: None (single_tenant, or context unset) returns immediately.
@@ -146,7 +146,7 @@ async def _emit_billing_event(
         event_id: dedup key — pass the Procrastinate job_id so retries stay
             idempotent at the DB layer.
         table_name: workers leave this None; the tile/OGC request path
-            passes it to drive the METER-03 last_accessed_at signal.
+            passes it to drive the last_accessed_at signal.
 
     Returns False when an extension raised, and True otherwise.
     """
@@ -170,7 +170,7 @@ async def _emit_billing_event(
                 table_name=table_name,
             )
         except Exception:  # broad: billing emit must NEVER fail an ingest task; varied extension errors
-            # Per-extension isolation — mirrors lifespan dispatch D-10 pattern
+            # Per-extension isolation — mirrors the lifespan dispatch pattern
             # (api/main.py bootstrap.py). Log and continue to next extension.
             _log.warning(
                 "billing_emit_error",
@@ -187,10 +187,10 @@ async def _emit_billing_event(
 class IngestContext:
     """Bundle of parameters shared across the post-ogr2ogr finalize pipeline.
 
-    KISS-2 / K7: ``_finalize_ingest`` used to take 11 keyword-only
-    parameters, which made every call site noisy and hard to keep in sync.
-    Collecting them in a dataclass keeps the call sites terse and adds a
-    single obvious place to add future finalize inputs.
+    ``_finalize_ingest`` takes many keyword-only parameters, which would make
+    every call site noisy and hard to keep in sync. Collecting them in a
+    dataclass keeps the call sites terse and gives future finalize inputs a
+    single obvious home.
     """
 
     session: "AsyncSession"
@@ -205,7 +205,7 @@ class IngestContext:
     user_metadata: dict[str, Any]
     source_url: str | None = None
     attempt_id: uuid.UUID | None = None
-    # feat(#1218): typed origin_ref for the created dataset, minus `kind`
+    # Typed origin_ref for the created dataset, minus `kind`
     # (derived from source_format). Keys are validated against the
     # per-kind allowlist in app/platform/dataset_origin.py, so nothing
     # unexpected — a credential most of all — reaches the column. Callers
@@ -248,16 +248,16 @@ task_app = App(
 )
 
 
-# fix(#1746): without a credential store, service tasks are dispatched with
+# Without a credential store, service tasks are dispatched with
 # the raw token in job kwargs; the worker only deletes SUCCESSFUL rows, so a
 # terminal failure leaves it in `procrastinate_jobs.args->>'token'`
 # indefinitely.
 #
-# fix(#1710): `url` joins `token` as a key worth purging. A submitted file URL
+# `url` joins `token` as a key worth purging. A submitted file URL
 # can be a presigned S3 or SAS link, which is bearer-equivalent, and it sits in
 # the row for the whole transfer plus forever after any non-successful
-# delivery. The statement itself stays in platform/jobs/sweep.py (#1755 item
-# 12), so there is still one home for it.
+# delivery. The statement itself stays in platform/jobs/sweep.py, so there
+# is still one home for it.
 async def purge_queued_job_arg(job_context: Any, *, arg_key: str = "token") -> None:
     """Best-effort: drop one credential-bearing key from this job's queue row.
 
@@ -314,7 +314,7 @@ def purge_token_on_failure(fn):
 async def cleanup_step(what: str, *, job_id: str) -> AsyncGenerator[None, None]:
     """Run one terminal-cleanup step; log a failure in it rather than raise it.
 
-    fix(#1755): a `finally`-block cleanup step must never replace the
+    A `finally`-block cleanup step must never replace the
     exception the block is already propagating, and must not skip the steps
     after it — wrap ONE step per `async with`; isolation is per block, not
     per `finally`.
@@ -346,7 +346,7 @@ def _append_job_warning(job, warning: "IngestJobWarning") -> None:
     Caller is responsible for committing the session. ``warning`` is a
     TypedDict from ``app.ingest.warnings.IngestJobWarning`` — route through
     that module's producer helpers rather than building one inline, to keep
-    this in sync with the Pydantic ``JobStatusResponse`` (TYPE-1).
+    this in sync with the Pydantic ``JobStatusResponse``.
     """
     warnings_list = list((job.user_metadata or {}).get("warnings", []))
     warnings_list.append(warning)
@@ -357,7 +357,7 @@ def _append_job_warning(job, warning: "IngestJobWarning") -> None:
 
 
 def _append_mercator_clip_warning(job, clip: dict | None) -> None:
-    """Warn when the Web Mercator clamp destroyed geometry (fix(#888)).
+    """Warn when the Web Mercator clamp destroyed geometry.
 
     ``clip`` is the ``clip_to_mercator_bounds`` return value. No-ops for the
     no-loss clip that every ordinary dataset produces, so each of the three
@@ -380,7 +380,7 @@ def _parse_temporal_fields(
     Each field is ISO-8601-parsed independently. A field that fails to
     parse is dropped from the return tuple but recorded in ``errors``
     (keyed by field name, value truncated to 100 chars) so the caller can
-    persist it to ``job.user_metadata.temporal_parse_errors`` for the UI (N5).
+    persist it to ``job.user_metadata.temporal_parse_errors`` for the UI.
     """
     from datetime import date as _date
 
@@ -425,7 +425,7 @@ def _manifest_text(user_metadata: dict, key: str) -> str | None:
 async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
     """Add ``metadata.tags`` as theme keywords the record does not already have.
 
-    fix(#2039): a re-apply reaches the reupload swap with the same list, and
+    A re-apply reaches the reupload swap with the same list, and
     ``uq_record_keyword`` is a unique index — an unconditional insert would
     fail the whole swap transaction on the second apply of one manifest.
     """
@@ -440,12 +440,12 @@ async def _apply_manifest_tags(session: Any, record: Any, tags: Any) -> None:
     from app.platform.extensions import get_processing_port
 
     port = get_processing_port()
-    # fix(#2039): the keyword class off the relationship of the record class the
+    # The keyword class off the relationship of the record class the
     # port already exposes — a new port accessor would be a required method, so
     # every overlay would have to re-pin, and processing/ cannot import this ORM.
     keywords_rel = sa_inspect(port.get_record_orm_class()).relationships["keywords"]
     RecordKeyword = keywords_rel.mapper.class_
-    # fix(#2039 review): the rows `uq_record_keyword` would actually collide
+    # The rows `uq_record_keyword` would actually collide
     # with, spelled as that index spells them — COALESCE, because a stored ''
     # collides with the NULL written below — and case-folded like `wanted`. A
     # record-wide read skipped a manifest tag that existed under another type.
@@ -474,12 +474,12 @@ async def apply_manifest_record_metadata(
     catalog ORM class here would add a ``processing`` -> ``modules.catalog``
     edge, which ``ProcessingPort`` exists to keep out.
 
-    feat(#1472): the read-back for ``manifest_job_metadata``'s
+    The read-back for ``manifest_job_metadata``'s
     ``metadata.attribution`` write, called once per ingest tail after the
     record exists and before the phase transaction commits — without it an
     operator-supplied attribution credit was accepted then silently dropped.
 
-    fix(#2039): ``license``, ``organization`` and ``tags`` are the same
+    ``license``, ``organization`` and ``tags`` are the same
     shape of accepted-then-dropped field, and every manifest under
     ``examples/manifests/`` sets them.
 
@@ -540,7 +540,7 @@ async def _job_phase_session(
     lock_and_statement_timeout_ms: int | None = None,
     require_status: str | None = None,
 ) -> "AsyncGenerator[tuple[AsyncSession, IngestJob | None], None]":
-    """Two-phase session bracket for ingest workers (REMED-03 / P2-05).
+    """Two-phase session bracket for ingest workers.
 
     Yields ``(session, job)``; ``job`` is ``None`` if the IngestJob row
     vanished between phases (caller should early-return; this logs and
@@ -552,7 +552,7 @@ async def _job_phase_session(
     ``lock_and_statement_timeout_ms``, if given, issues ``SET LOCAL
     lock_timeout``/``statement_timeout`` before the SELECT.
 
-    fix(#1778): pass ``require_status="running"`` at any phase that must not
+    Pass ``require_status="running"`` at any phase that must not
     resume after a stale-job sweep has failed the row — a worker that was
     only paused (not dead) can still hold a matching ``attempt_id`` and
     resume into a terminal row otherwise. This also switches the SELECT to
@@ -590,7 +590,7 @@ async def _job_phase_session(
             filters.append(IngestJob.status == require_status)
         stmt = select(IngestJob).where(*filters)
         if require_status is not None:
-            # fix(#1778): held through this phase's own first
+            # Held through this phase's own first
             # irreversible write and up to its next commit — see the
             # docstring above.
             stmt = stmt.with_for_update(key_share=True)
@@ -617,7 +617,7 @@ async def _job_phase_session(
 
 
 def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> None:
-    """Bind structlog contextvars for a worker task entry point (N1/R-18/R-24).
+    """Bind structlog contextvars for a worker task entry point.
 
     Procrastinate tasks run outside the request loop and so lack the
     ``request_id`` the HTTP middleware binds; ``job_id`` is the correlation
@@ -627,7 +627,7 @@ def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> N
     """
 
     structlog.contextvars.clear_contextvars()
-    # fix(#1770): also resets the credential-secret registry
+    # Also resets the credential-secret registry
     # (`core/service_tokens.register_credential_secret`) — otherwise a
     # prior job's registered secret lingers and mis-scrubs a later job's
     # log lines.
@@ -643,7 +643,7 @@ def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> N
 # File formats whose missing CRS declaration conventionally means EPSG:4326
 # (lon/lat). Anything else with geometry but no detectable CRS must fail (or
 # carry a user srid_override) instead of silently assuming 4326. Shared by
-# ingest_file and reupload_file (fix(#541): reupload lacked the gate).
+# ingest_file and reupload_file, so a reupload cannot skip the gate.
 ASSUMES_4326_SUFFIXES = (".csv", ".geojson", ".json", ".xlsx", ".xls")
 
 
@@ -675,10 +675,10 @@ def _resolve_effective_srid(
     """Decide which SRID to feed to ``add_4326_column``.
 
     User override takes precedence, otherwise the detected source SRID,
-    otherwise 4326 (safe default for GeoJSON/CSV). K1/KISS-3 extraction from
-    ``ingest_file``. Callers in non-spatial paths should not invoke this
-    helper — the fallback only makes sense when the caller has already
-    decided a geometry column will exist.
+    otherwise 4326 (safe default for GeoJSON/CSV).
+    Callers in non-spatial paths should not invoke this helper — the
+    fallback only makes sense when the caller has already decided a
+    geometry column will exist.
     """
     if srid_override is not None:
         return int(srid_override)
@@ -709,7 +709,7 @@ async def _detect_and_override_geometry(
 
     Callers are responsible for importing the file as non-spatial (see the
     ``ogr_geometry_type = None if user_wants_geom else ...`` branch in
-    ``ingest_file``) before invoking this helper. K1/KISS-3 extraction.
+    ``ingest_file``) before invoking this helper.
     """
     from app.processing.ingest.metadata import _qtable
 
@@ -895,7 +895,7 @@ async def run_paged_arcgis_service_fetch(
             else min(page_size, feature_count - offset)
         )
         if grew != expected:
-            # fix(#1675): positive growth alone isn't enough — a server
+            # Positive growth alone isn't enough — a server
             # returning fewer rows than requested while offset advances by
             # page_size would silently skip records. A mid-fetch source
             # mutation trips this too; failing is the safe direction.
@@ -1376,7 +1376,7 @@ async def _finalize_ingest(ctx: IngestContext):
         ingestion=ingestion,
     )
     await apply_source_field_labels(session, dataset.id, user_metadata)
-    # fix(#430): create_dataset defaults the record to 'published',
+    # create_dataset defaults the record to 'published',
     # so the before_insert hook has already stamped published_at by the time
     # this overwrite runs. A non-published final status must not keep that
     # timestamp — the real transition path (_apply_record_status_change)
@@ -1386,11 +1386,11 @@ async def _finalize_ingest(ctx: IngestContext):
     if final_status != "published":
         dataset.record.published_at = None
 
-    # feat(#1472): the manifest's credit line, which create_dataset has no
+    # The manifest's credit line, which create_dataset has no
     # argument for. Same transaction as the record it annotates.
     await apply_manifest_record_metadata(session, dataset.record, user_metadata)
 
-    # feat(#1218): system-managed origin pointer, in the same transaction that
+    # System-managed origin pointer, in the same transaction that
     # creates the dataset. Service ingest supplies the enriched URL through
     # ctx.source_url; an uploaded file has no remote origin to point at, so
     # its origin_uri stays NULL and only the ref carries the filename.
@@ -1401,7 +1401,7 @@ async def _finalize_ingest(ctx: IngestContext):
         uri=ctx.source_url,
         **(ctx.origin_ref or {}),
     )
-    # fix(#1271): a first service or STAC ingest fetched its bytes
+    # A first service or STAC ingest fetched its bytes
     # from the origin moments ago, so the import IS a contact — same contract
     # as the reupload swap below. Without this, every freshly imported
     # service dataset reported last_checked_at NULL until someone probed it.
@@ -1422,7 +1422,7 @@ async def _finalize_ingest(ctx: IngestContext):
     # attempt predicate is the worker lease fence: if a stale worker resumes
     # after a retry rotated the token, this no-op raises and the surrounding
     # phase transaction rolls back the dataset it built.
-    # REMED-02 / ingest-audit P2-07: stamp the terminal progress signal so the
+    # Stamp the terminal progress signal so the
     # polling UI sees current_step=complete + progress=1.0 immediately on
     # success. ``rows_processed`` is the feature_count derived by
     # ``extract_metadata`` above; raster ingests (which do not call this
@@ -1491,7 +1491,7 @@ def _is_lock_timeout_error(exc: BaseException) -> bool:
     asyncpg exception. Check both shapes so behavior is identical
     regardless of where the exception bubbles up from.
 
-    ING-06 / P2-08: used by ``_install_reupload_table`` to gate its single
+    Used by ``_install_reupload_table`` to gate its single
     retry. Returns False for any other exception class or SQLSTATE so
     real errors (e.g., 23505 unique violation) still propagate
     immediately.
@@ -1541,7 +1541,7 @@ async def _run_service_import_with_wfs_fallback(
     """Run a service import with WFS namespace retry + optional auth detection.
 
     Extracts the retry pattern that appears in both ingest_service and
-    reupload_service (KISS-8). If the initial import raises
+    reupload_service. If the initial import raises
     ``IngestionError`` and the layer name has a ``ns:name`` prefix,
     retries with the unqualified name. If ``auth_error_message`` is
     provided and the token is None and the error looks like an auth
@@ -1648,7 +1648,7 @@ async def install_candidate_table(
         raise ValueError("Restoring the previous version needs a holding name")
 
     # Tenant schema for this ingest: same schema for every table renamed
-    # (T-1209-07: the RENAMEs must stay intra-schema so they are atomic DDL).
+    # (the RENAMEs must stay intra-schema so they are atomic DDL).
     _tenant_schema = _current_tenant_schema()
 
     def _q(name: str) -> str:
@@ -1677,7 +1677,7 @@ async def install_candidate_table(
         {"schema": _tenant_schema, "tn": table_name},
     )
 
-    # ING-06 (P2-08): wrap the swap DDL in SAVEPOINTs + single retry on
+    # Wrap the swap DDL in SAVEPOINTs + single retry on
     # lock_timeout. Autovacuum can hold AccessExclusiveLock long enough to
     # collide with the 5s default; bumping to 15s on retry plus a 200ms
     # sleep gives the autovacuum a chance to clear without surfacing the
@@ -1719,7 +1719,7 @@ async def install_candidate_table(
             # them, so a partitioned table is not kept.
             await session.execute(text(f"DROP TABLE {_q(previous)}"))
 
-    # fix(#1917): a `SET LOCAL` survives RELEASE SAVEPOINT, so the DDL budget
+    # A `SET LOCAL` survives RELEASE SAVEPOINT, so the DDL budget
     # below outlives its savepoint and would clamp every later wait in this
     # transaction. Capture what is in effect; it is put back after the swap.
     pre_swap_lock_timeout = await session.scalar(
@@ -1761,14 +1761,14 @@ async def install_candidate_table(
             retry_timeout_seconds=15,
         )
 
-    # fix(#1917): the DDL budget ends here. `set_config(..., true)` is
+    # The DDL budget ends here. `set_config(..., true)` is
     # `SET LOCAL` taking a bind parameter.
     await session.execute(
         text("SELECT set_config('lock_timeout', :value, true)"),
         {"value": pre_swap_lock_timeout},
     )
 
-    # fix(#448): belt-and-braces after the swap — the staging pipeline is
+    # Belt-and-braces after the swap — the staging pipeline is
     # responsible for the GIST index, but a re-ingest of a table that already
     # lost its index (the IF-NOT-EXISTS name-collision regression) must
     # self-heal here rather than serve full-scan tiles until the next audit.
@@ -1810,7 +1810,7 @@ async def _write_reupload_catalog(
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
-    )  # LAZY — preserved per D-17
+    )  # LAZY: imported at call time
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.catalog_projection import project
     from app.processing.ingest.previous_version import (
@@ -1834,7 +1834,7 @@ async def _write_reupload_catalog(
     if source_url is not None:
         dataset.source_url = source_url
 
-    # fix(#1218): restamp the binding to describe where the CURRENT bytes
+    # Restamp the binding to describe where the CURRENT bytes
     # came from. Without this a file reupload of a registered-postgis or
     # service dataset leaves the old pointer in place — computed origin
     # `upload` beside a stored ref still claiming `postgis` — and a later
@@ -1857,7 +1857,7 @@ async def _write_reupload_catalog(
     # expired after flush, and the next read of dataset.last_refreshed_at then
     # lazy-loads against a session that may already be closed.
     swap_time = datetime.now(timezone.utc)
-    # fix(#1271): set_dataset_origin just cleared the probe state, and
+    # set_dataset_origin just cleared the probe state, and
     # for a service or STAC origin this swap IS a contact — the bytes were
     # fetched from that origin moments ago. Leaving last_checked_at NULL
     # would make the API claim the origin was never contacted, which is the

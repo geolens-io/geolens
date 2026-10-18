@@ -51,7 +51,7 @@ logger = structlog.stdlib.get_logger(__name__)
 async def _daily_token_budget(session: AsyncSession, user: Identity) -> tuple[int, int]:
     """Snapshot the per-user daily AI token cap and 24h usage.
 
-    fix(#430): the cap is enforced once at request entry
+    The cap is enforced once at request entry
     (enforce_ai_token_budget), so a caller near the cap could still run a
     full multi-round tool loop over it. Returns ``(cap, used_in_last_24h)``;
     ``cap <= 0`` means unlimited. Callers add this request's in-memory
@@ -195,7 +195,7 @@ async def _stream_anthropic_chat(
     total_output = 0
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
     final_message = None
-    daily_cap, daily_used = await _daily_token_budget(session, user)  # fix(#430)
+    daily_cap, daily_used = await _daily_token_budget(session, user)
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
@@ -220,7 +220,7 @@ async def _stream_anthropic_chat(
             )
             break
 
-        # fix(#430): stop before the next round would push the user over their
+        # Stop before the next round would push the user over their
         # daily token cap (snapshot + this request's accumulator; no per-round query).
         if daily_cap > 0 and daily_used + total_input + total_output >= daily_cap:
             logger.info(
@@ -233,14 +233,14 @@ async def _stream_anthropic_chat(
                 "type": "error",
                 "message": "Daily AI token budget exceeded. Try again later.",
             }
-            # fix(#430): return, not break — falling through emitted a
+            # Return, not break — falling through emitted a
             # second "No response generated" error after the budget error.
             # Usage is recorded per-round, so nothing post-loop is skipped.
             return
 
         buffered_tokens: list[str] = []
         has_tool_use = False
-        # fix(#402): tool_start is buffered, not yielded mid-stream, since
+        # tool_start is buffered, not yielded mid-stream, since
         # usage is only retrievable from get_final_message() below — a
         # yield before that would let a disconnect skip this round's
         # accounting. Flushed AFTER record_token_usage so the record
@@ -285,7 +285,7 @@ async def _stream_anthropic_chat(
         if hasattr(final_message, "usage") and final_message.usage:
             total_input += final_message.usage.input_tokens
             total_output += final_message.usage.output_tokens
-            # fix(#402): record THIS round's usage now, before the
+            # Record THIS round's usage now, before the
             # token/tool-event yields below — a client disconnect mid-stream
             # raises GeneratorExit at a yield, skipping any end-of-function
             # accounting, so the daily cap would be bypassable by aborting
@@ -348,7 +348,7 @@ async def _stream_anthropic_chat(
                         {
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            # fix(#1778): fenced, not bare JSON.
+                            # Fenced, not bare JSON.
                             "content": tool_result_content(
                                 raw_results[0] if raw_results else {}
                             ),
@@ -381,7 +381,7 @@ async def _stream_anthropic_chat(
 
     # Validate actions before yielding (mirrors non-streaming path).
     # Per-item build: one invalid action drops with a note instead of raising
-    # through the broad except and discarding the whole turn (fix(#525)).
+    # through the broad except and discarding the whole turn.
     actions, invalid = _build_chat_actions(collected_actions)
     actions, dropped = await _validate_actions(
         actions, layers, session=session, user=user, port=port
@@ -431,7 +431,7 @@ async def _stream_openai_chat(
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
     total_input = 0
     total_output = 0
-    daily_cap, daily_used = await _daily_token_budget(session, user)  # fix(#430)
+    daily_cap, daily_used = await _daily_token_budget(session, user)
     # Read-only enforcement backstop: the XML fallback (parse_xml_tool_calls)
     # below extracts tool calls from model text, bypassing the advertised schema.
     # Restrict execution/collection to the selected tool set so a view-only caller
@@ -461,7 +461,7 @@ async def _stream_openai_chat(
             )
             break
 
-        # fix(#430): stop before the next round would push the user over their
+        # Stop before the next round would push the user over their
         # daily token cap (snapshot + this request's accumulator; no per-round query).
         if daily_cap > 0 and daily_used + total_input + total_output >= daily_cap:
             logger.info(
@@ -474,7 +474,7 @@ async def _stream_openai_chat(
                 "type": "error",
                 "message": "Daily AI token budget exceeded. Try again later.",
             }
-            # fix(#430): return, not break — falling through yielded empty
+            # Return, not break — falling through yielded empty
             # actions/done, letting clients treat the capped request as success.
             # Usage is recorded per-round, so nothing post-loop is skipped.
             return
@@ -484,7 +484,7 @@ async def _stream_openai_chat(
         content_parts: list[str] = []
         has_tool_use = False
         buffered_tokens: list[str] = []
-        # fix(#402): buffer tool_start (flushed after the
+        # Buffer tool_start (flushed after the
         # per-round record below), so a disconnect can't skip this round's
         # accounting via a mid-stream tool_start yield.
         pending_tool_starts: list[dict] = []
@@ -497,7 +497,7 @@ async def _stream_openai_chat(
                 _round_in, _round_out = delta.usage
                 total_input += _round_in
                 total_output += _round_out
-                # fix(#402): record usage as it is learned, before the
+                # Record usage as it is learned, before the
                 # post-round token/tool yields. A client disconnect raises
                 # GeneratorExit at a yield and skips any end-of-function
                 # accounting, so recording here (durable, self-committing) keeps
@@ -633,7 +633,7 @@ async def _stream_openai_chat(
 
     # Validate actions before yielding (mirrors non-streaming path).
     # Per-item build: one invalid action drops with a note instead of raising
-    # through the broad except and discarding the whole turn (fix(#525)).
+    # through the broad except and discarding the whole turn.
     actions, invalid = _build_chat_actions(collected_actions)
     actions, dropped = await _validate_actions(
         actions, layers, session=session, user=user, port=port
@@ -710,7 +710,7 @@ async def stream_chat_edit(
         ):
             yield event
     except Exception as e:  # broad: SSE stream generator — any unhandled SDK/runtime error must yield a graceful error event
-        # fix(#1778): same positive allowlist as the map-generation
+        # Same positive allowlist as the map-generation
         # generator. This branch passed every ValueError/KeyError through,
         # but nothing here raises either deliberately — a KeyError names an
         # internal dict key, and OpenAICredentialDestinationError is a

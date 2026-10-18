@@ -32,7 +32,7 @@ class RecordEmbedding(Base):
     )
     embedding = mapped_column(Vector(), nullable=False)
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    # fix(#1546): the vector space a row lives in is a function of model,
+    # The vector space a row lives in is a function of model,
     # width, AND endpoint — `model_name` names only the first, so one
     # model behind two endpoints is two spaces under one label. This is
     # the SHA-256 of that triple, from `embedding_config_fingerprint` in
@@ -59,7 +59,7 @@ class RecordEmbedding(Base):
     ) -> ColumnElement[bool]:
         """Match rows whose vector can be compared against ``config_fingerprint``.
 
-        fix(#1546): ONE definition of the rule, on the model — every reader
+        ONE definition of the rule, on the model — every reader
         (semantic search, the non-force backfill's "covered" predicate, admin
         coverage stats, and `CatalogPort.record_embedding_orm_class()`) must
         apply the same one. The admin panel's raw-SQL coverage query spells
@@ -89,7 +89,7 @@ class RecordEmbedding(Base):
     ) -> ColumnElement[bool]:
         """Match rows comparable against ANOTHER STORED row's configuration.
 
-        fix(#1580): related items compares two STORED rows, so the pair, not
+        Related items compares two STORED rows, so the pair, not
         the live configuration, decides comparability. Rule: an unstamped
         side is comparable to every space of its model, whichever side it is
         on — a NULL anchor matches every row of its model, a stamped anchor

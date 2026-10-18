@@ -41,7 +41,7 @@ class StagingResult:
     three_d: dict
     has_geometry: bool
     geometry_type: str | None
-    # fix(#888): clip_to_mercator_bounds accounting, so the caller (which owns
+    # clip_to_mercator_bounds accounting, so the caller (which owns
     # the job row) can warn the user about geometry the clamp destroyed.
     mercator_clip: dict | None = None
 
@@ -119,7 +119,7 @@ async def reap_presigned_staging_object(
     leaves an orphan, better than failing a job whose work is already
     committed.
     """
-    # fix(#1207): terminal-status guard lives HERE, not per tail — a
+    # The terminal-status guard lives HERE, not per tail — a
     # non-terminal exit (missing job/dataset, lost heartbeat claim) must not
     # sweep, since the attempt may be re-claimed and still need these bytes.
     if final_status not in ("complete", "failed") or not owned_staging_key:
@@ -173,7 +173,7 @@ async def _validate_upload_file_safety(
     validate_file_content(file_path, effective_filename)
     validate_file_size(file_path, max_size_mb * 1024 * 1024)
     validate_archive_safety(file_path, effective_filename)
-    # fix(#1846, GHSA-hrf5-v3cq-frx5): what the file says to do is as much a
+    # What the file says to do is as much a
     # property of the upload as its shape is. Off the event loop: the linear
     # schema walk is still real work on a request thread.
     await run_in_thread_draining(
@@ -393,15 +393,15 @@ async def _cleanup_staging_on_failure(
 
     The terminal-write site for the import tasks: applies the
     ``redact_failure_reason`` backstop, the ``pending``-inclusive attempt
-    fence (fix(#1274): a worker-time refusal that raises before the claim
+    fence (a worker-time refusal that raises before the claim
     must still finalize the job it owns rather than leave it for the stale
     sweep), and the ``ingest_failed`` notification.
 
-    fix(#1778): ``staging_table`` is "" for paths with none (the VRT tail
+    ``staging_table`` is "" for paths with none (the VRT tail
     reaps its object keys in its own ``finally``) — an empty name skips the
     DROP rather than interpolating and raising inside the best-effort guard.
 
-    fix(#1778): ORDER is the contract — the failure row is written and
+    ORDER is the contract — the failure row is written and
     committed BEFORE the drop, because a statement error aborts the whole
     transaction and every later statement on that session raises until
     rolled back. Drop-first previously left a job ``running`` with no
@@ -409,7 +409,7 @@ async def _cleanup_staging_on_failure(
     added here that can fail goes after the commit, in its own guarded
     block with its own rollback.
 
-    fix(#1950): the failure UPDATE runs under ``JOB_ERROR_WRITE_TIMEOUT_MS``;
+    The failure UPDATE runs under ``JOB_ERROR_WRITE_TIMEOUT_MS``;
     on a contended row it logs ``job_error_write_timeout`` and returns
     rather than waiting — the job stays ``running`` and the caller re-raises
     the failure it was already handling.
@@ -426,21 +426,21 @@ async def _cleanup_staging_on_failure(
     from app.processing.ingest.metadata import _qtable
 
     job_id = job.id
-    # fix(#1277): last boundary before this text becomes durable — feeds the
+    # Last boundary before this text becomes durable — feeds the
     # persisted error_message, the log record, and the notification reason,
     # so redacting once here covers all three for every caller.
-    # fix(#1953): ADR-002 Decision 3 now covers this sink, and it is the
+    # The stored-reason rule covers this sink, and it is the
     # exception rather than its text that crosses, so a library exception
     # becomes a code instead of its statement-and-parameters dump.
     error_message = redact_failure_reason(exc)
     await session.rollback()
 
-    # fix(#1950): an expired budget must not become the task's outcome. Swallowed
+    # An expired budget must not become the task's outcome. Swallowed
     # and logged as its own event, so the caller re-raises the ingest failure and
     # the report below still runs; `written` gates what the write earned.
     written = landed = False
     try:
-        # fix(#1950): armed AFTER the rollback that would discard it and before
+        # Armed AFTER the rollback that would discard it and before
         # the UPDATE, which is the statement that blocks on a contended job row;
         # inside the guard because arming can fail on a lost connection too.
         await arm_job_error_write_budget(session)

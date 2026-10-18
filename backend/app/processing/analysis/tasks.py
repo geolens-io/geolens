@@ -78,7 +78,7 @@ _POLYGONAL = {"POLYGON", "MULTIPOLYGON"}
 _DRAWN_MASK_OPERATIONS = ("clip", "select_by_location")
 
 
-# fix(#1013): the CTAS is the only unbounded statement a user can queue, and
+# The CTAS is the only unbounded statement a user can queue, and
 # its budget is an operator setting. Read through a function rather than bound
 # at import, so no module-level snapshot can freeze the first value seen.
 def materialize_timeout() -> str:
@@ -88,7 +88,7 @@ def materialize_timeout() -> str:
     return f"{settings.analysis_materialize_timeout_seconds}s"
 
 
-# fix(#692): the mid-task commit ends the transaction carrying the CTAS budget,
+# The mid-task commit ends the transaction carrying the CTAS budget,
 # so registration's full-scan metadata extraction would otherwise run with no
 # statement budget at all. Larger by default, but never unbounded.
 def registration_timeout() -> str:
@@ -98,7 +98,7 @@ def registration_timeout() -> str:
     return f"{settings.analysis_registration_timeout_seconds}s"
 
 
-# fix(#1012): per-statement work_mem for the materialize CTAS, an operator
+# Per-statement work_mem for the materialize CTAS, an operator
 # setting because the database's memory ceiling and the worker replica count are
 # both invisible here. 0 skips the SET LOCAL; config.py carries the arithmetic.
 
@@ -140,7 +140,7 @@ def _materialize_work_mem() -> str | None:
     return f"{per_slot_kb}kB"
 
 
-# fix(#694): post-CTAS backstop on the built output's on-disk size. The enqueue
+# Post-CTAS backstop on the built output's on-disk size. The enqueue
 # gates read a cached feature_count snapshot that can be stale; this cannot be.
 # Buffer motivates it: the one amplifying operation, and vectors have no quota.
 MAX_OUTPUT_BYTES = 2 * 1024**3
@@ -153,12 +153,12 @@ ANALYSIS_JOBS = Counter(
 )
 
 
-# fix(#700): how long a graceful shutdown waits for the cancel bookkeeping
+# How long a graceful shutdown waits for the cancel bookkeeping
 # before giving up on it, and how much of that the lock release may take.
 CANCEL_CLEANUP_SECONDS = 15
 CANCEL_ROLLBACK_SECONDS = 5
 
-# fix(#1957): DERIVED, so the two deadlines cannot drift apart. The
+# DERIVED, so the two deadlines cannot drift apart. The
 # failure write spends its budget twice, on the pool checkout and again on the
 # UPDATE, and a second is left for scheduling. Sized this way the write always
 # reports why it gave up instead of being cancelled by the shield above it.
@@ -180,7 +180,7 @@ def _user_error_message(exc: Exception, *, registered: bool = False) -> str | Ex
     if isinstance(exc, SQLAlchemyError):
         exc_text = str(exc).lower()
         if "querycancelederror" in exc_text or "statement timeout" in exc_text:
-            # fix(#813, #1013): name the budget that actually fired. The CTAS
+            # Name the budget that actually fired. The CTAS
             # transaction carries the materialize one; the commit that ends it re-arms
             # registration with its own, and both are settings.
             budget = registration_timeout() if registered else materialize_timeout()
@@ -190,7 +190,7 @@ def _user_error_message(exc: Exception, *, registered: bool = False) -> str | Ex
             )
         if isinstance(exc, (DataError, InternalError)):
             return "The analysis failed while processing this data"
-        # fix(#766): only the SQLSTATEs meaning "this column/type combination
+        # Only the SQLSTATEs meaning "this column/type combination
         # can't do this operation" -- 42883, 42803, 42804. Not the whole class
         # 42: 42501, 42P01 and 42601 are server or configuration faults.
         if isinstance(exc, ProgrammingError) and str(
@@ -223,7 +223,7 @@ async def _fail_cancelled_job(
     """
     from app.core.db import async_session
 
-    # fix(#700): release `working_session`'s job-row lock first, time-bounded so a
+    # Release `working_session`'s job-row lock first, time-bounded so a
     # wedged connection cannot eat the shield window, or the fenced update below
     # waits on our own lock and the row strands in 'running'.
     try:
@@ -234,7 +234,7 @@ async def _fail_cancelled_job(
         logger.warning("analysis.cancel_rollback_failed", job_id=job_id)
 
     async with async_session() as session:
-        # fix(#1957): the clamped budget, not the shared one. This
+        # The clamped budget, not the shared one. This
         # write is already under the caller's shield, and the shared 10s twice
         # over plus the rollback above does not fit inside it.
         fenced = await write_job_failure_for_attempt(
@@ -248,12 +248,12 @@ async def _fail_cancelled_job(
             task_name="analysis_cancelled",
             budget_ms=CANCEL_WRITE_BUDGET_MS,
         )
-        # fix(#1957): an expiry proves nothing about who owns the row, so the
+        # An expiry proves nothing about who owns the row, so the
         # table is left for the sweep rather than probed — leak over loss.
         if fenced is None:
             return
         if not fenced:
-            # fix(#814): a swept row leaves an unregistered orphan. Probe for
+            # A swept row leaves an unregistered orphan. Probe for
             # an adopting dataset row; no row means the DROP is safe, and a
             # probe that errors leaks the table rather than dropping storage.
             await drop_unadopted_analysis_output(
@@ -348,7 +348,7 @@ async def _resolve_and_validate_columns(
         _reject_reserved_alias_columns(carry_cols)
     if operation == "spatial_join" and join_table_name is not None:
         await _reject_missing_join_fields(session, schema, join_table_name, join_fields)
-    # fix(#956): an overlay carries columns from BOTH inputs, so it is the
+    # An overlay carries columns from BOTH inputs, so it is the
     # only operation that also needs the second layer's live column list.
     mask_carry_cols: list[str] = []
     if operation == "intersect" and mask_table_name is not None:
@@ -490,7 +490,7 @@ async def _resolve_layer_table_ref(
         raise ValueError(f"{label.capitalize()} dataset not found")
     if not _SAFE_TABLE.match(layer.table_name):
         raise ValueError(f"Invalid {label} table name")
-    # fix(#1097): re-applied here, not just at enqueue, because a re-upload changes
+    # Re-applied here, not just at enqueue, because a re-upload changes
     # `Dataset.geometry_type` while the job waits. Polygonal for the mask; "any" for the
     # join layer, where only absence is fatal.
     geometry_type = (layer.geometry_type or "").upper()
@@ -568,7 +568,7 @@ async def _enforce_output_size(
     )
     size_bytes = result.scalar_one_or_none()
     if size_bytes is not None and size_bytes > MAX_OUTPUT_BYTES:
-        # fix(#813): only buffer has a distance to reduce, so the others get
+        # Only buffer has a distance to reduce, so the others get
         # advice they can act on.
         advice = (
             "Reduce the buffer distance or run it on a smaller dataset."
@@ -620,7 +620,7 @@ async def _complete_job_for_attempt(
             await run_publish_followups(uuid.UUID(job_id), attempt_id=attempt_id)
         return
     logger.warning("analysis.complete_write_superseded", job_id=job_id)
-    # fix(#814): the output table is durable from the build commit and this
+    # The output table is durable from the build commit and this
     # attempt's registration is rolled back, so gate the drop on the adoption
     # probe and prefer leaking over dropping live storage.
     adopted = True
@@ -694,7 +694,7 @@ def append_analysis_output_record(user_metadata: "dict | None", out_table: str) 
     return {**(user_metadata or {}), ANALYSIS_OUTPUT_TABLE_FIELD: names}
 
 
-# fix(#1778): the scope an analysis output table carries, 8 hex characters of the job
+# The scope an analysis output table carries, 8 hex characters of the job
 # and 8 of the attempt. A retry keeps `IngestJob.id` and changes only `attempt_id`, so
 # the job half alone does not name one owner.
 _ANALYSIS_SCOPE_CHARS = 8
@@ -818,7 +818,7 @@ async def resolve_analysis_output_table(
 _ANALYSIS_TABLE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
-# fix(#1778): which answers from `drop_unadopted_analysis_output` can never change. A
+# Which answers from `drop_unadopted_analysis_output` can never change. A
 # caller may forget the table's name only on one of these, because that name is the last
 # durable pointer to it; "failed" is retryable.
 ANALYSIS_OUTPUT_FINAL_OUTCOMES = frozenset({"adopted", "dropped", "invalid", "skipped"})
@@ -856,7 +856,7 @@ async def drop_unadopted_analysis_output(
     if not _ANALYSIS_TABLE_NAME_RE.match(out_table):
         logger.warning("analysis.output_table_name_rejected", job_id=job_id)
         return "invalid"
-    # fix(#1778): a sweep reaping a job's record may only drop the table THAT job named.
+    # A sweep reaping a job's record may only drop the table THAT job named.
     # "invalid" rather than "failed": a name that is not this job's can never become
     # this job's, so retrying would pin the row.
     if not analysis_output_table_belongs_to(out_table, owner_job_uuid):
@@ -901,7 +901,7 @@ async def _mark_job_failed(
     dataset registered it.
     """
     await session.rollback()
-    # fix(#1957): budgeted, and armed after that rollback rather than before
+    # Budgeted, and armed after that rollback rather than before
     # it — `SET LOCAL` dies with the transaction the rollback ends.
     fenced = await write_job_failure_for_attempt(
         session,
@@ -911,13 +911,13 @@ async def _mark_job_failed(
         reason=_user_error_message(exc, registered=registered),
         task_name="analysis_materialize",
     )
-    # fix(#1957): an expiry proves nothing about who owns the row, so the
+    # An expiry proves nothing about who owns the row, so the
     # table is left for the sweep rather than probed — leak over loss.
     if fenced is None:
         return
     if not fenced:
         logger.warning("analysis.failed_write_superseded", job_id=job_id)
-        # fix(#813): a fence miss means another actor set a terminal state,
+        # A fence miss means another actor set a terminal state,
         # but only a completed job has adopted the table. Probe first; a probe
         # that errors leaks the table rather than dropping live storage.
         await drop_unadopted_analysis_output(
@@ -991,7 +991,7 @@ def _build_materialize_select(
     mask_carry_cols: list[str] | None = None,
 ) -> str:
     if operation == "intersect" and mask_table_ref is not None:
-        # fix(#956): the only branch whose output rows are not 1:1 with
+        # The only branch whose output rows are not 1:1 with
         # source rows, so it generates its own gid — ADD PRIMARY KEY (gid)
         # below would die on duplicates. Empty geometries filtered in-renderer.
         return render_intersect_pairs(
@@ -1001,7 +1001,7 @@ def _build_materialize_select(
             mask_columns=[_sql_quote_ident(c) for c in (mask_carry_cols or [])],
         )
     if operation == "measure":
-        # fix(#954): the same renderer the preview uses, so a saved
+        # The same renderer the preview uses, so a saved
         # measurement equals the one the user approved.
         measure_cols, measure_join = render_measure_columns(src="_src")
         cols = "".join(f"_src.{_sql_quote_ident(c)}, " for c in carry_cols)
@@ -1011,7 +1011,7 @@ def _build_materialize_select(
             f" FROM {src_ref} AS _src{measure_join}"
         )
     if operation == "spatial_join" and join_table_ref is not None:
-        # fix(#953): the same two laterals the preview uses, so the saved
+        # The same two laterals the preview uses, so the saved
         # dataset and the approved preview agree row for row — including the
         # tie-break, without which the CTAS dies on ADD PRIMARY KEY below.
         join_cols, joins = render_spatial_join(
@@ -1029,7 +1029,7 @@ def _build_materialize_select(
         # GEOMETRYCOLLECTION, which the MVT tile path can't render.
         union_expr = "ST_Multi(ST_CollectionExtract(ST_Union(ST_MakeValid(geom_4326))))"
         if by_field:
-            # fix(#836): quote via _sql_quote_ident like every other
+            # Quote via _sql_quote_ident like every other
             # identifier site here, leaving no inline-quoting divergence.
             col = _sql_quote_ident(by_field)
             return _wrap_not_empty(
@@ -1043,7 +1043,7 @@ def _build_materialize_select(
             f"{union_expr} AS geom FROM {src_ref} AS _src"
         )
     if operation == "select_by_location" and mask_table_ref is not None:
-        # fix(#955): whole source rows, filtered. No lateral and no CTE, so
+        # Whole source rows, filtered. No lateral and no CTE, so
         # _wrap_not_empty applies to the source geometry directly, which is
         # what the output geometry IS. A DRAWN mask needs no branch here.
         where = render_select_by_location_where(mask_table_ref, src="_src")
@@ -1053,7 +1053,7 @@ def _build_materialize_select(
             f" FROM {src_ref} AS _src{where}"
         )
     if operation == "clip" and mask_table_ref is not None:
-        # fix(#719): the same subdivided-mask join the preview uses. The
+        # The same subdivided-mask join the preview uses. The
         # empty-result filter is applied HERE, before _enforce_output_size
         # measures a CTAS holding bounding-box overlaps that yield NULL.
         cte, lateral, where = render_clip_layer_join(mask_table_ref, src="_src")
@@ -1108,7 +1108,7 @@ async def _materialize(
         if job is None:
             logger.warning("analysis.job_not_found", job_id=job_id)
             return
-        # fix(#692): fenced claim, pending → running at most once per attempt
+        # Fenced claim, pending → running at most once per attempt
         # token, stamping the liveness signals the sweep and the lease need.
         # Without it a row another actor already made terminal is resurrected.
         attempt_id = job.attempt_id or await resolve_ingest_job_attempt(job.id, None)
@@ -1129,7 +1129,7 @@ async def _materialize(
         # CREATE TABLE loses a race for the same generated name, an
         # unconditional cleanup would destroy the winner's table.
         out_table_created = False
-        # fix(#1013): flipped once registration re-arms its own statement_timeout, so a
+        # Flipped once registration re-arms its own statement_timeout, so a
         # later failure quotes the budget that fired.
         registration_started = False
         # Created inside the try so the finally below always reaps it: a
@@ -1174,7 +1174,7 @@ async def _materialize(
                     require_geometry="polygonal",
                 )
             join_table_ref: str | None = None
-            # fix(#1097): the plain name is kept for the live-column recheck, which
+            # The plain name is kept for the live-column recheck, which
             # information_schema takes rather than a quoted ref.
             join_table_name: str | None = None
             if join_dataset_id is not None:
@@ -1209,7 +1209,7 @@ async def _materialize(
             )
 
             _base_table, collision_warning = await generate_table_name(title, session)
-            # fix(#1778): scoped by this job AND this attempt. `generate_table_name`
+            # Scoped by this job AND this attempt. `generate_table_name`
             # chooses the readable half; the `_N` walk that matters for the RELATION is
             # the scoped one below.
             out_table = await resolve_analysis_output_table(
@@ -1219,14 +1219,14 @@ async def _materialize(
                 attempt_uuid=attempt_id,
                 schema=_schema,
             )
-            # fix(#1778): the name, on the durable row, in the same transaction that
+            # The name, on the durable row, in the same transaction that
             # creates the table (the commit after ANALYZE), as a LIST each attempt
             # appends to — retry preserves `user_metadata`.
             job.user_metadata = append_analysis_output_record(
                 job.user_metadata, out_table
             )
             if collision_warning:
-                # fix(#786): persisted like the upload path — the job-status
+                # Persisted like the upload path — the job-status
                 # endpoint surfaces user_metadata['collision_warning'] as
                 # warning_message, so discarding it hides the renamed output.
                 job.user_metadata = {
@@ -1264,7 +1264,7 @@ async def _materialize(
             )
             await _apply_materialize_work_mem(session)
             if operation == "dissolve":
-                # fix(#694): hash aggregation holds every group's union state
+                # Hash aggregation holds every group's union state
                 # in memory at once and can OOM-kill the shared db container;
                 # sorted aggregation bounds it to one group at a time.
                 await session.execute(text("SET LOCAL enable_hashagg = off"))
@@ -1278,7 +1278,7 @@ async def _materialize(
             # the single worker slot through the rewrite phases. The
             # authoritative check runs after add_4326_column below.
             await _enforce_output_size(session, _schema, out_table, operation=operation)
-            # fix(#786): rows with nothing to show are excluded inside the
+            # Rows with nothing to show are excluded inside the
             # CTAS for every shape via _wrap_not_empty, matching the preview.
             # This DELETE is the backstop should a query shape miss that filter.
             await session.execute(
@@ -1301,11 +1301,11 @@ async def _materialize(
             )
             await session.execute(text(f"ALTER TABLE {out_ref} ADD PRIMARY KEY (gid)"))
             await add_4326_column(session, out_table, 4326, schema=_schema)
-            # fix(#701): the 4326 rewrite roughly doubles the geometry payload and adds
+            # The 4326 rewrite roughly doubles the geometry payload and adds
             # the GIST index, so the post-CTAS probe undercounts the final footprint by
             # a multiple.
             await _enforce_output_size(session, _schema, out_table, operation=operation)
-            # fix(#692): in-transaction ANALYZE. The table becomes visible to
+            # In-transaction ANALYZE. The table becomes visible to
             # autovacuum only at the commit below and the first tile queries
             # land before its pass, with no `&&` selectivity for the GIST index.
             await session.execute(text(f"ANALYZE {out_ref}"))
@@ -1313,7 +1313,7 @@ async def _materialize(
             await session.commit()
             registration_started = True
 
-            # fix(#692): the commit above ends the SET LOCAL with its
+            # The commit above ends the SET LOCAL with its
             # transaction. Set here rather than inside register_existing_table,
             # which is shared with the upload path.
             await session.execute(
@@ -1327,12 +1327,12 @@ async def _materialize(
                     table_name=out_table, title=title, visibility="private"
                 ),
                 requester,
-                # fix(#1452): CTAS'd a few lines up, so it is GeoLens's to
+                # CTAS'd a few lines up, so it is GeoLens's to
                 # drop when the dataset is deleted. Without it the detach that
                 # protects an operator-registered table leaks one per delete.
                 managed=True,
             )
-            # feat(#765): provenance before the completing commit, so a
+            # Provenance before the completing commit, so a
             # registered output can never be visible without its lineage.
             await apply_analysis_provenance(
                 session,
@@ -1344,7 +1344,7 @@ async def _materialize(
                 params={
                     "distance_meters": distance_meters,
                     "by_field": by_field,
-                    # fix(#1097): every operation that can take a DRAWN mask, not clip
+                    # Every operation that can take a DRAWN mask, not clip
                     # alone. The drawn geometry is excluded from provenance, so this is
                     # the only trace an area shaped it.
                     "mask_source": (
@@ -1369,7 +1369,7 @@ async def _materialize(
                 operation=operation,
             )
         except asyncio.CancelledError:
-            # fix(#692): a graceful shutdown cancels this task and `except
+            # A graceful shutdown cancels this task and `except
             # Exception` cannot catch it, so without this branch the row strands
             # in 'running'. Shielded, so the cleanup is not cancelled too.
             try:

@@ -1,6 +1,6 @@
 """Procrastinate task: re-resolve a moved STAC item and its asset.
 
-feat(#1266), ADR-002 Amendment A10 Decision 5a. A STAC dataset holds no
+A STAC dataset holds no
 bytes of its own (``storage_backend='remote'``) — it is a pointer at a
 publisher's bucket object, and publishers move those objects. #1222 observes
 this (404/410 on the stored pointer -> ``missing``) but never rewrites; this
@@ -77,7 +77,7 @@ _ERROR_CODE_BLOCKED_BY_POLICY = "source_blocked_by_policy"
 _ERROR_CODE_GENERIC = "stac_refresh_failed"
 _ERROR_CODE_SUPERSEDED = "superseded"
 
-# fix(#1764): the credential message a caller sees, composed here so it never
+# The credential message a caller sees, composed here so it never
 # carries the store's own error text, which can echo the key it was asked for.
 _CREDENTIAL_UNUSABLE_MESSAGE = (
     "The credential for this refresh could not be read, so the catalog was "
@@ -108,7 +108,7 @@ class StacRefreshError(Exception):
         self.error_code = error_code
         self.health = health
         self.detail = detail
-        # fix(#1266): whether an outbound attempt reached the publisher,
+        # Whether an outbound attempt reached the publisher,
         # separate from the verdict — a 5xx/401 establishes nothing about
         # where the asset is (health stays None) but is still a contact
         # `last_checked_at` should date. Defaults False so a failure raised
@@ -119,7 +119,7 @@ class StacRefreshError(Exception):
 def _refresh_error_code(exc: BaseException) -> str:
     """Map a STAC refresh failure onto its run ``error_code``.
 
-    fix(#1764): three codes send the reader to three places — a fresh
+    Three codes send the reader to three places — a fresh
     credential, an operator for an unreachable store, or the origin. Mirrors
     ``tasks_reupload._service_refresh_error_code``; ``error_code`` is a
     closed vocabulary the history UI reads, so the mapping lives in one
@@ -135,7 +135,7 @@ def _refresh_error_code(exc: BaseException) -> str:
 def _claimed_credential(credential_line: str | None) -> ServiceCredential | None:
     """The credential a claimed wire line describes.
 
-    fix(#1764): a non-empty line that yields nothing raises rather than
+    A non-empty line that yields nothing raises rather than
     degrading to an anonymous fetch, which would reach a protected catalog,
     collect a 401, and report a live dataset as inaccessible.
     """
@@ -155,7 +155,7 @@ def _claimed_credential(credential_line: str | None) -> ServiceCredential | None
 # rather than from anything the origin sent: ADR-002 Decision 3 forbids a
 # provider's error text, a response body or a URL in a stored reason string,
 # and an origin URI may legitimately carry a signed query.
-# fix(#1266): says what is established on every path that reaches it, no
+# Says what is established on every path that reaches it, no
 # more — reached both from a search that answered without the item and from
 # a catalog offering no way to look, so it may not claim a search result.
 _WITHDRAWN_MESSAGE = (
@@ -164,7 +164,7 @@ _WITHDRAWN_MESSAGE = (
     "anywhere else in its collection. The dataset keeps pointing at the "
     "asset it always did; re-import it from a live item to move it."
 )
-# fix(#1266): a DIFFERENT missing — the item still resolves, but the asset
+# A DIFFERENT missing — the item still resolves, but the asset
 # it was bound to is gone. Saying the item disappeared would misdiagnose it
 # and send the reader to re-import from the item they already have.
 _ASSET_REMOVED_MESSAGE = (
@@ -309,7 +309,7 @@ def _rebind(
     on it). ``source_url`` is deliberately left alone: it's in the metadata
     PATCH's field map and belongs to the owner, not this door.
 
-    feat(#1764): ``auth_required`` is True when THIS attempt used a
+    ``auth_required`` is True when THIS attempt used a
     credential and None when it did not, so a token-less success clears the
     marker the same way the service path's does. Never the credential.
     """
@@ -322,7 +322,7 @@ def _rebind(
         url=catalog_url,
         asset_href=resolution.asset_href,
         item_href=resolution.item_href,
-        # fix(#1266): written back on every rebind, so a dataset imported
+        # Written back on every rebind, so a dataset imported
         # before the id was recorded gains one on its first refresh.
         item_id=resolution.item_id,
         collection_id=collection_id,
@@ -334,7 +334,7 @@ def _rebind(
 def _pixel_geometry(described: dict) -> dict:
     """The affine-derived columns, written only when the affine was READ.
 
-    fix(#1375): these three move together or not at all. ``fetch_cog_info``'s
+    These three move together or not at all. ``fetch_cog_info``'s
     transform probe is optional (``/cog/info`` can answer while
     ``/cog/stac`` fails); writing a fabricated ``is_rotated=False`` from a
     probe that measured nothing would assert axis-alignment on an object
@@ -370,7 +370,7 @@ async def _repoint_remote_asset(
     updated only the binding would report a moved asset and go on serving
     tiles from the dead href.
 
-    fix(#1266): structural columns move WITH the URI, in the same statement.
+    Structural columns move WITH the URI, in the same statement.
     A moved asset is not the same object — a re-tiled scene can change band
     count, dtype, nodata and the statistics rescale is computed from — and
     ``raster_tile_proxy`` builds ``bidx``/rescale/nodata from exactly these
@@ -402,7 +402,7 @@ async def _repoint_remote_asset(
             height=described.get("height"),
             nodata=str(nodata) if nodata is not None else None,
             band_info=described.get("band_info"),
-            # fix(#1266): DEM flag moves with band_count/dtype — the tile
+            # DEM flag moves with band_count/dtype — the tile
             # proxy branches on this BEFORE band metadata, so a stale flag
             # would render a new elevation raster as ordinary imagery (or
             # vice versa). Re-derives over an owner's PATCH deliberately,
@@ -412,23 +412,23 @@ async def _repoint_remote_asset(
             is_dem=is_dem_candidate(
                 described.get("band_count"), described.get("dtype")
             ),
-            # fix(#1266): restamped so VRTs built before `built_from` existed
+            # Restamped so VRTs built before `built_from` existed
             # (judged by comparing this timestamp to their own build time)
             # don't probe healthy while still embedding the old, possibly
             # dead URL. The raster replace path restamps for the same reason.
             ingested_at=datetime.now(timezone.utc),
-            # fix(#1266): georeferencing moves too — emitted as STAC
+            # Georeferencing moves too — emitted as STAC
             # `proj:code` and read by VRT compatibility checks, so a
             # reprojected replacement described by the old EPSG is wrong for
             # both. Already reconciled with the probe's own CRS in
-            # `stac_resolve.py` (fix(#1334)).
+            # `stac_resolve.py`.
             epsg=epsg,
-            # fix(#1334): `crs_wkt` moves for the same reason — `fetch_cog_
+            # `crs_wkt` moves for the same reason — `fetch_cog_
             # info` already reads it off the moved object, and the STAC
             # import path writes it too, so leaving it stale here would
             # disagree with a fresh import of the same asset.
             **crs_columns(described),
-            # fix(#1375): resolution pair and rotation flag move for the
+            # Resolution pair and rotation flag move for the
             # same reason — a re-tiled or reprojected replacement is exactly
             # where the old pixel size stops describing the new object.
             **_pixel_geometry(described),

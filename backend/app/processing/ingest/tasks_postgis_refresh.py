@@ -1,13 +1,13 @@
 """Procrastinate task: re-measure a registered PostGIS table.
 
-feat(#1265) / ADR-002 Decision 5a. A registered table copies no data — the
+A registered table copies no data — the
 catalog points at the live relation — so what GeoLens stores about it is a
 measurement taken once at registration, of a table its owner keeps writing
 to. This task re-takes that measurement: no fetch, no staging table, no
 swap, the source IS the destination.
 
 Runs as a worker task (not inline in the request) to reuse the shared
-admission-gate/run-ledger/history machinery (handoff invariant 11), and to
+admission-gate/run-ledger/history machinery, and to
 avoid holding an HTTP connection open across a ``COUNT(*)`` of unknown size.
 
 The source-health probe (#1222) refuses postgis origins outright — probing
@@ -70,7 +70,7 @@ _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
 _ERROR_CODE_GENERIC = "postgis_refresh_failed"
 _ERROR_CODE_SUPERSEDED = "superseded"
 
-# fix(#1738): repair phase's own statement deadline, in ms. Worker statements
+# Repair phase's own statement deadline, in ms. Worker statements
 # have no deadline (`install_api_statement_timeout` only runs in the API
 # process), and this repair UPDATE is the one write this task makes to a
 # relation GeoLens doesn't own — bounding it caps how long it holds someone
@@ -80,7 +80,7 @@ _ERROR_CODE_SUPERSEDED = "superseded"
 # blocking whether held or awaited.
 _REPAIR_STATEMENT_TIMEOUT_MS = 300_000
 
-# fix(#1738): a much shorter bound on WAITING for the lock — a QUEUED lock
+# A much shorter bound on WAITING for the lock — a QUEUED lock
 # request already blocks readers behind it, so waiting the full statement
 # deadline for one would stall the owner's traffic for 5 minutes. 5 seconds
 # instead: a busy table gives its queue position back and the next refresh retries.
@@ -98,7 +98,7 @@ _LOCK_TIMEOUT_SQLSTATE = "55P03"
 # These describe the render column only; the reader grant and GiST index are
 # restored on every outcome where the table/column exist, so
 # `not_applicable` may still mean work was done — see `index_added` on the
-# report for that half (fix(#1738)).
+# report for that half.
 _REPAIR_REPAIRED = "repaired"
 _REPAIR_NOT_APPLICABLE = "not_applicable"
 _REPAIR_TIMED_OUT = "timed_out"
@@ -115,7 +115,7 @@ class _RepairReport(NamedTuple):
     index_added: bool = False
     gid_added: bool = False
     # The version the bump actually published, read back from the increment
-    # rather than computed here (fix(#1738)); None when nothing was
+    # rather than computed here; None when nothing was
     # rewritten and so nothing was bumped.
     tile_cache_version: int | None = None
 
@@ -221,7 +221,7 @@ def _inconclusive_verdict(code: str | None) -> _Verdict:
 def _chained_sqlstates(exc: BaseException) -> Iterator[str]:
     """Every SQLSTATE on an exception's chain, outermost first.
 
-    fix(#1313): the outermost code isn't always informative. When a table is
+    The outermost code isn't always informative. When a table is
     dropped/revoked mid-measurement, ``extract_metadata``'s retry inside an
     already-aborted transaction surfaces ``25P02``
     (in_failed_sql_transaction) with the real ``42P01``/``42501`` in
@@ -412,11 +412,11 @@ async def _repair_geom_4326(
                     session, table_name, srid, schema=schema, state=state
                 )
 
-            # fix(#1738): index restored on the same rule as the grant below —
+            # Index restored on the same rule as the grant below —
             # every outcome where the column EXISTS, not only a rewrite.
-            # `rederive_geom_4326` was the only caller of the index helper,
-            # so a valid STORED GENERATED `geom_4326` after overwrite (nothing
-            # to re-derive) left no GiST index, and bbox predicates fell back
+            # `rederive_geom_4326` is the only other caller of the index helper,
+            # so without this a valid STORED GENERATED `geom_4326` after overwrite
+            # (nothing to re-derive) would leave no GiST index, and bbox predicates fell back
             # to a sequential scan on a table GeoLens doesn't own.
             if repair is not None:
                 index_added = repair.index_added
@@ -427,7 +427,7 @@ async def _repair_geom_4326(
             else:
                 index_added = False
 
-            # fix(#1738): unconditional, not only when rewritten. The GRANT
+            # Unconditional, not only when rewritten. The GRANT
             # is the third thing `-overwrite` destroys regardless of the
             # recreated table's geometry — including a valid STORED
             # GENERATED `geom_4326` or a non-spatial table, both of which
@@ -443,7 +443,7 @@ async def _repair_geom_4326(
                 # restore doesn't change content; an added render column on
                 # an empty table renders the same nothing.
                 #
-                # fix(#1738): atomic spelling — this transaction holds no
+                # Atomic spelling — this transaction holds no
                 # lock on the datasets row.
                 tile_version = await bump_tile_cache_version_atomic(
                     session, dataset_cls=Dataset, dataset_id=dataset_uuid

@@ -32,7 +32,7 @@ def build_dataset_chat_system_prompt(
     """
     cols_raw = layer.column_info or []
     cols_limited = cols_raw[:_MAX_COLUMNS_PER_LAYER]
-    # fix(#1778): the docstring above already says a record title is
+    # The docstring above already says a record title is
     # user-controlled text. Sample values are row content and column names come
     # from an upstream service schema on an ArcGIS/STAC ingest, so they are
     # user-controlled in exactly the same sense and were the unscrubbed half.

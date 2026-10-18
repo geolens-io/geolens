@@ -1,12 +1,9 @@
 """Cost bounds shared by the two surfaces that reach the SQL sandbox.
 
-fix(#1778): ``POST /api/query/`` and the AI chat ``query_data`` tool are gated
+``POST /api/query/`` and the AI chat ``query_data`` tool are gated
 by the same ``use_ai_chat`` permission, run the same validator and executor,
-and draw on the same connection pool. Every bound feat(#565) installed lived in
-``query_router.py`` and applied to one of them, so each one was opt-out by
-asking the chatbot instead of posting SQL. The comments there reasoned about
-not changing chat's behavior, which was the right question for that PR and the
-wrong one for two surfaces behind one permission.
+and draw on the same connection pool. A bound that applied to only one of
+them would be opt-out by using the other, so the shared bounds live here.
 
 What lives here is the bounds that protect a SHARED resource: the connection
 pool (one semaphore, not one per surface -- two would admit twice the
@@ -35,7 +32,7 @@ MAX_TABLE_REPEATS = 2
 # Generous enough for real lookup lists; the fan-out cap bounds the cross-join.
 MAX_VALUES_ROWS = 256
 
-# fix(#565): repeated plain projections need no function to amplify --
+# Repeated plain projections need no function to amplify --
 # SELECT payload, payload, ... (1600x) FROM foo LIMIT 1 fits under the SQL
 # cap and materializes a gigabyte-wide row.
 MAX_OUTPUT_COLUMNS = 100
@@ -53,11 +50,11 @@ def capacity_bound() -> int:
     small calc is repeated.
     """
     if settings.db_use_external_pooler:
-        # fix(#2045): a process cannot see how many API replicas share
+        # A process cannot see how many API replicas share
         # the pooler, so an explicit per-process share wins whenever it is set.
         if settings.sandbox_query_slots is not None:
             return settings.sandbox_query_slots
-        # fix(#2045): NullPool, so the budget belongs to PgBouncer/RDS Proxy and
+        # NullPool, so the budget belongs to PgBouncer/RDS Proxy and
         # every uvicorn worker draws on that ONE pooler. Divide the default-pool
         # throttle by the worker count, never below one, instead of per worker.
         return max(1, 4 // max(1, settings.uvicorn_workers))

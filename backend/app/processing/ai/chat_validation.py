@@ -19,7 +19,7 @@ logger = structlog.stdlib.get_logger(__name__)
 def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list[str]]:
     """Build ChatAction models per-item, dropping invalid ones with a note.
 
-    fix(#525): a single Pydantic-invalid action (e.g. ``opacity: 50``) must
+    A single Pydantic-invalid action (e.g. ``opacity: 50``) must
     not raise through the caller's broad except and discard every valid
     action in the turn. Malformed LLM output degrades per-action, mirroring
     _validate_actions' dropped[] pattern.
@@ -42,7 +42,7 @@ def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list
 def _extract_get_refs(expr: list | None) -> set[str]:
     """Recursively extract column names from ["get"/"has", "col"] nodes.
 
-    fix(#527): ["has", col] refs count too, or a hallucinated has-column
+    ["has", col] refs count too, or a hallucinated has-column
     filter passes validation and hides every feature.
     """
     if not isinstance(expr, list) or len(expr) == 0:

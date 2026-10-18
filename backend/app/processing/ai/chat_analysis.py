@@ -119,7 +119,7 @@ async def _run_analysis(
     if not dataset.geometry_type or not dataset.table_name:
         return {"error": "That layer has no geometry to analyze."}
 
-    # fix(#674): only buffer consumes distance_meters. The tool schema
+    # Only buffer consumes distance_meters. The tool schema
     # calls it "ignored otherwise", so a model may well send a placeholder 0 on a
     # centroid call — forwarding that would trip AnalysisPreviewRequest's gt=0
     # bound and fail a perfectly valid preview. Drop it for every other op.
@@ -128,7 +128,7 @@ async def _run_analysis(
         tool_input.get("distance_meters") if operation == "buffer" else None
     )
 
-    # feat(#683): the mask layer is resolved and authorized SEPARATELY. Rule 1
+    # The mask layer is resolved and authorized SEPARATELY. Rule 1
     # applies to both datasets of a two-layer operation, and the layer list is
     # client-supplied either way, so seeing the source buys no claim on the
     # mask. The port checks the mask's shape but never its visibility.
@@ -152,7 +152,7 @@ async def _run_analysis(
         )
         if isinstance(mask_dataset, dict):
             return mask_dataset
-        # fix(#683): distinct layer ids are NOT distinct data. A
+        # Distinct layer ids are NOT distinct data. A
         # duplicated rendering is two layers over one dataset, so the id check
         # above lets that pair through — and clipping a table by itself is an
         # expensive way to return the input. Identity is the DATASET.
@@ -164,7 +164,7 @@ async def _run_analysis(
                 )
             }
 
-    # fix(#683): mask_dataset rides along only when set — an unconditional
+    # mask_dataset rides along only when set — an unconditional
     # None would break EVERY chat analysis against an overlay whose
     # pre-clip ProcessingPort rejects the unknown keyword, not just this
     # operation. Same shape as the materialize defer in
@@ -180,7 +180,7 @@ async def _run_analysis(
             user_id=user.id,
             distance_meters=distance_meters,
             **mask_kwargs,
-            # fix(#716): release_session is deliberately NOT passed. Its
+            # release_session is deliberately NOT passed. Its
             # rollback expires every ORM instance on the session, including
             # the authenticated User, and both chat paths read `user.id`
             # after this returns — a sync refresh on an expired instance
@@ -206,7 +206,7 @@ async def _run_analysis(
         "truncated": result.truncated,
     }
     if distance_meters is not None:
-        # feat(#675): ride the sanitized buffer distance along so the action
+        # Ride the sanitized buffer distance along so the action
         # collector can hand the preview off to the Analysis panel prefilled.
         out["distance_meters"] = distance_meters
     if result.feature_count == 0:
@@ -242,7 +242,7 @@ def collect_run_analysis_action(result: dict) -> dict | None:
     if "error" in result:
         return None
     if not (result.get("bbox") and "geojson" in result):
-        # fix(#676): an empty preview still emits a geometry-less marker so the
+        # An empty preview still emits a geometry-less marker so the
         # frontend clears a stale overlay from an earlier turn — with no action
         # at all, the previous overlay (and its badge) keeps describing a
         # result the chat text has moved past.
@@ -252,7 +252,7 @@ def collect_run_analysis_action(result: dict) -> dict | None:
         "geojson": result["geojson"],
         "bbox": result["bbox"],
     }
-    # feat(#675): carry the params needed to reconstruct the request so the
+    # Carry the params needed to reconstruct the request so the
     # builder can offer a one-click "Save as dataset" handoff into the
     # Analysis panel. The viewer surface ignores them (no Analysis rail).
     if result.get("operation") and result.get("layer_id"):
@@ -260,12 +260,12 @@ def collect_run_analysis_action(result: dict) -> dict | None:
         action["layer_id"] = result["layer_id"]
         if result.get("distance_meters") is not None:
             action["distance_meters"] = result["distance_meters"]
-    # fix(#683): the truncation flag doesn't depend on knowing the total —
+    # The truncation flag doesn't depend on knowing the total —
     # clip filters rows, so the clipped total is genuinely unknown, and
     # requiring one presented a capped clip preview as the whole result.
     # Report the cap; name the total only when there is one.
     #
-    # fix(#1076): this flag currently reaches nobody — both frontend
+    # This flag currently reaches nobody — both frontend
     # consumers build their truncation object only when a total came with
     # it, and EphemeralBadge has no "capped, total unknown" label. The
     # payload is correct here so that frontend fix is possible.

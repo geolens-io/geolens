@@ -24,7 +24,7 @@ from app.processing.ingest.tasks_staging import (  # noqa: F401
     _ingest_vector_into_staging,
 )
 
-# fix(#909): async_session is deliberately NOT re-exported here. A module-scope
+# async_session is deliberately NOT re-exported here. A module-scope
 # `from app.core.db import async_session` snapshots the dev-DB factory past the
 # test fixture's rebinding of app.core.db; late-bind at call scope instead
 # (test_layering.py enforces this).

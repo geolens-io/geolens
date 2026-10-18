@@ -131,7 +131,7 @@ def _assert_geometry_survives(
 ) -> None:
     """Raise the preview door's refusal when a replacement would strip geometry.
 
-    fix(#2031): both worker paths reach the same ``record_type`` re-derivation —
+    Both worker paths reach the same ``record_type`` re-derivation —
     the file path knows from ogrinfo, the service path from the staging table.
     """
     geometry_loss = geometry_loss_refusal(
@@ -159,11 +159,11 @@ async def _detect_reupload_crs(
     ``layer_name`` targets the user-chosen layer in a
     multi-layer GPKG rather than defaulting to ``layers[0]``.
 
-    fix(#541): applies the same missing-CRS gate as ``ingest_file``,
+    Applies the same missing-CRS gate as ``ingest_file``,
     raising ``IngestionError`` rather than silently falling through to the
     4326 default and corrupting the replacement dataset.
 
-    fix(#2031): and the preview door's geometry-loss refusal, for the client
+    And the preview door's geometry-loss refusal, for the client
     that skipped the preview. ``record_type`` is the dataset's CURRENT one.
 
     Returns (ogrinfo result dict, effective_srid).
@@ -751,7 +751,7 @@ async def _resolve_service_token(
 ) -> str | None:
     """The credential this attempt will fetch with, redeeming a ref if given.
 
-    feat(#1220); fix(#1676) moved the body to
+    The body lives in
     ``platform.refresh.credentials.resolve_worker_credential`` so
     ``ingest_service`` redeems the same way without either task module
     importing the other. Kept as the name this task and its tests reach for.
@@ -780,8 +780,8 @@ async def _fetch_service_layer_with_paging_guard(
     Returns the source's feature count, the ArcGIS ID plan and the order
     field the ArcGIS fetch used, each ``None`` where it doesn't apply.
 
-    fix(#1675): parity with the initial-import path. A refresh of a large
-    ArcGIS layer used to do ONE unpaged fetch and trust GDAL driver paging —
+    Parity with the initial-import path. A refresh of a large
+    ArcGIS layer must not do ONE unpaged fetch and trust GDAL driver paging —
     the exact behavior the import path's guarded loop exists to distrust.
     Same criteria, same shared loop (tasks_common); the page-info fetch
     resolves through tasks_vector's module attribute so test monkeypatches
@@ -800,7 +800,7 @@ async def _fetch_service_layer_with_paging_guard(
     pagination_order_field = None
     id_plan = None
     if service_type == "arcgis_featureserver":
-        # fix(#1675): the page-info probe is the FIRST outbound
+        # The page-info probe is the FIRST outbound
         # contact of a refresh and can fail before any subprocess exists to
         # fire on_spawn, so arm the contact stamp here too (monotonic OR —
         # later per-page spawns re-arming is harmless).
@@ -1535,7 +1535,7 @@ class _ServiceReupload:
 @task_app.task(
     queue="ingest",
     retry=0,
-    # fix(#1746): the context is how the task learns its own queue-row id, so
+    # The context is how the task learns its own queue-row id, so
     # a terminal failure can strip the raw token out of its own kwargs.
     pass_context=True,
     aliases=["app.ingest.tasks.reupload_service"],

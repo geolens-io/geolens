@@ -3,7 +3,7 @@
 Functions take an AsyncSession and a table name, validated against a strict
 identifier pattern (SQL injection guard).
 
-fix(#1042): implementations live in sibling ``metadata_*`` modules; this file
+Implementations live in sibling ``metadata_*`` modules; this file
 re-exports them as the stable import surface (ingest tasks, export paths,
 extension defaults, and ``mock.patch("app.processing.ingest.metadata.<name>")``
 in tests all resolve against it — import from here, not the sub-modules).

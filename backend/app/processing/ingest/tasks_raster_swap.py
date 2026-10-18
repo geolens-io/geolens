@@ -48,7 +48,7 @@ def _write_swapped_fields(
     raster_asset.size_bytes = cog_size
     raster_asset.source_sha256 = source_sha256
     raster_asset.cog_status = cog_status
-    # fix(#1290): a STAC-origin row carries storage_backend="remote"
+    # A STAC-origin row carries storage_backend="remote"
     # because its asset_uri WAS an external href. The swap just replaced
     # that with a managed `rasters/...` key, so leaving the backend alone
     # would tell every consumer to treat it as a URL (the COG download
@@ -79,7 +79,7 @@ def _write_swapped_fields(
     new_version = dataset.current_version + 1
     dataset.current_version = new_version
     dataset.srid = cog_meta.get("epsg")
-    # fix(#1290): the two fields answer different questions. `srid` is
+    # The two fields answer different questions. `srid` is
     # what the dataset serves — the converted COG's; `original_srid` is
     # documented as the SRID of the uploaded file, so under an override it
     # must still report what the upload declared. Collapsing them made a
@@ -88,7 +88,7 @@ def _write_swapped_fields(
     dataset.original_srid = source_meta.get("epsg")
     dataset.source_filename = source_filename
     dataset.source_format = "geotiff"
-    # feat(#1218) ADR-002 Decision 7: the dataset IS the COG and the
+    # The dataset IS the COG and the
     # upload is a transient input, so the origin restamps to the new
     # file with no remote URI to point at.
     set_dataset_origin(
@@ -109,7 +109,7 @@ def _write_swapped_fields(
 class ArchiveNotDurableError(Exception):
     """A lossy conversion whose original could not be archived durably.
 
-    fix(#1290): the durable archive is a PRECONDITION of a lossy publish,
+    The durable archive is a PRECONDITION of a lossy publish,
     not a best-effort side effect — the swap's success licenses deleting
     the staged source, so if the samples the COG can't carry aren't yet
     somewhere durable, the publish hasn't earned its commit.
@@ -125,7 +125,7 @@ class ArchiveNotDurableError(Exception):
 
 ARCHIVED_ORIGINAL_KEY_PREFIX = "archived_original:"
 
-# fix(#1290): 128 bits, not 48. The truncated hash IS the archive's
+# 128 bits, not 48. The truncated hash IS the archive's
 # identity, which puts the truncation width on the security boundary: an
 # accidental same-dataset collision at 12 hex chars is negligible, but a
 # DELIBERATE one is a ~2^24 birthday search (minutes on a laptop) that buys
@@ -146,8 +146,8 @@ ARCHIVE_HASH_CHARS = 32
 def archived_original_asset_key(source_sha256: str) -> str:
     """The ``dataset_assets`` key for ONE kept original.
 
-    fix(#1290): per-archive, not per-dataset. A single constant key counted
-    only the newest original and left every superseded one accumulating
+    Per-archive, not per-dataset. A single constant key would count
+    only the newest original and leave every superseded one accumulating
     uncounted — the exact scenario ``MAX_STORAGE_BYTES_PER_USER`` exists to
     bound. Keying on the same content hash the object key uses means the
     unique constraint deduplicates identical re-uploads for free.
@@ -158,14 +158,13 @@ def archived_original_asset_key(source_sha256: str) -> str:
 def archived_original_uri(dataset_id, *, source_sha256: str) -> str:
     """The logical key a kept original lives at. Content, and nothing else.
 
-    fix(#1290): the key used to also carry the uploaded filename, which
-    split the archive's identity in half. The counted row is keyed on
-    content alone (``archived_original:<hash>``), so byte-identical uploads
-    under two different names produced ONE row and TWO objects — the
-    reservation credited the existing row and charged nothing, the upsert
-    repointed it at the newer object, and the older one was orphaned and
-    uncounted. Repeat with a third name and storage grows without limit
-    past the cap.
+    The key carries no filename. The counted row is keyed on content alone
+    (``archived_original:<hash>``), so a filename in the object key would
+    let byte-identical uploads under two different names produce ONE row
+    and TWO objects — the reservation would credit the existing row and
+    charge nothing, the upsert would repoint it at the newer object, and
+    the older one would be orphaned and uncounted. Repeat with a third name
+    and storage would grow without limit past the cap.
 
     One identity, derived solely from content, makes that unreachable
     rather than merely unlikely: same bytes means same key means an
@@ -208,12 +207,12 @@ async def archive_lossy_original(
     here rather than at the call site so both raster tails ask one
     question once.
 
-    ``filename`` no longer participates in the key (fix(#1290) — see
+    ``filename`` no longer participates in the key (see
     ``archived_original_uri``). It survives as the operator-facing label
     on the counted row, the only place a human-readable name belongs once
     identity is content.
 
-    fix(#1290), the trap: the key is content-derived, so a failed attempt
+    The trap: the key is content-derived, so a failed attempt
     can archive bytes identical to an archive an EARLIER successful replace
     already wrote — the same key. Adding it to the failure-reap set
     unconditionally would then delete a good archive belonging to the
@@ -232,10 +231,10 @@ async def archive_lossy_original(
 
     logical_key = archived_original_uri(dataset_id, source_sha256=source_sha256)
     physical_key = resolve_current_storage_key(logical_key)
-    # fix(#1290): an INDETERMINATE probe must never make a pre-existing
+    # An INDETERMINATE probe must never make a pre-existing
     # archive eligible for failure cleanup. Treating a transient `exists()`
-    # error as "did not exist" put the key into `written_storage_keys`, and
-    # a later swap failure then deleted an archive belonging to an EARLIER
+    # error as "did not exist" would put the key into `written_storage_keys`, and
+    # a later swap failure would then delete an archive belonging to an EARLIER
     # SUCCESSFUL replacement — the last faithful original of a raster still
     # being served.
     #
@@ -264,7 +263,7 @@ async def archive_lossy_original(
         )
         existed = None
 
-    # fix(#1290): deliberate asymmetry with the probe above. An
+    # Deliberate asymmetry with the probe above. An
     # INDETERMINATE probe proceeds — the write is the evidence, and
     # refusing to publish because a store couldn't answer would fail work
     # that's fine. A failed WRITE is different in kind: proof the durable
@@ -327,9 +326,9 @@ async def upsert_archived_original_row(
 ) -> None:
     """Give the kept original a counted row so storage quota can see it.
 
-    fix(#1290): ``originals/`` accumulated permanently and was counted by
-    nothing (usage sums ``dataset_assets``), so repeated distinct lossy
-    replacements exhausted a user's byte cap with no check refusing them.
+    ``originals/`` persists and nothing else counts it (usage sums
+    ``dataset_assets``), so without a row repeated distinct lossy
+    replacements would exhaust a user's byte cap with no check refusing them.
     A row makes the EXISTING sum authoritative instead of standing up a
     second ledger that would drift, and it's cleaned by the same
     ``delete_dataset`` that already clears the object prefix.
@@ -361,7 +360,7 @@ async def upsert_archived_original_row(
         "href": logical_key,
         "media_type": "image/tiff",
         "title": "Pre-conversion original",
-        # fix(#1290): the uploaded name lives here now that the object key
+        # The uploaded name lives here now that the object key
         # is pure content. Internal row, kept out of every response by
         # `app.platform.assets.keys` — for the operator reading the table,
         # not a client.
@@ -411,9 +410,9 @@ async def reserve_replacement_bytes(
 
     from app.modules.quota.service import reserve_storage_bytes
 
-    # fix(#1290): the credit is the SUPERSEDED `data` row and nothing else.
-    # Crediting every archive too was far too generous: archives persist
-    # and stay billed, so subtracting them let each successive lossy
+    # The credit is the SUPERSEDED `data` row and nothing else.
+    # Crediting every archive too would be far too generous: archives persist
+    # and stay billed, so subtracting them would let each successive lossy
     # replace reserve roughly nothing while adding another permanent
     # object — the exact unbounded growth the counted rows exist to stop.
     counted_data = await session.scalar(
@@ -463,12 +462,11 @@ async def _upsert_managed_asset_rows(
 ) -> None:
     """Point the STAC/search/download surfaces at the newly published COG.
 
-    fix(#1290): this was two UPDATEs, correct only for a dataset that
-    already has the rows — true of an upload-origin raster, false of a
-    STAC-imported one, whose import writes the dataset and raster asset
-    and nothing else. Against those the UPDATEs matched zero rows and
-    reported success, so a replaced STAC raster advertised no data asset
-    and no quicklooks at all.
+    Two plain UPDATEs would be correct only for a dataset that already has
+    the rows — true of an upload-origin raster, false of a STAC-imported
+    one, whose import writes the dataset and raster asset and nothing else.
+    Against those the UPDATEs would match zero rows and report success, so
+    a replaced STAC raster would advertise no data asset and no quicklooks.
 
     Upserting makes the outcome the same either way: after this runs the
     four rows exist and describe the live asset, whatever the dataset's

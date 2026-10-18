@@ -226,7 +226,6 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "platform/dataset_origin.py": 3,
     "platform/refresh/credentials.py": 1,
     "platform/refresh/models.py": 1,
-    "processing/ingest/tasks_common.py": 25,
     "processing/ingest/tasks_postgis_refresh.py": 2,
     "processing/ingest/tasks_raster.py": 1,
     "processing/ingest/tasks_raster_replace.py": 1,

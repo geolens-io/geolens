@@ -57,7 +57,7 @@ def generate_quicklook(cog_path: str, size: int) -> bytes:
                     out_w, out_h = cand_w, cand_h
                     break
 
-        # fix(#1778): the selection above bounds nothing alone — the
+        # The selection above bounds nothing alone — the
         # smallest available level is read whatever size it is, so a
         # sparse overview ladder let `out_shape` demand ~30GB from a
         # 500MB-capped upload.

@@ -62,7 +62,7 @@ from app.processing.ingest.validation import validate_file_content
 
 logger = structlog.get_logger(__name__)
 
-# fix(#1710): the CAS lost the row. Raised rather than returned so the one
+# The CAS lost the row. Raised rather than returned so the one
 # settlement path stamps it, and worded for the job owner, who sees it as the
 # job's error_message.
 _LEASE_LOST_DETAIL = (
@@ -76,12 +76,12 @@ async def _adopt_running_lease(
 ) -> bool:
     """Take over the lease the door committed, or report that it is gone.
 
-    fix(#1710): the row is already 'running' under this attempt's token, so
+    The row is already 'running' under this attempt's token, so
     the ordinary pending->running claim does not apply. The fence is the one
     every other task uses; a miss means a cancel, a retry or the stale sweep
     settled the row first, and this delivery must touch nothing.
 
-    fix(#1710): ``file_path`` names the destination BEFORE the first byte
+    ``file_path`` names the destination BEFORE the first byte
     lands, so a hard-killed worker leaves a partial the retention purge's
     ``_reap_committed_staged_paths`` can still find. The success CAS
     overwrites it with wherever the file was actually staged.
@@ -122,12 +122,12 @@ async def _staged_values(
 ) -> dict[str, object]:
     """The columns the running -> pending transition writes.
 
-    fix(#1708): ``staged_at`` restarts the pending review window.
+    ``staged_at`` restarts the pending review window.
     ``stale_pending_clauses`` measures pending age from
     ``coalesce(staged_at, created_at)``, so the download no longer eats the
     review window. Always an isoformat timestamptz; the sweep casts it.
 
-    fix(#1710): the dispatch marker is DROPPED here. ``abandoned_upload`` in
+    The dispatch marker is DROPPED here. ``abandoned_upload`` in
     sweep.py reads its absence as "no ingest was ever dispatched for this
     row", which is true again once the file is merely staged — the door
     stamped it for the download task, not for an import. Leaving it would
@@ -138,7 +138,7 @@ async def _staged_values(
             select(IngestJob.user_metadata).where(IngestJob.id == job_id)
         )
     ).scalar_one_or_none() or {}
-    # fix(#1710): the download marker goes too — `file_path` now names a
+    # The download marker goes too — `file_path` now names a
     # complete staged file, so retry is legitimate again from here on.
     dropped = {COMMIT_ATTEMPTED_METADATA_KEY, URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY}
     carried = {k: v for k, v in existing.items() if k not in dropped}
@@ -154,7 +154,7 @@ async def _staged_values(
     }
 
 
-# fix(#1710): its OWN queue, not `ingest`. A slow origin holds a worker slot
+# Its OWN queue, not `ingest`. A slow origin holds a worker slot
 # for up to url_import_fetch_max_seconds, and at the stock WORKER_CONCURRENCY
 # of 1 that would head-of-line block every vector import, reupload, refresh
 # and analysis. The default worker still subscribes, so a stock deployment
@@ -183,12 +183,12 @@ async def fetch_url(
     """
     _bind_task_log_context(task_name="fetch_url", job_id=job_id)
 
-    # Late bind so a test's engine patching is honored (fix(#909)).
+    # Late bind so a test's engine patching is honored.
     import app.core.db as db_module
 
     job_uuid = uuid.UUID(job_id)
     if attempt_id is None:
-        # feat(#1710): the door always dispatches a token. Adopting a
+        # The door always dispatches a token. Adopting a
         # 'running' row without one would let a delivery whose lease had
         # already been reaped overwrite whatever owns the row now.
         logger.warning("url_fetch_delivery_without_attempt_token", job_id=job_id)
@@ -206,7 +206,7 @@ async def fetch_url(
             ):
                 logger.info("url_fetch_lease_already_settled", job_id=job_id)
                 return
-        # fix(#1710): the URL is in memory now, and `retry=0` means nothing
+        # The URL is in memory now, and `retry=0` means nothing
         # re-runs from these args, so drop it from the queue row before the
         # transfer. A presigned S3 or SAS link is bearer-equivalent, and the
         # worker deletes only SUCCESSFUL rows.
@@ -230,7 +230,7 @@ async def fetch_url(
             staging_dir=staging_dir,
         )
     except Exception as exc:  # broad: network, file I/O, storage and DB all reach here
-        # fix(#1710): a failure that never reached the staging block — the
+        # A failure that never reached the staging block — the
         # lease adoption itself, or the heartbeat's own start — has not been
         # settled by anyone, and logging alone would leave the row 'running'
         # with no reason until the lease reaper. Settle it here on a fresh
@@ -289,7 +289,7 @@ async def _stage_downloaded_file(
     staged_path: str | None = None
     published = False
     try:
-        # fix(#1710): the config and quota reads get their OWN session,
+        # The config and quota reads get their OWN session,
         # ended before the download. Holding one across a transfer that may
         # run for url_import_fetch_max_seconds would pin a pool connection per
         # concurrent import — the starvation #1708 fixed on the request path.
@@ -325,7 +325,7 @@ async def _stage_downloaded_file(
             staged_path = str(local_dest)
 
         async with db_module.async_session() as session:
-            # fix(#1710): the byte quota is charged on what actually landed.
+            # The byte quota is charged on what actually landed.
             # The door charged zero: a remote server's Content-Length was
             # never evidence of anything.
             await _recheck_staged_quota(session, uuid.UUID(user_id), actual_size)
@@ -336,7 +336,7 @@ async def _stage_downloaded_file(
                     tileset_metadata[TILESET_UNPACKED_BYTES_FIELD],
                 )
 
-            # fix(#1708): guarded CAS, running -> pending. A Core UPDATE, not
+            # Guarded CAS, running -> pending. A Core UPDATE, not
             # dirtied ORM attributes (which would flush a second, unguarded
             # UPDATE), so an external flip — a cancel, or a lease reap —
             # matches zero rows and is SURFACED instead of silently
@@ -351,7 +351,7 @@ async def _stage_downloaded_file(
             ):
                 raise UrlImportRefused(_LEASE_LOST_DETAIL)
             await _commit_staged_transition_guarded(session)
-            # fix(#1710): set INSIDE the block, so a session teardown that
+            # Set INSIDE the block, so a session teardown that
             # raises after the commit still finds it True. Publication is a
             # fact about the row, never something inferred from an exception.
             published = True
@@ -383,7 +383,7 @@ async def _stage_downloaded_file(
         # reader. Best-effort: the job is already previewable, so a failing
         # delete must not rewrite that success as a failure.
         async with cleanup_step("fetch_url local staging copy", job_id=job_id):
-            # codeql[py/path-injection] fix(#1710): clamped, staging-rooted path — see fetch_url_to_path
+            # codeql[py/path-injection] clamped, staging-rooted path — see fetch_url_to_path
             local_dest.unlink(missing_ok=True)
 
     logger.info(

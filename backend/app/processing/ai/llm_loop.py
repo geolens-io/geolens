@@ -169,7 +169,7 @@ async def noop_tool_executor(name: str, args: dict) -> dict:
 class ToolLoopExhaustedError(Exception):
     """Raised when the tool-calling loop exceeds the maximum number of rounds.
 
-    fix(#1778): carries the tokens the loop had already spent. The blocking
+    Carries the tokens the loop had already spent. The blocking
     loop discarded per-round counts on every failure exit, so its most
     expensive requests (all eight rounds, budget-blown, or wall-clock hit)
     were billed by the provider but recorded zero in
@@ -197,7 +197,7 @@ class ToolLoopExhaustedError(Exception):
 class UserFacingAIError(ValueError):
     """A message deliberately written for the end user.
 
-    fix(#1778): a plain "pass every ValueError through" reasoning is an
+    A plain "pass every ValueError through" reasoning is an
     open set, not closed — ``OpenAICredentialDestinationError`` is a
     ValueError too, and names the configured provider endpoint. Only a
     message raised as THIS type reaches a viewer; every other ValueError
@@ -212,7 +212,7 @@ class UserFacingAIError(ValueError):
 
 
 def safe_stream_error_message(exc: BaseException) -> str:
-    """The text an SSE ``error`` frame may carry for ``exc`` (fix(#1778))."""
+    """The text an SSE ``error`` frame may carry for ``exc``."""
     if isinstance(exc, UserFacingAIError):
         return str(exc)
     return "An unexpected error occurred. Please try again."
@@ -231,7 +231,7 @@ def attach_token_usage(
 ) -> None:
     """Stamp the tokens a tool loop had already spent onto the error it raised.
 
-    fix(#1778): attaching only to ``ToolLoopExhaustedError`` left every
+    Attaching only to ``ToolLoopExhaustedError`` left every
     other exit unaccounted — a provider that fails after one billed round,
     or a tool executor that raises after one, otherwise spends real money
     with the daily quota unchanged. Every exit from both provider loops

@@ -40,7 +40,7 @@ _PROMPT_INJECTION_PATTERNS = _re.compile(
 )
 _CONTROL_CHARS = _re.compile(r"[\x00-\x1f\x7f]")
 
-# fix(#1778): the trust-boundary fence only works if catalog text can't
+# The trust-boundary fence only works if catalog text can't
 # spell its own closing tag. `</untrusted_dataset_content>` (28 chars)
 # fits inside both the 80/120-char name/value caps, so a dataset title
 # could close the region early while the model still held every editing
@@ -57,7 +57,7 @@ _CONTROL_CHARS = _re.compile(r"[\x00-\x1f\x7f]")
 # marker in prose would contain a second opening tag, breaking "exactly
 # one fence".
 #
-# fix(#1778): the fence is only half a boundary; the other half is
+# The fence is only half a boundary; the other half is
 # telling the model what the markers mean, stated once for all three
 # system prompts so wording and code can't drift apart.
 TOOL_RESULT_PROTOCOL = f"""## Tool Results
@@ -100,7 +100,7 @@ def _sanitize_layer_name(name: str | None) -> str:
     return s or "unnamed"
 
 
-# fix(#1778): dataset CONTENT was the unsanitized half of this surface.
+# Dataset CONTENT was the unsanitized half of this surface.
 # `sample_values` holds raw `::text` values straight from the data table,
 # and `column_info` names come from the client (map layer) or an upstream
 # service schema (ArcGIS/STAC). search_datasets includes other users'
@@ -157,7 +157,7 @@ def sanitize_column_info(column_info: list[dict] | None) -> list[dict] | None:
 ERROR_MESSAGES = {
     "query_timeout": "Query took too long. Try narrowing your question to fewer features or a smaller area.",
     "query_busy": "Another data query is already running. Wait for it to finish and try again.",
-    # fix(#1014): the server-at-capacity refusal is a DIFFERENT condition from
+    # The server-at-capacity refusal is a DIFFERENT condition from
     # the per-user lock above. Folding it into query_busy told a user their own
     # query was already running when it was not.
     "query_at_capacity": "The server is running its maximum number of analysis previews. Try again in a moment.",

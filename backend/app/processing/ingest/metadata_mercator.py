@@ -34,15 +34,15 @@ logger = structlog.stdlib.get_logger(__name__)
 # geometries past this (e.g. Antarctica at -90°) cause a ST_Transform
 # tolerance error.
 #
-# fix(#899): this is a box, not a latitude cutoff — it bounds X at
+# This is a box, not a latitude cutoff — it bounds X at
 # ±180 too, so a point at lon 400 is dropped by the X bound at an ordinary
 # latitude; the warning built from these counts must not blame latitude.
 _MERCATOR_SAFE_ENVELOPE = "ST_MakeEnvelope(-180, -85.06, 180, 85.06, 4326)"
 
-# fix(#888): matches WKT1 (GEOGCS) and WKT2 (GEOGCRS) spellings PostGIS
+# Matches WKT1 (GEOGCS) and WKT2 (GEOGCRS) spellings PostGIS
 # ships for lon/lat CRSs (4326/4979/4269 match; projected 2263/3857 don't).
 #
-# fix(#961): the ANCHOR is load-bearing. Un-anchored, it would match
+# The ANCHOR is load-bearing. Un-anchored, it would match
 # `BOUNDCRS[SOURCECRS[GEOGCS[... UNIT["grad"...` as geographic, and
 # `_shift_zero_to_360_longitudes` would subtract 360 from a CRS whose full
 # turn is 400 grads — silent coordinate corruption (pinned by
@@ -53,7 +53,7 @@ _MERCATOR_SAFE_ENVELOPE = "ST_MakeEnvelope(-180, -85.06, 180, 85.06, 4326)"
 # soundness — never firing where PROJ says axes aren't degrees.
 _GEOGRAPHIC_SRTEXT_RE = "^GEOG(CS|CRS)"
 
-# fix(#899): geographic != degree-based. 14 stock PostGIS SRIDs are
+# Geographic != degree-based. 14 stock PostGIS SRIDs are
 # GEOGCS with grads (Paris-meridian family, e.g. 4807 NTF) where a full
 # circle is 400, not 360 — translating by -360 would move a feature wrong,
 # so unit must be degrees before anything shifts. Matches WKT1
@@ -68,7 +68,7 @@ async def _shift_zero_to_360_longitudes(
 ) -> bool:
     """Shift a 0..360-convention source into -180..180. True when it shifted.
 
-    fix(#888): a 0..360-convention source (common in ocean/climate data) is
+    A 0..360-convention source (common in ocean/climate data) is
     not out-of-range data — clipping to the Mercator envelope would silently
     delete everything east of lon 180. #883 showed a single-condition guard
     on this class of problem is a coin flip, so *all four* must hold before
@@ -76,7 +76,7 @@ async def _shift_zero_to_360_longitudes(
 
     1. Geometry CRS is lon/lat AND angular unit is degrees. A projected CRS
        has no meaningful "longitude"; a grads-based CRS has a 400-unit full
-       circle, so -360 is not a whole turn (fix(#899)).
+       circle, so -360 is not a whole turn.
     2. Table-wide min X >= 0 — any negative longitude means the source is
        already -180..180, and mixing both conventions is ambiguous.
     3. Table-wide max X > 180 — separates a real 0..360 source from one
@@ -142,7 +142,7 @@ async def _mercator_envelope_degenerates(
 ) -> bool:
     """True when the safe envelope collapses under ST_Transform into ``src_srid``.
 
-    fix(#906): a CRS with a narrow area of validity can collapse the global
+    A CRS with a narrow area of validity can collapse the global
     Mercator safe envelope under transform (EPSG:4807 NTF Paris grads: every
     X becomes 197.396), silently emptying the table via the clip's
     intersection. Enumerated against a stock ``spatial_ref_sys``: 4415 of
@@ -161,9 +161,9 @@ async def _mercator_envelope_degenerates(
       sliver test misses it; polar stereographic 3031 to ~4 m). Absolute,
       not relative to the table's extent, because a 3857 table genuinely
       beyond ±20 037 508 m is WIDER than its transformed envelope and is
-      exactly what the clip trims (fix(#906)). Guarded to
+      exactly what the clip trims. Guarded to
       projected CRSs since geographic units are degrees and can't collapse
-      this way; sees through COMPD_CS (fix(#906)) so a compound
+      this way; sees through COMPD_CS so a compound
       geographic CRS like stock 5498 (NAD83+NAVD88) still counts as degrees;
     - the transform raising — the clip's own UPDATE would raise identically.
       Probed inside a SAVEPOINT so the surrounding transaction stays usable.
@@ -176,13 +176,13 @@ async def _mercator_envelope_degenerates(
         f"  OR ST_Area(e) < 1e-6 * ((ST_XMax(e) - ST_XMin(e)) "
         f"                        * (ST_YMax(e) - ST_YMin(e))) "
         f"  OR ( "
-        # fix(#906): sees through COMPD_CS — a compound geographic
+        # Sees through COMPD_CS — a compound geographic
         # CRS (e.g. stock 5498, NAD83+NAVD88) starts with COMPD_CS but its
         # horizontal axes are degrees, so it must not trip the 1000-unit
         # floor. Geographic here means a GEOG keyword present and no PROJ
         # keyword anywhere (every projected WKT1 nests a GEOGCS) — same
         # logic as core.geo.wkt_is_geographic, in srtext form.
-        # fix(#961): this predicate and the 0..360 gate's
+        # This predicate and the 0..360 gate's
         # `_GEOGRAPHIC_SRTEXT_RE` deliberately DISAGREE on wrapped CRSs
         # (unifying them was tried and reverted) — seeing through a wrapper
         # is right here (a size floor) and unsafe there (translating by 360
@@ -231,7 +231,7 @@ async def clip_to_mercator_bounds(
     feature entirely outside the envelope still drops, since it has no
     measure left to lose.
 
-    fix(#888): returns the clip accounting (``dropped_features``,
+    Returns the clip accounting (``dropped_features``,
     ``clipped_features``) so the caller can surface loss at the point it
     happens. Returns None when the table has no registered ``geom``
     metadata. Raises ``ValueError`` when a measured feature crosses the
@@ -277,7 +277,7 @@ async def clip_to_mercator_bounds(
         envelope = _MERCATOR_SAFE_ENVELOPE
     else:
         envelope = f"ST_Transform({_MERCATOR_SAFE_ENVELOPE}, {src_srid})"
-        # fix(#906): the guard runs AFTER the 0..360 shift above — that
+        # The guard runs AFTER the 0..360 shift above — that
         # ordering is load-bearing (#888/#899): skipping the clip for a
         # narrow-validity CRS must still leave the shift applied.
         if await _mercator_envelope_degenerates(session, table_name, schema, src_srid):
@@ -320,7 +320,7 @@ async def clip_to_mercator_bounds(
     if force_dims is not None:
         clipped = f"{force_dims}({clipped})"
 
-    # fix(#888): count what the clip destroyed in the same statement that
+    # Count what the clip destroyed in the same statement that
     # destroys it. Rows that were already empty are excluded from the WHERE so
     # they cannot inflate the counts (the clip was a no-op for them anyway).
     counts = (

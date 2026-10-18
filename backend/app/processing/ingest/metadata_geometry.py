@@ -284,7 +284,7 @@ async def rename_reserved_columns(
     column (gid, geom, geometry, geom_4326, fid, ogc_fid) to ``src_<name>``.
     Runs BEFORE add_4326_column so its ADD COLUMN geom_4326 cannot collide.
 
-    fix(#640): also renames ``:``-bearing columns (Socrata exports ship
+    Also renames ``:``-bearing columns (Socrata exports ship
     system columns like ``:id`` that survive OGR's laundering; a colon
     inside a double-quoted identifier is parsed as a bind parameter by
     SQLAlchemy ``text()``, breaking every downstream text()-built query).
