@@ -304,7 +304,8 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, (bytes, bytearray, memoryview)):
         return "\\x" + bytes(value).hex()
     if isinstance(value, BitString):
-        return value.as_string()
+        # as_string() groups bits by four with spaces; PostgreSQL's text has none.
+        return value.as_string().replace(" ", "")
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
     if isinstance(value, dict):

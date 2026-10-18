@@ -511,14 +511,16 @@ async def test_rows_serialize_bit_and_bytea_values(
     table = f"test_rows_bits_{uuid.uuid4().hex[:8]}"
     await test_db_session.execute(
         text(
-            f"CREATE TABLE data.{table} "
-            "(gid serial PRIMARY KEY, flags bit(4), mask bit varying, raw bytea)"
+            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, flags bit(8), "
+            "mask bit varying, empty bit varying, gone bit varying, pairs bit(2)[], "
+            "raw bytea)"
         )
     )
     await test_db_session.execute(
         text(
-            f"INSERT INTO data.{table} (flags, mask, raw) "
-            "VALUES (B'1010', B'101', '\\xff00'::bytea)"
+            f"INSERT INTO data.{table} (flags, mask, empty, gone, pairs, raw) "
+            "VALUES (B'10101010', B'00101', B'', NULL, ARRAY[B'01', B'10'], "
+            "'\\xff00'::bytea)"
         )
     )
     await test_db_session.commit()
@@ -531,14 +533,31 @@ async def test_rows_serialize_bit_and_bytea_values(
             {"name": "gid", "type": "integer"},
             {"name": "flags", "type": "bit"},
             {"name": "mask", "type": "bit varying"},
+            {"name": "empty", "type": "bit varying"},
+            {"name": "gone", "type": "bit varying"},
+            {"name": "pairs", "type": "ARRAY"},
             {"name": "raw", "type": "bytea"},
         ],
     )
     try:
-        resp = await client.get(f"/datasets/{ds.id}/rows/", headers=admin_auth_header)
+        url = f"/datasets/{ds.id}/rows/"
+        resp = await client.get(url, headers=admin_auth_header)
         assert resp.status_code == 200, resp.text
         row = resp.json()["rows"][0]
-        assert (row["flags"], row["mask"], row["raw"]) == ("1010", "101", "\\xff00")
+        assert row["flags"] == "10101010"
+        assert row["mask"] == "00101"
+        assert row["empty"] == ""
+        assert row["gone"] is None
+        assert row["pairs"] == ["01", "10"]
+        assert row["raw"] == "\\xff00"
+        # The returned text is PostgreSQL's own, so filtering by it finds the row.
+        for column in ("flags", "mask"):
+            found = await client.get(
+                url,
+                params={f"filter[{column}]": row[column]},
+                headers=admin_auth_header,
+            )
+            assert [r["gid"] for r in found.json()["rows"]] == [row["gid"]]
     finally:
         await test_db_session.execute(
             text(
