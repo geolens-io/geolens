@@ -3,6 +3,8 @@
 Plain explanations need no anchor. Retained coded references must be scoped.
 """
 
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -113,10 +115,10 @@ class TestDetector:
     def test_legitimate_text_does_not_trip(self, source):
         assert not fm.scan_module("m.py", source)
 
-    def test_agent_tag_is_a_marker(self):
+    def test_an_agent_tag_fails_even_though_it_is_anchored(self):
         tag = "pony" + "tail:"
         assert fm.scan_module("m.py", f"# {tag} skipped the retry loop\nx = 1\n")
-        assert not fm.scan_module("m.py", f"# {tag} one retry is enough (#99)\n")
+        assert fm.scan_module("m.py", f"# {tag} one retry is enough (#99)\n")
 
     @pytest.mark.parametrize(
         "source",
@@ -136,6 +138,60 @@ class TestDetector:
     def test_unreadable_source_is_fatal_and_names_the_file(self, source):
         with pytest.raises(fm.MarkerScanError, match="wanted.py"):
             fm.scan_module("wanted.py", source)
+
+
+@pytest.mark.skipif(not (fm.REPO_ROOT / ".git").exists(), reason="needs a git checkout")
+class TestRepoTree:
+    """The gate over tracked files outside backend/app."""
+
+    def test_the_tracked_tree_is_clean(self):
+        problems = fm.check_repo()
+        assert not problems, "\n".join(problems)
+
+    def test_scan_reaches_the_tracked_tree(self):
+        _, files = fm.scan_repo()
+        assert files >= fm.MIN_REPO_FILES > 0
+
+    def test_scans_comments_outside_tests_only(self, tmp_path):
+        files = {
+            "cli/m.py": "# GAP-001 bounds the page.\nx = 1\n",
+            "scripts/a.sh": "#!/bin/sh\n# BKP-01: keep the volume.\necho SEC-002\n",
+            "docker-compose.yml": "x: SEC-002  # value, not a comment\n# CR-03 note\n",
+            "frontend/src/a.ts": "// Phase 1058 seam\nconst a = 'SEC-002';\n",
+            "db/init.sql": "-- fix(#12): grant first\nSELECT 'SEC-002';\n",
+            "frontend/src/a.test.ts": "// GAP-001\n",
+            "cli/tests/test_m.py": "# GAP-001\n",
+            "cli/tests/helpers.py": "# GAP-001\n",
+            "e2e/fixtures/seed.ts": "// GAP-001\n",
+            "docs/notes.md": "GAP-001\n",
+            "backend/app/m.py": "# GAP-001\n",
+        }
+        for rel, text in files.items():
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / rel).write_text(text)
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+
+        hits, scanned = fm.scan_repo(tmp_path)
+
+        assert scanned == 5
+        assert sorted((h.module, h.lineno, h.markers) for h in hits) == [
+            ("cli/m.py", 1, ("GAP-001",)),
+            ("db/init.sql", 1, ("fix(#12)",)),
+            ("docker-compose.yml", 2, ("CR-03",)),
+            ("frontend/src/a.ts", 1, ("Phase 1058",)),
+            ("scripts/a.sh", 2, ("BKP-01",)),
+        ]
+
+    def test_the_hook_runs_for_every_scanned_file(self):
+        hook = {hook["id"]: hook for hook in _local_hooks()}[HOOK_ID]
+        files = re.compile(hook["files"])
+        missed = [rel for rel, _ in fm.repo_files() if not files.search(rel)]
+        assert not missed, f"{HOOK_ID} files: does not match {missed}"
+
+    def test_an_unlisted_tree_is_fatal(self, tmp_path):
+        with pytest.raises(fm.MarkerScanError, match="could not list"):
+            fm.scan_repo(tmp_path)
 
 
 class TestHookWiring:

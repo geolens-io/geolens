@@ -103,9 +103,8 @@ export function useUpdateDataset() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
       qc.invalidateQueries({ queryKey: queryKeys.search.all });
-      // PERF-D1: validation query has a 5-minute staleTime so it wouldn't
-      // otherwise refetch after a metadata edit. Force invalidation so the
-      // quality-score badge reflects the freshly-computed value.
+      // The validation query has a 5-minute staleTime; force a refetch so the
+      // quality-score badge reflects the recomputed value.
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
       if (variables.data.visibility !== undefined) invalidateTileTokens(qc, variables.datasetId);
     },
@@ -200,7 +199,7 @@ export function useReuploadDataset() {
 
 export function useReuploadPreview() {
   return useMutation({
-    // GPKG-01 Phase 1058: optional layerName for multi-layer file sources
+    // `layerName` picks one layer of a multi-layer file source.
     mutationFn: ({ datasetId, jobId, layerName }: { datasetId: string; jobId: string; layerName?: string }) =>
       reuploadPreview(datasetId, jobId, layerName),
   });
@@ -221,15 +220,15 @@ export function useReuploadServicePreview() {
 export function useReuploadCommit() {
   const qc = useQueryClient();
   return useMutation({
-    // GPKG-01 Phase 1058: optional layerName for multi-layer file sources
+    // `layerName` picks one layer of a multi-layer file source.
     mutationFn: ({
       datasetId,
       jobId,
       sridOverride,
       token,
       layerName,
-      // The origin the dialog captured when it staged the
-      // replacement, so the commit door can refuse a mid-flow rebinding.
+      // The origin the dialog captured when it staged the replacement, so the
+      // commit can refuse a mid-flow rebinding.
       expectedOriginKind,
       reviewFingerprint,
     }: {
@@ -249,10 +248,9 @@ export function useReuploadCommit() {
       expectedOriginKind,
       reviewFingerprint,
     ),
-    // REMED-01 (ingest-audit P2-06): invalidate the dataset-detail warnings
-    // banner cache so it refetches the new ingest job's warnings. The
-    // useDatasetJobStatus query uses `staleTime: Infinity` and would
-    // otherwise hold the prior job's value until a hard refresh.
+    // Refetch the dataset-detail warnings banner for the new ingest job.
+    // useDatasetJobStatus uses `staleTime: Infinity` and would otherwise hold
+    // the prior job's value until a hard refresh.
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatusByDataset(variables.datasetId) });
       // The commit admitted a run; an open Sources tab shows it.
@@ -312,10 +310,10 @@ export function useRestorePreviousVersion() {
   });
 }
 
-// One-click cancel for the active refresh run, keyed on the
-// run's ingest_job_id. Invalidates exactly what dispatch invalidates: the
-// cancelled run belongs in history immediately, and dataset health/freshness
-// may change once the row is terminal.
+// One-click cancel for the active refresh run, keyed on the run's
+// ingest_job_id. Invalidates what dispatch invalidates: the cancelled run
+// belongs in history immediately, and dataset health/freshness may change once
+// the row is terminal.
 export function useCancelRefreshJob() {
   const qc = useQueryClient();
   return useMutation({
@@ -339,50 +337,36 @@ export function useDatasetRefreshRuns(
     enabled: !!datasetId,
     placeholderData: keepPreviousData,
     staleTime: 15_000,
-    // Observe externally-started refresh runs on tab refocus.
-    // The app disables refetchOnWindowFocus globally (main.tsx) because a
-    // refresh dispatched from the CLI or another editor's session never
-    // touches this client's cache — under the global default, this query's
-    // cached "idle" state (no active run) is otherwise never re-validated
-    // until something else remounts or invalidates it. Overriding the
-    // default here means returning focus to the tab re-fetches runs, so
-    // useDatasetRefreshWatch's active->terminal transition guard gets a
-    // chance to observe a run it never dispatched and never saw start.
+    // Observe externally-started refresh runs on tab refocus. The app disables
+    // refetchOnWindowFocus globally (main.tsx), and a refresh dispatched from
+    // the CLI or another session never touches this client's cache, so the
+    // cached "idle" state would never be revalidated. Refocusing the tab is the
+    // signal to check, which lets useDatasetRefreshWatch observe a run it never
+    // dispatched.
     //
-    // 'always', not `true`: plain `true` only refetches if the cached data
-    // is already stale, so an external run started less than staleTime
-    // (15s) after this query's last fetch would be missed on the very
-    // focus event meant to catch it — and since becoming stale later is
-    // passive (nothing schedules a fetch once refetchInterval is off), the
-    // page could then wait on a second, unrelated focus/remount to notice.
-    // Focus returning to the tab IS the signal to check for an external
-    // run, independent of this query's own freshness clock.
+    // 'always', not `true`: `true` refetches only stale data, so an external run
+    // started within staleTime (15s) of the last fetch would be missed on the
+    // very focus event meant to catch it.
     refetchOnWindowFocus: 'always',
-    // keepPreviousData shows the LAST successful
-    // result as a placeholder for ANY new query invocation, not just a
-    // paged re-fetch of the same dataset — so navigating straight from one
-    // /datasets/:id to another briefly serves the PRIOR dataset's runs under
-    // the new query key. Without a `run.dataset_id === datasetId` check
-    // (SourceHistory does the same for versions), the new page could flash the
-    // previous dataset's triggered-by identity, error text, or active-run
-    // disabled state. Filtering here covers every consumer at once.
+    // keepPreviousData serves the last successful result as a placeholder for
+    // any new query, so navigating from one /datasets/:id to another would
+    // briefly show the prior dataset's runs (triggered-by identity, error text,
+    // active-run disabled state) under the new key. Filtering by dataset_id
+    // here covers every consumer at once (SourceHistory does the same for
+    // versions).
     select: (data) => ({
       ...data,
       runs: data.runs.filter((run) => run.dataset_id === datasetId),
     }),
-    // The dispatch-time invalidation above fires
-    // one refetch that lands as "pending", and the app disables
-    // refetch-on-focus, so without this the run
-    // sits "active" in the mounted page forever — SourceRefreshAction's busy
-    // gate never re-enables and this section's status never updates once the
-    // worker actually finishes. Self-referential like useJobStatus: poll
-    // while the newest run is still in flight, stop once it lands on a
-    // terminal status. Shared by both consumers (the trigger's gate and this
-    // history section), so both pick up the transition from one poll.
+    // The dispatch-time invalidation fires one refetch that lands as "pending",
+    // and the app disables refetch-on-focus, so without polling the run would
+    // sit "active" forever: SourceRefreshAction's busy gate never re-enables
+    // and the history status never updates. Poll while the newest run is in
+    // flight and stop once it is terminal. Both consumers share this poll.
     //
-    // `query.state.data` here is the RAW cached response (select runs at the
-    // observer, not against the cache), so this re-applies the same
-    // dataset_id filter rather than trusting index 0 belongs to `datasetId`.
+    // `query.state.data` is the raw cached response (select runs at the
+    // observer, not against the cache), so this re-applies the dataset_id
+    // filter rather than trusting index 0 belongs to `datasetId`.
     refetchInterval: (query) => {
       const latest = query.state.data?.runs.find((run) => run.dataset_id === datasetId);
       if (latest?.status === 'pending' || latest?.status === 'running') return 5_000;
@@ -411,19 +395,18 @@ function isRunActive(status: string | undefined): boolean {
  * SourceRefreshAction only calls `trackDispatchedRun` with the run_id from
  * its 202 and reads `latestRun`/`isBusy` back as props.
  *
- * Its job is "keep the page consistent with refresh activity for this
- * dataset", not "track my own dispatch", so a run kicked off from the CLI,
- * another editor's tab, or already in flight when this hook mounted also
- * invalidates when it goes terminal. `dispatchedRunId` covers one extra
- * case: a strategy fast enough to already be terminal on the very FIRST
- * observation (a postgis remeasurement can finish in under a second), where
- * no active→terminal transition is ever observed. Two independent triggers,
- * either one fires the same invalidation, and `invalidatedRunIdRef` makes it
- * idempotent per run id:
+ * The goal is to keep the page consistent with refresh activity for this
+ * dataset, so a run kicked off from the CLI, another editor's tab, or already
+ * in flight when this hook mounted also invalidates when it goes terminal.
+ * `dispatchedRunId` covers one extra case: a strategy fast enough to be
+ * terminal on the very first observation (a postgis remeasurement can finish
+ * in under a second), where no active→terminal transition is ever observed.
+ * Either trigger fires the same invalidation, and `invalidatedRunIdRef` makes
+ * it idempotent per run id:
  *   (a) wasActive && !isActive  — any run this hook watched go active→terminal,
  *       regardless of who dispatched it;
- *   (b) latestRunId === dispatchedRunId && !isActive — OUR dispatch, terminal
- *       on the first poll that ever saw it, never observed active.
+ *   (b) latestRunId === dispatchedRunId && !isActive — our dispatch, terminal
+ *       on the first poll that saw it, never observed active.
  */
 export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
   const queryClient = useQueryClient();
@@ -449,56 +432,42 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     if (invalidatedRunIdRef.current === latestRunId) return;
     invalidatedRunIdRef.current = latestRunId;
 
-    // The full sweep of caches derived from this
-    // dataset's DATA. query-keys.ts's own header notes there is no single
-    // shared root across dataset-scoped keys ("Some domains use different
-    // roots for list vs detail"), confirmed by walking every entry in the
-    // file — so this is an EXHAUSTIVE enumeration, not a prefix shortcut.
+    // Every cache derived from this dataset's data. query-keys.ts has no single
+    // shared root across dataset-scoped keys, so this is an explicit list.
     //
-    // Included, and why:
-    //   - detail: freshness/health/last_refreshed_at/feature_count/extent.
-    //   - versionsPrefix: a successful SERVICE refresh writes a version
-    //     (tasks_reupload.py); a postgis run does not, but invalidating
-    //     unconditionally just costs an unchanged refetch.
+    // Invalidated:
+    //   - detail: freshness, health, last_refreshed_at, feature_count, extent.
+    //   - versionsPrefix: a successful service refresh writes a version; a
+    //     postgis run does not, but invalidating unconditionally only costs an
+    //     unchanged refetch.
     //   - rowsPrefix: the Data tab's table.
-    //   - attributes: data_type/example_values/is_nullable are computed
-    //     from the live columns and can move on schema drift.
+    //   - attributes: data_type/example_values/is_nullable are computed from the
+    //     live columns and can move on schema drift.
     //   - validation: the quality score is computed from the data.
-    //   - maps.columnValuesPrefix / columnStatsPrefix: filter-picker caches
-    //     over the live column distribution (mirrors invalidateColumnCaches
-    //     in use-features.ts, the same-class precedent for "this dataset's
-    //     rows changed").
+    //   - maps.columnValuesPrefix / columnStatsPrefix: filter-picker caches over
+    //     the live column distribution (as invalidateColumnCaches does in
+    //     use-features.ts).
     //   - search.all: catalog search result summaries.
-    //   - ingest.jobStatusByDataset: staleTime Infinity, feeds the
-    //     persistent ingest-warnings banner (mirrors useReuploadCommit's own
-    //     onSuccess a few lines up — a refresh is an ingest-adjacent
-    //     operation on this dataset exactly like a reupload).
-    //   - relationships.recordsPrefix: the actual joined related-record
-    //     ROWS a RelatedRecordsPanel section renders, fetched by feature —
-    //     genuinely stale after a data replace.
+    //   - ingest.jobStatusByDataset: staleTime Infinity, feeds the persistent
+    //     ingest-warnings banner (as useReuploadCommit's onSuccess does).
+    //   - relationships.recordsPrefix: the joined related-record rows a
+    //     RelatedRecordsPanel section renders, stale after a data replace.
     //   - relationships.listPrefix: every list carries its relationships'
     //     `broken` flag, which a replace of either endpoint changes.
     //
-    // Considered and excluded, and why:
-    //   - refreshRunsPrefix: this IS the query driving this effect; already
-    //     the freshest data there is, nothing to invalidate.
-    //   - datasets.history: an AUDIT LOG of metadata edits (getDatasetHistory
-    //     -> AuditLogListResponse), not touched by a source-data refresh.
-    //   - datasets.related / datasets.maps: declared dataset-to-dataset
-    //     relationships and map-membership lists — not recomputed from row
-    //     data. datasets.all exists only to alias these two under the
-    //     shared 'datasets' root (see useUpdateDataset), so it adds nothing
-    //     once both are excluded.
-    //   - search.facets / search.summary: different root than search.all
-    //     (['facets', params] / ['catalog-summary'], not ['search', ...]) —
-    //     confirmed no existing "this dataset's data changed" mutation in
-    //     this codebase touches them either (invalidateFeatureDerived does
-    //     not), so this does not invent a wider net than that precedent.
-    //   - tileTokens.*: the credential doesn't change; the backend already
-    //     busts tile caches with a version-bumped URL carried on the (already
-    //     invalidated) detail response.
-    //   - vrt.* / ogcRecords.* / collections.* / admin.* / settings.* /
-    //     everything else in query-keys.ts: different domain entirely.
+    // Left alone:
+    //   - refreshRunsPrefix: this is the query driving this effect.
+    //   - datasets.history: an audit log of metadata edits, untouched by a
+    //     source-data refresh.
+    //   - datasets.related / datasets.maps: declared dataset relationships and
+    //     map membership, not recomputed from row data. datasets.all only
+    //     aliases these two under the shared 'datasets' root.
+    //   - search.facets / search.summary: different roots than search.all, and
+    //     no other "this dataset's data changed" mutation touches them.
+    //   - tileTokens.*: the credential doesn't change; the backend busts tile
+    //     caches with a version-bumped URL carried on the (already invalidated)
+    //     detail response.
+    //   - everything else in query-keys.ts: different domain.
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.versionsPrefix(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(datasetId) });
@@ -535,7 +504,7 @@ export function useUpdateAttribute(datasetId: string | undefined) {
       updateAttribute(datasetId!, attributeId, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(datasetId) });
-      // PERF-D1: attribute metadata changes can affect validation warnings.
+      // Attribute metadata changes can affect validation warnings.
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(datasetId) });
     },
   });

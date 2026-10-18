@@ -13,21 +13,19 @@ export type MapTerrainConfig = components['schemas']['TerrainConfig'];
 export type MapBasemapVisibilityMode = components['schemas']['BasemapSublayerVisibility'];
 export type MapBasemapLandWaterTone = components['schemas']['BasemapLandWaterTone'];
 export type MapBasemapReliefContrast = components['schemas']['BasemapReliefContrast'];
-/** Phase 1051 UX-03: position of the basemap row in the unified stack.
- *  - 'bottom' (default, legacy) — basemap renders BELOW data layers.
- *  - 'top' — basemap renders ABOVE data layers; useful for 3D maps showing
+/** Position of the basemap row in the unified stack.
+ *  - 'bottom' (default) — basemap renders below data layers.
+ *  - 'top' — basemap renders above data layers; useful for 3D maps showing
  *    elevation through a translucent basemap.
- *  Stored on the `MapBasemapConfig` jsonb so no backend schema migration is
- *  required — legacy maps load with `undefined` and default to 'bottom'. */
+ *  Maps saved without a value load as 'bottom'. */
 export type MapBasemapPosition = components['schemas']['BasemapPosition'];
 
 /** Map projection. 'mercator' (default) or experimental 'globe'. */
 export type MapProjection = components['schemas']['BasemapProjection'];
 
-/** Phase 1059 BSE-01: per-sublayer style override stored in MapBasemapConfig.sublayer_overrides.
- *  All fields nullable — null means "use basemap default". Mirrors backend SublayerOverride
- *  Pydantic model at backend/app/modules/catalog/maps/schemas.py.
- *  Color fields MUST be #RRGGBB hex when non-null (validated server-side via regex). */
+/** Per-sublayer style override stored in MapBasemapConfig.sublayer_overrides.
+ *  All fields nullable — null means "use basemap default". Color fields must be
+ *  #RRGGBB hex when non-null (validated server-side). */
 export type MapSublayerOverride = components['schemas']['SublayerOverride'];
 
 // `opacity` has a server default, so a config saved before it existed omits it.
@@ -103,9 +101,7 @@ export type StatusUpdateResponse = components['schemas']['StatusUpdateResponse']
 // Structured credential for a protected service, mirroring
 // backend `ServiceAuthRequest` (app/platform/service_auth.py). Mutually
 // exclusive with the deprecated `token` field on every request that carries
-// both — see `reject_service_auth_conflict`. Aliased from the generated
-// schema rather than hand-mirrored, since this one is already in the OpenAPI
-// snapshot (unlike ArcgisSigninRequest below, which predates its regen).
+// both — see `reject_service_auth_conflict`.
 export type ServiceAuthRequest = components['schemas']['ServiceAuthRequest'];
 
 // The API declares these as plain strings; the frontend narrows them to the vocabularies it switches on.
@@ -336,10 +332,7 @@ export type DatasetVersionResponse = components['schemas']['DatasetVersionRespon
 
 export type DatasetVersionListResponse = components['schemas']['DatasetVersionListResponse'];
 
-// The refresh door (#1277/#1313) and its run history
-// (GET /datasets/{id}/refresh-runs). Hand-mirrored like the version types
-// above rather than aliased from api.generated's `components`, matching this
-// file's existing convention for the datasets domain.
+// Refresh requests and run history (GET /datasets/{id}/refresh-runs).
 // Request body: the generated type marks `verification_policy`, which has a server default, required.
 export type DatasetRefreshRequest = Omit<components['schemas']['DatasetRefreshRequest'], 'verification_policy'> & {
   verification_policy?: components['schemas']['DatasetRefreshRequest']['verification_policy'];
@@ -383,7 +376,7 @@ export interface BuilderStyleConfig {
   fillDisabled?: boolean;
   strokeDisabled?: boolean;
   fillOpacitySaved?: number;
-  /** Solid fill-color stashed while a fill-pattern owns the fill (#910). */
+  /** Solid fill-color stashed while a fill-pattern owns the fill. */
   fillColorSaved?: string;
   outlineWidthSaved?: number;
   outlineColor?: string;
@@ -415,28 +408,27 @@ export interface BuilderStyleConfig {
   clusterTextColor?: string;
   /** Cluster count label text size for point cluster render mode. */
   clusterTextSize?: number;
-  /** ux(#839): show the cluster count label. Absent = true (counts on). */
+  /** Show the cluster count label. Absent = true. */
   clusterShowCounts?: boolean;
   /**
    * Optional cluster color ramp keyed on point_count (cluster render mode).
    * With 2+ stops the cluster circle is colored by a MapLibre `step` expression
-   * on point_count (parity with the MapLibre "create and style clusters"
-   * example); an empty/absent ramp falls back to the flat clusterColor. Stops
-   * are sorted ascending by count — the lowest is the base color, subsequent
-   * counts are the step thresholds.
+   * on point_count; an empty/absent ramp falls back to the flat clusterColor.
+   * Stops are sorted ascending by count — the lowest is the base color,
+   * subsequent counts are the step thresholds.
    */
   clusterColorRamp?: Array<{ count: number; color: string }>;
   symbol?: SymbolStyleConfig;
-  /** Phase 256 — line-gradient builder intent. Stops authored in the UI; serialized
-   *  to a canonical interpolate-linear-line-progress expression for paint['line-gradient'].
-   *  Phase 255 engine consumes a non-empty plain object via lineGradientNeededFor() to
-   *  emit lineMetrics: true on the backing vector source. */
+  /** Line-gradient builder intent. Stops authored in the UI are serialized to a
+   *  canonical interpolate-linear-line-progress expression for paint['line-gradient'].
+   *  A non-empty plain object makes lineGradientNeededFor() enable lineMetrics on
+   *  the backing vector source. */
   lineGradient?: {
-    /** Phase 258 POLISH-06: optional per-stop UUID for stable React keys.
-     *  Persisted in the JSONB builder shape only; NEVER emitted to the canonical
-     *  interpolate-linear-line-progress paint expression (v13.9 GRAD-05/06 byte
-     *  identity contract). Legacy stops without `id` are auto-assigned at hydration
-     *  inside LineGradientControls. */
+    /** Optional per-stop UUID for stable React keys.
+     *  Persisted in the JSONB builder shape only; never emitted to the canonical
+     *  interpolate-linear-line-progress paint expression, which is byte-identical
+     *  with or without ids. Stops without `id` are assigned one at hydration inside
+     *  LineGradientControls. */
     stops: Array<{ position: number; color: string; id?: string }>;
   };
   /** Raster colormap name (single-band). Builder-private; mutates the tile URL via buildColormapTileUrl. */
@@ -473,9 +465,7 @@ export interface SymbolStyleConfig {
 
 export interface StyleConfig {
   [key: string]: unknown;
-  // fix(HT-19): optional — a valid DEM config carries only render_mode (plus
-  // builder metadata); requiring the data-driven trio forced `as unknown as`
-  // casts that hid the DEM state model from the type checker.
+  // Optional: a valid DEM config carries only render_mode (plus builder metadata).
   mode?: 'categorical' | 'graduated';
   column?: string;
   ramp?: string;
@@ -493,14 +483,13 @@ export interface StyleConfig {
   /** Optional viewer-facing label for color-driven legends. */
   colorLabel?: string;
   /**
-   * Optional per-entry legend label override (ENH-06). When set, the legend
-   * renders this string instead of the layer's display/dataset name. Rides
-   * the free-form style_config dict — no backend schema change required.
+   * Optional per-entry legend label override. When set, the legend renders
+   * this string instead of the layer's display/dataset name.
    */
   legendLabel?: string;
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
-  /** Whether the color ramp is applied in reverse order (ENH-05). Persisted so legend/map reflect the flip. */
+  /** Whether the color ramp is applied in reverse order. Persisted so legend/map reflect the flip. */
   reversed?: boolean;
   /** Render mode override for specialized adapters. */
   render_mode?: 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster' | 'terrain' | 'image';
@@ -720,10 +709,6 @@ export type ServicePreviewResponse = Omit<components['schemas']['ServicePreviewR
   columns: Array<{ name: string; type: string }>;
 };
 
-// fix(service-auth wave, lane A2): hand-typed ahead of the SDK regen. The
-// ArcGIS sign-in endpoint (lane A1, POST /services/arcgis/signin/) isn't in
-// the OpenAPI snapshot yet; this mirror should be replaced by the generated
-// shape in api.generated.ts once that lane merges and `make sdks` runs.
 export type ArcgisSigninRequest = components['schemas']['ArcGISSignInRequest'];
 
 export type ArcgisSigninResponse = components['schemas']['ArcGISSignInResponse'];

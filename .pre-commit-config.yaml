@@ -87,19 +87,21 @@ repos:
         files: '^backend/app/(modules/catalog|standards)/.*\.py$'
 
       - id: no-unscoped-finding-markers
-        name: "AGENTS.md — remove unscoped finding tags from backend documentation"
+        name: "AGENTS.md — remove unscoped finding tags from comments and docstrings"
         description: >
           AGENTS.md ("Contracts and Comments") prefers plain explanations over
           finding tags and review history. Remove unnecessary tags; do not add
           anchors merely to pass this legacy guard. A retained reference must
           provide essential context and identify a public issue or PR.
 
-          This hook runs backend/tests/finding_markers.py over the whole of
-          backend/app. That detector parses each module, reads comments and
-          docstrings only (never code, so a string literal cannot trip it), and
-          reports a coded finding id (SEC-002, T-1214-17, PERF-N5), a planning
-          reference (Phase 1184, RESEARCH.md) or a denylisted agent tag with no
-          #issue anchor within two lines, and every fix(#N)-style provenance
+          This hook runs backend/tests/finding_markers.py. In backend/app and
+          in the other tracked Python it parses each module and reads comments
+          and docstrings only (never code, so a string literal cannot trip
+          it); in the other file types it reads each line that starts a
+          comment. Tests, generated SDK code and Markdown are not scanned. It
+          reports a coded finding id (SEC-002, T-1214-17, PERF-N5) or a
+          planning reference (Phase 1184, RESEARCH.md) with no #issue anchor
+          within two lines, and every agent tag and fix(#N)-style provenance
           prefix. A published-standard token (UTF-8, ISO-8601, ADR-002) is
           exempt by name, and `# noqa` / `# codeql[...]` carry no marker shape
           at all. backend/tests/test_unscoped_finding_markers.py runs the same
@@ -116,27 +118,25 @@ repos:
         language: system
         entry: python3 backend/tests/finding_markers.py
         pass_filenames: false
-        files: '^backend/(app/.*\.py|openapi\.json|tests/(finding_markers|test_openapi_finding_markers)\.py)$'
+        files: '^(backend/(app/|alembic/|scripts/|[^/]+$|tests/(finding_markers|test_(unscoped|openapi)_finding_markers)\.py)|cli/|mcp/|scripts/|frontend/|sdks/|examples/|db/|infra/|\.github/|[^/]+$)'
 
       - id: no-agent-tag-markers
-        name: "AGENTS.md — remove unscoped agent tags"
+        name: "AGENTS.md — remove agent tags"
         description: >
-          The denylist half of the same rule, for the file types the AST
-          detector above does not parse (frontend/, e2e/, cli/, mcp/, plus
-          markdown/sql/yaml/json anywhere in the tree). A case-insensitive
-          literal grepped over the whole file rather than its comments — that
-          is all this hook checks and all it claims. A `ponytail:` tag is
-          legal only when the same line also carries a `fix(#<issue>)`
-          anchor; a bare tag fails everywhere. The general class is enforced
-          for backend/app, and only there, by no-unscoped-finding-markers.
+          The agent-tag half of the same rule, for the file types the detector
+          above does not read (tests, markdown and json anywhere in the tree)
+          as well as the ones it does. A case-insensitive literal grepped over
+          the whole file rather than its comments — that is all this hook
+          checks and all it claims. Any `ponytail:` tag fails; an issue anchor
+          does not make one acceptable.
         language: system
         entry: >-
           bash -c '
           rc=0;
           for f in "$@"; do
-            if grep -nFi "ponytail:" "$f" | grep -viE "fix\(#[0-9]+\)"; then
-              echo "FAIL: $f has an unscoped finding marker (see above).";
-              echo "  Remove the agent tag and keep the useful explanation.";
+            if grep -nFi "ponytail:" "$f"; then
+              echo "FAIL: $f has an agent tag (see above).";
+              echo "  Remove the tag and keep the useful explanation.";
               echo "  See AGENTS.md > Contracts and Comments.";
               rc=1;
             fi;

@@ -41,45 +41,34 @@ def _run(path: Path) -> subprocess.CompletedProcess:
     )
 
 
-class TestEscapeHatch:
-    """A same-line fix(#N) anchor is legal everywhere this hook runs; a bare tag never is."""
+class TestAgentTag:
+    """Any agent tag fails wherever this hook runs, anchored or not."""
 
     def test_bare_tag_in_a_frontend_ts_file_fails(self, tmp_path):
         f = tmp_path / "a.ts"
         f.write_text(f"// {TAG} skip the retry loop\n")
         result = _run(f)
         assert result.returncode == 1
-        assert "unscoped finding marker" in result.stdout
+        assert "has an agent tag" in result.stdout
 
-    def test_anchored_tag_in_a_frontend_ts_file_passes(self, tmp_path):
+    def test_an_anchored_tag_fails_too(self, tmp_path):
         f = tmp_path / "a.ts"
         f.write_text(f"// fix(#1960) {TAG} skip the retry loop\n")
         result = _run(f)
-        assert result.returncode == 0
-        assert result.stdout == ""
+        assert result.returncode == 1
 
     def test_bare_tag_in_a_markdown_file_fails(self, tmp_path):
-        """Coverage gap from gh#1960: markdown was not in types_or before this fix."""
         f = tmp_path / "notes.md"
         f.write_text(f"<!-- {TAG} skip the retry loop -->\n")
         result = _run(f)
         assert result.returncode == 1
 
-    def test_anchor_on_a_different_line_does_not_scope_it(self, tmp_path):
-        """The escape hatch is same-line only: an anchor two lines away does not count."""
+    def test_a_file_without_a_tag_passes(self, tmp_path):
         f = tmp_path / "a.ts"
-        f.write_text(f"// fix(#1960) see below\n// {TAG} skip the retry loop\n")
+        f.write_text("// One retry is enough here.\n")
         result = _run(f)
-        assert result.returncode == 1
-
-    def test_each_line_is_judged_on_its_own_anchor(self, tmp_path):
-        """One bare line fails even when a sibling line in the same file is anchored."""
-        f = tmp_path / "a.ts"
-        f.write_text(f"// {TAG} bare, line 1\n// fix(#1960) {TAG} anchored, line 2\n")
-        result = _run(f)
-        assert result.returncode == 1
-        assert "bare, line 1" in result.stdout
-        assert "anchored, line 2" not in result.stdout
+        assert result.returncode == 0
+        assert result.stdout == ""
 
 
 class TestHookWiring:

@@ -107,8 +107,8 @@ export async function authenticatedDownload(
   filename: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  // BUG-035: refresh-aware raw fetch so a download issued as the first request
-  // after a long idle transparently refreshes the JWT instead of 401-ing.
+  // Refresh-aware raw fetch so a download issued as the first request after a
+  // long idle transparently refreshes the JWT instead of 401-ing.
   const response = await authenticatedRawFetch(url, { signal });
 
   if (!response.ok) {
@@ -137,10 +137,9 @@ export async function downloadExport(
 /**
  * Mint a short-lived download-scoped JWT for a single dataset.
  *
- * IA-P0-01: The COG download URL requires a typ='download' JWT on ?token=.
- * Session JWTs are rejected by the backend (router_export.py:186-192).
- * This helper calls POST /auth/download-token/{id} to obtain the correct token.
- * apiFetch automatically injects the session JWT in the Authorization header.
+ * The COG download URL requires a typ='download' JWT on ?token=; the backend
+ * rejects session JWTs there. This helper calls POST /auth/download-token/{id}
+ * to obtain the right token.
  */
 async function mintDownloadToken(id: string): Promise<string> {
   const data = await apiFetch<{ token: string; expires_in: number }>(
@@ -221,9 +220,9 @@ export async function getDatasetHistory(
   return apiFetch<AuditLogListResponse>(`/datasets/${encodeURIComponent(id)}/history${qs ? `?${qs}` : ''}`);
 }
 
-// apiFetch's 30s default aborts a large (up to 500 MB) re-upload
-// body before the transfer can complete, losing the staged job. This one
-// still holds the request open, so it outlives the edge proxy deliberately.
+// apiFetch's 30s default would abort a large (up to 500 MB) re-upload body
+// before the transfer completes, losing the staged job. This timeout holds the
+// request open and outlives the edge proxy deliberately.
 const REUPLOAD_TIMEOUT_MS = 630_000;
 
 export async function reuploadDataset(
@@ -247,7 +246,7 @@ export async function reuploadDataset(
 export async function reuploadPreview(
   datasetId: string,
   jobId: string,
-  // GPKG-01 Phase 1058: optional layer_name for multi-layer file sources
+  // Layer to preview for multi-layer file sources.
   layerName?: string,
 ): Promise<ReuploadPreviewResponse> {
   const body = layerName !== undefined ? JSON.stringify({ layer_name: layerName }) : undefined;
@@ -280,7 +279,7 @@ export async function reuploadCommit(
   jobId: string,
   sridOverride?: number | null,
   token?: string,
-  // GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
+  // User-chosen layer for multi-layer GPKG files.
   layerName?: string,
   // The dataset origin the dialog saw when it staged this
   // replacement. The commit door refuses with 409 `origin_changed` if the
@@ -453,10 +452,6 @@ async function completePresignedReupload(
   }
 }
 
-/**
- * Reupload a file via presigned URL flow for an existing dataset.
- * Same pattern as uploadPresigned but uses reupload endpoints.
- */
 // --- Related datasets ---
 
 interface RelatedDatasetItem {
@@ -480,6 +475,7 @@ export async function fetchRelatedDatasets(
   return apiFetch<RelatedDatasetsResponse>(`/datasets/${encodeURIComponent(datasetId)}/related/`);
 }
 
+/** Reupload a file via the presigned URL flow for an existing dataset. */
 export async function reuploadPresigned(
   datasetId: string,
   file: File,
@@ -505,9 +501,9 @@ export async function reuploadPresigned(
   }
 
   const etags = await uploadChunks(urls, file, part_size!, undefined, {
-    // fix(review #1800 P2 round 3): tell the backend to abort the multipart
-    // upload if a part comes back with no ETag — otherwise S3 keeps it open
-    // (consuming storage) on every retry with nothing left to complete it.
+    // Tell the backend to abort the multipart upload if a part comes back with
+    // no ETag; otherwise S3 keeps it open, consuming storage, with nothing left
+    // to complete it.
     onMissingEtag: () => completePresignedReupload(datasetId, job_id),
   });
   const completedParts = etags.map((etag, i) => ({ etag, part_number: i + 1 }));
@@ -521,8 +517,8 @@ export async function reuploadPresigned(
 // ---------------------------------------------------------------------------
 
 export async function listRelationships(datasetId: string): Promise<DatasetRelationship[]> {
-  // GAP-033: the endpoint now returns the standard list envelope
-  // ({ relationships, total }); unwrap to keep this helper's array contract.
+  // The endpoint returns the standard list envelope ({ relationships, total });
+  // unwrap to keep this helper's array contract.
   const res = await apiFetch<DatasetRelationshipListResponse>(
     `/datasets/${encodeURIComponent(datasetId)}/relationships/`,
   );
@@ -545,7 +541,7 @@ export async function getRelatedRecords(
 }
 
 // ---------------------------------------------------------------------------
-// GPKG-03 Fan-out (Phase 1058-04)
+// Multi-layer fan-out
 // ---------------------------------------------------------------------------
 
 /** Per-layer outcome from POST /ingest/commit-fan-out/{job_id}. */
@@ -565,8 +561,7 @@ interface FanOutCommitResponse {
 
 /**
  * Fan out a single uploaded file into N independent ingest tasks — one per
- * requested layer. Replaces the N-separate-commit approach that the backend
- * rejects (T-1058C-03).
+ * requested layer. The backend rejects N separate commits for one upload.
  *
  * @param jobId   The original pending IngestJob ID (returned by upload)
  * @param layers  Array of {layer_name, title?} objects to ingest
@@ -575,27 +570,18 @@ export async function commitFanOut(
   jobId: string,
   layers: { layer_name: string; title?: string }[],
 ): Promise<FanOutCommitResponse> {
-  // codex on #1660: commitFanOut is a direct apiFetch call reached from
-  // UploadForm's handleIngestAllLayers, not a TanStack mutation — a
-  // network/HTTP-level failure here set every layer's row to 'commit-failed'
-  // with nothing written to the report buffer at all. codex round 3 found
-  // the same is true of a 200 response naming per-layer failures — see
-  // below, where that case gets its own capture.
+  // A direct apiFetch call rather than a TanStack mutation, so network and HTTP
+  // failures are captured for the report buffer here.
   try {
     const response = await apiFetch<FanOutCommitResponse>(`/ingest/commit-fan-out/${encodeURIComponent(jobId)}`, {
       method: 'POST',
       body: JSON.stringify({ layers }),
     });
-    // codex round 3 on #1660: a 200 response here can still carry per-layer
-    // failures (results[].status === 'failed') — not a transport/HTTP
-    // failure, so reportNetworkError doesn't apply, but UploadForm still
-    // maps these to a commit-failed row that shows the report CTA. Without
-    // this, a filed report carried nothing about which layer failed or why:
-    // the results modal shows the USER, but the buffer is what a filed
-    // REPORT carries. One entry per failed layer, not one merged summary,
-    // so two layers failing with byte-identical error text don't collapse
-    // into a single count via the buffer's own dedup, which compares
-    // message text alone.
+    // A 200 response can still carry per-layer failures (results[].status ===
+    // 'failed'). UploadForm shows these as commit-failed rows with a report CTA,
+    // so the buffer a filed report carries must name them. One entry per failed
+    // layer, not a merged summary: the buffer dedups on message text alone, so
+    // layers failing with identical error text would collapse into one count.
     for (const result of response.results) {
       if (result.status === 'failed') {
         pushReportEntry({
