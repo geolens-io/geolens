@@ -5,10 +5,9 @@ import { detectionOptions, defaultNS, fallbackLng, namespaces, supportedLngs } f
 import { getBrowserI18nOptions } from './options';
 import { loadLocaleResources, resources } from './resources';
 
-// RTL infrastructure is live (the <html dir> below flips
-// for these languages), but no RTL locale is shipped yet, so it is untested in
-// practice and no logical-property (start/end vs left/right) audit has run.
-// Adding an RTL locale must be paired with that audit.
+// RTL infrastructure is live (the <html dir> below flips for these languages),
+// but no RTL locale ships yet, so no logical-property (start/end vs left/right)
+// audit has run. Adding an RTL locale must be paired with that audit.
 const rtlLanguages = new Set(['ar', 'he', 'fa', 'ur']);
 
 function updateDocumentLanguage(lng?: string) {
@@ -18,13 +17,11 @@ function updateDocumentLanguage(lng?: string) {
 
   const resolvedLng = lng ?? fallbackLng;
   document.documentElement.lang = resolvedLng;
-  // Set dir attribute for RTL support
   document.documentElement.dir = rtlLanguages.has(resolvedLng) ? 'rtl' : 'ltr';
 }
 
-// `zh` here is Simplified Chinese only. Ask Intl.Locale for the
-// tag's actual script (zh-MY maximizes to Hans, zh-TW to Hant) rather than
-// guessing from a region allowlist or discarding the region entirely.
+// `zh` here is Simplified Chinese only. Ask Intl.Locale for the tag's script
+// (zh-MY maximizes to Hans, zh-TW to Hant) rather than guessing from a region allowlist.
 function isSimplifiedChineseTag(tag: string): boolean {
   try {
     return new Intl.Locale(tag).maximize().script === 'Hans';
@@ -72,9 +69,8 @@ async function buildInitialResources() {
   const initialLanguage = detectInitialLanguage();
 
   if (initialLanguage === fallbackLng) {
-    // `resources` is frozen/non-extensible; passed by
-    // reference, a later addResourceBundle() for another language throws.
-    // Clone it so the store stays extensible without mutating the export.
+    // `resources` is frozen/non-extensible; passed by reference, a later
+    // addResourceBundle() for another language throws. Clone it.
     return {
       initialLanguage,
       initialResources: { ...resources },
@@ -124,9 +120,8 @@ export async function changeAppLanguage(lng: string) {
   const nextLanguage = normalizeLanguage(lng);
   await initializeI18n();
 
-  // hasLoadedNamespace resolves through the fallback chain
-  // and falsely reports an unregistered language "loaded", skipping this
-  // load. hasResourceBundle checks the actual store, not the fallback.
+  // hasLoadedNamespace resolves through the fallback chain and falsely reports an
+  // unregistered language "loaded"; hasResourceBundle checks the actual store.
   if (!i18n.hasResourceBundle(nextLanguage, defaultNS)) {
     const localeResources = await loadLocaleResources(nextLanguage);
     for (const ns of namespaces) {

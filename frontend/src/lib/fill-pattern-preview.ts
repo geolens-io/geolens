@@ -5,11 +5,10 @@ import { FILL_PATTERN_IDS } from '@/components/builder/layer-adapters/fill-patte
  * has to show "this polygon is patterned": the builder's FillPatternPicker, the
  * legend chip (builder + viewer), and the layer-list swatch.
  *
- * It lives here rather than in FillPatternPicker so the legend and the layer
- * icons can reach it without importing a builder panel component.
+ * It lives here rather than in FillPatternPicker so the legend and layer icons
+ * can reach it without importing a builder panel component.
  *
- * Gradients use `currentColor`, so a consumer sets `color` to whatever the chip
- * should draw in and the pattern follows.
+ * Gradients use `currentColor`: a consumer sets `color` and the pattern follows.
  */
 export function patternPreviewStyle(id: string): React.CSSProperties {
   switch (id) {
@@ -50,12 +49,10 @@ export function patternPreviewStyle(id: string): React.CSSProperties {
 }
 
 /**
- * The paint value, when it names a BUILT-IN pattern we can actually preview.
- *
- * An imported or API-authored layer may carry any sprite id in `fill-pattern`;
- * patternPreviewStyle returns no CSS for those, and a consumer that took the
- * patterned branch anyway would draw an empty outlined chip instead of falling
- * back to the solid colour.
+ * The paint value, when it names a built-in pattern we can preview. An imported
+ * or API-authored layer may carry any sprite id in `fill-pattern`;
+ * patternPreviewStyle returns no CSS for those, and a consumer taking the
+ * patterned branch anyway would draw an empty outlined chip instead of the solid colour.
  */
 export function fillPatternFromPaint(paint: Record<string, unknown> | undefined): string | undefined {
   const value = paint?.['fill-pattern'];
@@ -65,18 +62,16 @@ export function fillPatternFromPaint(paint: Record<string, unknown> | undefined)
 }
 
 /**
- * The colour a built-in fill pattern draws in — the layer's own fill
- * colour, wherever it currently lives.
+ * The colour a built-in fill pattern draws in: the layer's own fill colour,
+ * wherever it lives.
  *
- * A pattern deletes `fill-color` from paint, so for any layer patterned
- * through the picker the colour is in the `fillColorSaved` stash. `paint`
- * still wins when it holds a string, which covers maps saved by older clients that
- * carry both keys. Returns undefined when there is nothing to tint with, and every
- * consumer then falls back to the fixed grey — map and previews alike.
+ * A pattern deletes `fill-color` from paint, so for a layer patterned through the
+ * picker the colour is in the `fillColorSaved` stash. `paint` still wins when it
+ * holds a string (maps saved by older clients carry both keys). Returns undefined
+ * when there is nothing to tint with, and consumers fall back to the fixed grey.
  *
- * The map adapter and the three preview surfaces all resolve the tint through this
- * one function; a surface left reading its own colour would disagree with the map,
- * and that disagreement is the bug this function exists to prevent.
+ * The map adapter and the preview surfaces all resolve the tint through this one
+ * function so they cannot disagree with the map.
  */
 export function fillPatternTint(
   paint: Record<string, unknown> | undefined,
@@ -84,9 +79,8 @@ export function fillPatternTint(
 ): string | undefined {
   const painted = paint?.['fill-color'];
   if (typeof painted === 'string') return painted;
-  // The stash is declared a string but comes from an open `style_config`, so an
-  // API-authored or imported layer can hold a number or object here. The pattern
-  // lookup throws on anything but a string while the layer is being described.
-  // Every other reader of this stash applies the same check.
+  // The stash is typed string but comes from an open `style_config`, so an
+  // API-authored or imported layer can hold a number or object; the pattern
+  // lookup throws on non-strings while the layer is described.
   return typeof builder?.fillColorSaved === 'string' ? builder.fillColorSaved : undefined;
 }

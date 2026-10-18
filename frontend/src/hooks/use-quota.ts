@@ -12,9 +12,7 @@ export function useMyUsage() {
     queryFn: getMyUsage,
     enabled: !!user,
     // Usage changes on every upload/delete, so re-read it each time the user
-    // opens Settings rather than serving a stale used/cap figure. Mirrors the
-    // per-user remaining_dataset_quota handling in useUploadConfig
-    // (components/import/hooks/use-ingest.ts).
+    // opens Settings rather than serving a stale used/cap figure.
     staleTime: 0,
     refetchOnMount: 'always',
   });

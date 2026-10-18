@@ -16,14 +16,11 @@
 export interface ChatResultHandoff {
   geojson: GeoJSON.FeatureCollection;
   bbox: [number, number, number, number];
-  /** Whether the overlay holds the whole answer, and of
-   *  how many. Geometry alone was enough while the builder could only draw and
-   *  dismiss a carried result; now it can also be saved as a dataset, and a
-   *  handoff that drops the completeness pair arrives looking complete. */
+  /** Whether the overlay holds the whole answer, and of how many. The result can
+   *  be saved as a dataset, so a handoff that drops this pair would look complete. */
   truncated?: true;
   totalCount?: number;
-  /** The question this result answers, so the builder can suggest
-   *  a name for it. Absent handoffs fall back to a generic title. */
+  /** The question this result answers, used to suggest a map name. */
   prompt?: string;
 }
 
@@ -32,11 +29,8 @@ const KEY = 'geolens-chat-result';
 /**
  * Validate a show_query_result-style geojson/bbox pair. Mirrors
  * ViewerChatPanel's flyover guard: finite, WGS84-bounded, non-inverted bbox
- * (NaN/inverted bounds throw in fitBounds).
- *
- * Geometry only: the completeness pair and the prompt are added by the caller
- * that has them, so this stays the one place that decides whether a payload is
- * drawable at all.
+ * (NaN/inverted bounds throw in fitBounds). Geometry only: the caller adds the
+ * completeness pair and prompt.
  */
 export function toChatResultHandoff(geojson: unknown, bbox: unknown): ChatResultHandoff | null {
   if (

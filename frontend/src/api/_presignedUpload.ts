@@ -4,39 +4,30 @@ import { reportNetworkError } from '@/lib/report';
 /**
  * Shared chunked-PUT helper for presigned S3 multipart uploads.
  *
- * Extracted from the identical loops previously duplicated in
- * `ingest.ts` and `datasets.ts`.
- *
- * XHR, not `fetch`, is what PUTs each part — see the per-part timeout
- * comment below for why. Presigned URLs are pre-signed by the backend and
- * must not carry the session JWT (S3 rejects extra Authorization headers
- * on V4-signed URLs), so no auth header is ever attached here.
+ * XHR, not `fetch`, PUTs each part (see the per-part timeout comment below).
+ * Presigned URLs are signed by the backend and must not carry the session JWT
+ * (S3 rejects extra Authorization headers on V4-signed URLs), so no auth header
+ * is ever attached here.
  */
 
 interface UploadChunksOptions {
   /**
-   * Cancel a runaway multi-GB upload. Aborting rejects the
-   * in-flight part's XHR; the loop then throws the AbortError without starting
-   * the next part.
+   * Cancel a runaway multi-GB upload. Aborting rejects the in-flight part's
+   * XHR; the loop then throws the AbortError without starting the next part.
    */
   signal?: AbortSignal;
   /**
-   * Retry a failed part instead of discarding the whole
-   * upload. One transient blip on part k of n used to throw and lose every part
-   * already uploaded. Retries apply per part, so earlier parts are never re-sent.
+   * Retry a failed part instead of discarding the whole upload. Retries apply
+   * per part, so earlier parts are never re-sent.
    */
   maxRetries?: number;
   /**
-   * Called (best-effort, errors swallowed)
-   * before throwing on a missing ETag. S3 already accepted this part — and
-   * possibly earlier ones — so without this the multipart upload is never
-   * told to stop, leaving it open and consuming storage on every retry.
-   * The caller supplies whatever "complete with no parts" call its own
-   * completion endpoint expects (`completePresignedUpload(jobId)` /
-   * `completePresignedReupload(datasetId, jobId)`, both defaulting `parts`
-   * to `[]`); the backend's existing failed-completion path (the same one
-   * a genuine completion failure already goes through) treats an empty
-   * parts list as abandonment and aborts the multipart upload from it.
+   * Called (best-effort, errors swallowed) before throwing on a missing ETag.
+   * S3 already accepted this part, so without this the multipart upload is
+   * never told to stop and keeps consuming storage. The caller supplies its
+   * "complete with no parts" call (`completePresignedUpload(jobId)` /
+   * `completePresignedReupload(datasetId, jobId)`); the backend treats an empty
+   * parts list as abandonment and aborts the multipart upload.
    */
   onMissingEtag?: () => Promise<unknown>;
 }
@@ -44,35 +35,20 @@ interface UploadChunksOptions {
 const DEFAULT_MAX_RETRIES = 3;
 
 /**
- * `AbortSignal.timeout()` is a WALL-CLOCK
- * deadline, not a stall detector — it fires at a fixed elapsed time
- * regardless of whether bytes are still moving. A part at the backend's
- * credited minimum upload rate can legitimately take longer than that
- * fixed deadline while actively progressing the whole time, so the old
- * `PART_STALL_TIMEOUT_MS` (a flat 300s) aborted a live, working upload on
- * every attempt, forever, before it could ever finish. `fetch` also has no
- * upload-progress signal to tell a genuine stall (zero bytes moving) apart
- * from a slow-but-live one, so the per-part PUT moved to XHR, whose
- * `upload.onprogress` fires on every chunk actually sent and lets the
- * timeout below reset on real activity instead of the wall clock.
+ * `AbortSignal.timeout()` is a wall-clock deadline, not a stall detector, and
+ * `fetch` has no upload-progress signal, so the per-part PUT uses XHR: its
+ * `upload.onprogress` fires on every chunk sent and resets the timeout below on
+ * real activity.
  *
- * Two independent bounds:
+ *  - INACTIVITY_TIMEOUT_MS: no progress event within this window means the
+ *    connection is stalled. Reset on every progress event, so a slow but
+ *    progressing part is never aborted by this alone.
  *
- *  - INACTIVITY_TIMEOUT_MS: no upload.onprogress event within this window
- *    means the connection is genuinely stalled — a live connection, even
- *    an extremely slow one, sends SOME bytes well inside it. 60s is
- *    generous for a scheduling hiccup or a brief network blip while still
- *    recovering a truly dead connection promptly. Reset on every progress
- *    event, so a slow-but-progressing part is never aborted by this alone.
- *
- *  - PART_CEILING_MS: an ABSOLUTE bound even while progress keeps
- *    resetting the inactivity timer above — defense in depth against a
- *    connection so slow it would otherwise run indefinitely. Derived from
- *    the largest possible part (PART_SIZE_UPPER_BOUND_BYTES — 10 MiB,
- *    matching the backend's multipart PART_SIZE) at the backend's credited
- *    minimum upload rate (MIN_UPLOAD_RATE_BYTES_PER_SEC — 32 KiB/s):
- *    10 MiB / 32 KiB/s = 320s, with a 1.5x margin (≈480s) to absorb normal
- *    rate variance and the retry backoff between attempts.
+ *  - PART_CEILING_MS: an absolute bound while progress keeps resetting the timer
+ *    above. Derived from the largest part (PART_SIZE_UPPER_BOUND_BYTES, matching
+ *    the backend's multipart PART_SIZE) at the backend's credited minimum
+ *    upload rate (MIN_UPLOAD_RATE_BYTES_PER_SEC): 10 MiB / 32 KiB/s = 320s,
+ *    with a 1.5x margin (≈480s) for rate variance and retry backoff.
  */
 const INACTIVITY_TIMEOUT_MS = 60_000;
 const PART_SIZE_UPPER_BOUND_BYTES = 10 * 1024 * 1024; // 10 MiB — backend PART_SIZE
@@ -85,11 +61,8 @@ class UploadHttpError extends Error {}
 
 /**
  * A timeout abort (inactivity or ceiling). Deliberately NOT a DOMException
- * named 'AbortError' — that name is reserved for a CALLER-initiated abort
- * (via `signal`), which the loop below treats as terminal and non-retriable.
- * A stalled connection is the opposite: exactly the kind of failure a retry
- * can plausibly recover from, so this falls through to the existing
- * network-layer-error branch instead of a new one.
+ * named 'AbortError': that name is reserved for a CALLER-initiated abort, which
+ * the loop below treats as terminal. A stalled connection is retriable.
  */
 class UploadTimeoutError extends Error {}
 
@@ -259,20 +232,15 @@ export async function uploadChunks(
         const result = await putChunkXHR(urls[i], chunk, signal);
         if (result.ok) {
           const etag = result.etag;
-          // A cross-origin PUT only exposes ETag when the bucket's
-          // CORS policy lists it (ExposeHeaders). Pushing '' here would
-          // reach S3's complete_multipart_upload with an empty part ETag,
-          // which the backend maps to a "session may have expired" 502 — a
-          // message that can never be fixed by retrying. Fail with the real
-          // cause instead: the bucket is missing ExposeHeaders: ETag.
+          // A cross-origin PUT only exposes ETag when the bucket's CORS policy
+          // lists it (ExposeHeaders). Pushing '' would reach S3 as an empty
+          // part ETag, which the backend maps to a "session may have expired"
+          // 502 that retrying cannot fix. Fail with the real cause instead.
           if (etag === null) {
             if (onMissingEtag) {
-              // S3 already accepted this part
-              // (and possibly earlier ones) — best-effort tell the backend
-              // to abort the multipart upload before throwing, so it is not
-              // left open consuming storage on every retry. The missing-ETag
-              // error below is what the caller needs; this cleanup call's
-              // own outcome is not.
+              // S3 already accepted this part: best-effort tell the backend to
+              // abort the multipart upload so it is not left open consuming
+              // storage. The missing-ETag error below is what the caller needs.
               await onMissingEtag().catch(() => {});
             }
             throw new UploadHttpError(
@@ -293,15 +261,12 @@ export async function uploadChunks(
           );
         }
       } catch (err) {
-        // A caller-initiated abort is terminal, not a retriable failure — and
-        // not a problem to report.
+        // A caller-initiated abort is terminal and not worth reporting.
         if (err instanceof DOMException && err.name === 'AbortError') throw err;
-        // A non-retriable HTTP status threw (and was already reported) above;
-        // re-throw once retries are out.
+        // Already reported above; re-throw once retries are out.
         if (err instanceof UploadHttpError) throw err;
-        // Otherwise it is a network-layer error (TypeError) or a timeout
-        // (UploadTimeoutError, deliberately not named AbortError above) —
-        // both retriable.
+        // A network-layer error (TypeError) or timeout (UploadTimeoutError) is
+        // retriable.
         if (attempt >= maxRetries) {
           reportNetworkError({ status: 0, url: partLabel(i) });
           throw new Error(
@@ -319,9 +284,3 @@ export async function uploadChunks(
 
   return etags;
 }
-
-/**
- * Minimal self-check. Run with:
- *   npx vitest run src/api/__tests__/presigned-upload.test.ts
- * (the assertions live there; this comment documents the contract).
- */

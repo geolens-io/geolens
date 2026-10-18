@@ -59,10 +59,9 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.stagingFileUnavailable',
   'This service requires authentication. Provide an access token and try again.':
     'errors.serviceRequiresAuth',
-  // The ArcGIS-specific wording of the same auth-required refusal
-  // (ArcGISTokenError path in backend/app/modules/catalog/sources/router.py).
-  // Unmapped it falls through to the generic 403 "Access denied", hiding that
-  // a token is the fix.
+  // The ArcGIS wording of the auth-required refusal (ArcGISTokenError in
+  // sources/router.py); unmapped it falls to the generic 403 and hides that a
+  // token is the fix.
   'This service requires authentication. Provide a valid ArcGIS token and try again.':
     'errors.serviceRequiresAuth',
   'Could not reach the service. Check the URL and try again.':
@@ -90,20 +89,12 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Tile service unavailable': 'errors.serviceUnavailable',
   'Export temporarily unavailable': 'errors.serviceUnavailable',
   'Task queue unavailable, please retry': 'errors.serviceUnavailable',
-  // The sandbox advisory lock (geolens:ai-sql:<user>) is SHARED
-  // between analysis previews and AI chat data queries — one expensive read
-  // per user across both, deliberately. Unmapped this 429 collapses to the
-  // generic rateLimited fallback, so a busy chat query refuses an analysis
-  // preview with no hint that another feature is holding the budget. The
-  // locale copy names both sides, because either can be the holder.
+  // The sandbox advisory lock is shared between analysis previews and AI chat
+  // data queries, so either can be the holder; the copy names both sides.
   'Another data query is already running for this user': 'errors.sharedQueryBusy',
-  // The refresh door's refusal taxonomy (backend
-  // router_refresh.py). Each literal below is stable, considered UX copy on
-  // the backend side rather than diagnostic prose, so mapping by exact text
-  // follows the table's existing convention. Distinct wordings that describe
-  // the SAME taxonomy state (a service vs. a postgis dataset both missing
-  // enough of their binding, for example) collapse to one key on purpose —
-  // the Source panel renders one message per code, not per call site.
+  // The refresh door's refusal taxonomy (router_refresh.py). Each literal is
+  // stable UX copy, so matching by exact text fits this table. Wordings for the
+  // same taxonomy state collapse to one key: the Source panel shows one message per code.
   'This dataset has no remote service origin to refresh from. Replace its data through re-upload instead.':
     'errors.refreshNotApplicable',
   'This dataset is not backed by a registered table, so there is nothing to re-measure.':
@@ -120,12 +111,9 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshReviewSuperseded',
   "This dataset's source changed while the refresh was being queued, so it was not started. Check the new source and try again.":
     'errors.refreshOriginChanged',
-  // The re-upload commit door's own `origin_changed`. Same code,
-  // different literal and a different key, because the two refusals describe
-  // different windows: the refresh one is "between your click and the queue",
-  // this one is "between the upload you staged and the commit you just
-  // confirmed", and the action it asks for is to look at the source before
-  // replacing anything, not to retry.
+  // The re-upload commit door's own `origin_changed`: a different window from
+  // the refresh one (between staging and confirming), and it asks the user to
+  // look at the source before replacing anything, not to retry.
   "This dataset's source changed after this replacement was staged, so nothing was queued. Re-check the dataset's source and start the replacement again.":
     'errors.reuploadOriginChanged',
   'This dataset is backed by a registered table in this instance, which needs no service credential. Send the request without a token.':
@@ -145,14 +133,10 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshCredentialStoreUnavailable',
 };
 
-// The VRT source-compatibility 422 (`validate_sources` in
-// backend/app/processing/raster/validation.py) returns an array of
-// SourceValidationError objects (source_id/code/message/field/severity) —
-// a different shape from the Pydantic loc/type/ctx array `validationDescriptor`
-// below expects, so every VAL code falls through to the generic
-// `errors.validationFailed` string. Keyed by the backend's stable `code`
-// literal, mirroring the refresh-refusal taxonomy convention of
-// one user-facing key per backend code rather than per call site.
+// The VRT source-compatibility 422 (validate_sources in
+// processing/raster/validation.py) is an array of SourceValidationError objects,
+// not the Pydantic loc/type/ctx shape `validationDescriptor` expects. Keyed by
+// the backend's stable `code`, one key per code.
 const SOURCE_VALIDATION_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   crs_mismatch: 'errors.sourceValidationCrsMismatch',
   crs_unverified: 'errors.sourceValidationCrsUnverified',
@@ -340,15 +324,11 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
-  // The analysis blast-radius refusals (mask cap, source caps)
-  // and the CORS wildcard guard put what the user needs in
-  // the server's prose: the limit, and the way out. Unmapped they collapse to
-  // the generic 422 string, so the user is told their input is invalid with no
-  // hint that size is the problem. The limits arrive comma-grouped from
-  // Python's `{n:,}`, so strip that before re-formatting for the active locale.
-  // The operation name in the source-size message is deliberately
-  // dropped rather than interpolated — translating it would mean reaching into
-  // the builder namespace from here, and the user just picked the operation.
+  // The analysis blast-radius refusals (mask cap, source caps) and the CORS
+  // wildcard guard carry the limit and the way out in the server's prose.
+  // Limits arrive comma-grouped from Python's `{n:,}`, so strip that before
+  // re-formatting for the active locale. The operation name in the source-size
+  // message is dropped: translating it would reach into the builder namespace.
   const sourceTooLarge = message.match(
     /^This dataset is too large for \w+ \(the limit is ([\d,]+) features?\)/i,
   );
@@ -369,8 +349,8 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
-  // The commit doors' srid_override refusal. The code the caller
-  // typed is the whole message; the spatial_ref_sys mechanics are diagnostic.
+  // The commit doors' srid_override refusal; the code the caller typed is the
+  // whole message.
   const unknownSrid = message.match(
     /^srid_override (\d+) is not a known coordinate system/i,
   );
@@ -387,15 +367,11 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     return { key: 'errors.corsWildcardNotAllowed' };
   }
 
-  // The embed domain-lock refusal. Its whole value is the
-  // remediation — which variable to set, and to what — and both compose files
-  // ship PUBLIC_APP_URL defaulted to localhost, so this is the message an
-  // operator hits on a stock install. Unmapped it collapses to the generic 422
-  // and the domain lock goes back to failing silently, which is the bug the
-  // refusal exists to surface. The wording is a contract with
-  // assert_domain_lock_is_enforceable in backend/app/modules/embed_tokens/
-  // service.py; backend/tests/test_embed_domain_lock_self_origin_1531.py reads
-  // this matcher and asserts the real message still matches it.
+  // The embed domain-lock refusal. Its value is the remediation (which variable
+  // to set), and both compose files default PUBLIC_APP_URL to localhost, so a
+  // stock install hits it. The wording is a contract with
+  // assert_domain_lock_is_enforceable (embed_tokens/service.py);
+  // test_embed_domain_lock_self_origin_1531.py asserts the real message still matches.
   const domainLockUnenforceable = message.match(
     /^Domain locking cannot be enforced by this deployment: its public app URL resolves to (.+?), but this request reached it at (\S+)\./,
   );
@@ -409,19 +385,15 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
-  // The refresh door's SSRF refusal appends the validator's own
-  // exception text after the colon, which is diagnostic detail (resolved IP,
-  // blocked range) rather than something a non-admin reader should see.
-  // Anchored on the fixed prefix only; the dynamic suffix is dropped.
-  // The STAC door words the same refusal around its item URL.
+  // The refresh door's SSRF refusal appends the validator's exception text
+  // (resolved IP, blocked range), which a non-admin shouldn't see. Anchored on
+  // the fixed prefix; the STAC door words the same refusal around its item URL.
   if (/^This dataset's stored (?:source URL|STAC item URL) is not reachable:/i.test(message)) {
     return { key: 'errors.refreshSourceUrlBlocked' };
   }
 
-  // The four analysis 4xx literals not covered above. Without these
-  // the 429 collapses to generic rate-limit advice (wrong — it is the user's
-  // OWN job holding the one-per-user slot) and the three 422s to "values are
-  // invalid".
+  // The four analysis 4xx literals not covered above. The 429 is the user's own
+  // job holding the one-per-user slot, not generic rate-limit advice.
   if (/^An analysis job is already running/i.test(message)) {
     return { key: 'errors.analysisJobAlreadyRunning' };
   }
@@ -441,15 +413,9 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
-  // The backend names the offending maps precisely so a human can go
-  // and fix them, and unmapped that list falls through to the generic 422 —
-  // which drops exactly the part that makes the refusal actionable.
-  // `s` (dotAll) because a map name may legally contain a
-  // newline — `MapCreate.name` is length-bounded and NFC-normalized, nothing
-  // more — and without it `.` stops at the line terminator, the match fails,
-  // and the actionable map list collapses to the generic 422. `$` is dropped
-  // for the same reason: with `m` absent it anchors at the end of input, but
-  // the trailing-newline allowance would still truncate.
+  // The backend names the offending maps so a human can fix them. `s` (dotAll)
+  // because a map name may contain a newline; `$` is dropped so a trailing
+  // newline can't truncate the list.
   const strandedMaps = message.match(
     /^Cannot restrict visibility: dataset is used in shared maps:\s*([\s\S]+)/i,
   );
@@ -523,12 +489,9 @@ function validationDescriptor(entry: unknown): ApiErrorDescriptor | undefined {
   if (type === 'literal_error' || type === 'enum') {
     return { key: 'errors.validationInvalidChoice', values: { field } };
   }
-  // A door that reuses pydantic's own HttpUrl parsing inside a field
-  // validator (STAC's `_validate_stac_http_url`, among others) surfaces
-  // pydantic-core's OWN error type here rather than the generic
-  // `value_error` a raised ValueError would produce, so it needs its own
-  // branch or it falls through to the field-name-only message below and
-  // hides that the concrete, fixable problem is the URL's scheme.
+  // pydantic's own HttpUrl parsing inside a field validator (STAC's
+  // `_validate_stac_http_url`, among others) yields pydantic-core's error type
+  // rather than `value_error`; without this branch the URL scheme problem is hidden.
   if (type === 'url_scheme') {
     return { key: 'errors.validationUrlSchemeInvalid', values: { field } };
   }
@@ -582,30 +545,20 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
         },
       };
     }
-    // invalid_service_token's message is the token POLICY, not
-    // the token — the backend names the allowed alphabet dynamically per
-    // service type (base64url vs. the wider ArcGIS query-param vocabulary),
-    // so it can't be a static key the way the other refresh refusals are.
-    // Interpolating server prose here mirrors the existing duplicate_source
-    // precedent below.
+    // invalid_service_token's message is the token policy, whose allowed alphabet
+    // varies by service type, so it can't be a static key; interpolating server
+    // prose mirrors duplicate_source below.
     if (value.code === 'invalid_service_token' && typeof value.message === 'string') {
       return {
         key: 'errors.refreshInvalidServiceToken',
         values: { message: value.message },
       };
     }
-    // POST /services/arcgis/signin/'s own refusal taxonomy.
-    // arcgis_signin_rejected deliberately collapses "wrong password" and
-    // "account locked" into one message. Telling the caller which of the
-    // two happened would let a GeoLens user use this form as an oracle for
-    // whether a colleague's ArcGIS account exists and is being guessed at.
-    // arcgis_sso_account is the one deliberate exception: it names a real,
-    // unfixable-by-retry cause (federated identity or MFA) and points at the
-    // paste-a-token path, because collapsing it would leave that class of
-    // user with an unexplainable rejection and no way forward. ssrf_refused
-    // reuses the same code name a later probe-reason-code door (plan 3.6,
-    // not built yet) may also emit; if that lands with different intended
-    // copy for the same code, reconcile then rather than here.
+    // POST /services/arcgis/signin/ refusals. arcgis_signin_rejected collapses
+    // "wrong password" and "account locked" so the form can't be an oracle for
+    // whether a colleague's ArcGIS account exists. arcgis_sso_account is the one
+    // exception: federated identity or MFA is unfixable by retry, so it points at
+    // the paste-a-token path.
     if (value.code === 'login_throttled') {
       return { key: 'errors.loginThrottled' };
     }
@@ -630,30 +583,19 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'network_error') {
       return { key: 'errors.couldNotReachService' };
     }
-    // arcgis_signin_in_progress is a 409 for one ArcGIS sign-in already
-    // running for that account. A real 429 rate_limited still happens
-    // separately, from the attempt-count limiter (keyed on the ArcGIS
-    // account itself, shared across every GeoLens user, plus a second
-    // count per GeoLens user and portal); it is deliberately left
-    // unmapped here, since the object branch falls through to its
-    // message and then to the generic 429 status key, so a wording
-    // change on that message needs no update in this file.
+    // arcgis_signin_in_progress is a 409 for a sign-in already running for that
+    // account. The attempt-count 429 is left unmapped: it falls to the generic 429
+    // status key.
     if (value.code === 'arcgis_signin_in_progress') {
       return { key: 'errors.arcgisSigninInProgress' };
     }
-    // arcgis_portal_not_https arrives as a 422 with this SAME structured
-    // {code, message, field} shape, not FastAPI's list-shaped validation
-    // 422 handled by validationDescriptor below, so it has to be checked
-    // here rather than there.
+    // arcgis_portal_not_https is a structured {code, message, field} 422, not the
+    // list-shaped one `validationDescriptor` handles, so it is checked here.
     if (value.code === 'arcgis_portal_not_https') {
       return { key: 'errors.arcgisPortalNotHttps' };
     }
-    // arcgis_portal_host_invalid
-    // is the sixth and last caller-facing code this endpoint returns
-    // (backend/app/modules/catalog/sources/arcgis_signin.py, HOST_INVALID),
-    // a 422 for a portal hostname that cannot be canonicalized. Same
-    // structured-422 reasoning as arcgis_portal_not_https above, and same
-    // field: 'url' anchor.
+    // arcgis_portal_host_invalid (sources/arcgis_signin.py HOST_INVALID): a 422 for
+    // a portal hostname that can't be canonicalized; same shape as above.
     if (value.code === 'arcgis_portal_host_invalid') {
       return { key: 'errors.arcgisPortalHostInvalid' };
     }
@@ -664,24 +606,20 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
       };
     }
 
-    // Keyed on the code, so rewording the server's sentence cannot
-    // drop a re-upload user to raw English prose.
+    // Keyed on the code so rewording the server's sentence can't surface raw English.
     if (value.code === 'geometry_loss') {
       return { key: 'errors.reuploadGeometryLoss' };
     }
 
-    // `service_token_required`'s body carries an English diagnostic sentence
-    // aimed at an API client; `SourceRefreshAction.tsx` intercepts the code
-    // before this module ever sees it and renders its own inline credential
-    // prompt instead, but this entry keeps the mapping correct for any other
-    // caller of `classifyApiError` that reaches this code without that
-    // special case.
+    // service_token_required's body is an English diagnostic for API clients.
+    // SourceRefreshAction.tsx intercepts the code first; this keeps the mapping
+    // correct for any other caller of `classifyApiError`.
     if (value.code === 'service_token_required') {
       return { key: 'errors.refreshServiceTokenRequired' };
     }
 
-    // Checked after the specific codes above, so it never shadows one of
-    // them; `geometry_loss`'s own branch above still wins first.
+    // Checked after the specific codes so it never shadows one; `geometry_loss`
+    // wins first.
     const uploadRefusal = uploadRefusalDescriptor(value);
     if (uploadRefusal) return uploadRefusal;
 

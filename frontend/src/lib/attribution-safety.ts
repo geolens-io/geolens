@@ -1,24 +1,19 @@
 /**
- * HTML-escaping for dataset credit lines on their way into
- * MapLibre.
+ * HTML-escaping for dataset credit lines on their way into MapLibre.
  *
- * MapLibre renders attribution as HTML — `AttributionControl._updateAttributions`
- * assigns the joined string to `innerHTML`. Its own sanitizer is not a defense
- * for us: it removes `<script>` elements, `on*` handlers, and
- * `javascript:`/`data:` URLs, and leaves everything else standing, so
- * `<img src>`, `<iframe src>`, and inline `style` all survive it. A credit line
- * supplied by a dataset editor could otherwise beacon a viewer's IP or lay a
- * fixed-position overlay across every public, shared, and embedded map showing
- * that dataset — an anonymous-facing surface the editor cannot otherwise put
- * markup on.
+ * MapLibre assigns the joined attribution string to `innerHTML`
+ * (`AttributionControl._updateAttributions`). Its sanitizer removes `<script>`,
+ * `on*` handlers and `javascript:`/`data:` URLs but leaves `<img src>`,
+ * `<iframe src>` and inline `style`, so an editor-supplied credit could beacon a
+ * viewer's IP or lay a fixed-position overlay across every public, shared and
+ * embedded map showing that dataset.
  *
  * The backend rejects `<` and `>` on both write paths
  * (`core.text.reject_html_markup`), so in practice this escapes only the
- * ampersand in a name like "Rand & McNally" — which is the correct rendering
- * for an HTML target anyway. It is here so a value that predates that guard, or
- * arrives by a direct database write, renders as inert text rather than markup.
+ * ampersand in a name like "Rand & McNally". It exists so a value that predates
+ * that guard, or arrives by a direct database write, renders as inert text.
  *
- * Escape only. Do NOT use this for values rendered through React, which escapes
+ * Escape only. Don't use this for values rendered through React, which escapes
  * already and would show the entities literally.
  */
 export function escapeAttributionHtml(credit: string): string {

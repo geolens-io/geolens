@@ -7,8 +7,7 @@
  * as URL segments. React JSX text-node rendering is the secondary gate —
  * never pass substituted output through `dangerouslySetInnerHTML`.
  *
- * This module is pure (no React, no DOM). All exports are deterministic
- * functions that can be tested in isolation.
+ * This module is pure (no React, no DOM) and deterministic.
  */
 
 type UrlKind = 'image' | 'video' | 'youtube' | 'other';
@@ -21,7 +20,7 @@ interface UrlClassification {
 
 type RichSegment = { kind: 'text'; value: string } | { kind: 'url'; value: string };
 
-// XSS gate: ONLY match http:// and https:// — javascript:/data:/vbscript: never match.
+// XSS gate: only http:// and https:// match; javascript:/data:/vbscript: never do.
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
 
 /**
@@ -62,8 +61,7 @@ export function splitTextWithUrls(text: string): RichSegment[] {
   const segments: RichSegment[] = [];
   let lastIndex = 0;
   let foundUrl = false;
-  // Use exec loop to get the index of each match. Build a fresh regex from the
-  // same source so we don't share lastIndex state with module-level URL_RE.
+  // Exec loop for each match index; a fresh regex avoids sharing lastIndex with URL_RE.
   const re = new RegExp(URL_RE.source, URL_RE.flags);
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
@@ -105,8 +103,8 @@ export function normalizeYouTubeEmbed(url: string): string | null {
   const match = YT_ID_RE.exec(url);
   if (!match) return null;
   const id = match[1];
-  // Belt-and-suspenders: verify exactly 11 chars (the regex group handles it
-  // but the fence makes the contract explicit for future maintainers).
+  // Verify exactly 11 chars; the regex group already enforces it, this makes
+  // the contract explicit.
   if (id.length !== 11) return null;
   return `https://www.youtube.com/embed/${id}`;
 }

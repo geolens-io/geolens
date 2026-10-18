@@ -19,22 +19,15 @@ import type { DatasetRowsSort } from '@/api/datasets';
 import type { MapBrowseParams } from '@/types/api';
 
 export const queryKeys = {
-  // -------------------------------------------------------------------------
-  // Auth
-  // -------------------------------------------------------------------------
   auth: {
     all: ['auth'] as const,
     me: ['auth', 'me'] as const,
     permissions: ['auth', 'permissions'] as const,
-    // Scoped by user id so a store-only logout (e.g. failed-refresh in
-    // api/client.ts) followed by a different login can't render the prior
-    // user's cached usage.
+    // Scoped by user id so a store-only logout (e.g. failed refresh) followed
+    // by a different login can't render the prior user's cached usage.
     usage: (userId: string | undefined) => ['auth', 'me', 'usage', userId] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Datasets
-  // -------------------------------------------------------------------------
   datasets: {
     all: ['datasets'] as const,
     detail: (id: string) => ['dataset', id] as const,
@@ -63,9 +56,6 @@ export const queryKeys = {
     maps: (id: string) => ['datasets', id, 'maps'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Maps
-  // -------------------------------------------------------------------------
   maps: {
     all: ['maps'] as const,
     list: (params: MapBrowseParams) => ['maps', params] as const,
@@ -96,9 +86,6 @@ export const queryKeys = {
     all: ['map-icons'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Collections
-  // -------------------------------------------------------------------------
   collections: {
     all: ['collections'] as const,
     list: (skip: number, limit: number) => ['collections', skip, limit] as const,
@@ -108,22 +95,15 @@ export const queryKeys = {
     datasetsPrefix: (collectionId: string) => ['collection-datasets', collectionId] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Search
-  // -------------------------------------------------------------------------
   search: {
     all: ['search'] as const,
     results: (params: Record<string, string>) => ['search', params] as const,
     facets: (params: Record<string, string>) => ['facets', params] as const,
     summary: ['catalog-summary'] as const,
-    // Parallel maps lookup driven by the same `q` as the dataset
-    // catalog search — see useMapSearchResults in components/search/hooks/use-search.ts.
+    // Parallel maps lookup driven by the same `q` as the dataset catalog search.
     maps: (q: string) => ['search', 'maps', q] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Records (contacts, keywords, distributions)
-  // -------------------------------------------------------------------------
   records: {
     contacts: (recordId: string | undefined) => ['contacts', recordId] as const,
     keywords: (recordId: string | undefined) => ['keywords', recordId] as const,
@@ -131,9 +111,6 @@ export const queryKeys = {
     validation: ['validation'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Admin
-  // -------------------------------------------------------------------------
   admin: {
     all: ['admin'] as const,
     stats: ['admin', 'stats'] as const,
@@ -159,9 +136,8 @@ export const queryKeys = {
     auditLogCount: ['admin', 'audit-logs', 'count'] as const,
     aiStatus: ['admin', 'ai-status'] as const,
     // sort/order belong in the key: two orderings of the same page are
-    // different responses, and sharing a key would serve one for the other.
-    // The jobs/auditLogs keys take the whole params object, so they carry
-    // sort/order without a signature change.
+    // different responses. The jobs/auditLogs keys take the whole params
+    // object, so they carry sort/order already.
     shareTokens: (
       skip: number,
       limit: number,
@@ -173,9 +149,8 @@ export const queryKeys = {
     allShareTokens: ['admin', 'share-tokens'] as const,
     embedTokens: (params: Record<string, unknown>) => ['admin', 'embed-tokens', params] as const,
     allEmbedTokens: ['admin', 'embed-tokens'] as const,
-    // pageIndex makes each page its own
-    // cache entry so a create/revoke mutation's invalidateQueries on the
-    // bare [admin, api-keys, userId] prefix still hits every loaded page.
+    // pageIndex makes each page its own cache entry; invalidating the bare
+    // [admin, api-keys, userId] prefix still hits every loaded page.
     apiKeys: (userId: string, pageIndex?: number) =>
       pageIndex === undefined
         ? (['admin', 'api-keys', userId] as const)
@@ -184,9 +159,6 @@ export const queryKeys = {
     infrastructure: ['admin', 'infrastructure'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Settings
-  // -------------------------------------------------------------------------
   settings: {
     all: ['settings'] as const,
     basemaps: ['settings', 'basemaps'] as const,
@@ -204,9 +176,6 @@ export const queryKeys = {
     notificationStatus: ['settings', 'notification-status'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Ingest
-  // -------------------------------------------------------------------------
   ingest: {
     jobStatus: (jobId: string | null) => ['job-status', jobId] as const,
     jobStatusByDataset: (datasetId: string | null) =>
@@ -215,41 +184,28 @@ export const queryKeys = {
     uploadConfig: ['upload-config'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Saved searches
-  // -------------------------------------------------------------------------
   savedSearches: {
     all: ['saved-searches'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // User API keys
-  // -------------------------------------------------------------------------
   apiKeys: {
     mine: ['my-api-keys'] as const,
     dataset: (datasetId: string) => ['dataset-api-keys', datasetId] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Tile tokens
-  // -------------------------------------------------------------------------
   tileTokens: {
     token: (datasetId: string | undefined) => ['tile-token', datasetId] as const,
     batch: (sortedIds: string) => ['tile-tokens-batch', sortedIds] as const,
-    // Keep the viewer batch separate because it
-    // mints with an embed token instead of the session JWT, and those
-    // grants scope differently — sharing one cache entry would serve a viewer
-    // tokens minted for someone else's scope. `auth` is that discriminator, and
-    // it stays out of bug reports because main.tsx's reportQueryKey serializes
-    // only the leading namespace segment. Keeping 'tile-tokens-batch' first also
+    // The viewer batch is separate because it mints with an embed token
+    // instead of the session JWT; sharing one entry would serve a viewer tokens
+    // minted for someone else's scope. `auth` is the discriminator, and it
+    // stays out of bug reports because main.tsx's reportQueryKey serializes
+    // only the leading namespace segment. Keeping 'tile-tokens-batch' first
     // puts these under useInvalidateTileTokens' sweep (WebGL context restore).
     viewerBatch: (sortedIds: string, auth: string) =>
       ['tile-tokens-batch', 'viewer', sortedIds, auth] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // VRT
-  // -------------------------------------------------------------------------
   vrt: {
     sources: (datasetId: string) => ['vrt-sources', datasetId] as const,
     status: (datasetId: string) => ['vrt-status', datasetId] as const,
@@ -257,86 +213,56 @@ export const queryKeys = {
       ['vrt-generations', datasetId, params] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Edition
-  // -------------------------------------------------------------------------
   edition: {
     info: ['edition'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Auth config & OAuth
-  // -------------------------------------------------------------------------
   authConfig: {
     config: ['auth', 'config'] as const,
     oauthProviders: ['auth', 'oauth-providers'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Settings OAuth
-  // -------------------------------------------------------------------------
   settingsOAuth: {
     providers: ['settings', 'oauth-providers'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // SAML providers
-  // -------------------------------------------------------------------------
   /**
-   * This key has its own root rather than sitting under `settingsOAuth` even though
-   * `listSamlProviders` (api/saml.ts) fetches the same `/settings/oauth-providers/`
-   * endpoint: it filters the response down to the SAML rows, so the two caches hold
-   * different payloads and must not prefix-match each other. Fanning a provider
-   * mutation out across both is `useInvalidateAuthProviders`
-   * (hooks/use-auth-providers.ts), which the SAML section calls alongside this key.
+   * Own root rather than under `settingsOAuth`: `listSamlProviders` fetches the
+   * same `/settings/oauth-providers/` endpoint but filters it to the SAML rows,
+   * so the two caches hold different payloads and must not prefix-match.
+   * `useInvalidateAuthProviders` fans a provider mutation out across both.
    */
   saml: {
     providers: ['saml', 'providers'] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Relationships
-  // -------------------------------------------------------------------------
   relationships: {
     list: (datasetId: string) => ['dataset-relationships', datasetId] as const,
     // A list's broken flags also depend on each target dataset's schema.
     listPrefix: ['dataset-relationships'] as const,
     records: (datasetId: string, featureGid: number, relationshipId: string) =>
       ['related-records', datasetId, featureGid, relationshipId] as const,
-    // records() is parameterized by featureGid and
-    // relationshipId, neither of which a dataset-level cache sweep has — this
-    // is the prefix that invalidates every cached related-record entry for
-    // the dataset regardless of which feature/relationship it was fetched for.
+    // records() is parameterized by featureGid and relationshipId, which a
+    // dataset-level sweep lacks; this prefix invalidates every cached
+    // related-record entry for the dataset.
     recordsPrefix: (datasetId: string) => ['related-records', datasetId] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // OGC records
-  // -------------------------------------------------------------------------
   ogcRecords: {
     detail: (id: string) => ['ogc-record', id] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // COG / dataset search (builder & VRT)
-  // -------------------------------------------------------------------------
   cogSearch: {
     results: (query: string) => ['cog-search', query] as const,
     addSource: (query: string) => ['cog-search-add-source', query] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Dataset search (builder panel)
-  // -------------------------------------------------------------------------
   datasetSearch: {
     all: ['dataset-search'] as const,
     results: (query: string, recordType: string) =>
       ['dataset-search', query, recordType] as const,
   },
 
-  // -------------------------------------------------------------------------
-  // Typeahead
-  // -------------------------------------------------------------------------
   typeahead: {
     results: (query: string) => ['typeahead', query] as const,
   },

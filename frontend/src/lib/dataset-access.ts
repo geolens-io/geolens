@@ -9,30 +9,26 @@ function stripTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-// Exported so callers can tell a same-origin, relative
-// GeoLens API path (needs the session's bearer token) apart from an
-// already-qualified external URL (a manual distribution, e.g. a viewer app)
-// that resolveDistributionUrl leaves untouched and that must never receive it.
+// Lets callers tell a same-origin relative GeoLens API path (needs the
+// session's bearer token) from an already-qualified external URL (a manual
+// distribution) that resolveDistributionUrl leaves untouched and that must
+// never receive it.
 export function isAbsoluteUrl(value: string): boolean {
   return ABSOLUTE_URL_RE.test(value) || value.startsWith('//');
 }
 
-// A `{z}`/`{x}`/`{y}`-style placeholder (the auto-generated
-// vector_tiles row is exactly `/tiles/data.<table>/{z}/{x}/{y}.pbf`) names a
-// TEMPLATE, not a literal resource — no single fetch resolves it.
+// A `{z}`/`{x}`/`{y}`-style placeholder names a TEMPLATE, not a resource; no
+// single fetch resolves it.
 const TILE_TEMPLATE_RE = /\{[^{}]+\}/;
 
 /**
- * A URL a single fetch can actually resolve to a resource — as opposed to a
- * tile URL template (a `{z}`/`{x}`/`{y}` placeholder, or similar) or a bare
- * object-storage key. Raster/VRT distributions store the latter directly as
- * their `url` (e.g. `rasters/<dataset_id>/<sha256>/source.cog.tif` — no
- * leading slash, not the real `/datasets/{id}/download/cog` route, which
- * additionally needs a short-lived download-scoped token `mintDownloadToken`
- * mints separately). Every GeoLens-generated same-origin API path (exports,
- * OGC Features, …) is written with a leading slash — see the backend's
- * `_DISTRIBUTION_TEMPLATES` — so that is the signal used to exclude a raw
- * storage key without an explicit "this is a storage key" field to check.
+ * A URL a single fetch can resolve to a resource, as opposed to a tile URL
+ * template or a bare object-storage key. Raster/VRT distributions store the
+ * latter as their `url` (e.g. `rasters/<dataset_id>/<sha256>/source.cog.tif`,
+ * not the real `/datasets/{id}/download/cog` route, which needs a download
+ * token from `mintDownloadToken`). Every GeoLens-generated same-origin API
+ * path is written with a leading slash (backend `_DISTRIBUTION_TEMPLATES`), so
+ * that is the signal used to exclude a raw storage key.
  */
 export function isFetchableDistributionUrl(value: string): boolean {
   if (TILE_TEMPLATE_RE.test(value)) return false;
@@ -44,9 +40,8 @@ function normalizeApiBasePath(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
 }
 
-// Exported so callers can compare an absolute distribution url
-// against THIS instance's own API origin — the same resolution api/client.ts
-// uses to build its own fetch targets from `API_BASE`.
+// Lets callers compare an absolute distribution url against THIS instance's
+// API origin, resolved as api/client.ts resolves `API_BASE`.
 function getRuntimeApiBaseUrl(): string | null {
   const configuredApiBase = API_BASE.trim();
 
@@ -70,8 +65,7 @@ function getRuntimeApiBaseUrl(): string | null {
 }
 
 /** True when `value`'s canonical URL.origin and path prefix match this
- * instance's API (getRuntimeApiBaseUrl()), not a raw string-prefix compare
- * (fix #1877). */
+ * instance's API (getRuntimeApiBaseUrl()); not a raw string-prefix compare. */
 export function isSameOriginAbsoluteUrl(value: string): boolean {
   if (!isAbsoluteUrl(value)) return false;
   const apiBase = getRuntimeApiBaseUrl();

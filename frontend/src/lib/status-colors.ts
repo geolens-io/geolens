@@ -1,12 +1,8 @@
 /**
  * Single source of truth for all status-related colors.
  *
- * Every recipe below is built from design tokens. This file
- * previously hardcoded raw emerald/teal/amber/rose/violet Tailwind palettes —
- * about 35 of the app's 49 raw-palette uses — which meant "success" rendered
- * one green here and a different one through `<Badge variant="success">`.
- * The recipes now mirror `badge.tsx`'s AA-verified soft variants exactly, so a
- * status badge and a variant badge are the same color by construction.
+ * Every recipe is built from design tokens and mirrors `badge.tsx`'s AA-verified
+ * soft variants exactly, so a status badge and a variant badge are the same color.
  *
  * Values are Tailwind class strings rather than `<Badge variant>` names because
  * every call site composes them with additional classes (sizing, mono type).
@@ -61,9 +57,9 @@ export const vrtGenerationColors: Record<string, string> = {
   failed: semanticBadgeColors.destructive,
 };
 
-/** Dataset refresh run outcome (#1285). `status` is a plain string on the
- *  wire (see DatasetRefreshRunResponse), so an unrecognized future value
- *  falls through to the neutral "cancelled" treatment via `?? ''`. */
+/** Dataset refresh run outcome. `status` is a plain string on the wire (see
+ *  DatasetRefreshRunResponse), so an unrecognized future value falls through to
+ *  the neutral "cancelled" treatment via `?? ''`. */
 export const refreshRunStatusColors: Record<string, string> = {
   pending: semanticBadgeColors.warning,
   running: semanticBadgeColors.info,

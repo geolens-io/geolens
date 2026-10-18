@@ -98,10 +98,9 @@ export function getCogDownloadUrl(id: string): string {
   return `${API_BASE}/datasets/${encodeURIComponent(id)}/download/cog`;
 }
 
-// Exported so any same-origin GeoLens API resource can be
-// downloaded through the same refresh-aware, bearer-authenticated flow —
-// a plain <a href> browser navigation carries no Authorization header, so a
-// private or unpublished dataset's export endpoint rejects it as anonymous.
+// Exported so any same-origin GeoLens API resource can be downloaded through
+// the refresh-aware, bearer-authenticated flow: a plain <a href> navigation
+// carries no Authorization header, so a private dataset's export rejects it.
 export async function authenticatedDownload(
   url: string,
   filename: string,
@@ -281,11 +280,9 @@ export async function reuploadCommit(
   token?: string,
   // User-chosen layer for multi-layer GPKG files.
   layerName?: string,
-  // The dataset origin the dialog saw when it staged this
-  // replacement. The commit door refuses with 409 `origin_changed` if the
-  // dataset was rebound to a service, STAC or registered-table source while
-  // the user was uploading and confirming. Optional server-side, so omitting
-  // it skips the check rather than erroring.
+  // The dataset origin the dialog saw when it staged this replacement. The commit
+  // door refuses with 409 `origin_changed` if the dataset was rebound to a
+  // service, STAC or registered-table source meanwhile. Omitting it skips the check.
   expectedOriginKind?: DatasetOrigin | null,
   // The preview's fingerprint of the changes the person was shown. Without
   // it a replacement that needs review ends blocked.
@@ -511,11 +508,6 @@ export async function reuploadPresigned(
   return completePresignedReupload(datasetId, job_id, completedParts);
 }
 
-
-// ---------------------------------------------------------------------------
-// Dataset FK relationships
-// ---------------------------------------------------------------------------
-
 export async function listRelationships(datasetId: string): Promise<DatasetRelationship[]> {
   // The endpoint returns the standard list envelope ({ relationships, total });
   // unwrap to keep this helper's array contract.
@@ -539,10 +531,6 @@ export async function getRelatedRecords(
     `/datasets/${encodeURIComponent(datasetId)}/features/${encodeURIComponent(featureGid)}/related/${encodeURIComponent(relationshipId)}/${qs ? `?${qs}` : ''}`,
   );
 }
-
-// ---------------------------------------------------------------------------
-// Multi-layer fan-out
-// ---------------------------------------------------------------------------
 
 /** Per-layer outcome from POST /ingest/commit-fan-out/{job_id}. */
 interface FanOutLayerResult {
@@ -577,11 +565,10 @@ export async function commitFanOut(
       method: 'POST',
       body: JSON.stringify({ layers }),
     });
-    // A 200 response can still carry per-layer failures (results[].status ===
-    // 'failed'). UploadForm shows these as commit-failed rows with a report CTA,
-    // so the buffer a filed report carries must name them. One entry per failed
-    // layer, not a merged summary: the buffer dedups on message text alone, so
-    // layers failing with identical error text would collapse into one count.
+    // A 200 can still carry per-layer failures (results[].status === 'failed').
+    // UploadForm shows them as commit-failed rows with a report CTA, so the buffer
+    // needs one entry per failed layer: it dedups on message text alone, which
+    // would merge layers failing with identical text.
     for (const result of response.results) {
       if (result.status === 'failed') {
         pushReportEntry({

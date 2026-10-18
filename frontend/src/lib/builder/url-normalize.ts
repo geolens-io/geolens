@@ -1,14 +1,12 @@
 /**
  * Canonical-form origin normalization for SharePanel chip input.
  *
- * Mirrors backend `_normalize_origin` in
- * `backend/app/modules/embed_tokens/schemas.py:14-31` so the chip the user
- * sees after pressing Enter equals the string the backend persists after PATCH.
- * This avoids a flash of non-canonical text between the optimistic render
- * and the PATCH response.
+ * Mirrors backend `_normalize_origin` (`backend/app/modules/embed_tokens/schemas.py`)
+ * so the chip shown after pressing Enter equals the string the backend persists
+ * after PATCH, avoiding a flash of non-canonical text.
  *
- * CSP invariant:
- * `*` is NEVER a valid origin. `normalizeOrigin('*')` throws `WildcardOriginError`.
+ * CSP invariant: `*` is NEVER a valid origin. `normalizeOrigin('*')` throws
+ * `WildcardOriginError`.
  */
 
 /** Thrown when the input is the wildcard `*` — CSP `frame-ancestors` must never contain `*`. */
@@ -28,17 +26,10 @@ export class InvalidOriginError extends Error {
 }
 
 /**
- * Normalizes an origin string to canonical form.
- *
- * Rules (matching backend `_normalize_origin`):
- * 1. Trim whitespace.
- * 2. Reject `*` with `WildcardOriginError`.
- * 3. Reject empty/whitespace with `InvalidOriginError`.
- * 4. Prepend `https://` if no scheme present.
- * 5. Parse with WHATWG `new URL()` — rethrow parse failures as `InvalidOriginError`.
- * 6. Lowercase scheme + host.
- * 7. Strip default ports (80 for http, 443 for https).
- * 8. Discard path, query, and fragment — return origin only.
+ * Normalizes an origin string to canonical form, matching backend
+ * `_normalize_origin`: trim, reject `*` and empty input, prepend `https://` when
+ * no scheme is present, parse with WHATWG `new URL()`, lowercase scheme and
+ * host, strip default ports, and discard path, query and fragment.
  *
  * @throws {WildcardOriginError} if input is `*`, starts with `*`, or the parsed hostname contains `*`
  * @throws {InvalidOriginError} if input is empty/whitespace or unparseable
@@ -68,9 +59,8 @@ export function normalizeOrigin(input: string): string {
     throw new InvalidOriginError(input);
   }
 
-  // Guard: wildcard anywhere in the parsed hostname catches `https://*.example.com`.
-  // The early trimmed.startsWith('*') check misses scheme-prefixed wildcards because
-  // 'https://*.example.com' does not start with '*'.
+  // A wildcard in the parsed hostname catches `https://*.example.com`, which the
+  // early startsWith('*') check misses.
   if (parsed.hostname.includes('*')) {
     throw new WildcardOriginError();
   }
@@ -78,8 +68,8 @@ export function normalizeOrigin(input: string): string {
   const scheme = parsed.protocol.replace(/:$/, '').toLowerCase(); // drop trailing ':'
   const host = parsed.hostname.toLowerCase();
 
-  // WHATWG URL parser already strips default ports (port === '' for http:80, https:443).
-  // We apply an explicit guard to defend against future parser changes (plan directive).
+  // The WHATWG parser already strips default ports; the explicit guard defends
+  // against parser changes.
   let port = parsed.port; // '' when default for scheme
   if (
     (scheme === 'http' && port === '80') ||

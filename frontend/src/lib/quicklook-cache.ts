@@ -1,23 +1,16 @@
 /**
  * Session-scoped negative cache for quicklook fetch() 404s.
  *
- * Datasets whose quicklook file is missing on disk return 404 from
- * GET /api/datasets/<id>/quicklook even with a valid JWT (the backend sets
- * has_quicklook=true when quicklook_256_uri is assigned at ingest, but does
- * NOT verify that the file exists on disk / in object storage).
+ * A dataset whose quicklook file is missing on disk returns 404 even with a
+ * valid JWT: the backend sets has_quicklook=true when quicklook_256_uri is
+ * assigned at ingest but does not verify the file exists. When apiFetchBlob()
+ * receives a 404 it calls markQuicklookMissing(datasetId), so later renders in
+ * the tab skip the fetch and show the placeholder.
  *
- * The useQuicklook hook routes every quicklook request through apiFetchBlob()
- * (which attaches the Bearer JWT from useAuthStore). When apiFetchBlob()
- * receives a 404, it calls markQuicklookMissing(datasetId) so subsequent
- * renders within the same tab session skip the fetch entirely and fall back
- * to the placeholder immediately.
+ * Non-404 errors (500, network) are transient and NOT negative-cached.
  *
- * Non-404 errors (e.g. 500, network) are NOT negative-cached — they are
- * transient and should be retried on the next render cycle.
- *
- * Storage: sessionStorage so the cache survives a single tab reload but
- * resets across new tabs / windows. Falls back to in-memory when
- * sessionStorage is unavailable (private mode, SSR).
+ * Storage: sessionStorage, so the cache survives a tab reload but not new tabs;
+ * falls back to memory when sessionStorage is unavailable (private mode, SSR).
  */
 
 const STORAGE_KEY = 'geolens-quicklook-404';
@@ -66,8 +59,8 @@ function writeSet(set: Set<string>): void {
 }
 
 /**
- * Returns true if the quicklook for `datasetId` has 404'd in the current
- * tab session. The card should skip the `<img>` element in that case.
+ * True if the quicklook for `datasetId` has 404'd in this tab session; the card
+ * then skips the `<img>`.
  */
 export function isQuicklookKnownMissing(
   datasetId: string,
@@ -77,8 +70,8 @@ export function isQuicklookKnownMissing(
 }
 
 /**
- * Record that the quicklook for `datasetId` failed to load. Subsequent
- * renders within the same tab session will skip the request.
+ * Record that the quicklook for `datasetId` failed to load, so this tab session
+ * skips the request.
  */
 export function markQuicklookMissing(
   datasetId: string,
@@ -91,9 +84,7 @@ export function markQuicklookMissing(
   writeSet(set);
 }
 
-/**
- * Test-only: reset both the memory cache and sessionStorage entry.
- */
+/** Test-only: reset both the memory cache and sessionStorage entry. */
 export function _resetQuicklookCache(): void {
   memoryCache = null;
   const store = getStore();

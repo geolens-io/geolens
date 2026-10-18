@@ -1,15 +1,14 @@
 /**
  * Representative-fraction ("1:N") scale denomination helpers.
  *
- * Pure functions — no React, no MapLibre, no DOM.
- * Used by MapCoordReadout to render the optional `showScale` segment.
+ * Used by MapCoordReadout for the optional `showScale` segment.
  *
  * Formula: classic Web Mercator meters-per-pixel.
  *   M_PER_PX = 156543.03392 * cos(lat * π / 180) / 2^zoom
  * Reference: https://wiki.openstreetmap.org/wiki/Zoom_levels
  */
 
-/** Earth circumference factor (meters) / tile size (pixels) at zoom 0. */
+/** Meters per pixel at zoom 0 (earth circumference / tile size). */
 const EARTH_CIRC_FACTOR = 156543.03392;
 
 /**
@@ -26,7 +25,7 @@ export function metersPerPixel(lat: number, zoom: number): number {
 /**
  * Compact-number formatter for representative-fraction denominators.
  *
- * Rules (Rule A — trailing ".0" dropped):
+ * Trailing ".0" is dropped:
  *   < 1        → "1"        (clamped; includes NaN, Infinity, negative)
  *   < 1 000    → "850"      (plain integer, no grouping)
  *   < 1 000 000→ "1.2k"     (one decimal, drop trailing ".0"; lowercase k)
@@ -35,7 +34,6 @@ export function metersPerPixel(lat: number, zoom: number): number {
  * Returns the value portion only — the caller prefixes "1:".
  */
 export function formatRfValue(denominator: number): string {
-  // Clamp non-finite, NaN, and sub-1 values.
   if (!isFinite(denominator) || isNaN(denominator) || denominator < 1) {
     return '1';
   }
@@ -46,7 +44,7 @@ export function formatRfValue(denominator: number): string {
 
   if (denominator < 1_000_000) {
     const rounded = Math.round((denominator / 1_000) * 10) / 10;
-    // If rounding pushes us to 1000k, roll up to M tier.
+    // Rounding to 1000k rolls up to the M tier.
     if (rounded >= 1_000) {
       return '1M';
     }
@@ -58,8 +56,7 @@ export function formatRfValue(denominator: number): string {
 }
 
 /**
- * Composes `metersPerPixel` + `formatRfValue` to produce a "1:288k"-style
- * representative-fraction string.
+ * A "1:288k"-style representative-fraction string.
  *
  * @param lat   Geographic latitude of the point of interest (degrees).
  * @param zoom  MapLibre zoom level.

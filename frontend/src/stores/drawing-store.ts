@@ -22,58 +22,41 @@ interface DrawingState {
    *  editor), as that map computes it, for the page's unsaved-changes guard. */
   hasUnsavedMapWork: boolean;
   /**
-   * The identity that adopted the current target, for
-   * bookkeeping. NOT the write gate below (see `sessionEpoch`) — comparing
-   * this to the live identity directly breaks down once both sides are
-   * anonymous.
+   * The identity that adopted the current target, for bookkeeping. NOT the write
+   * gate (see `sessionEpoch`): comparing it to the live identity breaks down
+   * once both sides are anonymous.
    */
   ownerId: string | null;
   /**
-   * A monotonic counter, bumped ONLY by
-   * `bumpSessionEpoch()`, which only the identity-change choke point
-   * (lib/auth-cache-reset.ts) calls.
+   * A monotonic counter, bumped ONLY by `bumpSessionEpoch()`, which only the
+   * identity-change choke point (lib/auth-cache-reset.ts) calls.
    *
-   * Storing the adopting epoch ON THE
-   * STORE (`targetEpoch`) and comparing it to the live counter inside
-   * `setSelectedFeature` has a hole: once a SECOND identity
-   * adopts its own target after the identity change, its `setDrawing` call
-   * re-stamps that stored epoch to the (now current) live value, so a
-   * write from the FIRST identity's still-pending mutation — which reads
-   * `selectedFeature` before its `await` and writes again after — compares
-   * the live epoch to itself and is wrongly accepted, carrying the first
-   * identity's captured properties into the second identity's target.
-   * There is no way to fix this from inside the store: the store cannot
-   * tell "the live epoch matches because nothing changed" apart from "the
-   * live epoch matches because something else changed twice". Only the
-   * ORIGINAL caller knows which one is true, because it alone knows when
-   * its own request started. So the epoch this check needs is not
-   * something the store can keep — it has to travel through the call,
-   * captured by the caller before the `await` (see `setSelectedFeature`).
+   * The store cannot gate stale writes itself: once a SECOND identity adopts its
+   * own target, `setDrawing` would re-stamp any stored epoch to the live value,
+   * and a pending mutation from the FIRST identity would compare the live epoch
+   * to itself and be wrongly accepted. Only the original caller knows when its
+   * request started, so the epoch travels through the call, captured before the
+   * `await` (see `setSelectedFeature`).
    */
   sessionEpoch: number;
   setDrawing: (datasetId: string, tableName: string, geometryType: string) => void;
   setMode: (mode: string | null) => void;
   clearDrawing: () => void;
   /**
-   * `epoch` is mandatory and must be
-   * `useDrawingStore.getState().sessionEpoch` read by the CALLER before
-   * its own `await` — never re-read at call time, which is exactly what
-   * broke an earlier design (see `sessionEpoch`'s doc comment). A call whose
-   * captured epoch no longer matches the live one is refused, whatever the
-   * store's current target belongs to.
+   * `epoch` is mandatory: `sessionEpoch` as read by the CALLER before its own
+   * `await`, never re-read at call time. A call whose captured epoch no longer
+   * matches the live one is refused, whatever the current target belongs to.
    */
   setSelectedFeature: (sf: SelectedFeature, epoch: number) => void;
   clearSelectedFeature: () => void;
   setEditDirty: (dirty: boolean) => void;
   setHasUnsavedMapWork: (unsaved: boolean) => void;
   /**
-   * Invalidates every target/selection adopted before
-   * this call. Called ONLY from lib/auth-cache-reset.ts's identity-change
-   * subscription — never from component code, and never folded into
-   * `clearDrawing()`, which ordinary component lifecycle (DatasetMap.tsx)
-   * also calls for reasons that have nothing to do with identity. If a
-   * lifecycle clear also bumped this counter, "the epoch changed" would
-   * stop meaning "the identity changed".
+   * Invalidates every target/selection adopted before this call. Called ONLY
+   * from lib/auth-cache-reset.ts's identity-change subscription, never from
+   * component code and never from `clearDrawing()`, which ordinary component
+   * lifecycle also calls: a lifecycle bump would stop "the epoch changed" from
+   * meaning "the identity changed".
    */
   bumpSessionEpoch: () => void;
 }
@@ -83,11 +66,9 @@ function currentUserId(): string | null {
 }
 
 /**
- * Shared by the initial state and clearDrawing, so a reset can
- * never drift from what "nothing adopted" looks like.
- *
- * Deliberately excludes `sessionEpoch` — see its
- * doc comment for why the counter must never be reset by an ordinary clear.
+ * Shared by the initial state and clearDrawing, so a reset cannot drift from
+ * what "nothing adopted" looks like. Excludes `sessionEpoch`, which an ordinary
+ * clear must never reset.
  */
 const CLEARED_STATE = {
   isDrawing: false,
@@ -104,14 +85,10 @@ const CLEARED_STATE = {
 export const useDrawingStore = create<DrawingState>()((set, get) => ({
   ...CLEARED_STATE,
   sessionEpoch: 0,
-  // The adoption point for a drawing target. Stamps the
-  // signed-in identity at the moment the target is set, and — because this
-  // always replaces selectedFeature/isEditDirty rather than merging with
-  // whatever was there — a call under a new identity self-heals the store
-  // even if the identity-change teardown (lib/auth-cache-reset.ts) somehow
-  // hasn't run yet. Its only caller (DatasetMap.tsx's draw button) is fully
-  // synchronous, so unlike setSelectedFeature there is no "before the
-  // await" moment to capture an epoch from — nothing here can go stale.
+  // The adoption point for a drawing target. Stamps the signed-in identity and
+  // replaces selectedFeature/isEditDirty rather than merging, so a call under a
+  // new identity self-heals even if the identity-change teardown has not run.
+  // Its only caller is synchronous, so there is no pre-`await` epoch to capture.
   setDrawing: (datasetId, tableName, geometryType) =>
     set({
       isDrawing: true,
@@ -126,41 +103,23 @@ export const useDrawingStore = create<DrawingState>()((set, get) => ({
     }),
   setMode: (mode) => set({ activeMode: mode }),
   clearDrawing: () => set({ ...CLEARED_STATE }),
-  // The other adoption point, and the one an in-flight edit can
-  // reach asynchronously — handleEditAttributeSubmit and selectFeatureFromMap
-  // (components/dataset/hooks/use-feature-editing.ts) both read/derive a
-  // feature, await a request, then call this with the result.
-  //
-  // An earlier version refused on
-  // `ownerId !== currentUserId()`, which broke down right after a logout
-  // (both read null). Storing an adopted-at epoch on the target and
-  // comparing it to the live counter fixed that, but not the case where a
-  // SECOND identity adopts its OWN new target before the first identity's
-  // stale write lands: the stored epoch gets re-stamped to the (now
-  // current) live value by that second adoption, so the stale write's
-  // check passes by comparing the live epoch to itself. The caller is the
-  // only one who can tell its own request apart from a coincidentally
-  // fresh-looking target, so the epoch travels through the call instead —
-  // captured by the caller before its `await`, passed in here, and
-  // compared against the live counter. Refusing whenever there is no
-  // active target closes the same hole even if some future caller adds a
-  // path that skips setDrawing.
+  // The other adoption point, reachable by an in-flight edit:
+  // handleEditAttributeSubmit and selectFeatureFromMap
+  // (components/dataset/hooks/use-feature-editing.ts) read a feature, await a
+  // request, then call this with the result. The caller passes the epoch it
+  // captured before its `await` (see `sessionEpoch`). Refusing whenever there is
+  // no active target covers a path that skips setDrawing.
   setSelectedFeature: (sf, epoch) => {
     const state = get();
     if (state.targetDatasetId === null) {
-      // Nothing adopted: already the cleared shape, but explicit for
-      // anyone reaching this with a target that was never set up.
+      // Nothing adopted: already the cleared shape.
       set({ ...CLEARED_STATE });
       return;
     }
     if (epoch !== state.sessionEpoch) {
-      // A stale write for a target that may
-      // now belong to a DIFFERENT, later identity than the one that issued
-      // it. That target could be a second identity's own legitimate,
-      // freshly-adopted session — clearing it would let this stale write
-      // do collateral damage instead of just failing to apply. Refuse by
-      // doing nothing: leave whatever is currently active exactly as it
-      // is, and drop the stale payload.
+      // A stale write for a target that may now belong to a LATER identity's
+      // freshly-adopted session. Refuse by doing nothing so the active target is
+      // not clobbered, and drop the stale payload.
       return;
     }
     set({ selectedFeature: sf, ownerId: currentUserId() });

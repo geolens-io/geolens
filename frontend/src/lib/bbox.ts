@@ -38,11 +38,9 @@ export function splitBbox(bbox: Bbox): Bbox[] {
 
 /**
  * The monotonic form, mirroring the backend's `extent_to_span_bbox()`: a
- * crossing bbox widens to full `-180..180`. For consumers that can only accept
- * one increasing box and have no way to express two — a MapLibre source
- * `bounds`, most obviously, where an inverted pair matches no tile at all and
- * the layer renders blank. Over-broad, but safe; the alternative there is
- * nothing rendering.
+ * crossing bbox widens to full `-180..180`. For consumers that accept only one
+ * increasing box, e.g. a MapLibre source `bounds`, where an inverted pair
+ * matches no tile and the layer renders blank. Over-broad, but safe.
  */
 export function toSpanBbox(bbox: Bbox): Bbox {
   if (!crossesAntimeridian(bbox)) return bbox;
@@ -61,9 +59,7 @@ export function bboxLonSpan(bbox: Bbox): number {
 
 /**
  * Center longitude, wrapped back into `-180..180`. The naive `(minx + maxx) / 2`
- * lands on the ANTIPODE of a seam-crossing extent — a confident fly-to on the
- * opposite side of the planet, which is why this is a helper and not an inline
- * average.
+ * lands on the ANTIPODE of a seam-crossing extent.
  */
 export function bboxCenterLon(bbox: Bbox): number {
   const center = bbox[0] + bboxLonSpan(bbox) / 2;
@@ -74,8 +70,7 @@ export function bboxCenterLon(bbox: Bbox): number {
  * The corner pair MapLibre's `fitBounds` / `initialViewState.bounds` wants.
  * MapLibre normalizes longitudes itself, so a crossing bbox is expressed by
  * letting east run past 180 (`[178.5, …] → [181.5, …]`) rather than by
- * splitting — it then fits the ~3° that Fiji occupies instead of skipping the
- * fit or flying to the far side of the world.
+ * splitting.
  */
 export function toFitBounds(bbox: Bbox): [[number, number], [number, number]] {
   const [west, south, east, north] = bbox;

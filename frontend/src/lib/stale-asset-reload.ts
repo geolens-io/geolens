@@ -1,13 +1,10 @@
-// Stale SPA shells 404 on old hashed assets after a deploy.
-// The no-cache shell header stops new shells from going stale but cannot heal
-// heuristic caches or tabs left open across a deploy. When a lazy
-// route chunk fails to load, reload once — the reload revalidates the
-// no-cache shell and picks up the current build. Time-latched via
-// sessionStorage so a genuinely broken server can't cause a reload loop — and
-// skipped outright when the latch cannot be read or written, since
-// an unlatched reload is the loop the latch exists to prevent.
-// Keep the latch key + window in sync with public/asset-guard.js (the same
-// guard for the initial <script>/<link> loads, which must live in the shell).
+// Stale SPA shells 404 on old hashed assets after a deploy. The no-cache shell
+// header cannot heal heuristic caches or tabs left open across a deploy. When
+// a lazy route chunk fails to load, reload once so the revalidated shell picks
+// up the current build. Time-latched via sessionStorage so a broken server
+// can't cause a reload loop, and skipped when the latch can't be read or
+// written. The latch key and window match public/asset-guard.js, the same
+// guard for the initial <script>/<link> loads.
 
 const LATCH_KEY = 'geolens-asset-reload-at';
 const LATCH_WINDOW_MS = 30_000;
@@ -18,12 +15,10 @@ export function reloadOnceForStaleAssets(): boolean {
     if (Date.now() - last < LATCH_WINDOW_MS) return false;
     sessionStorage.setItem(LATCH_KEY, String(Date.now()));
   } catch {
-    // Fail closed. Storage is not merely unavailable in a sandboxed
-    // frame with an opaque origin — reading the property throws SecurityError —
-    // and the window.location round-trip does not throttle retries when there
-    // is no latch: measured against an `immutable` shell, the unlatched path
-    // reloaded ~12,000 times in 12s on localhost (~60/s over the internet).
-    // No latch, no reload.
+    // Fail closed: in a sandboxed opaque-origin frame reading the property
+    // throws SecurityError, and nothing else throttles retries; unlatched
+    // against an `immutable` shell it reloaded ~12,000 times in 12s on
+    // localhost. No latch, no reload.
     return false;
   }
   window.location.reload();
@@ -33,8 +28,7 @@ export function reloadOnceForStaleAssets(): boolean {
 export function installStaleAssetReload(): void {
   window.addEventListener('vite:preloadError', (event) => {
     if (reloadOnceForStaleAssets()) {
-      // Suppress the throw from the failed dynamic import; the reload
-      // supersedes it.
+      // The reload supersedes the failed dynamic import's throw.
       event.preventDefault();
     }
   });

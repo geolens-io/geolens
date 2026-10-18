@@ -81,10 +81,8 @@ export async function getMap(id: string): Promise<MapResponse> {
       l.paint = normalized.paint;
     }
   }
-  // Apply map-level normalization: guarantees basemap_style is a non-empty string,
-  // show_basemap_labels is a boolean, plugins is string[]|null. Composes with
-  // the per-layer normalizeLayerStyleState loop above; does NOT reassign resp.layers
-  // because the loop already mutated those elements in place.
+  // Map-level normalization (basemap_style, show_basemap_labels, plugins). The
+  // per-layer loop above already mutated resp.layers in place.
   const mapNorm = normalizeSavedMap(resp);
   resp.basemap_style = mapNorm.basemap_style;
   resp.show_basemap_labels = mapNorm.show_basemap_labels;
@@ -186,9 +184,9 @@ export async function removeLayerFromMapApi(
 /**
  * Batch-delete multiple layers from a map in a single HTTP call.
  *
- * This call fires one POST request
- * regardless of how many layers are selected. The backend returns partial-failure details
- * inline so the caller can surface them without treating the whole operation as failed.
+ * One POST regardless of how many layers are selected. The backend returns
+ * partial-failure details inline so the caller can surface them without
+ * treating the whole operation as failed.
  */
 export async function bulkDeleteLayersApi(
   mapId: string,
@@ -203,19 +201,14 @@ export async function bulkDeleteLayersApi(
 /**
  * Fetch a shared map by its share token.
  *
- * Returns `null` when the token does not exist (404) — this is treated as an
- * expected, quiet outcome. The caller (`useSharedMap` → `PublicViewerPage`)
- * handles `data === null` via the existing `isError || !data` branch, rendering
- * the "Map not found" view without any application-layer error surface.
- *
- * Other error statuses (403, 410 expired, 500) still throw ApiError normally so
- * that they surface correctly (e.g. the "Link expired" view for 410).
+ * Returns `null` when the token does not exist (404), an expected quiet outcome
+ * the caller renders as "Map not found". Other statuses (403, 410 expired, 500)
+ * still throw ApiError so they surface correctly (e.g. "Link expired" for 410).
  */
 export async function getSharedMap(token: string, embedToken?: string): Promise<SharedMapResponse | null> {
   const extraHeaders: Record<string, string> = {};
-  // Embed viewers present their token so the
-  // metadata payload includes the token's scoped (possibly non-public)
-  // dataset layers — the tile path already honored the same capability.
+  // Embed viewers present their token so the metadata payload includes the
+  // token's scoped (possibly non-public) dataset layers, as the tile path does.
   if (embedToken) {
     extraHeaders['X-Embed-Token'] = embedToken;
   }
@@ -235,16 +228,14 @@ export async function getSharedMap(token: string, embedToken?: string): Promise<
       l.paint = normalized.paint;
     }
   }
-  // Apply map-level normalization: SharedMapResponse.show_basemap_labels is optional
-  // Older shared payloads omit it; normalizeSavedMap defaults it to true.
-  // Does NOT reassign resp.layers — per-layer mutations already applied above.
+  // SharedMapResponse.show_basemap_labels is optional; older payloads omit it and
+  // normalizeSavedMap defaults it to true. resp.layers is already normalized above.
   const mapNorm = normalizeSavedMap(resp);
   resp.basemap_style = mapNorm.basemap_style;
   resp.show_basemap_labels = mapNorm.show_basemap_labels;
   resp.basemap_config = mapNorm.basemap_config;
   resp.terrain_config = mapNorm.terrain_config;
-  // plugins: SharedMapResponse has no plugins field; normalization result is intentionally
-  // discarded. When SharedMapResponse gains plugins, add: resp.plugins = mapNorm.plugins;
+  // SharedMapResponse has no plugins field, so the normalized plugins are discarded.
   return resp;
 }
 
@@ -284,15 +275,13 @@ export async function publishMap(id: string, visibility: 'public' | 'private' | 
 }
 
 /**
- * Distinguishes the one 400 `publishMap` can return that
- * has its own dedicated UI (SharePanel's inline "can't go public" message)
- * from every other failure, which still gets the generic toast. Reads the
- * raw `err.body` the backend sent (`{ message, datasets }` from
- * `validate_public_visibility` in `maps/router.py`), not `err.message` —
- * that is already a translated fallback string rather than JSON.
+ * Distinguishes the one 400 `publishMap` can return that has its own UI
+ * (SharePanel's inline "can't go public" message) from every other failure,
+ * which gets the generic toast. Reads the raw `err.body` the backend sent
+ * (`{ message, datasets }` from `validate_public_visibility` in
+ * `maps/router.py`), not `err.message`, which is a translated fallback string.
  *
- * Shared by `usePublishMap` (to skip its own toast for this one case) and
- * `SharePanel` (to render the inline message), so the two can't drift.
+ * Shared by `usePublishMap` and `SharePanel` so the two can't drift.
  */
 export function nonPublicDatasetsFromError(err: unknown): string | undefined {
   if (!(err instanceof ApiError) || err.status !== 400 || !err.body || typeof err.body !== 'object') {
@@ -421,9 +410,8 @@ export async function* streamGenerateMap(
   data: MapGenerateRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
-  // Route through the refresh-aware raw fetch so a stream issued as
-  // the first request after a long idle transparently refreshes the JWT
-  // instead of hard-failing with a 401. Authorization header is set inside.
+  // Route through the refresh-aware raw fetch so a stream issued as the first
+  // request after a long idle refreshes the JWT instead of failing with a 401.
   const response = await authenticatedRawFetch(
     `${API_BASE}/ai/generate-map/stream/`,
     {

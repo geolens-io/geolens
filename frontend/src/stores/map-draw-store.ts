@@ -3,11 +3,9 @@ import { create } from 'zustand';
 /**
  * Whether a builder draw mode currently owns the map pointer.
  *
- * The analysis clip mask runs its own TerraDraw instance over the live map
- * (AnalysisPanel). A vertex click places its vertex and then falls through to
- * BuilderMap's click handler, which resolves the feature under the cursor and
- * opens its popup — so drawing a five-point mask left five popups behind, the
- * last one sitting on top of the result.
+ * The analysis clip mask runs its own TerraDraw instance over the live map. A
+ * vertex click places its vertex and then falls through to BuilderMap's click
+ * handler, which would open a popup for the feature under the cursor.
  *
  * Deliberately separate from `drawing-store`, which is dataset-edit-specific:
  * its `setDrawing` requires a target dataset, table, and geometry type that an

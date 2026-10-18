@@ -1,27 +1,19 @@
 /**
- * Shared value formatter for feature/record properties, used by the map
- * popup (`FeaturePopup`) and the accessible data panel (`AccessibleMapDataPanel`)
- * so the same property value renders the same way in both places.
+ * Shared value formatter for feature/record properties, used by the map popup
+ * (`FeaturePopup`) and the accessible data panel (`AccessibleMapDataPanel`) so
+ * the same value renders the same way in both. Objects and arrays are
+ * `JSON.stringify`d, since `String(value)` would render `[object Object]`.
  *
- * Centralizing keeps the two from drifting apart: without an object/array
- * branch a component falls through to `String(value)`, which renders
- * `[object Object]` for an object-valued property, so objects are
- * `JSON.stringify`d here.
- *
- * `null`/`undefined` return `null` — callers render their own existing empty
- * text (the popup uses "--", the panel uses "—") rather than sharing one
- * placeholder string.
+ * `null`/`undefined` return `null`: callers render their own empty text (the
+ * popup uses "--", the panel "—").
  */
 export function formatFeaturePropertyValue(
   value: unknown,
   locale: string,
   booleanTrue: string,
   booleanFalse: string,
-  // The data panel formatted non-integer numbers to 5
-  // fraction digits (it renders raw feature coordinates on the accessibility
-  // surface); collapsing both callers onto the popup's 4-digit default
-  // silently dropped a digit of precision there. Each caller now states its
-  // own precision explicitly instead of inheriting the popup's.
+  // Each caller states its own precision: the data panel renders raw feature
+  // coordinates at 5 fraction digits, and the popup's 4-digit default dropped one.
   maxFractionDigits = 4,
 ): string | null {
   if (value === null || value === undefined) return null;

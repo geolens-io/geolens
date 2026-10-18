@@ -1,10 +1,9 @@
 // Global capture installer for the in-app problem reporter.
 //
-// Patches console.error / console.warn (preserving the original devtools output)
-// and adds window 'error' / 'unhandledrejection' listeners — the two signal
-// sources that have no existing hook in the codebase. The other sources
-// (TanStack Query failures, MapLibre errors, React error boundaries) push into
-// the buffer from their own call sites.
+// Patches console.error / console.warn (preserving devtools output) and adds
+// window 'error' / 'unhandledrejection' listeners, the signal sources with no
+// existing hook. Other sources (TanStack Query, MapLibre, React error boundaries)
+// push into the buffer from their own call sites.
 //
 // Idempotent: safe to call multiple times (StrictMode, Vite HMR re-exec).
 

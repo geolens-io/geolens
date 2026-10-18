@@ -14,7 +14,6 @@ import { SessionRestoreNotice } from '@/components/auth/SessionRestoreNotice';
 import { AnalysisJobWatcher } from '@/components/analysis/AnalysisJobWatcher';
 import { preload, requires } from '@/lib/route-preload';
 
-// Lazy page imports — each produces a separate Vite chunk
 const loadLoginPage = () =>
   import('./pages/LoginPage').then(m => ({ default: m.LoginPage }));
 const LoginPage = lazy(loadLoginPage);
@@ -30,10 +29,8 @@ const TrustBrowserPage = lazy(loadTrustBrowserPage);
 const loadOAuthCallbackPage = () =>
   import('./pages/OAuthCallbackPage').then(m => ({ default: m.OAuthCallbackPage }));
 const OAuthCallbackPage = lazy(loadOAuthCallbackPage);
-// Map routes kick off the map-vendor chunk (~306KB gz, maplibre-gl)
-// in parallel with the route chunk. Without this the vendor download
-// serializes BEHIND the page chunk — the page module only reaches its own
-// maplibre import after it has itself loaded.
+// Map routes load the maplibre-gl vendor chunk in parallel with the route
+// chunk; otherwise it downloads only after the page module has loaded.
 const loadPublicViewerPage = () =>
   Promise.all([import('./pages/PublicViewerPage'), import('maplibre-gl')]).then(
     ([m]) => ({ default: m.PublicViewerPage }),
@@ -57,7 +54,6 @@ const ImportPage = lazy(loadImportPage);
 const loadMapsPage = () =>
   import('./pages/MapsPage').then(m => ({ default: m.MapsPage }));
 const MapsPage = lazy(loadMapsPage);
-// See PublicViewerPage — warm map-vendor alongside the route chunk.
 const loadMapViewerGate = () =>
   Promise.all([import('./pages/MapViewerGate'), import('maplibre-gl')]).then(
     ([m]) => ({ default: m.MapViewerGate }),
@@ -82,7 +78,6 @@ const loadAdminSamlPage = () =>
   import('./pages/admin/AdminSamlPage').then(m => ({ default: m.AdminSamlPage }));
 const AdminSamlPage = lazy(loadAdminSamlPage);
 
-// Settings (per-tab routes)
 const loadAdminSettingsPage = () =>
   import('./pages/admin/AdminSettingsPage').then(m => ({ default: m.AdminSettingsPage }));
 const AdminSettingsPage = lazy(loadAdminSettingsPage);
@@ -96,23 +91,17 @@ const NotFoundPage = lazy(loadNotFoundPage);
 function RootLayout() {
   return (
     <LazyLoadErrorBoundary>
-      {/* Global session-expiry host — needs router context for the
-          sign-in-returns-to-route action, so it lives here rather than main.tsx. */}
+      {/* Needs router context for the sign-in-returns-to-route action, so it
+          lives here rather than main.tsx. */}
       <SessionExpiredDialog />
       <SessionRestoreNotice />
-      {/* Analysis-job notifier — global so a materialize job that
-          outlives the builder (panel closed, navigated away, tab reloaded)
-          still reports when it lands. Needs router context for its
-          "View dataset" action, so it lives here rather than main.tsx.
-          The reload case covers a job still RUNNING at reload
-          time, which is what the persisted store carries. Once the job reaches
-          a terminal status the watcher persists setJob(null) and reports
-          through a toast — and the toast is `duration: Infinity` and NOT
-          persisted, so a reload at ANY later point while it sits
-          unacknowledged drops the notification with nothing left to rebuild
-          it from. Not worth guarding, since the job itself completed
-          server-side and the dataset is in the catalog, but the guarantee is
-          "a running job survives a reload", not "a notification does". */}
+      {/* Analysis-job notifier, global so a materialize job that outlives the
+          builder still reports when it lands. Needs router context for its
+          "View dataset" action. A job still RUNNING at reload survives it
+          (the persisted store carries it); the completion toast is
+          `duration: Infinity` and NOT persisted, so a reload while it sits
+          unacknowledged drops the notification. The dataset is already in the
+          catalog, so that is accepted. */}
       <AnalysisJobWatcher />
       <Suspense fallback={<LoadingState />}>
         <Outlet />
@@ -121,10 +110,10 @@ function RootLayout() {
   );
 }
 
-// Auth pages live outside AppLayout but should still show the
-// admin-configured announcement banner. Their min-h-screen shells tolerate
-// the extra banner height; full-height shells (AppLayout map routes,
-// PublicViewerPage) mount SiteBanner inside their own flex column instead.
+// Auth pages live outside AppLayout but still show the announcement banner.
+// Their min-h-screen shells tolerate the extra height; full-height shells
+// (AppLayout map routes, PublicViewerPage) mount SiteBanner in their own flex
+// column instead.
 function BannerShell() {
   return (
     <>
@@ -152,8 +141,8 @@ export const appRoutes = (
     <Route path="/m/:token" element={<PublicViewerPage />} handle={preload(loadPublicViewerPage)} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
-      {/* LandingFirstGuard redirects anonymous visitors to /login
-          when the landing_first flag is ON; otherwise renders SearchPage. */}
+      {/* LandingFirstGuard redirects anonymous visitors to /login when the
+          landing_first flag is ON; otherwise renders SearchPage. */}
       <Route index element={<LandingFirstGuard />} errorElement={<RouteErrorBoundary />} />
       <Route path="search" element={<SearchRedirect />} />
       <Route path="datasets/:id" element={<DatasetPage />} handle={preload(loadDatasetPage)} errorElement={<RouteErrorBoundary />} />
@@ -181,26 +170,22 @@ export const appRoutes = (
             <Route element={<AdminCapabilityRoute capability="manage_settings" />} handle={requires('capability')}>
               <Route path="admin/audit" element={<AdminAuditPage />} handle={preload(loadAdminAuditPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
-            {/* The settings and config-ops APIs flip to
-                manage_tenants in multi-tenant mode, so their routes gate
-                mode-aware — plain manage_settings admitted per-tenant admins
-                whose every settings request 403s. */}
+            {/* The settings and config-ops APIs flip to manage_tenants in
+                multi-tenant mode, so these routes gate mode-aware; plain
+                manage_settings would admit per-tenant admins whose settings
+                requests all 403. */}
             <Route element={<AdminSettingsRoute />} handle={requires('capability')}>
               {/* Settings — each tab is its own route */}
               <Route path="admin/settings" element={<Navigate to="/admin/settings/general" replace />} />
               <Route path="admin/settings/:tab" element={<AdminSettingsPage />} handle={preload(loadAdminSettingsPage)} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/config-ops" element={<AdminConfigOpsPage />} handle={preload(loadAdminConfigOpsPage)} errorElement={<RouteErrorBoundary />} />
-              {/* SAML calls /settings/oauth-providers/, the same
-                  mode-aware API as the tabs above, so it must not be gated on
-                  raw manage_settings. */}
+              {/* SAML uses the same mode-aware API as the tabs above. */}
               <Route path="admin/saml" element={<AdminSamlPage />} handle={preload(loadAdminSamlPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
-            {/* Redirects from old routes.
-                No `admin/settings/appearance` entry in this block — a
-                static path outranks `admin/settings/:tab`, so an
-                appearance→map redirect would make the enterprise branding tab
-                unreachable. AdminSettingsPage's edition gate owns that URL
-                (enterprise renders it, community sends it to general). */}
+            {/* Redirects from old routes. No `admin/settings/appearance` entry:
+                a static path outranks `admin/settings/:tab` and would make the
+                enterprise branding tab unreachable. AdminSettingsPage's
+                edition gate owns that URL. */}
             <Route path="admin/share-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             <Route path="admin/embed-tokens" element={<Navigate to="/admin/shared-maps" replace />} />
             <Route path="admin/settings/infrastructure" element={<Navigate to="/admin/overview" replace />} />

@@ -3,12 +3,11 @@ import type { TileConfig } from '@/api/settings';
 /**
  * Is a browser served from this hostname talking to its own machine?
  *
- * Loopback is a RANGE — all of `127.0.0.0/8` — not a set of exact spellings,
- * so `http://127.0.0.2` must not be classified as a real public origin, or the
- * deployment would offer a domain lock whose shell URL every recipient
- * resolves to their own machine. `is_loopback_host` in backend/app/core/public_urls.py states the
- * same rule for Python, and `public-app-url-shape.cases.json` holds the two to
- * the same answers.
+ * Loopback is a RANGE (all of `127.0.0.0/8`), so `http://127.0.0.2` must not be
+ * classified as a real public origin, or a domain lock's shell URL would
+ * resolve to each recipient's own machine. `is_loopback_host` in
+ * backend/app/core/public_urls.py states the same rule for Python, and
+ * `public-app-url-shape.cases.json` holds the two to the same answers.
  *
  * `*.localhost` counts: RFC 6761 §6.3 puts the whole zone on loopback and
  * browsers resolve it there, so `http://app.localhost` is the same mistake in
@@ -21,14 +20,9 @@ function isLoopbackHostname(hostname: string): boolean {
   const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
   if (!host) return false;
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
-  // `::1` is compared exactly rather than expanded, because every caller has
-  // already been through `parseUsablePublicUrl`, which requires the host to be
-  // spelled the way this parser serializes it. `[0:0:0:0:0:0:0:1]` never
-  // reaches here — it is refused as non-canonical, on both sides. An
-  // IPv4-mapped literal cannot reach here either: that whole class is refused,
-  // because Python spells `::ffff:7f00:1` as `::ffff:127.0.0.1` and this parser
-  // spells `::ffff:127.0.0.1` as `::ffff:7f00:1`, so neither side can call the
-  // other's form canonical (see `canonical_host_error`).
+  // `::1` is compared exactly: callers have already passed
+  // `parseUsablePublicUrl`, which refuses non-canonical and IPv4-mapped
+  // spellings on both sides (see `canonical_host_error`).
   if (host === '::1') return true;
   const octets = host.split('.');
   if (octets.length !== 4) return false;
@@ -39,11 +33,7 @@ function isLoopbackHostname(hostname: string): boolean {
 /**
  * Every state `PUBLIC_APP_URL` can be in, named.
  *
- * This enumeration is the point. The setting has been
- * treated as a boolean three separate times on this PR — "is it set" — and each
- * time the case that was missed was a state nobody had written down. Listing
- * them here means the next reader sees all of them at once instead of
- * rediscovering one in review.
+ * Listing the states keeps the setting from being treated as a boolean.
  *
  *  - `unset`             nothing configured, or blank.
  *  - `malformed`         present but not a usable HTTP(S) URL — wrong scheme,
@@ -72,12 +62,11 @@ type PublicAppUrlState =
 /**
  * Is this a value a browser could actually be sent to?
  *
- * ONE shape rule for `PUBLIC_APP_URL` — an absolute
- * HTTP(S) URL, with a host, and no query or fragment. The backend states the
- * same rule in `is_usable_public_origin` (backend/app/core/public_urls.py), and
- * `__tests__/public-app-url-shape.cases.json` is the single case table both are
- * tested against, because two independent validators for one setting is exactly
- * the arrangement that let each side learn about a different invalid shape.
+ * ONE shape rule for `PUBLIC_APP_URL`: an absolute HTTP(S) URL, with a host,
+ * and no query or fragment. The backend states the same rule in
+ * `is_usable_public_origin` (backend/app/core/public_urls.py), and
+ * `__tests__/public-app-url-shape.cases.json` is the case table both are
+ * tested against.
  *
  * Each clause earns its place:
  *
@@ -104,21 +93,14 @@ function parseUsablePublicUrl(url: string): URL | null {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
   if (!parsed.hostname) return null;
   if (parsed.search || parsed.hash) return null;
-  // NO `/api` PATH. An app URL that names the API base would build
-  // `/api/api/maps/...` card links and `/api/m/...` iframe sources (e.g.
-  // `PUBLIC_APP_URL=https://maps.example.com/api` arriving here through
-  // tile-config). `is_api_base_path` (backend/app/core/public_urls.py) is the
-  // one statement of the rule, and both entry points ask it.
-  //
-  // `parsed.pathname` has ALREADY resolved dot segments, so `/api/.` arrives
-  // here as `/api/` and is refused for free. That is precisely why the backend
-  // needed `_remove_dot_segments`: `urlsplit` leaves `/api/.` alone, so it used
-  // to accept a value this side rejects.
+  // NO `/api` PATH: an app URL naming the API base would build `/api/api/maps/...`
+  // card links. `is_api_base_path` (backend/app/core/public_urls.py) states the
+  // rule for both entry points. `parsed.pathname` has already resolved dot
+  // segments, so `/api/.` arrives as `/api/` and is refused.
   if (parsed.pathname.replace(/\/+$/, '').endsWith('/api')) return null;
-  // Three refusals, all on the RAW string rather than
-  // on `parsed`, because this parser has already decoded and punycoded by the
-  // time we could look — the raw string is the only view Python can compare
-  // against identically.
+  // Three refusals, all on the RAW string: this parser has already decoded and
+  // punycoded by the time `parsed` exists, and only the raw string compares
+  // identically with Python.
   //
   //  - PERCENT-ENCODING: this parser decodes `%6D` to `m`; Python's urlsplit
   //    leaves it literal.
@@ -142,19 +124,12 @@ function parseUsablePublicUrl(url: string): URL | null {
 /**
  * Is the host spelled the way this parser serializes it?
  *
- * Python and the browser disagree about the canonical
- * spelling of numeric hosts, and the backend stores Python's. Measured:
- * `192.168.1` is `192.168.1` to urlsplit and `192.168.0.1` here; `010.0.0.1` is
- * read as OCTAL and becomes `8.0.0.1`; `0x7f.1` becomes `127.0.0.1`; an
- * uncompressed IPv6 literal is compressed. Each is a spelling the shell would
- * present while the stored self-origin said something else.
- *
- * This side has it easy: it can ask the browser parser and compare. The backend
- * has to state the rule outright — see `canonical_host_error` in
- * backend/app/core/public_urls.py, and note the trap recorded there, that
- * `192.168.1` round-trips through urlsplit unchanged, so a stability check
- * would pass it. The two methods are held to the same answers by
- * `__tests__/public-app-url-shape.cases.json`.
+ * Python and the browser disagree about the canonical spelling of numeric
+ * hosts, and the backend stores Python's: `192.168.1` is `192.168.0.1` here,
+ * `010.0.0.1` is read as OCTAL, `0x7f.1` becomes `127.0.0.1`, and an
+ * uncompressed IPv6 literal is compressed. The backend states the rule
+ * outright (`canonical_host_error` in backend/app/core/public_urls.py);
+ * `__tests__/public-app-url-shape.cases.json` holds both to the same answers.
  *
  * Case is compared insensitively because both parsers lowercase, so an
  * uppercase host is not a disagreement. A trailing dot IS refused: both
@@ -170,14 +145,10 @@ function hostIsAlreadyCanonical(url: string, parsed: URL): boolean {
     ? hostAndPort.slice(0, hostAndPort.indexOf(']') + 1)
     : hostAndPort.split(':')[0];
   if (written.endsWith('.')) return false;
-  // An IPv4-MAPPED literal has no spelling both sides call
-  // canonical. This parser renders `[::ffff:127.0.0.1]` as `[::ffff:7f00:1]`
-  // and Python renders `::ffff:7f00:1` as `::ffff:127.0.0.1`, so each side
-  // would call the other's output wrong. Both refuse the class — the
-  // plain IPv4 form is unambiguous. Tested against `parsed.hostname`, which is
-  // this parser's canonical spelling, so it catches the class rather than one
-  // spelling of it; the pattern is the mapped block `::ffff:0:0/96`, which
-  // always serializes as `::ffff:` plus exactly two hex groups.
+  // An IPv4-MAPPED literal has no spelling both sides call canonical (this
+  // parser renders `[::ffff:127.0.0.1]` as `[::ffff:7f00:1]`, Python the
+  // reverse), so both refuse the class. Tested against `parsed.hostname`, so
+  // it matches the mapped block `::ffff:0:0/96` rather than one spelling.
   if (/^\[::ffff:[0-9a-f]{1,4}:[0-9a-f]{1,4}\]$/.test(parsed.hostname)) return false;
   return written.toLowerCase() === parsed.hostname.toLowerCase();
 }
@@ -185,16 +156,14 @@ function hostIsAlreadyCanonical(url: string, parsed: URL): boolean {
 /**
  * The browser's own spelling of a usable value, or null.
  *
- * The configured value and the origin a browser
- * presents have to be the same STRING, not merely the same place. Userinfo is
- * never sent, a default port is never sent, and the host is lowercased — so
- * storing the operator's spelling meant the domain lock was issued and then
- * missed on every request. `URL.origin` normalizes all of that, and the backend
- * does the same in `_normalize_origin`. An internationalized host is refused
- * upstream rather than converted, so no IDNA translation happens here.
+ * The configured value and the origin a browser presents have to be the same
+ * STRING: userinfo and default ports are never sent and the host is lowercased,
+ * so storing the operator's spelling would issue a domain lock that never
+ * matches. `URL.origin` normalizes all of that, as the backend's
+ * `_normalize_origin` does. An internationalized host is refused upstream, so
+ * no IDNA translation happens here.
  *
- * A configured sub-path is preserved, since it is part of where the app lives
- * and both sides drop it before comparing origins.
+ * A configured sub-path is preserved; both sides drop it before comparing.
  */
 function canonicalizePublicUrl(url: string): string | null {
   const parsed = parseUsablePublicUrl(url);
@@ -216,11 +185,9 @@ function canonicalizePublicUrl(url: string): string | null {
  * opinion. A genuine localhost install is not caught: there the browser is on
  * loopback too, the value is right, and it is trusted.
  *
- * `public_app_url` comes from `/settings/tile-config/`, whose own description
- * calls it "the browser-facing app URL used for share links". A configured
- * sub-path (`https://example.com/geolens`) is preserved — only a trailing slash
- * is trimmed — because it is part of where the app lives. The backend compares
- * origins with the path already dropped, so the two still agree.
+ * `public_app_url` comes from `/settings/tile-config/`. A configured sub-path
+ * (`https://example.com/geolens`) is preserved, only a trailing slash is
+ * trimmed; the backend compares origins with the path already dropped.
  */
 export function resolvePublicAppUrl(
   tileConfig: Pick<TileConfig, 'public_app_url'> | null | undefined,
@@ -229,11 +196,8 @@ export function resolvePublicAppUrl(
   const raw = tileConfig?.public_app_url?.trim().replace(/\/+$/, '');
   if (!raw) return { kind: 'unset' };
 
-  // Shape FIRST, and it must pass. A previous revision asked `isLoopbackOrigin()`
-  // and read its parse failure as "not loopback, therefore fine" — a narrower
-  // predicate standing in for trust, so `not-a-url` was handed out in card links
-  // and iframe sources. Trust is earned here, never inherited from another
-  // check's failure mode.
+  // Shape comes first and must pass: a parse failure is not "not loopback,
+  // therefore fine", or `not-a-url` would be handed out in card links.
   const parsed = parseUsablePublicUrl(raw);
   if (parsed === null) return { kind: 'malformed', value: raw };
   const canonical = canonicalizePublicUrl(raw);
@@ -279,8 +243,7 @@ export function getPublicAppBaseUrl(
  * The base URL a DOMAIN-LOCKED preview may load from, or null if it cannot be
  * previewed here at all.
  *
- * A locked preview has to satisfy TWO browser rules at
- * once, and for a split-horizon deployment nothing satisfies both.
+ * A locked preview has to satisfy TWO browser rules at once.
  *
  *  1. Its API calls carry the SHELL's origin, and the backend accepts only the
  *     configured origin as first-party — so the shell must be loaded from the
@@ -292,15 +255,13 @@ export function getPublicAppBaseUrl(
  *     — which resolves to the PUBLIC origin, not the admin's — nor the customer
  *     allowlist. The browser blocks the frame before a single API call runs.
  *
- * Earlier rounds each tried to find an origin satisfying both. There isn't one:
- * rule 1 fixes the child's origin and rule 2 then requires the parent to match
- * it. So the preview is offered only when the two are already the same origin,
- * and otherwise refused with an explanation. That is not a workaround — it is
- * the domain lock doing exactly what it was asked to do, to us.
+ * No origin satisfies both: rule 1 fixes the child's origin and rule 2 requires
+ * the parent to match it. So the preview is offered only when the two are
+ * already the same origin, and otherwise refused with an explanation (the
+ * domain lock doing what it was asked to do).
  *
- * The comparison is by ORIGIN, so a configured sub-path
- * (`https://example.com/geolens` while the admin is at `https://example.com`)
- * still previews: CSP and the origin check both ignore the path.
+ * The comparison is by ORIGIN, so a configured sub-path still previews: CSP and
+ * the origin check both ignore the path.
  */
 export function getLockedPreviewBaseUrl(
   tileConfig: Pick<TileConfig, 'public_app_url'> | null | undefined,
@@ -317,12 +278,10 @@ export function getLockedPreviewBaseUrl(
 /**
  * The origin to build an ordinary share link or unrestricted embed from.
  *
- * Prefers the configured public origin, because a URL someone else opens should
- * name the address people use to reach GeoLens rather than whatever hostname
- * this admin happens to be on. Falls back to the current origin for every
- * untrusted state, since a link that opens beats a correct-looking one that
- * does not — and `loopback-default` is the DEFAULT install, where these links
- * worked before any of this.
+ * Prefers the configured public origin, since someone else opening the link
+ * needs the address people use to reach GeoLens. Falls back to the current
+ * origin for every untrusted state: a link that opens beats a correct-looking
+ * one that does not, and `loopback-default` is the default install.
  */
 export function getShareableBaseUrl(
   tileConfig: Pick<TileConfig, 'public_app_url'> | null | undefined,

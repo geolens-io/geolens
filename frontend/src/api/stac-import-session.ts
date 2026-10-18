@@ -13,30 +13,21 @@ import type {
 /**
  * The in-flight STAC import, owned OUTSIDE React.
  *
- * Unlike the Service tab, this path has no job id to strand: `StacImportForm`
- * never calls `previewServiceLayer`, and `api/stac.ts` has no job-based step.
  * The connect/collections/search calls are read-only and safe to re-run on
- * remount. `importStacItems` (`POST /services/stac/import`) is the one call
- * that mutates, and it creates datasets SYNCHRONOUSLY, returning their outcome
- * in the response body, so nothing is left `pending` for the stale-job sweep to
- * collect. An unmount mid-import loses the created/skipped/error counts and the
- * per-item results, but the datasets it created are real and stay discoverable
- * in the catalog.
+ * remount. `importStacItems` (`POST /services/stac/import`) creates datasets
+ * SYNCHRONOUSLY and returns the outcome in the response body, so no job is left
+ * `pending` for the stale-job sweep. An unmount mid-import loses the
+ * created/skipped/error counts and per-item results, but the datasets stay in
+ * the catalog; this session protects that response.
  *
- * This session protects the response, because losing the confirmation view is a
- * real (if milder) loss. Single-entry, matching `url-import-session.ts`: one
- * STAC import request covers the whole selected batch of items, not one entry
- * per item.
+ * Single-entry, like `url-import-session.ts`: one request covers the whole
+ * selected batch.
  *
- * It also carries the search CONTEXT (catalog, collections list, selected
- * collection, search results, selected item ids) the way the Upload session
- * carries the selected layer in `previewData`. Adopting only `importResult`
- * would leave "Back to Results" on the done screen (which sets `step` back to
- * `items`) rendering nothing: the `items` branch guards on `selectedCollection`
- * and `catalogInfo`, both null on a fresh mount, so it would fall through to
- * the empty URL form, and a missing `collections` would render an empty
- * breadcrumb list. Captured at the moment the import starts, since that is the
- * last point every one of these values is still known.
+ * It also carries the search CONTEXT (catalog, collections, selected
+ * collection, results, selected item ids). Adopting only `importResult` would
+ * leave "Back to Results" rendering the empty URL form, since the `items` branch
+ * guards on `selectedCollection` and `catalogInfo`, both null on a fresh mount.
+ * Captured when the import starts, the last point every value is still known.
  *
  * Deliberately not persisted.
  */
@@ -83,16 +74,9 @@ export interface StacImportSession {
 }
 
 let current: StacImportSession | null = null;
-
-// A literal control byte was here as the key
-// separator, copied by analogy from url-import-session.ts's escaped
-// constant without actually escaping it. A raw control byte makes ripgrep
-// report this file as binary (verified: grep silently returns nothing for
-// symbols that are present) and makes git treat the diff as binary, so the
-// module drops out of repository-wide search and ordinary review tooling.
-// A plain space is enough here: a STAC catalog URL cannot contain one
-// unescaped, so the separator cannot collide with content on either side
-// of it.
+// A plain space separates the parts: a STAC catalog URL cannot contain one
+// unescaped, so the separator cannot collide with content. (A raw control byte
+// would make ripgrep and git treat this file as binary.)
 function sessionKey(url: string, items: StacImportItem[]): string {
   return `${url} ${items.map((i) => i.id).join(',')}`;
 }
@@ -140,9 +124,8 @@ export function startStacImport(
 }
 
 /**
- * The current session, if one exists AND belongs to the signed-in user.
- * Same ownership rule as #1713 / `peekUrlImport`: a session belonging to a
- * different identity is CLEARED rather than merely hidden.
+ * The current session, if one exists AND belongs to the signed-in user. A
+ * session belonging to a different identity is CLEARED rather than hidden.
  */
 export function peekStacImport(): StacImportSession | null {
   if (!current) return null;
@@ -153,8 +136,7 @@ export function peekStacImport(): StacImportSession | null {
   return current;
 }
 
-/** Release the session — an explicit reset, a settled adoption, or an
- * identity change. There is no reason to hold this past its one response. */
+/** Release the session: an explicit reset, a settled adoption, or an identity change. */
 export function clearStacImport(): void {
   current = null;
 }

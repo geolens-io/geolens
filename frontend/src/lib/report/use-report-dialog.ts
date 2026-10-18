@@ -1,9 +1,8 @@
 import { create } from 'zustand';
 
-// Shared open-state for the "Report a problem" wizard so multiple entry points
-// can trigger it: the user-menu item (always available, discoverable) and the
-// floating button that only appears once errors are captured. ReportProblemHost
-// owns the wizard and reads `open` from here.
+// Shared open-state for the "Report a problem" wizard, triggered by the user
+// menu item and the floating button shown once errors are captured.
+// ReportProblemHost owns the wizard.
 interface ReportDialogState {
   open: boolean;
   setOpen: (open: boolean) => void;

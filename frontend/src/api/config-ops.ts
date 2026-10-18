@@ -1,7 +1,5 @@
 import { apiFetch } from './client';
 
-// --- Types matching backend config_ops schemas ---
-
 interface ConfigExport {
   version: string;
   exported_at: string;
@@ -55,8 +53,6 @@ export interface ImportResult {
   oauth_accounts_deleted: number;
 }
 
-// --- API functions ---
-
 export async function exportConfig(): Promise<ConfigExport> {
   return apiFetch<ConfigExport>('/config-ops/export/');
 }
@@ -84,8 +80,6 @@ export async function importConfig(
     body: JSON.stringify(data),
   });
 }
-
-// --- Connectivity validation types and API function ---
 
 export interface ServiceProbeResult {
   name: string;

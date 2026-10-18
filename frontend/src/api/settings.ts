@@ -151,9 +151,7 @@ interface EnterpriseTabsResponse {
   tabs: string[];
 }
 
-// Server-driven enterprise-only tab list. Used by
-// AdminSidebar to conditionally render Settings tabs without hardcoding the
-// enterpriseOnly flag in two places (frontend + backend). The backend
+// Server-driven enterprise-only tab list for AdminSidebar; the backend
 // _ENTERPRISE_ONLY_TABS frozenset is the canonical source.
 export async function getEnterpriseOnlyTabs(): Promise<EnterpriseTabsResponse> {
   return apiFetch<EnterpriseTabsResponse>('/settings/enterprise-tabs/');

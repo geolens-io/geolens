@@ -19,9 +19,9 @@ export function useUnsavedGuard(hasUnsavedChanges: boolean) {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Block in-app navigation. The FUNCTION form blocks on PATHNAME changes
-  // only, so DatasetPage's hash-driven tabs stay navigable with edits pending
-  // while leaving the builder route still blocks (#13, #1991).
+  // Block in-app navigation. The function form blocks on pathname changes only,
+  // so DatasetPage's hash-driven tabs stay navigable with edits pending while
+  // leaving the builder route still blocks.
   const blocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>

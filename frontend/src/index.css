@@ -23,9 +23,7 @@
  */
 
 :root {
-  /* Redesign: 10px → 8px base radius. Cards land at 8px, buttons/inputs at
-     6px — crisper, closer to the instrument-panel look the dataset stats
-     grid established, without going full square. */
+  /* Base radius: cards at 8px, buttons/inputs at 6px. */
   --radius: 0.5rem;
 
   /* ─ Primary scale (blue, hue ~250) ─ */
@@ -55,10 +53,9 @@
   --muted-foreground: oklch(0.45 0.005 250);
   --accent: oklch(0.97 0.003 85);
   --accent-foreground: oklch(0.205 0.005 250);
-  /* Darkened from 0.577 like the semantic status colors below. The soft
-   * badge recipe puts text-destructive on a bg-destructive/10
-   * tint, which measured 3.89:1 at the stock value. Now 4.95:1 on the /10
-   * tint and 5.96:1 for white-on-solid (buttons). */
+  /* Darkened from 0.577: text-destructive on a bg-destructive/10 tint measured
+   * 3.89:1 at the stock value. Now 4.95:1 on the /10 tint and 5.96:1 for
+   * white-on-solid (buttons). */
   --destructive: oklch(0.50 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
   /* Measured contrast (OKLCH→sRGB→WCAG):
@@ -70,11 +67,7 @@
   /* --input IS a 1.4.11 component (form-control boundary), so it is brought to
      ≥3:1: L 0.65 measures ~3.1:1 vs card and background. */
   --input: oklch(0.65 0.006 85);
-  /* Focus-ring color. The standard focus treatment is
-     `ring-2 ring-ring`. `ring-primary` was folded into `ring-ring` (same hue).
-     The residual `ring-1` width one-offs are a visible-weight change left for
-     a dedicated design pass, not swept here. (shadow-xs has since been mapped
-     through --elevation-xs; shadow-xl remains unmapped and unused.) */
+  /* Focus-ring color; the standard treatment is `ring-2 ring-ring`. */
   --ring: oklch(0.55 0.18 250);
 
   /* ─ Surface hierarchy (light mode — warm) ─ */
@@ -85,22 +78,19 @@
 
 
   /* ─ Map-native surface tones ─
-     These are intentionally scoped to the LoginPage brand panel's
-     wireframe-globe illustration, not general surfaces. Kept as their own
-     tokens (rather than folded into --surface-*) so the illustration can be
-     retuned without shifting app chrome. */
+     Scoped to the LoginPage brand panel's wireframe-globe illustration, not
+     general surfaces; separate from --surface-* so it can be retuned without
+     shifting app chrome. */
   --map-paper:  oklch(0.95 0.008 85);
   --map-street: oklch(0.82 0.004 85);
   --map-water:  oklch(0.85 0.02 220);
 
   /* ─ Globe space ─
-     The void behind the sphere on globe-projection maps. Has no
-     dark-mode counterpart on purpose — space is the same dark in both themes,
-     and a light value is exactly what makes the globe read as a sticker on
-     white. Sits a little below the dark theme's --background (0.145) so the
-     void reads as deeper than the chrome around it instead of continuous with
-     it, and carries enough chroma to stay a night sky rather than a black
-     rectangle. */
+     The void behind the sphere on globe-projection maps. No dark-mode
+     counterpart on purpose: space is the same dark in both themes, and a light
+     value makes the globe read as a sticker on white. Below the dark theme's
+     --background (0.145) so the void reads deeper than the chrome, with enough
+     chroma to stay a night sky rather than a black rectangle. */
   --map-space: oklch(0.13 0.03 265);
 
   /* ─ Shadow tokens (light mode) ─ */
@@ -110,17 +100,14 @@
   --elevation-lg: 0 10px 15px -3px oklch(0 0 0 / 8%), 0 4px 6px -4px oklch(0 0 0 / 5%);
 
   /* ─ Semantic status colors ─
-   * #305: light fg darkened so text-warning/info/success clear WCAG AA
-   * (>=4.5:1) on card AND soft 10-percent-tint surfaces. Measured ratios:
-   * warning 6.01 and 5.05, info 5.41 and 4.54, success 5.5 and 4.64 (was
-   * 2.19, 4.07, 4.07).
+   * Light fg darkened so text-warning/info/success clear WCAG AA (>=4.5:1) on
+   * card AND soft 10-percent-tint surfaces. Measured ratios: warning 6.01 and
+   * 5.05, info 5.41 and 4.54, success 5.5 and 4.64.
    * --warning-foreground is DARK in BOTH themes and is reserved for text on a
-   * solid bg-warning fill. Never use it as standalone text on card or tint
-   * surfaces — in dark mode it composites to ~1:1 (illegible); use
-   * text-warning there instead. A source-scan test
-   * (warning-foreground-usage.test.ts) enforces this. No component renders a
-   * solid warning fill today; retune the light value (~2.4:1 on solid
-   * warning) before introducing one. */
+   * solid bg-warning fill; as standalone text in dark mode it composites to
+   * ~1:1 (warning-foreground-usage.test.ts enforces this). No component
+   * renders a solid warning fill today; retune the light value (~2.4:1 on
+   * solid warning) before introducing one. */
   --success: oklch(0.49 0.16 150);
   --success-foreground: oklch(0.985 0 0);
   --warning: oklch(0.50 0.13 68);
@@ -142,13 +129,12 @@
   --type-pointcloud: oklch(0.47 0.10 110);
   --type-pointcloud-bg: oklch(0.94 0.04 110);
 
-  /* Synthetic-data badge, was a raw violet-* Tailwind palette.
-     Distinct from --type-vrt: that hue marks a record type, this marks provenance. */
+  /* Synthetic-data badge. Distinct from --type-vrt: that hue marks a record
+     type, this marks provenance. */
   --synthetic: oklch(0.47 0.17 285);
   --synthetic-bg: oklch(0.94 0.04 285);
 
-  /* Folder-group type icon, was an inline OKLCH amber with no
-     dark variant (the app's only theme-breaking inline color). */
+  /* Folder-group type icon. */
   --type-folder: oklch(0.45 0.10 80);
   --type-folder-bg: oklch(0.93 0.03 80);
 
@@ -162,7 +148,7 @@
   --code-function: oklch(0.78 0.13 220);
   --code-string: oklch(0.78 0.13 140);
   --code-number: oklch(0.8 0.14 70);
-  /* Was 0.5 (~3.3:1 on --code-bg, below AA); 0.6 clears 4.5:1. */
+  /* L 0.5 measured ~3.3:1 on --code-bg, below AA; 0.6 clears 4.5:1. */
   --code-comment: oklch(0.6 0.008 250);
   --code-method-badge: oklch(0.75 0.14 155);
   --code-method-badge-bg: oklch(0.75 0.14 155 / 15%);
@@ -405,8 +391,7 @@
   /* Typography: micro text (badges, readouts, chips) */
   --text-2xs: 0.625rem; /* 10px */
   --text-2xs--line-height: 0.875rem;
-  /* 11px was the single most-used arbitrary size (text-[11px]
-     ×97) and had no token. `text-mini` sits between 2xs (10px) and xs (12px). */
+  /* `text-mini` sits between 2xs (10px) and xs (12px). */
   --text-mini: 0.6875rem; /* 11px */
   --text-mini--line-height: 1rem;
 
@@ -450,11 +435,9 @@
   100% { background-position: 200% 0; }
 }
 
-/* ── Instrument Utilities ──────────────────────────────
-   The app-wide "survey instrument" label system. `.eyebrow` is the canonical
-   mono-caps section marker (same treatment as SECTION_EYEBROW on the dataset
-   page — kept in sync so the two tiers stay one system). `.readout` is for
-   measured values: counts, EPSG codes, coordinates, timestamps. */
+/* `.eyebrow` is the mono-caps section marker (same treatment as SECTION_EYEBROW
+   on the dataset page). `.readout` is for measured values: counts, EPSG codes,
+   coordinates, timestamps. */
 .eyebrow {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -470,9 +453,8 @@
   letter-spacing: 0.02em;
 }
 
-/* Neatline tick rule — a map sheet's neatline: 1px baseline with survey
-   ticks rising from it every 16px. Used under page headers and panel
-   headers as the redesign's measuring-tape divider. Theme-aware via --border. */
+/* Neatline tick rule: 1px baseline with survey ticks every 16px, used under
+   page and panel headers. Theme-aware via --border. */
 .tick-rule {
   height: 5px;
   background-image:
@@ -503,11 +485,9 @@
   background-size: 16px 16px;
 }
 
-/* ── #305 standalone-page surface gradient ──────────────────
-   Subtle branded depth for full-page surfaces (login, public viewers). The
-   prior inline gradients wrapped OKLCH tokens in hsl() — invalid CSS that
-   computed to `none` (flat/sparse first impression). color-mix(in oklab, …)
-   resolves correctly in both light and dark. */
+/* Subtle branded depth for full-page surfaces (login, public viewers).
+   OKLCH tokens can't be wrapped in hsl(); color-mix(in oklab, …) works in
+   light and dark. */
 .app-surface-gradient {
   background-image:
     radial-gradient(circle at top, color-mix(in oklab, var(--primary) 10%, transparent), transparent 42%),
@@ -587,66 +567,47 @@ html [data-sonner-toaster][data-sonner-theme] {
   line-height: 14px;
 }
 
-/* ── BuilderMap NavigationControl offset ───
- * In `BuilderMap.tsx` the NavigationControl is anchored `top-left` and the
- * `MapCoordReadout` pill sits at
- * `top-2 right-14` with showScale on. At the 800px viewport boundary the
- * map column compresses to ~316px wide and the pill's ~237px width stretches
- * leftward enough to invade the zoom-control's top-left zone, producing a
- * ~20×16 px overlap (MCP-measured 2026-05-18).
+/* BuilderMap NavigationControl offset. The NavigationControl is `top-left`
+ * and the `MapCoordReadout` pill sits at `top-2 right-14`; at an 800px
+ * viewport the map column is ~316px wide and the ~237px pill reaches the
+ * zoom control, overlapping ~20×16 px. A 32px top margin (default 10px) clears
+ * the pill's ~26px bottom edge at every supported width (6px gap at 800px).
  *
- * MapLibre's default `.maplibregl-ctrl-top-left` margin is 10px, putting the
- * control's top edge at ~10px from the container top — directly under the
- * pill's ~26px bottom edge once the pill widens horizontally past the
- * NavigationControl's left margin. Pushing the control's top margin to 32px
- * clears the pill at every supported width including 800px (6px gap).
- *
- * Scoped via the `data-builder-canvas="true"` marker on `BuilderMap`'s outer
- * wrapper so `ViewerMap` (NavigationControl `top-right`, no scale-segment) is
- * unaffected — the load-bearing `right-14` offset on `MapCoordReadout` keeps
- * its viewer-context collision contract intact.
+ * Scoped via `data-builder-canvas="true"` on `BuilderMap`'s outer wrapper so
+ * `ViewerMap` (NavigationControl `top-right`) is unaffected.
  */
 [data-builder-canvas="true"] .maplibregl-ctrl-top-left {
   margin-top: 32px;
 }
 
-/* ── BuilderMap coordinate-pill vs. MapToolbar offset ──────────────────────
- * The builder renders a centered MapToolbar (pan/measure/legend/JSON/keyboard)
- * at `top-3` (12px) + ~32px tall ≈ 44px bottom edge. The `MapCoordReadout`
- * pill sits at `top-2 right-14`; when the map column narrows (editor flyout
- * open), the right-anchored pill stretches leftward into the centered toolbar
- * band and — being z-10 over the toolbar's z-[5] — paints on top of it.
- * Drop the pill to `top-12` (48px) in the builder so it clears the toolbar,
- * matching the PluginHost top-band convention. Scoped via `data-builder-canvas`
- * so ViewerMap (no MapToolbar) keeps its `top-2` contract.
+/* BuilderMap coordinate pill vs. MapToolbar. The centered MapToolbar sits at
+ * `top-3` (12px) + ~32px tall ≈ 44px bottom edge. When the editor flyout
+ * narrows the map column, the right-anchored pill (`top-2 right-14`, z-10)
+ * stretches into the toolbar band and paints over it (z-[5]). Dropping it to
+ * `top-12` (48px) clears the toolbar, matching the PluginHost top-band
+ * convention. Scoped via `data-builder-canvas`; ViewerMap keeps `top-2`.
  */
 [data-builder-canvas="true"] [data-coord-readout="true"] {
-  top: 3rem; /* 48px — below the centered MapToolbar band */
+  top: 3rem;
 }
 
-/* ── Globe projection: the space behind the sphere ─────────────────────────
- * Nothing inside a MapLibre style can paint the void a globe
- * leaves around itself. The atmosphere pass returns
- * alpha 0 for rays that miss the planet, the canvas clears transparent, and
- * the style's `background` layer is drawn per tile so it stays clipped to the
- * sphere. What shows through is whatever is behind the canvas — the page — so
- * the treatment has to live on the map container.
+/* Globe projection: the space behind the sphere. Nothing inside a MapLibre
+ * style can paint the void around a globe: the atmosphere pass returns alpha 0
+ * for rays that miss the planet, the canvas clears transparent, and the
+ * style's `background` layer is clipped to the sphere. What shows through is
+ * the page, so the treatment lives on the map container.
  *
- * The marker is set by `applyMapBasemapAppearance` in `map-composition-sync`
- * whenever basemap_config.projection is `globe` and removed on mercator, so
- * the builder and the viewer both inherit it from the one place that already
- * owns projection state. Scoped to `.maplibregl-map` so the attribute can only
- * ever paint a map container.
+ * `applyMapBasemapAppearance` in `map-composition-sync` sets the marker when
+ * basemap_config.projection is `globe` and removes it on mercator.
  */
 .maplibregl-map[data-globe-space="true"] {
   background-color: var(--map-space);
 }
 
 /* ── MapLibre Popup Styling ─────────────────────────── */
-/* Scoped under .maplibregl-map so these rules outrank maplibre-gl.css. That
-   stylesheet is imported by the lazily loaded map components, so its chunk is
-   injected after index.css; at equal specificity its `background: #fff` won,
-   and in dark mode the popup showed light popover text on a white card. */
+/* Scoped under .maplibregl-map so these rules outrank maplibre-gl.css, whose
+   lazily loaded chunk is injected after index.css and would otherwise win with
+   `background: #fff` (light popover text on a white card in dark mode). */
 .maplibregl-map .maplibregl-popup-content {
   background: var(--popover);
   color: var(--popover-foreground);
@@ -713,8 +674,7 @@ html [data-sonner-toaster][data-sonner-theme] {
 
 /* ── drag polish ───────────────────────────────────────── */
 
-/* DnD insertion line — 2px primary line at drop target */
-/* Bloom shadow + full radius */
+/* DnD insertion line: 2px primary line with bloom shadow at the drop target */
 [data-dnd-over="true"] {
   border-top: 2px solid var(--primary);
   border-radius: 9999px;
@@ -752,20 +712,17 @@ html.dragging-active {
 
 /* ── coarse-pointer reveal ───────────────────────────── */
 
-/* On touch / hover:none devices the per-row kebabs and catalog drag grips have no
-   hover state to reveal them, so they stay at their opacity-0 rest state and become
-   unreachable. Force any control tagged data-touch-reveal to full opacity, scoped to
-   coarse pointers so fine-pointer desktop hover-reveal density is unchanged. */
+/* On touch / hover:none devices the per-row kebabs and catalog drag grips have
+   no hover state to reveal them. Force data-touch-reveal controls to full
+   opacity; scoped to coarse pointers so desktop hover-reveal is unchanged. */
 @media (hover: none), (pointer: coarse) {
   [data-touch-reveal] {
     opacity: 1 !important;
   }
 }
 
-/* ── #305 coarse-pointer tap targets ───────────────────────────
-   On touch devices ensure map controls and form fields reach a ~44px hit
-   target. Scoped to pointer:coarse so fine-pointer desktop density is
-   unchanged (mirrors the existing maplibre popup-close 44px treatment). */
+/* Coarse-pointer tap targets: map controls and form fields reach a ~44px hit
+   target; fine-pointer desktop density is unchanged. */
 @media (pointer: coarse) {
   .maplibregl-ctrl-group button,
   .maplibregl-popup-close-button {
@@ -781,33 +738,24 @@ html.dragging-active {
 }
 
 /* Folder group-children wash when parent is drop target */
-/* Use :has() to select the children container when a sibling carries data-group-drop-target.
-   The keyed outer wrapper div contains both FolderGroupRowWrapper (which bears the attribute)
-   and the folder-group-children div. :has() lets us style children from the common ancestor
-   without needing the attribute on the outer wrapper itself. */
+/* :has() styles the children container from the common ancestor of the
+   attribute-bearing FolderGroupRowWrapper and the folder-group-children div. */
 div:has(> [data-group-drop-target="true"]) > [id^="folder-group-children"] {
   background: oklch(0.97 0.02 250 / 60%);
   border-radius: var(--radius-md);
 }
 
-/* ── #305 notch / home-indicator safe-area padding ───────────
-   With viewport-fit=cover the page draws under the iOS notch and home
-   indicator, so full-bleed mobile chrome gets clipped. Pad those surfaces by
-   the relevant env(safe-area-inset-*) so controls clear the unsafe zone.
-   Gated on @supports so non-notch / desktop browsers are unaffected (env()
-   resolves to 0 there anyway, but the guard keeps the rules from applying at
-   all where they're not needed). */
+/* With viewport-fit=cover the page draws under the iOS notch and home
+   indicator; pad full-bleed mobile chrome by env(safe-area-inset-*). */
 @supports (padding: env(safe-area-inset-bottom)) {
   /* Bottom maplibre controls (attribution + zoom/scale) clear the home indicator. */
   .maplibregl-ctrl-bottom-right,
   .maplibregl-ctrl-bottom-left {
     padding-bottom: env(safe-area-inset-bottom);
   }
-  /* Mobile Sheet (shadcn) clears the notch on landscape — both edges, since a
-     right-anchored drawer (report wizard, builder/editor) hits the right notch
-     and a left-anchored one hits the left. env()-left/right are each non-zero
-     only on the side that actually has an unsafe area, so padding both sides is
-     side-correct. Content also clears the home indicator at the bottom. */
+  /* Mobile Sheet clears the notch on landscape on both edges, since drawers
+     anchor to either side; env() is non-zero only where there is an unsafe
+     area. Content also clears the home indicator. */
   [data-slot="sheet-content"] {
     padding-left: max(
       var(--sheet-padding-left, 0px),

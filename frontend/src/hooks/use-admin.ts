@@ -88,7 +88,6 @@ export function useAuditLogs(params: {
   });
 }
 
-// Admin jobs
 export function useAdminJobs(params: {
   status?: string;
   user_id?: string;
@@ -129,8 +128,7 @@ export function useFailedJobCount(enabled = true) {
   });
 }
 
-// Total counts for the Operations sidebar badges (Users, Published
-// Maps, Audit Log). Each reads `.total` off a 1-row list query.
+// Total counts for the Operations sidebar badges, each read off a 1-row list query.
 export function useUserCount(enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin.userCount,
@@ -172,8 +170,7 @@ export function useRetryAdminJob() {
   });
 }
 
-// Mirror useRetryAdminJob for the shared /jobs/{id}/cancel
-// route — admin cancel reuses it the same way admin retry reuses /retry.
+// Admin cancel reuses the shared /jobs/{id}/cancel route, as admin retry reuses /retry.
 export function useCancelAdminJob() {
   const qc = useQueryClient();
   return useMutation({
@@ -188,7 +185,6 @@ export function useCancelAdminJob() {
   });
 }
 
-// User mutations
 // User mutations follow the application pattern of confirming success with a toast.
 export function useCreateUser() {
   const qc = useQueryClient();
@@ -224,9 +220,8 @@ export function useDeactivateUser() {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
       toast.success(i18n.t('admin:users.toasts.deactivated'));
     },
-    // Surface the backend reason (e.g. "Cannot deactivate the last
-    // admin user" / "Cannot deactivate your own account") instead of a generic
-    // "Failed to deactivate user". ApiError.message is the translated detail.
+    // Surface the backend reason (e.g. "Cannot deactivate the last admin user")
+    // instead of a generic failure. ApiError.message is the translated detail.
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : i18n.t('admin:users.deactivateDialog.error'));
     },
@@ -298,7 +293,6 @@ export function useAIStatus(options?: { enabled?: boolean }) {
   });
 }
 
-// Share token hooks
 export function useShareTokens(params: {
   skip?: number;
   limit?: number;
@@ -327,7 +321,6 @@ export function useAdminRevokeShareToken() {
   });
 }
 
-// Embed token hooks
 export function useAdminEmbedTokens(params: {
   skip?: number;
   limit?: number;
@@ -355,7 +348,6 @@ export function useBulkRevokeEmbedTokens() {
   });
 }
 
-// API Key hooks
 // Fetch each page under its own cache key so create and revoke invalidations
 // refresh the flattened result without local append or dedupe state.
 const API_KEYS_PAGE_SIZE = 50;
@@ -422,7 +414,6 @@ export function useRevokeApiKey() {
   });
 }
 
-// Embedding stats
 // Accept an enabled option so consumers can gate this manage_users probe with
 // the effective capability. Without it, settings-only operators and the
 // admin → logout transition frame would issue a guaranteed 401/403 request.
@@ -459,9 +450,8 @@ export function useBackfillEmbeddings() {
     },
     onError: (err) => {
       logger.error('[useBackfillEmbeddings]', err);
-      // A run already in flight is refused rather than failed. Saying
-      // "backfill failed" there would read as "your catalog is broken" for the
-      // one case where the safe thing just happened.
+      // A run already in flight is refused rather than failed; "backfill failed"
+      // would misreport a healthy catalog.
       if (err instanceof ApiError && err.status === 409) {
         toast.warning(i18n.t('admin:errors.backfillAlreadyRunning'));
         return;
@@ -509,10 +499,8 @@ export function useBackfillJobStatus(jobId: string | null) {
       toast.error(i18n.t('admin:ai.backfillRunFailed'));
       return;
     }
-    // A run that finished with rejected records is not a
-    // clean success. The synchronous endpoint returned counts the panel could
-    // warn from; the queued one has to carry the same fact on the job status,
-    // or a force regenerate that left coverage gaps reports as done.
+    // A run that finished with rejected records is not a clean success; the
+    // queued job status must carry the same fact the synchronous endpoint returns.
     const failed = query.data?.rows_failed ?? 0;
     if (failed > 0) {
       toast.warning(i18n.t('admin:ai.backfillFinishedWithErrors', { errors: failed }));
@@ -524,7 +512,6 @@ export function useBackfillJobStatus(jobId: string | null) {
   return query;
 }
 
-// Infrastructure
 export function useInfrastructure() {
   return useQuery({
     queryKey: queryKeys.admin.infrastructure,

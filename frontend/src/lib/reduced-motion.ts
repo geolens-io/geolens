@@ -1,8 +1,7 @@
 /**
- * A JS-driven map camera animation (MapLibre easeTo/flyTo)
- * cannot be stopped by the CSS `prefers-reduced-motion` media query the app
- * already respects for CSS transitions. Callers pass the result of this to a
- * `duration` so the move is instant when the user has asked for reduced motion.
+ * A JS-driven map camera animation (MapLibre easeTo/flyTo) ignores the CSS
+ * `prefers-reduced-motion` media query. Callers pass the result to a
+ * `duration` so the move is instant under reduced motion.
  */
 function prefersReducedMotion(): boolean {
   return (

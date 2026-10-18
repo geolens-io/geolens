@@ -8,14 +8,12 @@ import type { SupportedLng } from '@/i18n/config';
  * Switches the running test i18next instance to `lng`, loading that
  * locale's real bundles first.
  *
- * A bare `i18n.changeLanguage` or `changeAppLanguage` switches
- * `i18n.language` under vitest without ever loading the target locale, so
- * `t()` keeps rendering English (#1866). Use this instead in any test that
- * switches language, including back to English.
+ * A bare `i18n.changeLanguage` or `changeAppLanguage` switches `i18n.language`
+ * under vitest without loading the target locale, so `t()` keeps rendering
+ * English. Use this in any test that switches language, including back to English.
  */
 export async function changeTestLanguage(lng: SupportedLng): Promise<void> {
-  // The fallback locale's bundles are already loaded
-  // (and frozen), so registering them again throws; just switch to it.
+  // The fallback locale's bundles are already loaded (and frozen); just switch.
   if (lng === fallbackLng) {
     await i18n.changeLanguage(lng);
     return;

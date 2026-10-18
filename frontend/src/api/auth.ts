@@ -15,11 +15,10 @@ export async function login(
   username: string,
   password: string,
 ): Promise<OrderedTokens> {
-  // Never overtake a logout still in flight. It revokes every
-  // refresh token for the user and deletes the cookies, so landing after this
-  // login would revoke the new session's row or erase its cookie. Bounded by
-  // logoutSession's own 3s timeout, and only waits when one is actually
-  // pending.
+  // Never overtake a logout still in flight: it revokes every refresh token for
+  // the user and deletes the cookies, so landing after this login would revoke
+  // the new session's row or erase its cookie. Bounded by logoutSession's own
+  // 3s timeout, and only waits when one is pending.
   await awaitPendingLogout();
   // A refresh still running, such as a page load's recovery that outlived its
   // render budget, would apply its Set-Cookie over the one this login issues.
@@ -75,9 +74,10 @@ const EXCHANGE_TIMEOUT_MS = 30_000;
 
 /**
  * Trade the one-time code an SSO callback redirected with, and the nonce this
- * tab started the sign-in with, for this browser's session cookie. The callback can't set that cookie itself: its redirect
- * runs outside the cross-tab cookie lock, so a refresh another tab already
- * sent could land afterwards and put the previous session's cookie back.
+ * tab started the sign-in with, for this browser's session cookie. The callback
+ * can't set the cookie itself: its redirect runs outside the cross-tab cookie
+ * lock, so a refresh another tab already sent could land afterwards and restore
+ * the previous session's cookie.
  *
  * `install` receives the issued session while the lock is still held, so a
  * sign-in another tab completes later also installs later. It should return
@@ -131,34 +131,28 @@ export async function getMe(): Promise<UserResponse> {
 const LOGOUT_TIMEOUT_MS = 3_000;
 
 /**
- * End the session on the server, not just in this tab.
- *
- * The endpoint revokes the refresh-token rows and bumps token_version. The
- * refresh credential is an httpOnly cookie JS cannot touch, so a purely
- * client-side logout would leave a live cookie (and its server row) behind for
- * the remainder of its lifetime. Only the server's `Set-Cookie` can clear it.
+ * End the session on the server, not just in this tab. The endpoint revokes the
+ * refresh-token rows and bumps token_version; the refresh credential is an
+ * httpOnly cookie JS cannot touch, so a client-side logout would leave a live
+ * cookie and server row behind. Only the server's `Set-Cookie` can clear it.
  *
  * Deliberately a plain fetch rather than `apiFetch`, reading the bearer token
- * synchronously so the request is fully formed and in flight before the caller
- * tears down local state. Routing it through `apiFetch` is wrong here even
- * though its 401 path can refresh from the cookie and retry: when the
- * access token sits inside the proactive-refresh window, `apiFetch` awaits a
- * refresh BEFORE dispatching. If the caller stopped waiting during that
- * window, the refresh still installed a rotated cookie while the logout POST
- * then went out with no Authorization header at all — leaving exactly the live
- * credential this call exists to revoke.
+ * synchronously so the request is in flight before the caller tears down local
+ * state. `apiFetch` awaits a proactive refresh BEFORE dispatching when the
+ * access token is near expiry; if the caller stopped waiting, that refresh would
+ * install a rotated cookie while the logout POST went out with no Authorization
+ * header, leaving exactly the live credential this call exists to revoke.
  */
 /**
- * The in-flight revocation, tracked so a new login cannot overtake
- * it. Logout revokes EVERY refresh token for the user and deletes the cookies,
- * so a request that lands after a fresh login would revoke the new session's
- * row, and a delayed response would erase its cookie.
+ * The in-flight revocation, tracked so a new login cannot overtake it. Logout
+ * revokes every refresh token for the user and deletes the cookies, so a request
+ * landing after a fresh login would revoke the new session's row and a delayed
+ * response would erase its cookie.
  */
-// A Set, not a single slot. Concurrent teardown paths can each
-// dispatch a revocation (a terminal getMe 401 and a login-catch, say), and
-// last-write-wins would let awaitPendingLogout return while the older request
-// is still holding the user lock server-side — free to revoke rows a new
-// sign-in just created.
+// A Set, not a single slot: concurrent teardown paths (a terminal getMe 401 and
+// a login-catch, say) can each dispatch a revocation, and last-write-wins would
+// let awaitPendingLogout return while the older request still holds the user
+// lock server-side.
 const pendingLogouts = new Set<Promise<void>>();
 
 /** Wait for every in-flight logout revocation to settle. */
@@ -170,9 +164,9 @@ export async function awaitPendingLogout(): Promise<void> {
 
 export async function logoutSession(): Promise<void> {
   const { token, refreshToken } = useAuthStore.getState();
-  // Carry the cookie-mode headers too. When the access token has
-  // aged out, the refresh credential authenticates this call server-side, and
-  // the cookie transport requires the double-submit CSRF token.
+  // Carry the cookie-mode headers too: when the access token has aged out, the
+  // refresh credential authenticates this call and the cookie transport requires
+  // the double-submit CSRF token.
   const headers: Record<string, string> = { ...cookieAuthHeaders() };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -189,11 +183,10 @@ export async function logoutSession(): Promise<void> {
     headers,
     credentials: 'same-origin',
     signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
-    // Callers dispatch this without awaiting, so a user who clicks
-    // Logout and immediately closes or navigates the tab would otherwise have
-    // the request cancelled at unload — local state already cleared, refresh
-    // row and cookie still alive. keepalive is built for exactly this, and the
-    // request is far inside its 64KB budget.
+    // Callers dispatch this without awaiting, so a user who clicks Logout and
+    // closes the tab would otherwise have the request cancelled at unload, leaving
+    // the refresh row and cookie alive. keepalive prevents that; the request is far
+    // inside its 64KB budget.
     keepalive: true,
     ...(body ? { body } : {}),
   });
@@ -375,16 +368,14 @@ export async function refreshAccessToken(
       ...(refreshToken ? { 'Content-Type': 'application/json' } : {}),
     },
     credentials: 'same-origin',
-    // This call bypasses apiFetch, so it never inherited the
-    // request bound and could hang forever. That stalls
-    // anything awaiting a refresh (logout, most visibly), and worse, leaves
-    // tryRefresh's inflight singleton un-cleared — its `finally` never runs —
-    // which wedges every later refresh for the life of the tab.
+    // This call bypasses apiFetch, so it needs its own request bound: without it
+    // a hang stalls anything awaiting a refresh (logout) and leaves tryRefresh's
+    // inflight singleton un-cleared (`finally` never runs), wedging every later
+    // refresh for the life of the tab.
     //
     // The caller's signal is composed in so a logout can abandon an in-flight
-    // refresh outright. That matters beyond saving a request: an aborted
-    // response is never processed, so its `Set-Cookie` cannot land and
-    // overwrite a cookie issued by a later login.
+    // refresh outright: an aborted response is never processed, so its
+    // `Set-Cookie` cannot overwrite a cookie issued by a later login.
     signal: signalWithTimeout(abortSignal, REFRESH_TIMEOUT_MS),
     ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
   });
@@ -397,9 +388,8 @@ export async function refreshAccessToken(
   }, abortSignal);
 
   if (!response.ok) {
-    // tryRefresh's 429 back-off branch checks `err instanceof
-    // ApiError`, so a plain Error here made that branch dead code — a
-    // rate-limited refresh never got the pause before the next attempt.
+    // tryRefresh's 429 back-off branch checks `err instanceof ApiError`; a plain
+    // Error would skip the pause before the next attempt.
     const error = new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
     const retryAfterSeconds = Number(response.headers.get('Retry-After'));
     if (response.status === 429 && retryAfterSeconds > 0) {

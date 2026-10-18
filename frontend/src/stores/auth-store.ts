@@ -59,13 +59,7 @@ export const SIGNED_OUT = {
   sessionId: null,
 } as const;
 
-/**
- * Persist schema version for the auth store.
- *
- * A breaking change to the persisted shape bumps this number and adds an
- * `if (fromVersion < N)` block to `migrate` that turns the `N - 1` shape into
- * the `N` one. Keep every block, so a user who skipped releases still upgrades.
- */
+/** Persist schema version; `migrate` keeps one `fromVersion < N` block per bump. */
 const PERSIST_VERSION = 2;
 const STORAGE_KEY = 'geolens-auth';
 

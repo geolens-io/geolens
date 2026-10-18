@@ -2,28 +2,21 @@ import { apiFetch } from './client';
 import { ARCGIS_SIGNIN_TIMEOUT_MS } from './ingest';
 
 /**
- * Lane A1's endpoint (PR #1758, merged): `POST /api/services/arcgis/signin/`
- * (the sources router is mounted at prefix `/services`; the trailing slash
- * is canonical -- `redirect_slashes=False` means the wrong one 404s rather
- * than redirecting) exchanges a portal URL, username and password for a
- * short-lived ArcGIS token. Request and response shape confirmed against
- * `backend/openapi.json`'s `ArcGISSignInRequest`/`ArcGISSignInResponse`
- * schemas post-merge -- both are exactly `{portal_url, username, password}`
- * in, `{token, expires_at}` out, unchanged from the pre-merge contract this
- * client was built against.
+ * `POST /api/services/arcgis/signin/` (the sources router is mounted at
+ * `/services`; the trailing slash is canonical, since `redirect_slashes=False`
+ * makes the wrong one 404 rather than redirect) exchanges a portal URL, username
+ * and password for a short-lived ArcGIS token: `{portal_url, username, password}`
+ * in, `{token, expires_at}` out (`ArcGISSignInRequest`/`ArcGISSignInResponse` in
+ * `backend/openapi.json`).
  *
- * Lane A2 (PR #1757, merged) added an equivalent `arcgisSignin` to
- * `frontend/src/api/ingest.ts` with hand-typed request/response types in
- * `frontend/src/types/api.ts`. This file is still a separate, local copy of
- * the request function itself -- collapsing the two into one shared client
- * remains a follow-up -- but `ARCGIS_SIGNIN_TIMEOUT_MS` (below) is imported
- * from there rather than redeclared, so the two calls can't drift onto two
- * different numbers for the same backend bound.
+ * `arcgisSignin` in `api/ingest.ts` is an equivalent hand-typed copy of this
+ * request function; `ARCGIS_SIGNIN_TIMEOUT_MS` is imported from there so the two
+ * calls can't drift onto different numbers for the same backend bound.
  *
  * The password is sent once, in this request body, and nowhere else. This
- * function does not retry on failure; the caller must not add a retry loop
- * either, since ArcGIS locks an account after five failed sign-ins in
- * fifteen minutes and a retry here would spend the user's own attempts.
+ * function does not retry, and the caller must not add a retry loop: ArcGIS locks
+ * an account after five failed sign-ins in fifteen minutes and a retry would
+ * spend the user's own attempts.
  */
 interface ArcgisSignInRequest {
   portal_url: string;

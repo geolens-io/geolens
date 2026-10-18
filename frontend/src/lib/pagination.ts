@@ -1,6 +1,4 @@
-/**
- * Compute pagination range values from total, page index, and page size.
- */
+/** Compute pagination range values from total, page index, and page size. */
 export function paginationRange(total: number, page: number, pageSize: number) {
   const skip = page * pageSize;
   return {

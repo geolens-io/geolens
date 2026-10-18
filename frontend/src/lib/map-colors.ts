@@ -94,27 +94,22 @@ export const MAP_COLORS = {
     outline: '#666666',
   },
   /** Fixed colors for the exported map-image title, legend, attribution and
-   *  branding footer. Deliberately a fixed LIGHT palette: an exported artifact
-   *  has no theme to follow. */
+   *  branding footer: a fixed LIGHT palette, since an exported artifact has no
+   *  theme to follow. */
   exportImage: {
     background: '#ffffff',
     text: '#0a0a0a',
     mutedText: '#666666',
-    /** "Powered by GeoLens". Named `branding`, not `attribution`: it paints
-     *  branding, and real map attribution uses `mutedText` because #999999 on
-     *  white is about 2.8:1 and a licence-required credit is not somewhere to
-     *  reuse a decorative contrast. */
+    /** "Powered by GeoLens". Real map attribution uses `mutedText` instead:
+     *  #999999 on white is about 2.8:1, too low for a licence-required credit. */
     branding: '#999999',
-    /** Ground for the credit line drawn over map imagery in the
-     *  thumbnail and OG crops. 0.78 alpha establishes its own ground, so one
-     *  fixed light-scrim/dark-text pair stays legible over both light and dark
-     *  tiles — and over the globe's space backdrop. */
+    /** Ground for the credit line drawn over map imagery in the thumbnail and OG
+     *  crops. 0.78 alpha gives one light-scrim/dark-text pair that stays
+     *  legible over light and dark tiles and the globe's space backdrop. */
     attributionScrim: 'rgba(255,255,255,0.78)',
-    /** The void a globe leaves around itself is
-     *  transparent in the WebGL canvas, so a capture composited over
-     *  `background` puts the sphere back on white — the exact problem #1479
-     *  fixes on screen. Captures fill the map region with this instead
-     *  whenever the on-screen space backdrop is active. It is the sRGB form of
+    /** Fill for the map region when the globe's space backdrop is active: the
+     *  void around a globe is transparent in the WebGL canvas, so compositing
+     *  over `background` would put the sphere back on white. The sRGB form of
      *  the `--map-space` token, held to it by map-colors.test.ts. */
     globeBackground: '#030713',
     /** The raster glyph chip the builder legend draws for its terrain row, as the

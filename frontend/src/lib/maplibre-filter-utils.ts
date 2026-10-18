@@ -19,12 +19,11 @@ import type { FilterSpecification } from 'maplibre-gl';
  *
  * Both the structured editor (LayerFilterEditor) and the chip summarizer
  * (ActiveFilterChips) consume `parseCanonicalFilter` so the two recognizers
- * cannot drift again (the to-number-unwrap and contains-label
- * bugs were direct consequences of two independent hand-rolled walkers).
+ * cannot drift.
  */
 
-// The single canonical comparison-operator set. Imported
-// by LayerFilterEditor and ActiveFilterChips instead of re-declared per file.
+// The canonical comparison-operator set, shared by LayerFilterEditor and
+// ActiveFilterChips.
 export const NUMERIC_COMPARISON_OPERATORS = new Set(['==', '!=', '>', '<', '>=', '<=']);
 
 const NUMERIC_LOW_SENTINEL = -1_000_000_000_000;
@@ -47,10 +46,6 @@ export function buildNullableSafeNumericAccessor(
 ) {
   return ['to-number', ['get', field], numericFallbackForOperator(operator, comparisonValue)];
 }
-
-// ---------------------------------------------------------------------------
-// One canonical field extractor + filter parser
-// ---------------------------------------------------------------------------
 
 export interface CanonicalFilterCondition {
   field: string;
@@ -176,9 +171,6 @@ export function parseCanonicalFilter(expr: FilterSpecification | null | undefine
   return { kind: 'opaque', raw: expr };
 }
 
-// ---------------------------------------------------------------------------
-// Raw-JSON filter validator/normalizer
-// ---------------------------------------------------------------------------
 // Mirrors backend/app/modules/catalog/maps/filter_grammar.py:validate_filter so
 // a filter accepted in the raw-JSON editor is accepted, stored, exported, and
 // replayed identically. Accepts None/[] as "clear", normalizes the legacy
@@ -309,11 +301,9 @@ function sanitizeFilterNode(node: unknown): unknown {
     ];
   }
 
-  // Recurse only through combinator/negation wrappers. The
-  // previous fallthrough walked EVERY child, so opaque out-of-subset
-  // expressions (case/match/step/coalesce operands) had nested numeric
-  // comparisons rewritten to the nullable-safe form — breaking the verbatim
-  // round-trip contract for imported/hand-authored advanced filters.
+  // Recurse only through combinator/negation wrappers: walking every child
+  // would rewrite numeric comparisons nested in opaque expressions
+  // (case/match/step/coalesce), breaking their verbatim round-trip.
   if (node[0] === 'all' || node[0] === 'any' || node[0] === '!') {
     return node.map((child, index) => (index === 0 ? child : sanitizeFilterNode(child)));
   }
@@ -333,10 +323,6 @@ export function sanitizeNullableNumericFilter(
   if (JSON.stringify(sanitized) === JSON.stringify(filter)) return filter;
   return sanitized as FilterSpecification;
 }
-
-// ---------------------------------------------------------------------------
-// Layer filter -> CQL2-JSON, for analysis requests
-// ---------------------------------------------------------------------------
 
 /** A CQL2-JSON expression, as the analysis endpoints and OGC items accept it. */
 export type Cql2Expression = {

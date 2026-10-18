@@ -45,10 +45,9 @@ export function asFeatureCollection(response: BoundedGeoJsonResponse): GeoJSON.F
  * Explode MultiPoint features into one Point feature per coordinate.
  *
  * The backend serves point datasets as MultiPoint (GDAL PROMOTE_TO_MULTI), but
- * MapLibre's `cluster: true` GeoJSON sources are backed by Supercluster, which
- * only indexes `Point` geometry and silently drops MultiPoint — leaving clustered
- * layers blank. Flattening here fixes that for every bounded-GeoJSON consumer
- * (viewer + builder) and is a no-op for already-Point geometry.
+ * MapLibre's `cluster: true` sources use Supercluster, which only indexes
+ * `Point` and silently drops MultiPoint, leaving clustered layers blank.
+ * A no-op for Point geometry.
  */
 function flattenMultiPoint(feature: GeoJSON.Feature): GeoJSON.Feature[] {
   if (feature.geometry?.type !== 'MultiPoint') return [feature];
@@ -77,6 +76,5 @@ export async function fetchBoundedGeoJson(
     return res.json() as Promise<BoundedGeoJsonResponse>;
   }
 
-  // Default: JWT auth via apiFetch
   return apiFetch<BoundedGeoJsonResponse>(boundedGeoJsonPath(datasetId), { signal });
 }

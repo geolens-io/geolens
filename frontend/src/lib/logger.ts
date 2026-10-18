@@ -1,11 +1,6 @@
-// DEV-guarded console wrappers so production builds
-// don't surface the noisy `[ComponentName] error: ...` lines in user
-// devtools. Server-side log shipping (Sentry, Datadog, etc.) is
-// out of scope — add a sink hook here if/when we wire that up.
-//
-// Use this at sites that should ONLY surface in development. The codebase
-// also uses inline `if (import.meta.env.DEV) console.warn(...)` guards;
-// either pattern is acceptable, but new code should prefer this helper.
+// DEV-guarded console wrappers so production builds don't surface noisy
+// `[ComponentName] error: ...` lines in user devtools. For sites that should only
+// surface in development; inline `if (import.meta.env.DEV)` guards are equivalent.
 
 const isDev = import.meta.env.DEV;
 
@@ -16,5 +11,4 @@ export const logger = {
   warn: (...args: unknown[]) => {
     if (isDev) console.warn(...args);
   },
-  // info / debug intentionally omitted — add when there's a real consumer
 };

@@ -17,7 +17,6 @@ export function useAuth() {
   const isEditor = useAuthStore((s) => s.isEditor());
   const storeLogout = useAuthStore((s) => s.logout);
 
-  // Validate token on mount by fetching current user.
   const meQuery = useQuery({
     queryKey: queryKeys.auth.me,
     queryFn: getMe,
@@ -36,9 +35,8 @@ export function useAuth() {
     useAuthStore.setState({ user: meQuery.data });
   }, [token, meQuery.data, user?.id, userRoleKey, meRoleKey]);
 
-  // Proactive refresh: refresh 60 seconds before expiry. Routes through the
-  // shared tryRefresh() mutex in api/client.ts so a concurrent 401-driven
-  // refresh and this timer collapse to a single /auth/refresh/ POST.
+  // Refresh 60 seconds before expiry, through the shared tryRefresh() mutex so
+  // a concurrent 401-driven refresh collapses to a single /auth/refresh/ POST.
   useEffect(() => {
     if (!expiresAt || !token) return;
 
@@ -46,8 +44,8 @@ export function useAuth() {
     if (delay <= 0) return;
 
     const timer = setTimeout(() => {
-      // tryRefresh swallows errors and returns boolean; the 401 interceptor
-      // on the next request will handle a failed refresh.
+      // tryRefresh swallows errors; the next request's 401 interceptor handles
+      // a failed refresh.
       void tryRefresh();
     }, delay);
 
@@ -58,16 +56,11 @@ export function useAuth() {
     async (username: string, password: string) => {
       const tokenResponse = await apiLogin(username, password);
       await completeSignIn(tokenResponse, async () => {
-        // Invalidate the ['auth','me'] cache so a new login never shows
-        // the previous user's stale identity. Runs once the new token is
-        // installed, so the meQuery re-fetch races the new token, not the old
-        // cached data.
+        // Runs once the new token is installed, so a new login never shows
+        // the previous user's cached identity.
         await queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
-        // Drop the previous user's cached permissions too (usePermissions caches
-        // ['auth','permissions'] with a 60s staleTime). Without this, a no-upload
-        // viewer logging in right after an uploader would read the uploader's
-        // stale capabilities. Remove (not invalidate) so capability gates fail
-        // closed until the new user's permissions are fetched.
+        // Remove (not invalidate) the previous user's cached permissions so
+        // capability gates fail closed until the new user's are fetched.
         queryClient.removeQueries({ queryKey: queryKeys.auth.permissions });
       });
     },
@@ -75,31 +68,21 @@ export function useAuth() {
   );
 
   const logout = useCallback(async () => {
-    // Revoke server-side BEFORE tearing down local state. The
-    // request needs the bearer token that storeLogout is about to clear, and
-    // the refresh cookie can only be removed by the server's
-    // Set-Cookie. A failure here (offline, or a session already dead) must not
-    // trap the user in a session they asked to leave, so the local teardown
-    // runs either way.
-    // Dispatch, do not await. logoutSession reads the bearer token
-    // synchronously and issues a plain fetch, so the request is already in
-    // flight with its credential attached by the time this returns — teardown
-    // below cannot affect it. Waiting would only buy a confirmation we never
-    // act on, at the cost of holding the user on an authenticated screen for
-    // as long as the network stalls.
-    // Abandon any refresh still in flight first. Its response
-    // carries a Set-Cookie the browser would apply on arrival, and if the user
-    // signs in again before it lands it would overwrite the new session's
-    // cookie with the token this logout is about to revoke.
+    // Revoke server-side BEFORE tearing down local state: the request needs
+    // the bearer token storeLogout is about to clear, and only the server's
+    // Set-Cookie can remove the refresh cookie. Dispatched, not awaited:
+    // logoutSession reads the token synchronously, so the request is in
+    // flight with its credential before teardown, and waiting would hold the
+    // user on an authenticated screen while the network stalls.
+    // Abandon any in-flight refresh first: its Set-Cookie would otherwise
+    // overwrite a new session's cookie with the token being revoked.
     abortInflightRefresh();
     void logoutSession().catch(() => {
-      // Offline, or a session already dead. Local teardown proceeds regardless.
+      // Offline or session already dead; local teardown must proceed anyway.
     });
-    // Clear the ['auth','me'] cache on logout so a subsequent login
-    // does not see the previous user's cached identity.
+    // Drop cached identity and permissions so capability gates fail closed for
+    // the next anonymous or lower-privilege session.
     queryClient.removeQueries({ queryKey: queryKeys.auth.me });
-    // Also drop cached permissions so capability gates (e.g. the catalog import
-    // CTA) fail closed for the next anonymous/lower-privilege session.
     queryClient.removeQueries({ queryKey: queryKeys.auth.permissions });
     storeLogout();
     navigate('/login');

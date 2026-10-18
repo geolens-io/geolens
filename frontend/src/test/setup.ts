@@ -98,27 +98,20 @@ vi.mock('maplibre-gl', () => {
     NavigationControl: MockNavigationControl,
     Marker: MockMarker,
     Popup: MockPopup,
-    // `@/lib/maplibre-worker` calls setWorkerUrl at module scope
-    // and is side-effect imported by every map surface, so any test that
-    // renders one reaches this mock. Without these it throws
-    // "setWorkerUrl is not a function".
+    // `@/lib/maplibre-worker` calls setWorkerUrl at module scope and every map
+    // surface imports it, so renders reach this mock.
     setWorkerUrl: vi.fn(),
     getWorkerUrl: vi.fn(() => ''),
-    // feat(pmtiles): same module also registers the `pmtiles://` protocol at
-    // module scope via `addProtocol`.
+    // The same module also registers the `pmtiles://` protocol via `addProtocol`.
     addProtocol: vi.fn(),
     removeProtocol: vi.fn(),
   }
 })
 
-// Mock pmtiles (imported by `@/lib/maplibre-worker` for protocol registration,
-// and dynamically imported by SettingsMapTab to read an archive's header
-// before accepting it as a bare-URL basemap). Real constructors have no
-// browser-API dependency, but stubbing keeps tests hermetic and avoids a real
-// network fetch. `PMTiles.getHeader()` defaults to a raster tileType (Png) so
-// existing pmtiles-archive tests aren't rejected by default; individual tests
-// override it via `vi.mocked(PMTiles).mockImplementationOnce(...)` for the
-// vector-archive-rejection case.
+// Mock pmtiles (imported by `@/lib/maplibre-worker` and dynamically by
+// SettingsMapTab) to stay hermetic. `PMTiles.getHeader()` defaults to a raster
+// tileType so archive tests pass; the vector-rejection test overrides it via
+// `vi.mocked(PMTiles).mockImplementationOnce(...)`.
 vi.mock('pmtiles', () => ({
   Protocol: vi.fn(function MockProtocol(this: { tile: () => void }) {
     this.tile = vi.fn()

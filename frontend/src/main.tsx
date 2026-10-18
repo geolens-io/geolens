@@ -83,11 +83,9 @@ const router = createBrowserRouter(createRoutesFromElements(appRoutes));
 // (#122). Type-only; erased at runtime.
 interface RootContainer extends HTMLElement { __glRoot?: Root }
 
-// Awaiting initializeI18n() before the first render blocks
-// non-English first paint on the locale chunk (en is bundled, so it is
-// unaffected). This is a deliberate no-FOUC trade-off: rendering before the
-// bundle resolves would flash raw keys. Upgrade path: render en immediately and
-// background-swap the locale, or ship a static skeleton in index.html.
+// Awaiting initializeI18n() before the first render delays non-English first
+// paint on the locale chunk (en is bundled), a deliberate trade against flashing
+// raw keys.
 async function bootstrap() {
   // The access token lives in memory, so a reload recovers it before the first
   // render; otherwise every signed-in route would redirect to /login first.

@@ -3,17 +3,11 @@ import type { QueryClient } from '@tanstack/react-query';
 /**
  * Blob-URL revocation tied to the React Query cache lifecycle.
  *
- * Several hooks (useMapThumbnail, useQuicklook) fetch an authenticated image
- * via apiFetchBlob and expose it as a `URL.createObjectURL(blob)` string that
- * is cached in React Query under a stable query key. Revoking that blob URL in
- * a component `useEffect` cleanup is WRONG: the blob URL string outlives the
- * component in the query cache, so the next consumer (list↔grid toggle,
- * back-navigation within gcTime, StrictMode remount, a second card sharing the
- * key) reads the already-revoked string and the browser logs
- * `net::ERR_FILE_NOT_FOUND`.
- *
- * Instead we revoke exactly once, when React Query itself drops or replaces the
- * cached value:
+ * Hooks like useMapThumbnail and useQuicklook cache a
+ * `URL.createObjectURL(blob)` string in React Query. Revoking it in a
+ * component `useEffect` cleanup is wrong: the string outlives the component in
+ * the cache, so the next consumer reads a revoked URL (`net::ERR_FILE_NOT_FOUND`).
+ * Instead it is revoked once, when React Query drops or replaces the value:
  *   - `removed`  → the entry was evicted (gcTime) or cleared → revoke its blob.
  *   - `updated`  → a refetch produced a NEW blob URL → revoke the previous one.
  *
@@ -33,8 +27,7 @@ export function registerBlobUrlRevocation(queryClient: QueryClient): void {
   if (registered.has(queryClient)) return;
   registered.add(queryClient);
 
-  // Track the last blob URL we saw per query hash so a refetch that replaces
-  // the value can revoke the stale one without touching the live one.
+  // Last blob URL per query hash, so a replacing refetch revokes only the stale one.
   const lastSeen = new Map<string, string>();
 
   queryClient.getQueryCache().subscribe((event) => {

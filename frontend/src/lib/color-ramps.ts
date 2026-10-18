@@ -2,8 +2,6 @@ import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
 import type { StyleConfig } from '@/types/api';
 import { expressionReadsColumn } from '@/lib/maplibre-expressions';
 
-// --- Curated palette definitions ---
-//
 // cvdSafe designations sourced from ColorBrewer 2.0 (colorbrewer2.org), which
 // publishes per-palette colorblind-safe flags based on empirical testing:
 //   Sequential single-hue (Blues, Greens, Oranges, etc.) — safe.
@@ -58,23 +56,14 @@ export const QUALITATIVE_RAMPS = [
   { name: 'Pastel2', labelKey: 'dataDriven.colorRamps.pastel2', cvdSafe: false },
 ] as const;
 
-// ---------------------------------------------------------------------------
-// Deterministic ramp rotation and data-character suggestion
-// ---------------------------------------------------------------------------
+// Rotation lists are CVD-safe-first so the default works for colour-blind
+// users without any explicit preference.
 //
-// Rotation lists are CVD-safe-first so the default visual experience works
-// for colour-blind users without any explicit preference.
+// GRADUATED: every SEQUENTIAL_RAMP is cvdSafe; the order maximises hue contrast
+// between successive layers.
 //
-// GRADUATED rotation (sequential ramps, CVD-safe-first):
-//   All SEQUENTIAL_RAMPS are cvdSafe, so the full list is the rotation.
-//   Order chosen to maximise hue contrast between successive layers:
-//   YlOrRd (warm) → Blues (cool) → Greens → Viridis (multi-hue) →
-//   Oranges → Purples → YlGnBu → Inferno → BuGn → Reds →
-//   Plasma → BuPu → OrRd → YlGn
-//
-// CATEGORICAL rotation (qualitative ramps, CVD-safe-first):
-//   CVD-safe: Set2, Paired, Dark2
-//   Non-safe (appended after so they are still reachable): Set1, Set3, Accent
+// CATEGORICAL: CVD-safe ramps first, the non-safe ones appended so they are
+// still reachable.
 const GRADUATED_ROTATION: readonly string[] = [
   'YlOrRd',
   'Blues',
@@ -104,17 +93,8 @@ const CATEGORICAL_ROTATION: readonly string[] = [
 ] as const;
 
 /**
- * Deterministic ramp rotation: maps a zero-based `index` to a ramp name by
- * cycling through the appropriate rotation list.
- *
- * - 'graduated' → sequences through sequential ramps (CVD-safe-first)
- * - 'categorical' → sequences through qualitative ramps (CVD-safe-first)
- *
- * Cycling guarantee: nextRotatingRamp(mode, k) === nextRotatingRamp(mode, k + listLength)
- * Distinct guarantee: the first listLength calls produce listLength distinct names
- * before any repetition occurs.
- *
- * Pure and deterministic — no randomness.
+ * Maps a zero-based `index` to a ramp name by cycling through the rotation for
+ * `mode`. The first listLength calls produce distinct names.
  */
 export function nextRotatingRamp(
   mode: 'categorical' | 'graduated',
@@ -125,33 +105,19 @@ export function nextRotatingRamp(
 }
 
 /**
- * Suggest a default ramp by data character:
- * - 'graduated'  → first sequential ramp in the rotation (YlOrRd)
- * - 'categorical' → first qualitative ramp in the rotation (Set2)
- *
- * Equivalent to nextRotatingRamp(mode, 0), exposed as a named helper so
- * call-sites can clearly express "I want the data-appropriate default".
+ * Default ramp by data character: first sequential ('graduated') or
+ * qualitative ('categorical') ramp in the rotation.
  */
 export function suggestRampForMode(mode: 'categorical' | 'graduated'): string {
   return nextRotatingRamp(mode, 0);
 }
 
-// ---------------------------------------------------------------------------
-
-/**
- * Reverse an array of color strings.
- * Pure function — does not mutate the input.
- * Reversing twice is identity: reverseRamp(reverseRamp(colors)) === colors.
- */
+/** Reverse an array of color strings without mutating it. */
 export function reverseRamp(colors: string[]): string[] {
   return [...colors].reverse();
 }
 
-/**
- * Filter a ramp array to entries tagged cvdSafe: true.
- * Works with any of the three ramp arrays (SEQUENTIAL/DIVERGING/QUALITATIVE),
- * or a combined array formed by spreading them.
- */
+/** Filter ramps (or a spread combination of the three arrays) to cvdSafe entries. */
 export function cvdSafeRamps<T extends { cvdSafe: boolean }>(ramps: T[] | readonly T[]): T[] {
   return (ramps as T[]).filter((r) => r.cvdSafe);
 }
@@ -236,22 +202,20 @@ const BREWER_STOPS_BY_LOWER: Record<string, readonly string[]> = Object.fromEntr
 const QUALITATIVE_NAMES = new Set(QUALITATIVE_RAMPS.map((r) => r.name.toLowerCase()));
 
 /**
- * Generate an array of hex color strings from a named ColorBrewer color scale
- * (case-insensitive, matching chroma.scale()'s name resolution).
- * Pass reversed=true to get the reverse of the normal color order (e.g. dark-low vs dark-high).
+ * Hex color strings from a named ColorBrewer scale (case-insensitive, matching
+ * chroma.scale()'s name resolution). `reversed` flips the order.
  *
- * Unknown ramp names fall back to YlOrRd — this includes 'Inferno' and
- * 'Plasma' from SEQUENTIAL_RAMPS because chroma-js has no brewer entry for either.
+ * Unknown ramp names fall back to YlOrRd, including 'Inferno' and 'Plasma'
+ * because chroma-js has no brewer entry for either.
  */
 export function getRampColors(rampName: string, count: number, reversed = false): string[] {
   const lower = rampName.toLowerCase();
   const stops = BREWER_STOPS_BY_LOWER[lower] ?? BREWER_STOPS.YlOrRd;
   let colors: string[];
   if (QUALITATIVE_NAMES.has(lower)) {
-    // A qualitative palette is a set of unrelated category
-    // colors, not a gradient — sampling it continuously (as below) blends
-    // adjacent unrelated hues and washes small counts out toward grey.
-    // Assign palette entries directly, cycling past the palette length.
+    // A qualitative palette is unrelated category colors, not a gradient:
+    // continuous sampling would blend adjacent hues. Assign entries directly,
+    // cycling past the palette length.
     colors = Array.from({ length: count }, (_, i) => stops[i % stops.length]);
   } else {
     colors =
@@ -263,10 +227,9 @@ export function getRampColors(rampName: string, count: number, reversed = false)
 }
 
 /**
- * Build a MapLibre categorical (match) expression.
- * Returns: ['match', ['get', column], val1, color1, val2, color2, ..., fallback]
- * `stringInput` matches on ['to-string', ['get', column]] for columns whose
- * values cannot be match labels themselves (booleans).
+ * Build a MapLibre categorical (match) expression. `stringInput` matches on
+ * ['to-string', ['get', column]] for columns whose values cannot be match
+ * labels themselves (booleans).
  */
 export function buildCategoricalExpression(
   column: string,
@@ -279,10 +242,8 @@ export function buildCategoricalExpression(
     pairs.push(value, color);
   }
   if (pairs.length === 0) {
-    // An empty or all-null column yields a zero-pair
-    // ['match', input, fallback] — below the spec's minimum arity, so
-    // addLayer throws (swallowed) and the layer silently never renders.
-    // Mirror the symbol-adapter guard by emitting the bare fallback.
+    // A zero-pair ['match', input, fallback] is below the spec's minimum arity,
+    // so addLayer would throw and the layer never render; emit the fallback.
     return fallback;
   }
   const input = stringInput ? ['to-string', ['get', column]] : ['get', column];
@@ -291,9 +252,7 @@ export function buildCategoricalExpression(
 }
 
 /**
- * Build a MapLibre graduated (step) expression.
- * Returns: ['step', ['get', column], colors[0], breaks[0], colors[1], ..., breaks[n-1], colors[n]]
- * Requires colors.length === breaks.length + 1
+ * Graduated (step) expression. Requires colors.length === breaks.length + 1.
  */
 export function buildGraduatedExpression(
   column: string,
@@ -313,9 +272,7 @@ export function buildGraduatedExpression(
   return ['case', ['==', ['get', column], null], '#cccccc', step];
 }
 
-/**
- * Return the MapLibre paint property name for coloring based on geometry type.
- */
+/** Paint property name for coloring based on geometry type. */
 export function getColorProperty(geometryType: string | null): string {
   // Derive from the shared geometry classifier.
   switch (classifyGeometry(geometryType)) {
@@ -329,10 +286,8 @@ export function getColorProperty(geometryType: string | null): string {
 }
 
 /**
- * Build a MapLibre graduated (step) expression for numeric size properties.
- * Identical shape to buildGraduatedExpression but with numeric sizes instead of color strings.
- * Returns: ['step', ['get', column], sizes[0], breaks[0], sizes[1], ..., breaks[n-1], sizes[n]]
- * Requires sizes.length === breaks.length + 1
+ * Graduated (step) expression for numeric size properties; same shape as
+ * `buildGraduatedExpression`. Requires sizes.length === breaks.length + 1.
  */
 export function buildGraduatedSizeExpression(
   column: string,
@@ -353,12 +308,7 @@ export function buildGraduatedSizeExpression(
   return ['case', ['==', ['get', column], null], 0, expr];
 }
 
-/**
- * Return the MapLibre paint property name for size-based styling, or null if not applicable.
- * Point + radius -> 'circle-radius'
- * Line + width -> 'line-width'
- * Everything else -> null (polygons have no size property; 'color' target returns null)
- */
+/** Paint property name for size-based styling, or null when not applicable. */
 export function getSizeProperty(
   geometryType: string | null,
   target: 'color' | 'radius' | 'width',
@@ -376,9 +326,7 @@ const COLOR_CLASSIFICATION_KEYS = ['mode', 'column', 'ramp', 'categories', 'colo
 
 /**
  * Detect a classification config that no longer matches the rendered paint.
- * Paint drives the map while config drives the editor, legend, and swatch, so
- * the two records must describe the same attribute expression. Empty class sets
- * and heatmap or symbol modes intentionally require no color expression.
+ * Empty class sets and heatmap or symbol modes require no color expression.
  */
 export function colorClassificationIsOrphaned(
   config: StyleConfig | null | undefined,
@@ -408,10 +356,9 @@ export function colorClassificationIsOrphaned(
 }
 
 /**
- * Strip a classification claim that `paint` no longer backs.
- * Remove every classification key, including column and ramp, so a fresh editor
- * cannot regenerate the stale expression. Preserve unrelated open-bag fields such
- * as render mode, symbol settings, and builder metadata.
+ * Strip a classification claim that `paint` no longer backs. Removes every
+ * classification key, including column and ramp, so a fresh editor cannot
+ * regenerate the stale expression; unrelated open-bag fields are preserved.
  */
 export function reconcileColorClassification(
   config: StyleConfig | null,

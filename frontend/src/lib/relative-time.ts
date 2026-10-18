@@ -72,9 +72,8 @@ export function formatRelativeTime(
 
 /**
  * i18n-key "time ago" variant used by the API-key tables (admin + settings).
- * Renders via the `admin:apiKeys.*` keys — floor semantics ("1 hour ago" until
- * a full second hour has elapsed), unlike the Intl rounding above; that
- * difference is deliberate and pre-dates the consolidation.
+ * Renders via the `admin:apiKeys.*` keys. Floor semantics ("1 hour ago" until a
+ * full second hour has elapsed), unlike the Intl rounding above, deliberately.
  */
 export function formatLastUsedRelativeTime(
   dateStr: string | null,

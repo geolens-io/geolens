@@ -47,16 +47,11 @@ export type StyleLayer = StyleSpecification['layers'][number] & {
   layout?: Record<string, unknown>;
 };
 
-// Single source of truth for "is this style layer
-// basemap-owned vs a user data layer?". A layer is basemap-owned when its
-// source is NOT a string starting with the data `sourcePrefix` — this includes
-// background/style layers with no source and layers whose source is non-string.
-// Reused by basemap-style-mutation (override scoping) so the missing-source and
-// non-string-source edge cases are defined once.
+// Single source of truth for "is this style layer basemap-owned vs a user data
+// layer?". Reused by basemap-style-mutation (override scoping).
 export function isBasemapOwnedLayer(layer: object, sourcePrefix: string): boolean {
-  // A layer is basemap-owned when its source does NOT start with the data
-  // sourcePrefix. background-style layers have no `source` at all (typeof
-  // 'undefined') and count as basemap-owned too.
+  // Basemap-owned when the source does NOT start with the data sourcePrefix.
+  // Background layers have no `source` at all and count as basemap-owned.
   const source = 'source' in layer ? (layer as { source?: unknown }).source : undefined;
   return typeof source !== 'string' || !source.startsWith(sourcePrefix);
 }
@@ -102,9 +97,9 @@ const RELIEF_PALETTE: Record<
 const FALLBACK_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
 
 /**
- * The shared basemap-style fallback, used whenever the basemap
- * list has not loaded yet or a configured id fails to resolve. Every map
- * surface must fall back to the same provider, with attribution.
+ * The shared basemap-style fallback, used whenever the basemap list has not
+ * loaded yet or a configured id fails to resolve. Every map surface must fall
+ * back to the same provider, with attribution.
  */
 export const FALLBACK_BASEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 export const FALLBACK_BASEMAP_STYLE_URL_DARK = 'https://tiles.openfreemap.org/styles/dark';
@@ -162,14 +157,12 @@ interface StyleImageHost {
  *   image (e.g. `circle_11_black` and other basemap sprites outside the known
  *   set) to keep the public/preview console clean.
  *
- * maplibre-gl v6 made `styleimagemissing` notify-only — a listener
- * can no longer supply the image for the request that fired it, because the
- * response batch is assembled before the event is emitted. `addImage()` from a
- * listener would only take effect on a LATER request for the same id, which
- * reads as an intermittent missing icon. Registered via
- * `map.setMissingStyleImageResolver()` instead, which MapLibre awaits before
- * treating the image as missing. Each surface registers exactly one, so the
- * per-surface divergence survives the one-resolver-per-map constraint.
+ * maplibre-gl v6 made `styleimagemissing` notify-only: the response batch is
+ * assembled before the event fires, so `addImage()` from a listener only takes
+ * effect on a LATER request for the same id, which reads as an intermittent
+ * missing icon. The handler is registered via
+ * `map.setMissingStyleImageResolver()` instead, which MapLibre awaits. Each
+ * surface registers exactly one, so the per-surface divergence survives.
  */
 export function makeStyleImageMissingResolver(
   map: StyleImageHost,
@@ -200,8 +193,8 @@ const LEGACY_KEY_MAP: Record<string, string> = {
   'carto-dark-matter': 'openfreemap-dark',
 };
 
-// feat(pmtiles): a bare archive URL, with or without the `pmtiles://` scheme
-// prefix the settings validator also accepts (backend/app/modules/settings/schemas.py).
+// A bare archive URL, with or without the `pmtiles://` scheme prefix the
+// settings validator also accepts (backend/app/modules/settings/schemas.py).
 const PMTILES_ARCHIVE_RE = /^(?:pmtiles:\/\/)?https?:\/\/\S+\.pmtiles(?:\?\S*)?$/i;
 
 /**
@@ -236,11 +229,9 @@ function toPmtilesProtocolUrl(url: string): string {
  */
 export function toMaplibreStyle(url: string, attribution?: string): string | StyleSpecification {
   if (url === BLANK_BASEMAP_ID) {
-    // The blank basemap itself has zero symbol layers, but
-    // user data layers (companion `*-label` layers, symbol-mode text) are
-    // added to THIS style — without a glyphs URL MapLibre cannot render any
-    // text-field, so feature labels silently failed in no-basemap mode.
-    // Glyphs are fetched lazily; with no text layers nothing is requested.
+    // User data layers (companion `*-label` layers, symbol-mode text) are added
+    // to this style, and MapLibre cannot render a text-field without a glyphs
+    // URL. Glyphs are fetched lazily, so no text layers means no request.
     return {
       version: 8 as const,
       glyphs: FALLBACK_GLYPHS,
@@ -255,16 +246,11 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
     };
   }
   const urlPath = url.split('?')[0];
-  // Classify a PMTiles archive BEFORE the
-  // generic `/styles/` substring heuristic. `/styles/` is not a MapLibre
-  // protocol marker, just a common convention for style-JSON hosting paths
-  // (e.g. https://tiles.openfreemap.org/styles/bright) -- a raster archive
-  // could coincidentally be hosted under a path containing that same
-  // substring (e.g. https://host/styles/world.pmtiles), and if that check
-  // ran first it would hand MapLibre the raw archive URL expecting a style
-  // JSON document, which fails to parse (the response is binary PMTiles
-  // data, not JSON). `.json` stays first since a PMTiles archive can never
-  // end in `.json`, so no such ambiguity exists there.
+  // Classify a PMTiles archive BEFORE the generic `/styles/` substring
+  // heuristic: a raster archive can be hosted under a path containing
+  // `/styles/` (https://host/styles/world.pmtiles), and the raw binary URL
+  // would then be handed to MapLibre as a style JSON. `.json` stays first
+  // since a PMTiles archive can never end in `.json`.
   if (urlPath.endsWith('.json')) {
     return url;
   }
@@ -488,13 +474,9 @@ function applyReliefContrast(
   });
 }
 
-// Multiplicative opacity keys MapLibre exposes on the layer paint surface.
-// Keep this set narrow: only canonical *-opacity scalars MapLibre treats
-// as numeric. Expression values (arrays/objects) and non-number scalars
-// are left untouched.
-// Canonical opacity-key table. Exported and imported by
-// basemap-style-mutation (per-sublayer overrides) so the two copies cannot drift
-// again — previously basemap-style-mutation omitted `circle-stroke-opacity`.
+// Canonical opacity-key table, shared with basemap-style-mutation (per-sublayer
+// overrides). Only *-opacity scalars MapLibre treats as numeric; expression
+// values (arrays/objects) and non-number scalars are left untouched.
 export const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
   raster: ['raster-opacity'],
   fill: ['fill-opacity'],
@@ -505,20 +487,13 @@ export const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
   heatmap: ['heatmap-opacity'],
 };
 
-// Write absolute master-opacity values,
-// composed with prominence stamps applied earlier in the same call.
-//
-// Previous design read `existingPaint[key]` and multiplied — but when
-// applyBasemapConfigToMap feeds map.getStyle() (live, post-mutation) as input,
-// `existing` already contains a prior master-opacity stamp. Compounding occurs
-// and masterOpacity >= 1 short-circuits the reset, leaving the slider monotonic-
-// downward.
-//
-// Fix: never read live paint. The `prominenceStamps` map tells us which keys
-// applyProminence set this call (with the canonical subtle values). Other keys
-// default to 1.0 (MapLibre default). We always write `stamp * master` or
-// `master`, so the next setPaintProperty diff correctly restores values when
-// the slider returns to 1.0.
+// Write absolute master-opacity values, composed with prominence stamps applied
+// earlier in the same call. Live paint is never read: applyBasemapConfigToMap
+// feeds map.getStyle() (post-mutation) as input, so multiplying into it would
+// compound prior stamps and leave the slider monotonically downward. The
+// `prominenceStamps` map names the keys applyProminence set this call; other
+// keys default to 1.0. Writing `stamp * master` or `master` always lets the next
+// setPaintProperty diff restore values when the slider returns to 1.0.
 function applyMasterOpacity(
   layer: StyleLayer,
   masterOpacity: number,
@@ -562,11 +537,8 @@ function applyBasemapLayerConfig(
   if (isBuildingLayer(next)) {
     next = withVisibility(next, config.building_visibility);
   }
-  // Track which paint keys applyProminence stamped this call so applyMasterOpacity
-  // can compose against the canonical subtle values rather than live-mutated paint
-  // (prevents compound stamping on raster + full-mode vector layers).
-  // Only `subtle` mode stamps paint; `hidden` writes layout.visibility and `full`
-  // is a no-op on paint, so prominenceStamps stays empty in those cases.
+  // Paint keys applyProminence stamped this call, so applyMasterOpacity composes
+  // against them rather than live paint. Only `subtle` mode stamps paint.
   const prominenceStamps: Record<string, number> = {};
   const roadLayer = isRoadLayer(next);
   const boundaryLayer = isBoundaryLayer(next);
@@ -597,11 +569,9 @@ function applyBasemapLayerConfig(
     if (config.label_mode === 'subtle') Object.assign(prominenceStamps, subtle);
   }
 
-  // Master-opacity is applied LAST so it composes on
-  // top of per-sublayer prominence stamps. applyMasterOpacity writes absolute
-  // values (stamp * master, or master if no stamp) — the previous multiplicative
-  // approach compounded on re-entry. config.opacity is optional on
-  // MapBasemapConfig but always set by normalizeBasemapConfig.
+  // Master opacity is applied LAST so it composes on top of per-sublayer
+  // prominence stamps. config.opacity is optional on MapBasemapConfig but always
+  // set by normalizeBasemapConfig.
   next = applyMasterOpacity(next, config.opacity ?? 1, prominenceStamps);
 
   return next;

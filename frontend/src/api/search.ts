@@ -5,7 +5,7 @@ function buildSearchParams(params: Record<string, string>): string {
   const sp = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (key === 'keywords' && value) {
-      // Split comma-joined keywords into repeated params for FastAPI
+      // FastAPI expects repeated params, not comma-joined values.
       for (const kw of value.split(',')) {
         if (kw) sp.append('keywords', kw);
       }

@@ -63,19 +63,17 @@ interface NormalizedLayerStyleState {
   paint: Record<string, unknown>;
 }
 
-// The legacy builder-private
-// paint-key set and the snake->camel builder-key alias map are now single-sourced
-// from layer-adapters/shared.ts (CUSTOM_PAINT_PROPS / BUILDER_STYLE_KEY_ALIASES)
-// so the two frontend copies can no longer drift. The raster re-hydration block in
-// normalizeLayerStyleState still handles _colormap/_stretch/_pmin/_pmax/_sigma,
+// The builder-private paint-key set and snake->camel alias map are single-sourced
+// from layer-adapters/shared.ts (CUSTOM_PAINT_PROPS / BUILDER_STYLE_KEY_ALIASES).
+// normalizeLayerStyleState re-hydrates _colormap/_stretch/_pmin/_pmax/_sigma,
 // which are deliberately NOT in the strip set.
 const LEGACY_BUILDER_PAINT_KEYS = CUSTOM_PAINT_PROPS;
 const LEGACY_BUILDER_KEY_ALIASES = BUILDER_STYLE_KEY_ALIASES;
 
 export const RENDER_MODES = new Set(['heatmap', 'hillshade', 'symbol', 'arrow', 'cluster', 'terrain', 'image']);
 
-// Data-driven table for the repetitive "read the first
-// typed paint key, else fall back to the normalized builder value" chains.
+// Data-driven table for the repetitive "read the first typed paint key, else fall
+// back to the normalized builder value" chains.
 type BuilderFieldType = 'string' | 'number' | 'boolean';
 
 interface PaintFallbackField {
@@ -137,10 +135,9 @@ function normalizeBuilderStyleConfig(
   }, {});
   delete normalizedRawBuilder.render_mode;
 
-  // Table-driven "typed paint key (try each in order),
-  // else normalized builder value" resolution — replaces nine near-identical
-  // ternary ladders. Heatmap fields keep a bespoke chain below because they also
-  // fall back to legacy top-level raw.* keys.
+  // Table-driven "typed paint key (try each in order), else normalized builder
+  // value" resolution. Heatmap fields keep a bespoke chain below because they
+  // also fall back to legacy top-level raw.* keys.
   const resolved: Record<string, unknown> = {};
   for (const spec of PAINT_FALLBACK_FIELDS) {
     resolved[spec.builderKey] = resolvePaintFallback(spec, paint, normalizedRawBuilder);
@@ -208,9 +205,8 @@ function normalizedRawStyleBase(
 }
 
 /**
- * Early-return ladder replacing the prior 3-level nested
- * ternary. Picks the base StyleConfig shape: legacy field-name mapping, canonical
- * mode+column passthrough, or a builder/render-mode-only shell — else null.
+ * Picks the base StyleConfig shape: legacy field-name mapping, canonical
+ * mode+column passthrough, or a builder/render-mode-only shell, else null.
  */
 function resolveNormalizedBase(
   raw: Record<string, unknown>,

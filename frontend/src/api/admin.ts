@@ -110,7 +110,6 @@ export async function listAuditLogs(
   return apiFetch<AuditLogListResponse>(`/admin/audit-logs/${qs ? `?${qs}` : ''}`);
 }
 
-// User CRUD
 export async function createUser(data: {
   username: string;
   password: string;
@@ -134,9 +133,9 @@ export async function deactivateUser(userId: string): Promise<UserResponse> {
 }
 
 /**
- * Admin-initiated password reset. The submitted value is sent once
- * and never held anywhere else on the client; the backend revokes the target's
- * outstanding sessions and API keys as part of the same request.
+ * Admin-initiated password reset. The submitted value is sent once and never
+ * held elsewhere on the client; the backend revokes the target's outstanding
+ * sessions and API keys in the same request.
  */
 export async function resetUserPassword(userId: string, password: string): Promise<UserResponse> {
   return apiFetch<UserResponse>(`/admin/users/${encodeURIComponent(userId)}/reset-password/`, {
@@ -158,10 +157,9 @@ export async function rejectUser(userId: string): Promise<void> {
 }
 
 // API Key management
-// skip/limit are threaded through so the caller can page: the backend's
-// default is limit=50 and its hard max is `le=200`, so a user with more keys
-// than one page would otherwise have an arbitrary subset hidden from the only
-// UI that revokes them.
+// skip/limit are threaded through so the caller can page: the backend defaults
+// to limit=50 (max 200), so more keys than one page would otherwise be hidden
+// from the only UI that revokes them.
 export async function listApiKeys(
   userId: string,
   options: { skip?: number; limit?: number } = {},
@@ -178,8 +176,7 @@ export async function createApiKey(
   name: string,
   options: { scope?: ApiKeyScope; expiresAt?: string | null } = {},
 ): Promise<ApiKeyCreateResponse> {
-  // Mirrors createMyApiKey — AdminApiKeyCreateRequest accepts expires_at, so
-  // it is sent along with the scope.
+  // AdminApiKeyCreateRequest accepts expires_at, as createMyApiKey does.
   return apiFetch<ApiKeyCreateResponse>('/admin/api-keys/', {
     method: 'POST',
     body: JSON.stringify({
@@ -195,7 +192,6 @@ export async function revokeApiKey(keyId: string): Promise<void> {
   await apiFetch(`/admin/api-keys/${encodeURIComponent(keyId)}`, { method: 'DELETE' });
 }
 
-// Share tokens
 export async function listShareTokens(
   params: {
     skip?: number;
@@ -221,7 +217,6 @@ export async function adminRevokeShareToken(tokenId: string): Promise<void> {
   await apiFetch(`/admin/share-tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' });
 }
 
-// Embed tokens
 export async function listAdminEmbedTokens(
   params: { skip?: number; limit?: number; map_id?: string; map_search?: string; creator?: string; status?: string } = {},
 ): Promise<AdminEmbedTokenListResponse> {
@@ -243,7 +238,6 @@ export async function bulkRevokeEmbedTokens(tokenIds: string[]): Promise<BulkRev
   });
 }
 
-// AI Status
 export async function getAIStatus(): Promise<AIStatusResponse> {
   return apiFetch<AIStatusResponse>('/admin/ai-status/');
 }
@@ -257,12 +251,10 @@ export async function probeAIStatus(): Promise<AIStatusResponse> {
   return apiFetch<AIStatusResponse>('/admin/ai-status/?probe=true', { timeoutMs: 45_000 });
 }
 
-// Infrastructure
 export async function getInfrastructure(): Promise<InfrastructureResponse> {
   return apiFetch<InfrastructureResponse>('/admin/infrastructure/');
 }
 
-// Embedding stats
 export async function getEmbeddingStats(): Promise<EmbeddingStatsResponse> {
   return apiFetch<EmbeddingStatsResponse>('/admin/embedding-stats/');
 }
@@ -272,7 +264,6 @@ export async function getEmbeddingStats(): Promise<EmbeddingStatsResponse> {
 // page as the proxy's verdict rather than a client-side abort.
 const ALL_TENANT_BACKFILL_TIMEOUT_MS = 630_000;
 
-// Backfill embeddings
 export async function triggerBackfill(force = false, allTenants = false): Promise<BackfillResponse> {
   const params = new URLSearchParams();
   if (force) params.set('force', 'true');
@@ -308,8 +299,8 @@ export async function exportAuditLogs(
   const qs = query.toString();
   const url = `${API_BASE}/admin/audit-logs/export/${encodeURIComponent(format)}${qs ? `?${qs}` : ''}`;
 
-  // Refresh-aware raw fetch so an export issued as the first request
-  // after a long idle transparently refreshes the JWT instead of 401-ing.
+  // Refresh-aware raw fetch so an export issued after a long idle refreshes the
+  // JWT instead of 401-ing.
   const response = await authenticatedRawFetch(url);
   if (!response.ok) {
     let detail: unknown;
@@ -323,10 +314,8 @@ export async function exportAuditLogs(
 }
 
 /**
- * The users CSV export used to be `window.open()`, which
- * cannot carry the Bearer token, so admins got a tab full of
- * `{"detail":"Could not validate credentials"}`. Same refresh-aware raw fetch
- * as the audit-log export above.
+ * Users CSV export. `window.open()` cannot carry the Bearer token, so this uses
+ * the same refresh-aware raw fetch as the audit-log export above.
  */
 export async function exportUsersCsv(): Promise<Blob> {
   const response = await authenticatedRawFetch(`${API_BASE}/admin/users/export.csv`);

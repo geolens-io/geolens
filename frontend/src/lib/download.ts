@@ -1,11 +1,9 @@
 /**
  * Browser blob download.
  *
- * Four call sites had hand-rolled copies of
- * this same anchor dance, and a fifth (admin CSV export) skipped it entirely in
- * favor of `window.open()` — which sends no Authorization header, so the export
- * came back 401 against our Bearer-JWT API. Having one helper makes the
- * authenticated-blob path the obvious one to reach for.
+ * One helper for the anchor dance, so the authenticated-blob path is the
+ * obvious one: `window.open()` sends no Authorization header and would 401
+ * against the Bearer-JWT API.
  */
 export function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

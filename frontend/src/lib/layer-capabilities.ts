@@ -6,11 +6,7 @@ type LayerKind = 'vector' | 'raster' | 'vrt';
 /**
  * Returns true when a layer represents a folder group (layer_type starts with
  * 'group:folder'). Use this single predicate everywhere a folder-group check
- * is needed so all callers stay consistent if new group subtypes are added.
- *
- * If a future phase introduces a new group subtype (e.g. 'group:cluster') and
- * that subtype should have different render or menu behaviour, update this
- * predicate and document the intentional split with a comment at each call site.
+ * is needed.
  */
 export function isFolderGroupLayer(
   layer: { layer_type?: string | null },
@@ -31,9 +27,6 @@ interface LayerCapabilities {
 /**
  * Classify a map layer into its capability set based on layer_type,
  * dataset_record_type, and dataset_geometry_type.
- *
- * Consolidates the branching logic previously duplicated across
- * BuilderMap, StackRow, and MapBuilderPage.
  */
 export function getLayerCapabilities(
   layer: Pick<MapLayerResponse, 'layer_type' | 'dataset_record_type' | 'dataset_geometry_type'>,
@@ -64,10 +57,8 @@ export function getLayerCapabilities(
     };
   }
 
-  // Vector layer — derive map layer type from geometry.
-  // Consume the canonical classifier instead of a
-  // local POINT/LINE substring ladder. polygon and `other` (e.g.
-  // GEOMETRYCOLLECTION) both map to fill/polygon, preserving prior behavior.
+  // Vector layer: derive map layer type from the canonical classifier. polygon
+  // and `other` (e.g. GEOMETRYCOLLECTION) both map to fill/polygon.
   const family = classifyGeometry(layer.dataset_geometry_type);
   let mapLayerType: 'fill' | 'line' | 'circle';
   let iconVariant: 'point' | 'line' | 'polygon';

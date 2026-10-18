@@ -8,21 +8,19 @@ import { clearStacImport } from '@/api/stac-import-session';
 import { removeSessionStorage } from '@/lib/storage';
 
 /**
- * The AI chat transcript (`geolens-chat-<mapId>`, ChatPanel.tsx)
- * and the one-shot "open in builder" handoff payload (`geolens-chat-result`,
- * chat-result-handoff.ts) are sessionStorage, keyed only on the map — not on
- * identity. sessionStorage outlives logout, so a second user signing in in
- * the same tab sees the first user's prompts, dataset names and query
- * metadata. Same choke point, same rule as the stores below: identity
- * changed, drop it. Collecting keys first, then removing, because removing
- * mid-loop shifts sessionStorage's live index and skips entries.
+ * The AI chat transcript (`geolens-chat-<mapId>`, ChatPanel.tsx) and the
+ * one-shot "open in builder" handoff payload (`geolens-chat-result`,
+ * chat-result-handoff.ts) are sessionStorage, keyed only on the map, not on
+ * identity. sessionStorage outlives logout, so a second user in the same tab
+ * would see the first user's prompts, dataset names and query metadata. Same
+ * choke point and rule as the stores below: identity changed, drop it. Keys are
+ * collected first, then removed, because removing mid-loop shifts sessionStorage's
+ * live index and skips entries.
  *
- * The enumeration (`.length`/`.key`) has no helper in
- * lib/storage.ts, so it stays raw here, guarded by the try/catch below —
- * kept as a plain loop rather than `.forEach`, which would cross a function
- * boundary and fall outside the try's frame. The removal itself goes
- * through `removeSessionStorage`, which is already exception-safe on its
- * own.
+ * The enumeration (`.length`/`.key`) has no helper in lib/storage.ts, so it
+ * stays raw here inside the try/catch, as a plain loop (a `.forEach` callback
+ * would fall outside the try's frame). Removal goes through `removeSessionStorage`,
+ * which is exception-safe on its own.
  */
 function clearChatSessionStorage(): void {
   try {
@@ -35,20 +33,20 @@ function clearChatSessionStorage(): void {
       removeSessionStorage(key);
     }
   } catch {
-    // storage unavailable (private mode / disabled) — nothing to clear.
+    // Storage unavailable (private mode / disabled): nothing to clear.
   }
 }
 
 /**
- * User-scoped queries (dataset search, map search, map
- * lists) key their caches by request parameters only, so after a logout — or a
- * lower-privilege login in the same tab — the previous identity's cached rows
- * could render before any refetch. Rather than threading auth identity into
- * every query key, clear the whole cache at the one identity choke point.
- * A token refresh keeps the same user id and does NOT clear.
+ * User-scoped queries (dataset search, map search, map lists) key their caches
+ * by request parameters only, so after a logout or a lower-privilege login in
+ * the same tab the previous identity's cached rows could render before any
+ * refetch. Rather than threading identity into every query key, clear the whole
+ * cache at the one identity choke point. A token refresh keeps the same user id
+ * and does not clear.
  *
- * Returns the store unsubscribe (used by tests; the app subscription lives
- * for the page lifetime).
+ * Returns the store unsubscribe (used by tests; the app subscription lives for
+ * the page lifetime).
  */
 export function wireAuthCacheReset(queryClient: QueryClient): () => void {
   let lastUserId = useAuthStore.getState().user?.id ?? null;
@@ -56,48 +54,36 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     const userId = state.user?.id ?? null;
     if (userId === lastUserId) return;
     lastUserId = userId;
-    // A full clear() on every identity change is safe but
-    // refetch-bursty. Kept whole because scoping which keys to drop per identity
-    // is error-prone (a missed key leaks the prior user's data); revisit only if
-    // the refetch burst is measured to matter.
+    // A full clear() is refetch-bursty but kept whole: scoping which keys to drop
+    // per identity is error-prone, and a missed key leaks the prior user's data.
     queryClient.clear();
-    // The problem reporter's in-memory capture buffer is
-    // the same kind of identity-scoped residue. With the reporter visible to
-    // anonymous visitors, a logout that leaves the buffer populated would show
-    // the previous user's captured entries (and attach them to a report) in
-    // the now-anonymous tab. Same choke point, same rule: identity changed,
-    // drop everything captured under the old one.
+    // The problem reporter's in-memory capture buffer is identity-scoped residue
+    // too: it is visible to anonymous visitors, so a populated buffer after logout
+    // would show (and attach to a report) the previous user's entries.
     clearReportEntries();
-    // drawing-store's target dataset, selected feature (a real
-    // row's property bag) and edit-dirty flag are the same identity-scoped
-    // residue, plus the milder case of search-store's typed/drawn search
-    // intent. Same choke point, same rule: identity changed, drop everything
-    // adopted or entered under the old one.
+    // drawing-store's target dataset, selected feature (a real row's property bag)
+    // and edit-dirty flag are identity-scoped residue, as is search-store's
+    // typed/drawn search intent.
     //
-    // Bump the session epoch BEFORE clearing, so any
-    // write already in flight (captured against the old epoch) is refused
-    // by drawing-store's own check even if it lands between these two
-    // calls or after them, no matter what the next identity turns out to
-    // be — see drawing-store.ts's `bumpSessionEpoch` doc comment.
+    // Bump the session epoch BEFORE clearing so any write already in flight
+    // (captured against the old epoch) is refused by drawing-store's own check,
+    // whatever the next identity is; see `bumpSessionEpoch` in drawing-store.ts.
     useDrawingStore.getState().bumpSessionEpoch();
     useDrawingStore.getState().clearDrawing();
     useSearchStore.getState().clearIdentityScopedFilters();
     // See clearChatSessionStorage's doc comment above.
     clearChatSessionStorage();
 
-    // The Upload and STAC tabs' module-scoped in-flight
-    // sessions are the same kind of identity-scoped residue — each records
-    // the user id that started it and refuses adoption by a different one
-    // (`peekUploadBatch`/`peekStacImport`), but that check only runs when
-    // something next tries to adopt. Tearing down here, at the one identity
-    // choke point, closes the window between a logout/switch and whatever
-    // mounts next, rather than leaving it to be caught lazily.
+    // The Upload and STAC tabs' module-scoped in-flight sessions record the user
+    // id that started them and refuse adoption by a different one
+    // (`peekUploadBatch`/`peekStacImport`), but only when something next tries to
+    // adopt. Tearing down here closes the window between a logout/switch and
+    // whatever mounts next.
     clearUploadBatch();
     clearStacImport();
-    // The queue a drop sits in before the upload-config query
-    // settles is the same identity-scoped residue as the batch above, and
-    // deserves the same choke point rather than only the ownerId check the
-    // batch's own peek already does.
+    // The queue a drop sits in before the upload-config query settles is the
+    // same identity-scoped residue; clear it here rather than rely on the
+    // batch's ownerId check.
     clearPendingUploadFiles();
   });
 }

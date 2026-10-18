@@ -22,10 +22,7 @@ export function equalIntervalBreaks(
   return breaks;
 }
 
-/**
- * Pass through quantile values from the API (already computed server-side).
- * Thin wrapper for semantic clarity and to keep a consistent module API.
- */
+/** Pass through quantile values from the API (already computed server-side). */
 export function quantileBreaks(quantiles: number[]): number[] {
   return quantiles;
 }
@@ -67,9 +64,7 @@ export function jenksBreaks(values: number[], classCount: number): number[] {
     return equalIntervalBreaks(min, max, classCount);
   }
 
-  // Clamp class count to the number of available values (asking for more
-  // classes than data points is meaningless; Jenks would produce phantom
-  // empty classes).
+  // Clamp to the number of values; more classes would be phantom empties.
   const k = Math.min(classCount, sorted.length);
   const n = sorted.length;
 

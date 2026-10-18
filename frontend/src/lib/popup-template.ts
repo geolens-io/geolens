@@ -33,8 +33,8 @@ export function validatePlaceholders(
 
 /**
  * Substitute placeholders against a feature property bag.
- * Missing / null / undefined values resolve to the empty string per the
- * locked spec. Other values are coerced to strings.
+ * Missing/null/undefined resolve to the empty string; other values are coerced
+ * to strings.
  */
 export function substitutePopupTemplate(
   template: string,

@@ -28,23 +28,18 @@ const COOKIE_SCOPED_API_PATH = '/api';
 export function cookieAuthAvailable(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    // Resolve EVERY base against the page URL rather than treating
-    // "no http(s):// prefix" as proof of same-origin. A protocol-relative base
-    // like `//api.example.com` has no scheme yet is cross-origin, and
-    // misreading it would opt the app into cookie mode while `credentials:
-    // 'same-origin'` withheld the cookie — every session would stop
-    // refreshing once its access token expired. Resolution handles the
-    // relative default correctly too.
+    // Resolve every base against the page URL: a protocol-relative base like
+    // `//api.example.com` has no scheme yet is cross-origin, and misreading it
+    // would opt into cookie mode while `credentials: 'same-origin'` withheld
+    // the cookie, so sessions would stop refreshing once the access token
+    // expired.
     const base = new URL(API_BASE, window.location.href);
     if (base.origin !== window.location.origin) return false;
-    // Same origin is necessary but not sufficient — the PATH has to
-    // fall inside the cookie's scope too. FRONTEND_API_BASE_URL is documented
-    // as "URL path or absolute URL", so a deployment can mount the API at, say,
-    // `/geolens-api` behind a rewriting proxy. The cookie would still be scoped
-    // to `/api/auth`, the browser would never send it to `/geolens-api/auth/
-    // refresh/`, and no body token comes back in cookie mode — so the session
-    // would silently stop refreshing. Such deployments stay on the body-token
-    // flow, which works at any mount point.
+    // The PATH must also fall inside the cookie's scope. A deployment can
+    // mount the API at, say, `/geolens-api` behind a rewriting proxy; the
+    // cookie is still scoped to `/api/auth`, so the browser would never send
+    // it and the session would silently stop refreshing. Such deployments stay
+    // on the body-token flow, which works at any mount point.
     return base.pathname.replace(/\/+$/, '') === COOKIE_SCOPED_API_PATH;
   } catch {
     return false;

@@ -1,6 +1,4 @@
-// Single source of truth for Mac-platform detection and
-// the Save keyboard chord. Previously duplicated in MapTitleBar.tsx and
-// KeyboardShortcutsSheet.tsx, which could (and did) drift on the displayed glyph.
+// Single source of truth for Mac-platform detection and the Save keyboard chord.
 export const IS_MAC =
   typeof navigator !== 'undefined' &&
   (('userAgentData' in navigator &&

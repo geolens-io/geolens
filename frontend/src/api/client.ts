@@ -14,10 +14,9 @@ export function isCredentialRejected(err: unknown): boolean {
   return err.status === 401 || err.status === 403;
 }
 
-// A request whose socket hangs used to spin forever and
-// stall the polling loop that issued it. 30s comfortably covers a slow catalog
-// query while still freeing a wedged loop. Applied to apiFetch (JSON) only;
-// streaming and blob-download callers manage their own longer-lived signals.
+// A hung socket would stall the polling loop that issued it. 30s covers a slow
+// catalog query. Applies to apiFetch (JSON) only; streaming and blob-download
+// callers manage their own longer-lived signals.
 const REQUEST_TIMEOUT_MS = 30_000;
 
 export class ApiError extends Error {
@@ -38,7 +37,7 @@ export class ApiError extends Error {
 }
 
 // Module-level in-flight singleton. Concurrent 401s AND the proactive
-// timer in use-auth.ts (which now also calls tryRefresh) collapse to one
+// timer in use-auth.ts (which also calls tryRefresh) collapse to one
 // /auth/refresh/ POST per refresh cycle. Cleared in finally so the next
 // expiration starts fresh.
 let inflightRefresh: Promise<RefreshOutcome> | null = null;
@@ -104,9 +103,8 @@ export function onSessionExpired(handler: () => void): () => void {
 export function notifySessionExpired(deadSessionKey: string): void {
   if (deadSessionKey === lastNotifiedSessionKey) return;
   lastNotifiedSessionKey = deadSessionKey;
-  // Clear locally only. /auth/logout/ revokes EVERY refresh row
-  // of the user, so revoking a dead session here signed the account out on
-  // every other device, each of which then failed its own refresh and revoked.
+  // Clear locally only. /auth/logout/ revokes EVERY refresh row of the user,
+  // which would sign the account out on every other device.
   abortInflightRefresh();
   useAuthStore.getState().logout();
   sessionExpiredHandler?.();
@@ -138,9 +136,8 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
     return token && token !== transientToken ? 'refreshed' : 'transient';
   }
 
-  // The outcome of the in-flight refresh IS the answer here, not
-  // whatever token happens to be sitting in the store — see the fix note on
-  // the IIFE's return values below.
+  // The outcome of the in-flight refresh IS the answer here, not whatever
+  // token happens to be sitting in the store.
   if (inflightRefresh) {
     return await inflightRefresh;
   }
@@ -165,11 +162,9 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   inflightRefreshAbort = controller;
   let retryAfterMs: number | undefined;
 
-  // Report whether a NEW token actually got stored, not whether
-  // some token — possibly the stale one this refresh was trying to replace —
-  // still sits in the store. The old `!!token` check was true on a failed
-  // refresh too, so the caller retried the original request with a dead
-  // token instead of going straight to the logout path.
+  // Report whether a NEW token actually got stored, not whether some token
+  // (possibly the stale one being replaced) still sits in the store; otherwise
+  // a failed refresh would retry the request with a dead token.
   //
   // `token`, from the destructure above, is captured before the attempt so a
   // failure below can tell "nothing changed" from "something else installed a
@@ -220,8 +215,8 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   inflightRefresh = promise;
 
   const outcome = await promise;
-  // One place to arm the back-off and record the token it applies
-  // to; it clears as soon as the endpoint answers either way again.
+  // One place to arm the back-off and record the token it applies to; it
+  // clears as soon as the endpoint answers either way again.
   // A shorter Retry-After brings the next attempt forward; a longer one is
   // capped so a stalled page load is not held past the usual back-off.
   const backoffMs = Math.min(retryAfterMs ?? TRANSIENT_COOLDOWN_MS, TRANSIENT_COOLDOWN_MS);
@@ -244,8 +239,6 @@ export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): P
     // (offline, DNS unresolvable, CORS preflight blocked, etc.). Other
     // errors (e.g. AbortError) should bubble through unchanged.
     if (err instanceof TypeError) {
-      // Was hardcoded English; this is one of the errors a
-      // non-English user is most likely to hit.
       throw new ApiError(i18n.t('common:errors.networkUnavailable'), 0);
     }
     // A timeout-triggered abort becomes a normalized
@@ -363,7 +356,6 @@ export async function authenticatedRawFetch(
     throw unverified;
   }
   if (refresh === 'rejected') {
-    // Was hardcoded English.
     throw new ApiError(i18n.t('common:errors.unauthorized'), 401);
   }
   return response;

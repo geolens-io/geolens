@@ -55,7 +55,7 @@ export type UrlUploadKind = NonNullable<components['schemas']['UrlUploadRequest'
 export type RasterPreviewResponse = components['schemas']['RasterPreviewResponse'];
 
 // Mirrors backend chk_records_record_type CHECK constraint
-// (catalog/datasets/domain/models.py). Keep in sync if values change.
+// (catalog/datasets/domain/models.py).
 export type RecordType =
   | 'vector_dataset'
   | 'raster_dataset'
@@ -67,7 +67,7 @@ export type RecordType =
   | 'tiles3d_dataset'
   | 'pointcloud_dataset';
 // Mirrors backend chk_records_visibility CHECK constraint
-// (catalog/datasets/domain/models.py:35). Keep in sync if values change.
+// (catalog/datasets/domain/models.py).
 export type DatasetVisibility = components['schemas']['CommitRequest']['visibility'];
 /** How the data entered the catalog. Distinct from `record_type`
  *  (what the data is): a vector dataset can be an uploaded file, a registered
@@ -80,19 +80,14 @@ export type DatasetOrigin = NonNullable<components['schemas']['ReuploadCommitReq
  *  literal, so there is exactly one way to spell "never determined". */
 export type SourceHealth = 'healthy' | 'missing' | 'inaccessible' | 'unknown';
 export type SchemaDriftStatus = 'none' | 'drifted' | 'unknown';
-/** How a dataset's last refresh of its SOURCE compares to the
- *  cadence it declares in `update_frequency` — due past one declared period,
- *  overdue past two. Computed server-side on every read, never stored, so there
- *  is no client-side copy of the rule to drift. 'unknown' when the origin
- *  cannot be refreshed at all (`created`), when no cadence is declared
- *  (asNeeded, irregular, notPlanned, unknown), or when nothing has been
- *  refreshed yet. Advisory: it never gates an action.
+/** How a dataset's last refresh of its SOURCE compares to the cadence it
+ *  declares in `update_frequency`: due past one declared period, overdue past
+ *  two. Computed server-side on every read. 'unknown' when the origin cannot be
+ *  refreshed (`created`), no cadence is declared, or nothing has been refreshed
+ *  yet. Advisory: it never gates an action.
  *
- *  NOT the same thing as `QualityFreshnessState` in lib/quality-freshness.ts,
- *  which measures the quality score's `computed_at` against the same
- *  `update_frequency` with its own thresholds and its own states
- *  ('fresh' | 'stale' | 'missing'). Both words say freshness; only one is about
- *  the source. Keep the `source` qualifier on every name and label. */
+ *  Not `QualityFreshnessState` in lib/quality-freshness.ts, which measures the
+ *  quality score's `computed_at`. Keep the `source` qualifier on every name. */
 export type SourceFreshness = 'fresh' | 'due' | 'overdue' | 'unknown';
 
 /** Response returned by dataset publication-status mutation endpoints. */
@@ -424,11 +419,9 @@ export interface BuilderStyleConfig {
    *  A non-empty plain object makes lineGradientNeededFor() enable lineMetrics on
    *  the backing vector source. */
   lineGradient?: {
-    /** Optional per-stop UUID for stable React keys.
-     *  Persisted in the JSONB builder shape only; never emitted to the canonical
-     *  interpolate-linear-line-progress paint expression, which is byte-identical
-     *  with or without ids. Stops without `id` are assigned one at hydration inside
-     *  LineGradientControls. */
+    /** Optional per-stop UUID for stable React keys. Persisted in the JSONB
+     *  builder shape only; never emitted to the paint expression. Stops without
+     *  `id` are assigned one at hydration. */
     stops: Array<{ position: number; color: string; id?: string }>;
   };
   /** Raster colormap name (single-band). Builder-private; mutates the tile URL via buildColormapTileUrl. */

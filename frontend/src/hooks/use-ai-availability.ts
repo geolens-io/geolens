@@ -11,27 +11,24 @@ import { queryKeys } from '@/lib/query-keys';
  * Resolves whether the caller can use builder AI chat, combining AI readiness
  * with the caller's `use_ai_chat` capability.
  *
- * ## Two readiness sources
+ * ## Readiness sources
  *
  * - **AI-status readers** (the mode-aware capability mirrored by
- *   `useAIStatusReader()`, not the `isAdmin` flag, which would 403
- *   capability-less admins and skip capability-holding non-admins)
- *   read the detailed `/api/admin/ai-status/` endpoint (provider, key
- *   presence) so the disabled-state UI can distinguish `env_disabled` vs `no_key`.
+ *   `useAIStatusReader()`, not the `isAdmin` flag) read the detailed
+ *   `/api/admin/ai-status/` endpoint so the disabled-state UI can distinguish
+ *   `env_disabled` vs `no_key`.
  * - **Other editors holding `use_ai_chat`** read the public-safe
  *   `/api/ai/availability/` endpoint, which returns only a boolean and leaks no
- *   provider/key detail. This lets a permitted editor open builder chat when AI
- *   is enabled and configured — the hook would otherwise return `false` for every
- *   non-admin because only admins could read the admin status endpoint.
+ *   provider/key detail.
  * - **Viewers (no `use_ai_chat`)** fire NEITHER endpoint, so there is no 401/403
- *   console noise; they get a safe disabled state with `reason = 'permission'`.
+ *   console noise; they get `reason = 'permission'`.
  *
  * Both endpoints are gated on `!!token` so anonymous sessions never probe them.
  *
  * ## reason field
  *
- * The `reason` field gives the disabled-state UI a
- * per-cause taxonomy without re-deriving the gate logic from raw query data.
+ * Gives the disabled-state UI a per-cause taxonomy without re-deriving the gate
+ * logic from raw query data.
  *
  * Precedence (first match wins):
  *   1. `permission`    — caller lacks `use_ai_chat` (no endpoint was queried)
@@ -51,19 +48,15 @@ export type AIUnavailableReason = 'env_disabled' | 'no_key' | 'permission';
 
 export function useAIAvailability() {
   const token = useAuthStore((s) => s.token);
-  // Branch on the backend's actual gate (mode-aware capability),
-  // not the isAdmin flag — the flag both over- and under-selected.
+  // Branch on the backend's actual gate (mode-aware capability), not the isAdmin flag.
   const canReadStatus = useAIStatusReader();
-  // canReadStatus derives from the edition query's tenancy mode,
-  // which reads as single-tenant until that query settles — probing before
-  // then can hit the wrong endpoint (a 403 that lands in error telemetry).
-  // Hold both probes until the edition is known.
+  // canReadStatus derives from the edition query's tenancy mode, which reads as
+  // single-tenant until that query settles; probing earlier can hit the wrong
+  // endpoint (a 403 in error telemetry). Hold both probes until the edition is known.
   const editionResolved = !useEdition().isLoading;
-  // can() returns false while the permissions query is still
-  // loading, which would settle reason='permission' with isLoading=false and
-  // flash the no-permission disabled state at permitted editors on a cold
-  // mount. Fold the permissions query's loading into isLoading (as the
-  // edition query's is) so the spinner covers the window.
+  // can() returns false while the permissions query is loading, which would flash
+  // reason='permission' at permitted editors on a cold mount. Fold its loading
+  // into isLoading so the spinner covers the window.
   const { can, isLoading: permissionsLoading } = usePermissions();
   const canUse = can('use_ai_chat');
 

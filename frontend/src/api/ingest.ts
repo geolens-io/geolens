@@ -77,11 +77,9 @@ async function xhrUpload<T>(
   onProgress?: UploadProgress,
   signal?: AbortSignal,
 ): Promise<T> {
-  // A direct-POST upload (uploadFile) previously bypassed the problem
-  // reporter entirely: it's called from a plain try/catch in UploadForm, not
-  // a TanStack mutation, so the shared MutationCache.onError tap in main.tsx
-  // never sees it. Report here instead — metadata only (status, error text,
-  // filename), never the multipart file body.
+  // uploadFile runs from a plain try/catch in UploadForm, not a TanStack
+  // mutation, so the MutationCache.onError tap in main.tsx never sees it. Report
+  // metadata only (status, error text, filename), never the multipart body.
   const uploadedFile = formData.get('file');
   const filename = uploadedFile instanceof File ? uploadedFile.name : undefined;
   const reportUrl = filename ? `${path} (${filename})` : path;
@@ -180,11 +178,8 @@ async function xhrUpload<T>(
     throw failure;
   }
 
-  // A 2xx response whose body isn't valid JSON (empty,
-  // truncated, an HTML error page from an intermediary proxy) previously
-  // threw a raw SyntaxError here, outside every reporting branch above —
-  // the status-based `if (res.status < 200 || res.status >= 300)` block
-  // never runs for a 2xx, so this failure had no capture path at all.
+  // A 2xx body that isn't valid JSON (empty, truncated, an intermediary's HTML
+  // error page) would throw a raw SyntaxError outside the status branch above.
   try {
     return JSON.parse(res.body) as T;
   } catch (err) {
@@ -211,22 +206,20 @@ export async function uploadFile(
 }
 
 /**
- * The URL variant of upload. The backend fetches the file
- * server-side (SSRF-validated, size-capped) into staging; the returned job
- * then flows through the same preview → commit pipeline as a direct upload.
+ * The URL variant of upload. The backend fetches the file server-side
+ * (SSRF-validated, size-capped) into staging; the returned job then flows
+ * through the same preview → commit pipeline as a direct upload.
  *
- * This call only validates and queues, so the download does not
- * bound it. The job it returns is `running` until the worker has the file;
- * poll `getJobStatus` and preview once it reaches `pending`.
+ * This call only validates and queues; the job is `running` until the worker has
+ * the file, so poll `getJobStatus` and preview once it reaches `pending`.
  *
- * It can still outlive apiFetch's 30s default. Two server-side waits are
- * sequential and each has its own 30s ceiling: the auth phase checks out a
- * session before the handler runs, which can spend DB_POOL_TIMEOUT under pool
- * saturation, and the SSRF preflight is then allowed PREFLIGHT_DNS_MAX_SECONDS
- * of DNS (url_fetch.py). 30 + 30 plus room for the post-DNS config and quota
- * reads and the response itself. Aborting early is not free: the server still
- * queues the download, and the browser has discarded the only copy of the job
- * id, so the import is unreachable until the stale sweep.
+ * It can still outlive apiFetch's 30s default. Two sequential server-side waits
+ * each have a 30s ceiling: the auth phase can spend DB_POOL_TIMEOUT under pool
+ * saturation, then the SSRF preflight is allowed PREFLIGHT_DNS_MAX_SECONDS of
+ * DNS (url_fetch.py). 90s covers 30 + 30 plus the config and quota reads and
+ * the response itself. Aborting early is costly: the server still queues the
+ * download and the browser has discarded the only copy of the job id, so the
+ * import is unreachable until the stale sweep.
  */
 const URL_SUBMIT_TIMEOUT_MS = 90_000;
 export async function uploadFromUrl(
@@ -257,23 +250,18 @@ export async function getJobStatus(
 export async function getJobStatusByDataset(
   datasetId: string,
 ): Promise<JobStatusResponse | null> {
-  // Backend returns 200 + null when the dataset is visible but has no ingest
-  // job (remote/STAC/registered dataset); apiFetch resolves the null JSON body
-  // to null. A genuine 404 (dataset not visible) still throws ApiError.
-  // expected404 also keeps older servers (pre-200+null) from throwing here.
+  // 200 + null means the dataset is visible but has no ingest job (remote, STAC
+  // or registered dataset); a genuine 404 (not visible) still throws ApiError.
+  // expected404 also covers older servers that 404 here.
   return apiFetch<JobStatusResponse | null>(`/jobs/by-dataset/${encodeURIComponent(datasetId)}`, {
     expected404: true,
   });
 }
 
-// The request-scoped preview handler runs run_ogrinfo_preview,
-// bounded at OGRINFO_TIMEOUT_SECONDS = 300s server-side, with a JSON-decode
-// fallback that can spawn ogrinfo twice more at 300s each — worst case
-// exceeds even nginx's own 600s `location /api/` read timeout. apiFetch's
-// 30s default aborted the request client-side long before either deadline,
-// wasting the server-side work with nothing observing the abort. Match
-// Deliberately outlive the proxy so whichever end fails first reaches the
-// form as a real verdict rather than a client-side abort.
+// run_ogrinfo_preview is bounded at OGRINFO_TIMEOUT_SECONDS = 300s, and its
+// JSON-decode fallback can spawn ogrinfo twice more, exceeding even nginx's 600s
+// read timeout. Outlive the proxy so whichever end fails first reaches the form
+// as a real verdict rather than a client-side abort.
 const PREVIEW_TIMEOUT_MS = 630_000;
 
 export async function previewFile(jobId: string, layerName?: string): Promise<FilePreviewResponse | RasterPreviewResponse | TilesetPreviewResponse | PointCloudPreviewResponse> {
@@ -286,17 +274,10 @@ export async function previewFile(jobId: string, layerName?: string): Promise<Fi
       timeoutMs: PREVIEW_TIMEOUT_MS,
     });
   } catch (err) {
-    // Detection/preview also runs outside any TanStack mutation (UploadForm
-    // calls it directly to keep per-file state granular), so it was invisible
-    // to the report buffer the same way uploadFile was. Drop the job id from
-    // the reported path — same reasoning as reportQueryKey in main.tsx: an id
-    // isn't reliably distinguishable from a secret by shape.
-    //
-    // Gating this on `instanceof ApiError` skipped a real
-    // failure class — apiFetch's own `response.json()` throws a raw
-    // SyntaxError (not ApiError) on a malformed 2xx body, and that error type
-    // silently fell through this guard uncaptured. reportApiCallFailure
-    // handles every error shape uniformly.
+    // Runs outside any TanStack mutation (UploadForm calls it directly), so report
+    // here. Drop the job id from the reported path: an id isn't reliably
+    // distinguishable from a secret by shape. Not gated on `instanceof ApiError`:
+    // apiFetch throws a raw SyntaxError on a malformed 2xx body.
     reportApiCallFailure('/ingest/preview', err);
     rethrowAsUploadRefusal(err);
   }
@@ -306,11 +287,8 @@ export async function commitImport(
   jobId: string,
   request: CommitImportRequest,
 ): Promise<CommitImportResponse> {
-  // commitImport is a direct apiFetch call reached from
-  // UploadForm's handleCommitSingle/handleCommitAll, neither of which is a
-  // TanStack mutation — a commit failure set the row to 'commit-failed' with
-  // nothing written to the report buffer at all (a different gap from the
-  // upload/preview one: no capture attempt existed here previously).
+  // Reached from UploadForm's commit handlers, which aren't TanStack mutations,
+  // so a failure must be reported here.
   try {
     return await apiFetch<CommitImportResponse>(`/ingest/commit/${encodeURIComponent(jobId)}`, {
       method: 'POST',
@@ -328,19 +306,18 @@ export async function retryJob(jobId: string): Promise<UploadResponse> {
   });
 }
 
-// One-click cancel for a pending/running job. The backend CASes
-// the job row (and its bound refresh run) to `cancelled` and commits before
-// the best-effort queue abort, so a 200 here is durable.
+// One-click cancel for a pending/running job. The backend CASes the job row
+// (and its bound refresh run) to `cancelled` and commits before the best-effort
+// queue abort, so a 200 is durable.
 export async function cancelJob(jobId: string): Promise<JobCancelResponse> {
   return apiFetch<JobCancelResponse>(`/jobs/${encodeURIComponent(jobId)}/cancel`, {
     method: 'POST',
   });
 }
 
-// `auth` is a third, optional argument rather than a
-// replacement for `token` — ReuploadDialog.tsx still calls this with the
-// two-argument bearer-only form, and the backend itself refuses a body that
-// sets both (`reject_service_auth_conflict`), so a caller passes at most one.
+// `auth` is optional beside `token`: ReuploadDialog.tsx still calls the
+// two-argument bearer-only form, and the backend refuses a body that sets both
+// (`reject_service_auth_conflict`).
 export async function probeService(
   url: string,
   token?: string,
@@ -352,9 +329,8 @@ export async function probeService(
   });
 }
 
-// A WFS namespace mismatch makes run_service_preview run TWICE
-// server-side (initial attempt, then a retry) at 30s each — a 60s worst
-// case past apiFetch's 30s default.
+// A WFS namespace mismatch makes run_service_preview run twice server-side at
+// 30s each, past apiFetch's 30s default.
 const SERVICE_PREVIEW_TIMEOUT_MS = 90_000;
 
 export async function previewServiceLayer(
@@ -367,28 +343,17 @@ export async function previewServiceLayer(
   });
 }
 
-// open_portal_signin's discovery phase and
-// PortalSignIn.mint's token-mint phase run sequentially, each under its
-// own asyncio.timeout in backend/app/modules/catalog/sources/
-// arcgis_signin.py (_DISCOVERY_DEADLINE_SECONDS = 20,
-// _MINT_DEADLINE_SECONDS = 25), so a slow Enterprise portal can
-// legitimately take up to 45s end to end. apiFetch's 30s default would
-// abort a valid slow sign-in in the browser while the backend keeps
-// processing, and counting, the attempt. 60s covers the 45s backend
-// bound with margin.
-// Exported so the independent arcgis-signin.ts client (frontend/src/components/dataset/
-// ArcgisCredentialBlock.tsx's refresh-door credential prompt) can share
-// this exact number rather than declare its own -- the backend bound
-// below is one fact and both callers need the same margin over it.
+// open_portal_signin's discovery and PortalSignIn.mint's token mint run
+// sequentially under their own deadlines (_DISCOVERY_DEADLINE_SECONDS = 20,
+// _MINT_DEADLINE_SECONDS = 25 in sources/arcgis_signin.py), so a slow Enterprise
+// portal can take 45s. 60s covers that with margin; aborting earlier would leave
+// the backend processing and counting the attempt. Exported so arcgis-signin.ts
+// shares the number.
 export const ARCGIS_SIGNIN_TIMEOUT_MS = 60_000;
 
-// Mints a short-lived (60 min) ArcGIS token
-// from a username and password so the import wizard never has to hold that
-// password any longer than this one request. The caller clears its own
-// password state as soon as this settles, success or failure alike; this
-// function never retries, because ArcGIS locks an account after five failed
-// sign-ins in fifteen minutes, and a retry loop here could do that to a
-// real customer account.
+// Mints a short-lived (60 min) ArcGIS token so the wizard never holds the
+// password longer than this request. Never retries: ArcGIS locks an account after
+// five failed sign-ins in fifteen minutes.
 export async function arcgisSignin(
   request: ArcgisSigninRequest,
 ): Promise<ArcgisSigninResponse> {
@@ -452,11 +417,9 @@ async function completePresignedUpload(
 }
 
 /**
- * Metadata-only report for any apiFetch-driven failure: an ApiError (a real
- * HTTP error status) or anything else apiFetch can throw uncaught — notably
- * a raw SyntaxError from `response.json()` on a malformed 2xx body, which the
- * previous `instanceof ApiError` gates in this file silently swallowed
- * `label` is a short static description, never a raw URL
+ * Metadata-only report for any apiFetch-driven failure: an ApiError or anything
+ * else apiFetch can throw, notably a raw SyntaxError from `response.json()` on a
+ * malformed 2xx body. `label` is a short static description, never a raw URL
  * with an id or a presigned query string in it.
  */
 function reportApiCallFailure(label: string, err: unknown): void {
@@ -481,12 +444,9 @@ function reportPresignFailure(stage: string, filename: string, err: unknown): vo
  * 3. Notify backend of completion
  * Returns the same UploadResponse as the regular upload endpoint.
  *
- * This whole flow runs outside any TanStack mutation (UploadForm calls it
- * directly to keep per-file state granular), so none of its failures ever
- * reached the shared MutationCache.onError tap in main.tsx — a job could be
- * staged on the backend by step 1 and then abandoned by a step-2/3 failure
- * with nothing recorded anywhere the user could report. Each step below
- * reports its own failure through the existing reportNetworkError tap.
+ * The flow runs outside any TanStack mutation, so each step reports its own
+ * failure through reportNetworkError; otherwise a job staged by step 1 and
+ * abandoned by a step-2/3 failure would leave nothing to report.
  */
 export async function uploadPresigned(
   file: File,
@@ -538,9 +498,8 @@ export async function uploadPresigned(
   // Multipart upload — progress reported per completed chunk. uploadChunks
   // reports its own per-part failures.
   const etags = await uploadChunks(urls, file, part_size!, onProgress, {
-    // Tell the backend to abort the multipart
-    // upload if a part comes back with no ETag — otherwise S3 keeps it open
-    // (consuming storage) on every retry with nothing left to complete it.
+    // Abort the multipart upload if a part comes back with no ETag; otherwise S3
+    // keeps it open (consuming storage) with nothing left to complete it.
     onMissingEtag: () => completePresignedUpload(job_id),
   });
   const completedParts = etags.map((etag, i) => ({ etag, part_number: i + 1 }));

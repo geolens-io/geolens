@@ -16,8 +16,7 @@ export function usePermissions() {
 
   const permissions = data?.permissions ?? null;
 
-  // v13.14 post-impl P2: capability is a literal union (mirrors backend
-  // ALL_CAPABILITIES). Typos like 'view_audit' now fail at compile time.
+  // Literal union mirroring backend ALL_CAPABILITIES, so typos fail at compile time.
   function can(capability: Capability): boolean {
     if (!permissions) return false;
     return permissions[capability] === true;

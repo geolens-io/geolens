@@ -1,9 +1,7 @@
 import { MapPin, Route, Pentagon, Hexagon, type LucideIcon } from 'lucide-react';
 import type { OGCRecordResponse } from '@/types/api';
 
-/**
- * Extract a bounding box from an OGC record's polygon geometry.
- */
+/** Extract a bounding box from an OGC record's polygon geometry. */
 export function extractBbox(feature: OGCRecordResponse): [number, number, number, number] | null {
   if (!feature.geometry || feature.geometry.type !== 'Polygon') return null;
 
@@ -60,9 +58,7 @@ export function findElevationColumn(columnInfo: { name: string; type?: string }[
   return col?.name ?? null;
 }
 
-/**
- * Map a geometry type string to a Lucide icon component.
- */
+/** Map a geometry type string to a Lucide icon component. */
 export function geometryIcon(geomType: string | null | undefined): LucideIcon | null {
   if (!geomType) return null;
   const upper = geomType.toUpperCase();

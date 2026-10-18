@@ -22,8 +22,6 @@ import {
   sendTestNotification,
 } from '@/api/settings';
 
-// --- Public hooks (used by non-admin pages) ---
-
 export function useBasemaps() {
   return useQuery({
     queryKey: queryKeys.settings.basemaps,
@@ -83,8 +81,6 @@ export function useCanSetPublicVisibility(): boolean {
   return isAdmin || !(featureFlags?.restrict_public_visibility ?? false);
 }
 
-// --- Unified admin hooks ---
-
 export function useAllSettings(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.settings.allSettings,
@@ -112,12 +108,10 @@ export function useApiKeyStatus() {
   });
 }
 
-// Server-driven enterprise-tab list. The backend
-// _ENTERPRISE_ONLY_TABS frozenset is the canonical source; AdminSidebar reads
-// the list via this hook and falls back to a local default when the API is
-// unavailable so the sidebar still renders during boot/network failures.
-// Tabs rarely change (currently only branding + appearance), so a long
-// staleTime is safe and avoids re-fetching on every admin route navigation.
+// Server-driven enterprise-tab list; the backend _ENTERPRISE_ONLY_TABS frozenset
+// is canonical. AdminSidebar falls back to a local default when the API is
+// unavailable. Tabs rarely change, so a long staleTime avoids refetching on every
+// admin navigation.
 export function useEnterpriseOnlyTabs(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.settings.enterpriseTabs,
@@ -129,17 +123,16 @@ export function useEnterpriseOnlyTabs(options?: { enabled?: boolean }) {
   });
 }
 
-// Surface the specific API error message alongside the generic
-// "save failed" copy so the user can distinguish validation errors from
-// network / auth errors. `formatMutationError` lives in lib/error-map.ts.
+// Surface the specific API error alongside the generic "save failed" copy so the
+// user can tell validation errors from network/auth errors.
 
 export function useUpdateSettings() {
   const qc = useQueryClient();
   const refetchSettingsViews = () => {
     qc.invalidateQueries({ queryKey: queryKeys.settings.all });
-    // Several settings (banner_text/color, landing_first)
-    // surface through /auth/config, which mounted banners read with a
-    // 5-min staleTime — refetch it so saves apply immediately
+    // Several settings (banner_text/color, landing_first) surface through
+    // /auth/config, which mounted banners read with a 5-min staleTime; refetch it
+    // so saves apply immediately
     qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
     // The AI status card reports semantic_search_enabled and ai_enabled.
     qc.invalidateQueries({ queryKey: queryKeys.admin.aiStatus });
@@ -173,11 +166,8 @@ export function useUpdateBranding() {
   return useMutation({
     mutationFn: updateBranding,
     onSuccess: () => {
-      // Was `settings.branding` alone. Branding is also
-      // served inside the unified `settings.allSettings` payload, which sits
-      // beside it rather than under it, so the admin Settings page kept showing
-      // pre-save values. The `settings.all` prefix covers both, and matches
-      // what every sibling settings mutation already does.
+      // Branding is also served inside the unified `settings.allSettings` payload,
+      // a sibling of `settings.branding`; the `settings.all` prefix covers both.
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
       toast.success(i18n.t('settingsToasts.saved'));
     },
@@ -193,8 +183,8 @@ export function useResetSettings() {
     mutationFn: (keys: string[]) => resetSettings(keys),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
-      // Same as useUpdateSettings — banner/landing_first
-      // resets surface through /auth/config
+      // Same as useUpdateSettings: banner/landing_first resets surface through
+      // /auth/config
       qc.invalidateQueries({ queryKey: queryKeys.authConfig.config });
       toast.success(i18n.t('settingsToasts.resetSuccess'));
     },

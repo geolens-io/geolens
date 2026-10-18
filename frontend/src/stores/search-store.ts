@@ -86,9 +86,9 @@ const initialState = {
 };
 
 /**
- * Sort order and page size are the only state that survives an
- * identity change. The exported list lets the store test classify new fields;
- * spatialPanelOpen resets so uncommitted spatial drafts unmount with it.
+ * Sort order and page size are the only state that survives an identity change.
+ * The exported list lets the store test classify new fields; spatialPanelOpen
+ * resets so uncommitted spatial drafts unmount with it.
  */
 export const SEARCH_PRESENTATION_PREFERENCE_KEYS: readonly (keyof typeof initialState)[] = [
   'sort_by',

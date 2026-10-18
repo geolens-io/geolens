@@ -30,10 +30,8 @@ export function useWebGLRecovery(
     const onLost = (e: Event) => {
       e.preventDefault(); // allow context restoration
       setContextLost(true);
-      // Surface WebGL context loss as a structured console.warn so
-      // production issues are detectable in browser logs / error trackers.
-      // Common causes: GPU driver crash, GPU eviction under memory pressure,
-      // extension blocking canvas2d interop, tab kill-switch under Chrome.
+      // Structured warning so production issues are detectable in logs (GPU
+      // driver crash, eviction under memory pressure, canvas2d-blocking extensions).
       if (import.meta.env.DEV) {
         console.warn('[map] WebGL context lost', {
           timestamp: new Date().toISOString(),
@@ -43,10 +41,9 @@ export function useWebGLRecovery(
 
     const onRestored = () => {
       if (import.meta.env.DEV) console.warn('[map] WebGL context restored');
-      // Refresh tile tokens before re-applying the style, so the
-      // reinstalled tile URLs pick up freshly-minted (non-expired) tokens.
+      // Refresh tile tokens before re-applying the style so the reinstalled
+      // tile URLs carry unexpired tokens.
       onRestore?.();
-      // Force a full re-render of the map style
       try {
         const style = map.getStyle();
         if (style) map.setStyle(style);

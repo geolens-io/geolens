@@ -3,9 +3,8 @@
  *
  * Mirrors the backend guards (`check_dataset_write_access`,
  * `check_collection_ownership`, `check_map_ownership`): only the resource's
- * creator or a global admin may mutate it. This is a UI affordance, not a
- * security boundary — the backend is authoritative and will 403 regardless.
- * Keeping the front end in sync just avoids showing controls that would fail.
+ * creator or a global admin may mutate it. A UI affordance, not a security
+ * boundary: the backend is authoritative and 403s regardless.
  */
 
 /** A resource that records its creator's user id. */

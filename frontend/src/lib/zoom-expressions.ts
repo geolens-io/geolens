@@ -18,24 +18,20 @@ interface ZoomExpressionValidationResult {
   errors: string[];
 }
 
-// Exported so ZoomExpressionEditor imports this one copy
-// instead of redefining an identical local guard.
+// Exported so ZoomExpressionEditor shares this one guard.
 export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
 /**
- * Shared low-level pair walker for the `[..., a0, b0, a1,
- * b1, ...]` tail of step / interpolate / line-gradient expressions. Zips from
- * `startIndex` in steps of 2 and returns one entry per first-element; `hasSecond`
- * is false for a dangling final element (odd-length tail).
+ * Shared low-level pair walker for the `[..., a0, b0, a1, b1, ...]` tail of
+ * step / interpolate / line-gradient expressions. Zips from `startIndex` in
+ * steps of 2 and returns one entry per first-element; `hasSecond` is false for
+ * a dangling final element (odd-length tail).
  *
- * It intentionally applies NO number-check, no early-break, and no
- * drop-first/keep-all stop semantics — each caller layers its own validation and
- * stop convention on top (parseStepOrInterpolate drops the first interpolate stop
- * as the "< X" bucket; parseZoomExpression and lineGradientExpressionToStops keep
- * all stops). This keeps the three walkers in sync without flattening their
- * deliberately-different domain semantics.
+ * It applies NO number-check, early-break or stop convention; each caller layers
+ * its own (parseStepOrInterpolate drops the first interpolate stop as the "< X"
+ * bucket; parseZoomExpression and lineGradientExpressionToStops keep all stops).
  */
 interface ExpressionPair {
   first: unknown;

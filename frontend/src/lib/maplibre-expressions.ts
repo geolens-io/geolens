@@ -1,9 +1,8 @@
 /**
  * Read-only helpers for inspecting MapLibre style expressions.
  *
- * Separate from `maplibre-filter-utils.ts` on purpose: that module is about
- * FILTERS and three hook suites mock it wholesale, so a helper living there would return
- * undefined under those mocks. These are expression questions, and nothing stubs them.
+ * Separate from `maplibre-filter-utils.ts`, which several hook suites mock
+ * wholesale and would stub these helpers to undefined.
  */
 
 /**

@@ -1,33 +1,22 @@
 /**
- * Pure layer-style clipboard helpers.
+ * Pure layer-style clipboard helpers: extract a geometry-compatible style
+ * snapshot from one layer and apply it to a compatible target. No React, no
+ * MapLibre instance, no I/O. The hook layer (use-builder-layers.ts) owns the
+ * session clipboard ref and live-map sync.
  *
- * Extract a geometry-compatible style snapshot from one layer and apply it to a
- * geometry-compatible target. These functions are PURE: no React, no MapLibre
- * map instance, no I/O (the one cross-module import below is a pure function too).
- * The hook layer (use-builder-layers.ts) owns the session clipboard ref + live-map
- * sync; this module only computes new layer objects.
+ * A polygon style (fill-color, fill-opacity, data-driven categories) is only
+ * meaningful on another polygon layer; pasting it onto a point layer would carry
+ * `fill-*` paint keys MapLibre would reject. `isStyleCompatible` gates
+ * paste/bulk-apply to same-class targets.
  *
- * Geometry-class portability: a polygon style (fill-color, fill-opacity,
- * data-driven categories) is only meaningful on another polygon layer; pasting
- * it onto a point layer would carry `fill-*` paint keys MapLibre would reject.
- * `isStyleCompatible` therefore gates paste/bulk-apply to same-class targets.
- *
- * What is COPIED:
- *  - the full `paint` object (deep clone)
- *  - the full `style_config` object (deep clone), preserving the portable
- *    data-driven keys (mode / column / ramp / method / classCount / breaks /
- *    colors / categories / sizes / sizeRange / target) AND any builder sub-keys.
- *
- * What is NOT copied:
- *  - layer-identity fields (id / dataset_id / display_name / dataset_table_name
- *    etc.) — those stay on the target. The copied payload carries ONLY paint,
- *    style_config and the derived geometryClass tag.
+ * Copied: deep clones of `paint` and `style_config` (portable data-driven keys
+ * and builder sub-keys). Not copied: layer-identity fields (id, dataset_id,
+ * display_name, ...), which stay on the target. The payload carries only paint,
+ * style_config and the derived geometryClass tag.
  */
 
 import type { GeometryTypeName, MapLayerResponse, StyleConfig } from '@/types/api';
-// The fill exclusions, imported rather than restated. Both are pure functions
-// that happen to live beside the style-editor funnel's hook; a second copy of the rule here is
-// exactly how the paste end and the editor end drift apart again.
+// Imported rather than restated so paste and the editor share one fill rule.
 import {
   resolveFillExclusions,
   stashExcludedFillColor,
@@ -58,9 +47,8 @@ export function geometryClassOf(geometryType: GeometryTypeName | null): Geometry
   return 'other';
 }
 
-// Deep clone via structuredClone (jsdom + Node support it). Falls back to a JSON
-// round-trip in the unlikely event structuredClone is unavailable. paint/style_config
-// are plain JSON-serializable objects, so both strategies are equivalent here.
+// structuredClone with a JSON round-trip fallback; paint/style_config are plain
+// JSON-serializable objects, so both strategies are equivalent.
 function deepClone<T>(value: T): T {
   if (value === null || value === undefined) return value;
   if (typeof structuredClone === 'function') return structuredClone(value);
@@ -92,26 +80,24 @@ export function isStyleCompatible(copied: CopiedStyle, target: MapLayerResponse)
 }
 
 /**
- * Produce a NEW layer object with the copied style applied. Pure — never mutates
- * `target` or `copied`. Mirrors the merge shape used by handleStyleConfigChange
- * (use-layer-map-sync.ts): target paint keys are preserved, copied paint keys are
- * overlaid on top, and style_config is replaced wholesale by the copied one.
+ * Produce a NEW layer object with the copied style applied. Never mutates
+ * `target` or `copied`. Mirrors the merge shape of handleStyleConfigChange
+ * (use-layer-map-sync.ts): target paint keys are preserved, copied paint keys
+ * overlay them, and style_config is replaced wholesale. Layer-identity fields on
+ * the target are left untouched.
  *
- * Layer-identity fields on the target (id / dataset_id / display_name / …) are
- * left untouched.
+ * The merge can make a paste collide: a target-only `fill-pattern` survives a
+ * copied `fill-color` and vice versa, and paint carrying both breaks the fill
+ * exclusions (MapLibre gives the pattern precedence while the legend, editor and
+ * saved JSON report the colour). So the fill family is resolved AFTER the merge,
+ * through the same `resolveFillExclusions` the style-editor funnel and bulk
+ * apply-style call.
  *
- * The merge is what makes a paste collide. A target-only `fill-pattern`
- * survives a copied `fill-color` and vice versa, and paint carrying both breaks the fill exclusions:
- * MapLibre gives the pattern precedence while the legend, the editor and the saved JSON
- * all report the colour. Preserving target-only keys is the whole point of the merge
- * (tile params, outline settings), so the fill family is resolved AFTER it, through the
- * same `resolveFillExclusions` the style-editor funnel and bulk apply-style call.
- *
- * That rule is a provenance diff, which is why the target's own paint is passed as the
- * baseline: whichever fill key the merge just introduced is the one the copied style
- * asserted, so the other one goes. Note it reads keys as ACTIVE, not merely present — a
- * target carrying `fill-pattern: null` (imported or API-authored) has no pattern to
- * defend and must not swallow the pasted colour.
+ * That rule is a provenance diff, which is why the target's own paint is passed
+ * as the baseline: whichever fill key the merge just introduced is the one the
+ * copied style asserted. Keys count as ACTIVE, not merely present: a target
+ * carrying `fill-pattern: null` has no pattern to defend and must not swallow
+ * the pasted colour.
  */
 export function applyCopiedStyleToLayer(
   target: MapLayerResponse,
@@ -123,15 +109,12 @@ export function applyCopiedStyleToLayer(
     ...deepClone(copied.paint),
   };
   const styleConfig = copied.style_config ? deepClone(copied.style_config) : null;
-  // Stash in the same breath as the resolution. A copied style
-  // can carry BOTH an active pattern and a raw string colour (imported or
-  // API-authored, no fillColorSaved); the resolution drops that colour here, so
-  // this is the only place that still knows it. Deferring the stash to the write
-  // boundary loses it — the boundary re-resolves an already pattern-only paint
-  // against the TARGET's previous paint and would stash the target's old colour,
-  // so a later pattern→None click restores the wrong one. `stashExcludedFillColor`
-  // writes only when `fillColorSaved` is undefined, so a stash the copied style
-  // already carries wins, and the boundary's re-run cannot overwrite this one.
+  // Stash alongside the resolution. A copied style can carry BOTH an active
+  // pattern and a raw string colour (imported or API-authored, no
+  // fillColorSaved); the resolution drops that colour here, so this is the only
+  // place that still knows it. Deferring to the write boundary would stash the
+  // TARGET's previous colour instead. `stashExcludedFillColor` writes only when
+  // `fillColorSaved` is undefined, so a stash the copied style carries wins.
   const resolution = resolveFillExclusions(styleConfig, mergedPaint, targetPaint);
   return {
     ...target,

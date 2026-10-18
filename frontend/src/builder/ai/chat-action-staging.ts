@@ -1,62 +1,26 @@
 /**
- * Shape B staging buffer for destructive AI chat actions.
+ * Staging buffer for destructive AI chat actions.
  *
- * ## Shape B Lock — NON-NEGOTIABLE
+ * Wraps the CALLER'S `dispatch` handler; it never calls `dispatchLayerAction`
+ * itself. Pending destructive actions stay in a React state buffer until the
+ * user accepts or rejects them. Accepting flushes them through `dispatch` in
+ * push order; rejecting clears the buffer with zero map mutations, so the map
+ * is byte-equal to its pre-prompt state and no snapshot/restore is needed.
  *
- * This module wraps the CALLER'S supplied `dispatch` handler — it does NOT call
- * `dispatchLayerAction` directly. In production it is
- * instantiated as `useChatActionStaging((action) => handleChatAction(action))`,
- * so accepted actions flow through ChatPanel's `handleChatAction` switch, which
- * in turn routes to the builder layer-action contract. The staging buffer holds
- * pending destructive actions in a React state buffer until the user explicitly
- * accepts or rejects them, regardless of what the caller's dispatch does.
+ * `BuilderActionSource` is not widened: no `'ai-pending'` or `'ai-committed'`
+ * source values exist.
  *
- * Accepting flushes actions through the caller's dispatch in original push
- * order. Rejecting clears the buffer with zero map mutations — the map state
- * is byte-equal to pre-prompt after rejectAll().
- *
- * `BuilderActionSource` is NOT widened. No `'ai-pending'` or `'ai-committed'`
- * source values are introduced. The typed action boundary is unchanged.
- *
- * ## Destructive vs Non-Destructive Actions
- *
- * Destructive (push into staging buffer, require user confirmation):
- *   - `add_layer`    — adds a new layer to the map stack
- *   - `remove_layer` — removes an existing layer from the map stack
- *
- * Non-destructive (bypass the staging buffer, dispatch directly):
- *   - `show_query_result` — displays data; does NOT mutate the layer list
- *   - `set_filter`, `set_style`, `set_data_driven_style`, `set_label`,
- *     `set_opacity`, `toggle_visibility` — attribute/style-only mutations
- *
- * Callers should branch:
- *   if (isDestructiveAction(action)) staging.push(action);
- *   else dispatch(action);  // dispatch non-destructive directly
- *
- * ## Atomic Undo via rejectAll
- *
- * Because destructive actions are staged and never flushed until acceptAll()
- * or acceptOne(), rejectAll() guarantees that the underlying map state is
- * byte-equal to what it was before the AI prompt was sent. No partial
- * mutations, no snapshot/restore required.
+ * Destructive (staged, need confirmation): `add_layer`, `remove_layer`.
+ * Everything else (`show_query_result`, `set_filter`, `set_style`,
+ * `set_data_driven_style`, `set_label`, `set_opacity`, `toggle_visibility`)
+ * dispatches directly. Callers branch on `isDestructiveAction`.
  */
 import { useState, useRef, useCallback } from 'react';
 import type { ChatAction } from '@/types/api';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
-/**
- * PendingAction is a ChatAction held in the staging buffer awaiting user
- * confirmation. The staging module accepts any ChatAction shape; production
- * callers only push destructive actions via isDestructiveAction gate.
- */
+/** A ChatAction held in the staging buffer awaiting user confirmation. */
 type PendingAction = ChatAction;
 
-/**
- * ChatActionStaging — the shape returned by useChatActionStaging.
- */
 interface ChatActionStaging {
   /** Current staged actions awaiting user confirmation. Immutable reference. */
   pendingActions: ReadonlyArray<PendingAction>;
@@ -84,19 +48,10 @@ interface ChatActionStaging {
   rejectOne(index: number): void;
 }
 
-// ---------------------------------------------------------------------------
-// isDestructiveAction predicate
-// ---------------------------------------------------------------------------
-
 /**
- * Returns true iff the action mutates the map's layer list (add_layer or
- * remove_layer). Non-destructive actions including show_query_result bypass
- * the staging buffer — see module docstring above.
- *
- * Note: show_query_result is intentionally excluded even though isUndoSafeAction
- * in ChatPanel treats it as non-undo-safe. The distinction here is map-layer-list
- * mutation, not undo safety. show_query_result only displays query data; it
- * does not add or remove MapLibre layers.
+ * True iff the action mutates the map's layer list (add_layer or remove_layer).
+ * `show_query_result` is excluded: it only displays data, whatever
+ * ChatPanel's `isUndoSafeAction` says about undo safety.
  */
 export function isDestructiveAction(
   action: ChatAction,
@@ -104,32 +59,21 @@ export function isDestructiveAction(
   return action.type === 'add_layer' || action.type === 'remove_layer';
 }
 
-// ---------------------------------------------------------------------------
-// useChatActionStaging hook
-// ---------------------------------------------------------------------------
-
 /**
- * Staging buffer hook for destructive AI chat actions.
- *
- * @param dispatch - Consumer-supplied function that receives a PendingAction
- *   and applies it to the map. Typically wraps dispatchLayerAction from
- *   builder-action-contract.ts. The hook mirrors the latest dispatch via a ref
- *   so re-renders never produce stale closures.
+ * @param dispatch - Applies a PendingAction to the map. The latest value is
+ *   mirrored in a ref so re-renders never produce stale closures.
  */
 export function useChatActionStaging(
   dispatch: (action: PendingAction) => void,
 ): ChatActionStaging {
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
 
-  // Mirror latest dispatch to avoid stale closure across re-renders.
   const dispatchRef = useRef(dispatch);
   dispatchRef.current = dispatch;
 
-  // Stable mirror of the current pending actions array. Updated in sync with
-  // setPendingActions so accept/reject methods can read the current buffer
-  // without relying on setState updater side-effects (which React StrictMode
-  // may invoke twice). This ref is the single source of truth for dispatch;
-  // the state array is the single source of truth for rendering.
+  // Updated in sync with setPendingActions so accept/reject read the current
+  // buffer without setState updater side-effects (StrictMode may invoke them
+  // twice). The ref drives dispatch; the state drives rendering.
   const actionsRef = useRef<PendingAction[]>([]);
 
   const push = useCallback((action: PendingAction) => {
@@ -143,8 +87,7 @@ export function useChatActionStaging(
   }, []);
 
   const acceptAll = useCallback(async (): Promise<void> => {
-    // Snapshot before clearing so we dispatch the correct actions even if
-    // push() is called concurrently on the next render.
+    // Snapshot first so a concurrent push() can't change what is dispatched.
     const snapshot = actionsRef.current;
     actionsRef.current = [];
     setPendingActions([]);

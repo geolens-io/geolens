@@ -43,13 +43,11 @@ function invalidateMapHistory(qc: QueryClient, mapId: string | undefined) {
 
 /**
  * A dataset's "used in maps" list (useDatasetMaps) is keyed under the
- * 'datasets' root — queryKeys.datasets.maps(id) = ['datasets', id, 'maps'] —
- * so the 'maps'-rooted invalidations on map mutations never match it. After a
- * map create/delete/rename the panel kept showing stale entries (clicking a
- * deleted one 404s). The dataset ids aren't reliably available on every
- * mutation, so invalidate the 'datasets' root broadly; this matches the
- * dataset-scoped map lists (and the browse list) without over-invalidating
- * the 'dataset'-rooted detail caches.
+ * 'datasets' root (['datasets', id, 'maps']), so 'maps'-rooted invalidations
+ * never match it. Dataset ids aren't reliably available on every mutation, so
+ * invalidate the 'datasets' root broadly; that covers the dataset-scoped map
+ * lists and the browse list without touching the 'dataset'-rooted detail
+ * caches.
  */
 function invalidateDatasetMapLists(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
@@ -161,17 +159,10 @@ export function useDeleteMap() {
   return useMutation({
     mutationFn: (id: string) => deleteMap(id),
     onSuccess: (_data, id) => {
-      // SMOKE-v1013-F3: previously only ``maps.all`` was invalidated, leaving
-      // stale ``maps.detail(id)``, ``maps.shareToken(id)``, ``maps.history*``,
-      // and ``maps.embedTokens(id)`` entries in the React Query cache. Any
-      // subsequent component that re-mounted those queries (recent-maps lists,
-      // a tab pinned to the deleted map's builder, an admin panel) would
-      // refetch from the deleted map's endpoints — yielding 404 noise and the
-      // ``/api/maps/shared/{deleted_id}`` errors seen in v1013 smoke.
-      //
-      // ``removeQueries`` drops the data entirely; ``invalidateQueries`` on
-      // ``maps.all`` keeps the list fresh for navigation. Strip the per-map
-      // queries that no longer make sense after delete.
+      // Remove the deleted map's detail, share-token, history and embed-token
+      // entries: a re-mounted consumer would otherwise refetch the deleted
+      // map's endpoints and produce 404s. ``maps.all`` is invalidated so the
+      // list stays fresh.
       qc.removeQueries({ queryKey: queryKeys.maps.detail(id) });
       qc.removeQueries({ queryKey: queryKeys.maps.shareToken(id) });
       qc.removeQueries({ queryKey: queryKeys.maps.embedTokens(id) });
@@ -179,9 +170,8 @@ export function useDeleteMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateDatasetMapLists(qc);
     },
-    // The hook owns the error toast. MapsPage used to raise a
-    // second one, so a failed delete produced two. `formatMutationError` keeps
-    // the specific backend reason the caller was surfacing.
+    // The hook owns the error toast; callers must not raise a second one.
+    // `formatMutationError` keeps the specific backend reason.
     onError: (err) => { toast.error(formatMutationError('common:maps.deleteFailed', err)); },
   });
 }
@@ -191,12 +181,11 @@ export function useAddLayer() {
   return useMutation({
     mutationFn: ({ mapId, data }: { mapId: string; data: MapLayerInput }) =>
       addLayerToMapApi(mapId, data),
-    // The analysis add-to-map guard settles HERE, not in
-    // per-call mutate() callbacks — when two adds overlap, the shared
-    // mutation observer moves to the newer request and drops the earlier
-    // call's per-call callbacks, stranding a pending claim. These global
-    // callbacks run once per request. Both are no-ops unless an analysis
-    // affordance claimed a pending entry for this dataset.
+    // The analysis add-to-map guard settles HERE, not in per-call mutate()
+    // callbacks: when two adds overlap, the shared observer drops the earlier
+    // call's callbacks and strands a pending claim. These run once per
+    // request and are no-ops unless an analysis affordance claimed this
+    // dataset.
     onSuccess: (_data, variables) => {
       const guard = useAnalysisAddedStore.getState();
       if (guard.pendingAddIds.includes(variables.data.dataset_id)) {
@@ -288,10 +277,8 @@ export function usePublishMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateMapHistory(qc, variables.id);
     },
-    // The non-public-datasets refusal gets its own inline
-    // message in SharePanel, which would otherwise double up with this
-    // generic toast on every such attempt. Every other publishMap failure
-    // still gets it.
+    // The non-public-datasets refusal has its own inline message in
+    // SharePanel; every other publishMap failure gets this toast.
     onError: (err) => {
       if (nonPublicDatasetsFromError(err)) return;
       toast.error(i18n.t('builder:toasts.visibilityFailed'));
@@ -350,7 +337,7 @@ export function useColumnValues(datasetId: string | undefined, columnName: strin
     queryKey: queryKeys.maps.columnValues(datasetId, columnName),
     queryFn: () => fetchColumnValues(datasetId!, columnName!),
     enabled: !!datasetId && !!columnName,
-    staleTime: 5 * 60 * 1000, // 5 min cache
+    staleTime: 5 * 60 * 1000,
   });
 }
 
