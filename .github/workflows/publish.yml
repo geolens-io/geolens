@@ -11,6 +11,8 @@ on:
   # ref (the metadata step emits only type=semver tags, which require a semver
   # Git tag): `gh workflow run publish.yml --ref vX.Y.Z -f push_images=true`.
   # A guard step below fails fast if push_images=true is dispatched off a branch.
+  # A real publish of either kind first waits for the commit's own checks to
+  # be green (see require-green-commit).
   workflow_dispatch:
     inputs:
       push_images:
@@ -28,8 +30,86 @@ permissions:
   attestations: write
 
 jobs:
+  # Images ship only from a commit whose checks on main passed: the latest
+  # push, merge_group and completed schedule run of each workflow, so a red
+  # run re-run to green passes. Tag-push, workflow_run, dispatch and
+  # Dependabot runs don't test the commit and are left out. A dispatch with
+  # push_images=true publishes the same artifacts as a tag push and is held to
+  # the same rule; the scan-only dry run passes straight through.
+  #
+  # The wait covers a tag created before the commit's checks finish. Prod
+  # Compose Smoke retries its image pull for about 20 minutes from the tag
+  # push and the build takes about 13, so a long wait here turns that smoke
+  # red and it has to be re-run from the tag.
+  require-green-commit:
+    name: Require green checks on the tagged commit
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check workflow runs for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_IMAGES: ${{ github.event.inputs.push_images }}
+          REQUIRED_WORKFLOWS: .github/workflows/ci.yml .github/workflows/codeql.yml
+          WAIT_SECONDS: "1200"
+          POLL_SECONDS: "30"
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "push" ] && [ "$PUSH_IMAGES" != "true" ]; then
+            echo "Scan-only dry run: nothing is published, so the commit's checks are not required."
+            exit 0
+          fi
+          deadline=$((SECONDS + WAIT_SECONDS))
+          while :; do
+            report=$(
+              gh api --paginate \
+                "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${GITHUB_SHA}&per_page=100" \
+                --jq '.workflow_runs[]' |
+                jq -s --arg required "$REQUIRED_WORKFLOWS" '
+                  def line: "\(.name) (\(.event), attempt \(.run_attempt)): \(.conclusion // .status) \(.html_url)";
+                  [ .[]
+                    | select(.event == "push" or .event == "merge_group" or .event == "schedule")
+                    | select(.head_branch == "main" or ((.head_branch // "") | startswith("gh-readonly-queue/main/")))
+                    | select(.event != "schedule" or .status == "completed") ]
+                  | group_by([.path, .event]) | map(max_by(.created_at)) as $latest
+                  | {
+                      red: [$latest[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") | line],
+                      pending: [$latest[] | select(.status != "completed") | line],
+                      missing: [($required | split(" ")[]) as $path
+                        | select([$latest[] | select(.path == $path and .conclusion == "success")] | length == 0)
+                        | $path]
+                    }'
+            )
+            red=$(jq -r '.red[]' <<<"$report")
+            if [ -n "$red" ]; then
+              echo "::error::Refusing to publish ${GITHUB_SHA}: its checks on main did not pass. Fix or re-run them, then re-run this workflow."
+              printf '%s\n' "$red"
+              exit 1
+            fi
+            pending=$(jq -r '.pending[]' <<<"$report")
+            missing=$(jq -r '.missing[]' <<<"$report")
+            if [ -z "$pending" ] && [ -z "$missing" ]; then
+              echo "Checks on main passed for ${GITHUB_SHA}."
+              exit 0
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Refusing to publish ${GITHUB_SHA}: its checks on main did not finish green within ${WAIT_SECONDS}s."
+            else
+              echo "Waiting for checks on ${GITHUB_SHA}."
+            fi
+            [ -z "$pending" ] || printf 'Still running:\n%s\n' "$pending"
+            [ -z "$missing" ] || printf 'No successful run yet of:\n%s\n' "$missing"
+            [ "$SECONDS" -lt "$deadline" ] || exit 1
+            sleep "$POLL_SECONDS"
+          done
+
   publish:
     name: Build & Push ${{ matrix.image }}
+    needs: require-green-commit
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     strategy:

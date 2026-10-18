@@ -287,6 +287,9 @@ jobs:
               # independent. Without this, a release.yml-only PR skips the
               # only suite that would notice one of them going away.
               - '.github/workflows/release.yml'
+              # test_publish_requires_green_commit.py runs the publish gate
+              # step and checks every publish job still needs it.
+              - '.github/workflows/publish.yml'
               # test_codeql_qtable_suppressions.py reads both of these by
               # literal path: it asserts the init step still runs the local
               # alert-suppression query, that a step still acts on the SARIF,
